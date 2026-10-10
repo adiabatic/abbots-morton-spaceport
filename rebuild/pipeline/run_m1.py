@@ -81,6 +81,8 @@ from rebuild.tools.cycle_timings import (
 )
 from rebuild.tools.memory_budget import describe_fit, usable_cores
 from rebuild.tools.peak_rss import (
+    ReapedPeaks,
+    footprint_token,
     peak_footprint_bytes,
     peak_rss_self_bytes,
     process_peak_rss_bytes,
@@ -315,7 +317,17 @@ def table_build_record(
     )
 
 
-# The phase lines of the build this invocation ran, for its check line: the crate's `[t]` lines, the `kernel_build_tables` line with its `TableBuildRecord` tokens, then the `readback` line with the settlement lookup's figures and the commit. A cycle's run_m1 step parses the same lines from the output it captured, but a standalone check line has none, so `build_tables` and the glyph chain keep them here, `main` empties the list when an invocation starts, and `_record_cli_check` parses it.
+def _table_build_tail(record: TableBuildRecord | None, peaks: ReapedPeaks) -> str | None:
+    """Return the tail of the `[t] kernel_build_tables` line: the build's `TableBuildRecord` tokens when it has one, then the `build-tables` process's own resident peak and peak footprint (`rss_token`, `footprint_token`), each where it was read. The kernel-build row of `make job-costs` reads the footprint beside the run_m1 step's peak."""
+    tokens = [record.tokens()] if record is not None else []
+    if peaks.resident is not None:
+        tokens.append(rss_token(peaks.resident))
+    if peaks.footprint is not None:
+        tokens.append(footprint_token(peaks.footprint))
+    return " ".join(tokens) or None
+
+
+# The phase lines of the build this invocation ran, for its check line: the crate's `[t]` lines, the `kernel_build_tables` line with its `TableBuildRecord` tokens and the `build-tables` process's resident peak and peak footprint, then the `readback` line with the settlement lookup's figures and the commit. A cycle's run_m1 step parses the same lines from the output it captured, but a standalone check line has none, so `build_tables` and the glyph chain keep them here, `main` empties the list when an invocation starts, and `_record_cli_check` parses it.
 _build_phase_lines: list[str] = []
 
 
@@ -445,7 +457,7 @@ def build_tables(
 
     Per configuration, Python reads the enumeration's head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parses the join TSV back for the defect gates, and packs the plain window payload into its `.gz` artifact. The head reads run on a thread pool at the table build's width once the crate has exited, and this call waits for them. The packing (`_pack_config`, memo file included) runs on a `Packing` pool at `_core_bound_threads` width, one packer per configuration up to the cores, whatever the crate's width, because a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. When `packing` is passed, the tables are returned as soon as the heads are read, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
-    A build with an `out_dir` also reuses its trace memos across builds. `previous_memos` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. Such a build ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which says whether it read those memos. A caller with no `out_dir` reads and writes no memo, and its line carries no record. Either way the crate's phase lines and that line are kept in `_build_phase_lines` for run_m1's check line.
+    A build with an `out_dir` also reuses its trace memos across builds. `previous_memos` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. Such a build ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which says whether it read those memos. A caller with no `out_dir` reads and writes no memo, and its line carries no record. Every build's line then carries the `build-tables` process's own resident peak and peak footprint (`_table_build_tail`). Either way the crate's phase lines and that line are kept in `_build_phase_lines` for run_m1's check line.
 
     `out_dir`, when given, receives the TSVs listed in `doc/rebuild-design.md` §8. The second returned mapping is each configuration's `table.table_digest` as the crate reported it, computed while the window rows are still in memory, which avoids recomputing the fixpoint. The crate also prints it on stdout, where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are built in `configs` order however the configurations finish, so completion order cannot affect an artifact.
 
@@ -511,7 +523,7 @@ def build_tables(
         )
         digests = crate.digests
         line = console.timing(
-            "kernel_build_tables", time.perf_counter() - start, record.tokens() if record else None
+            "kernel_build_tables", time.perf_counter() - start, _table_build_tail(record, crate.peaks)
         )
         _build_phase_lines[:] = [*crate.timings, line]
 

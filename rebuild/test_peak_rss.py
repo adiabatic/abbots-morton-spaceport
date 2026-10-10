@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 
@@ -120,3 +121,26 @@ def test_reap_reports_a_signal_the_way_popen_would():
     assert peak is not None and peak > 0
     assert proc.returncode == -15
     assert proc.wait() == -15
+
+
+def test_the_reap_reads_a_childs_footprint_before_reaping_it(monkeypatch):
+    """`reap_peaks_bytes` reads the child's peak footprint after it exits and before it is reaped, while the child is still waitable, then reaps it, so the footprint is the child's own lifetime peak. On Darwin it covers the pages the child touched; on Linux a zombie has no `VmHWM` and the footprint reads None. The resident peak and the return code come back as `reap_peak_rss_bytes` gives them, and a child already reaped reads neither line."""
+    waitable = []
+    read = peak_rss.peak_footprint_bytes
+
+    def footprint_of(pid: int, platform: str = sys.platform) -> int | None:
+        waitable.append(os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT | os.WNOHANG) is not None)
+        return read(pid, platform)
+
+    monkeypatch.setattr(peak_rss, "peak_footprint_bytes", footprint_of)
+    touch = "b = bytearray(64 * 1024 * 1024)\nfor i in range(0, len(b), 4096): b[i] = 1"
+    proc = subprocess.Popen([sys.executable, "-c", touch])
+    peaks = peak_rss.reap_peaks_bytes(proc)
+    assert waitable == [True]
+    assert peaks.resident is not None and peaks.resident > 64 * 1024 * 1024
+    assert proc.returncode == 0 and proc.wait() == 0
+    if sys.platform == "darwin":
+        assert peaks.footprint is not None and peaks.footprint > 60 * 1024 * 1024
+    elif sys.platform.startswith("linux"):
+        assert peaks.footprint is None
+    assert peak_rss.reap_peaks_bytes(proc) == (None, None)

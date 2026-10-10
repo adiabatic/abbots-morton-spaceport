@@ -4,7 +4,7 @@ The semantics defaults live here beside the flags that pass them to the kernel. 
 
 The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build.
 
-`build_table_files` is what `run_m1` calls. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`). The memo is also carried across builds in the `memo-<config>.tsv.gz` files packed beside the tables. The next build reuses a memoized window only if its settlement read no rune whose content has changed and no predicate class whose membership has changed. `rebuild/kernel-rs/src/memo.rs` gives the argument, and `run_m1.previous_memos` decides which files may be read. Before any table is written, the configurations exchange windows (`rebuild/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
+`build_table_files` is what `run_m1` calls. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines and the process's own resident peak and peak footprint (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`). The memo is also carried across builds in the `memo-<config>.tsv.gz` files packed beside the tables. The next build reuses a memoized window only if its settlement read no rune whose content has changed and no predicate class whose membership has changed. `rebuild/kernel-rs/src/memo.rs` gives the argument, and `run_m1.previous_memos` decides which files may be read. Before any table is written, the configurations exchange windows (`rebuild/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
 
 `enumerate_configs` is the stream fan-out. One process enumerates every named configuration and writes each one's transition stream to its own file. Nothing on the build's path calls it; `enumerate_transitions` and the tests do.
 
@@ -46,7 +46,7 @@ from rebuild.pipeline import kernel_io, labels, settle, table
 from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Settled, feature_config_token
 from rebuild.pipeline.table import DecisionTable, FixpointProduct, JoinTable
 from rebuild.tools import memory_budget
-from rebuild.tools.peak_rss import format_gb, reap_peak_rss_bytes
+from rebuild.tools.peak_rss import ReapedPeaks, format_gb, reap_peaks_bytes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BINARY = REPO_ROOT / "rebuild" / "kernel-rs" / "target" / "release" / "ams-m1-kernel"
@@ -61,7 +61,7 @@ SCRATCH_PEAK_BYTES = 7_400_000_000
 DEFAULT_MEMO_BYTES = 2_300_000_000
 # What one configuration's prepared fold product holds while it waits for the cross-configuration exchange (`fanout::run_configs_tables`, `rebuild/kernel-rs/src/crossconfig.rs`): the class rows, their label-grain expansion, the row chains, the window options, its first rules and its source-row index, from its fold's preparation until the exchange ends. Every configuration's parked product is resident at once at the exchange, so a wave that reuses a worker slot holds the finished configurations' products beside the deltas still enumerating; `table_build_booking_bytes` books one per configuration, and DELTA_SLOT_BYTES and FOLD_PREPARATION_BYTES each count a slot beyond its own configuration's product. Most of it is the class rows and their expansion, whose row holds pool ids rather than strings (`fold::FoldRow`, sixteen bytes) and is allocated at its exact length. The reading is `build-tables` with `--cache-stats`, writing its memo files in line, whose `[c] <config> parked_heap` line gives the bytes the process's malloc zones hold allocated at the rendezvous, where every configuration's parked product and the parsed spec are all the process holds (`fixpoint::heap_bytes`, from `/usr/bin/heap`). A build that writes its memo files beside the wave can still be running the heaviest deltas' writers there, and MEMO_WRITE_OVERLAP_BYTES books what they add. Measured with ·Way in the alphabet on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), over every settlement configuration in the whole-wave readings DELTA_SLOT_BYTES cites, it reads 6.17 to 7.77 GB, the highest in the build reading previous memo files. The resident size and the footprint at the rendezvous are no measure of it: they also count the last enumerations' freed large allocations, which the allocator returns to the system when it chooses, so the `resident_parked` line beside it reads from 9.72 to 18.86 GB over the same runs. The constant is the highest reading divided by the settlement configuration count, the spec's share included, rounded up to the tenth. With the other terms as they stand, a value of 3.53 GB or more costs the 18-core machine its whole wave under a gated cycle. Re-measure it with DELTA_SLOT_BYTES whenever the alphabet grows or what a prepared product holds changes.
 PARKED_FOLD_BYTES = 1_600_000_000
-# The peak `table_build_booking_bytes` books for the one `build-tables` process at the configuration count with its memo files written beside the wave and every delta started from scratch beside default, the width, the order and the count both 48 GiB machines run (`doc/fleet.md`): DEFAULT_MEMO_BYTES, plus PARKED_FOLD_BYTES per configuration, plus SCRATCH_PEAK_BYTES less PARKED_FOLD_BYTES per delta, plus FOLD_PREPARATION_BYTES, plus MEMO_WRITE_OVERLAP_BYTES, a sum above the start's one SCRATCH_PEAK_BYTES per configuration. `rebuild/test_memory_budget.py` checks that it equals that booking, so it moves whenever a term is re-measured. `make job-costs` compares every run_m1 process peak the cycle sampled since its commit with it, and an overrun means a build outgrew what its width books, so the kernel constants need re-measuring. That peak is the build process's resident line, which leaves out what the memory compressor holds of it: in the readings SCRATCH_PEAK_BYTES cites, the build with every delta from scratch runs the machine's free pages down to their floor, and its resident line reads up to 5.48 GB below its footprint (8.93 GB in the 36.97 GB reading), so the comparison passes a build by as much as the compressor holds of it. Every whole-wave reading DELTA_SLOT_BYTES cites is inside it, the highest, 23.88 GB four wide, by 16.72 GB, and inside the booking at its own width by 3.04 GB or more. Every overlapped reading MEMO_WRITE_OVERLAP_BYTES cites is inside it, the highest, 20.48 GB five wide, by 20.12 GB, and inside the booking at its own width with that term by 7.75 GB or more. Every reading with deltas started from scratch beside default that SCRATCH_PEAK_BYTES cites is inside it, the highest, 36.97 GB with all four, by 3.63 GB. Building a snapshot is inside this bound. `Engine::take_memo` releases the other live memos, then collects the trace map into an array, holding both during the collection, and drops the map before partitioning. Partitioning holds a four-byte source position per record and the offset cursors, plus a temporary sort buffer for an unusually large collision bucket, and frees the positions before it builds the tag blocks. `read_memo` reserves space from a count of the TSV's window lines, stores accepted records directly, and boxes the compacted array after indexing, with no growing hash table. Enumeration, the memo writer and the fold still hold corpus-sized state.
+# The peak `table_build_booking_bytes` books for the one `build-tables` process at the configuration count with its memo files written beside the wave and every delta started from scratch beside default, the width, the order and the count both 48 GiB machines run (`doc/fleet.md`): DEFAULT_MEMO_BYTES, plus PARKED_FOLD_BYTES per configuration, plus SCRATCH_PEAK_BYTES less PARKED_FOLD_BYTES per delta, plus FOLD_PREPARATION_BYTES, plus MEMO_WRITE_OVERLAP_BYTES, a sum above the start's one SCRATCH_PEAK_BYTES per configuration. `rebuild/test_memory_budget.py` checks that it equals that booking, so it moves whenever a term is re-measured. `make job-costs` compares every run_m1 step since its commit with it, and an overrun means a build outgrew what its width books, so the kernel constants need re-measuring. Its reading is the higher of two lines: the step's peak, which is the build process's resident line, and the build's peak footprint, which `build_table_files` reads between the process's exit and its reap and run_m1 writes on its `[t] kernel_build_tables` line. The resident line leaves out what the memory compressor holds of the build: in the readings SCRATCH_PEAK_BYTES cites, the build with every delta from scratch runs the machine's free pages down to their floor, and its resident line reads up to 5.48 GB below its footprint (8.93 GB in the 36.97 GB reading). The row prints both lines, so an overrun the compressor's share makes can be told apart from a build that grew. A record without a footprint, which includes every build on Linux, where an exited process's footprint cannot be read, reads its resident line alone. Every whole-wave reading DELTA_SLOT_BYTES cites is inside it, the highest, 23.88 GB four wide, by 16.72 GB, and inside the booking at its own width by 3.04 GB or more. Every overlapped reading MEMO_WRITE_OVERLAP_BYTES cites is inside it, the highest, 20.48 GB five wide, by 20.12 GB, and inside the booking at its own width with that term by 7.75 GB or more. Every reading with deltas started from scratch beside default that SCRATCH_PEAK_BYTES cites is inside it, the highest, 36.97 GB with all four, by 3.63 GB. Building a snapshot is inside this bound. `Engine::take_memo` releases the other live memos, then collects the trace map into an array, holding both during the collection, and drops the map before partitioning. Partitioning holds a four-byte source position per record and the offset cursors, plus a temporary sort buffer for an unusually large collision bucket, and frees the positions before it builds the tag blocks. `read_memo` reserves space from a count of the TSV's window lines, stores accepted records directly, and boxes the compacted array after indexing, with no growing hash table. Enumeration, the memo writer and the fold still hold corpus-sized state.
 TABLE_BUILD_PEAK_BYTES = 40_600_000_000
 # What the memo files' writers hold beside the table build when it writes them beside the delta wave and the folds (the crate's `--overlap-memo-writes`, `fanout::run_configs_tables`): the term `table_build_booking_bytes` adds with `overlap`, which `memo_writes_overlap` adds to the booking at the build's width to decide whether the build writes its memo files that way. Each writer holds its configuration's finished trace memo snapshot, one row per window it writes and the tables it interns until its last byte is written (`memo::write_memo`). Default's snapshot is the one the wave reads anyway (DEFAULT_MEMO_BYTES), but a delta's is otherwise freed before its drain, so a delta's writer keeps it through the drain, the sort and the fold. The reading is the whole-wave build DELTA_SLOT_BYTES cites run in both orders and paired width by width: one `build-tables` over every settlement configuration with memo output, `--timings` and `--cache-stats`, from scratch, under `/usr/bin/time -l`, once writing its memo files in line and once with `--overlap-memo-writes`, the two alternating, at five wide twice, four and three wide, two wide twice and one wide, and five wide reading the previous five-wide build's memo files with the newest letter edited, on an idle 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`). With ·Way in the alphabet the overlapped build's peak, the higher of its resident and footprint lines, reads 20.48 and 20.46 GB five wide, 19.71 GB four wide, 19.03 GB three wide, 16.68 and 16.95 GB two wide, 11.73 GB one wide and 18.82 GB five wide reading previous memos, from 4.17 GB below to 0.54 GB above its in-line twin. Every footprint line is 0.52 to 0.81 GB below its resident line. The writers show directly at the exchange's rendezvous, where four and five wide the two heaviest deltas' writers are still running: the `parked_heap` line reads 11.12 and 11.14 GB five wide, 10.93 GB four wide and 10.84 GB five wide reading previous memos, 3.07 to 4.98 GB above the in-line twin's, while three wide and narrower every writer has finished by then and it reads 0.14 to 0.85 GB below. The constant is the highest of those excesses, rounded up to the tenth. Booking it on top of every width errs high on purpose, for the reason DELTA_SLOT_BYTES gives: what the writers hold sits beside the parked products, after the deltas' peaks, and every overlapped reading is booked 7.75 GB or more above itself. The overlapped order took 184.1 and 184.2 s five wide against 209.8 and 215.8 s in line, 192.0 against 220.6 s four wide, 223.5 against 243.2 s three wide, 256.3 and 257.6 against 290.3 and 293.4 s two wide, 393.6 against 432.2 s one wide, and 149.6 against 181.3 s five wide reading previous memos. With the other terms as they stand, a value of 9.64 GB or more costs the 18-core machine the overlap under a gated cycle, 10.54 GB or more costs the 12-core machine the same, and 12.34 GB or more costs both machines the overlap alone; `rebuild/test_memory_budget.py` and `rebuild/test_artifact_cycle.py` check that both write their memo files beside the wave. Re-measure it with DELTA_SLOT_BYTES whenever the alphabet grows or what a writer holds changes, by the paired runs above.
 MEMO_WRITE_OVERLAP_BYTES = 5_000_000_000
@@ -361,8 +361,8 @@ def _run_kernel(
 
 def _run_kernel_reaped(
     arguments: list[str], verb: str, *, timeout: float
-) -> tuple[subprocess.CompletedProcess, int | None]:
-    """`_run_kernel` with no stdin, returning beside the result the child process's own peak RSS in bytes (`peak_rss.reap_peak_rss_bytes`), or None where it cannot be read. `communicate` reaps the child with `waitpid`, which discards its resource usage, so this drains each pipe on a thread of its own and reaps the child with `os.wait4` once both are closed. The crate starts no process of its own, so the figure is the crate's. Raises `KernelRunError` for a missing binary or a timeout."""
+) -> tuple[subprocess.CompletedProcess, ReapedPeaks]:
+    """`_run_kernel` with no stdin, returning beside the result the child process's own resident peak and peak footprint in bytes (`peak_rss.reap_peaks_bytes`), either None where it cannot be read. `communicate` reaps the child with `waitpid`, which discards its resource usage and its footprint, so this drains each pipe on a thread of its own and, once both are closed, waits for the child's exit, reads its peak footprint and reaps it with `os.wait4`. The crate starts no process of its own, so both figures are the crate's. Raises `KernelRunError` for a missing binary, or for a timeout after killing the child."""
     process = _spawn_kernel(arguments, stdin=False)
     assert process.stdout is not None and process.stderr is not None
     drained: dict[str, bytes] = {}
@@ -386,9 +386,9 @@ def _run_kernel_reaped(
             reader.join()
         process.wait()
         raise _no_answer(arguments, verb, timeout)
-    peak = reap_peak_rss_bytes(process)
+    peaks = reap_peaks_bytes(process)
     returncode = process.wait()
-    return subprocess.CompletedProcess(arguments, returncode, drained["stdout"], drained["stderr"]), peak
+    return subprocess.CompletedProcess(arguments, returncode, drained["stdout"], drained["stderr"]), peaks
 
 
 def ensure_built() -> None:
@@ -518,10 +518,11 @@ def enumerate_configs(
 
 @dataclass(frozen=True)
 class TableBuild:
-    """What `build_table_files` returns: each configuration's table digest, keyed by configuration, and the `[t]` lines the crate wrote under `--timings`, as `_forward_stderr` copied them to stderr. `run_m1.build_tables` keeps the lines for run_m1's check line, which has no captured output to parse them from."""
+    """What `build_table_files` returns: each configuration's table digest, keyed by configuration, the `[t]` lines the crate wrote under `--timings`, as `_forward_stderr` copied them to stderr, and the `build-tables` process's own resident peak and peak footprint (`_run_kernel_reaped`). `run_m1.build_tables` keeps the lines for run_m1's check line, which has no captured output to parse them from, and writes the two peaks on its `[t] kernel_build_tables` line."""
 
     digests: dict[str, str]
     timings: tuple[str, ...]
+    peaks: ReapedPeaks
 
 
 def build_table_files(
@@ -553,6 +554,8 @@ def build_table_files(
 
     `symbols` is the size of the spec's alphabet (`labels.spec_alphabet`), which sets how long the call is waited for (`build_tables_timeout`).
 
+    The process runs through `_run_kernel_reaped`, which reads its peak footprint after it exits and before it is reaped, so `TableBuild.peaks` carries both its resident peak and its peak footprint. The resident line leaves out what the memory compressor holds of the build, and the kernel-build row of `make job-costs` reads the higher of the two (`TABLE_BUILD_PEAK_BYTES`).
+
     The digests are returned on stdout, one JSON object per line in the order the configurations were named, because a digest is a value the caller keeps and reports, not a separate artifact. Raises `KernelRunError` for every kind of failure the CLI contract distinguishes, and for a clean exit whose output names a different set of configurations from the one requested.
     """
     arguments = [
@@ -583,7 +586,7 @@ def build_table_files(
         arguments.append(f"--scratch-beside-default={scratch_beside_default}")
     if timings:
         arguments.append("--timings")
-    finished = _run_kernel(arguments, "build-tables", timeout=build_tables_timeout(symbols))
+    finished, peaks = _run_kernel_reaped(arguments, "build-tables", timeout=build_tables_timeout(symbols))
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -609,7 +612,7 @@ def build_table_files(
         raise KernelRunError(
             f"build-tables answered for {sorted(digests)} where {sorted(configs)} were asked for"
         )
-    return TableBuild(digests, tuple(forwarded))
+    return TableBuild(digests, tuple(forwarded), peaks)
 
 
 def memo_path(out_dir: Path, config: str) -> Path:
@@ -720,7 +723,7 @@ def replay_strings(
         threads=threads,
         last=last is not None,
     )
-    finished, peak = _run_kernel_reaped(arguments, "replay-strings", timeout=timeout)
+    finished, peaks = _run_kernel_reaped(arguments, "replay-strings", timeout=timeout)
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -750,8 +753,8 @@ def replay_strings(
         raise KernelRunError(
             f"replay-strings answered for {sorted(answered)} where {sorted(configs)} were asked for"
         )
-    if on_peak is not None and peak:
-        on_peak(peak)
+    if on_peak is not None and peaks.resident:
+        on_peak(peaks.resident)
     return answered
 
 

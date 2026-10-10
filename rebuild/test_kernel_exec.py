@@ -8,6 +8,7 @@ import itertools
 import json
 import os
 import subprocess
+import sys
 import time
 from collections import OrderedDict
 from dataclasses import replace
@@ -861,7 +862,7 @@ class TestTheKernelInvocation:
             assert head is not None and head.stamp == run_m1.memo_stamp(edited)
 
     def test_a_build_into_an_out_dir_records_what_pairs_it_with_another(self, tmp_path, capsys):
-        """A build into an `out_dir` ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which `cycle_timings.parse_inner_timings` reads back: the structure stamp its memos carry, the digest of the code the table build runs, the width, the rune count, and how many configurations read the previous build's memo. The first build reads none. A rebuild after a rune edit reads every configuration's memo, names the edited rune, and keeps the structure stamp and the code digest. The crate's own phase lines and that line are kept for run_m1's check line."""
+        """A build into an `out_dir` ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which `cycle_timings.parse_inner_timings` reads back: the structure stamp its memos carry, the digest of the code the table build runs, the width, the rune count, and how many configurations read the previous build's memo, then the `build-tables` process's own resident peak and, on Darwin, its peak footprint, which `build_table_files` reads before it reaps the process. The first build reads none. A rebuild after a rune edit reads every configuration's memo, names the edited rune, and keeps the structure stamp and the code digest. The crate's own phase lines and that line are kept for run_m1's check line."""
 
         def recorded():
             (entry,) = [
@@ -882,6 +883,7 @@ class TestTheKernelInvocation:
         } == run_m1.TABLE_BUILD_CODE_MODULES
         assert (first["memos_read"], first["edited"], first["classes"]) == (0, [], [])
         assert (first["width"], first["runes"]) == (run_m1._table_build_threads(2), len(SPEC.runes))
+        assert "rss_gb" in first and ("footprint_gb" in first or sys.platform != "darwin")
         tea = SPEC.runes["qsTea"]
         edited = replace(
             SPEC, runes={**SPEC.runes, "qsTea": replace(tea, policy=replace(tea.policy, refuse=()))}

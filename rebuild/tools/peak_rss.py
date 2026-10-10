@@ -4,7 +4,7 @@
 
 `peak_rss_self_bytes` is this process's own peak. `peak_rss_children_bytes` is the largest peak among the children this process has reaped. `process_peak_rss_bytes` is the larger of the two, which is the figure a `[t]` line for a stage that fans out should carry. A peak only rises, so the difference between two peak readings says nothing about what happened between them; `reap_peak_rss_bytes` gives a per-child figure. `current_rss_bytes` is the resident set at the moment of the call. A `[t]` line with both tokens (`rss_token`, `rss_now_token`) shows where in the step the peak was reached and what the phase that just ended leaves resident.
 
-Resident set under-reads a process under memory pressure: on Darwin the pages the compressor holds and the pages swapped out count in neither the resident set nor `ru_maxrss`. `footprint_bytes` and `peak_footprint_bytes` read what the process costs the machine instead, for any live pid this user owns. On Darwin that is `proc_pid_rusage`'s `rusage_info_v4` through `ctypes`: `ri_phys_footprint` now and `ri_lifetime_max_phys_footprint` over the process's life, the figures Activity Monitor and `top` report as memory. On Linux the current figure is `/proc/<pid>/status`'s `VmRSS` plus `VmSwap` and the peak is its `VmHWM`, a resident peak that leaves out what was swapped out. Elsewhere the current figure is None and the peak falls back to `ru_maxrss` for this process and None for another.
+Resident set under-reads a process under memory pressure: on Darwin the pages the compressor holds and the pages swapped out count in neither the resident set nor `ru_maxrss`. `footprint_bytes` and `peak_footprint_bytes` read what the process costs the machine instead, for any live pid this user owns. On Darwin that is `proc_pid_rusage`'s `rusage_info_v4` through `ctypes`: `ri_phys_footprint` now and `ri_lifetime_max_phys_footprint` over the process's life, the figures Activity Monitor and `top` report as memory. On Linux the current figure is `/proc/<pid>/status`'s `VmRSS` plus `VmSwap` and the peak is its `VmHWM`, a resident peak that leaves out what was swapped out. Elsewhere the current figure is None and the peak falls back to `ru_maxrss` for this process and None for another. Another process's peak footprint is readable until it is reaped, so `reap_peaks_bytes` reads a child's between its exit and its reap and returns it beside the resident peak `reap_peak_rss_bytes` reads; `footprint_token` writes it on a `[t]` line beside `rss_token`.
 
 `swap_used_bytes` is the machine's swap in use, for a report to show beside a pool's footprint so a run short of memory is visible in its log: Darwin's `vm.swapusage` through `sysctlbyname`, or `/proc/meminfo`'s `SwapTotal` less `SwapFree` on Linux. It lags and does not fall back when the pressure ends, which is why `memory_budget` never sizes a pool from it.
 
@@ -19,6 +19,7 @@ import re
 import resource
 import subprocess
 import sys
+from typing import NamedTuple
 
 _BSD_TIME_RSS = re.compile(r"^\s*(\d+)\s+maximum resident set size", re.MULTILINE)
 _GNU_TIME_RSS = re.compile(r"maximum resident set size[^:]*:\s*(\d+)", re.IGNORECASE)
@@ -185,6 +186,11 @@ def rss_now_token(byte_count: float) -> str:
     return f"rss_now_gb={format_gb(byte_count)}"
 
 
+def footprint_token(byte_count: float) -> str:
+    """Return the peak-footprint token a `[t]` phase line carries beside its resident peak, as in `rss_gb=28.04 footprint_gb=29.50`. `cycle_timings.parse_inner_timings` reads it into `footprint_gb`; run_m1's `[t] kernel_build_tables` line carries the table build's (`reap_peaks_bytes`)."""
+    return f"footprint_gb={format_gb(byte_count)}"
+
+
 def current_rss_bytes() -> int | None:
     """Return this process's resident set now, in bytes, or None where it cannot be read (a sandbox that blocks `ps`, a platform with neither source). It reads the resident-pages field of `/proc/self/statm` times the page size where that file exists, and otherwise runs `ps -o rss=`, which reports KiB. Unlike the peaks, it can fall, so it separates a phase's own working set from the step's peak. On Darwin each call spawns `ps`, so call it once per phase, not in a loop."""
     try:
@@ -230,3 +236,23 @@ def reap_peak_rss_bytes(proc: subprocess.Popen) -> int | None:
         return None
     proc.returncode = os.waitstatus_to_exitcode(status)
     return maxrss_to_bytes(rusage.ru_maxrss)
+
+
+class ReapedPeaks(NamedTuple):
+    """A reaped child's two peak lines in bytes, either None where it cannot be read: `resident`, as `reap_peak_rss_bytes` reads it, and `footprint`, its own lifetime peak footprint (`peak_footprint_bytes`)."""
+
+    resident: int | None
+    footprint: int | None
+
+
+def reap_peaks_bytes(proc: subprocess.Popen) -> ReapedPeaks:
+    """Reap `proc` as `reap_peak_rss_bytes` does, reading its peak footprint first. A child's peak footprint is readable only until it is reaped, so this waits for it to exit without reaping it (`os.waitid` with `WNOWAIT`), reads `peak_footprint_bytes(proc.pid)` while it is a zombie, and only then reaps it with `os.wait4`. The footprint is the child's own, not its descendants'. It is None where `os.waitid` is missing, when the child is already reaped or another waiter reaps it first, and on Linux, where a zombie's `/proc/<pid>/status` carries no `VmHWM`."""
+    footprint = None
+    if proc.returncode is None and hasattr(os, "waitid"):
+        try:
+            os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
+        except ChildProcessError:
+            pass
+        else:
+            footprint = peak_footprint_bytes(proc.pid)
+    return ReapedPeaks(reap_peak_rss_bytes(proc), footprint)

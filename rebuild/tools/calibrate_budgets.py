@@ -2,7 +2,7 @@
 
 Several fan-out widths are the machine's memory divided by a measured per-unit peak, such as what one pytest worker or one kernel configuration holds. Each peak is a checked-in constant, and `UNITS` lists the ones this module checks, beside the constants no width divides by whose argument a width rests on (`LAND_BYTES`, `TABLE_BUILD_PEAK_BYTES`). Three sets of width terms have no row of their own. The kernel's (`DELTA_SLOT_BYTES`, `SCRATCH_PEAK_BYTES`, `DEFAULT_MEMO_BYTES`, `PARKED_FOLD_BYTES` and `FOLD_PREPARATION_BYTES`) and `MEMO_WRITE_OVERLAP_BYTES`, which sets no width but decides the memo-write order, are watched only together, through the kernel-build row (below). The deep sweep's `DEEP_SWEEP_WINDOW_BYTES` and `DEEP_SWEEP_BASE_BYTES` have none: `make conform-deep`'s own check line records each configuration's highest unit peak beside the estimate they give, and nothing checks one against the other. `STANDING_FILL_WORKER_BYTES` has none because the refill pool writes no pool record (its comment in `rebuild/tools/artifact_cycle.py` says why). A memory saving or a heavier fixture can move a real peak away from its constant without failing any test. A constant that is too low shows up as a machine in swap, and one that is too high holds a pool to a fraction of the width it has room for. The measurements that catch this are already recorded on every run: each xdist controller's per-worker peaks, the pools run_m1 and the corpus build record, and the peak RSS the cycle records for every step it spawns. This module compares those measurements with the constants. It builds nothing and imports none of the code whose constants it checks.
 
-It reads measurements only from the cycle-timings journal. A `kind:"pool"` record gives one observation per worker, because the unit is one worker. The string replay's records give one observation each, the crate process's peak divided by the walks it ran at once, because the walks are threads of that one process. The deep replay's records give one observation per settlement configuration, the highest peak among its units' crate processes, because each unit is one walk in a process of its own. A named `kind:"step"` record gives its `peak_rss_bytes`, which is the largest single process in the step's tree, because `peak_rss.reap_peak_rss_bytes` takes the max over the tree instead of the sum. That reading measures one unit only for some steps. For `run_m1` the widest process is the table-build child, which the kernel-build row checks, and for `corpus-build` it is the parent, which the corpus-parent row checks. It does not measure one unit for `gate:make-test`, whose tree also holds `make all` and `uv run pyright` beside the pool. Each `UNITS` entry states which sources count for it and why.
+It reads measurements only from the cycle-timings journal. A `kind:"pool"` record gives one observation per worker, because the unit is one worker. The string replay's records give one observation each, the crate process's peak divided by the walks it ran at once, because the walks are threads of that one process. The deep replay's records give one observation per settlement configuration, the highest peak among its units' crate processes, because each unit is one walk in a process of its own. A named `kind:"step"` record gives its `peak_rss_bytes`, which is the largest single process in the step's tree, because `peak_rss.reap_peak_rss_bytes` takes the max over the tree instead of the sum. That reading measures one unit only for some steps. For `run_m1` the widest process is the table-build child, which the kernel-build row checks, and for `corpus-build` it is the parent, which the corpus-parent row checks. The kernel-build row also reads the table build's peak footprint off the same record's `[t] kernel_build_tables` phase, and its observation is the higher of the two lines, because the resident line leaves out what the memory compressor holds of the build; a record without a footprint gives its `peak_rss_bytes` alone. It does not measure one unit for `gate:make-test`, whose tree also holds `make all` and `uv run pyright` beside the pool. Each `UNITS` entry states which sources count for it and why.
 
 Constants are read from their source files with `ast`, never imported. pytest loads every conftest under the module name `conftest`, so from under `rebuild/` a plain `import conftest` gets the wrong file, and `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and installed its lane-audit hook from. `ast` executes nothing, and it keeps this tool from importing pytest or inheriting that file's `sys.path` edits. The width clauses read their other inputs the same way, so each prints the width its pool actually takes: the corpus rows read each other's constant and compute both of the build's caps, every core less the parent by hand and the build lane's share less the parent under a gated cycle (`memory_budget.split_cores`), and the conform-sweep row reads the floor of its cap beside a corpus build, the acceptance-configuration count, from the lengths of the configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), along with the corpus constants its second width needs. The kernel row's width is narrowed by the configuration count and the cores in `run_m1._table_build_threads`, which this module does not compute, so that clause prints the memory arithmetic and names the narrowing in words.
 
@@ -55,7 +55,7 @@ ABSORB_SUFFIX = " absorb"
 class Unit:
     """One unit that a fan-out width divides the machine's memory by, or that a width's argument rests on: its constant and the file that holds it (both None for a row that is reported without a constant), the journal records that measure it, the text printed with its figures, and the rule the constant's comment sets it by from its highest reading: `headroom` to multiply the reading by and `quantum`, in bytes, to round the product up to a multiple of. Both are None for a row whose reading does not set its constant.
 
-    `absorbs` picks readings out of a pool record by label: None keeps every reading, True only the `<config> absorb` ones, and False every other one, so two rows can split one pool's records. `recency_bound` False reads every record since the constant's commit, where `--recent` would keep only the newest.
+    `absorbs` picks readings out of a pool record by label: None keeps every reading, True only the `<config> absorb` ones, and False every other one, so two rows can split one pool's records. `recency_bound` False reads every record since the constant's commit, where `--recent` would keep only the newest. `footprint_phase` names the `[t]` phase whose `footprint_gb` token gives a step record a second line, a peak footprint, beside its `peak_rss_bytes`: the observation is then the higher of the two, and the report prints both (`_lines_line`). None reads `peak_rss_bytes` alone.
     """
 
     name: str
@@ -69,9 +69,10 @@ class Unit:
     quantum: int | None = None
     absorbs: bool | None = None
     recency_bound: bool = True
+    footprint_phase: str | None = None
 
 
-# The kernel's constants live in one file: DELTA_SLOT_BYTES divides the delta fan-out width, DEFAULT_MEMO_BYTES and PARKED_FOLD_BYTES per settlement configuration are subtracted from the machine's memory before that division, FOLD_PREPARATION_BYTES books the slot default's fold preparation takes once every delta has one, MEMO_WRITE_OVERLAP_BYTES books the memo writers that run beside the wave when that still fits, SCRATCH_PEAK_BYTES bounds a slot in a build without default's memo and each delta started from scratch beside default, and the kernel-build row checks the run_m1 step peak against TABLE_BUILD_PEAK_BYTES.
+# The kernel's constants live in one file: DELTA_SLOT_BYTES divides the delta fan-out width, DEFAULT_MEMO_BYTES and PARKED_FOLD_BYTES per settlement configuration are subtracted from the machine's memory before that division, FOLD_PREPARATION_BYTES books the slot default's fold preparation takes once every delta has one, MEMO_WRITE_OVERLAP_BYTES books the memo writers that run beside the wave when that still fits, SCRATCH_PEAK_BYTES bounds a slot in a build without default's memo and each delta started from scratch beside default, and the kernel-build row checks the higher of the run_m1 step peak and the table build's peak footprint against TABLE_BUILD_PEAK_BYTES.
 KERNEL_SOURCE = "rebuild/pipeline/kernel_exec.py"
 KERNEL_DELTA_NAME = "DELTA_SLOT_BYTES"
 KERNEL_PREPARATION_NAME = "FOLD_PREPARATION_BYTES"
@@ -107,9 +108,10 @@ UNITS: tuple[Unit, ...] = (
         source=KERNEL_SOURCE,
         pool_units=(),
         step_names=("run_m1",),
-        step_caveat="run_m1's peak is the widest single process in its tree, the max over its children, and on both fleet machines that is the one build-tables child holding every settlement configuration — default's retained memo beside every delta build in flight, the deltas started from scratch beside default, and each configuration's prepared fold product from its preparation until the cross-configuration exchange ends — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. The other candidate is the string replay's child, which runs every settlement configuration at once in one wave (REPLAY_PEAK_BYTES apiece, `--replay-threads`) and peaks at about a third of the build on the shipped alphabet (6.07 GB maxrss for the five-configuration wave under `/usr/bin/time -l` on the 18-core M5 Pro 48 GiB MacBook Pro, its footprint level with it, against the table build's maximum this row reports); should a replay ever outrun the build, this row reads the replay, which the replay-walk row reads on its own, and the constant to re-measure is then that one rather than this one. DELTA_SLOT_BYTES, what each delta in flight adds beyond its parked product and the figure the width is divided out of, DEFAULT_MEMO_BYTES, the memo subtracted from the machine's memory first, PARKED_FOLD_BYTES, one configuration's parked fold product, subtracted once per configuration, and FOLD_PREPARATION_BYTES, the slot default's fold preparation takes once every delta has one, are not measured by any step here: their reading is the direct whole-wave measurement under --cache-stats, and the bound they state, kernel_exec.table_build_booking_bytes, is that this unit's peak stays under the memo, plus every configuration's parked product, plus one delta slot per worker slot of the width up to the delta count, plus the preparation's slot above it, plus MEMO_WRITE_OVERLAP_BYTES when the build writes its memo files beside the wave, with SCRATCH_PEAK_BYTES less a parked product in place of the slot of each delta started from scratch beside default, and at least one SCRATCH_PEAK_BYTES for default and each of them together.",
+        step_caveat="run_m1's peak is the widest single process in its tree, the max over its children, and on both fleet machines that is the one build-tables child holding every settlement configuration — default's retained memo beside every delta build in flight, the deltas started from scratch beside default, and each configuration's prepared fold product from its preparation until the cross-configuration exchange ends — so the step peak reads the whole table build at whatever width the cycle handed it, never one configuration. The other candidate is the string replay's child, which runs every settlement configuration at once in one wave (REPLAY_PEAK_BYTES apiece, `--replay-threads`) and peaks at about a third of the build on the shipped alphabet (6.07 GB maxrss for the five-configuration wave under `/usr/bin/time -l` on the 18-core M5 Pro 48 GiB MacBook Pro, its footprint level with it, against the table build's maximum this row reports); should a replay ever outrun the build, this row reads the replay, which the replay-walk row reads on its own, and the constant to re-measure is then that one rather than this one. DELTA_SLOT_BYTES, what each delta in flight adds beyond its parked product and the figure the width is divided out of, DEFAULT_MEMO_BYTES, the memo subtracted from the machine's memory first, PARKED_FOLD_BYTES, one configuration's parked fold product, subtracted once per configuration, and FOLD_PREPARATION_BYTES, the slot default's fold preparation takes once every delta has one, are not measured by any step here: their reading is the direct whole-wave measurement under --cache-stats, and the bound they state, kernel_exec.table_build_booking_bytes, is that this unit's peak stays under the memo, plus every configuration's parked product, plus one delta slot per worker slot of the width up to the delta count, plus the preparation's slot above it, plus MEMO_WRITE_OVERLAP_BYTES when the build writes its memo files beside the wave, with SCRATCH_PEAK_BYTES less a parked product in place of the slot of each delta started from scratch beside default, and at least one SCRATCH_PEAK_BYTES for default and each of them together. Each reading is the higher of the step peak and the build-tables child's peak footprint, which kernel_exec.build_table_files reads between the child's exit and its reap and run_m1 writes on its `[t] kernel_build_tables` line: the step peak is a resident line, which leaves out what the memory compressor holds of the build, so the report's `lines` line shows the highest reading's resident and footprint figures, and a record without a footprint reads its step peak alone.",
         note="The direct measurement is one build-tables over every settlement configuration under /usr/bin/time -l with --cache-stats, which is what to reach for before re-measuring any kernel constant; this row is the cheap standing watch beside it rather than a replacement for it. It reads every record since its constant's commit, not the newest `--recent`: it proposes no value, so a high reading the window dropped would only hide the warning until the constant was next re-measured.",
         recency_bound=False,
+        footprint_phase="kernel_build_tables",
     ),
     Unit(
         name="replay-walk",
@@ -414,12 +416,14 @@ def read_constants(root: Path = ROOT) -> dict[str, int]:
 
 @dataclass(frozen=True)
 class Observation:
-    """One peak measurement of one unit, with the host that measured it, the record's `finished_at`, and the record kind (`pool` or `step:<name>`)."""
+    """One peak measurement of one unit, with the host that measured it, the record's `finished_at`, and the record kind (`pool` or `step:<name>`). A step record's observation also keeps its two lines, `resident_bytes` (its `peak_rss_bytes`) and `footprint_bytes` (its unit's `footprint_phase` reading), either None where the record has none; `peak_bytes` is the higher of them."""
 
     peak_bytes: int
     host: str
     at: str
     source: str
+    resident_bytes: int | None = None
+    footprint_bytes: int | None = None
 
 
 def _source_records(
@@ -491,9 +495,24 @@ def observations(
                         observed.append(Observation(int(peak), record_host, at, source))
         else:
             peak = record.get("peak_rss_bytes")
-            if isinstance(peak, int | float):
-                observed.append(Observation(int(peak), record_host, at, source))
+            resident = int(peak) if isinstance(peak, int | float) else None
+            footprint = _phase_footprint_bytes(record, unit.footprint_phase) if unit.footprint_phase else None
+            lines = [line for line in (resident, footprint) if line is not None]
+            if lines:
+                observed.append(Observation(max(lines), record_host, at, source, resident, footprint))
     return observed, dropped, older
+
+
+def _phase_footprint_bytes(record: dict, label: str) -> int | None:
+    """Return the highest peak footprint a step record's `[t] <label>` phases carry (`footprint_gb`, which `cycle_timings.parse_inner_timings` stores), in bytes, or None when none carries one."""
+    readings = [
+        round(phase["footprint_gb"] * 1e9)
+        for phase in record.get("inner") or []
+        if isinstance(phase, dict)
+        and phase.get("label") == label
+        and isinstance(phase.get("footprint_gb"), int | float)
+    ]
+    return max(readings) if readings else None
 
 
 def proposed_constant(max_bytes: int, headroom: float, quantum: int) -> int:
@@ -620,6 +639,29 @@ def _observed_line(row: UnitRow, *, host: str | None) -> str:
         f"  observed  : {_plural(_record_count(row.observed), 'record')}, {_plural(len(peaks), 'observation')}"
         f" — median {format_gb(statistics.median(peaks))} GB, max {format_gb(max(peaks))} GB{tail}"
     )
+
+
+def _lines_line(row: UnitRow) -> str | None:
+    """Return the line that splits a two-line row's max into its resident and footprint lines and counts the observations that carry a footprint, so an overrun the memory compressor's share makes can be told apart from a unit that grew. None for a unit with no `footprint_phase`, or when no observation carries a footprint."""
+    if row.unit.footprint_phase is None or all(item.footprint_bytes is None for item in row.observed):
+        return None
+    top = max(row.observed, key=lambda item: item.peak_bytes)
+    resident = (
+        "no resident line" if top.resident_bytes is None else f"resident {format_gb(top.resident_bytes)} GB"
+    )
+    footprint = (
+        "no footprint line"
+        if top.footprint_bytes is None
+        else f"footprint {format_gb(top.footprint_bytes)} GB"
+    )
+    carried = sum(item.footprint_bytes is not None for item in row.observed)
+    total = len(row.observed)
+    if carried == total:
+        tally = f"{'the one observation carries' if total == 1 else f'all {total} observations carry'} a footprint line"
+    else:
+        verb = "carries" if carried == 1 else "carry"
+        tally = f"{carried} of {_plural(total, 'observation')} {verb} a footprint line, and the rest read their resident line alone"
+    return f"  lines     : max {format_gb(top.peak_bytes)} GB is the higher of {resident} and {footprint}; {tally}"
 
 
 def _sources_line(row: UnitRow) -> str | None:
@@ -849,6 +891,9 @@ def render_rows(
             lines.append(f"{unit.name}  ({unit.constant} in {unit.source})")
             lines.append(f"  constant  : {format_gb(row.constant_bytes)} GB")
         lines.append(_observed_line(row, host=host))
+        both = _lines_line(row)
+        if both is not None:
+            lines.append(both)
         since = _since_line(row)
         if since is not None:
             lines.append(since)

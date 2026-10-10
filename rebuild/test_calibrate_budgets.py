@@ -11,6 +11,8 @@ from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import make_test_gate as mtg
 from rebuild.tools import memory_budget
 from rebuild.tools import rebuild_gate as rg
+from rebuild.tools.cycle_timings import parse_inner_timings
+from rebuild.tools.peak_rss import footprint_token, format_gb, rss_token
 
 HOST = "this.local"
 OTHER = "other.local"
@@ -251,6 +253,32 @@ def test_the_corpus_rows_also_read_the_journals_surface_records(tmp_path):
     ]
     worker, _, _ = cb.observations(_unit("corpus-worker"), pools, steps, host=HOST, recent=20)
     assert sorted(item.peak_bytes for item in worker) == [6_000_000_000, 7_000_000_000]
+
+
+def test_the_kernel_build_row_reads_the_higher_of_the_builds_resident_and_footprint_lines(tmp_path, capsys):
+    """A run_m1 step whose `[t] kernel_build_tables` line carries the build's peak footprint reads the higher of that and its step peak, so a footprint over the constant trips the check while the resident line fits, and the report prints both lines of the highest reading. A record without a footprint reads its resident line alone."""
+    constant = CONSTANTS["kernel-build"]
+    resident = constant // 2
+    footprint = round(float(format_gb(constant + 1_000_000_000)) * 1e9)
+    compressed = _step("run_m1", resident, run="r1")
+    compressed["inner"] = parse_inner_timings(
+        f"[t] kernel_build_tables 200.0s width=5 runes=45 {rss_token(resident)} {footprint_token(footprint)}"
+    )
+    plain = _step("run_m1", resident, run="r2")
+    observed, _, _ = cb.observations(
+        _unit("kernel-build"), [], {"r1": [compressed], "r2": [plain]}, host=HOST, recent=20
+    )
+    assert [(item.peak_bytes, item.resident_bytes, item.footprint_bytes) for item in observed] == [
+        (footprint, resident, footprint),
+        (resident, resident, None),
+    ]
+    code, out = _run(capsys, _journal(tmp_path, [compressed, plain]), "--check")
+    assert code == 1
+    block = _block(out, "kernel-build")
+    assert (
+        f"  lines     : max {format_gb(footprint)} GB is the higher of resident {format_gb(resident)} GB and footprint {format_gb(footprint)} GB;"
+        " 1 of 2 observations carries a footprint line, and the rest read their resident line alone"
+    ) in block.splitlines()
 
 
 def test_a_named_step_peak_supplies_an_observation():
