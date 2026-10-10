@@ -2903,7 +2903,7 @@ def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
 def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone_on_both_fleet_machines(
     monkeypatch,
 ):
-    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot or the memo writes beside the wave, and this test checks the gated widths and memo write orders, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round, and at that width both write the memo files beside the wave and start every delta from scratch beside `default`. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
+    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot or the memo writes beside the wave, and this test checks the gated widths and memo write orders, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round, and at that width both write the memo files beside the wave. A pass that skips the gate starts the heaviest tier, two deltas, from scratch beside `default`, and a gated pass passes one, which the crate, starting only whole tiers, rounds down to none, so gate:make-test's pool costs the build its deltas from scratch but no slot. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
@@ -2913,7 +2913,7 @@ def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone
         assert (
             ac.kernel_threads_budget(skip_make_test=True, ncores=ncores, total_bytes=MACHINE_48_GIB) == gated
         )
-        for skip_make_test in (False, True):
+        for skip_make_test, scratch in ((False, 1), (True, 2)):
             assert ac.memo_writes_overlap_budget(
                 gated, skip_make_test=skip_make_test, ncores=ncores, total_bytes=MACHINE_48_GIB
             )
@@ -2925,7 +2925,7 @@ def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone
                     ncores=ncores,
                     total_bytes=MACHINE_48_GIB,
                 )
-                == len(SETTLEMENT_CONFIGS) - 1
+                == scratch
             )
 
 
