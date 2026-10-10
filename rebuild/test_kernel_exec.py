@@ -185,29 +185,46 @@ class TestTheInvocationInterface:
             ),
         ]
 
-    def test_on_macos_the_table_build_runs_with_the_allocators_large_cache_off(self, monkeypatch, tmp_path):
-        """On macOS, `build_table_files` spawns `build-tables` with this process's environment and `TABLE_BUILD_ALLOCATOR_ENVIRONMENT` (`MallocLargeCache=0`), so the tables a memo outgrows go back to the system as they are freed. Elsewhere it passes no environment, which leaves the child this process's own."""
+    def test_on_macos_the_table_build_and_the_replay_run_with_the_allocators_large_cache_off(
+        self, monkeypatch, tmp_path
+    ):
+        """On macOS, `build_table_files` spawns `build-tables`, and `replay_strings` spawns `replay-strings` for the string replay and for each deep replay unit, with this process's environment and `KERNEL_ALLOCATOR_ENVIRONMENT` (`MallocLargeCache=0`), so the tables a memo outgrows go back to the system as they are freed. Elsewhere each passes no environment, which leaves the child this process's own."""
         environments = []
 
         def reaped(arguments, verb, *, timeout, env=None):
-            environments.append(env)
+            environments.append((verb, env))
             raise kernel_exec._no_answer(arguments, verb, timeout)
 
         monkeypatch.setattr(kernel_exec, "_run_kernel_reaped", reaped)
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setenv("AMS_SOME_SETTING", "kept")
+        calls = [
+            lambda: kernel_exec.build_table_files(
+                tmp_path / "spec.json", tmp_path / "tables", ["default"], inputs=STAMP, threads=1, symbols=47
+            ),
+            lambda: kernel_exec.replay_strings(
+                SPEC, tmp_path, ["default"], max_length=4, families=None, threads=1, memo_dir=tmp_path
+            ),
+            lambda: kernel_exec.replay_strings(
+                SPEC,
+                tmp_path,
+                ["default"],
+                max_length=5,
+                families=None,
+                threads=1,
+                memo_windows=8,
+                last="\ue650",
+            ),
+        ]
         for platform in ("darwin", "linux"):
             monkeypatch.setattr(kernel_exec.sys, "platform", platform)
-            with pytest.raises(kernel_exec.KernelRunError):
-                kernel_exec.build_table_files(
-                    tmp_path / "spec.json",
-                    tmp_path / "tables",
-                    ["default"],
-                    inputs=STAMP,
-                    threads=1,
-                    symbols=47,
-                )
-        assert environments == [{**os.environ, "MallocLargeCache": "0"}, None]
-        assert environments[0]["AMS_SOME_SETTING"] == "kept"
+            for call in calls:
+                with pytest.raises(kernel_exec.KernelRunError):
+                    call()
+        verbs = ["build-tables", "replay-strings", "replay-strings"]
+        allocator = {**os.environ, "MallocLargeCache": "0"}
+        assert environments == [(verb, allocator) for verb in verbs] + [(verb, None) for verb in verbs]
+        assert environments[0][1]["AMS_SOME_SETTING"] == "kept"
 
     def test_the_two_growing_verbs_limits_grow_with_the_alphabet_and_never_fall_below_the_fixed_one(self):
         """At the measured alphabet a table build and a deep replay unit wait `TIMEOUT`, the floor. A table build's limit grows with the alphabet, and at the full alphabet's 47 symbols a whole replay at maximum length 5 in one call, five walks at once, waits longer than `TIMEOUT`. A narrower width, which walks configurations one after another, waits longer; a walk narrowed to one last symbol waits less."""
