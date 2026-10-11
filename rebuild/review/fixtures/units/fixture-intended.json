@@ -1,6 +1,6 @@
 [
  {
-  "id": "u-WTMwXA3Hvr2",
+  "id": "u-5NP1CPJxyNT",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -132,142 +132,10 @@
     ]
    }
   },
-  "content_key": "b018d1ed7f23a14f209c0392e1b6d37f9fc924f8a3e1aee4220c6d5fed1771c8"
+  "content_key": "1a1e431c1ddec9e40b5b7eb955bd0e9f7ebae7a65f1ce0ead584cf21a5c1897f"
  },
  {
-  "id": "u-dy33xBw4wVZ",
-  "ink_identical": false,
-  "picture_identical": false,
-  "junior_equivalent": false,
-  "ink_deltas": {
-   "default": "d-e77325b1df50",
-   "ss02": "d-e77325b1df50",
-   "ss03": "d-e77325b1df50",
-   "ss04": "d-e77325b1df50",
-   "ss05": "d-e77325b1df50",
-   "ss02+ss03": "d-e77325b1df50",
-   "ss02+ss03+ss05": "d-e77325b1df50"
-  },
-  "no_verdict": false,
-  "duplicate_group": "e-0002",
-  "cluster": "c-f1a70012",
-  "class": "fixture-intended",
-  "group": "qsIt:qsIt",
-  "codepoints": "E670:E670",
-  "text_entities": "&#xE670;&#xE670;",
-  "notation": "\u00b7It\u00b7It",
-  "notation_tokens": [
-   "\u00b7It",
-   "\u00b7It"
-  ],
-  "configs": [
-   "default",
-   "ss02",
-   "ss03",
-   "ss04",
-   "ss05",
-   "ss02+ss03",
-   "ss02+ss03+ss05"
-  ],
-  "config_note": null,
-  "config_gate": null,
-  "render_groups": [
-   {
-    "configs": [
-     "default",
-     "ss02",
-     "ss03",
-     "ss04",
-     "ss05",
-     "ss02+ss03",
-     "ss02+ss03+ss05"
-    ]
-   }
-  ],
-  "kinds": [
-   "cell"
-  ],
-  "exemplar": true,
-  "before": {
-   "glyphs": [
-    "qsIt.ex-y5",
-    "qsIt"
-   ],
-   "junctions": [
-    "break"
-   ]
-  },
-  "after": {
-   "cells": [
-    "qsIt/sole/None/None/",
-    "qsIt/sole/None/None/"
-   ],
-   "junctions": [
-    "break"
-   ],
-   "extensions": [
-    0
-   ]
-  },
-  "diff_positions": [
-   0,
-   1
-  ],
-  "pair": {
-   "left": 0,
-   "right": 1
-  },
-  "pair_codepoints": [
-   0,
-   1
-  ],
-  "highlight": {
-   "before": {
-    "x_min": 0,
-    "x_max": 100,
-    "advance_total": 100
-   },
-   "after": {
-    "x_min": 0,
-    "x_max": 100,
-    "advance_total": 100
-   }
-  },
-  "boundary_marks": [],
-  "explain": "sequence E670:E670   config default\nsettled: qsIt.sole qsIt.sole\n\nposition 0: qsIt\n  decided by: tiebreak",
-  "summary": "New: \u00b7It\u00b7It settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
-  "provenance": [],
-  "drafts": {
-   "pin": {
-    "expect": "\u00b7It | \u00b7It",
-    "attribute": "data-expect-noncanonically",
-    "stylistic_set": null,
-    "syntax": "pass",
-    "semantics_after_font": "pass",
-    "duplicate_of": null,
-    "suggested_home": "site/the-manual.html"
-   },
-   "policy": {
-    "file": "glyph_data/runes/qsIt.yaml",
-    "keypath": "policy.prefer[+]",
-    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E670:E670 (\u00b7It\u00b7It)'}",
-    "names_provenance": [],
-    "decided_stage": "tiebreak",
-    "schema_valid": true,
-    "why_stub": "Reviewer rejected the M1 outcome for E670:E670 (\u00b7It\u00b7It)"
-   },
-   "any_of": {
-    "text": "qsIt qsIt",
-    "features": {},
-    "candidates": [
-     "\u00b7It | \u00b7It"
-    ]
-   }
-  },
-  "content_key": "dd018b5b21cae2e831368190df362cd0b6eceb243c18fae619a7bf508cc6ad31"
- },
- {
-  "id": "u-6wxep7mamL7",
+  "id": "u-BLyK6Z13RtN",
   "ink_identical": false,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -399,10 +267,10 @@
     ]
    }
   },
-  "content_key": "238ee920c79fb76ce9c2cd279cf10a63156d6a2acabc486e4229698b9ad7512e"
+  "content_key": "3dd83d27dbed5993e65ae211f54099d3e3d030b5e64e2ed8e9b2510e1735f6ec"
  },
  {
-  "id": "u-E8egK4dqX5U",
+  "id": "u-DBug8cSj15L",
   "ink_identical": true,
   "picture_identical": false,
   "junior_equivalent": false,
@@ -481,6 +349,138 @@
   "boundary_marks": [],
   "summary": "New: \u00b7Pea\u00b7May settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
-  "content_key": "4e82ac36f0c302db62907c773b8dc10764dbf0d2549796efb634839358c90784"
+  "content_key": "48de230c5ce4743bd21da28d0f9b7a93ca1698766f3d19c738a4e34216d47497"
+ },
+ {
+  "id": "u-Nc3wVLJaPHB",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e77325b1df50",
+   "ss02": "d-e77325b1df50",
+   "ss03": "d-e77325b1df50",
+   "ss04": "d-e77325b1df50",
+   "ss05": "d-e77325b1df50",
+   "ss02+ss03": "d-e77325b1df50",
+   "ss02+ss03+ss05": "d-e77325b1df50"
+  },
+  "no_verdict": false,
+  "duplicate_group": "e-0002",
+  "cluster": "c-f1a70012",
+  "class": "fixture-intended",
+  "group": "qsIt:qsIt",
+  "codepoints": "E670:E670",
+  "text_entities": "&#xE670;&#xE670;",
+  "notation": "\u00b7It\u00b7It",
+  "notation_tokens": [
+   "\u00b7It",
+   "\u00b7It"
+  ],
+  "configs": [
+   "default",
+   "ss02",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss02",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": true,
+  "before": {
+   "glyphs": [
+    "qsIt.ex-y5",
+    "qsIt"
+   ],
+   "junctions": [
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsIt/sole/None/None/",
+    "qsIt/sole/None/None/"
+   ],
+   "junctions": [
+    "break"
+   ],
+   "extensions": [
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 100,
+    "advance_total": 100
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 100,
+    "advance_total": 100
+   }
+  },
+  "boundary_marks": [],
+  "explain": "sequence E670:E670   config default\nsettled: qsIt.sole qsIt.sole\n\nposition 0: qsIt\n  decided by: tiebreak",
+  "summary": "New: \u00b7It\u00b7It settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7It | \u00b7It",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsIt.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E670:E670 (\u00b7It\u00b7It)'}",
+    "names_provenance": [],
+    "decided_stage": "tiebreak",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E670:E670 (\u00b7It\u00b7It)"
+   },
+   "any_of": {
+    "text": "qsIt qsIt",
+    "features": {},
+    "candidates": [
+     "\u00b7It | \u00b7It"
+    ]
+   }
+  },
+  "content_key": "8129eef3fff666da0b4f8ba81d3c24b155f69f801dd3e6fae7bdcfd770375e5f"
  }
 ]

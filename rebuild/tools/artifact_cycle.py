@@ -6,7 +6,7 @@ The terminal shows one banner per step with that step's description, the phases 
 
 The job-costs step never fails the pass, for the same reason the review-facts pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-measured constant accepts it. When the check reports an overrun, the OVERRUN status quotes each tripped row's proposal (the value its constant's rule sets from the peak and the width that value gives here, or for the kernel-build row which constants to re-measure), and the driver asks `calibrate_budgets --moved` which checked constants differ from their values at `HEAD`, so a constant already re-measured shows up by name.
 
-The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the store (--no-merge opts out), runs duplicate-fill, standing-fill from the rules in rebuild/standing-approvals.yaml, and duplicate-fill again, merges each fill as it is written, and clusters the open complaints. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] complete:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
+The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the store (--no-merge opts out), runs duplicate-fill, standing-fill from the rules in rebuild/standing-approvals.yaml, and duplicate-fill again, merges each fill as it is written, and clusters the open complaints. The carry and the land each refuse a pass that would orphan more than `landing.ORPHAN_SHARE_LIMIT` of the prior verdicts, and --allow-orphans passes both their override. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] complete:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
 
 run_m1's exit status is its own gate's result, but this driver evaluates the three summary JSONs it writes, so a build that died before its evaluator is reported by what it left behind. The gates are defect_errors, the Manual-pin gate (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
@@ -1017,7 +1017,7 @@ def recover_superseded_corpus(live: Path | None = None, *, delete: bool = True) 
     return f"Put {superseded} back as the live corpus; the land it stepped aside for did not finish."
 
 
-# The verdict update's code, listed by module instead of all of rebuild/tools/: the import closure of rebuild.tools.verdict_update, which runs every step. rebuild/test_verdict_update_closure.py checks the list against the walked import graph on every contracts run. This driver is not an entry point, because every argument it passes the verdict update names an input the key already hashes (the corpus, the master, the store), a flag that disables the skip, or a width (`--standing-fill-jobs`) that cannot change the verdict update's output, and the verdict update parses its own flags in verdict_update. The walk stops at the modules in `fingerprint.pipeline_code_paths`, because the key includes the pipeline_code component whole through its manifest line. The rebuild/tools/ modules the pipeline imports (memory_budget, peak_rss, lock_digest, site_fonts and others) are outside this list, which keeps fan-out widths and peak-memory measurements out of the verdict key.
+# The verdict update's code, listed by module instead of all of rebuild/tools/: the import closure of rebuild.tools.verdict_update, which runs every step. rebuild/test_verdict_update_closure.py checks the list against the walked import graph on every contracts run. This driver is not an entry point, because every argument it passes the verdict update names an input the key already hashes (the corpus, the master, the store), a flag that disables the skip, a width (`--standing-fill-jobs`) that cannot change the verdict update's output, or `--allow-orphans`, which decides only whether a carry that orphans many verdicts writes at all, and a refused carry leaves no green record; the verdict update parses its own flags in verdict_update. The walk stops at the modules in `fingerprint.pipeline_code_paths`, because the key includes the pipeline_code component whole through its manifest line. The rebuild/tools/ modules the pipeline imports (memory_budget, peak_rss, lock_digest, site_fonts and others) are outside this list, which keeps fan-out widths and peak-memory measurements out of the verdict key.
 VERDICT_UPDATE_ENTRY_POINTS = ("rebuild.tools.verdict_update",)
 VERDICT_UPDATE_TOOL_MODULES = (
     "carry_verdicts",
@@ -1965,6 +1965,7 @@ def build_plan(
     recipe_serves: bool = False,
     scratch_dir: Path | None = None,
     seed_kept: bool = False,
+    allow_orphans: bool = False,
 ) -> Plan:
     do_carry = not no_carry and not first_run and not skip_verdict_update and not direct_merge
     resolved_carry_out: Path | None = None
@@ -2357,6 +2358,8 @@ def build_plan(
         if fresh:
             verdict_update_argv += ["--fresh-standing-memo"]
         verdict_update_argv += ["--standing-fill-jobs", str(fill_jobs)]
+        if allow_orphans and do_carry:
+            verdict_update_argv += ["--allow-orphans"]
         if do_carry and not do_merge:
             note = (
                 "carry only (staging: the live autosave is never written)"
@@ -2395,6 +2398,8 @@ def build_plan(
         if next_corpus is not None:
             land_argv += ["--staged", str(next_corpus), "--live", str(REVIEW_OUT), "--keep-discard"]
         land_argv += ["--tombstone-cutoff", retention_cutoff(), "--scan-state", str(journal_scan_path())]
+        if allow_orphans:
+            land_argv += ["--allow-orphans"]
         if next_corpus is None:
             land_note = "puts the prepared store in place under the verdict store's lock, with the saves made during the pass laid over it"
         else:
@@ -5045,6 +5050,11 @@ def main(argv: list[str] | None = None) -> int:
         help="skip the green-finish retention pass (stale carried files and stashes, and the journal's pre-window history all stay on disk)",
     )
     parser.add_argument(
+        "--allow-orphans",
+        action="store_true",
+        help=f"let the carry and the land go ahead when more than {landing.ORPHAN_SHARE_LIMIT:.0%}% of the prior verdicts name no unit on the new corpus, as after an edit that redraws many windows; when unit ids moved wholesale, re-key the verdicts instead (rebuild/tools/rekey_verdicts.py)",
+    )
+    parser.add_argument(
         "--yes",
         action="store_true",
         help="run beside a listening review server from before the land protocol (one with no /capabilities) instead of refusing",
@@ -5252,6 +5262,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         recipe_serves=args.stop_server,
         scratch_dir=cycle_paths.CYCLE_VAR / f"{stamp}-{short_id}" if args.review_out is None else None,
         seed_kept=corpus_complete(next_corpus_dir()),
+        allow_orphans=args.allow_orphans,
     )
 
     if args.dry_run:

@@ -2,13 +2,13 @@
 
 A corpus-changing pass builds its corpus beside the served one, at rebuild/out/review.next (a copy-on-write clone of the served tree, `clone_tree`), or promotes a staged one, and runs the verdict update against scratch copies of the store: `snapshot` copies the live store to the pass's run directory as the snapshot S and the prepared store R, under the store's lock, and the verdict update carries, merges and fills into R. `land` then moves both into place in one short section under the store's lock (`rebuild.review.store_lock`), which every writer of the store and its journal holds, the review server included, so a save is never applied between the two moves. A pass whose corpus did not move but whose store did lands the store alone.
 
-The land first reads S, R and the new corpus's stamp and human unit ids without the lock, and, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`). Under it, it reads the live store C and aborts, keeping the staged tree, when C is on another stamp than S. Every unit whose record in C differs from S's, or that C cleared since S, is the reviewer's act after the snapshot, so it is laid over R and beats any fill. On a stamp change an overlaid set on a unit the new corpus does not have goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), and an overlaid skip is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. C's tombstones for units the result does not hold are kept (on a stamp change, for the units the new corpus has), and a tombstone older than `--tombstone-cutoff` is dropped. The result is written to the run directory, and the intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
+The land first reads S, R and the new corpus's stamp and human unit ids without the lock, and, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`). Under it, it reads the live store C and aborts, keeping the staged tree, when C is on another stamp than S, or, under the orphan guard the command line sets unless `--allow-orphans` is passed, when the stamp moves and more than `ORPHAN_SHARE_LIMIT` of C's verdicts name a unit outside the new corpus's triage index. Every unit whose record in C differs from S's, or that C cleared since S, is the reviewer's act after the snapshot, so it is laid over R and beats any fill. On a stamp change an overlaid set on a unit the new corpus does not have goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), and an overlaid skip is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. C's tombstones for units the result does not hold are kept (on a stamp change, for the units the new corpus has), and a tombstone older than `--tombstone-cutoff` is dropped. The result is written to the run directory, and the intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
 
 A land killed inside the section leaves the intent file, and the kernel releases the lock. The next holder of the lock finishes it first (`recover_interrupted_land`, and `locked_store` for the writers that take the lock): it cuts the journal back to the length the intent recorded, then reads where the land stopped. A corpus not yet swapped drops the intent, and the staged tree stays for the next pass. A swapped corpus with the old store finishes the land from the result it wrote, or is swapped back out when that result is gone, and a store already replaced gets its journal event. The review server runs the recovery on its next request (`recover_if_orphaned`), so nobody runs a command.
 
 `LAND_PROTOCOL` and `code_digest` are what the review server advertises on /capabilities, and what the artifact cycle compares with the working tree before it keeps a listening server running through a pass. This module imports only the journal, the store and its lock, never the cycle driver.
 
-Usage: uv run python -m rebuild.review.landing --autosave FILE --journal FILE --run-dir DIR --corpus DIR [--prepared FILE] [--staged DIR --live DIR [--keep-discard]] [--tombstone-cutoff ISO] [--scan-state FILE]
+Usage: uv run python -m rebuild.review.landing --autosave FILE --journal FILE --run-dir DIR --corpus DIR [--prepared FILE] [--staged DIR --live DIR [--keep-discard]] [--tombstone-cutoff ISO] [--scan-state FILE] [--allow-orphans]
 """
 
 from __future__ import annotations
@@ -59,6 +59,7 @@ RENAME_EXCHANGE = 0x2
 AT_FDCWD = -100
 UNSUPPORTED_SWAP_ERRNOS = frozenset({errno.ENOTSUP, errno.EINVAL, errno.ENOSYS})
 BLOCKED_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+ORPHAN_SHARE_LIMIT = 0.10
 
 
 def code_digest(review_dir: Path) -> str:
@@ -72,6 +73,13 @@ def code_digest(review_dir: Path) -> str:
             data = b""
         digest.update(f"{name}\t{hashlib.sha256(data).hexdigest()}\n".encode())
     return digest.hexdigest()
+
+
+def orphan_share(orphaned: int, prior: int) -> str | None:
+    """Return `orphaned` verdicts as a share of `prior` ones, worded for a refusal, when the share is more than `ORPHAN_SHARE_LIMIT`, and None otherwise. The carry (`rebuild/tools/carry_verdicts.py`) and the land refuse past the limit unless `--allow-orphans` is passed: a change that moves unit ids wholesale orphans nearly every verdict at once, while an edit to the runes orphans only the verdicts on the windows it redrew, a few percent at most by the carry counts on the run lines of rebuild/out/cycle-timings.ndjson. The limit sits well above the routine passes there and far below a wholesale move."""
+    if orphaned <= ORPHAN_SHARE_LIMIT * prior:
+        return None
+    return f"{orphaned:,} of {prior:,} ({orphaned / prior:.2%}, more than the {ORPHAN_SHARE_LIMIT:.0%} limit)"
 
 
 def intent_path_for(store: Path) -> Path:
@@ -344,8 +352,9 @@ def land(
     atomic: bool = True,
     keep_discard: bool = False,
     scan_state: Path | None = None,
+    guard_orphans: bool = False,
 ) -> LandResult:
-    """Land the prepared store, and the staged corpus when `staged` is given, as the module docstring describes. `corpus` is the directory whose manifest names the landed stamp and human unit ids: the staged tree, or the live one for a store-only land. With no `prepared` store, or none on disk, the land writes an empty store stamped for that corpus. The swapped-out tree is renamed to its discard name after the lock is released and deleted, or with `keep_discard` left for the caller to delete, its path in the result's `discard`, so the caller can tell the open tabs to move first. `scan_state` is the journal scan state retention saves (`journal.save_scan_state`); a land that moves the stamp resumes its read of the journal's events from it, and reads them from the start without it. The land only reads it."""
+    """Land the prepared store, and the staged corpus when `staged` is given, as the module docstring describes. `corpus` is the directory whose manifest names the landed stamp and human unit ids: the staged tree, or the live one for a store-only land. With no `prepared` store, or none on disk, the land writes an empty store stamped for that corpus. The swapped-out tree is renamed to its discard name after the lock is released and deleted, or with `keep_discard` left for the caller to delete, its path in the result's `discard`, so the caller can tell the open tabs to move first. `scan_state` is the journal scan state retention saves (`journal.save_scan_state`); a land that moves the stamp resumes its read of the journal's events from it, and reads them from the start without it. The land only reads it. With `guard_orphans` set, a land that moves the stamp aborts, before it writes anything, when more than `ORPHAN_SHARE_LIMIT` of the live store's verdicts other than skips name a unit outside the new corpus's triage index (`orphan_share`); the command line sets it unless `--allow-orphans` is passed."""
     autosave, journal_path, run_dir = Path(autosave), Path(journal_path), Path(run_dir)
     new_stamp, new_ids = read_manifest(corpus)
     before = read_store(run_dir / SNAPSHOT_NAME)
@@ -378,6 +387,7 @@ def land(
             tombstone_cutoff=tombstone_cutoff,
             atomic=atomic,
             journal_scan=journal_scan,
+            guard_orphans=guard_orphans,
         )
         result.locked_s = time.perf_counter() - started
     if result.landed and staged is not None and live is not None:
@@ -403,6 +413,7 @@ def _land_locked(
     tombstone_cutoff: str | None,
     atomic: bool,
     journal_scan: journal.ScanState | None,
+    guard_orphans: bool,
 ) -> LandResult:
     now = read_store(autosave)
     if before is None:
@@ -420,6 +431,16 @@ def _land_locked(
         )
     old_stamp = now.stamp
     moved = old_stamp != new_stamp
+    if moved and guard_orphans:
+        prior = [unit for unit, record in now.records.items() if record["verdict"] != "skip"]
+        share = orphan_share(sum(1 for unit in prior if unit not in new_ids), len(prior))
+        if share is not None:
+            return LandResult(
+                False,
+                f"{share} of the live store's verdicts name no unit in the new corpus's triage index; pass --allow-orphans to land anyway",
+                old_stamp=old_stamp,
+                new_stamp=new_stamp,
+            )
     overlaid, orphans, skips = overlay(
         ready, before, now, new_ids=new_ids if moved else None, cutoff=tombstone_cutoff
     )
@@ -630,6 +651,11 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="the journal scan state retention saves, from which the land's read of the journal resumes",
     )
+    parser.add_argument(
+        "--allow-orphans",
+        action="store_true",
+        help=f"land a stamp change even when more than {ORPHAN_SHARE_LIMIT:.0%}% of the live store's verdicts name no unit in the new corpus's triage index",
+    )
     args = parser.parse_args(argv)
     result = land(
         autosave=args.autosave,
@@ -642,6 +668,7 @@ def main(argv: list[str] | None = None) -> int:
         tombstone_cutoff=args.tombstone_cutoff,
         keep_discard=args.keep_discard,
         scan_state=args.scan_state,
+        guard_orphans=not args.allow_orphans,
     )
     _write_file(args.run_dir / REPORT_NAME, (json.dumps(result.as_dict(), indent=1) + "\n").encode())
     if not result.landed:

@@ -1,20 +1,44 @@
-"""Tests for the one-shot re-key of verdicts from the unit ids the corpus had before the #357 renames to the ids it has after them. The shipped review fixtures are a post-rename corpus, and the pre-rename ids the test records verdicts on are the ids those fixtures carried before the renames, so the test checks the reversed projection against the ids the old code derived. The fixture ledger's `fixture-drift` class became `fixture-mismatch` in the same batch, a rename the tool's tables leave out because no real class has it, so those units stand for a missed rename."""
+"""Tests for the forward re-key of verdicts from the unit ids of an old review corpus to the ids its units have under the current carry projection. The old and new corpora are built from the shipped review fixtures: the old one names each unit by an id of its own, and the new one by the id its fragment hashes to now, so every id changes whatever key set the fixtures were stamped under."""
 
+import hashlib
 import json
 from pathlib import Path
 
-from rebuild.review import journal
+from rebuild.review import journal, unit_index
+from rebuild.review.unit_cache import carry_content_hash, unit_id_for
 from rebuild.tools import merge_verdicts, rekey_verdicts
 
 FIXTURE_CORPUS = Path(__file__).resolve().parent / "review" / "fixtures"
-STAMP = "2026-09-26T17:49:41Z"
-PRE_TO_POST = {
-    "u-2WvdGAWe6bX": "u-WTMwXA3Hvr2",
-    "u-8nacGTcgMRS": "u-dy33xBw4wVZ",
-    "u-DdcTojn1hba": "u-6wxep7mamL7",
-    "u-hRgMc2EJjbs": "u-E8egK4dqX5U",
-}
-MISSED = "u-Ng8Npb18Kha"
+OLD_STAMP = "2026-10-01T00:00:00Z"
+NEW_STAMP = "2026-10-02T00:00:00Z"
+STRAY = "u-3333333333A"
+
+
+def _fragments() -> list[dict]:
+    return list(unit_index.iter_shard_fragments(FIXTURE_CORPUS))
+
+
+def _old(fragment: dict) -> dict:
+    return {**fragment, "id": unit_id_for(hashlib.sha256(f"old {fragment['id']}".encode()).hexdigest())}
+
+
+def _new(fragment: dict) -> dict:
+    key = carry_content_hash(fragment)
+    return {**fragment, "id": unit_id_for(key), "content_key": key}
+
+
+def _corpus(path: Path, stamp: str, fragments: list[dict]) -> Path:
+    """Write a corpus with one shard part per class, as the build lays them out."""
+    parts: dict[str, list[dict]] = {}
+    for fragment in fragments:
+        parts.setdefault(fragment["class"], []).append(fragment)
+    (path / "units").mkdir(parents=True)
+    for class_id, members in parts.items():
+        (path / "units" / f"{class_id}.000.json").write_text(json.dumps(members, indent=1), encoding="utf-8")
+    classes = [{"id": class_id, "shards": [f"units/{class_id}.000.json"]} for class_id in parts]
+    manifest = {"generated_at": stamp, "classes": classes}
+    (path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return path
 
 
 def _verdicts(path: Path, stamp: str, units: list[str]) -> None:
@@ -34,139 +58,242 @@ def _units(path: Path) -> list[str]:
     return [record["unit"] for record in json.loads(path.read_text(encoding="utf-8"))["verdicts"]]
 
 
-def test_rekey_moves_pre_rename_ids_once_and_undoes(tmp_path, capsys):
-    """A stamp-aligned store naming a unit whose rename the tables miss blocks every write. Accepted with --allow-unmatched, pre-rename ids move to their units' post-rename ids in the autosave, a stamp-aligned carried file and a referencing text file; a current id, the missed unit and a positional id stay. Renaming a kind keeps the kinds sorted in both directions. A second run writes nothing, the id map re-keys a journal replay from before the re-key, and the backup restores every file and the journal and leaves the marker that makes the next land that moves the stamp journal a base."""
-    autosave, journal_path = tmp_path / "verdicts-autosave.json", tmp_path / journal.JOURNAL_NAME
-    _verdicts(autosave, STAMP, [*PRE_TO_POST, "u-fDT3GBdycaj", MISSED, "u-10000"])
-    _verdicts(tmp_path / "verdicts-carried-abc1234.json", STAMP, ["u-2WvdGAWe6bX"])
-    _verdicts(tmp_path / "verdicts-carried-0000000.json", "2026-09-01T00:00:00Z", ["u-2WvdGAWe6bX"])
-    notes = tmp_path / "standing-approvals.yaml"
-    notes.write_text("note: approved at u-hRgMc2EJjbs\n", encoding="utf-8")
-    seeded = json.loads(autosave.read_text(encoding="utf-8"))["verdicts"]
+def _seed_journal(journal_path: Path, units: list[str]) -> None:
     journal.record_transition(
         journal_path,
         source="merge",
-        stamp=STAMP,
+        stamp=OLD_STAMP,
         old_stamp=None,
         old_verdicts=[],
-        new_verdicts=seeded,
+        new_verdicts=[
+            {"unit": unit, "verdict": "approve", "note": "", "at": "2000-01-01T00:00:00Z"} for unit in units
+        ],
         at="2000-01-01T00:00:00Z",
     )
+
+
+def _restore(tmp_path: Path, map_path: Path) -> list[str]:
+    restored = tmp_path / "restored.json"
+    argv = [
+        "--restore-as-of",
+        "2000-01-02",
+        "--journal",
+        str(tmp_path / journal.JOURNAL_NAME),
+        "--autosave",
+        str(tmp_path / "verdicts-autosave.json"),
+        "--out",
+        str(restored),
+        "--rekey-map",
+        str(map_path),
+    ]
+    assert merge_verdicts.main(argv) == 0
+    return _units(restored)
+
+
+def test_forward_rekey_maps_the_old_corpus_lands_each_id_once_and_undoes(tmp_path, capsys):
+    """The map is computed from the old corpus alone, machine units included, and is never written over. A stamp-aligned store naming a content id in neither the map nor the new corpus blocks every write. Accepted with --allow-unmatched, old ids move to their new ids in the autosave, a stamp-aligned carried file and a referencing text file, and a unit whose new id a stale projected field changed lands by its codepoints and configs; the stray and a positional id stay. The kept map is the computed map with that pair, and its first form is copied beside it. A second run writes nothing, the kept map re-keys a journal replay from before the re-key, and the backup restores every file and the journal and leaves the marker that makes the next land that moves the stamp journal a base."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    news[1] = _new({**fragments[1], "kinds": [*fragments[1]["kinds"], "stale"]})
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    keep = tmp_path / rekey_verdicts.KEEP
+    map_path = keep / rekey_verdicts.MAP_NAME
+
+    map_argv = ["--root", str(tmp_path), "--from-corpus", str(old_corpus), "--map-out", str(map_path)]
+    assert rekey_verdicts.main(map_argv) == 0
+    computed = map_path.read_bytes()
+    id_map = json.loads(computed)
+    assert id_map["from_corpora"] == [OLD_STAMP]
+    assert id_map["units"].keys() == {old["id"] for old in olds}
+    assert id_map["renamed"] == {old["id"]: unit_id_for(carry_content_hash(old)) for old in olds}
+    assert all(id_map["units"][old["id"]][:2] == [old["codepoints"], old["configs"]] for old in olds)
+    assert rekey_verdicts.main(map_argv) == 1
+    assert "exists, and a map is never written over" in capsys.readouterr().out
+    assert map_path.read_bytes() == computed
+
+    moved = {olds[index]["id"]: news[index]["id"] for index in range(4)}
+    autosave, journal_path = tmp_path / "verdicts-autosave.json", tmp_path / journal.JOURNAL_NAME
+    _verdicts(autosave, OLD_STAMP, [*moved, STRAY, "u-10000"])
+    _verdicts(tmp_path / "verdicts-carried-abc1234.json", OLD_STAMP, [olds[0]["id"]])
+    _verdicts(tmp_path / "verdicts-carried-0000000.json", "2026-09-01T00:00:00Z", [olds[0]["id"]])
+    notes = tmp_path / "standing-approvals.yaml"
+    notes.write_text(f"note: approved at {olds[3]['id']}\n", encoding="utf-8")
+    _seed_journal(journal_path, _units(autosave))
     before = {path.name: path.read_bytes() for path in (autosave, journal_path, notes)}
-    argv = ["--root", str(tmp_path), "--corpus", str(FIXTURE_CORPUS), "--references", str(notes)]
+    argv = [
+        "--root",
+        str(tmp_path),
+        "--map",
+        str(map_path),
+        "--corpus",
+        str(new_corpus),
+        "--references",
+        str(notes),
+    ]
 
     assert rekey_verdicts.main(argv) == 1
-    assert (
-        f"1 of its content ids match no unit before or after the renames: {MISSED}" in capsys.readouterr().out
-    )
+    assert f"1 of its content ids are neither in the map nor on new: {STRAY}" in capsys.readouterr().out
     assert {path.name: path.read_bytes() for path in (autosave, journal_path, notes)} == before
-    assert not (tmp_path / rekey_verdicts.KEEP).exists()
+    assert [path.name for path in keep.iterdir()] == [rekey_verdicts.MAP_NAME]
 
     argv.append("--allow-unmatched")
     assert rekey_verdicts.main(argv) == 0
-    assert "rekey counts: seen=8 rekeyed=5 current=1 unmatched=2" in capsys.readouterr().out
-    assert _units(autosave) == sorted([*PRE_TO_POST.values(), "u-fDT3GBdycaj", MISSED, "u-10000"])
-    assert _units(tmp_path / "verdicts-carried-abc1234.json") == ["u-WTMwXA3Hvr2"]
-    assert _units(tmp_path / "verdicts-carried-0000000.json") == ["u-2WvdGAWe6bX"]
-    assert notes.read_text(encoding="utf-8") == "note: approved at u-E8egK4dqX5U\n"
+    out = capsys.readouterr().out
+    assert "of the 4 ids of the map the files name, 4 land, 1 of them by codepoints and configs" in out
+    assert "rekey counts: seen=7 rekeyed=5 current=0 unmatched=2 collided=0" in out
+    assert _units(autosave) == sorted([*moved.values(), STRAY, "u-10000"])
+    assert _units(tmp_path / "verdicts-carried-abc1234.json") == [news[0]["id"]]
+    assert _units(tmp_path / "verdicts-carried-0000000.json") == [olds[0]["id"]]
+    assert notes.read_text(encoding="utf-8") == f"note: approved at {news[3]['id']}\n"
     assert journal.replay(journal_path)[1].keys() == set(_units(autosave))
-    id_map = json.loads(
-        (tmp_path / rekey_verdicts.KEEP / rekey_verdicts.MAP_NAME).read_text(encoding="utf-8")
-    )
-    assert PRE_TO_POST.items() <= id_map["renamed"].items() and MISSED not in id_map["renamed"]
-    for pre, post in (
-        (["ligation", "seam"], ["junction", "ligation"]),
-        (["cell", "position", "seam"], ["cell", "junction", "position"]),
-    ):
-        assert rekey_verdicts.FORWARD.projection({"kinds": pre})["kinds"] == post
-        assert rekey_verdicts.REVERSE.projection({"kinds": post})["kinds"] == pre
+    kept = json.loads(map_path.read_text(encoding="utf-8"))
+    assert kept["corpora"] == [NEW_STAMP]
+    assert kept["renamed"] == {**id_map["renamed"], olds[1]["id"]: news[1]["id"]}
+    (copy,) = keep.glob(f"{map_path.stem}-*.json")
+    assert copy.read_bytes() == computed
 
-    rekeyed = {path.name: path.read_bytes() for path in (autosave, journal_path, notes)}
+    rekeyed = {path.name: path.read_bytes() for path in (autosave, journal_path, notes, map_path)}
     assert rekey_verdicts.main(argv) == 0
-    assert "rekey counts: seen=8 rekeyed=0 current=6 unmatched=2" in capsys.readouterr().out
-    assert {path.name: path.read_bytes() for path in (autosave, journal_path, notes)} == rekeyed
+    assert "rekey counts: seen=7 rekeyed=0 current=5 unmatched=2 collided=0" in capsys.readouterr().out
+    assert {path.name: path.read_bytes() for path in (autosave, journal_path, notes, map_path)} == rekeyed
 
-    restored = tmp_path / "restored.json"
-    map_path = tmp_path / rekey_verdicts.KEEP / rekey_verdicts.MAP_NAME
-    assert (
-        merge_verdicts.main(
-            [
-                "--restore-as-of",
-                "2000-01-02",
-                "--journal",
-                str(journal_path),
-                "--autosave",
-                str(autosave),
-                "--out",
-                str(restored),
-                "--rekey-map",
-                str(map_path),
-            ]
-        )
-        == 0
-    )
-    assert _units(restored) == _units(autosave)
+    assert _restore(tmp_path, map_path) == _units(autosave)
 
-    (backup,) = [path for path in (tmp_path / rekey_verdicts.KEEP).iterdir() if path.is_dir()]
+    (backup,) = [path for path in keep.iterdir() if path.is_dir()]
     assert not journal.unjournaled_marker_for(autosave).exists()
     assert rekey_verdicts.main(["--root", str(tmp_path), "--undo", str(backup)]) == 0
     assert {path.name: path.read_bytes() for path in (autosave, journal_path, notes)} == before
     assert journal.unjournaled_marker_for(autosave).exists()
 
 
-def test_a_later_rekey_merges_into_the_id_map_and_copies_the_previous_one(tmp_path, capsys):
-    """A run on a corpus other than the one the id map was written for keeps every pair already in the map, adds its own, lets its own pair win a clash, and copies the previous map beside it first. A journal restore from before either re-key then moves both runs' ids through the one map."""
-    autosave, journal_path = tmp_path / "verdicts-autosave.json", tmp_path / journal.JOURNAL_NAME
-    _verdicts(autosave, STAMP, list(PRE_TO_POST))
-    earlier_old, earlier_new, clashing = "u-3333333333A", "u-4444444444B", "u-5555555555C"
-    journal.record_transition(
-        journal_path,
-        source="merge",
-        stamp=STAMP,
-        old_stamp=None,
-        old_verdicts=[],
-        new_verdicts=[
-            {"unit": unit, "verdict": "approve", "note": "", "at": "2000-01-01T00:00:00Z"}
-            for unit in [*PRE_TO_POST, earlier_old]
-        ],
-        at="2000-01-01T00:00:00Z",
+def test_an_id_that_lands_nowhere_blocks_and_a_map_must_be_one_to_one(tmp_path, capsys):
+    """A verdicted id lands nowhere when its new id is on the new corpus with another drawing, or when its new id is missing and the one unit with its codepoints and configs draws differently or is the old id itself, as on a corpus rebuilt under the old key set; then the run writes nothing, dry run included. A map that pairs two old ids with one new id, one computed under another key set, and a corpus the map was computed from are refused before any file is read."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    news[0] = _new({**fragments[0], "after": {**fragments[0]["after"], "extensions": [0]}})
+    news[2] = {**news[2], "after": {**fragments[2]["after"], "extensions": [99]}}
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    rebuilt = _corpus(tmp_path / "rebuilt", "2026-10-03T00:00:00Z", olds)
+    map_path = tmp_path / "unit-id-map.json"
+    assert rekey_verdicts.main(["--from-corpus", str(old_corpus), "--map-out", str(map_path)]) == 0
+    computed = map_path.read_text(encoding="utf-8")
+    autosave = tmp_path / "verdicts-autosave.json"
+    _verdicts(autosave, OLD_STAMP, [olds[0]["id"], olds[2]["id"]])
+    stored = autosave.read_bytes()
+    argv = ["--root", str(tmp_path), "--map", str(map_path), "--dry-run", "--corpus"]
+
+    assert rekey_verdicts.main([*argv, str(new_corpus)]) == 1
+    out = capsys.readouterr().out
+    assert f"{olds[0]['id']}: {news[0]['id']} has its codepoints and configs but draws differently" in out
+    assert f"{olds[2]['id']}: {news[2]['id']} on the corpus has other codepoints, configs or drawings" in out
+    assert autosave.read_bytes() == stored
+
+    assert rekey_verdicts.main([*argv, str(rebuilt)]) == 1
+    assert f"{olds[0]['id']}: it is still on the corpus under its old id" in capsys.readouterr().out
+
+    assert rekey_verdicts.main([*argv, str(old_corpus)]) == 1
+    assert f"is stamped {OLD_STAMP}, a corpus the map was computed from" in capsys.readouterr().out
+    assert autosave.read_bytes() == stored
+
+    id_map = json.loads(computed)
+    id_map["renamed"][olds[2]["id"]] = id_map["renamed"][olds[0]["id"]]
+    map_path.write_text(json.dumps(id_map), encoding="utf-8")
+    assert rekey_verdicts.main([*argv, str(new_corpus)]) == 1
+    assert f"{olds[0]['id']} and {olds[2]['id']} both map to" in capsys.readouterr().out
+
+    id_map = json.loads(computed)
+    id_map["presentation_keys"] = [*id_map["presentation_keys"], "kinds"]
+    map_path.write_text(json.dumps(id_map), encoding="utf-8")
+    assert rekey_verdicts.main([*argv, str(new_corpus)]) == 1
+    assert "computed under another carry projection" in capsys.readouterr().out
+
+
+def test_two_records_on_one_unit_block_and_a_join_never_takes_another_entrys_unit(tmp_path, capsys):
+    """A file with a record on an old id and one on that id's new unit would hold two verdicts on one unit, so the run writes nothing and no flag overrides it. An id whose new id is missing from the new corpus never lands, by its codepoints and configs, on a unit that is another entry's new id."""
+    fragments = _fragments()
+    twin = {**fragments[0], "id": "twin", "kinds": [*fragments[0]["kinds"], "twin"]}
+    olds = [_old(fragment) for fragment in [*fragments, twin]]
+    news = [_new(fragment) for fragment in fragments]
+    news[0] = _new(twin)
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    map_path = tmp_path / "unit-id-map.json"
+    assert rekey_verdicts.main(["--from-corpus", str(old_corpus), "--map-out", str(map_path)]) == 0
+    autosave, keep = tmp_path / "verdicts-autosave.json", tmp_path / rekey_verdicts.KEEP
+    _verdicts(autosave, OLD_STAMP, [olds[2]["id"], news[2]["id"]])
+    stored = autosave.read_bytes()
+    argv = ["--root", str(tmp_path), "--map", str(map_path), "--corpus", str(new_corpus)]
+
+    assert rekey_verdicts.main([*argv, "--allow-unmatched"]) == 1
+    out = capsys.readouterr().out
+    assert "collided=1" in out and "records naming different ids land on one unit" in out
+    assert autosave.read_bytes() == stored and not keep.exists()
+
+    _verdicts(autosave, OLD_STAMP, [olds[0]["id"]])
+    assert rekey_verdicts.main([*argv, "--dry-run"]) == 1
+    assert (
+        f"{olds[0]['id']}: {news[0]['id']} has its codepoints and configs but is the new id of {olds[-1]['id']}"
+        in capsys.readouterr().out
     )
+
+
+def test_a_later_rekey_merges_into_the_id_map_and_copies_the_previous_one(tmp_path, capsys):
+    """A run whose kept id map already holds another run's pairs keeps every one of them, adds its own, lets its own pair win a clash, and copies the previous map beside it first. A journal restore from before either re-key then moves both runs' ids through the one map, and a run that changes nothing leaves the map alone."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    forward = tmp_path / "maps" / "forward.json"
+    assert rekey_verdicts.main(["--from-corpus", str(old_corpus), "--map-out", str(forward)]) == 0
+    capsys.readouterr()
+
+    moved = {olds[index]["id"]: news[index]["id"] for index in range(4)}
+    autosave, journal_path = tmp_path / "verdicts-autosave.json", tmp_path / journal.JOURNAL_NAME
+    _verdicts(autosave, OLD_STAMP, list(moved))
+    earlier_old, earlier_new, clashing = "u-4444444444B", "u-5555555555C", "u-6666666666D"
+    _seed_journal(journal_path, [*moved, earlier_old])
     keep = tmp_path / rekey_verdicts.KEEP
     keep.mkdir(parents=True)
     map_path = keep / rekey_verdicts.MAP_NAME
     earlier = {
         "format": rekey_verdicts.MAP_FORMAT,
-        "corpus": "2026-09-01T00:00:00Z",
-        "renamed": {earlier_old: earlier_new, "u-2WvdGAWe6bX": clashing},
+        "from_corpora": ["2026-08-01T00:00:00Z"],
+        "corpora": ["2026-09-01T00:00:00Z"],
+        "presentation_keys": json.loads(forward.read_text(encoding="utf-8"))["presentation_keys"],
+        "units": {earlier_old: ["E650:E650", ["default"], "a", "b", "c"]},
+        "renamed": {earlier_old: earlier_new, olds[0]["id"]: clashing},
     }
     map_path.write_text(json.dumps(earlier), encoding="utf-8")
+    argv = ["--root", str(tmp_path), "--map", str(forward), "--corpus", str(new_corpus)]
 
-    assert rekey_verdicts.main(["--root", str(tmp_path), "--corpus", str(FIXTURE_CORPUS)]) == 0
-    out = capsys.readouterr().out
-    assert "1 pre-rename id(s) pair with a different unit than in the previous map" in out
+    assert rekey_verdicts.main(argv) == 0
+    assert "1 old id(s) pair with a different unit than in the previous map" in capsys.readouterr().out
     merged = json.loads(map_path.read_text(encoding="utf-8"))
-    corpus_stamp = json.loads((FIXTURE_CORPUS / "manifest.json").read_text(encoding="utf-8"))["generated_at"]
-    assert merged["corpora"] == ["2026-09-01T00:00:00Z", corpus_stamp]
-    assert {earlier_old: earlier_new, **PRE_TO_POST}.items() <= merged["renamed"].items()
+    assert merged["from_corpora"] == ["2026-08-01T00:00:00Z", OLD_STAMP]
+    assert merged["corpora"] == ["2026-09-01T00:00:00Z", NEW_STAMP]
+    assert {earlier_old: earlier_new, **moved}.items() <= merged["renamed"].items()
+    assert merged["units"].keys() == {earlier_old, *(old["id"] for old in olds)}
     (copy,) = keep.glob(f"{map_path.stem}-*.json")
     assert json.loads(copy.read_text(encoding="utf-8")) == earlier
 
-    restored = tmp_path / "restored.json"
-    argv = ["--restore-as-of", "2000-01-02", "--journal", str(journal_path), "--autosave", str(autosave)]
-    assert merge_verdicts.main([*argv, "--out", str(restored), "--rekey-map", str(map_path)]) == 0
-    assert _units(restored) == sorted([*PRE_TO_POST.values(), earlier_new])
+    assert _restore(tmp_path, map_path) == sorted([*moved.values(), earlier_new])
     capsys.readouterr()
 
-    assert rekey_verdicts.main(["--root", str(tmp_path), "--corpus", str(FIXTURE_CORPUS)]) == 0
+    assert rekey_verdicts.main(argv) == 0
     assert rekey_verdicts.MAP_NAME not in capsys.readouterr().out
     assert len(list(keep.glob(f"{map_path.stem}-*.json"))) == 1
 
 
-def test_rekey_moves_the_stores_tombstones_through_the_renames():
+def test_rekey_moves_the_stores_tombstones_through_the_pairs():
     renamed = {"u-old1": "u-new1", "u-old2": "u-new2", "u-old3": "u-new1"}
     payload = {
         "format": "ams-review-verdicts/1",
-        "manifest_generated_at": STAMP,
+        "manifest_generated_at": OLD_STAMP,
         "verdicts": [{"unit": "u-old2", "verdict": "approve", "note": "", "at": "t9"}],
         "cleared": [
             {"unit": "u-old1", "at": "t3"},

@@ -46,13 +46,20 @@ STORE_NAME = "unit-cache.ndjson.gz"
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/2"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
 
-# The fields the carry projection leaves out; rebuild/test_carry_verdicts.py checks them. `no_verdict`, `exemplar`, `duplicate_group`, and `cluster` come from the ledger or the whole-corpus passes. `id` is the projection's own digest and `content_key` is the stamp of this projection, so neither can be an input to it. `batch` is excluded so a fragment from an older corpus that still carries one hashes the same. `explain`, `drafts`, `provenance`, and `secondary_junctions` are derived presentation, whose content is already covered by the window and both fonts' glyphs, cells, and junctions. `ink_deltas` is the same delta identity stored per config. `picture_identical` follows from the window and both fonts' placed glyphs, which the projection already covers, so excluding it changes nothing the key distinguishes, and including it would change the id of every unit whose flag changed and orphan their verdicts. `ink_identical` and `junior_equivalent` are derived flags inside the projection. Every fragment carries both, so removing either would change every unit id. The projection includes `highlight`, which a slim fragment (`audit.slim_fragment`) omits, so a slim fragment's stamp differs from the one its full fragment would have. That orphans nothing, because slim units take no verdicts.
+# The fields the carry projection leaves out; rebuild/test_carry_verdicts.py checks them. A field is left out when a rebuild can change it without changing what the reviewer judged, and what the reviewer judged stays in: the window and its configs, both fonts' glyphs, cells, and junctions, the extensions, the highlight geometry, and the `ink_identical` and `junior_equivalent` flags. `no_verdict`, `exemplar`, `duplicate_group`, and `cluster` come from the ledger or the whole-corpus passes. `class`, `ledger_class`, `summary`, and the config badge (`config_note`, `config_gate`, `config_classes`, `config_class_note`) say which class lists the unit and how the app describes it, and each follows from the audit rows, the ledger, the grouping code, or `configs`, so renaming or regrouping a class or rewording a summary changes no unit's id. `id` is the projection's own digest and `content_key` is the stamp of this projection, so neither can be an input to it. `batch` is excluded so a fragment from an older corpus that still carries one hashes the same. `explain`, `drafts`, `provenance`, and `secondary_junctions` are derived presentation, whose content is already covered by the window and both fonts' glyphs, cells, and junctions. `ink_deltas` is the same delta identity stored per config. `picture_identical` follows from the window and both fonts' placed glyphs, which the projection already covers, so excluding it changes nothing the key distinguishes, and including it would change the id of every unit whose flag changed and orphan their verdicts. `ink_identical` and `junior_equivalent` are derived flags inside the projection. Every fragment carries both, so removing either would change every unit id. The projection includes `highlight`, which a slim fragment (`audit.slim_fragment`) omits, so a slim fragment's stamp differs from the one its full fragment would have. That orphans nothing, because slim units take no verdicts.
 CARRY_PRESENTATION_KEYS = frozenset(
     {
         "id",
         "batch",
         "no_verdict",
         "exemplar",
+        "class",
+        "ledger_class",
+        "summary",
+        "config_note",
+        "config_gate",
+        "config_classes",
+        "config_class_note",
         "explain",
         "drafts",
         "provenance",

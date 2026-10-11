@@ -1,6 +1,6 @@
 """Tests for the land (`rebuild/review/landing.py`), which moves a pass's corpus and verdict store into place together under the store's lock beside a running review server.
 
-The overlay keeps every set and clear the live store gained after the snapshot over the prepared store, sends a set on a unit the new corpus lacks to the orphan document, drops a skip on a stamp change and clears the verdict the skip replaced, and keeps the live store's tombstones for surviving units. A land whose live store moved to another stamp since the snapshot aborts and keeps the staged tree. The tree swap and its fallback where the filesystem refuses the swap call, the discard rename that never deletes, the discard a land leaves to its caller, the copy-on-write clone, the stash link, the event naming the stash, which holds the sets and clears from the replaced store until the journal's last base is a day old and a base after that, the read of the journal resumed from retention's scan state, and the empty store a pass that carries nothing lands, which it journals as a base because its sets and clears would reach its record count. After a store write the journal missed (a server save whose append failed, was cut short or never ran, or a store copied back after a refused re-key undo) the land journals a base and removes the marker that write left, and the journal restores the live store from that land on. A land killed at each step of its locked section is finished or dropped by the next holder of the lock, which first cuts off what the dead land half appended to the journal, or the sets and clears it appended whole; one whose result is gone is swapped back out, or refused when the old corpus is gone too. The review server's request path does the same while the lock is free and waits while it is held, and its locked save path refuses while a dead land's intent is there and reads the served corpus only under the lock. Every save applied through that path while two lands run, or a later save on its unit, ends in the landed store, in an orphan document, or, for a save the pass's snapshot already held on a unit the new corpus lacks, in the old corpus's stash. Last, the code digest the server advertises on /capabilities covers exactly the protocol's modules.
+The overlay keeps every set and clear the live store gained after the snapshot over the prepared store, sends a set on a unit the new corpus lacks to the orphan document, drops a skip on a stamp change and clears the verdict the skip replaced, and keeps the live store's tombstones for surviving units. A land whose live store moved to another stamp since the snapshot aborts and keeps the staged tree, and so does a guarded land whose stamp change would orphan more than the limit of the live store's verdicts other than skips. The tree swap and its fallback where the filesystem refuses the swap call, the discard rename that never deletes, the discard a land leaves to its caller, the copy-on-write clone, the stash link, the event naming the stash, which holds the sets and clears from the replaced store until the journal's last base is a day old and a base after that, the read of the journal resumed from retention's scan state, and the empty store a pass that carries nothing lands, which it journals as a base because its sets and clears would reach its record count. After a store write the journal missed (a server save whose append failed, was cut short or never ran, or a store copied back after a refused re-key undo) the land journals a base and removes the marker that write left, and the journal restores the live store from that land on. A land killed at each step of its locked section is finished or dropped by the next holder of the lock, which first cuts off what the dead land half appended to the journal, or the sets and clears it appended whole; one whose result is gone is swapped back out, or refused when the old corpus is gone too. The review server's request path does the same while the lock is free and waits while it is held, and its locked save path refuses while a dead land's intent is there and reads the served corpus only under the lock. Every save applied through that path while two lands run, or a later save on its unit, ends in the landed store, in an orphan document, or, for a save the pass's snapshot already held on a unit the new corpus lacks, in the old corpus's stash. Last, the code digest the server advertises on /capabilities covers exactly the protocol's modules.
 """
 
 import errno
@@ -208,6 +208,22 @@ def test_the_land_aborts_and_keeps_the_staged_tree_when_the_store_moved_to_anoth
     assert repo["autosave"].read_bytes() == before
     assert not landing.intent_path_for(repo["autosave"]).exists()
     assert not repo["journal"].exists()
+
+
+def test_the_orphan_guard_aborts_a_stamp_change_past_the_limit_and_counts_no_skip(repo):
+    """With `guard_orphans`, a land that moves the stamp aborts before it writes anything when more than `landing.ORPHAN_SHARE_LIMIT` of the live store's verdicts name a unit outside the new corpus's triage index, and the reason names the override. Once the vanished unit's verdict is a skip, nothing counts as orphaned and the same land goes ahead."""
+    corpus(repo["next"], "B", ["u-1"])
+    landing.snapshot(repo["autosave"], repo["run"])
+    write(repo["run"] / landing.PREPARED_NAME, document("B", [record("u-1")]))
+    before = repo["autosave"].read_bytes()
+    result = land(repo, guard_orphans=True)
+    assert not result.landed and "1 of 2" in result.reason and "--allow-orphans" in result.reason
+    assert repo["next"].exists() and (repo["live"] / "units-000.json").read_text() == "A"
+    assert repo["autosave"].read_bytes() == before
+    assert not landing.intent_path_for(repo["autosave"]).exists()
+    assert not repo["journal"].exists()
+    write(repo["autosave"], document("A", [record("u-1"), record("u-2", "skip", at="2026-09-02T00:00:00Z")]))
+    assert land(repo, guard_orphans=True).landed
 
 
 def test_a_stamp_change_links_the_old_store_to_its_stash_and_journals_a_base_naming_it(repo):

@@ -30,6 +30,6 @@ uv run python rebuild/review/fixtures/mini/regenerate.py
 1. Add the window's rows to `fixture-audit.tsv`, one per (unit, config). Group the rows by unit for ease of editing; `load_audit` ignores row order. The dedupe key is (`codepoints`, `baseline`, `new`), so one unit's rows share a triple and no two units may share one.
 2. For a new class, add an entry to `fixture-ledger.yaml` and a matching entry to the manifest's `classes`, with the same fields in the same order.
 3. Write the unit into its class shard under `units/` in the builder's output shape by copying the nearest unit and changing what differs. A fragment carries no `batch`: its flags say whether it takes a verdict, and the manifest's `human_unit_ids` gives its place in the queue.
-4. Set the unit's `content_key` to `carry_content_hash` of the unit without its `content_key` key, and give it the id `unit_id_for` derives from that key. Keep each shard sorted by id.
+4. Set the unit's `content_key` to `carry_content_hash` of the unit without its `content_key` key, and give it the id `unit_id_for` derives from that key, which every `secondary_junctions` entry naming the unit as its `primary_unit` takes too. Keep each shard sorted by id.
 5. Update `unit_count`, `row_count`, `machine_approved_count`, `human_unit_ids` (the human units in `audit.triage_key` order: manifest class order, group, window, id), each class's `batches`, and `totals` in `manifest.json`.
 6. Run `uv run pytest rebuild/test_review_build.py rebuild/test_carry_verdicts.py -n auto --dist worksteal`.

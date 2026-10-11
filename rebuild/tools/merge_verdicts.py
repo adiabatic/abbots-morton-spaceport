@@ -5,7 +5,7 @@ Usage:
   uv run python -m rebuild.tools.merge_verdicts --dry-run FILES ...
   uv run python -m rebuild.tools.merge_verdicts --list
   uv run python -m rebuild.tools.merge_verdicts --restore-as-of 2026-07-19T03:00 [--apply [--yes]]
-  uv run python -m rebuild.tools.merge_verdicts --restore-as-of 2026-07-19T03:00 --rekey-map var/keep/issue-357-rekey/unit-id-map.json
+  uv run python -m rebuild.tools.merge_verdicts --restore-as-of 2026-07-19T03:00 --rekey-map var/keep/class-rejig-rekey/unit-id-map.json
 """
 
 from __future__ import annotations

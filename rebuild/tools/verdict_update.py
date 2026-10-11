@@ -35,7 +35,7 @@ STANDING_FILL = ROOT / "verdicts-standing-fill.json"
 
 
 def _run(name: str, call: Callable[[], int | None]) -> int:
-    """Run one step as a timed phase and return its exit code. A `SystemExit` (the duplicate fill's stamp check and the rules-file validation raise one) is converted to a code and its message printed, so the verdict update still prints its `[verdict-update] failed:` line and the cycle can report the later steps as not run."""
+    """Run one step as a timed phase and return its exit code. A `SystemExit` (the carry's orphan refusal, the duplicate fill's stamp check and the rules-file validation raise one) is converted to a code and its message printed, so the verdict update still prints its `[verdict-update] failed:` line and the cycle can report the later steps as not run."""
     console.phase(name)
     started = time.perf_counter()
     try:
@@ -96,6 +96,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--carry-out", type=pathlib.Path, help="where the carried verdicts are written")
     parser.add_argument(
+        "--allow-orphans",
+        action="store_true",
+        help="pass the carry --allow-orphans, so it writes its file however many prior verdicts it orphans",
+    )
+    parser.add_argument(
         "--merge-master",
         type=pathlib.Path,
         help="merge this verdicts master directly instead of carrying: the form for a pass whose corpus did not move, where the carry is provably the identity and the master is the one input the autosave's hash cannot see",
@@ -155,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
         for verdicts in args.verdicts:
             carry_argv += ["--verdicts", str(verdicts)]
         carry_argv += ["--out", str(args.carry_out), "--current-corpus", str(corpus)]
+        if args.allow_orphans:
+            carry_argv.append("--allow-orphans")
         code = _run(
             "carry", lambda: carry_verdicts.main(carry_argv, current_units=units, current_ids=unit_ids)
         )

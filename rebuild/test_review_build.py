@@ -23,7 +23,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import app_index, unit_cache
+from rebuild.review import app_index, tablediff, unit_cache
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
 from rebuild.review.audit import (
@@ -261,10 +261,10 @@ def test_check_manifest_flags_a_malformed_inputs_fingerprint():
     "human_unit_ids",
     (
         "u-0000",
-        ["u-6wxep7mamL7", ["u-dy33xBw4wVZ"]],
+        ["u-BLyK6Z13RtN", ["u-Nc3wVLJaPHB"]],
         ["not-a-unit"],
         ["u-0000"],
-        ["u-6wxep7mamL7", "u-6wxep7mamL7"],
+        ["u-BLyK6Z13RtN", "u-BLyK6Z13RtN"],
     ),
 )
 def test_check_manifest_flags_malformed_human_unit_ids(human_unit_ids):
@@ -753,14 +753,9 @@ def test_the_stamped_scaffold_keys_are_the_projections_share_of_the_scaffold(min
     assert review_build._STAMPED_SCAFFOLD_KEYS == (
         "ink_identical",
         "junior_equivalent",
-        "class",
         "group",
         "codepoints",
         "configs",
-        "config_note",
-        "config_gate",
-        "config_classes",
-        "config_class_note",
         "render_groups",
         "kinds",
     )
@@ -1607,7 +1602,7 @@ def _export_corpus():
     """
     manifest = copy.deepcopy(json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8")))
     units = {unit["id"]: unit for unit in _load_fixture_units()}
-    template = units["u-G4pH7trXkME"]
+    template = units["u-Xp5KzYAPYK7"]
 
     def clone(unit_id, **changes):
         clone = copy.deepcopy(template)
@@ -1902,6 +1897,27 @@ def test_table_diff_build(tmp_path):
     assert "synthetic-pointer" in shard[0]["explain"] or "synthetic-pointer" in " ".join(
         shard[0]["provenance"]
     )
+
+
+def test_table_diff_rows_that_share_an_example_and_outcomes_keep_distinct_ids():
+    """Two settlement rows of one input whose example text and outcomes match on both sides differ only in their context sets, which reach the unit id through `row_key`, since the class and the summary are outside the carry projection."""
+    value = tablediff.SettlementValue(outcome="qsPea.full", joint=False, provenance="")
+    rows = [
+        tablediff.SettlementDiffEntry(
+            bucket="provenance-only",
+            config="default",
+            key=tablediff.SettlementKey(
+                config="default", input="qsPea", backtrack=backtrack, look1=look1, look2=None
+            ),
+            old=value,
+            new=value,
+            example_text=(0xE650, 0xE650),
+        )
+        for backtrack, look1 in ((None, frozenset({"qsPea"})), (frozenset({"qsPea.full"}), None))
+    ]
+    first, second = (review_build._table_diff_unit_json(row, ["default"], False, False) for row in rows)
+    assert first["id"] != second["id"]
+    assert check_unit(first, "table-diff") == [] and check_unit(second, "table-diff") == []
 
 
 def test_a_build_into_the_served_corpus_refuses_while_the_review_server_listens(tmp_path, monkeypatch):

@@ -56,11 +56,11 @@ MINI_AUDIT = MINI / "audit.tsv"
 MINI_FONT = MINI / "M1.otf"
 # How many of the bundle's windows the drafter tests enrich: enough to include each shape those tests ask for, and few enough for one settlement pass.
 MINI_SLICE = 64
-JUNCTION_BEARER = "u-G4pH7trXkME"
-PRIMARY_UNIT = "u-fDT3GBdycaj"
-PLAIN_UNIT = "u-6wxep7mamL7"
-DUPLICATE_MATE = "u-dy33xBw4wVZ"
-THIRD_UNIT = "u-WTMwXA3Hvr2"
+JUNCTION_BEARER = "u-Xp5KzYAPYK7"
+PRIMARY_UNIT = "u-6VFDHaMNgCP"
+PLAIN_UNIT = "u-BLyK6Z13RtN"
+DUPLICATE_MATE = "u-Nc3wVLJaPHB"
+THIRD_UNIT = "u-5NP1CPJxyNT"
 
 
 def _corpus() -> tuple[dict, dict[str, list[dict]]]:
@@ -185,7 +185,7 @@ def test_a_policy_draft_naming_a_file_that_is_not_in_the_repo_fails_the_build():
 
 # --- the slim machine-approved and no-verdict shape ----------------------------------------------
 
-SLIM_UNIT = "u-E8egK4dqX5U"
+SLIM_UNIT = "u-DBug8cSj15L"
 
 
 @pytest.mark.parametrize("key", SLIM_OMITTED_KEYS)
@@ -899,6 +899,22 @@ def test_every_scaffold_key_is_either_compared_by_check_scaffold_or_checked_by_p
             _expect_error(check_unit(wrong, at=(PATCHED,)), key)
             if key in patched_only:
                 _expect_error(check_unit(without, at=(PATCHED,)), f"{key} must be present")
+
+
+def test_ledger_class_may_be_absent_and_is_checked_when_drafted():
+    """`ledger_class` is optional: a fragment passes without it and with null. A present value is checked where the fragment is drafted (`DRAFTED`), never at the write: on a human unit it names a class other than the unit's own, and a machine-approved or no-verdict unit carries none."""
+    plain, slim = _one(), _one(SLIM_UNIT)
+    for unit in (plain, slim):
+        assert "ledger_class" not in unit
+        assert check_unit(unit) == check_unit({**unit, "ledger_class": None}) == []
+    assert check_unit({**plain, "ledger_class": "an-identical-class"}) == []
+    for wrong in (
+        {**plain, "ledger_class": plain["class"]},
+        {**plain, "ledger_class": ""},
+        {**slim, "ledger_class": "an-identical-class"},
+    ):
+        _expect_error(check_unit(wrong, at=(DRAFTED,)), "ledger_class must be")
+        assert check_unit(wrong, at=(PATCHED,)) == []
 
 
 def _build_mini(out: Path, mini_bundle) -> None:

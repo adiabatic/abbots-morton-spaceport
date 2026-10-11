@@ -1,6 +1,8 @@
 """Carry prior verdicts onto the live review corpus by unit id.
 
 A unit's id is derived from its content key (`rebuild.review.unit_cache.unit_id_for`; `rebuild/REVIEW-PLAN.md` §2.1 gives the shape), so a verdict names the same unit on every corpus where that unit's content is unchanged. The carry is a join on that id. A verdict whose unit is a human unit on the new corpus is carried, and one whose unit is not on the corpus at all is orphaned. Skip verdicts are neither carried nor counted as orphaned. No prior corpus is opened, and a verdicts file's stamp is only printed, so a file recorded against any older corpus carries the same way the autosave does. `artifact_cycle.carry_counts` parses the `carry counts:` line, and the cycle records those counts on its run line in the timings journal.
+
+Unless `--allow-orphans` is passed, the carry refuses when more than `landing.ORPHAN_SHARE_LIMIT` of the prior verdicts other than skips are orphaned (`landing.orphan_share` says why). It refuses after printing its counts and before writing anything, because a carried file stamped for the new corpus can outrank the store in a later pass's choice of carry source.
 """
 
 import argparse
@@ -15,6 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.review import unit_index  # noqa: E402
+from rebuild.review.landing import ORPHAN_SHARE_LIMIT, orphan_share  # noqa: E402
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
 OUT = ROOT / "verdicts-carried-forward.json"
@@ -74,6 +77,11 @@ def main(
         default=CURRENT_CORPUS,
         help="the freshly built corpus to carry onto (default: the live review corpus)",
     )
+    parser.add_argument(
+        "--allow-orphans",
+        action="store_true",
+        help=f"write the carried file even when more than {ORPHAN_SHARE_LIMIT:.0%}% of the prior verdicts name no unit on the corpus",
+    )
     args = parser.parse_args(argv)
     if (current_units is None) != (current_ids is None):
         parser.error("current_units and current_ids are handed over together or not at all")
@@ -112,6 +120,15 @@ def main(
     print(
         f"carry counts: human={human_count} matched={human_count - unmatched} unmatched={unmatched} orphaned={orphaned}"
     )
+    share = orphan_share(
+        orphaned, sum(1 for record, _source in prior.values() if record["verdict"] != "skip")
+    )
+    if share is not None and not args.allow_orphans:
+        raise SystemExit(
+            f"carry refused: {share} prior verdicts name no unit on {args.current_corpus}, and nothing was written. "
+            "If a change moved the units' ids, re-key the verdicts onto the new ids first (rebuild/tools/rekey_verdicts.py); "
+            "if the windows themselves changed, pass --allow-orphans."
+        )
 
     carried.sort(key=lambda r: r["unit"])
     payload = {

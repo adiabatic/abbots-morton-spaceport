@@ -225,6 +225,17 @@ def test_the_carry_step_hands_the_verdicts_file_and_the_loaded_index_to_the_carr
     assert merges[0][0] == str(tmp_path / "carried.json")
 
 
+@pytest.mark.parametrize("allowed", (False, True))
+def test_allow_orphans_is_handed_to_the_carry(tmp_path, monkeypatch, allowed):
+    """`--allow-orphans` reaches the carry as its own flag, which lets it write past its orphan limit, and the carry gets no such flag without it."""
+    code, _index, carries, _merges = _carrying_verdict_update(
+        tmp_path, monkeypatch, ("--allow-orphans",) if allowed else ()
+    )
+    assert code == 0
+    [(argv, _units, _unit_ids)] = carries
+    assert ("--allow-orphans" in argv) is allowed
+
+
 def test_the_staging_form_stops_after_the_carry(tmp_path, monkeypatch, capsys):
     """`--no-merge` never writes the live store: the carry runs and nothing after it does."""
     code, _index, carries, merges = _carrying_verdict_update(tmp_path, monkeypatch, ("--no-merge",))

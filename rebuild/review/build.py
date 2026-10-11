@@ -168,7 +168,7 @@ def _repo_head(repo_root: Path) -> str:
         return "unknown"
 
 
-UNIT_ASSEMBLY_EPOCH = "2026-09-05T00:00:00Z"
+UNIT_ASSEMBLY_EPOCH = "2026-10-11T08:52:00Z"
 
 
 def _generated_at(*inputs: Path) -> str:
@@ -354,6 +354,11 @@ _STAMPED_SCAFFOLD_KEYS = tuple(
 _CHECKED_SCAFFOLD_KEYS = _STAMPED_SCAFFOLD_KEYS + (
     "id",
     "no_verdict",
+    "class",
+    "config_note",
+    "config_gate",
+    "config_classes",
+    "config_class_note",
     "exemplar",
     "picture_identical",
     "ink_deltas",
@@ -422,7 +427,7 @@ def patch_fragment(
 
 
 def check_scaffold(fragment: dict, scaffold: dict) -> None:
-    """Exit if `patch_fragment` would change any of a recomputed fragment's checked scaffold keys (`_CHECKED_SCAFFOLD_KEYS`). Equality at the keys inside the carry projection (`_STAMPED_SCAFFOLD_KEYS`) means the fragment's `content_key` still holds after the patch: those keys are everything the patch can change under the stamp (the promoted class, the group and machine flags, and the codepoints and config badge derived from them). Equality at the checked keys outside the projection means the drafting-time `check_unit` read the same scaffold values the write ships. The fragment arrives from the spool stamped and checked on every field the patch leaves alone, so this per-key comparison gives the same answer as rehashing the patched fragment (`check_stamp`), with one comparison per key instead of a sorted-key dump of the whole fragment, on every recomputed unit the write patches. A difference is a build bug: the parent's workload disagrees with what the worker drafted under."""
+    """Exit if `patch_fragment` would change any of a recomputed fragment's checked scaffold keys (`_CHECKED_SCAFFOLD_KEYS`). Equality at the keys inside the carry projection (`_STAMPED_SCAFFOLD_KEYS`) means the fragment's `content_key` still holds after the patch: those keys are everything the patch can change under the stamp (the group and machine flags, and the codepoints derived from them). Equality at the checked keys outside the projection, the promoted class and the config badge among them, means the drafting-time `check_unit` read the same scaffold values the write ships. The fragment arrives from the spool stamped and checked on every field the patch leaves alone, so this per-key comparison gives the same answer as rehashing the patched fragment (`check_stamp`), with one comparison per key instead of a sorted-key dump of the whole fragment, on every recomputed unit the write patches. A difference is a build bug: the parent's workload disagrees with what the worker drafted under."""
     moved = [key for key in _CHECKED_SCAFFOLD_KEYS if fragment[key] != scaffold[key]]
     if moved:
         inside = [key for key in moved if key in _STAMPED_SCAFFOLD_KEYS]
@@ -2685,7 +2690,7 @@ def build_m1(
             for ordinal in sampled_ordinals
         }
         verified = runner.verify(injections)
-        # A cached fragment must be what a recomputation of the same window would write. The content key covers most of that: it hashes the fragment's adjudicable fields (the ink flag, both fonts' glyphs and cells, the junctions, the notation, and on a full fragment the highlight geometry), so one comparison per sampled unit against the stamp the cached fragment carried checks all of them, and the id with them. The recomputation writes the slim or full shape from the unit's own flags and exemption, as the write does, so a cached fragment of the wrong shape would also fail here. Some fields are outside the key. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation returns it beside the key and it is compared with the store record the unit was taken from. The drafts, the explain text and the secondary junctions are checked where they are produced, not sampled: the drafter raises on a pin or policy record it cannot validate, the explain text comes from the same enrichment as the cells and junctions the key covers, and `patch_fragment` re-emits the secondary junctions from the stored rects under this build's primary unit assignments.
+        # A cached fragment must be what a recomputation of the same window would write. The content key covers most of that: it hashes the fragment's adjudicable fields (the ink flag, both fonts' glyphs and cells, the junctions, the notation, and on a full fragment the highlight geometry), so one comparison per sampled unit against the stamp the cached fragment carried checks all of them, and the id with them. The recomputation writes the slim or full shape from the unit's own flags and exemption, as the write does, so a cached fragment of the wrong shape would also fail here. Some fields are outside the key. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation returns it beside the key and it is compared with the store record the unit was taken from. The class and the config badge are scaffold fields: the write patches a cached fragment whose recorded class differs from this build's (`UnitStore.cached_as_is`), and the badge follows from the configs and the per-config classes, which the unit's input key covers. The drafts, the explain text, the summary and the secondary junctions are checked where they are produced, not sampled: the drafter raises on a pin or policy record it cannot validate, the explain text and the summary come from the same enrichment as the cells and junctions the key covers, and `patch_fragment` re-emits the secondary junctions from the stored rects under this build's primary unit assignments.
         stale: list[str] = []
         for unit_id, (key, deltas) in verified.items():
             ordinal = store.ordinal_of(unit_id)
@@ -2858,7 +2863,7 @@ def _table_diff_unit_json(
     ink_identical: bool,
     picture_identical: bool,
 ) -> dict:
-    """One table-diff entry's fragment, with the same content identity an m1-audit unit has: it is built with `id` and `content_key` None, stamped with the hash of its carry projection, and given `unit_cache.unit_id_for` of that stamp as its id."""
+    """One table-diff entry's fragment, with the same content identity an m1-audit unit has: it is built with `id` and `content_key` None, stamped with the hash of its carry projection, and given `unit_cache.unit_id_for` of that stamp as its id. `row_key` is the entry's table key (`key.label()`), which keeps the row in the projection: the class and the summary are outside it, and two settlement rows of one input can share an example text and both outcomes."""
     example_text = entry.example_text
     gate, note = config_badge((entry.config,), full_configs)
     if entry.table == "join":
@@ -2919,6 +2924,7 @@ def _table_diff_unit_json(
         "cluster": None,
         "class": entry.bucket,
         "group": f"{entry.table}:{getattr(entry.key, 'input', getattr(entry.key, 'left', ''))}",
+        "row_key": entry.key.label(),
         "codepoints": ":".join(f"{value:04X}" for value in example_text) if example_text else None,
         "text_entities": text_entities(example_text) if example_text else None,
         "notation": notation(example_text) if example_text else entry.key.label(),
@@ -3281,7 +3287,7 @@ CONTRACT_ERRORS_SHOWN = 20
 
 
 def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHECKED_AT) -> list[str]:
-    """The per-unit half of the §7 contract check. `at` selects which of its two subsets run. `DRAFTED` covers every field settled when `unit_to_json` builds the fragment: the identity and its stamp, the machine flags and `ink_deltas`, the class and group, the window, the junctions, the highlight, the notation, the summary and explain, the config badge, and the drafts. `PATCHED` covers the fields `patch_fragment` assigns after the parent's whole-corpus passes: `duplicate_group`, `cluster`, and the secondary junctions with their primary units.
+    """The per-unit half of the §7 contract check. `at` selects which of its two subsets run. `DRAFTED` covers every field settled when `unit_to_json` builds the fragment: the identity and its stamp, the machine flags and `ink_deltas`, the class, the ledger class and the group, the table-diff row key, the window, the junctions, the highlight, the notation, the summary and explain, the config badge, and the drafts. `PATCHED` covers the fields `patch_fragment` assigns after the parent's whole-corpus passes: `duplicate_group`, `cluster`, and the secondary junctions with their primary units.
 
     The m1 build runs `DRAFTED` in the process that drafts the fragment (`_phase1_unit`) and `PATCHED` in the process that writes the fragment's class (`_write_class`). This is sound because `check_scaffold` checks at the write that every scaffold field outside `PATCHED` (`_CHECKED_SCAFFOLD_KEYS`) still has the value the drafting-time check read, and because only the scaffold and the secondary junctions are written after drafting. Either subset may read a checked field, but only `PATCHED` may read an unchecked one. A new fragment field must be assigned to one subset here. `rebuild/test_corpus_checks.py` checks that every scaffold key is either checked by `check_scaffold` or one of the keys `PATCHED` checks, and that `DRAFTED` and `PATCHED` together equal the full check. `check_shards` and `check_output_dir` run both subsets, so a corpus read back from disk gets every predicate.
     """
@@ -3347,6 +3353,19 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
         need(len(approving) <= 1, "at most one machine check may approve a unit")
         for key in ("class", "group", "notation", "summary"):
             need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
+        if mode == "table-diff":
+            need(
+                isinstance(unit.get("row_key"), str) and unit.get("row_key") != "",
+                "row_key must be a nonempty string in table-diff mode",
+            )
+        ledger_class = unit.get("ledger_class")
+        need(
+            ledger_class is None
+            or (
+                isinstance(ledger_class, str) and ledger_class and ledger_class != unit.get("class") and human
+            ),
+            "ledger_class must be absent, null, or on a human unit the id of a class other than its own",
+        )
         # The slim shape is checked in both directions. A slim fragment must omit every key in `SLIM_OMITTED_KEYS`, and a full fragment must carry them with values, because a human unit without them gives the reviewer nothing to act on. Key presence is the test, as in the app's `isSlimFragment`: a null under one of these keys in a full fragment is an error, not a slim marker.
         slim = mode == "m1-audit" and slim_fragment(unit)
         if slim:

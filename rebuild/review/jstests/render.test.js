@@ -354,24 +354,24 @@ test('renderGroupsOf collapses a single-group unit and tolerates missing render_
 });
 
 test('duplicateChip appears only for multi-member duplicate groups and deep-links the worklist', () => {
-  const unit = { id: 'u-GWzZVqhrmiS', duplicate_group: 'e-0000', class: 'dangling-anchor-dropped' };
-  assert.equal(duplicateChip(unit, ['u-GWzZVqhrmiS']), null);
-  assert.equal(duplicateChip({ ...unit, duplicate_group: null }, ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL']), null);
-  const chip = duplicateChip(unit, ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL', 'u-0007']);
+  const unit = { id: 'u-YAQVKvoqzCv', duplicate_group: 'e-0000', class: 'dangling-anchor-dropped' };
+  assert.equal(duplicateChip(unit, ['u-YAQVKvoqzCv']), null);
+  assert.equal(duplicateChip({ ...unit, duplicate_group: null }, ['u-YAQVKvoqzCv', 'u-DdkFp23muye']), null);
+  const chip = duplicateChip(unit, ['u-YAQVKvoqzCv', 'u-DdkFp23muye', 'u-0007']);
   assert.equal(chip.label, 'duplicate ×3');
-  assert.equal(chip.href, '#units=u-GWzZVqhrmiS,u-bJaTg1JopmL,u-0007');
+  assert.equal(chip.href, '#units=u-YAQVKvoqzCv,u-DdkFp23muye,u-0007');
   assert.ok(chip.title.includes('dangling-anchor-dropped'));
 });
 
 test('duplicateFillTargets excludes the unit itself and anything already verdicted', () => {
-  const unit = { id: 'u-GWzZVqhrmiS', duplicate_group: 'e-0000' };
+  const unit = { id: 'u-YAQVKvoqzCv', duplicate_group: 'e-0000' };
   const verdicted = new Set(['u-0007']);
   assert.deepEqual(
-    duplicateFillTargets(unit, ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL', 'u-0007'], (id) => verdicted.has(id)),
-    ['u-bJaTg1JopmL'],
+    duplicateFillTargets(unit, ['u-YAQVKvoqzCv', 'u-DdkFp23muye', 'u-0007'], (id) => verdicted.has(id)),
+    ['u-DdkFp23muye'],
   );
-  assert.deepEqual(duplicateFillTargets({ id: 'u-GWzZVqhrmiS', duplicate_group: null }, ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL'], () => false), []);
-  assert.deepEqual(duplicateFillTargets(undefined, ['u-GWzZVqhrmiS'], () => false), []);
+  assert.deepEqual(duplicateFillTargets({ id: 'u-YAQVKvoqzCv', duplicate_group: null }, ['u-YAQVKvoqzCv', 'u-DdkFp23muye'], () => false), []);
+  assert.deepEqual(duplicateFillTargets(undefined, ['u-YAQVKvoqzCv'], () => false), []);
 });
 
 test('fixture duplicate-group ids group only within a shard and singletons carry their own id', () => {
@@ -451,7 +451,7 @@ test('familiesOfGroup splits the lead pair', () => {
 });
 
 test('unitMatchesFilters covers class, group, family, config, and status', () => {
-  const unit = shardA.find((candidate) => candidate.id === 'u-bQEkWCxL2Qe');
+  const unit = shardA.find((candidate) => candidate.id === 'u-Yt4bRkgFmpk');
   const empty = { class: null, group: null, family: null, config: null, status: null };
   assert.equal(unitMatchesFilters(unit, empty, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, class: 'post-marker-ligature-formation' }, undefined), true);
@@ -470,21 +470,21 @@ test('unitMatchesFilters covers class, group, family, config, and status', () =>
 
 test('orderWorklist sorts by family-pair group then id by default', () => {
   const units = [
-    { id: 'u-Fz3yc89tWFW', group: 'qsTea:qsOy' },
-    { id: 'u-Dc7dDEQpRYc', group: 'qsMay:qsNo' },
-    { id: 'u-bQEkWCxL2Qe', group: 'qsTea:qsOy' },
+    { id: 'u-Yt4bRkgFmpk', group: 'qsTea:qsOy' },
+    { id: 'u-ejrhc5MnMoF', group: 'qsMay:qsNo' },
+    { id: 'u-LK4WFNGn5Kk', group: 'qsTea:qsOy' },
   ];
-  assert.deepEqual(orderWorklist(units, null).map((u) => u.id), ['u-Dc7dDEQpRYc', 'u-bQEkWCxL2Qe', 'u-Fz3yc89tWFW']);
-  assert.deepEqual(units.map((u) => u.id), ['u-Fz3yc89tWFW', 'u-Dc7dDEQpRYc', 'u-bQEkWCxL2Qe'], 'the default sort must not mutate the given list');
+  assert.deepEqual(orderWorklist(units, null).map((u) => u.id), ['u-ejrhc5MnMoF', 'u-LK4WFNGn5Kk', 'u-Yt4bRkgFmpk']);
+  assert.deepEqual(units.map((u) => u.id), ['u-Yt4bRkgFmpk', 'u-ejrhc5MnMoF', 'u-LK4WFNGn5Kk'], 'the default sort must not mutate the given list');
 });
 
 test('orderWorklist preserves the given order under order=given', () => {
   const units = [
-    { id: 'u-Fz3yc89tWFW', group: 'qsTea:qsOy' },
-    { id: 'u-Dc7dDEQpRYc', group: 'qsMay:qsNo' },
-    { id: 'u-bQEkWCxL2Qe', group: 'qsTea:qsOy' },
+    { id: 'u-LK4WFNGn5Kk', group: 'qsTea:qsOy' },
+    { id: 'u-ejrhc5MnMoF', group: 'qsMay:qsNo' },
+    { id: 'u-Yt4bRkgFmpk', group: 'qsTea:qsOy' },
   ];
-  assert.deepEqual(orderWorklist(units, 'given').map((u) => u.id), ['u-Fz3yc89tWFW', 'u-Dc7dDEQpRYc', 'u-bQEkWCxL2Qe']);
+  assert.deepEqual(orderWorklist(units, 'given').map((u) => u.id), ['u-LK4WFNGn5Kk', 'u-ejrhc5MnMoF', 'u-Yt4bRkgFmpk']);
 });
 
 test('unitWorklist splits, trims, and drops empties', () => {
@@ -951,8 +951,8 @@ test('classesInBatch names the classes with units in a batch, batchless classes 
 });
 
 test('copyPreamble names only the unit, codepoints, and notation — the rest is looked up from the shards', () => {
-  const text = copyPreamble(shardB.find((unit) => unit.id === 'u-GWzZVqhrmiS'));
-  assert.match(text, /rebuild\/out\/review\/ unit u-GWzZVqhrmiS/);
+  const text = copyPreamble(shardB.find((unit) => unit.id === 'u-YAQVKvoqzCv'));
+  assert.match(text, /rebuild\/out\/review\/ unit u-YAQVKvoqzCv/);
   assert.match(text, /E668:E665:E657/);
   assert.match(text, /·Roe·May·They/);
   assert.doesNotMatch(text, /dangling-anchor-dropped/);
@@ -992,16 +992,16 @@ test('every fixture unit joins its notation tokens back into its notation string
 });
 
 test('secondaryJunctionsOf returns junctions for human units and nothing for machine-approved or legacy units', () => {
-  const withPrimary = shardB.find((unit) => unit.id === 'u-GWzZVqhrmiS');
+  const withPrimary = shardB.find((unit) => unit.id === 'u-YAQVKvoqzCv');
   assert.equal(secondaryJunctionsOf(withPrimary).length, 1);
-  assert.equal(secondaryJunctionsOf(withPrimary)[0].primary_unit, 'u-Fz3yc89tWFW');
+  assert.equal(secondaryJunctionsOf(withPrimary)[0].primary_unit, 'u-LK4WFNGn5Kk');
   const legacy = { ink_identical: false };
   assert.deepEqual(secondaryJunctionsOf(legacy), []);
   const nulled = { ink_identical: false, secondary_junctions: null };
   assert.deepEqual(secondaryJunctionsOf(nulled), []);
-  const machine = { ink_identical: true, secondary_junctions: [{ primary_unit: 'u-Fz3yc89tWFW' }] };
+  const machine = { ink_identical: true, secondary_junctions: [{ primary_unit: 'u-LK4WFNGn5Kk' }] };
   assert.deepEqual(secondaryJunctionsOf(machine), [], 'machine-approved renderings never show junction markers');
-  const picture = { picture_identical: true, secondary_junctions: [{ primary_unit: 'u-Fz3yc89tWFW' }] };
+  const picture = { picture_identical: true, secondary_junctions: [{ primary_unit: 'u-LK4WFNGn5Kk' }] };
   assert.deepEqual(secondaryJunctionsOf(picture), [], 'picture identity is a whole-window property, so it hides them too');
 });
 
@@ -1032,7 +1032,7 @@ const onlyHereUnit = {
   },
   secondary_junctions: [
     { pair: { left: 1, right: 2 }, primary_unit: null },
-    { pair: { left: 2, right: 3 }, primary_unit: 'u-bQEkWCxL2Qe' },
+    { pair: { left: 2, right: 3 }, primary_unit: 'u-Yt4bRkgFmpk' },
   ],
 };
 
@@ -1062,7 +1062,7 @@ test('onlyHereJunctionSpans yields nothing for machine-approved units, missing c
 test('onlyHereJunctionSpans reads a row whose junctions all have primary units the same with cells present and with after nulled', () => {
   const withPrimaryOnly = {
     ...onlyHereUnit,
-    secondary_junctions: [{ pair: { left: 1, right: 2 }, primary_unit: 'u-bQEkWCxL2Qe' }],
+    secondary_junctions: [{ pair: { left: 1, right: 2 }, primary_unit: 'u-Yt4bRkgFmpk' }],
   };
   assert.deepEqual(onlyHereJunctionSpans(withPrimaryOnly), []);
   assert.deepEqual(onlyHereJunctionSpans({ ...withPrimaryOnly, after: null }), []);
@@ -1073,7 +1073,7 @@ test('onlyHereJunctionSpans reads a row whose junctions all have primary units t
 });
 
 test('the only-here fixture unit underlines its junction tokens', () => {
-  const unit = shardB.find((entry) => entry.id === 'u-bJaTg1JopmL');
+  const unit = shardB.find((entry) => entry.id === 'u-DdkFp23muye');
   assert.deepEqual(onlyHereJunctionSpans(unit), [[1, 2]]);
 });
 
@@ -1166,8 +1166,8 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
 });
 
 test('searchHaystack folds id, notation, codepoints, class, group, duplicate group, cluster, and kinds into one lowercase string', () => {
-  const haystack = searchHaystack(shardA.find((unit) => unit.id === 'u-bQEkWCxL2Qe'));
-  assert.ok(haystack.includes('u-bqekwcxl2qe'), 'the id, folded to lowercase like everything else');
+  const haystack = searchHaystack(shardA.find((unit) => unit.id === 'u-Yt4bRkgFmpk'));
+  assert.ok(haystack.includes('u-yt4brkgfmpk'), 'the id, folded to lowercase like everything else');
   assert.ok(haystack.includes('·tea·oy'));
   assert.ok(haystack.includes('teaoy'), 'notation with the namer dots stripped is searchable');
   assert.ok(haystack.includes('200c:e652:e679'));
@@ -1193,63 +1193,63 @@ test('searchHaystack is memoized per unit, so a keystroke folds each row at most
 test('searchUnits finds units by duplicate group id and by cluster id', () => {
   assert.deepEqual(
     searchUnits(allUnits, 'e-0000').matches.map((unit) => unit.id).sort(),
-    ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL'],
+    ['u-DdkFp23muye', 'u-YAQVKvoqzCv'],
   );
   assert.deepEqual(
     searchUnits(allUnits, 'c-0da49c11').matches.map((unit) => unit.id).sort(),
-    ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL'],
+    ['u-DdkFp23muye', 'u-YAQVKvoqzCv'],
   );
 });
 
 test('duplicateGroupOfQuery offers the duplicate group for a content-addressed id, keeping its case', () => {
-  const duplicateIndex = new Map([['e-3mJ7kPq2Xw9', ['u-bJaTg1JopmL', 'u-GWzZVqhrmiS']]]);
+  const duplicateIndex = new Map([['e-3mJ7kPq2Xw9', ['u-DdkFp23muye', 'u-YAQVKvoqzCv']]]);
   assert.deepEqual(duplicateGroupOfQuery('  e-3mJ7kPq2Xw9 ', duplicateIndex), {
     id: 'e-3mJ7kPq2Xw9',
-    members: ['u-bJaTg1JopmL', 'u-GWzZVqhrmiS'],
+    members: ['u-DdkFp23muye', 'u-YAQVKvoqzCv'],
   });
   assert.equal(duplicateGroupOfQuery('e-3mj7kpq2xw9', duplicateIndex), null, 'base58 ids are case-significant');
   assert.equal(duplicateGroupOfQuery('e-3mJ7', duplicateIndex), null);
 });
 
 test('searchUnits finds a unit by its exact id across every shard', () => {
-  const { matches, total } = searchUnits(allUnits, 'u-bJaTg1JopmL');
+  const { matches, total } = searchUnits(allUnits, 'u-DdkFp23muye');
   assert.equal(total, 1);
-  assert.equal(matches[0].id, 'u-bJaTg1JopmL');
+  assert.equal(matches[0].id, 'u-DdkFp23muye');
 });
 
 test('searchUnits matches notation with and without the namer dots, case-insensitively', () => {
   assert.deepEqual(
     searchUnits(allUnits, '·Pea·May').matches.map((unit) => unit.id),
-    ['u-Fz3yc89tWFW'],
+    ['u-LK4WFNGn5Kk'],
   );
   assert.deepEqual(
     searchUnits(allUnits, 'peamay').matches.map((unit) => unit.id),
-    ['u-Fz3yc89tWFW'],
+    ['u-LK4WFNGn5Kk'],
   );
 });
 
 test('searchUnits matches codepoints with and without the colons', () => {
-  assert.deepEqual(searchUnits(allUnits, 'E66C').matches.map((unit) => unit.id), ['u-bJaTg1JopmL']);
-  assert.deepEqual(searchUnits(allUnits, 'e670e653').matches.map((unit) => unit.id), ['u-bJaTg1JopmL']);
+  assert.deepEqual(searchUnits(allUnits, 'E66C').matches.map((unit) => unit.id), ['u-DdkFp23muye']);
+  assert.deepEqual(searchUnits(allUnits, 'e670e653').matches.map((unit) => unit.id), ['u-DdkFp23muye']);
 });
 
 test('searchUnits matches class, group, and kind, and includes machine-approved units', () => {
   const byClass = searchUnits(allUnits, 'dangling-anchor-dropped');
-  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-GWzZVqhrmiS', 'u-bJaTg1JopmL']);
+  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-DdkFp23muye', 'u-YAQVKvoqzCv']);
   const extension = searchUnits(allUnits, 'extension');
-  assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-WtFvMidEFXG']);
+  assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-DcLHyHTscUE']);
   assert.equal(extension.matches[0].ink_identical, true, 'a machine-approved unit is still findable');
 });
 
 test('searchUnits requires every whitespace-separated token to match (AND)', () => {
-  assert.deepEqual(searchUnits(allUnits, 'tea oy').matches.map((unit) => unit.id).sort(), ['u-Dc7dDEQpRYc', 'u-bQEkWCxL2Qe']);
+  assert.deepEqual(searchUnits(allUnits, 'tea oy').matches.map((unit) => unit.id).sort(), ['u-Yt4bRkgFmpk', 'u-ejrhc5MnMoF']);
   assert.equal(searchUnits(allUnits, 'tea exam').total, 0);
 });
 
 test('searchUnits ranks an exact id hit ahead of incidental substring hits', () => {
   // Only one fixture unit contains this id. searchScore ranks an exact id match first, so it would stay first even if another unit's haystack contained the id.
-  const { matches } = searchUnits(allUnits, 'u-GWzZVqhrmiS');
-  assert.equal(matches[0].id, 'u-GWzZVqhrmiS');
+  const { matches } = searchUnits(allUnits, 'u-YAQVKvoqzCv');
+  assert.equal(matches[0].id, 'u-YAQVKvoqzCv');
 });
 
 test('searchUnits caps the matches at the limit but reports the true total', () => {

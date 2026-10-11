@@ -61,7 +61,7 @@ Units are ordered for triage by ledger class in the ledger's file order, then by
 
 **Ink-identical machine approval (`ink.py`)**: at build time every unit is shaped in both fonts under every config in its set, with uharfbuzz through `rebuild.validation.shaping.Shaper` and kern-neutral. Each glyph's outline is recorded with fontTools' `DecomposingRecordingPen` and placed at the cumulative `x_advance` plus the glyph's `x_offset`/`y_offset`. A unit whose sorted placed pieces (`ink_pieces`) compare equal under every config is `ink_identical: true`. Both fonts then render it identically and only glyph names differ, so the build approves it without a human. The picture check below it reads `config_diff`'s identity sentinel, the same pixel-level delta the duplicate-group key and `ink_deltas` digest. `rebuild/test_review_ink.py` checks, over a stride of the frozen mini-bundle windows, that the sentinel equals the whole-run cell comparison and follows from piece identity. The manifest's `machine_approved` record holds the machine-approved unit and row totals, per class and per machine check. In table-diff mode the same comparison runs over each entry's example text under its config. An entry with no example text has nothing to shape, so it stays `ink_identical: false` and goes to a human.
 
-**A unit's id is its content**: `unit_cache.unit_id_for` of the carry content key. The content key is the sha256 of the unit's carry projection (its non-presentation fields, `unit_cache.carry_projection`). The id is the key's first 64 bits written as eleven base58 symbols, zero-padded, behind the `u-` prefix: `u-3mJ7kPq2Xw9`. The base58 alphabet is Bitcoin's (`123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz`: the digits and both cases minus 0, O, I and l), and case matters. The id says nothing about the unit's place in the queue. So the same window content has the same id on every corpus it appears on, a fragment's bytes depend only on its own content and the ledger, and a verdict follows its unit across rebuilds by id (`rebuild/tools/carry_verdicts.py`). The carry projection leaves out `secondary_junctions`, because its `primary_unit` field holds another unit's id, which is a relation between units and not a fact about this one (the comment on `unit_cache.CARRY_PRESENTATION_KEYS` lists every field the projection leaves out and why). A build-code change that re-keys units without changing any input bumps `build.UNIT_ASSEMBLY_EPOCH`, for the reason the docstring of `build._generated_at` gives. Duplicate groups get their ids the same way from their own key (`unit_cache.duplicate_group_id_for`), and cluster ids are hashes of their inputs. Within a class shard, fragments are in id order, which is the order the app's locator binary-searches.
+**A unit's id is its content**: `unit_cache.unit_id_for` of the carry content key. The content key is the sha256 of the unit's carry projection (its non-presentation fields, `unit_cache.carry_projection`). The id is the key's first 64 bits written as eleven base58 symbols, zero-padded, behind the `u-` prefix: `u-3mJ7kPq2Xw9`. The base58 alphabet is Bitcoin's (`123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz`: the digits and both cases minus 0, O, I and l), and case matters. The id says nothing about the unit's place in the queue. So the same window content has the same id on every corpus it appears on, a fragment's bytes depend only on its own content and the ledger, and a verdict follows its unit across rebuilds by id (`rebuild/tools/carry_verdicts.py`). The carry projection leaves out `secondary_junctions`, because its `primary_unit` field holds another unit's id, which is a relation between units and not a fact about this one. It also leaves out the fields that say which class lists the unit and how the app describes it (`class`, `summary`, and the config badge), so renaming or regrouping a class re-keys no unit (the comment on `unit_cache.CARRY_PRESENTATION_KEYS` lists every field the projection leaves out and why). A build-code change that re-keys units without changing any input bumps `build.UNIT_ASSEMBLY_EPOCH`, for the reason the docstring of `build._generated_at` gives. Duplicate groups get their ids the same way from their own key (`unit_cache.duplicate_group_id_for`), and cluster ids are hashes of their inputs. Within a class shard, fragments are in id order, which is the order the app's locator binary-searches.
 
 **Batches cover the human units only**: the manifest's `human_unit_ids` is the triage index. It lists, in triage order, every unit that no machine check approves and no ledger class exempts. A batch is a fixed slice of 300 of it, and `audit.batch_of` is the one rule that turns a position into a batch number. No fragment carries its position or its batch. The app-index rows (§7.4) carry each human unit's `order` and `batch`. Machine-approved and no-verdict units are outside the index and are never paged to a human. The manifest's `machine_approved` record (units, rows, the verification method, per-class counts) and each class's `machine_approved_count` let sidebar counts, batch labels, and progress denominators count only the human units, while the machine-approved total is shown in the header strip's corpus-totals popover.
 
@@ -129,7 +129,7 @@ View state lives in `location.hash` (`parseHash`, `writeHash`, and `STATE_KEYS` 
   "exported_at": "2026-06-10T18:40:02Z",
   "verdicts": [
     {"unit": "u-3mJ7kPq2Xw9", "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"},
-    {"unit": "u-dy33xBw4wVZ", "verdict": "reject", "note": "junction looks reached-for", "at": "2026-06-10T18:21:40Z"}
+    {"unit": "u-Nc3wVLJaPHB", "verdict": "reject", "note": "junction looks reached-for", "at": "2026-06-10T18:21:40Z"}
   ]
 }
 ```
@@ -160,7 +160,7 @@ pins:                       # one per approved unit: a whole-word data-expect pi
     note: ""
 
 policy_edits:               # one per rejected unit: the one-line refuse/contract/prefer edit; a reject with no mechanical draft still appears, with keypath/suggested_record null and a no_mechanical_draft note
-  - unit: u-dy33xBw4wVZ
+  - unit: u-Nc3wVLJaPHB
     codepoints: "E650:E665"
     file: glyph_data/runes/qsMay.yaml
     keypath: policy.refuse[+]               # [+] = append to the list
@@ -172,7 +172,7 @@ policy_edits:               # one per rejected unit: the one-line refuse/contrac
     schema_valid: true
 
 any_of:                     # one per fine-either-way unit: both behaviors as full expect strings
-  - unit: u-6wxep7mamL7
+  - unit: u-BLyK6Z13RtN
     text: "qsPea qsOwe qsMay"               # _qs_text-ready family tokens
     features: {}
     candidates:
@@ -182,7 +182,7 @@ any_of:                     # one per fine-either-way unit: both behaviors as fu
     note: ""
 
 neither:                    # one per neither-verdicted unit: both behaviors look wrong; nothing is drafted
-  - unit: u-WTMwXA3Hvr2
+  - unit: u-5NP1CPJxyNT
     codepoints: "E652:200C:E652:E679"
     notation: "·Tea ◊ZWNJ ·Tea·Oy"
     note: "both joins look wrong; needs a fresh stance"
@@ -190,7 +190,7 @@ neither:                    # one per neither-verdicted unit: both behaviors loo
       - glyph_data/runes/qsTea.yaml:policy.extend[0]
 
 identical:                  # one per identical-verdicted unit: the reviewer cannot see the flagged difference; nothing is drafted
-  - unit: u-E8egK4dqX5U
+  - unit: u-DBug8cSj15L
     codepoints: "E665:E679"
     notation: "·May·Oy"
     note: "the highlighted joins look the same to me"
@@ -345,6 +345,7 @@ Field semantics:
 - `summary` is the always-visible one-line summary in rune-name notation. `explain` is preformatted display text.
 - `stylistic_set` is `null` or the space-separated, zero-padded form (`"02 05"`).
 - `content_key` (m1-audit mode, required) is the sha256 of the unit's carry projection (`unit_cache.carry_content_hash`). The unit's id is derived from it (§2.1), and the unit cache compares it with the stamp in its store before it reuses a fragment.
+- `row_key` (table-diff mode, required) is the diffed row's table key (`key.label()` in `rebuild/review/tablediff.py`). It is inside the carry projection, so two rows that share an example text and both outcomes keep distinct ids.
 - All strings are NFC, and all field names are snake_case. `ink_deltas` and `config_classes` are keyed by configuration name (`ss03+ss05`).
 
 The shards under `rebuild/review/fixtures/` hold a handful of hand-written units that cover the contract's branches; `test_fixture_units_exercise_the_contract_branches` in `rebuild/test_review_build.py` lists the branches. The same checker validates the fixtures and real output.

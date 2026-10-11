@@ -88,6 +88,16 @@ def test_picture_identity_is_invisible_to_the_content_key_unlike_ink_identity():
     assert content_key({**unit, "picture_identical": not unit["picture_identical"]}) == content_key(unit)
 
 
+@pytest.mark.parametrize(
+    "key",
+    ("class", "ledger_class", "summary", "config_note", "config_gate", "config_classes", "config_class_note"),
+)
+def test_renaming_or_regrouping_a_class_or_rewording_a_unit_keeps_its_id(key):
+    """The class that lists a unit, the ledger class of a unit listed under another, and the summary and config badge that describe it are presentation, so giving any of them another value leaves every unit's id, and the verdicts that name it, where they were."""
+    for current in _fixture_units():
+        assert content_key({**current, key: "another value"}) == content_key(current), current["id"]
+
+
 def _write_corpus(root, stamp, units, machine=()):
     """Write a minimal corpus for the carry: a manifest with its stamp, one class, and a triage index (`human_unit_ids`) listing every unit in `units`. A fragment carries no batch, so the index is what marks a unit as human. The `machine` units go in the shard but not in the index."""
     (root / "units").mkdir(parents=True)
@@ -122,13 +132,15 @@ def _record(unit, verdict, at="2026-07-01T01:00:00Z", note=""):
     return {"unit": unit["id"], "verdict": verdict, "note": note, "at": at}
 
 
-def _carry(tmp_path, corpus_units, *verdict_files, machine=(), **held):
+def _carry(tmp_path, corpus_units, *verdict_files, machine=(), allow_orphans=False, **held):
     current = tmp_path / "current"
     _write_corpus(current, "2026-07-02T00:00:00Z", corpus_units, machine)
     out = tmp_path / "out.json"
     argv = []
     for path in verdict_files:
         argv += ["--verdicts", str(path)]
+    if allow_orphans:
+        argv.append("--allow-orphans")
     main([*argv, "--out", str(out), "--current-corpus", str(current)], **held)
     return json.loads(out.read_text())
 
@@ -140,7 +152,7 @@ def test_a_verdict_goes_to_the_unit_of_its_id_and_a_stale_stamp_is_no_bar(tmp_pa
     _write_verdicts(
         verdicts, "2026-06-01T00:00:00Z", [_record(kept, "approve", note="fine"), _record(gone, "reject")]
     )
-    payload = _carry(tmp_path, [kept, _content_unit("E653:E654")], verdicts)
+    payload = _carry(tmp_path, [kept, _content_unit("E653:E654")], verdicts, allow_orphans=True)
     assert payload["manifest_generated_at"] == "2026-07-02T00:00:00Z"
     [record] = payload["verdicts"]
     assert (record["unit"], record["verdict"], record["at"]) == (
@@ -169,7 +181,7 @@ def test_the_carry_prints_its_four_counts_whatever_it_matched(tmp_path, capsys):
     kept, gone, fresh = _content_unit("E650:E652"), _content_unit("E652:E653"), _content_unit("E653:E654")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(gone, "reject")])
-    _carry(tmp_path, [kept, fresh], verdicts)
+    _carry(tmp_path, [kept, fresh], verdicts, allow_orphans=True)
     assert "carry counts: human=2 matched=1 unmatched=1 orphaned=1" in capsys.readouterr().out.splitlines()
 
 
@@ -197,3 +209,22 @@ def test_the_human_records_without_the_id_set_are_refused(tmp_path):
         _carry(tmp_path / "records", [kept], verdicts, current_units=[{"id": kept["id"], "batch": 0}])
     with pytest.raises(SystemExit):
         _carry(tmp_path / "ids", [kept], verdicts, current_ids={kept["id"]})
+
+
+def test_a_carry_that_orphans_more_than_the_limit_refuses_unless_allowed(tmp_path, capsys):
+    """Of 100 prior verdicts, ten orphans are at the 10% limit and carry, and eleven are past it: the carry prints its counts, then refuses with the share and the ways past it and writes nothing, so no carried file can outrank the store later. A skip on a gone unit counts on neither side of the share. `--allow-orphans` carries the same verdicts."""
+    units = [_content_unit(f"E650:{0xE650 + offset:04X}") for offset in range(101)]
+    verdicts = tmp_path / "verdicts.json"
+    _write_verdicts(
+        verdicts, "S0", [_record(unit, "approve") for unit in units[:100]] + [_record(units[100], "skip")]
+    )
+    assert len(_carry(tmp_path / "ten", units[:90], verdicts)["verdicts"]) == 90
+    with pytest.raises(SystemExit) as refused:
+        _carry(tmp_path / "eleven", units[:89], verdicts)
+    assert "carry counts: human=89 matched=89 unmatched=0 orphaned=11" in capsys.readouterr().out.splitlines()
+    assert str(refused.value).startswith(
+        "carry refused: 11 of 100 (11.00%, more than the 10% limit) prior verdicts name no unit on "
+    )
+    assert "rekey_verdicts.py" in str(refused.value) and "--allow-orphans" in str(refused.value)
+    assert not (tmp_path / "eleven" / "out.json").exists()
+    assert len(_carry(tmp_path / "allowed", units[:89], verdicts, allow_orphans=True)["verdicts"]) == 89

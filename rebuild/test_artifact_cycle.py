@@ -8955,7 +8955,7 @@ def test_a_failed_build_never_lands(monkeypatch):
 
 
 def test_a_rebuilding_pass_lands_its_corpus_and_store_with_the_saves_made_during_it(monkeypatch, tmp_path):
-    """The seed, the snapshot and the land run for real around a stubbed build and verdict update. The build writes only beside the served corpus, the verdict update writes only the prepared copy, and a save the server applies to the live store while the pass runs is laid over the prepared store at the land. The land swaps the corpus in, stashes the old store, journals the move, deletes the outgoing tree, keys the verdict-update green on the landed store only when nothing was laid over, and the tabs are told the new stamp once."""
+    """The seed, the snapshot and the land run for real around a stubbed build and verdict update. The build writes only beside the served corpus, the verdict update writes only the prepared copy, and a save the server applies to the live store while the pass runs is laid over the prepared store at the land. The land swaps the corpus in, stashes the old store, journals the move, deletes the outgoing tree, keys the verdict-update green on the landed store only when nothing was laid over, and the tabs are told the new stamp once. The new corpus drops one of the store's two units, half its verdicts, so the pass is planned with `--allow-orphans`."""
     _patch_timing_cycle(monkeypatch)
     sent = _record_reloads(monkeypatch)
     monkeypatch.setattr(ac, "_do_corpus_seed", REAL_DO_CORPUS_SEED)
@@ -9011,7 +9011,7 @@ def test_a_rebuilding_pass_lands_its_corpus_and_store_with_the_saves_made_during
 
     monkeypatch.setattr(ac, "_do_corpus_build", build)
     monkeypatch.setattr(ac, "_do_verdict_update", verdict_update)
-    plan = _plan(record_greens=True)
+    plan = _plan(record_greens=True, allow_orphans=True)
     assert plan.scratch_dir is not None
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=spawn)
@@ -9035,6 +9035,68 @@ def test_a_rebuilding_pass_lands_its_corpus_and_store_with_the_saves_made_during
     assert keyed == []
     assert not ac.landing.intent_path_for(ac.AUTOSAVE).exists()
     assert [path for path in sent if path != "verdict-update"] == ["ams:corpus/B"]
+
+
+def test_a_pass_whose_land_would_orphan_past_the_limit_lands_nothing(monkeypatch, tmp_path):
+    """Without `--allow-orphans`, the land refuses a stamp change that leaves more than `landing.ORPHAN_SHARE_LIMIT` of the live store's verdicts on units outside the new corpus's triage index. The pass fails at the land, which names the share and the override, and the served corpus, the store and the staged tree stay as they were."""
+    _patch_timing_cycle(monkeypatch)
+    _record_reloads(monkeypatch)
+    monkeypatch.setattr(ac, "_do_corpus_seed", REAL_DO_CORPUS_SEED)
+    monkeypatch.setattr(ac, "_do_store_snapshot", REAL_DO_STORE_SNAPSHOT)
+    monkeypatch.setattr(ac, "_do_land", REAL_DO_LAND)
+    monkeypatch.setattr(ac, "ROOT", tmp_path)
+    monkeypatch.setattr(ac, "JSTEST_DIR", tmp_path / "rebuild" / "review" / "jstests")
+    live = tmp_path / "rebuild" / "out" / "review"
+    monkeypatch.setattr(ac, "REVIEW_OUT", live)
+    monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "verdicts-autosave.json")
+    live.mkdir(parents=True)
+    (live / "manifest.json").write_text(json.dumps({"generated_at": "A", "human_unit_ids": ["u-1", "u-2"]}))
+    (live / "units-000.json").write_text("old")
+    ac.AUTOSAVE.write_text(json.dumps(_verdicts_doc("A", ["u-1", "u-2"])))
+    store = ac.AUTOSAVE.read_bytes()
+
+    def build(report, *, review_out, **kwargs):
+        (review_out / "units-000.json").write_text("new")
+        (review_out / "manifest.json").write_text(
+            json.dumps({"generated_at": "B", "human_unit_ids": ["u-1", "u-3"]})
+        )
+        return True
+
+    def verdict_update(report, *, spawn, emit, registry, plan):
+        argv = plan.argv("verdict-update")
+        Path(argv[argv.index("--autosave") + 1]).write_text(json.dumps(_verdicts_doc("B", ["u-1"])))
+        return _verdict_update_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+
+    def spawn(name, argv, **kwargs):
+        if name == "land":
+            return _step(name, ac.landing.main(argv[argv.index("rebuild.review.landing") + 1 :]))
+        return _step(name)
+
+    monkeypatch.setattr(ac, "_do_corpus_build", build)
+    monkeypatch.setattr(ac, "_do_verdict_update", verdict_update)
+    report = ac.CycleReport()
+    assert ac._run_cycle(_plan(), report, ac._Emitter(), ac._ChildRegistry(), spawn=spawn) == 1
+    assert report.land_status.startswith(
+        "FAILED (1 of 2 (50.00%, more than the 10% limit) of the live store's verdicts name no unit"
+    )
+    assert "--allow-orphans" in report.land_status
+    assert (live / "units-000.json").read_text() == "old"
+    assert ac.AUTOSAVE.read_bytes() == store
+    assert (ac.next_corpus_dir() / "units-000.json").read_text() == "new"
+    assert not ac.landing.intent_path_for(ac.AUTOSAVE).exists()
+
+
+def test_allow_orphans_reaches_the_carry_and_the_land(tmp_path, monkeypatch):
+    """`--allow-orphans` is the one override for both orphan guards: the pass hands it to the verdict update, which passes it to the carry, and to the land. A pass without it hands it to neither."""
+    _unsettled_repo(tmp_path, monkeypatch)
+    _capable_server(monkeypatch)
+    ran: list[ac.Plan] = []
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: ran.append(plan) or 0)
+    assert ac.main([]) == 0
+    assert ac.main(["--allow-orphans"]) == 0
+    for plan, allowed in zip(ran, (False, True), strict=True):
+        assert ("--allow-orphans" in plan.argv("verdict-update")) is allowed
+        assert ("--allow-orphans" in plan.argv("land")) is allowed
 
 
 def test_a_promoting_pass_journals_no_corpus_build_line(monkeypatch, tmp_path):
