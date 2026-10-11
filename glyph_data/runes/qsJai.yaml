@@ -138,27 +138,7 @@ policy:
         family:
         - qsPea
         - qsTea
-  - entry: x-height
-    by: 1
-    when:
-      left:
-        family:
         - qsHe
-      right:
-        except:
-        - {family: qsTea}
-        - {family: qsThaw}
-        - {family: qsVie}
-        - {family: qsVie_qsUtter}
-        - {family: qsSee}
-        - {family: qsYe}
-        - {family: qsIng}
-        - {family: qsNo}
-        - {family: qsLow}
-        - {family: qsRoe}
-        - {family: qsExam}
-        - {family: qsIt}
-        - {family: qsI}
   - entry: x-height
     by: 1
     when:

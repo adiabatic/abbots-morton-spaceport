@@ -205,11 +205,10 @@ def test_provenance_and_record_parsing(spec):
     assert refuse.provenance.path == "policy.refuse[0]"
     flagship = spec.runes["qsIt"].policy.extend[1]
     assert flagship.exit == "baseline" and flagship.by == 1 and flagship.when.self_entry == "live"
-    short_entry_contract, guarded_contract = spec.runes["qsJai"].policy.contract[:2]
-    assert short_entry_contract.by == guarded_contract.by == 1
-    assert short_entry_contract.entry == guarded_contract.entry == "x-height"
-    assert short_entry_contract.when.left == Condition(family=("qsPea", "qsTea", "qsOut_qsTea"))
-    assert guarded_contract.when.left == Condition(family=("qsHe",))
+    short_entry_contract = spec.runes["qsJai"].policy.contract[0]
+    assert short_entry_contract.by == 1
+    assert short_entry_contract.entry == "x-height"
+    assert short_entry_contract.when.left == Condition(family=("qsPea", "qsTea", "qsHe", "qsOut_qsTea"))
 
 
 def test_scope_condition_parsing(spec):
