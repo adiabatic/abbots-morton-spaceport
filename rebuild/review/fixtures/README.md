@@ -11,7 +11,7 @@ A small hand-written `build_m1` corpus for tests to assert against. The units un
 
 ## `mini/` — the frozen mini-M1 bundle
 
-A second fixture of a different kind: a slice of real build output, frozen so that tests of the build machinery need no live `rebuild/out/`. The module docstring of `mini/regenerate.py` says what the bundle holds, how its windows are chosen, why all of it is regenerated together, and how `pin.json` pins the spec its rows settled under. The docstrings in `mini/pin.py` say how `materialize` writes that spec out of git and how `_preserve_authored_outgoing` adapts a pinned schema to the current loader.
+A second fixture of a different kind: a slice of real build output, frozen so that tests of the build machinery need no live `rebuild/out/`. The module docstring of `mini/regenerate.py` says what the bundle holds, how its windows are chosen, why all of it is regenerated together, and how `pin.json` pins the spec its rows settled under. The docstrings in `mini/pin.py` say how `materialize` writes that spec out of git and how `_preserve_authored_outgoing` and `_adopt_reviewer_class_ids` adapt a pinned schema and a pinned ledger to the current loader.
 
 Every test that needs real build output reads the bundle instead of the live `rebuild/out/`, so it runs at full xdist width. The readers are tests that build a corpus from the bundle (a mini `build_m1` takes seconds), tests that read its frozen audit rows and tables, and tests that need a real font, or a font and a spec that match each other. Each one reaches the bundle through the `mini_bundle`, `mini_corpus`, or `example_units` fixture in `rebuild/conftest.py` or through its own path to `rebuild/review/fixtures/mini/`, so this search lists every test module that reads it:
 
@@ -28,7 +28,7 @@ uv run python rebuild/review/fixtures/mini/regenerate.py
 ## Growing it
 
 1. Add the window's rows to `fixture-audit.tsv`, one per (unit, config). Group the rows by unit for ease of editing; `load_audit` ignores row order. The dedupe key is (`codepoints`, `baseline`, `new`), so one unit's rows share a triple and no two units may share one.
-2. For a new class, add an entry to `fixture-ledger.yaml` and a matching entry to the manifest's `classes`, with the same fields in the same order.
+2. For a new class, add an entry to `fixture-ledger.yaml`, a matching entry to the manifest's `classes` with the same fields in the same order and the `section` that `audit.class_section` gives it, and its title, summary, status and why to the manifest's `ledger_classes`.
 3. Write the unit into its class shard under `units/` in the builder's output shape by copying the nearest unit and changing what differs. A fragment carries no `batch`: its flags say whether it takes a verdict, and the manifest's `human_unit_ids` gives its place in the queue.
 4. Set the unit's `content_key` to `carry_content_hash` of the unit without its `content_key` key, and give it the id `unit_id_for` derives from that key, which every `secondary_junctions` entry naming the unit as its `primary_unit` takes too. Keep each shard sorted by id.
 5. Update `unit_count`, `row_count`, `machine_approved_count`, `human_unit_ids` (the human units in `audit.triage_key` order: manifest class order, group, window, id), each class's `batches`, and `totals` in `manifest.json`.

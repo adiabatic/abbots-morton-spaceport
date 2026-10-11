@@ -1,23 +1,28 @@
-"""Tests for the review-facts sidecar (`rebuild/review/facts.py`): projecting a corpus build's post-merge phase-1 products back onto the pre-merge grain the pins are defined over, the two in-memory functions that must match their shard- or font-reading counterparts, reading and writing the sidecar, and the CLI paths that read it.
+"""Tests for the review-facts sidecar (`rebuild/review/facts.py`): projecting a corpus build's post-merge phase-1 products back onto the pre-merge grain the pins are defined over, re-routing the units of `ink_identical` classes whose picture changes there and on the from-scratch path alike, the two in-memory functions that must match their shard- or font-reading counterparts, reading and writing the sidecar, and the CLI paths that read it.
 
-The tests use hand-built audit rows and hand-set ink verdicts and unmatched groups, with no fonts, no shaping, and no live workload; the only live input is the checked-in divergence ledger. A failure here is a bug in the derivation, not a change in the corpus.
+The tests use hand-built audit rows and hand-set machine flags and change groups, with no fonts, no shaping, and no live workload; the only live input is the checked-in divergence ledger, and the re-routing tests use a ledger of their own. A failure here is a bug in the derivation, not a change in the corpus.
 """
 
 import json
+from collections.abc import Collection
 from pathlib import Path
 
 import pytest
 
 from rebuild.review import facts, unit_store
 from rebuild.review.audit import (
+    UNMATCHED_CLASS,
     AuditRow,
+    LedgerClass,
     UnitTable,
     Workload,
     build_units,
     load_ledger,
     load_table,
     merge_ink_duplicate_units,
+    parse_codepoints,
 )
+from rebuild.review.change_groups import CHANGE_GROUP_ORDER, reroutes
 from rebuild.review.facts import (
     FACTS_FORMAT,
     REFERENCE_WINDOW_CODEPOINTS,
@@ -34,10 +39,11 @@ from rebuild.review.facts import (
     invariant_group,
     ledger_coverage,
     load_facts,
+    premerge_set_group,
+    select_change_group_units,
     workload_digest,
     write_facts,
 )
-from rebuild.review.audit import LedgerClass
 from rebuild.review.enrich import LETTERS
 from rebuild.review.unit_store import UnitStore
 
@@ -51,8 +57,12 @@ STANDALONE_UNMATCHED = "E653:E653"
 STANDALONE_MATCHED = "E654:E654"
 
 
+def _window_text(codepoints: str) -> str:
+    return "".join(chr(value) for value in parse_codepoints(codepoints))
+
+
 def _text(unit) -> str:
-    return "".join(chr(value) for value in unit.codepoint_values)
+    return _window_text(unit.codepoints)
 
 
 def _row(config: str, codepoints: str, matched: str, baseline: tuple[str, ...]) -> AuditRow:
@@ -74,11 +84,26 @@ def _index_of(capture: facts.PremergeSnapshot, codepoints: str, config: str) -> 
     )
 
 
-def _merged_table(rows: list[AuditRow]) -> tuple[facts.PremergeSnapshot, UnitTable, UnitStore]:
-    """Load `rows` against the live ledger, capture the pre-merge snapshot, merge with an ink signature that makes every config of a window identical, then compact the table and rebase the snapshot onto it. Returns the snapshot, the table, and an empty store sized to the compacted table."""
-    ledger = load_ledger(LEDGER_PATH)
+def _ledger_entry(identifier: str, *, ink_identical: bool = False, no_verdict: bool = False) -> LedgerClass:
+    return LedgerClass(
+        id=identifier,
+        status="per-unit",
+        why="",
+        ink_identical=ink_identical,
+        no_verdict=no_verdict,
+        exemplar_keys=frozenset(),
+    )
+
+
+def _merged_table(
+    rows: list[AuditRow], ledger: list[LedgerClass] | None = None, identical: Collection[str] | None = None
+) -> tuple[facts.PremergeSnapshot, UnitTable, UnitStore]:
+    """Load `rows` against `ledger`, the live one by default, and capture the pre-merge snapshot with the ledger's `ink_identical` classes, or with `identical` when given. Then merge with an ink signature that makes every config of a window identical, so every pair of sibling units the merge allows merges, compact the table, and rebase the snapshot onto it. Returns the snapshot, the table, and an empty store sized to the compacted table."""
+    ledger = load_ledger(LEDGER_PATH) if ledger is None else ledger
     table, columns = load_table(rows, ledger, dict(LETTERS))
-    capture = capture_premerge(table)
+    capture = capture_premerge(
+        table, {entry.id for entry in ledger if entry.ink_identical} if identical is None else identical
+    )
     exempt = {entry.id for entry in ledger if entry.no_verdict}
     merge_ink_duplicate_units(table, columns, lambda window, config: window, exempt)
     capture.rebase(table.compact())
@@ -86,24 +111,24 @@ def _merged_table(rows: list[AuditRow]) -> tuple[facts.PremergeSnapshot, UnitTab
 
 
 def _merged_fixture():
-    """Five windows covering every case the projection handles: a default-reachable UNMATCHED survivor absorbing a relabeled ss04 sibling, two stylistic-set-only UNMATCHED siblings that defer to different buckets, a no-verdict matched unit absorbing an UNMATCHED sibling, and two standalone units that never merge. Returns the pre-merge snapshot, the compacted table, and a store over it, with phase 1's products set by hand on the survivors' rows."""
+    """Five windows covering every case the projection handles for UNMATCHED units: a default-reachable UNMATCHED survivor absorbing a relabeled ss04 sibling, two stylistic-set-only UNMATCHED siblings with different set groups, a no-verdict matched unit absorbing an UNMATCHED sibling, and two standalone units that never merge. Returns the pre-merge snapshot, the compacted table, and a store over it, with phase 1's products set by hand on the survivors' rows."""
     rows = [
         _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
         _row("ss03", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
         _row("ss04", MERGE_WINDOW, "UNMATCHED", ("qsPea.ss04", "qsMay")),
         _row("ss03", DEFERRED_WINDOW, "UNMATCHED", ("qsBay", "qsMay")),
         _row("ss04", DEFERRED_WINDOW, "UNMATCHED", ("qsBay.ss04", "qsMay")),
-        _row("default", MIXED_WINDOW, "boundary-window", ("qsTea", "qsMay")),
+        _row("default", MIXED_WINDOW, "split-by-space-or-zwnj", ("qsTea", "qsMay")),
         _row("ss04", MIXED_WINDOW, "UNMATCHED", ("qsTea.ss04", "qsMay")),
         _row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay")),
-        _row("default", STANDALONE_MATCHED, "dangling-anchor-dropped", ("qsKey", "qsKey")),
+        _row("default", STANDALONE_MATCHED, "identical-unused-join-name", ("qsKey", "qsKey")),
     ]
     capture, table, store = _merged_table(rows)
     verdicts = {
-        MERGE_WINDOW: (True, "no-chain-gains"),
-        DEFERRED_WINDOW: (False, "deferred-ss04"),
-        MIXED_WINDOW: (True, "unmatched-misc"),
-        STANDALONE_UNMATCHED: (False, "junction-loss-unjoined"),
+        MERGE_WINDOW: (True, "new-join-at-baseline"),
+        DEFERRED_WINDOW: (False, "only-with-several-sets"),
+        MIXED_WINDOW: (True, "new-join-at-xheight-or-top"),
+        STANDALONE_UNMATCHED: (False, "join-dropped"),
         STANDALONE_MATCHED: (True, ""),
     }
     assert table.n == 5
@@ -132,17 +157,17 @@ def test_merged_siblings_take_their_survivors_ink_verdict():
     assert flags[_index_of(capture, STANDALONE_MATCHED, "default")] == "1"
 
 
-def test_unmatched_groups_read_deferral_from_the_premerge_config_classes():
-    """A pre-merge UNMATCHED unit's unmatched group is its own deferred bucket when it has one, and otherwise its survivor's phase-1 group. The bucket is decided from the pre-merge config classes: the ss03-only survivor stays deferred-ss03, although the merged unit with its ss04 sibling would be deferred-ss04. A matched unit gets no unmatched group."""
+def test_change_groups_read_set_groups_from_the_premerge_config_classes():
+    """A pre-merge UNMATCHED unit's change group is its own set group when it has one, and otherwise its survivor's phase-1 group. The set group is decided from the pre-merge configs and config classes: the ss03-only survivor stays only-with-ss03, although the merged unit with its ss04 sibling is only-with-several-sets. A matched unit gets no change group, even when the merge put it in an UNMATCHED survivor."""
     capture, table, store = _merged_fixture()
     premerge = derive_premerge(capture, table, store)
     assert dict(premerge.unmatched_groups) == {
-        _index_of(capture, MERGE_WINDOW, "default"): "no-chain-gains",
-        _index_of(capture, MERGE_WINDOW, "ss04"): "deferred-ss04",
-        _index_of(capture, DEFERRED_WINDOW, "ss03"): "deferred-ss03",
-        _index_of(capture, DEFERRED_WINDOW, "ss04"): "deferred-ss04",
-        _index_of(capture, MIXED_WINDOW, "ss04"): "deferred-ss04",
-        _index_of(capture, STANDALONE_UNMATCHED, "default"): "junction-loss-unjoined",
+        _index_of(capture, MERGE_WINDOW, "default"): "new-join-at-baseline",
+        _index_of(capture, MERGE_WINDOW, "ss04"): "only-with-ss04",
+        _index_of(capture, DEFERRED_WINDOW, "ss03"): "only-with-ss03",
+        _index_of(capture, DEFERRED_WINDOW, "ss04"): "only-with-ss04",
+        _index_of(capture, MIXED_WINDOW, "ss04"): "only-with-ss04",
+        _index_of(capture, STANDALONE_UNMATCHED, "default"): "join-dropped",
     }
     assert [index for index, _group in premerge.unmatched_groups] == sorted(
         index for index, _group in premerge.unmatched_groups
@@ -172,11 +197,180 @@ def test_derive_premerge_reads_each_merged_rows_survivor_off_the_compaction():
 
 
 def test_derive_premerge_refuses_an_unmatched_unit_with_no_group():
-    """Every pre-merge UNMATCHED unit must have an unmatched group. `derive_premerge` raises on an undeferred one whose survivor has no phase-1 group instead of recording an empty group."""
+    """Every pre-merge UNMATCHED unit must have a change group. `derive_premerge` raises on one with no set group whose survivor has no phase-1 group instead of recording an empty group."""
     capture, table, store = _merged_table(
         [_row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay"))]
     )
     with pytest.raises(ValueError, match=STANDALONE_UNMATCHED):
+        derive_premerge(capture, table, store)
+
+
+LOOKS_IDENTICAL = "looks-identical"
+LOOKS_IDENTICAL_EXEMPT = "looks-identical-exempt"
+REROUTE_LEDGER = [
+    _ledger_entry(LOOKS_IDENTICAL, ink_identical=True),
+    _ledger_entry(LOOKS_IDENTICAL_EXEMPT, ink_identical=True, no_verdict=True),
+]
+
+REROUTED = "E660:E665"
+REROUTED_UNDER_SS04 = "E661:E665"
+PICTURE_IDENTICAL = "E662:E665"
+JUNIOR_ALONE = "E663:E665"
+JUNIOR_MERGED = "E664:E665"
+ABSORBED = "E666:E665"
+EXEMPT = "E667:E665"
+INK_IDENTICAL = "E668:E665"
+
+REROUTE_ROWS = [
+    _row("default", REROUTED, LOOKS_IDENTICAL, ("qsYe", "qsMay")),
+    _row("ss04", REROUTED_UNDER_SS04, LOOKS_IDENTICAL, ("qsWay", "qsMay")),
+    _row("default", PICTURE_IDENTICAL, LOOKS_IDENTICAL, ("qsHe", "qsMay")),
+    _row("ss10", JUNIOR_ALONE, LOOKS_IDENTICAL, ("qsWhy", "qsMay")),
+    _row("default", JUNIOR_MERGED, LOOKS_IDENTICAL, ("qsIng", "qsMay")),
+    _row("ss10", JUNIOR_MERGED, LOOKS_IDENTICAL, ("qsIng.ss10", "qsMay")),
+    _row("default", ABSORBED, LOOKS_IDENTICAL, ("qsNo", "qsMay")),
+    _row("ss04", ABSORBED, "UNMATCHED", ("qsNo.ss04", "qsMay")),
+    _row("default", EXEMPT, LOOKS_IDENTICAL_EXEMPT, ("qsLow", "qsMay")),
+    _row("default", INK_IDENTICAL, LOOKS_IDENTICAL, ("qsRoe", "qsMay")),
+]
+
+
+class _Fonts:
+    """Machine readings preset per window, standing in for `InkComparator` and `JuniorOracle`. Every config of a window has one signature, as in `_merged_table`, and the Junior check approves only a unit whose configs are ss10 alone, as `JuniorOracle.approves` does."""
+
+    def __init__(self, ink: set[str], picture: set[str], junior: set[str]) -> None:
+        self._ink = {_window_text(window) for window in ink}
+        self._picture = {_window_text(window) for window in picture}
+        self._junior = {_window_text(window) for window in junior}
+
+    def ink_identical(self, text: str, configs: tuple[str, ...]) -> bool:
+        return text in self._ink
+
+    def picture_identical(self, text: str, configs: tuple[str, ...]) -> bool:
+        return text in self._picture
+
+    def signature(self, text: str, config: str) -> tuple:
+        return (text,)
+
+    def approves(self, configs: tuple[str, ...], text: str) -> bool:
+        return tuple(configs) == ("ss10",) and text in self._junior
+
+
+FONTS = _Fonts(ink={INK_IDENTICAL}, picture={PICTURE_IDENTICAL}, junior={JUNIOR_ALONE, JUNIOR_MERGED})
+
+
+def _rerouted_build(
+    identical: Collection[str] | None = None,
+) -> tuple[facts.PremergeSnapshot, UnitTable, UnitStore]:
+    """The re-routing windows as `build_m1` hands them to `derive_premerge`: captured with the test ledger's `ink_identical` classes, or with `identical` when given, and merged, then given the machine flags phase 1 reads off `FONTS` for each survivor, an ink delta under every config of a survivor whose ink changed, and the change group the build promotes onto it: `new-join-at-baseline` for an UNMATCHED survivor and `same-joins-narrower` for one `reroutes` moves."""
+    capture, table, store = _merged_table(REROUTE_ROWS, REROUTE_LEDGER, identical)
+    identical_classes = {entry.id for entry in REROUTE_LEDGER if entry.ink_identical}
+    for ordinal in range(table.n):
+        text = _window_text(table.codepoints_text(ordinal))
+        configs = table.configs(ordinal)
+        if FONTS.ink_identical(text, configs):
+            store._flags[ordinal] |= unit_store.INK_IDENTICAL
+        elif FONTS.picture_identical(text, configs):
+            store._flags[ordinal] |= unit_store.PICTURE_IDENTICAL
+        else:
+            store._load_deltas(ordinal, [(config, "changed") for config in configs])
+            if FONTS.approves(configs, text):
+                store._flags[ordinal] |= unit_store.JUNIOR_EQUIVALENT
+        class_id = table.class_id(ordinal)
+        if class_id == UNMATCHED_CLASS:
+            group = "new-join-at-baseline"
+        elif reroutes(
+            class_id, table.no_verdict(ordinal), store.machine_approved(ordinal), identical_classes
+        ):
+            group = "same-joins-narrower"
+        else:
+            continue
+        table.set_unmatched_group(ordinal, group)
+        table.set_class(ordinal, group)
+    return capture, table, store
+
+
+def _keys(capture: facts.PremergeSnapshot) -> list[tuple[str, tuple[str, ...]]]:
+    return [(grain.codepoints, grain.configs) for grain in capture.grains()]
+
+
+def test_identical_class_units_whose_picture_changes_take_a_change_group():
+    """A unit of an `ink_identical` class takes a change group when no machine check approves its survivor and the survivor stays in the class: its own set group when it lacks the default config, and its survivor's group when it has it. It keeps its class when its survivor is ink-identical, picture-identical or Junior-equivalent (an ss10-only unit alone, though not one merged into a default-config sibling, whose survivor the Junior check does not approve), when the merge put it in an UNMATCHED survivor, and when its class exempts it."""
+    capture, table, store = _rerouted_build()
+    premerge = derive_premerge(capture, table, store)
+    keys = _keys(capture)
+    assert {keys[index]: group for index, group in premerge.unmatched_groups} == {
+        (REROUTED, ("default",)): "same-joins-narrower",
+        (REROUTED_UNDER_SS04, ("ss04",)): "only-with-ss04",
+        (JUNIOR_MERGED, ("default",)): "same-joins-narrower",
+        (JUNIOR_MERGED, ("ss10",)): "only-with-ss10",
+        (ABSORBED, ("ss04",)): "only-with-ss04",
+    }
+    assert premerge.ink_flags[keys.index((INK_IDENTICAL, ("default",)))] == "1"
+
+
+def test_the_from_scratch_path_reroutes_the_units_the_sidecar_does():
+    """`select_change_group_units`, the `--from-scratch` path, decides from the audit rows and the fonts which pre-merge units take a change group and which ledger class each is re-routed out of. It must agree with `derive_premerge` over the build's products for the same rows and readings, and where a unit has a set group, give it the same one."""
+    capture, table, store = _rerouted_build()
+    premerge = derive_premerge(capture, table, store)
+    grains = list(capture.grains())
+    sidecar = {
+        (grains[index].codepoints, grains[index].configs): group for index, group in premerge.unmatched_groups
+    }
+    sidecar_rerouted = {
+        (grains[index].codepoints, grains[index].configs): (
+            None if grains[index].class_id == UNMATCHED_CLASS else grains[index].class_id
+        )
+        for index, _group in premerge.unmatched_groups
+    }
+    selected = select_change_group_units(REROUTE_ROWS, REROUTE_LEDGER, FONTS, FONTS)
+    assert {
+        (unit.codepoints, unit.configs): rerouted_from for unit, rerouted_from in selected
+    } == sidecar_rerouted
+    identical = {entry.id for entry in REROUTE_LEDGER if entry.ink_identical}
+    for unit, _rerouted_from in selected:
+        set_group = premerge_set_group(
+            unit.config_classes, unit.configs, dict.fromkeys(unit.configs, "changed"), identical
+        )
+        assert set_group is None or set_group == sidecar[(unit.codepoints, unit.configs)]
+
+
+def test_a_set_group_counts_an_identical_class_config_only_where_its_ink_changed():
+    """A pre-merge unit's set group is decided over the configs no ruling explains, as phase 1 decides a unit's: an UNMATCHED config, or a config of an `ink_identical` class whose ink changed. A re-routed unit that changed only under ss03+ss05 is only-with-ss03, not only-with-ss05, and an UNMATCHED unit whose identical-class default config changed passes the set gate to its survivor's group."""
+    rows = [
+        _row("ss05", REROUTED, LOOKS_IDENTICAL, ("qsYe", "qsMay")),
+        _row("ss03+ss05", REROUTED, LOOKS_IDENTICAL, ("qsYe", "qsMay")),
+        _row("default", ABSORBED, LOOKS_IDENTICAL, ("qsNo", "qsMay")),
+        _row("ss04", ABSORBED, "UNMATCHED", ("qsNo", "qsMay")),
+    ]
+    capture, table, store = _merged_table(rows, REROUTE_LEDGER)
+    assert table.n == 2
+    for ordinal in range(table.n):
+        if table.codepoints_text(ordinal) == REROUTED:
+            store._load_deltas(ordinal, [("ss03+ss05", "changed")])
+            table.set_unmatched_group(ordinal, "only-with-ss03")
+        else:
+            store._load_deltas(ordinal, [("default", "changed"), ("ss04", "changed")])
+            table.set_unmatched_group(ordinal, "same-joins-narrower")
+    keys = _keys(capture)
+    assert {
+        keys[index]: group for index, group in derive_premerge(capture, table, store).unmatched_groups
+    } == {
+        (REROUTED, ("ss05", "ss03+ss05")): "only-with-ss03",
+        (ABSORBED, ("default", "ss04")): "same-joins-narrower",
+    }
+
+
+def test_derive_premerge_refuses_a_rerouting_the_build_and_the_facts_disagree_on():
+    """The re-routing `derive_premerge` decides is checked against the build's. A capture given no `ink_identical` classes re-routes nothing, so a build that re-routed a unit fails the derivation instead of reporting the unit unchanged, and a unit the review facts re-route whose survivor the build left without a change group fails too."""
+    capture, table, store = _rerouted_build(identical=())
+    with pytest.raises(ValueError, match="do not re-route"):
+        derive_premerge(capture, table, store)
+
+    capture, table, store = _rerouted_build()
+    survivor = next(ordinal for ordinal in range(table.n) if table.codepoints_text(ordinal) == REROUTED)
+    table.set_unmatched_group(survivor, "")
+    with pytest.raises(ValueError, match=f"{REROUTED}: the review facts re-route"):
         derive_premerge(capture, table, store)
 
 
@@ -192,7 +386,7 @@ class _Comparator:
 
 def test_ink_group_from_flags_mirrors_the_histogram():
     """`ink_group_from_flags` and `ink_histogram` must agree on keys, counts, and the insertion order of `by_class`. The first writes the pins, and the second is the only independent computation of them."""
-    classes = ["boundary-window", "dangling-anchor-dropped", "UNMATCHED"]
+    classes = ["split-by-space-or-zwnj", "identical-unused-join-name", "UNMATCHED"]
     identical = [True, True, False, False, True, False, False, True, False, False]
     rows = [
         _row("default", f"E65{index:X}:E665", classes[index % 3], (f"q{index}",))
@@ -218,7 +412,7 @@ def test_workload_digest_tracks_order_and_configs():
         [
             _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
             _row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay")),
-            _row("default", STANDALONE_MATCHED, "dangling-anchor-dropped", ("qsKey", "qsKey")),
+            _row("default", STANDALONE_MATCHED, "identical-unused-join-name", ("qsKey", "qsKey")),
         ],
         load_ledger(LEDGER_PATH),
         dict(LETTERS),
@@ -235,7 +429,7 @@ def test_the_snapshots_grains_digest_as_the_materialized_units_do():
         [
             _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
             _row("ss03", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
-            _row("default", STANDALONE_MATCHED, "boundary-window", ("qsKey", "qsKey")),
+            _row("default", STANDALONE_MATCHED, "split-by-space-or-zwnj", ("qsKey", "qsKey")),
         ],
         load_ledger(LEDGER_PATH),
         dict(LETTERS),
@@ -255,7 +449,7 @@ def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
         "E650:E651": (None, None, "only when ss03 is on"),
     }
     table, _rows = load_table(
-        [_row("default", codepoints, "boundary-window", ("q",)) for codepoints in windows],
+        [_row("default", codepoints, "split-by-space-or-zwnj", ("q",)) for codepoints in windows],
         load_ledger(LEDGER_PATH),
         dict(LETTERS),
     )
@@ -281,9 +475,9 @@ def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
 
 
 def _write_shard(root: Path, records: list[dict]) -> dict:
-    """Write a minimal corpus with only what the review-facts reduction reads: the three classes `manifest_group` looks up by name (`CLASS_UNIT_COUNT_KEYS`) with the no-verdict flags and machine-approved histogram `invariant_group` reads, one shard holding `records`, and the manifest fields the sidecar copies into its stamp."""
+    """Write a minimal corpus with only what the review-facts reduction reads: the three classes `manifest_group` looks up by name (`CLASS_UNIT_COUNT_KEYS`) with the no-verdict flags and machine-approved histogram `invariant_group` reads, the live ledger's ids as the `ledger_classes` lookup the pins order classes by, one shard holding `records`, and the manifest fields the sidecar copies into its stamp."""
     (root / "units").mkdir(parents=True, exist_ok=True)
-    ids = ["boundary-window", "dangling-anchor-dropped", "bare-name-live-join"]
+    ids = list(facts.CLASS_UNIT_COUNT_KEYS)
     for position, class_id in enumerate(ids):
         payload = records if position == 0 else []
         (root / "units" / f"{class_id}.json").write_text(json.dumps(payload), encoding="utf-8")
@@ -297,11 +491,15 @@ def _write_shard(root: Path, records: list[dict]) -> dict:
                 "id": class_id,
                 "shards": [f"units/{class_id}.json"],
                 "unit_count": len(records) if position == 0 else 0,
-                "no_verdict": class_id == "boundary-window",
+                "no_verdict": class_id == "split-by-space-or-zwnj",
             }
             for position, class_id in enumerate(ids)
         ],
-        "machine_approved": {"units": 3, "by_class": {"bare-name-live-join": 2, "boundary-window": 1}},
+        "ledger_classes": {entry.id: {"title": entry.title} for entry in load_ledger(LEDGER_PATH)},
+        "machine_approved": {
+            "units": 3,
+            "by_class": {"identical-variant-name": 2, "split-by-space-or-zwnj": 1},
+        },
         "secondary_junctions": {"units_with_markers": 0, "junctions_with_primary_unit": 0},
     }
     (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -334,14 +532,18 @@ def _pins(row_count: int) -> dict:
     """A small pin set in the checked-in file's two-block shape: an invariant block over three classes, and two volatile groups."""
     return {
         "invariant": {
-            "classes": ["boundary-window", "a", "b"],
-            "machine_approved_classes": ["a"],
-            "no_verdict_classes": ["boundary-window"],
-            "unmatched_groups": ["no-chain-gains"],
+            "classes": ["split-by-space-or-zwnj", "identical-variant-name", "join-dropped"],
+            "machine_approved_classes": ["split-by-space-or-zwnj", "identical-variant-name"],
+            "no_verdict_classes": ["split-by-space-or-zwnj"],
+            "unmatched_groups": ["join-dropped"],
         },
         "volatile": {
             "audit": {"row_count": row_count, "units": 1},
-            "unmatched_groups": {"counts": {"no-chain-gains": 1}, "total": 1},
+            "unmatched_groups": {
+                "counts": {"join-dropped": 1},
+                "total": 1,
+                "rerouted": {"identical-variant-name": 0},
+            },
         },
     }
 
@@ -383,64 +585,105 @@ def test_load_facts_refuses_a_missing_wrong_format_or_orphaned_sidecar(tmp_path)
         load_facts(tmp_path, {"generated_at": "2026-02-02T00:00:00Z"})
 
 
-def test_invariant_group_keeps_each_sources_own_order():
-    """The invariant block keeps each source's order: the classes and the no-verdict classes in manifest class order, the machine-approved classes in the order of the manifest's `by_class` histogram, and the unmatched groups in the order `unmatched_group_counts` emits them (`UNMATCHED_GROUP_ORDER`). A block whose order changed on every pass would make `invariant_delta` report reorders that mean nothing."""
+def test_invariant_group_lists_classes_in_ledger_then_group_order():
+    """The invariant block lists the classes, the machine-approved classes and the no-verdict classes in ledger order (the manifest's `ledger_classes`) and then `CHANGE_GROUP_ORDER`, not in the manifest's section order, so a class that changes section does not reorder them; the change groups keep the order `change_group_counts` emits. A class that is neither a ledger class nor a change group raises."""
     manifest = {
+        "ledger_classes": dict.fromkeys(
+            [
+                "split-by-space-or-zwnj",
+                "join-switches-sides",
+                "halves-closer-to-no",
+                "identical-variant-name",
+            ],
+            {},
+        ),
         "classes": [
-            {"id": "boundary-window", "no_verdict": True},
-            {"id": "bare-name-live-join", "no_verdict": False},
-            {"id": "halves-entry-extension-restored", "no_verdict": True},
+            {"id": "join-switches-sides", "no_verdict": False},
+            {"id": "join-dropped", "no_verdict": False},
+            {"id": "split-by-space-or-zwnj", "no_verdict": True},
+            {"id": "halves-closer-to-no", "no_verdict": True},
+            {"id": "identical-variant-name", "no_verdict": False},
         ],
-        "machine_approved": {"units": 5, "by_class": {"bare-name-live-join": 3, "boundary-window": 2}},
+        "machine_approved": {
+            "units": 5,
+            "by_class": {"identical-variant-name": 3, "split-by-space-or-zwnj": 2},
+        },
     }
-    assert invariant_group(manifest, {"no-chain-gains": 8, "deferred-ss03": 1}) == {
-        "classes": ["boundary-window", "bare-name-live-join", "halves-entry-extension-restored"],
-        "machine_approved_classes": ["bare-name-live-join", "boundary-window"],
-        "no_verdict_classes": ["boundary-window", "halves-entry-extension-restored"],
-        "unmatched_groups": ["no-chain-gains", "deferred-ss03"],
+    assert invariant_group(manifest, {"new-join-at-baseline": 8, "only-with-ss03": 1}) == {
+        "classes": [
+            "split-by-space-or-zwnj",
+            "join-switches-sides",
+            "halves-closer-to-no",
+            "identical-variant-name",
+            "join-dropped",
+        ],
+        "machine_approved_classes": ["split-by-space-or-zwnj", "identical-variant-name"],
+        "no_verdict_classes": ["split-by-space-or-zwnj", "halves-closer-to-no"],
+        "unmatched_groups": ["new-join-at-baseline", "only-with-ss03"],
     }
+    with pytest.raises(KeyError, match="not-a-class"):
+        invariant_group({**manifest, "classes": [{"id": "not-a-class", "no_verdict": False}]}, {})
 
 
 def test_build_facts_reduces_its_own_premerge_records(tmp_path):
-    """The sidecar's pins are reductions of the pre-merge records beside them, so a reader can recompute them from those records. The invariant block is reduced from the same manifest and unmatched-group counts as the volatile groups, so the two blocks cannot disagree."""
+    """The sidecar's pins are reductions of the pre-merge records beside them, so a reader can recompute them from those records. A change-group record whose unit's class is not UNMATCHED counts as a unit that class re-routed, and the re-routed counts list every `ink_identical` class in ledger order. The invariant block is reduced from the same manifest and change-group counts as the volatile groups, so the two blocks cannot disagree."""
     table, config_notes, records = _example_table()
     manifest = _write_shard(tmp_path, records)
+    ledger = load_ledger(LEDGER_PATH)
+    identical = [entry.id for entry in ledger if entry.ink_identical]
     capture = capture_premerge(
         load_table(
             [
                 _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
-                _row("default", STANDALONE_MATCHED, "boundary-window", ("qsKey", "qsKey")),
+                _row("default", STANDALONE_MATCHED, "split-by-space-or-zwnj", ("qsKey", "qsKey")),
+                _row("default", REROUTED, "identical-variant-name", ("qsYe", "qsMay")),
             ],
-            load_ledger(LEDGER_PATH),
+            ledger,
             dict(LETTERS),
-        )[0]
+        )[0],
+        set(identical),
     )
+    matched = _index_of(capture, STANDALONE_MATCHED, "default")
     premerge = PremergeFacts(
         units=len(capture),
         workload_digest=workload_digest(capture.grains()),
-        ink_flags="10",
-        unmatched_groups=[(_index_of(capture, MERGE_WINDOW, "default"), "no-chain-gains")],
+        ink_flags="".join("1" if index == matched else "0" for index in range(len(capture))),
+        unmatched_groups=sorted(
+            [
+                (_index_of(capture, MERGE_WINDOW, "default"), "new-join-at-baseline"),
+                (_index_of(capture, REROUTED, "default"), "same-joins-narrower"),
+            ]
+        ),
     )
-    built = build_facts(manifest, table, config_notes, capture, premerge, row_count=2)
+    built = build_facts(manifest, table, config_notes, capture, premerge, row_count=3)
     assert built["format"] == FACTS_FORMAT
     assert built["corpus"]["generated_at"] == manifest["generated_at"]
     volatile = built["pins"]["volatile"]
-    assert volatile["audit"] == {"row_count": 2, "units": 2}
+    assert volatile["audit"] == {"row_count": 3, "units": 3}
     assert volatile["built"] == built_group(tmp_path, manifest)
-    assert volatile["unmatched_groups"] == {"counts": {"no-chain-gains": 1}, "total": 1}
-    assert volatile["ink"] == ink_group_from_flags(capture.class_rows(), "10")
+    assert volatile["unmatched_groups"] == {
+        "counts": {"new-join-at-baseline": 1, "same-joins-narrower": 1},
+        "total": 2,
+        "rerouted": {**dict.fromkeys(identical, 0), "identical-variant-name": 1},
+    }
+    assert list(volatile["unmatched_groups"]["rerouted"]) == identical
+    assert volatile["ink"] == ink_group_from_flags(capture.class_rows(), premerge.ink_flags)
+    assert list(volatile["manifest"]["machine_approved"]["by_class"]) == [
+        "split-by-space-or-zwnj",
+        "identical-variant-name",
+    ]
     assert built["pins"]["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
-        "machine_approved_classes": ["bare-name-live-join", "boundary-window"],
-        "no_verdict_classes": ["boundary-window"],
-        "unmatched_groups": ["no-chain-gains"],
+        "machine_approved_classes": ["split-by-space-or-zwnj", "identical-variant-name"],
+        "no_verdict_classes": ["split-by-space-or-zwnj"],
+        "unmatched_groups": ["new-join-at-baseline", "same-joins-narrower"],
     }
-    assert built["premerge"]["ink_identical"] == "10"
+    assert built["premerge"]["ink_identical"] == premerge.ink_flags
     assert built["premerge"]["workload_digest"] == workload_digest(capture.grains())
 
 
 def _cli_corpus(tmp_path: Path, pins: dict) -> Path:
-    """Write a corpus for the review-facts CLI: a manifest whose class list and machine-approved histogram agree with the invariant block of `pins`, and a sidecar carrying `pins`."""
+    """Write a corpus for the review-facts CLI: a manifest whose class list, ledger lookup and machine-approved histogram agree with the invariant block of `pins`, and a sidecar carrying `pins`."""
     corpus = tmp_path / "corpus"
     corpus.mkdir()
     invariant = pins["invariant"]
@@ -451,6 +694,9 @@ def _cli_corpus(tmp_path: Path, pins: dict) -> Path:
             {"id": identifier, "no_verdict": identifier in invariant["no_verdict_classes"]}
             for identifier in invariant["classes"]
         ],
+        "ledger_classes": {
+            identifier: {} for identifier in invariant["classes"] if identifier not in CHANGE_GROUP_ORDER
+        },
         "machine_approved": {
             "units": len(invariant["machine_approved_classes"]),
             "by_class": {identifier: 1 for identifier in invariant["machine_approved_classes"]},
@@ -476,7 +722,7 @@ def test_check_reads_the_sidecar_and_reports_per_key_mismatches(tmp_path, monkey
 
 
 def test_update_copies_the_sidecars_volatile_block_and_reduces_the_invariant_again(tmp_path, monkeypatch):
-    """`--update` copies the sidecar's volatile block into the pins file unchanged and recomputes the invariant block from the corpus's manifest and the sidecar's unmatched-group counts. The file gets the invariant block's current shape even when an older build wrote the sidecar with a different one."""
+    """`--update` copies the sidecar's volatile block into the pins file unchanged and recomputes the invariant block from the corpus's manifest and the sidecar's change-group counts. The file gets the invariant block's current shape even when an older build wrote the sidecar with a different one."""
     pins_path = tmp_path / "pins.json"
     monkeypatch.setattr(facts, "PINS_PATH", pins_path)
     monkeypatch.setattr(facts, "REPO_ROOT", tmp_path)
@@ -489,7 +735,7 @@ def test_update_copies_the_sidecars_volatile_block_and_reduces_the_invariant_aga
 
 
 def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monkeypatch):
-    """`compute_pins(from_scratch=True)`, the `--from-scratch` path, recomputes the pre-merge groups from the source artifacts without reading review-facts.json, which this test makes unparsable. It returns the same two-block shape, with the invariant block's unmatched groups taken from the recomputed unmatched_groups group."""
+    """`compute_pins(from_scratch=True)`, the `--from-scratch` path, recomputes the pre-merge groups from the source artifacts without reading review-facts.json, which this test makes unparsable. It returns the same two-block shape: the change-group counts and the re-routed counts are reduced from the recomputed assignments, a re-routed unit among them, against the checked-in ledger's `ink_identical` classes, and the invariant block's change groups are taken from those counts."""
     _table, _config_notes, records = _example_table()
     corpus = tmp_path / "corpus"
     corpus.mkdir()
@@ -499,40 +745,38 @@ def test_from_scratch_recomputes_from_sources_without_the_sidecar(tmp_path, monk
     monkeypatch.setattr(facts, "ink_group", lambda repo_root=REPO_ROOT: {"ink": "sentinel"})
     monkeypatch.setattr(
         facts,
-        "unmatched_groups_group",
-        lambda repo_root=REPO_ROOT: {"counts": {"junction-loss-unjoined": 3}, "total": 3},
+        "change_group_assignments",
+        lambda ledger, repo_root=REPO_ROOT: [
+            ("join-dropped", None),
+            ("same-joins-narrower", "identical-variant-name"),
+            ("join-dropped", None),
+        ],
     )
 
     pins = facts.compute_pins(corpus=corpus, from_scratch=True)
     volatile = pins["volatile"]
+    identical = [entry.id for entry in load_ledger(LEDGER_PATH) if entry.ink_identical]
     assert volatile["audit"] == {"audit": "sentinel"}
     assert volatile["ink"] == {"ink": "sentinel"}
-    assert volatile["unmatched_groups"] == {"counts": {"junction-loss-unjoined": 3}, "total": 3}
+    assert volatile["unmatched_groups"] == {
+        "counts": {"join-dropped": 2, "same-joins-narrower": 1},
+        "total": 3,
+        "rerouted": {**dict.fromkeys(identical, 0), "identical-variant-name": 1},
+    }
     assert volatile["built"] == built_group(corpus, manifest)
     assert pins["invariant"] == {
         "classes": [meta["id"] for meta in manifest["classes"]],
-        "machine_approved_classes": ["bare-name-live-join", "boundary-window"],
-        "no_verdict_classes": ["boundary-window"],
-        "unmatched_groups": ["junction-loss-unjoined"],
+        "machine_approved_classes": ["split-by-space-or-zwnj", "identical-variant-name"],
+        "no_verdict_classes": ["split-by-space-or-zwnj"],
+        "unmatched_groups": ["join-dropped", "same-joins-narrower"],
     }
 
 
-def _ledger_entry(identifier: str, *, ink_identical: bool = False, no_verdict: bool = False) -> LedgerClass:
-    return LedgerClass(
-        id=identifier,
-        status="accepted",
-        why="",
-        ink_identical=ink_identical,
-        no_verdict=no_verdict,
-        exemplar_keys=frozenset(),
-    )
-
-
 _ACCEPTED_INVARIANT = {
-    "classes": ["boundary-window", "bare-name-live-join", "deferred-ss10"],
-    "machine_approved_classes": ["boundary-window", "bare-name-live-join"],
-    "no_verdict_classes": ["boundary-window"],
-    "unmatched_groups": ["no-chain-gains", "deferred-ss10"],
+    "classes": ["split-by-space-or-zwnj", "identical-variant-name", "only-with-ss10"],
+    "machine_approved_classes": ["split-by-space-or-zwnj", "identical-variant-name"],
+    "no_verdict_classes": ["split-by-space-or-zwnj"],
+    "unmatched_groups": ["new-join-at-baseline", "only-with-ss10"],
 }
 
 
@@ -541,20 +785,29 @@ def test_invariant_delta_is_empty_exactly_when_nothing_moved():
 
 
 def test_invariant_delta_names_what_appeared_and_what_went_in_the_blocks_own_order():
-    """`invariant_delta` names the ids that were added to or removed from each list (classes, machine-approved classes, no-verdict classes, unmatched groups), each in the block's own order, so the cycle log can be searched the same way on every pass."""
+    """`invariant_delta` names the ids that were added to or removed from each list (classes, machine-approved classes, no-verdict classes, change groups), each in the block's own order, so the cycle log can be searched the same way on every pass."""
     current = {
-        "classes": ["boundary-window", "bare-name-live-join", "see-out-fused", "deferred-ss04"],
-        "machine_approved_classes": ["boundary-window", "bare-name-live-join", "see-out-fused"],
-        "no_verdict_classes": ["boundary-window", "see-out-fused"],
-        "unmatched_groups": ["no-chain-gains", "deferred-ss04"],
+        "classes": [
+            "split-by-space-or-zwnj",
+            "identical-variant-name",
+            "identical-see-out-fusion",
+            "only-with-ss04",
+        ],
+        "machine_approved_classes": [
+            "split-by-space-or-zwnj",
+            "identical-variant-name",
+            "identical-see-out-fusion",
+        ],
+        "no_verdict_classes": ["split-by-space-or-zwnj", "identical-see-out-fusion"],
+        "unmatched_groups": ["new-join-at-baseline", "only-with-ss04"],
     }
     assert invariant_delta(_ACCEPTED_INVARIANT, current) == [
-        "classes +2 (see-out-fused, deferred-ss04)",
-        "classes -1 (deferred-ss10)",
-        "machine-approved +1 (see-out-fused)",
-        "no-verdict +1 (see-out-fused)",
-        "unmatched groups +1 (deferred-ss04)",
-        "unmatched groups -1 (deferred-ss10)",
+        "classes +2 (identical-see-out-fusion, only-with-ss04)",
+        "classes -1 (only-with-ss10)",
+        "machine-approved +1 (identical-see-out-fusion)",
+        "no-verdict +1 (identical-see-out-fusion)",
+        "change groups +1 (only-with-ss04)",
+        "change groups -1 (only-with-ss10)",
     ]
 
 
@@ -562,7 +815,7 @@ def test_invariant_delta_tells_a_reorder_and_a_shape_change_from_a_corpus_change
     """A ledger reorder changes a list's order but not its members, and a key that changes shape (a count replaced by a list) is a change to the block, not to the corpus. Neither may be reported as classes appearing."""
     reordered = {
         **_ACCEPTED_INVARIANT,
-        "classes": ["bare-name-live-join", "boundary-window", "deferred-ss10"],
+        "classes": ["identical-variant-name", "split-by-space-or-zwnj", "only-with-ss10"],
     }
     assert invariant_delta(_ACCEPTED_INVARIANT, reordered) == ["classes reordered"]
     counted = {**_ACCEPTED_INVARIANT}
@@ -575,10 +828,10 @@ def test_invariant_delta_tells_a_reorder_and_a_shape_change_from_a_corpus_change
 
 def test_invariant_diff_is_the_blocks_own_unified_diff():
     """The cycle prints this when the invariant block changed: the block's unified diff without the volatile block, formatted like the pins file so the lines match what `git diff` shows for those keys."""
-    current = {**_ACCEPTED_INVARIANT, "unmatched_groups": ["no-chain-gains"]}
+    current = {**_ACCEPTED_INVARIANT, "unmatched_groups": ["new-join-at-baseline"]}
     lines = invariant_diff(_ACCEPTED_INVARIANT, current)
     assert lines[:2] == ["--- invariant (accepted)", "+++ invariant (this corpus)"]
-    assert '-    "deferred-ss10"' in lines
+    assert '-    "only-with-ss10"' in lines
     assert all("units" not in line for line in lines)
     assert invariant_diff(_ACCEPTED_INVARIANT, dict(_ACCEPTED_INVARIANT)) == []
 
@@ -586,38 +839,43 @@ def test_invariant_diff_is_the_blocks_own_unified_diff():
 def test_ledger_coverage_holds_the_ledgers_declarations_against_what_the_corpus_reached():
     """A class is machine-approved when the build approved any of its units, so the ledger's ink-identical declarations and the machine-approved classes can disagree in both directions. A no-verdict declaration or a ledger entry is unreached when no unit in the corpus matches it. `ledger_coverage` compares the ledger's declarations with the invariant block."""
     ledger = [
-        _ledger_entry("boundary-window", no_verdict=True),
-        _ledger_entry("bare-name-live-join", ink_identical=True),
-        _ledger_entry("see-out-fused", ink_identical=True),
-        _ledger_entry("vie-baseline-entry-extension-dropped", no_verdict=True),
+        _ledger_entry("split-by-space-or-zwnj", no_verdict=True),
+        _ledger_entry("identical-variant-name", ink_identical=True),
+        _ledger_entry("identical-see-out-fusion", ink_identical=True),
+        _ledger_entry("vie-closer-at-baseline-join", no_verdict=True),
     ]
     invariant = {
-        "classes": ["boundary-window", "bare-name-live-join", "see-out-fused", "deferred-ss10"],
-        "machine_approved_classes": ["boundary-window", "bare-name-live-join", "deferred-ss10"],
-        "no_verdict_classes": ["boundary-window"],
-        "unmatched_groups": ["deferred-ss10"],
+        "classes": [
+            "split-by-space-or-zwnj",
+            "identical-variant-name",
+            "identical-see-out-fusion",
+            "only-with-ss10",
+        ],
+        "machine_approved_classes": ["split-by-space-or-zwnj", "identical-variant-name", "only-with-ss10"],
+        "no_verdict_classes": ["split-by-space-or-zwnj"],
+        "unmatched_groups": ["only-with-ss10"],
     }
     coverage = ledger_coverage(ledger, invariant)
-    assert coverage.unreached == ("vie-baseline-entry-extension-dropped",)
-    assert coverage.ink_declared == ("bare-name-live-join", "see-out-fused")
-    assert coverage.ink_declared_unapproved == ("see-out-fused",)
-    assert coverage.machine_approved_undeclared == ("boundary-window", "deferred-ss10")
-    assert coverage.no_verdict_declared == ("boundary-window", "vie-baseline-entry-extension-dropped")
-    assert coverage.no_verdict_reached == ("boundary-window",)
-    assert coverage.no_verdict_unreached == ("vie-baseline-entry-extension-dropped",)
+    assert coverage.unreached == ("vie-closer-at-baseline-join",)
+    assert coverage.ink_declared == ("identical-variant-name", "identical-see-out-fusion")
+    assert coverage.ink_declared_unapproved == ("identical-see-out-fusion",)
+    assert coverage.machine_approved_undeclared == ("split-by-space-or-zwnj", "only-with-ss10")
+    assert coverage.no_verdict_declared == ("split-by-space-or-zwnj", "vie-closer-at-baseline-join")
+    assert coverage.no_verdict_reached == ("split-by-space-or-zwnj",)
+    assert coverage.no_verdict_unreached == ("vie-closer-at-baseline-join",)
     assert coverage.describe() == (
         "machine-approved: 3 classes approve units, 2 undeclared;"
-        " ink-identical: 2 declared, 1 (see-out-fused) approving none;"
-        " no-verdict: 1 of 2 declared reached, unreached 1 (vie-baseline-entry-extension-dropped);"
-        " ledger: 3 of 4 classes reached, unreached 1 (vie-baseline-entry-extension-dropped)"
+        " ink-identical: 2 declared, 1 (identical-see-out-fusion) approving none;"
+        " no-verdict: 1 of 2 declared reached, unreached 1 (vie-closer-at-baseline-join);"
+        " ledger: 3 of 4 classes reached, unreached 1 (vie-closer-at-baseline-join)"
     )
-    assert coverage.as_json()["ink_declared_unapproved"] == ["see-out-fused"]
+    assert coverage.as_json()["ink_declared_unapproved"] == ["identical-see-out-fusion"]
 
 
 def test_ledger_coverage_reads_clean_when_the_ledger_and_the_corpus_agree():
     ledger = [
-        _ledger_entry("boundary-window", no_verdict=True),
-        _ledger_entry("bare-name-live-join", ink_identical=True),
+        _ledger_entry("split-by-space-or-zwnj", no_verdict=True),
+        _ledger_entry("identical-variant-name", ink_identical=True),
     ]
     coverage = ledger_coverage(ledger, _ACCEPTED_INVARIANT)
     assert coverage.unreached == ()

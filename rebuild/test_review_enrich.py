@@ -296,7 +296,7 @@ def test_summary_for_the_known_extension_unit(enricher, units_by_key):
 
 def test_summary_names_a_join_gain_in_prose(enricher, units_by_key):
     unit = units_by_key[("E650:E650:E67A", "default")]
-    assert unit.class_id == "pea-chain-regularized"
+    assert unit.class_id == "pea-joins-next-letter"
     enriched = enricher.enrich(unit)
     assert "joins" in enriched.summary
     assert "·Pea" in enriched.summary

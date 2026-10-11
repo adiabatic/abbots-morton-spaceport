@@ -112,13 +112,13 @@ def test_no_change_rebuild_reuses_every_unit_and_is_byte_stable(mini_corpus, min
     assert _tree(corpus) == before
 
 
-RETAG_CLASS = "dangling-anchor-dropped"
+RETAG_CLASS = "identical-unused-join-name"
 
 
 def _edited_audit(tmp_path: Path) -> Path:
     """Return the mini audit with one window dropped and one moved to another ledger class. Dropping a window shifts the triage positions, and so the batches, of the units after it. Retagging a window changes its class and so its duplicate-group key. An incremental rebuild must recompute both, not only patch units in place.
 
-    The retag uses a matched class rather than UNMATCHED for a data reason: `build_m1` refuses an ink-identical window that claims an unmatched group, which is true of the live corpus (every UNMATCHED window is a real new join under review) but not of a window a test declares UNMATCHED by editing a TSV. Every row of the window moves together, since two matched classes on one triple is a classification bug the loader raises on.
+    The retag uses a matched class rather than UNMATCHED for a data reason: `build_m1` refuses an ink-identical window that claims a change group, which is true of the live corpus (every UNMATCHED window is a real new join under review) but not of a window a test declares UNMATCHED by editing a TSV. Every row of the window moves together, since two matched classes on one triple is a classification bug the loader raises on.
     """
     lines = MINI_AUDIT.read_text(encoding="utf-8").splitlines()
     header, rows = lines[0], lines[1:]
@@ -147,7 +147,7 @@ def _edited_audit(tmp_path: Path) -> Path:
 def _out_of_order_audit(tmp_path: Path) -> tuple[Path, dict[str, list[str]]]:
     """Return the mini audit with two windows split per config. The ss03 row of each is retagged to a ledger class, so each window is blessed under ss03 and novel under its other configs. The second window's ss03 row is moved to the top of the file, so its class map lists ss03 first while the first window's lists its configs in config order. Returns the edited file and, for the in-order window and then the out-of-order one, the configs in the order the edited file lists them.
 
-    The in-order window is the first in the file whose rows all have one (codepoints, baseline, new) triple and are all UNMATCHED, under configs that include default and ss03. The out-of-order window is the next such window with the same configs. A single triple means the ink-duplicate merge does not reach them. The rows left UNMATCHED keep each unit's class UNMATCHED, and since default is among them, neither the unmatched group the review facts defer nor the group phase 1 assigns changes. The mini audit is written one config block at a time, so every class map in it is in config order; the moved row is what gives the build a map in another order.
+    The in-order window is the first in the file whose rows all have one (codepoints, baseline, new) triple and are all UNMATCHED, under configs that include default and ss03. The out-of-order window is the next such window with the same configs. A single triple means the ink-duplicate merge does not reach them. The rows left UNMATCHED keep each unit's class UNMATCHED, and since default is among them, neither the set group the review facts record nor the group phase 1 assigns changes. The mini audit is written one config block at a time, so every class map in it is in config order; the moved row is what gives the build a map in another order.
     """
     lines = MINI_AUDIT.read_text(encoding="utf-8").splitlines()
     header, rows = lines[0], [line.split("\t") for line in lines[1:]]
@@ -225,7 +225,7 @@ def _class_fragments(corpus: Path, class_id: str) -> list[dict]:
 
 
 def _fragment_of(corpus: Path, codepoints: str) -> dict:
-    """Return the one fragment a corpus ships for a window, searching every class the manifest lists, because the build shards an UNMATCHED unit under the unmatched group it promotes the unit to."""
+    """Return the one fragment a corpus ships for a window, searching every class the manifest lists, because the build shards an UNMATCHED or re-routed unit under the change group it promotes the unit to."""
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     (fragment,) = [
         fragment
@@ -662,7 +662,19 @@ def test_the_write_cuts_shard_order_into_contiguous_runs_no_wider_than_its_large
 
     def classes(*sizes):
         return [
-            review_build._ClassToWrite(f"c{index}", "", False, False, "", array("I", range(size)), ())
+            review_build._ClassToWrite(
+                id=f"c{index}",
+                title="",
+                summary="",
+                note="",
+                section="",
+                status="",
+                ink_identical=False,
+                no_verdict=False,
+                why="",
+                ordinals=array("I", range(size)),
+                prior_parts=(),
+            )
             for index, size in enumerate(sizes)
         ]
 
@@ -809,12 +821,12 @@ def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(
 
 
 def test_a_bundled_build_stamps_the_explain_prose_of_its_own_spec(mini_corpus, mini_bundle):
-    """The manifest's `explain_prose` comes from the bundle's spec, not the checkout's. The rationales the mini corpus quotes come from the spec root the fixture materializes, and hashing the live runes instead would misdescribe the corpus and add every live rune to the contracts closure of every module that uses conftest's `mini_corpus`."""
+    """The manifest's `explain_prose` takes the rune and ledger prose from the bundle's spec, not the checkout's, and the change groups' prose from the checkout, since the materialized spec has no `rebuild/review/`. The rationales the mini corpus quotes come from the spec root the fixture materializes, and hashing the live runes instead would misdescribe the corpus and add every live rune to the contracts closure of every module that uses conftest's `mini_corpus`."""
     from rebuild.pipeline import fingerprint
 
     manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["inputs_fingerprint"]["explain_prose"] == fingerprint.explain_prose_value(
-        mini_bundle.spec_root
+        REPO_ROOT, mini_bundle.spec_root
     )
 
 
@@ -830,6 +842,7 @@ def test_unit_store_environment_tracks_each_kernel_settlement_mode(monkeypatch):
             SITE_BEFORE_FONT,
             SITE_JUNIOR_FONT,
             "after-helpers",
+            identical_classes=(),
         )
 
     prospect = kernel_exec.SIMULATED_PROSPECT_DEFAULT
@@ -842,6 +855,26 @@ def test_unit_store_environment_tracks_each_kernel_settlement_mode(monkeypatch):
     assert stamp() != base
 
 
+def test_unit_store_environment_tracks_the_ledgers_identical_classes():
+    """The ledger's `ink_identical` ids decide which units re-route to a change group, and the ledger is otherwise outside the stamp, so the stamp carries the sorted id set: flipping a class's flag drops the store, and the order the ids arrive in does not."""
+    spec = fixtures.mini_spec()
+
+    def stamp(identical):
+        return unit_cache.environment_stamp(
+            REPO_ROOT,
+            spec,
+            MINI,
+            SITE_BEFORE_FONT,
+            SITE_JUNIOR_FONT,
+            "after-helpers",
+            identical_classes=identical,
+        )
+
+    base = stamp(("identical-zoo-crown", "identical-variant-name"))
+    assert stamp(("identical-variant-name", "identical-zoo-crown")) == base
+    assert stamp(("identical-variant-name",)) != base
+
+
 def test_unit_store_environment_ignores_the_contact_allow_list(tmp_path):
     """Dropping the unit store rebuilds every unit cold, and an edit to the contact allow-list should not cause that: the defect gate is its only reader, and nothing in the review build opens it. The `data` line hashes `fingerprint.data_paths`, which does not include the allow-list. The test uses a hand-built root so the edit is real and does not touch the repository's own file."""
     spec = fixtures.mini_spec()
@@ -852,7 +885,9 @@ def test_unit_store_environment_ignores_the_contact_allow_list(tmp_path):
     allow = root / "rebuild" / "m1-contact-allow.yaml"
 
     def stamp():
-        return unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers")
+        return unit_cache.environment_stamp(
+            root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers", identical_classes=()
+        )
 
     base = stamp()
     allow.write_text("- {signature: 'contact:qsPea.full.ex-y0:qsTea.full.en-y0:y1'}\n", encoding="utf-8")
@@ -874,7 +909,9 @@ def test_unit_store_environment_ignores_a_schema_hover_and_a_registry_comment(tm
     schema.write_text('{"type": "object", "description": "One rune per file."}\n', encoding="utf-8")
 
     def stamp():
-        return unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers")
+        return unit_cache.environment_stamp(
+            root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers", identical_classes=()
+        )
 
     base = stamp()
     registry.write_text("# Registries only.\nalphabet: []  # none yet\n", encoding="utf-8")
@@ -937,7 +974,9 @@ def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_corpus_never_rea
 
     def stamps() -> tuple[str, str]:
         return (
-            unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers").value,
+            unit_cache.environment_stamp(
+                root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers", identical_classes=()
+            ).value,
             unit_cache.signature_environment(root, MINI_FONT, "after-helpers").value,
         )
 
@@ -962,7 +1001,9 @@ def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_corpus_never_rea
 
 def _both_stamps(root: Path, spec) -> tuple[fingerprint.EnvironmentStamp, fingerprint.EnvironmentStamp]:
     return (
-        unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers"),
+        unit_cache.environment_stamp(
+            root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers", identical_classes=()
+        ),
         unit_cache.signature_environment(root, MINI_FONT, "after-helpers"),
     )
 
@@ -1104,7 +1145,9 @@ def test_a_refuse_why_edit_moves_only_that_family_key(tmp_path):
     (runes / "qsPea.yaml").write_text(REFUSE_RUNE, encoding="utf-8")
 
     def stamp():
-        return unit_cache.environment_stamp(tmp_path, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers")
+        return unit_cache.environment_stamp(
+            tmp_path, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers", identical_classes=()
+        )
 
     before, _ = unit_cache.family_content_keys(tmp_path, spec, MINI_FONT)
     before_stamp = stamp()
@@ -1121,7 +1164,7 @@ def test_a_refuse_why_edit_moves_only_that_family_key(tmp_path):
 # --- the key and cluster byte-contracts ------------------------------------------------
 
 
-def _unit(codepoints: str, matched: str = "junction-loss-unjoined") -> tuple[UnitTable, RowColumns, int]:
+def _unit(codepoints: str, matched: str = "join-dropped") -> tuple[UnitTable, RowColumns, int]:
     """Return one unit's table, row columns, and ordinal, the three things the keyer reads."""
     row = AuditRow(
         config="default",
@@ -1225,7 +1268,7 @@ _SIGNATURE_ROW = AuditRow(
     config="default",
     codepoints="E650:E652",
     kinds=("junction",),
-    matched_entry="junction-loss-unjoined",
+    matched_entry="join-dropped",
     baseline=("a", "b"),
     new=("c", "d"),
 )
@@ -1438,8 +1481,8 @@ def test_cluster_id_from_repr_matches_the_tuple_recipe():
     """The c- ids recorded in rebuild/standing-approvals.yaml and in prior verdicts are hashes of `repr((tuple(configs), class_id, diffs))`. The piecewise hashing over the diffs' repr bytes must reproduce that byte stream exactly, including empty diffs and one-element config tuples."""
     piece = ((("moveTo", ((0, 0),)), ("lineTo", ((5, 0),))),)
     for configs, class_id, diffs in (
-        (("default",), "junction-loss-unjoined", ((), (), 0)),
-        (("default", "ss03"), "boundary-window", ((piece, (), 3), ((), piece, -2))),
+        (("default",), "join-dropped", ((), (), 0)),
+        (("default", "ss03"), "split-by-space-or-zwnj", ((piece, (), 3), ((), piece, -2))),
         (("ss10",), "ss10-isolation-completed", ((piece, piece, 0),)),
     ):
         expected = "c-" + hashlib.sha1(repr((tuple(configs), class_id, diffs)).encode()).hexdigest()[:8]
@@ -1448,7 +1491,7 @@ def test_cluster_id_from_repr_matches_the_tuple_recipe():
 
 
 def test_the_cluster_a_recomputed_unit_carries_keys_on_its_final_class(mini_corpus):
-    """The runner computes a unit's cluster where it assigns the unmatched group, so an UNMATCHED unit's cluster must be keyed on that group (the class its fragment is sharded under) and a ledger-classed unit's on its ledger class. The diffs behind the id are discarded with the worker, so the test checks the store instead: every unit's record, machine-approved ones included, carries a cluster, and a full fragment's cluster matches its record. A cached unit's cluster is taken from the record, which is sound only if the recomputation keyed on the same class the store records for the unit."""
+    """The runner computes a unit's cluster where it assigns the change group, so the cluster of an UNMATCHED or re-routed unit must be keyed on that group (the class its fragment is sharded under) and a ledger-classed unit's on its ledger class. The diffs behind the id are discarded with the worker, so the test checks the store instead: every unit's record, machine-approved ones included, carries a cluster, and a full fragment's cluster matches its record. A cached unit's cluster is taken from the record, which is sound only if the recomputation keyed on the same class the store records for the unit."""
     manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
     with gzip.open(unit_cache.store_path(mini_corpus), "rt", encoding="utf-8") as stream:
         environment = json.loads(next(stream))["environment"]
@@ -1464,24 +1507,25 @@ def test_the_cluster_a_recomputed_unit_carries_keys_on_its_final_class(mini_corp
                 if not slim_fragment(fragment):
                     assert fragment["cluster"] == cached.cluster
                 assert cached.prior_class == meta["id"]
-                if cached.unmatched_group:
+                if cached.change_group:
                     seen_group = True
-                    assert meta["id"] == cached.unmatched_group
+                    assert meta["id"] == cached.change_group
     assert seen_group
 
 
 def test_the_store_parse_interns_and_pools_what_repeats_across_records(tmp_path):
-    """Two records that name the same class, cluster, unmatched group, config, delta, cell name, or junction token load as the same string objects, and their span and name tuples as the same tuple objects, so a store with a million records holds one instance per distinct name and per distinct tuple. The per-record keys, which never repeat, are not interned."""
+    """Two records that name the same class, cluster, change group, ledger class, config, delta, cell name, or junction token load as the same string objects, and their span and name tuples as the same tuple objects, so a store with a million records holds one instance per distinct name and per distinct tuple. The per-record keys, which never repeat, are not interned."""
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     unit_cache.write_store(tmp_path, "env-a", [_round_trip_unit(), replace(_round_trip_unit(), key="k2")])
     pool: dict = {}
     loaded = unit_cache.load_store(tmp_path, "env-a", pool=pool)
     assert loaded is not None
     first, second = loaded["k1"], loaded["k2"]
-    assert first.prior_class is second.prior_class is sys.intern("boundary-window")
+    assert first.prior_class is second.prior_class is sys.intern("split-by-space-or-zwnj")
     assert first.cluster is second.cluster
     assert first.diffs_digest is second.diffs_digest
-    assert first.unmatched_group is second.unmatched_group
+    assert first.change_group is second.change_group
+    assert first.ledger_class is second.ledger_class is sys.intern("identical-variant-name")
     assert next(iter(first.ink_deltas)) is next(iter(second.ink_deltas)) is sys.intern("default")
     assert first.ink_deltas["default"] is second.ink_deltas["default"]
     for name in ("after_cells", "after_junctions", "before_glyphs", "before_junctions"):
@@ -1585,7 +1629,9 @@ def test_the_store_parse_reproduces_the_projection_it_was_written_from(tmp_path)
     unit_cache.write_store(tmp_path, "env-a", [written])
     loaded = unit_cache.load_store(tmp_path, "env-a")
     assert loaded is not None
-    walked = unit_cache.PriorFragment("units/boundary-window.json", 1, 5, prior_id, written.content_key)
+    walked = unit_cache.PriorFragment(
+        "units/split-by-space-or-zwnj.json", 1, 5, prior_id, written.content_key
+    )
     store = UnitStore(1)
     store.load_cached(0, loaded[written.key], codepoints=(1, 2), found=walked)
     primary_unit = store.primary_unit_projection(0)
@@ -1614,7 +1660,7 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
     return unit_cache.CachedUnit(
         key="k1",
         prior_id="u-0001",
-        prior_class="boundary-window",
+        prior_class="split-by-space-or-zwnj",
         content_key="f" * 64,
         slim=False,
         address=None,
@@ -1624,7 +1670,8 @@ def _round_trip_unit() -> unit_cache.CachedUnit:
         ink_deltas={"default": "d-0123456789ab"},
         diffs_digest="deadbeef",
         cluster="c-12345678",
-        unmatched_group="",
+        change_group="same-joins-narrower",
+        ledger_class="identical-variant-name",
         pair_codepoints=(1, 2),
         proj={
             "pair": [0, 1],
@@ -1656,7 +1703,7 @@ def _round_trip_cached() -> unit_cache.ParsedCachedUnit:
     return unit_cache.ParsedCachedUnit(
         key="k1",
         prior_id="u-0001",
-        prior_class="boundary-window",
+        prior_class="split-by-space-or-zwnj",
         content_key="f" * 64,
         slim=False,
         address=None,
@@ -1666,7 +1713,8 @@ def _round_trip_cached() -> unit_cache.ParsedCachedUnit:
         ink_deltas={"default": "d-0123456789ab"},
         diffs_digest="deadbeef",
         cluster="c-12345678",
-        unmatched_group="",
+        change_group="same-joins-narrower",
+        ledger_class="identical-variant-name",
         pair_codepoints=(1, 2),
         duplicate_group="e-2WvdGAWe6bX",
         exemplar=False,

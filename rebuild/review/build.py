@@ -39,19 +39,23 @@ from typing import BinaryIO, cast
 
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
-from rebuild.review import app_index, facts, tablediff, unit_cache, unit_index, unit_store, unmatched_groups
+from rebuild.review import app_index, facts, tablediff, unit_cache, unit_index, unit_store
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
+    LEDGER_STATUSES,
     MACHINE_CHECKS,
+    SECTIONS,
     SLIM_OMITTED_KEYS,
     UNMATCHED_CLASS,
+    LedgerClass,
     RowColumns,
     Unit,
     UnitTable,
     _config_index,
     assign_batches,
     batch_of,
+    class_section,
     family_ranks,
     load_workload,
     machine_approved,
@@ -63,6 +67,12 @@ from rebuild.review.audit import (
     sort_for_triage,
     synthesize_unmatched_group_classes,
     triage_key,
+)
+from rebuild.review.change_groups import (
+    CHANGE_GROUP_ORDER,
+    assign_change_group,
+    load_change_group_prose,
+    reroutes,
 )
 from rebuild.review.drafts import Drafter, _import_test_shaping
 from rebuild.review.ink import (
@@ -93,7 +103,6 @@ from rebuild.review.enrich import (
 )
 from rebuild.review.subset_pack import ensure_pack, is_junction_token, table_digests
 from rebuild.review.unit_store import UnitStore
-from rebuild.review.unmatched_groups import assign_unmatched_group
 from rebuild.tools import console, memory_tally
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import current_rss_bytes, peak_rss_self_bytes, rss_now_token, rss_token
@@ -273,7 +282,7 @@ def config_note(unit_configs, full_configs) -> str | None:
 
 
 def _config_class_note(unit) -> str | None:
-    """Return a note for a unit whose class differs by config (UNMATCHED under some configs and a ledger class under others), for example "blessed as ss03-chain-join-gains under ss03, ss02+ss03; novel under default, ss02". Return None when the unit has one class under every config."""
+    """Return a note for a unit whose class differs by config (UNMATCHED under some configs and a ledger class under others), for example "blessed as ss03-adds-joins-around-tea under ss03, ss03+ss05; novel under default, ss05". Return None when the unit has one class under every config."""
     config_classes = unit.config_classes
     if not config_classes:
         return None
@@ -294,7 +303,7 @@ def _config_class_note(unit) -> str | None:
 def _machine_approved_meta(
     machine_units: Iterable[tuple[str, int, str]], junior_font: Path, repo_root: Path
 ) -> dict:
-    """Return the manifest's `machine_approved` record: unit and row totals across the three machine checks (ink-identical, picture-identical and junior-equivalent), unit counts per class (classes with none are omitted), and one sub-record per machine check with its counts and verification method. `machine_units` yields one `(class_id, row_count, check_id)` per machine-approved unit, in triage order. `by_class` keeps classes in first-appearance order, so they follow the manifest's class order: ledger classes, then the unmatched groups in `unmatched_groups.UNMATCHED_GROUP_ORDER`. `facts.invariant_group` publishes that order as the pins' `machine_approved_classes`, so it must not depend on the table's load order. The Junior check also records the Junior font it used, because the manifest's fonts block does not cover it: the app never renders it."""
+    """Return the manifest's `machine_approved` record: unit and row totals across the three machine checks (ink-identical, picture-identical and junior-equivalent), unit counts per class (classes with none are omitted), and one sub-record per machine check with its counts and verification method. `machine_units` yields one `(class_id, row_count, check_id)` per machine-approved unit, in triage order. `by_class` keeps classes in first-appearance order, so they follow the manifest's class order: by section (`audit.SECTIONS`), then ledger classes in ledger order, then the change groups in `change_groups.CHANGE_GROUP_ORDER`. The order must not depend on the table's load order; the review-facts pins re-sort it into ledger order (`facts.class_rank`). The Junior check also records the Junior font it used, because the manifest's fonts block does not cover it: the app never renders it."""
     by_class: dict[str, int] = {}
     checks = {
         "ink_identical": {"units": 0, "rows": 0, "method": VERIFICATION_METHOD},
@@ -324,6 +333,14 @@ def _machine_approved_meta(
     }
 
 
+def _ledger_classes_meta(ledger: Iterable[LedgerClass]) -> dict[str, dict]:
+    """Return the manifest's `ledger_classes` lookup: every ledger entry's title, summary, status and why by id, in ledger order, including the entries that reach no unit, so a per-unit surface can name and explain any class a unit's config classes or `ledger_class` name."""
+    return {
+        entry.id: {"title": entry.title, "summary": entry.summary, "status": entry.status, "why": entry.why}
+        for entry in ledger
+    }
+
+
 _SCAFFOLD_HEAD = (
     "id",
     "ink_identical",
@@ -334,6 +351,7 @@ _SCAFFOLD_HEAD = (
     "duplicate_group",
     "cluster",
     "class",
+    "ledger_class",
     "group",
     "codepoints",
 )
@@ -355,6 +373,7 @@ _CHECKED_SCAFFOLD_KEYS = _STAMPED_SCAFFOLD_KEYS + (
     "id",
     "no_verdict",
     "class",
+    "ledger_class",
     "config_note",
     "config_gate",
     "config_classes",
@@ -368,7 +387,7 @@ _CHECKED_SCAFFOLD_KEYS = _STAMPED_SCAFFOLD_KEYS + (
 def unit_scaffold(
     unit, full_configs=ACCEPTANCE_CONFIGS, *, ink_deltas: Mapping[str, str] | None = None
 ) -> dict:
-    """Return every fragment field the build derives from the workload instead of from the enrichment: the unit's identity, its ledger-derived values, and the phase-1 machine flags. `ink_deltas` is passed in because the unit does not carry the deltas: drafting passes the comparator's values and the write passes the unit store's. Without it the unit's own mapping is used, which on every unit the build materializes is the shared empty `audit.NO_DELTAS`. A fragment carries no batch, because a batch is a slice of the manifest's triage index and a fragment's bytes depend only on its own content and the ledger. `unit_to_json` and `patch_fragment` both build the scaffold here, so a fragment cannot keep a stale value of a field a full build would change."""
+    """Return every fragment field the build derives from the workload instead of from the enrichment: the unit's identity, its ledger-derived values, and the phase-1 machine flags. `ink_deltas` is passed in because the unit does not carry the deltas: drafting passes the comparator's values and the write passes the unit store's. Without it the unit's own mapping is used, which on every unit the build materializes is the shared empty `audit.NO_DELTAS`. `ledger_class` is the unit's own (`Unit.ledger_class`), which phase 1 sets on a re-routed unit and the write copies from the unit store, and is written null on every other unit. A fragment carries no batch, because a batch is a slice of the manifest's triage index and a fragment's bytes depend only on its own content and the ledger. `unit_to_json` and `patch_fragment` both build the scaffold here, so a fragment cannot keep a stale value of a field a full build would change."""
     gate, note = config_badge(unit.configs, full_configs)
     return {
         "id": unit.unit_id,
@@ -380,6 +399,7 @@ def unit_scaffold(
         "duplicate_group": unit.duplicate_group,
         "cluster": unit.cluster,
         "class": unit.class_id,
+        "ledger_class": unit.ledger_class or None,
         "group": unit.group,
         "codepoints": unit.codepoints,
         "configs": list(unit.configs),
@@ -403,7 +423,7 @@ def patch_fragment(
     check: bool = False,
     ink_deltas: Mapping[str, str] | None = None,
 ) -> dict:
-    """Rewrite a fragment's scaffold and secondary junctions for this build, and return it. The write does this to every recomputed fragment read from the spool and to every cached fragment whose patched fields changed. Every scaffold field is rewritten from the current workload, with `ink_deltas` read from the unit store, and the secondary junctions are rebuilt from the unit's rects in the unit store under this build's primary unit assignments. Assigning keys in place keeps the fragment's key order, so a patched fragment has the same bytes a from-scratch build writes, and a cached fragment whose patched fields did not change can be copied byte for byte instead.
+    """Rewrite a fragment's scaffold and secondary junctions for this build, and return it. The write does this to every recomputed fragment read from the spool and to every cached fragment whose patched fields changed. Every scaffold field is rewritten from the current workload, with `ink_deltas` read from the unit store and the ledger class from the unit (`Unit.ledger_class`, which the write copies from the unit store), and the secondary junctions are rebuilt from the unit's rects in the unit store under this build's primary unit assignments. Assigning keys in place keeps the fragment's key order, so a patched fragment has the same bytes a from-scratch build writes, and a cached fragment whose patched fields did not change can be copied byte for byte instead.
 
     With `check` set, `check_scaffold` compares the checked scaffold keys (`_CHECKED_SCAFFOLD_KEYS`) before they are written. That checks that the fragment's content key still holds after the patch, and that the scaffold `check_unit`'s drafting-time subset read is the scaffold that ships, which is why that subset may run in the process that drafts. The write sets `check` for recomputed fragments only. A cached fragment's stamp was checked by the build that drafted it, and this build checks it again on the verification sample (`_recompute_fragment`, `check_stamp`).
     """
@@ -468,7 +488,7 @@ def unit_to_json(
     final_class: str | None = None,
     ink_deltas: Mapping[str, str] | None = None,
 ) -> dict:
-    """Return the shard fragment for one enriched unit as phase 1 drafts it, while its batch's shapes are still in the shape memo. The fragment is first built without drafts, with `final_class` (the unmatched group an UNMATCHED unit is promoted to) as its class and `ink_deltas` as the comparator found them. It is then stamped: `content_key` is the hash of its carry projection, and the unit's id is `unit_cache.unit_id_for` of that key, written onto both the unit and the fragment so the primary-unit projection carries the final id. The drafts are added after the stamp.
+    """Return the shard fragment for one enriched unit as phase 1 drafts it, while its batch's shapes are still in the shape memo. The fragment is first built without drafts, with `final_class` (the change group an UNMATCHED or re-routed unit is promoted to) as its class and `ink_deltas` as the comparator found them. It is then stamped: `content_key` is the hash of its carry projection, and the unit's id is `unit_cache.unit_id_for` of that key, written onto both the unit and the fragment so the primary-unit projection carries the final id. The drafts are added after the stamp.
 
     The duplicate group, the cluster and the primary units of secondary junctions are placeholders here: `patch_fragment` overwrites them at the write, and all of them are outside the carry projection. The scaffold keys inside the projection (`_STAMPED_SCAFFOLD_KEYS`) already carry the parent's values, which `check_scaffold` checks at the write. Together these keep the stamp taken here valid for the written fragment. Nothing the drafter or the enricher produces may depend on the placeholders.
 
@@ -875,7 +895,7 @@ def _cluster_id(configs, class_id, diffs) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _UnitProjection:
-    """The picklable phase-1 result a corpus worker returns per unit: what the parent's serial whole-corpus passes read and what the unit cache persists. It never includes the EnrichedUnit, which is freed when its batch ends; the fragment is drafted and spooled in the same step, and its spool address (`part`, `start`, `length`) is included here. `ordinal` is the unit's row in the parent's unit store (`audit.Unit.ordinal`), so the parent loads the projection in without a lookup. `input_key` is the unit's cache key over its inputs, which the store records so the next build can reuse the unit by it. `unit_id` and `content_key` are the drafting's stamp. The ink diffs are sent only as two digests of their repr: `diffs_digest` is the duplicate-group key's diff component, and `cluster` is the blank-queue cluster id. The cluster is computed here because everything it depends on is known once the unmatched group is assigned: the configs, the diffs, and the final class (the unmatched group for an UNMATCHED unit, else the ledger class). It is computed for machine-approved units too, because the store carries it forward and a cached unit can become a human unit through a ledger edit alone (its `no_verdict` flipping). Sending digests keeps the parent from holding each unit's diffs repr, which is as long as the diffs, through the units phase."""
+    """The picklable phase-1 result a corpus worker returns per unit: what the parent's serial whole-corpus passes read and what the unit cache persists. It never includes the EnrichedUnit, which is freed when its batch ends; the fragment is drafted and spooled in the same step, and its spool address (`part`, `start`, `length`) is included here. `ordinal` is the unit's row in the parent's unit store (`audit.Unit.ordinal`), so the parent loads the projection in without a lookup. `input_key` is the unit's cache key over its inputs, which the store records so the next build can reuse the unit by it. `unit_id` and `content_key` are the drafting's stamp. The ink diffs are sent only as two digests of their repr: `diffs_digest` is the duplicate-group key's diff component, and `cluster` is the blank-queue cluster id. The cluster is computed here because everything it depends on is known once the change group is assigned: the configs, the diffs, and the final class (the change group for an UNMATCHED or re-routed unit, else the ledger class). It is computed for machine-approved units too, because the store carries it forward and a cached unit can become a human unit through a ledger edit alone (its `no_verdict` flipping). `change_group` is that group, or empty for a unit that keeps its ledger class, and `ledger_class` is the `ink_identical` class a re-routed unit was taken from, or empty. Sending digests keeps the parent from holding each unit's diffs repr, which is as long as the diffs, through the units phase."""
 
     unit_id: str
     input_key: str
@@ -886,7 +906,8 @@ class _UnitProjection:
     ink_deltas: tuple[tuple[str, str], ...]
     diffs_digest: str
     cluster: str
-    unmatched_group: str
+    change_group: str
+    ledger_class: str
     pair_codepoints: tuple[int, int] | None
     primary_unit_projection: PrimaryUnitProjection
     junction_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
@@ -898,9 +919,16 @@ class _UnitProjection:
 
 
 def _phase1_unit(
-    unit, comparator, oracle, enricher, drafter: Drafter, report, spool: _FragmentSpool | None = None
+    unit,
+    comparator,
+    oracle,
+    enricher,
+    drafter: Drafter,
+    report,
+    identical_classes: Collection[str],
+    spool: _FragmentSpool | None = None,
 ) -> tuple[_UnitProjection, dict, list[str]]:
-    """Do one unit's per-unit work: the ink flags and deltas, the enrichment, the drafted fragment (`unit_to_json`), and the drafting-time contract check over it (`check_unit` at `DRAFTED`). Returns the projection the parent's whole-corpus passes read, the fragment, and the check's errors, which the caller passes to the write so the build fails there in the same list as the write-time check. With a `spool`, the fragment is spooled as it is drafted and its address is put on the projection; the verification sample passes none and patches the fragment it holds. The deltas go onto the fragment and the projection, never onto the unit, whose `ink_deltas` stays the shared empty mapping in every process. The check runs in whichever process drafts, so the pooled and serial paths check the same way. Drafting here, before the parent's whole-corpus passes, keeps the batch's shapes in the memo for the drafter's replay."""
+    """Do one unit's per-unit work: the ink flags and deltas, the enrichment, the change group (`change_groups.assign_change_group`) of an UNMATCHED unit or of a unit `change_groups.reroutes` moves out of an `ink_identical` class (`identical_classes`), the drafted fragment (`unit_to_json`), and the drafting-time contract check over it (`check_unit` at `DRAFTED`). A re-routed unit records its ledger class (`Unit.ledger_class`) and drops the exemplar flag its ledger entry gave it, since the change group lists it for what it shows. Returns the projection the parent's whole-corpus passes read, the fragment, and the check's errors, which the caller passes to the write so the build fails there in the same list as the write-time check. With a `spool`, the fragment is spooled as it is drafted and its address is put on the projection; the verification sample passes none and patches the fragment it holds. The deltas go onto the fragment and the projection, never onto the unit, whose `ink_deltas` stays the shared empty mapping in every process. The check runs in whichever process drafts, so the pooled and serial paths check the same way. Drafting here, before the parent's whole-corpus passes, keeps the batch's shapes in the memo for the drafter's replay."""
     text = "".join(chr(value) for value in unit.codepoint_values)
     diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
     unit.ink_identical = comparator.ink_identical(text, unit.configs)
@@ -911,11 +939,19 @@ def _phase1_unit(
     ink_deltas = {
         config: delta_digest(diff) for config, diff in zip(unit.configs, diffs) if diff != IDENTITY_DIFF
     }
+    rerouted = reroutes(unit.class_id, unit.no_verdict, unit.machine_approved, identical_classes)
+    unit.ledger_class = unit.class_id if rerouted else ""
+    if rerouted:
+        unit.exemplar = False
     mismatch_mark = len(enricher.mismatches)
     enriched = enricher.enrich(unit, report)
-    unmatched_group = assign_unmatched_group(enriched) if unit.class_id == UNMATCHED_CLASS else ""
+    change_group = (
+        assign_change_group(enriched, ink_deltas, identical_classes)
+        if rerouted or unit.class_id == UNMATCHED_CLASS
+        else ""
+    )
     diffs_repr = repr(diffs).encode()
-    fragment = unit_to_json(enriched, drafter, final_class=unmatched_group or None, ink_deltas=ink_deltas)
+    fragment = unit_to_json(enriched, drafter, final_class=change_group or None, ink_deltas=ink_deltas)
     address = spool.add(fragment) if spool is not None else None
     projection = _UnitProjection(
         unit_id=unit.unit_id,
@@ -926,10 +962,9 @@ def _phase1_unit(
         junior_equivalent=unit.junior_equivalent,
         ink_deltas=tuple(ink_deltas.items()),
         diffs_digest=hashlib.sha1(diffs_repr).hexdigest(),
-        cluster=_cluster_id_from_repr(
-            unit.configs, unmatched_group if unit.class_id == UNMATCHED_CLASS else unit.class_id, diffs_repr
-        ),
-        unmatched_group=unmatched_group,
+        cluster=_cluster_id_from_repr(unit.configs, change_group or unit.class_id, diffs_repr),
+        change_group=change_group,
+        ledger_class=unit.ledger_class,
         pair_codepoints=enriched.pair_codepoints,
         primary_unit_projection=primary_unit_projection(enriched),
         junction_rects=tuple(
@@ -951,10 +986,19 @@ def _junction_records(junction_rects) -> list[dict]:
 
 
 def _recompute_fragment(
-    unit, injection, comparator, oracle, enricher, drafter: Drafter, report
+    unit,
+    injection,
+    comparator,
+    oracle,
+    enricher,
+    drafter: Drafter,
+    report,
+    identical_classes: Collection[str],
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
-    """Recompute one sampled cached unit from nothing and patch it as the write patches a recomputed fragment. The parent's global fields (duplicate group, cluster, promoted class, primary units) are injected onto the unit copy first, because the copy was taken before the whole-corpus passes ran. `report` is the unit's result from its chunk's single `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and not read from the cache. Passing it in avoids settling each sampled unit on its own, which would cost one `settle-cases` process per position. Returns the recomputed content key and ink deltas, which the caller compares with what the cache supplied; the id follows from the key."""
-    projection, fragment, _errors = _phase1_unit(unit, comparator, oracle, enricher, drafter, report)
+    """Recompute one sampled cached unit from nothing and patch it as the write patches a recomputed fragment. The parent's global fields (duplicate group, cluster, promoted class, primary units) are injected onto the unit copy first, because the copy was taken before the whole-corpus passes ran. `report` is the unit's result from its chunk's single `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and not read from the cache. Passing it in avoids settling each sampled unit on its own, which would cost one `settle-cases` process per position. `identical_classes` are the ledger's `ink_identical` ids, so phase 1 re-routes the unit as the build's own phase 1 does. Returns the recomputed content key and ink deltas, which the caller compares with what the cache supplied; the id follows from the key."""
+    projection, fragment, _errors = _phase1_unit(
+        unit, comparator, oracle, enricher, drafter, report, identical_classes
+    )
     unit.duplicate_group, unit.cluster, unit.class_id, junction_assign = injection
     check_stamp(
         patch_fragment(
@@ -1163,7 +1207,14 @@ def _corpus_worker(conn, init: dict) -> None:
                 for unit_batch, reports in _phase1_batches(enricher, message[1]):
                     for unit, report in zip(unit_batch, reports):
                         projection, _fragment, errors = _phase1_unit(
-                            unit, comparator, oracle, enricher, drafter, report, spool
+                            unit,
+                            comparator,
+                            oracle,
+                            enricher,
+                            drafter,
+                            report,
+                            init["identical_classes"],
+                            spool,
                         )
                         results.append(projection)
                         _keep_contract_errors(contract_errors, errors)
@@ -1185,7 +1236,14 @@ def _corpus_worker(conn, init: dict) -> None:
                     reports = enricher.explain_units([unit for unit, _injection in chunk])
                     for (unit, injection), report in zip(chunk, reports, strict=True):
                         keys[unit.unit_id] = _recompute_fragment(
-                            unit, injection, comparator, oracle, enricher, drafter, report
+                            unit,
+                            injection,
+                            comparator,
+                            oracle,
+                            enricher,
+                            drafter,
+                            report,
+                            init["identical_classes"],
                         )
                 conn.send(("ok", keys))
     except Exception:
@@ -1255,7 +1313,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _RecomputeRunner:
-    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, unmatched-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store as it arrives (`phase1`), and keeps the check's errors in `contract_errors` for the write. The write reads each recomputed fragment back from the spool (`spool_dir`) at the address the store holds, as it reads a cached fragment from the previous corpus.
+    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, change-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store as it arrives (`phase1`), and keeps the check's errors in `contract_errors` for the write. The write reads each recomputed fragment back from the spool (`spool_dir`) at the address the store holds, as it reads a cached fragment from the previous corpus.
 
     Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units, projections and addresses, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and deletes the spool however the build ends.
     """
@@ -1275,9 +1333,11 @@ class _RecomputeRunner:
         table: UnitTable,
         out_dir: Path,
         subset_pack: Path,
+        identical_classes: frozenset[str],
     ) -> None:
         self._recomputed = recomputed
         self._table = table
+        self._identical_classes = identical_classes
         self._verify = list(verify or ())
         self._before_font = before_font
         self._after_font = after_font
@@ -1307,6 +1367,7 @@ class _RecomputeRunner:
                 "repo_root": repo_root,
                 "spec_root": self._spec_root,
                 "out_dir": self._out_dir,
+                "identical_classes": identical_classes,
             }
             ctx = multiprocessing.get_context("spawn")
             for index in range(nworkers):
@@ -1330,7 +1391,7 @@ class _RecomputeRunner:
             for unit_batch, reports in _phase1_batches(enricher, materialized):
                 for unit, report in zip(unit_batch, reports):
                     projection, _fragment, errors = _phase1_unit(
-                        unit, comparator, oracle, enricher, drafter, report, spool
+                        unit, comparator, oracle, enricher, drafter, report, self._identical_classes, spool
                     )
                     _load_recomputed(store, table, projection)
                     _keep_contract_errors(self.contract_errors, errors)
@@ -1436,7 +1497,14 @@ class _RecomputeRunner:
                 reports = enricher.explain_units(chunk)
                 for unit, report in zip(chunk, reports, strict=True):
                     keys[unit.unit_id] = _recompute_fragment(
-                        unit, injections[unit.unit_id], comparator, oracle, enricher, drafter, report
+                        unit,
+                        injections[unit.unit_id],
+                        comparator,
+                        oracle,
+                        enricher,
+                        drafter,
+                        report,
+                        self._identical_classes,
                     )
         return keys
 
@@ -1491,7 +1559,7 @@ def _emissions(
     spool: unit_cache.PriorFragmentReader,
     prior: unit_cache.PriorFragmentReader,
 ) -> Iterator[_Emission]:
-    """Yield the units at `ordinals` as the write receives them, one at a time, each read by the address the store holds for it. A recomputed fragment is read from the spool (`spool`), patched with this build's scaffold, ink deltas and primary units through `patch_fragment` (on a unit record materialized for the patch), and checked by `check_scaffold`. A cached fragment is read from the previous corpus (`prior`). When `UnitStore.cached_as_is` says every field the patch would write already matches, it is yielded as bytes without parsing, which lets the shard writer leave it, and a part made only of such fragments, in place, and its identity is read from the columns (`_cached_identity`). Otherwise it is parsed, patched and serialized again. A fragment that no longer reads back as the unit and stamp at its address stops the build."""
+    """Yield the units at `ordinals` as the write receives them, one at a time, each read by the address the store holds for it. A recomputed fragment is read from the spool (`spool`), patched with this build's scaffold, ink deltas, ledger class and primary units through `patch_fragment` (on a unit record materialized for the patch), and checked by `check_scaffold`. A cached fragment is read from the previous corpus (`prior`). When `UnitStore.cached_as_is` says every field the patch would write already matches, it is yielded as bytes without parsing, which lets the shard writer leave it, and a part made only of such fragments, in place, and its identity is read from the columns (`_cached_identity`). Otherwise it is parsed, patched and serialized again. A fragment that no longer reads back as the unit and stamp at its address stops the build."""
     for ordinal in ordinals:
         recomputed_unit = not store.flags(ordinal).cached
         source = store.source(ordinal)
@@ -1523,6 +1591,7 @@ def _emissions(
                 f"the fragment for {store.unit_id(ordinal)} cannot be read back: {error}"
             ) from None
         unit = table.unit(ordinal, store)
+        unit.ledger_class = store.ledger_class(ordinal)
         fragment = patch_fragment(
             fragment,
             unit,
@@ -1687,9 +1756,13 @@ def _prior_parts(out_dir: Path) -> dict[str, list[str]]:
 
 @dataclass(frozen=True, slots=True)
 class _ClassToWrite:
-    """One class as the write receives it: the fields of its ledger entry the manifest records, its units' ordinals in shard order (by id, `UnitStore.id_word`, which sorts like the id strings), and the previous corpus's parts for it, which the shard writer writes it against."""
+    """One class as the write receives it: the fields of its ledger entry or change group the manifest records, with the section `audit.class_section` put it in, its units' ordinals in shard order (by id, `UnitStore.id_word`, which sorts like the id strings), and the previous corpus's parts for it, which the shard writer writes it against."""
 
     id: str
+    title: str
+    summary: str
+    note: str
+    section: str
     status: str
     ink_identical: bool
     no_verdict: bool
@@ -1754,6 +1827,10 @@ def _write_class(
             checks[check_id] += 1
     meta = {
         "id": entry.id,
+        "title": entry.title,
+        "summary": entry.summary,
+        "note": entry.note or None,
+        "section": entry.section,
         "status": entry.status,
         "ink_identical": entry.ink_identical,
         "no_verdict": entry.no_verdict,
@@ -2114,12 +2191,14 @@ def _write_corpus(
     unit_errors: Sequence[str],
     font_digests: Mapping[str, str],
     *,
+    sections: Mapping[str, str],
+    ledger: Sequence[LedgerClass],
     spool_dir: Path,
     write_jobs: int,
     tally: memory_tally.MemoryTally | None = None,
     spec_root: Path | None = None,
 ) -> _WrittenCorpus:
-    """Write the per-unit fragments into shards, copy the fonts, and write the manifest and the sidecars. The manifest's triage index, `human_unit_ids`, is the human units taken in `order`, the permutation `audit.sort_for_triage` returned; a batch is a slice of it. Every per-unit value read here is a column of `table` or `store`, indexed by ordinal.
+    """Write the per-unit fragments into shards, copy the fonts, and write the manifest and the sidecars. The manifest's triage index, `human_unit_ids`, is the human units taken in `order`, the permutation `audit.sort_for_triage` returned; a batch is a slice of it. Every per-unit value read here is a column of `table` or `store`, indexed by ordinal. `classes` arrive in manifest order and `sections` holds the section `build_m1` computed for each; `ledger` is every ledger entry, reached or not, for the manifest's `ledger_classes` lookup.
 
     Fragments are written in shard order: classes in `unit_index.class_shard_key` order, which is also the sidecars' order, and each class's units by id (`store.id_word`, which sorts like the id strings). So a class's fragments and its locator rows ascend together, and a recomputed unit is placed by its content, not by its queue position. The classes are cut into runs, contiguous stretches of that order (`_write_runs`), and each run is written by `_write_run` with its own shard writer, sidecar spool and fragment readers, so runs can be written at once. The width is `write_jobs`, the most workers that fit, narrowed by `_write_width` and to the number of runs. Above one, a pool of that many worker processes writes the runs (`_WritePool`), each worker from its own copy of the table and the store; at one, this process writes the one run, which is the whole corpus. Either way the parent receives each class's manifest record, staged parts, per-unit addresses, config notes and policy files, and its checker, and writes the per-unit values into the store as each run arrives. Once every run is in, it folds the classes' checkers together in shard order (`_CorpusCheck.absorb`), renames the staged parts, and writes the manifest and then the sidecars from the runs' spools in shard order, so every output file is byte for byte what a single serial pass over the corpus writes. Nothing is committed until every run has written, and a failed run deletes what any run staged (`_discard_runs`), so the previous corpus stays intact.
 
@@ -2138,6 +2217,10 @@ def _write_corpus(
     to_write = [
         _ClassToWrite(
             entry.id,
+            entry.title,
+            entry.summary,
+            entry.note,
+            sections[entry.id],
             entry.status,
             entry.ink_identical,
             entry.no_verdict,
@@ -2250,6 +2333,7 @@ def _write_corpus(
             "machine_approved": _machine_approved_meta(machine_units, junior_font, repo_root),
             "secondary_junctions": secondary_junction_counts,
             "classes": [meta_by_id[entry.id] for entry in classes],
+            "ledger_classes": _ledger_classes_meta(ledger),
             "build_command": BUILD_COMMAND,
             "serve_command": SERVE_COMMAND,
         }
@@ -2336,7 +2420,8 @@ def _packed_shape(collection: str) -> memory_tally.Shape:
             "ink_deltas": labeled,
             "diffs_digest": name,
             "cluster": name,
-            "unmatched_group": name,
+            "change_group": name,
+            "ledger_class": name,
             "pair_codepoints": pair,
             "duplicate_group": name,
             "exemplar": flag,
@@ -2423,7 +2508,7 @@ def build_m1(
     gates_idle_marker: Path | None = None,
     write_jobs: int | None = None,
 ) -> dict:
-    # The enricher re-settles every window from the spec, so a frozen bundle of audit rows, subsets and a font stays consistent only while the runes match it. `spec_root` lets such a bundle use its own frozen spec (the objects rebuild/review/fixtures/mini/pin.json names, which the `mini_bundle` fixture in rebuild/conftest.py materializes out of git), so rune edits do not affect it. What is read from the spec follows `spec_root`: the enrichment, the unit cache's family keys, the environment stamp's spec lines, and the `explain_prose` fingerprint component, because the explain text quotes the spec's refuse and ledger rationales. What describes this checkout stays on `repo_root`: the other fingerprint components, the git head, the manifest's relative paths, and the rest of the environment stamp.
+    # The enricher re-settles every window from the spec, so a frozen bundle of audit rows, subsets and a font stays consistent only while the runes match it. `spec_root` lets such a bundle use its own frozen spec (the objects rebuild/review/fixtures/mini/pin.json names, which the `mini_bundle` fixture in rebuild/conftest.py materializes out of git), so rune edits do not affect it. What is read from the spec follows `spec_root`: the enrichment, the unit cache's family keys, the environment stamp's spec lines, and the rune and ledger prose in the `explain_prose` fingerprint component, because the explain text quotes the spec's refuse and ledger rationales. What describes this checkout stays on `repo_root`: the change groups' prose in `explain_prose`, the other fingerprint components, the git head, the manifest's relative paths, and the rest of the environment stamp.
     spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -2481,7 +2566,8 @@ def build_m1(
         return signatures[(codepoints, config)]
 
     exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
-    premerge_capture = facts.capture_premerge(table)
+    identical_classes = frozenset(entry.id for entry in workload.ledger if entry.ink_identical)
+    premerge_capture = facts.capture_premerge(table, identical_classes)
     signature_count = len(signatures)
     if tally:
         signature_reading = memory_tally.estimate(signatures)
@@ -2512,7 +2598,14 @@ def build_m1(
     console.phase("review.build plan", file=sys.stderr)
     phase = time.perf_counter()
     environment = unit_cache.environment_stamp(
-        repo_root, spec, subset_dir, before_font, junior_font, helpers_digest, subset_digests=subset_digests
+        repo_root,
+        spec,
+        subset_dir,
+        before_font,
+        junior_font,
+        helpers_digest,
+        subset_digests=subset_digests,
+        identical_classes=identical_classes,
     )
     store = UnitStore(table.n, strings=table.strings)
     for ordinal in range(table.n):
@@ -2628,6 +2721,7 @@ def build_m1(
         table=table,
         out_dir=out_dir,
         subset_pack=subset_pack,
+        identical_classes=identical_classes,
     )
     try:
         if runner.pooled:
@@ -2643,23 +2737,38 @@ def build_m1(
         # Every unit's id and machine flags are now in the store: a cached unit's from the plan, a recomputed unit's from its projection. Building the id index fails the build on a repeated id. With 64-bit ids a repeat is very unlikely, but it would give two windows one id, so it is an error and not a merge.
         store.index()
 
-        # Promote each UNMATCHED unit's unmatched group to its class, so the per-class shard loop writes it under that group. The cluster id is already keyed on this final class: the runner computed it where it assigned the group, and a cached unit uses the stored value, whose inputs (configs, final class, ink diffs) are all covered by the unit's input key and the store's environment stamp.
+        # Promote the change group of each UNMATCHED unit, and of each unit phase 1 re-routed out of an `ink_identical` class, to its class, so the per-class shard loop writes it under that group; a re-routed unit also loses the exemplar flag its ledger entry gave it, as its drafting did. The cluster id is already keyed on this final class: the runner computed it where it assigned the group, and a cached unit uses the stored value, whose inputs the unit cache's module docstring lists as covered. The same pass counts each final class's human units, the units no machine check approves, for the sections.
+        human_units: dict[str, int] = {}
         for ordinal in range(table.n):
-            if table.class_id(ordinal) == UNMATCHED_CLASS:
-                group_id = store.unmatched_group(ordinal)
+            ledger_class = store.ledger_class(ordinal)
+            if ledger_class:
+                assert ledger_class == table.class_id(ordinal), ordinal
+                table.set_exemplar(ordinal, False)
+            if ledger_class or table.class_id(ordinal) == UNMATCHED_CLASS:
+                group_id = store.change_group(ordinal)
                 table.set_unmatched_group(ordinal, group_id)
                 table.set_class(ordinal, group_id)
+            if not store.machine_approved(ordinal):
+                class_id = table.class_id(ordinal)
+                human_units[class_id] = human_units.get(class_id, 0) + 1
 
-        # The triage index. `order` is a permutation of all the table's rows in `audit.triage_key` order: class (the ledger classes first, then the unmatched groups), group, window, id. `assign_batches` numbers the human units along it and slices them into batches. Every term of the key is content, so this index is the only place the queue order is recorded, and no fragment carries a position in it.
+        # The classes in manifest order: by section (`audit.class_section`, decided once here from each class's status, exemption and human units), then ledger order, then `CHANGE_GROUP_ORDER`, so the triage index, its batches and the app's class walk follow the sidebar. A ledger class whose every unit was re-routed holds no unit now, so it is dropped like one no row reached; the manifest's `ledger_classes` lookup still carries it. The triage index: `order` is a permutation of all the table's rows in `audit.triage_key` order: class (in that manifest order), group, window, id. `assign_batches` numbers the human units along it and slices them into batches. Every term of the key is content, so this index is the only place the queue order is recorded, and no fragment carries a position in it.
+        present = table.classes_present()
+        workload.classes_present = [entry for entry in workload.classes_present if entry.id in present]
         classes = workload.classes_present + synthesize_unmatched_group_classes(
-            table, unmatched_groups.UNMATCHED_GROUP_ORDER, unmatched_groups.UNMATCHED_GROUP_WHY
+            table, CHANGE_GROUP_ORDER, load_change_group_prose()
         )
+        sections = {
+            entry.id: class_section(entry.status, entry.no_verdict, human_units.get(entry.id, 0))
+            for entry in classes
+        }
+        classes.sort(key=lambda entry: SECTIONS.index(sections[entry.id]))
         order = sort_for_triage(
             table, store, {entry.id: index for index, entry in enumerate(classes)}, dict(LETTERS)
         )
         total_batches = assign_batches(table, store, order, batch_size)
 
-        # Duplicate groups: human units whose config set, judged pair, class and ink diffs (`diffs_digest`) all agree show the same change in different surroundings, so one verdict covers all of them. They are keyed after unmatched-group promotion so the class is final. The id is a digest of the key (`unit_cache.duplicate_group_id_for`), so a group keeps its id on every corpus it appears on. The table's string table stores each id once, however many units carry it.
+        # Duplicate groups: human units whose config set, judged pair, class and ink diffs (`diffs_digest`) all agree show the same change in different surroundings, so one verdict covers all of them. They are keyed after change-group promotion so the class is final. The id is a digest of the key (`unit_cache.duplicate_group_id_for`), so a group keeps its id on every corpus it appears on. The table's string table stores each id once, however many units carry it.
         duplicate_groups: set[str] = set()
         for ordinal in range(table.n):
             if table.batch(ordinal) is None:
@@ -2749,6 +2858,8 @@ def build_m1(
             mismatches,
             runner.contract_errors,
             font_digests,
+            sections=sections,
+            ledger=workload.ledger,
             spool_dir=runner.spool_dir,
             write_jobs=write_jobs,
             tally=tally,
@@ -2769,13 +2880,13 @@ def build_m1(
     console.phase("review.build review-facts", file=sys.stderr)
     phase = time.perf_counter()
     premerge_facts = facts.derive_premerge(premerge_capture, table, store)
-    # An UNMATCHED window is a new join under review, so it is never ink-identical. That holds for the real corpus, not for every input, so it is asserted here and not in `derive_premerge`, which tests call with synthetic inputs that give ink-identical units an unmatched group.
+    # A window that takes a change group is never ink-identical: an UNMATCHED one is a new join under review, and a re-routed one takes its group because its picture changes. That holds for the real corpus, not for every input, so it is asserted here and not in `derive_premerge`, which tests call with synthetic inputs that give ink-identical units a change group.
     grouped_on_identical = [
         index for index, _group in premerge_facts.unmatched_groups if premerge_facts.ink_flags[index] == "1"
     ]
     if grouped_on_identical:
         raise SystemExit(
-            f"{len(grouped_on_identical)} ink-identical pre-merge units carry an unmatched group "
+            f"{len(grouped_on_identical)} ink-identical pre-merge units carry a change group "
             f"(first at capture index {grouped_on_identical[0]})"
         )
     facts.write_facts(
@@ -3068,6 +3179,10 @@ def build_table_diff(
         classes_meta.append(
             {
                 "id": bucket,
+                "title": tablediff.BUCKET_TITLE[bucket],
+                "summary": tablediff.BUCKET_SUMMARY[bucket],
+                "note": None,
+                "section": class_section(None, False, len(members) - machine_count),
                 "status": None,
                 "ink_identical": False,
                 "no_verdict": False,
@@ -3081,6 +3196,8 @@ def build_table_diff(
             }
         )
 
+    # A bucket with no human unit is listed with No review needed, after the buckets that hold questions; it adds nothing to the triage index, so moving it keeps the index in class order.
+    classes_meta.sort(key=lambda meta: SECTIONS.index(meta["section"]))
     fonts = {
         "before": _copy_font(
             before_font, out_dir, "before.otf", "AMS Review Before", repo_root, font_digests["before"]
@@ -3114,6 +3231,7 @@ def build_table_diff(
             "by_class": machine_by_class,
         },
         "classes": classes_meta,
+        "ledger_classes": {},
         "build_command": BUILD_COMMAND + " --mode table-diff",
         "serve_command": SERVE_COMMAND,
     }
@@ -3240,10 +3358,36 @@ def check_manifest(manifest: dict) -> list[str]:
             need(isinstance(record.get("upem"), int), f"fonts.{side}.upem must be an integer")
     classes = manifest.get("classes")
     need(isinstance(classes, list), "classes must be a list")
+    statuses = (None,) if manifest.get("mode") == "table-diff" else LEDGER_STATUSES
+    section_ranks: list[int] = []
     for meta in classes or ():
         identifier = meta.get("id", "<missing>")
         for key in ("id", "why"):
             need(isinstance(meta.get(key), str), f"classes[{identifier}].{key} must be a string")
+        for key in ("title", "summary"):
+            need(
+                isinstance(meta.get(key), str) and meta[key].strip(),
+                f"classes[{identifier}].{key} must be a nonempty string",
+            )
+        note = meta.get("note")
+        need(
+            note is None or (isinstance(note, str) and note.strip()),
+            f"classes[{identifier}].note must be absent, null or a nonempty string",
+        )
+        status = meta.get("status")
+        need(
+            status in statuses, f"classes[{identifier}].status must be one of {', '.join(map(str, statuses))}"
+        )
+        section = meta.get("section")
+        need(section in SECTIONS, f"classes[{identifier}].section must be one of {', '.join(SECTIONS)}")
+        units, machine = meta.get("unit_count"), meta.get("machine_approved_count")
+        if section in SECTIONS and status in statuses and isinstance(units, int) and isinstance(machine, int):
+            section_ranks.append(SECTIONS.index(section))
+            need(
+                section == class_section(status, meta.get("no_verdict") is True, units - machine),
+                f"classes[{identifier}].section must be the one audit.class_section gives its status, "
+                f"exemption and {units - machine} human units",
+            )
         shards = meta.get("shards")
         need(
             isinstance(shards, list) and shards and all(isinstance(part, str) for part in shards),
@@ -3267,6 +3411,17 @@ def check_manifest(manifest: dict) -> list[str]:
             isinstance(meta.get("ink_identical"), bool), f"classes[{identifier}].ink_identical must be a bool"
         )
         need(isinstance(meta.get("no_verdict"), bool), f"classes[{identifier}].no_verdict must be a bool")
+    need(section_ranks == sorted(section_ranks), f"classes must be listed by section ({', '.join(SECTIONS)})")
+    lookup = manifest.get("ledger_classes")
+    need(isinstance(lookup, dict), "ledger_classes must map ledger class ids to their copy")
+    for identifier, record in lookup.items() if isinstance(lookup, dict) else ():
+        need(
+            isinstance(record, dict)
+            and all(isinstance(record.get(key), str) and record[key].strip() for key in ("title", "summary"))
+            and record.get("status") in LEDGER_STATUSES
+            and isinstance(record.get("why"), str),
+            f"ledger_classes[{identifier}] must carry a nonempty title and summary, a ledger status and a why",
+        )
     return errors
 
 

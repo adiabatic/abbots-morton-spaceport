@@ -71,6 +71,24 @@ import {
   corpusStampLine,
   corpusDetailRows,
   classCountsLine,
+  classVerdictTallies,
+  classIsDone,
+  classInfo,
+  pillStatus,
+  pillText,
+  classTitle,
+  classChip,
+  appendCodeRuns,
+  rationaleParagraphs,
+  sidebarSections,
+  sectionTotalsLine,
+  classSectionSentence,
+  classProgressLine,
+  configClassBadge,
+  manifestRefusal,
+  LOOKS_IDENTICAL_SENTENCE,
+  SECTION_LABELS,
+  STATUS_LABELS,
   nextUnverdictedIndex,
   stepIndex,
   availableBatches,
@@ -160,6 +178,12 @@ const NEITHER_MENU_CHOICES = [
 ];
 
 const manifest = await (await fetch('manifest.json')).json();
+const refusal = manifestRefusal(manifest);
+const classById = new Map(manifest.classes.map((cls) => [cls.id, cls]));
+const classInfoById = classInfo(manifest);
+const titleOf = (classId) => classTitle(classInfoById.get(classId), classId);
+const sidebarModel = sidebarSections(manifest);
+const queueLeftOut = ruledClassIds(manifest.classes);
 const store = createStore();
 // The only memory in the tab that grows with the queue: one app-index row per unit awaiting a verdict, holding what the queue view, search, filters and progress read. A card's sample text, pair band and settled cells, and its explain table when the panel opens, are Range-fetched from the shard record into fullRecords, which is bounded. Units that take no verdict are never loaded a class at a time. A show-machine fold reads its class's locator rows a block at a time and draws a window at a time, keeping the records of the rows on screen (foldRecords, cleared on each re-render). A worklist keeps its own machine records while it is the view (worklist.records), and a deep link keeps the one unit it revealed (transientMachineUnit). On the machine side only the locator's block table stays loaded, with one entry per block of machine units.
 const humanRows = new Map();
@@ -203,9 +227,9 @@ const JUNIOR_BADGE = 'junior-equivalent — machine approved';
 const JUNIOR_TITLE =
   "Divergent only under ss10, whose ratified meaning is fully isolated letters, and the rebuild's ss10 rendering is pixel-identical to the Junior font's isolated rendering of the same string (minus Junior's one-pixel letter tracking) — so the new behavior is the spec by construction.";
 const NO_VERDICT_TITLE =
-  "This unit's class is adjudicated wholesale at the ledger level (hover its sidebar entry for the rationale); no unit in it ever needs an individual verdict.";
+  "A ruling covers this unit's whole class (select its class to read the ruling); no unit in it ever needs an individual verdict.";
 const SLIM_FRAGMENT_NOTE =
-  'Machine-approved or in a no-verdict class: the build wrote no candidate table, no drafts and no pair band for this unit, since nothing here is for a reviewer to act on — the settled cells and junctions above are the whole of what it carries.';
+  'Machine-approved or covered by a ruling: the build wrote no candidate table, no drafts and no pair band for this unit, since nothing here is for a reviewer to act on — the settled cells and junctions above are the whole of what it carries.';
 
 function machineCheckOf(unit) {
   if (unit.ink_identical) return { badge: MACHINE_BADGE, title: MACHINE_TITLE };
@@ -585,6 +609,39 @@ function el(tag, className, text) {
   return node;
 }
 
+function pillEl(status) {
+  const pill = el('span', 'class-status', pillText(status));
+  pill.dataset.status = status;
+  pill.title = STATUS_LABELS[status]?.legend ?? '';
+  return pill;
+}
+
+function classChipEl(classId) {
+  const chip = classChip(classId, classInfoById);
+  const node = el('span', 'class-chip');
+  node.title = chip.title;
+  node.append(el('span', 'class-chip-title', chip.text));
+  if (chip.status) {
+    node.dataset.status = chip.status;
+    node.append(pillEl(chip.status));
+  }
+  return node;
+}
+
+function codeRunsEl(tag, className, text) {
+  return appendCodeRuns(el(tag, className), text, document);
+}
+
+function rationaleEl(why, rows = null) {
+  const details = el('details', 'class-rationale');
+  details.append(el('summary', null, 'Full rationale'));
+  const paragraphs = rationaleParagraphs(why);
+  if (paragraphs.length === 0) details.append(el('p', 'rationale-empty', 'No rationale recorded.'));
+  for (const paragraph of paragraphs) details.append(codeRunsEl('p', null, paragraph));
+  if (rows !== null) details.append(el('p', 'rationale-rows', `${formatCount(rows)} audit rows`));
+  return details;
+}
+
 // One side's sample cell. An app-index row has no text yet, so the cell starts empty and hydrateSamples rebuilds it from the record; the cell stores its side and feature settings for that.
 function buildSample(unit, side, featureSettings) {
   const cell = el('div', `qs ${side}`);
@@ -710,6 +767,7 @@ function buildRow(unit) {
 
   const meta = el('div', 'meta-chips');
   meta.append(el('span', 'unit-id', unit.id));
+  if (!state.class || state.units) meta.append(classChipEl(unit.class));
   if (unit.exemplar) meta.append(el('span', 'exemplar', 'exemplar'));
   if (check) {
     const badge = el('span', 'machine-badge', check.badge);
@@ -721,11 +779,13 @@ function buildRow(unit) {
     meta.append(badge);
   }
   appendConfigGate(meta, unit);
-  if (unit.config_class_note) {
-    const badge = el('span', 'config-class-note', unit.config_class_note);
+  const classBadge = configClassBadge(unit, classInfoById);
+  if (classBadge) {
+    const badge = el('span', 'config-class-note', classBadge);
+    if (unit.config_class_note) badge.title = unit.config_class_note;
     meta.append(badge);
   }
-  const duplicate = duplicateChip(unit, duplicateIndex.get(unit.duplicate_group) ?? []);
+  const duplicate = duplicateChip(unit, duplicateIndex.get(unit.duplicate_group) ?? [], titleOf(unit.class));
   if (duplicate) {
     const chip = el('a', 'duplicate-chip', duplicate.label);
     chip.href = duplicate.href;
@@ -802,9 +862,42 @@ function buildRow(unit) {
   return row;
 }
 
+function classLinkEl(classId) {
+  const link = el('a', 'class-link', `“${titleOf(classId)}”`);
+  link.href = `#${writeHash({ class: classId })}`;
+  link.dataset.class = classId;
+  link.title = `Show ${classId} and its full rationale`;
+  return link;
+}
+
+function buildKindOfChange(unit) {
+  const block = el('div', 'explain-kind');
+  const cls = classInfoById.get(unit.class);
+  const line = el('p');
+  line.append(document.createTextNode('Kind of change: '), classLinkEl(unit.class));
+  const status = pillStatus(cls);
+  if (status) line.append(document.createTextNode(' '), pillEl(status));
+  if (cls?.summary) {
+    line.append(document.createTextNode(' — '));
+    appendCodeRuns(line, cls.summary, document);
+  }
+  block.append(line);
+  if (unit.ledger_class) {
+    const ledger = classInfoById.get(unit.ledger_class);
+    const rerouted = el('p');
+    rerouted.append(document.createTextNode('By glyph names this would be '));
+    rerouted.append(ledger?.listed ? classLinkEl(unit.ledger_class) : el('span', 'class-name', `“${titleOf(unit.ledger_class)}”`));
+    rerouted.append(document.createTextNode(`, but the picture changes, so it is listed under “${titleOf(unit.class)}”.`));
+    block.append(rerouted);
+    if (!ledger?.listed) block.append(rationaleEl(ledger?.why ?? ''));
+  }
+  return block;
+}
+
 function buildExplainPanel(unit) {
   const panel = el('div', 'explain-panel');
   panel.hidden = true;
+  panel.append(buildKindOfChange(unit));
   panel.append(
     el(
       'p',
@@ -821,6 +914,7 @@ function buildExplainPanel(unit) {
 function fillExplainPanel(panel, unit) {
   panel.dataset.filled = '1';
   for (const pending of panel.querySelectorAll('.explain-pending')) pending.remove();
+  panel.querySelector(':scope > .explain-kind')?.replaceWith(buildKindOfChange(unit));
   if (isSlimFragment(unit)) panel.append(el('p', 'explain-intro', SLIM_FRAGMENT_NOTE));
   if (unit.explain) {
     panel.append(el('h4', null, 'Explain'));
@@ -904,7 +998,7 @@ function buildQueueContext(units) {
           ` — one verdict per duplicate group covers all ${formatCount(cluster.size)} lookalike units of `,
         ),
       );
-      line.append(el('span', 'chip', cluster.class));
+      line.append(classChipEl(cluster.class));
       line.append(document.createTextNode(' '));
       line.append(el('span', 'configs', cluster.id));
       line.append(document.createTextNode(' '));
@@ -982,8 +1076,8 @@ function renderMachineSection(container, machine, plan) {
   const heading =
     state.machine === '1'
       ? provisional
-        ? `No verdict needed in this view: up to ${formatCount(total)} units (machine-approved or in a no-verdict class) — open a fold for the count under this filter`
-        : `No verdict needed in this view: ${formatCount(total)} units (machine-approved or in a no-verdict class)`
+        ? `No verdict needed in this view: up to ${formatCount(total)} units (machine-approved or covered by a ruling) — open a fold for the count under this filter`
+        : `No verdict needed in this view: ${formatCount(total)} units (machine-approved or covered by a ruling)`
       : state.units
         ? `No verdict needed in your worklist: ${formatCount(machine.length)} unit${machine.length === 1 ? '' : 's'} shown below`
         : 'This deep-linked unit needs no verdict — it stays out of your queue and disappears when you move on.';
@@ -1014,7 +1108,7 @@ function buildMachineFold(classId, total, badge, records, pinned, foldFilters, {
   const fold = el('details', 'group machine-group');
   fold.dataset.machineClass = classId;
   const summary = el('summary');
-  summary.append(el('span', 'group-name', classId));
+  summary.append(el('span', 'group-name', titleOf(classId)), el('code', 'group-class-id', classId));
   const counts = el('span', 'group-counts', provisional ? `up to ${formatCount(total)} units — ${badge}` : `${formatCount(total)} units — ${badge}`);
   summary.append(counts);
   fold.append(summary);
@@ -1232,13 +1326,15 @@ function updateUnexportedNudge() {
   setText(nudge, `${formatCount(store.unexported.size)} unexported${autosaveHealthy() ? ' (autosaved)' : ''}`);
 }
 
-// One pass over the queue for both the sidebar tallies and the selected-class line. A pass per class button would make every store mutation cost the number of classes times the queue size.
-function verdictedByClass() {
-  const counts = new Map();
-  for (const row of humanList) {
-    if (store.records.has(row.id)) counts.set(row.class, (counts.get(row.class) ?? 0) + 1);
-  }
-  return counts;
+// One pass over the queue for the sidebar, its section totals, the class header and the selected-class line. A pass per class button would make every store mutation cost the number of classes times the queue size. Null until the index loads, so no class reads as done before its rows are known.
+function verdictTallies() {
+  return indexLoaded ? classVerdictTallies(humanList, (id) => store.records.get(id)) : null;
+}
+
+const NO_TALLY = { done: 0, skipped: 0, rejected: 0 };
+
+function tallyOf(tallies, classId) {
+  return tallies ? (tallies.get(classId) ?? NO_TALLY) : null;
 }
 
 function updateProgress() {
@@ -1249,8 +1345,8 @@ function updateProgress() {
       `(→${formatCount(counts.skip)} ✗${formatCount(counts.reject)} ≡${formatCount(counts.identical)} ` +
       `≈${formatCount(counts.either)} ∅${formatCount(counts.neither)} ✓${formatCount(counts.approve)})`,
   );
-  const byClass = verdictedByClass();
-  updateClassProgress(byClass);
+  const tallies = verdictTallies();
+  updateClassProgress(tallies);
   if (state.view === 'queue') {
     // In the queue view renderQueue writes the batch-progress line, so a store mutation (undo, import, a sync from another session) only re-derives the queue.
     scheduleQueueRefresh();
@@ -1259,7 +1355,7 @@ function updateProgress() {
     for (const unit of visibleUnits) if (store.records.has(unit.id)) batchVerdicted += 1;
     let line;
     if (state.units && state.queue) {
-      const queue = queueCounts(humanList, (id) => store.records.get(id), ruledClassIds(manifest.classes));
+      const queue = queueCounts(humanList, (id) => store.records.get(id), queueLeftOut);
       line =
         `Queue decision: ${formatCount(batchVerdicted)}/${formatCount(visibleUnits.length)} · ` +
         `queue: ${formatCount(queue.blankUnits)} ${queue.blankUnits === 1 ? 'unit still needs' : 'units still need'} a verdict, in ${formatCount(queue.clusters)} clusters`;
@@ -1273,19 +1369,18 @@ function updateProgress() {
   updateUnexportedNudge();
   renderOutboxStatus();
   updateGroupCounts();
-  updateClassCounts(byClass);
+  updateClassCounts(tallies);
 }
 
-function updateClassProgress(byClass = verdictedByClass()) {
+function updateClassProgress(tallies = verdictTallies()) {
   const line = document.getElementById('class-progress');
-  const cls = state.class ? manifest.classes.find((entry) => entry.id === state.class) : null;
-  const human = cls ? humanClassCount(cls) : 0;
-  if (!cls || human === 0 || !indexLoaded) {
+  const cls = state.class ? classById.get(state.class) : null;
+  if (!cls || humanClassCount(cls) === 0 || !tallies) {
     line.hidden = true;
     return;
   }
-  setText(line, `Class ${cls.id}: ${formatCount(byClass.get(cls.id) ?? 0)}/${formatCount(human)}`);
-  line.title = cls.why ?? '';
+  setText(line, classProgressLine(cls, tallyOf(tallies, cls.id)));
+  line.title = cls.summary ?? '';
   line.hidden = false;
 }
 
@@ -1302,36 +1397,122 @@ function updateTitle() {
   document.title = `${unitId ?? '—'} · batch ${state.batch} — AMS review`;
 }
 
-function renderSidebar() {
-  const list = document.getElementById('class-list');
-  list.textContent = '';
-  for (const cls of manifest.classes) {
-    const item = el('li');
-    const button = el('button', 'class-button');
-    button.type = 'button';
-    button.dataset.class = cls.id;
-    button.title = cls.why ?? '';
-    button.setAttribute('aria-pressed', String(state.class === cls.id));
-    const idLine = el('span', 'class-id', cls.id);
-    const status = el('span', 'class-status', cls.status ?? 'diff');
-    status.dataset.status = cls.status ?? '';
-    const counts = el('span', 'class-counts');
-    counts.dataset.units = String(cls.unit_count);
-    button.append(idLine, status, counts);
-    item.append(button);
-    list.append(item);
+const SECTION_STORAGE_KEY = 'ams-review-sections';
+const SUBHEAD_TEXT = 'Everything else, sorted by what changed';
+
+function loadSectionOpen() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SECTION_STORAGE_KEY) ?? '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
   }
+}
+
+function saveSectionOpen(sectionId, open) {
+  const saved = loadSectionOpen();
+  saved[sectionId] = open;
+  try {
+    localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(saved));
+  } catch {}
+}
+
+function classEntryEl(cls) {
+  const item = el('li');
+  const button = el('button', 'class-button');
+  button.type = 'button';
+  button.dataset.class = cls.id;
+  button.dataset.section = cls.section;
+  button.title = cls.id;
+  button.setAttribute('aria-pressed', String(state.class === cls.id));
+  const head = el('span', 'class-head');
+  head.append(el('span', 'class-title', classTitle(cls)));
+  // Every entry in Open questions would read "you decide", so the section heading says it once instead.
+  if (cls.section !== 'open-questions') head.append(pillEl(pillStatus(cls)));
+  button.append(head);
+  if (cls.summary) button.append(codeRunsEl('span', 'class-summary', cls.summary));
+  button.append(el('span', 'class-counts'));
+  item.append(button);
+  return item;
+}
+
+function classListEl(classes) {
+  const list = el('ul');
+  for (const cls of classes) list.append(classEntryEl(cls));
+  return list;
+}
+
+function renderSidebar() {
+  const saved = loadSectionOpen();
+  const sections = [];
+  for (const section of sidebarModel) {
+    if (section.entries.length + section.changeGroups.length === 0) continue;
+    const details = el('details', 'class-section');
+    details.dataset.section = section.id;
+    details.open = saved[section.id] ?? section.open;
+    const heading = el('h3');
+    heading.append(el('span', 'section-title', section.title), el('span', 'section-totals'));
+    const summary = el('summary');
+    summary.append(heading);
+    details.append(summary);
+    if (section.entries.length > 0) details.append(classListEl(section.entries));
+    if (section.changeGroups.length > 0) details.append(el('h4', 'class-subhead', SUBHEAD_TEXT), classListEl(section.changeGroups));
+    sections.push(details);
+  }
+  document.getElementById('class-list').replaceChildren(...sections);
   updateClassCounts();
 }
 
-function updateClassCounts(byClass = verdictedByClass()) {
+function updateClassCounts(tallies = verdictTallies()) {
   for (const button of document.querySelectorAll('.class-button')) {
-    const cls = manifest.classes.find((entry) => entry.id === button.dataset.class);
-    const verdicted = cls.no_verdict || !indexLoaded ? null : (byClass.get(cls.id) ?? 0);
-    setText(button.querySelector('.class-counts'), classCountsLine(cls, verdicted));
+    const cls = classById.get(button.dataset.class);
+    const tally = tallyOf(tallies, cls.id);
+    setText(button.querySelector('.class-counts'), classCountsLine(cls, tally));
+    button.toggleAttribute('data-done', classIsDone(cls, tally));
     button.setAttribute('aria-pressed', String(state.class === cls.id));
   }
+  for (const section of sidebarModel) {
+    const totals = document.querySelector(`#class-list > details[data-section="${section.id}"] .section-totals`);
+    if (totals) setText(totals, ` · ${sectionTotalsLine(section.id, [...section.entries, ...section.changeGroups], tallies)}`);
+  }
+  const counts = document.querySelector('#class-header .class-header-counts');
+  const cls = classById.get(document.getElementById('class-header').dataset.class);
+  if (counts && cls) setText(counts, classCountsLine(cls, tallyOf(tallies, cls.id)));
 }
+
+function renderClassHeader() {
+  const header = document.getElementById('class-header');
+  const cls = state.class ? classById.get(state.class) : null;
+  if (!cls || state.units || state.view === 'queue') {
+    header.hidden = true;
+    return;
+  }
+  if (header.dataset.class !== cls.id) {
+    header.dataset.class = cls.id;
+    const title = el('h2');
+    title.append(el('span', 'class-header-title', classTitle(cls)), pillEl(pillStatus(cls)), el('code', 'class-header-id', cls.id));
+    const parts = [title];
+    if (cls.summary) parts.push(codeRunsEl('p', 'class-header-summary', cls.summary));
+    if (cls.note) parts.push(codeRunsEl('p', 'class-header-note', cls.note));
+    parts.push(el('p', 'class-header-counts'));
+    const sentence = el('p', 'class-header-section', classSectionSentence(cls));
+    if (cls.section === 'no-review-needed') {
+      const reveal = el('button', 'class-header-show', 'Show these units');
+      reveal.type = 'button';
+      sentence.append(document.createTextNode(' '), reveal);
+    }
+    parts.push(sentence);
+    if (cls.ink_identical) parts.push(el('p', 'class-header-identical', LOOKS_IDENTICAL_SENTENCE));
+    parts.push(rationaleEl(cls.why ?? '', cls.row_count ?? null));
+    header.replaceChildren(...parts);
+    updateClassCounts();
+  }
+  const reveal = header.querySelector('.class-header-show');
+  if (reveal) reveal.hidden = state.machine === '1';
+  header.hidden = false;
+}
+
+let revealedSidebarKey = null;
 
 function updateSidebarHighlights() {
   const cursorId = cursorUnitId() ?? state.unit;
@@ -1347,6 +1528,15 @@ function updateSidebarHighlights() {
   for (const button of document.querySelectorAll('.class-button')) {
     button.classList.toggle('has-cursor', button.dataset.class === currentClass);
     button.classList.toggle('in-batch', batchClasses.has(button.dataset.class));
+  }
+  // A collapsed section opens when the selected or cursor class moves into it, so a deep link or ] never lands on a hidden entry; it is left alone while they stay put, so the reader can collapse it again.
+  const key = `${state.class ?? ''}\u0000${currentClass ?? ''}`;
+  if (key === revealedSidebarKey) return;
+  revealedSidebarKey = key;
+  for (const classId of [state.class, currentClass]) {
+    const section = classId ? classById.get(classId)?.section : null;
+    const details = section ? document.querySelector(`#class-list > details[data-section="${section}"]`) : null;
+    if (details) details.open = true;
   }
 }
 
@@ -1427,7 +1617,7 @@ function buildClusterCard(cluster, position) {
   const header = el('header');
   header.append(el('span', 'size', `${position}. ${formatCount(cluster.size)} unit${cluster.size === 1 ? '' : 's'}`));
   header.append(el('span', null, `in ${formatCount(cluster.duplicateGroups.length)} duplicate group${cluster.duplicateGroups.length === 1 ? '' : 's'}`));
-  header.append(el('span', 'chip', cluster.class));
+  header.append(classChipEl(cluster.class));
   appendConfigGate(header, cluster.exemplar, { detail: false });
   header.append(el('span', 'configs', cluster.id));
   card.append(header);
@@ -1469,7 +1659,7 @@ function buildLaterSection(later) {
   const table = el('table', 'workorder');
   const head = el('thead');
   const headRow = el('tr');
-  for (const label of ['Units', 'Class', 'Exemplar', '']) headRow.append(el('th', null, label));
+  for (const label of ['Units', 'Kind of change', 'Exemplar', '']) headRow.append(el('th', null, label));
   head.append(headRow);
   table.append(head);
   const body = el('tbody');
@@ -1477,7 +1667,7 @@ function buildLaterSection(later) {
     const row = el('tr');
     row.append(el('td', null, String(cluster.size)));
     const classCell = el('td');
-    classCell.append(el('span', 'chip', cluster.class));
+    classCell.append(classChipEl(cluster.class));
     row.append(classCell);
     row.append(el('td', null, cluster.exemplar.notation));
     const judge = el('td');
@@ -1511,7 +1701,7 @@ function buildSingletonSection(singletons) {
     row.append(link);
     row.append(el('td', null, cluster.exemplar.notation));
     const classCell = el('td');
-    classCell.append(el('span', 'chip', cluster.class));
+    classCell.append(classChipEl(cluster.class));
     row.append(classCell);
     body.append(row);
   }
@@ -1531,7 +1721,7 @@ function buildConflictSection(conflicts) {
     const card = el('article', 'conflict');
     const header = el('header');
     header.append(el('span', 'chip', conflict.duplicateGroup));
-    header.append(el('span', 'chip', conflict.class));
+    header.append(classChipEl(conflict.class));
     header.append(appButton(worklistHref(conflict.unitIds), 'View stacked'));
     card.append(header);
     const table = el('table', 'conflict');
@@ -1582,11 +1772,10 @@ function renderQueue({ anchor = null } = {}) {
   }
   const recordOf = (id) => store.records.get(id);
   const clusters = buildClusters(humanList, recordOf);
-  const ruledIds = ruledClassIds(manifest.classes);
-  const { top, later, singletons, ruledBlankUnits } = partitionClusters(clusters, ruledIds);
+  const { top, later, singletons, ruledBlankUnits } = partitionClusters(clusters, queueLeftOut);
   const conflicts = duplicateConflicts(duplicateIndex, humanRows, recordOf);
-  // The headline counts leave out ledger-ruled classes; the note below reports their blank units.
-  const totals = queueTotals(clusters.filter((cluster) => !ruledIds.has(cluster.class)));
+  // The headline counts cover Open questions only; the note below reports the blank units left in Spot-check.
+  const totals = queueTotals(clusters.filter((cluster) => !queueLeftOut.has(cluster.class)));
 
   const header = el('header', 'queue-header');
   header.append(el('h2', null, 'Review queue'));
@@ -1599,16 +1788,6 @@ function renderQueue({ anchor = null } = {}) {
         `${formatCount(totals.singletonClusters)} singleton), live against the current verdicts.`,
     ),
   );
-  if (ruledBlankUnits > 0) {
-    header.append(
-      el(
-        'p',
-        'queue-note',
-        `${formatCount(ruledBlankUnits)} more units in ledger-ruled classes still need a verdict and are excluded here — ` +
-          'one class-level decision (or a bulk-proposal import) covers each; reach them from the sidebar with status “unverdicted”.',
-      ),
-    );
-  }
   header.append(
     el(
       'p',
@@ -1634,6 +1813,18 @@ function renderQueue({ anchor = null } = {}) {
   if (later.length > 0) container.append(buildLaterSection(later));
   if (singletons.length > 0) container.append(buildSingletonSection(singletons));
   if (conflicts.length > 0) container.append(buildConflictSection(conflicts));
+  if (ruledBlankUnits > 0) {
+    const footer = el('footer', 'queue-footer');
+    footer.append(
+      el(
+        'p',
+        'queue-note',
+        `${formatCount(ruledBlankUnits)} more ${ruledBlankUnits === 1 ? 'unit in Spot-check classes still needs confirming and is' : 'units in Spot-check classes still need confirming and are'} left out here; ` +
+          'select one in the sidebar to work through them.',
+      ),
+    );
+    container.append(footer);
+  }
 
   document.getElementById('batch-progress').textContent =
     `Review queue: ${formatCount(totals.blankUnits)} ${totals.blankUnits === 1 ? 'unit still needs' : 'units still need'} a verdict, in ${formatCount(totals.clusters)} clusters`;
@@ -1677,9 +1868,15 @@ function syncFilterControls() {
 
 async function applyHashState(resume = false) {
   const token = (renderToken += 1);
+  if (state.class && !classById.has(state.class)) {
+    toast(`No class “${state.class}” in this corpus`);
+    state = { ...state, class: null };
+    history.replaceState(null, '', `#${writeHash(state)}`);
+  }
   const queueView = state.view === 'queue';
   document.body.classList.toggle('queue-view', queueView);
   document.getElementById('queue').hidden = !queueView;
+  renderClassHeader();
   if (queueView) {
     await indexReady;
     if (token !== renderToken) return;
@@ -1853,7 +2050,7 @@ async function advanceFrom(unitId) {
       return;
     }
   }
-  toast('Everything in this view is verdicted — press ] for the next class');
+  toast('Everything in this view is verdicted — press ] for the next kind of change');
   updateTitle();
 }
 
@@ -1861,10 +2058,9 @@ async function advanceFrom(unitId) {
 async function advanceQueue({ stale = false } = {}) {
   await indexReady;
   const recordOf = (id) => store.records.get(id);
-  const ruledIds = ruledClassIds(manifest.classes);
-  const decision = nextQueueDecision(humanList, recordOf, ruledIds, queueShown);
+  const decision = nextQueueDecision(humanList, recordOf, queueLeftOut, queueShown);
   const lead = stale ? 'That worklist was stacked for an earlier corpus' : 'Decision done';
-  const queue = queueCounts(humanList, recordOf, ruledIds);
+  const queue = queueCounts(humanList, recordOf, queueLeftOut);
   const remaining = `${formatCount(queue.blankUnits)} ${queue.blankUnits === 1 ? 'unit in the queue still needs' : 'units in the queue still need'} a verdict`;
   if (!decision) {
     toast(
@@ -1877,7 +2073,7 @@ async function advanceQueue({ stale = false } = {}) {
   }
   const what =
     decision.kind === 'cluster'
-      ? `${formatCount(decision.cluster.size)} lookalike unit${decision.cluster.size === 1 ? '' : 's'} in ${decision.cluster.class}`
+      ? `${formatCount(decision.cluster.size)} lookalike unit${decision.cluster.size === 1 ? '' : 's'} in “${titleOf(decision.cluster.class)}”`
       : `${formatCount(decision.unitIds.length)} singletons`;
   toast(`${lead} — ${decision.revisit ? 'back round to' : 'next'}: ${what} (${remaining})`);
   setStateReplace({
@@ -1930,7 +2126,7 @@ async function jumpToFirstUnverdicted() {
     const open = human.find((unit) => !store.records.has(unit.id));
     if (!open) continue;
     const keepClass = state.class && open.class === state.class ? state.class : null;
-    if (state.class && !keepClass) toast(`First unverdicted is in ${open.class} — class filter cleared`);
+    if (state.class && !keepClass) toast(`First unverdicted is in “${titleOf(open.class)}” — class filter cleared`);
     if (!fromQueue && batch === state.batch && keepClass === state.class) {
       setStateReplace({ unit: open.id, view: null });
     } else {
@@ -2136,11 +2332,19 @@ function shiftBatch(delta) {
 
 function shiftClass(delta) {
   const ids = [];
-  for (const cls of manifest.classes) if (humanClassCount(cls) > 0) ids.push(cls.id);
+  for (const cls of manifest.classes) if (cls.section !== 'no-review-needed' && humanClassCount(cls) > 0) ids.push(cls.id);
   if (ids.length === 0) return;
   const current = ids.indexOf(state.class);
   const next = current === -1 ? (delta > 0 ? 0 : ids.length - 1) : (current + delta + ids.length) % ids.length;
   const classId = ids[next];
+  const target = classById.get(classId);
+  if (target.section === 'spot-check' && classById.get(state.class)?.section !== 'spot-check') {
+    toast(`${SECTION_LABELS['spot-check'].title}: “${classTitle(target)}”`);
+  }
+  selectClass(classId);
+}
+
+function selectClass(classId) {
   const batches = availableBatches(manifest, classId);
   setState({ class: classId, batch: batches.length > 0 ? batches[0] : 0, unit: null, group: null });
 }
@@ -3043,7 +3247,7 @@ function setSearchActive(index) {
 
 function renderSearchResults(query) {
   const results = document.getElementById('search-results');
-  const { matches, total } = searchUnits(humanList, query, SEARCH_LIMIT);
+  const { matches, total } = searchUnits(humanList, query, SEARCH_LIMIT, titleOf);
   results.textContent = '';
   results.hidden = false;
   const input = document.getElementById('unit-search');
@@ -3076,7 +3280,12 @@ function renderSearchResults(query) {
     row.setAttribute('aria-selected', 'false');
     row.append(el('span', 'search-id', unit.id));
     row.append(el('span', 'search-notation', unit.notation));
-    row.append(el('span', 'search-class', unit.class));
+    const chip = classChip(unit.class, classInfoById);
+    const classCell = el('span', 'search-class');
+    classCell.title = chip.title;
+    classCell.append(el('span', 'search-class-title', chip.text));
+    if (chip.status) classCell.append(pillEl(chip.status));
+    row.append(classCell);
     const where = machineCheckOf(unit)
       ? 'machine'
       : unit.no_verdict
@@ -3283,6 +3492,12 @@ function wireEvents() {
       if (chip.dataset.primaryUnit) location.hash = `unit=${chip.dataset.primaryUnit}`;
       return;
     }
+    const classLink = event.target.closest('.class-link');
+    if (classLink) {
+      event.preventDefault();
+      selectClass(classLink.dataset.class);
+      return;
+    }
     const duplicateLink = event.target.closest('.duplicate-chip');
     if (duplicateLink) {
       event.preventDefault();
@@ -3352,12 +3567,25 @@ function wireEvents() {
   });
 
   document.getElementById('class-list').addEventListener('click', (event) => {
+    const summary = event.target.closest('.class-section > summary');
+    if (summary) {
+      // Saved from the click, which only the reader makes, rather than from the toggle event, which also fires when a section opens itself.
+      saveSectionOpen(summary.parentElement.dataset.section, !summary.parentElement.open);
+      return;
+    }
     const button = event.target.closest('.class-button');
     if (!button) return;
-    const classId = state.class === button.dataset.class ? null : button.dataset.class;
-    const batches = availableBatches(manifest, classId);
-    setState({ class: classId, batch: batches.length > 0 ? batches[0] : 0, unit: null, group: null });
+    selectClass(state.class === button.dataset.class ? null : button.dataset.class);
   });
+  document.getElementById('class-header').addEventListener('click', (event) => {
+    if (event.target.closest('.class-header-show')) setState({ machine: '1' });
+  });
+  for (const button of document.querySelectorAll('.open-legend')) {
+    button.addEventListener('click', () => {
+      helpDialog.showModal();
+      helpDialog.scrollTop = document.getElementById('legend').offsetTop;
+    });
+  }
 
   for (const [id, key] of [
     ['filter-family', 'family'],
@@ -3505,7 +3733,7 @@ function renderChrome() {
     `Mode ${manifest.mode}, generated ${manifest.generated_at} at ${manifest.repo_head}; ` +
     `${formatCount(manifest.totals.units)} units on the corpus — ` +
     `${formatCount(machine?.units ?? 0)} machine-approved` +
-    `${exempt ? `, ${formatCount(exempt)} in no-verdict classes` : ''}, and ` +
+    `${exempt ? `, ${formatCount(exempt)} covered by a ruling` : ''}, and ` +
     `${formatCount(humanTotal(manifest))} human units in ${manifest.totals.batches} batches — ` +
     `covering ${formatCount(manifest.totals.rows)} rows.`;
   const stamp = document.getElementById('corpus-stamp');
@@ -3541,19 +3769,60 @@ function renderChrome() {
   document.getElementById('corpus-detail-rows').replaceChildren(head, body);
 }
 
+function renderLegend() {
+  const sections = [];
+  for (const id of Object.keys(SECTION_LABELS)) {
+    sections.push(el('dt', null, SECTION_LABELS[id].title), el('dd', null, SECTION_LABELS[id].legend));
+  }
+  document.getElementById('legend-sections').replaceChildren(...sections);
+  const diff = manifest.classes.some((cls) => cls.status === null);
+  const rows = [];
+  for (const [status, label] of Object.entries(STATUS_LABELS)) {
+    if (status === 'diff' && !diff) continue;
+    const row = el('tr');
+    const pill = el('td');
+    pill.append(pillEl(status));
+    row.append(pill, el('td', null, label.legend));
+    rows.push(row);
+  }
+  document.getElementById('legend-pills').replaceChildren(...rows);
+}
+
+// A manifest written before sections existed would put every class outside Open questions and leave the Queue empty, so the app shows why instead of booting on it, and still moves onto the next corpus the cycle serves.
+function refuseCorpus(message) {
+  document.getElementById('corpus-total').textContent = corpusChipLabel(manifest);
+  const banner = el('p', 'corpus-refusal', message);
+  banner.setAttribute('role', 'alert');
+  const layout = document.querySelector('.layout');
+  layout.hidden = true;
+  layout.before(banner);
+  window.addEventListener(RELOAD_EVENT, (event) => requestMove(parseReloadPath(event.detail?.path)));
+  window.__amsReloadReady = true;
+  if (window.__amsPendingReload) {
+    requestMove(parseReloadPath(window.__amsPendingReload));
+    window.__amsPendingReload = null;
+  }
+  refreshStatus();
+}
+
 const viewExtras = takeMoveState();
 if (viewExtras?.keptAsideSince && viewExtras.keptAsideSince < keptAsideSince) keptAsideSince = viewExtras.keptAsideSince;
-renderChrome();
-renderSidebar();
-keepTabAlive();
-wireEvents();
-indexReady = loadHumanIndex();
-await restoreAutosave();
-restoreConflicts();
-bootRestoreDone = true;
-await indexReady;
-applyHashState(true).then((replaced) => {
-  if (!replaced) restoreViewExtras(viewExtras);
-});
-if (replayQueue.length > 0) flushAutosave();
-refreshStatus();
+if (refusal) {
+  refuseCorpus(refusal);
+} else {
+  renderChrome();
+  renderLegend();
+  renderSidebar();
+  keepTabAlive();
+  wireEvents();
+  indexReady = loadHumanIndex();
+  await restoreAutosave();
+  restoreConflicts();
+  bootRestoreDone = true;
+  await indexReady;
+  applyHashState(true).then((replaced) => {
+    if (!replaced) restoreViewExtras(viewExtras);
+  });
+  if (replayQueue.length > 0) flushAutosave();
+  refreshStatus();
+}

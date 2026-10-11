@@ -32,11 +32,11 @@ The author rules that `·He ~b~ ·It` never happens (from ·Pea·He·It·Jay, wh
 
 The author accepts the junction changes the Parked list names (Q1–Q3). Under ss04 the half keeps `·He.half ~x~ ·It ~b~ ·Day`, the default drawing, rather than an ss04-gated preference for the baseline exit. `·He.half ~x~ ·It ~b~ ·Zoo.half` is what the old font draws after half-·Tea, and `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` is ·He's follower preference. ·He is Tall, so qsIt's refusal of its baseline exit into ·Thaw after a Tall letter also applies after ·He, as after half-·Tea.
 
-The old half's exit tuck before ·Zoo (`qsHe.half.ex-y5.ex-con-1` beside `qsZoo.en-trim-1`) is ·Zoo's own entry contraction: qsZoo's `contract[0]` names qsHe beside qsTea, and `zoo-entry-contraction-renamed` in `rebuild/m1-divergences.yaml` takes the half-·He pair as it takes the half-·Tea pair. The placed ink is identical to the old font's in every settlement configuration.
+The old half's exit tuck before ·Zoo (`qsHe.half.ex-y5.ex-con-1` beside `qsZoo.en-trim-1`) is ·Zoo's own entry contraction: qsZoo's `contract[0]` names qsHe beside qsTea, and `identical-zoo-crown` in `rebuild/m1-divergences.yaml` takes the half-·He pair as it takes the half-·Tea pair. The placed ink is identical to the old font's in every settlement configuration.
 
-The plain `qsCheer.noentry` alias covers `·He | ·Cheer`, the old `noentry_after` variant after ·He. The placed-ink check over `zwnj-word-initial-unification` prints the ·He·Cheer·It·Roe rows beside the ·Way·Cheer·It·Roe rows, the same ·Roe baseline-bar redraw, which `roe-baseline-bar-kept-after-it` covers for any left letter; the class's `why:` names both.
+The plain `qsCheer.noentry` alias covers `·He | ·Cheer`, the old `noentry_after` variant after ·He. The placed-ink check over `identical-unjoined-from-left` prints the ·He·Cheer·It·Roe rows beside the ·Way·Cheer·It·Roe rows, the same ·Roe baseline-bar redraw, which `roe-baseline-bar-kept-after-it` covers for any left letter; the class's `why:` names both.
 
-Issue #524's two classifier gaps close in their own commit ahead of `Add ·He`: `zwnj-word-initial-junction-moved` takes a row only when every `.noentry` glyph follows a ZWNJ or the namer dot, and `_noentry_name_tokens` attributes `exit-added` per glyph. Run with and without it at this alphabet, the oracle gives every row the same class.
+Issue #524's two classifier gaps close in their own commit ahead of `Add ·He`: `join-height-after-zwnj` takes a row only when every `.noentry` glyph follows a ZWNJ or the namer dot, and `_noentry_name_tokens` attributes `exit-added` per glyph. Run with and without it at this alphabet, the oracle gives every row the same class.
 
 ## Verification recipe
 
@@ -62,17 +62,17 @@ uv run python -m rebuild.pipeline.coretext_smoke --font rebuild/out/m1/M1.otf
 make verdict-ready
 ```
 
-After a green `run_m1`, check placed ink for every row that `zwnj-word-initial-unification` takes. The accepted result prints only the ·Way·Cheer·It·Roe and ·He·Cheer·It·Roe rows. Any other row it prints is one the class cannot take: stop and report it.
+After a green `run_m1`, check placed ink for every row that `identical-unjoined-from-left` takes. The check passes only when the windows whose ink differs are exactly ·Way·Cheer·It·Roe and ·He·Cheer·It·Roe. Any other window is one the class cannot take: stop and report it. A failure prints the row count beside the differing windows, and a count of 0 means the filter matched no row, so check the class id.
 
 ```zsh
 PYTHONPATH=. uv run python - <<'EOF'
 import csv
 from rebuild.review.ink import InkComparator
 ink = InkComparator("site/AbbotsMortonSpaceportSansSenior-Regular.otf", "rebuild/out/m1/M1.otf")
-rows = [r for r in csv.DictReader(open("rebuild/out/m1/divergence-audit.tsv"), delimiter="\t") if r["matched_entry"] == "zwnj-word-initial-unification"]
-for r in rows:
-    if not ink.ink_identical("".join(chr(int(c, 16)) for c in r["codepoints"].split(":")), (r["config"],)):
-        print(r["config"], r["codepoints"])
+rows = [r for r in csv.DictReader(open("rebuild/out/m1/divergence-audit.tsv"), delimiter="\t") if r["matched_entry"] == "identical-unjoined-from-left"]
+differ = {r["codepoints"] for r in rows if not ink.ink_identical("".join(chr(int(c, 16)) for c in r["codepoints"].split(":")), (r["config"],))}
+assert differ == {"E661:E65E:E670:E668", "E662:E65E:E670:E668"}, (len(rows), sorted(differ))
+print(f"{len(rows)} rows; only ·Way·Cheer·It·Roe and ·He·Cheer·It·Roe differ")
 EOF
 ```
 

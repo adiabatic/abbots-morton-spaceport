@@ -81,7 +81,7 @@ def test_expect_string_handles_boundaries_and_ligatures():
 
 def test_policy_draft_prefers_contract_for_gained_extension(drafter, enricher, example_units):
     unit = example_units[("E652:E653:E67A:E652", "ss03")]
-    assert unit.class_id == "halves-entry-extension-restored"
+    assert unit.class_id == "longer-entry-join"
     policy = drafter.draft_policy(enricher.enrich(unit))
     assert policy is not None
     assert policy.keypath == "policy.contract[+]"
@@ -140,7 +140,7 @@ def test_policy_drafts_refuse_records_rejected_by_the_supplied_schema(
 
 def test_policy_draft_refuses_when_the_divergence_includes_a_new_join(drafter, enricher, example_units):
     unit = example_units[("E665:E670:E652:E679", "default")]
-    assert unit.class_id == "pre-ligature-cleanup-regularized"
+    assert unit.class_id == "new-joins-near-tea-oy"
     policy = drafter.draft_policy(enricher.enrich(unit))
     assert policy is not None
     assert policy.keypath == "policy.refuse[+]"
@@ -162,7 +162,7 @@ def test_refuse_drafts_never_target_junction_identical_units(drafter, enricher, 
 
 def test_policy_draft_pins_baseline_cell_on_name_grain_divergence(drafter, enricher, example_units):
     unit = example_units[("E650:200C:E650:E665", "default")]
-    assert unit.class_id == "boundary-window"
+    assert unit.class_id == "split-by-space-or-zwnj"
     policy = drafter.draft_policy(enricher.enrich(unit))
     assert policy is not None
     assert policy.keypath == "policy.prefer[+]"
@@ -174,14 +174,14 @@ def test_policy_draft_pins_baseline_cell_on_name_grain_divergence(drafter, enric
 
 def test_policy_draft_declines_unexpressible_name_grain_divergence(drafter, enricher, example_units):
     unit = example_units[("E650:200C:E650:E670", "default")]
-    assert unit.class_id == "boundary-window"
+    assert unit.class_id == "split-by-space-or-zwnj"
     assert drafter.draft_policy(enricher.enrich(unit)) is None
 
 
 def test_policy_draft_uses_prefer_when_provenance_is_empty(drafter, enricher, example_units):
     """The bare-name ·Fee·No window has a join that no rune record decided, so the trace names no record and `draft_policy` takes its final prefer branch. The test uses one fixed window instead of sampling the class, so if that window gains provenance the test fails instead of silently skipping the branch."""
     unit = example_units[("E658:E666", "default")]
-    assert unit.class_id == "bare-name-live-join"
+    assert unit.class_id == "identical-variant-name"
     enriched = enricher.enrich(unit)
     assert enriched.provenance == ()
     policy = drafter.draft_policy(enriched)
@@ -198,7 +198,7 @@ def test_policy_note_is_threaded_into_the_why_stub(drafter, enricher, example_un
 
 def test_any_of_orders_after_behavior_first(drafter, enricher, example_units):
     unit = example_units[("E650:E670:E65D", "default")]
-    assert unit.class_id == "regrouped-chain"
+    assert unit.class_id == "join-switches-sides"
     enriched = enricher.enrich(unit)
     draft = drafter.draft_any_of(enriched)
     assert len(draft.candidates) == 2

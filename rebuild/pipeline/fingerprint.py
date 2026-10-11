@@ -9,7 +9,7 @@ run_m1 writes the Stage A components (`data`, `baselines`, `pipeline_code`) to `
 The three human-reviewed ledgers have prose-insensitive digests, like the rune files below:
 
 - The contact allow-list is in no component, not even `data`. Only the defect gate reads it, so its digest (`contact_allow_digest`, under `CONTACT_ALLOW_LABEL`) is only in the artifact cycle's run_m1 skip key. Changing a signature re-runs that gate without restamping the corpus or dropping the review unit cache. Each entry's `why` is left out of the digest.
-- The divergence ledger is in `data` and left out of `tables_value`. `divergence_ledger_digest` hashes every field except each class's `why`. The audit, the classifier, and the review facts read those fields, so changing one moves `data` and the run_m1 skip key, and the cycle re-runs the comparison over the tables and font on disk. The review build copies each class's `why` into the manifest's `classes[].why`, which `check_manifest` requires, so the `why` is hashed into the Stage B `explain_prose` component through `ledger_prose_lines`. Rewording a class's `why` costs a corpus rebuild that reuses every cached unit and nothing else.
+- The divergence ledger is in `data` and left out of `tables_value`. `divergence_ledger_digest` hashes every field except each class's prose, the keys in `LEDGER_PROSE_KEYS`. The audit, the classifier, and the review facts read the other fields, so changing one moves `data` and the run_m1 skip key, and the cycle re-runs the comparison over the tables and font on disk. The review build copies each class's prose into the manifest, so the prose is hashed into the Stage B `explain_prose` component through `ledger_prose_lines`. Rewording a class costs a corpus rebuild that reuses every cached unit and nothing else. The change groups' prose, rebuild/review/change-groups.yaml, takes the same route through `group_prose_lines` and is in no other component.
 - The standing approvals are in no component. `standing_approvals_digest` leaves out each rule's `note` and is used only by the artifact cycle's rebuild-lane closure. The verdict-update key (`artifact_cycle.verdict_update_skip_fingerprint`) hashes the file's raw bytes instead, because `standing_verdicts` copies a rule's `note` into every verdict it fills.
 
 `rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these (the refuse `why` has one reader, described next), so editing them should not make the corpus stale or re-run a cycle. The digest keeps every geometric and policy field, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records.
@@ -494,17 +494,28 @@ def contact_allow_digest(path: Path) -> str:
 
 DIVERGENCE_LEDGER_LABEL = "rebuild/m1-divergences.yaml"
 STANDING_APPROVALS_LABEL = "rebuild/standing-approvals.yaml"
+CHANGE_GROUPS_LABEL = "rebuild/review/change-groups.yaml"
+
+# The ledger keys only the review app's copy reads: the rationale, and the title, summary and caution note the sidebar and class header show.
+LEDGER_PROSE_KEYS = ("why", "title", "summary", "note")
+GROUP_PROSE_KEYS = ("title", "summary", "why")
+
+
+def _without_ledger_prose(entry: object) -> object:
+    for key in LEDGER_PROSE_KEYS:
+        entry = _without_prose(entry, key)
+    return entry
 
 
 def _projected_ledger(document: object) -> object:
-    """Return the parsed divergence ledger with each entry's `why` set to None. The other fields (`id`, `status`, `match`, `no_verdict`, `ink_identical`, `count`, `exemplars`) stay, because `audit.load_ledger`, `oracle.classify_divergence`, and the review facts read them. A document `audit.load_ledger` would reject passes through unchanged, so its load failure stays visible in the digest."""
+    """Return the parsed divergence ledger with each entry's `LEDGER_PROSE_KEYS` set to None. The other fields (`id`, `status`, `match`, `no_verdict`, `ink_identical`, `exemplars`) stay, because `audit.load_ledger`, `oracle.classify_divergence`, and the review facts read them. A document `audit.load_ledger` would reject passes through unchanged, so its load failure stays visible in the digest."""
     if not isinstance(document, list):
         return document
-    return [_without_why(entry) for entry in document]
+    return [_without_ledger_prose(entry) for entry in document]
 
 
 def divergence_ledger_digest(path: Path) -> str:
-    """Return the divergence ledger's prose-insensitive digest, which `data_lines` uses. Changing a class's fields moves it. Rewording a class's `why` does not, because `ledger_prose_lines` hashes the `why` into `explain_prose` instead."""
+    """Return the divergence ledger's prose-insensitive digest, which `data_lines` uses. Changing a class's fields moves it. Rewording a class's `why`, `title`, `summary` or `note` does not, because `ledger_prose_lines` hashes those into `explain_prose` instead."""
     return _projected_digest(path, _projected_ledger)
 
 
@@ -622,7 +633,7 @@ def rune_explain_digests(repo_root: Path) -> dict[str, str]:
 
 
 def refuse_prose_lines(repo_root: Path) -> list[str]:
-    """Return a sorted `family\\tindex\\twhy` line for each refuse record with a `why`. This is all the rune prose anything downstream reads, and one of the two inputs to `explain_prose` (`ledger_prose_lines` is the other). A rune that fails to parse or decode contributes `family\\t-\\t<raw digest>`, so a broken file changes the value instead of reading as a rune with no refusals."""
+    """Return a sorted `family\\tindex\\twhy` line for each refuse record with a `why`. This is all the rune prose anything downstream reads, and the first input to `explain_prose` (`ledger_prose_lines` and `group_prose_lines` are the others). A rune that fails to parse or decode contributes `family\\t-\\t<raw digest>`, so a broken file changes the value instead of reading as a rune with no refusals."""
     lines: list[str] = []
     for path in rune_paths(Path(repo_root)):
         if not path.is_file():
@@ -644,9 +655,8 @@ def refuse_prose_lines(repo_root: Path) -> list[str]:
     return sorted(lines)
 
 
-def ledger_prose_lines(repo_root: Path) -> list[str]:
-    """Return a sorted `ledger\\t<id>\\t<why>` line for each divergence-ledger entry with a `why`: the other input to `explain_prose`. The ledger's `why` leaves the `data` digest and is hashed here so the corpus cannot serve a stale one: the review build copies it into the manifest's `classes[].why`, which `check_manifest` requires. No shard or sidecar carries it, so rewording a class restamps the corpus and re-enriches no unit. A ledger that fails to parse or decode, or is not the list `audit.load_ledger` expects, contributes `ledger\\t-\\t<raw digest>`."""
-    path = Path(repo_root) / DIVERGENCE_LEDGER_LABEL
+def _entry_prose_lines(path: Path, tag: str, keys: tuple[str, ...]) -> list[str]:
+    """Return a sorted `<tag>\\t<id>\\t<key>\\t<text>` line for each string-valued `keys` field of each entry in the YAML list at `path`, or no lines when the file is missing. An entry without a string id is named by its index. A file that fails to parse or decode, or is not a list, contributes `<tag>\\t-\\t<raw digest>`, so a broken file reads as changed instead of as a file with no prose."""
     if not path.is_file():
         return []
     raw = path.read_bytes()
@@ -655,21 +665,32 @@ def ledger_prose_lines(repo_root: Path) -> list[str]:
     except yaml.YAMLError, UnicodeDecodeError:
         document = None
     if not isinstance(document, list):
-        return [f"ledger\t-\t{hashlib.sha256(raw).hexdigest()}"]
+        return [f"{tag}\t-\t{hashlib.sha256(raw).hexdigest()}"]
     lines: list[str] = []
     for index, entry in enumerate(document):
-        why = entry.get("why") if isinstance(entry, dict) else None
-        if not isinstance(why, str):
+        if not isinstance(entry, dict):
             continue
         identifier = entry.get("id")
-        lines.append(f"ledger\t{identifier if isinstance(identifier, str) else index}\t{why}")
+        name = identifier if isinstance(identifier, str) else index
+        lines.extend(f"{tag}\t{name}\t{key}\t{entry[key]}" for key in keys if isinstance(entry.get(key), str))
     return sorted(lines)
 
 
-def explain_prose_value(repo_root: Path) -> str:
-    """Return the `explain_prose` component: the hash of `refuse_prose_lines` and `ledger_prose_lines` sorted together, so the manifest records whether the explain text and class rationales it serves match the wording on disk. The two kinds of line cannot collide, because a ledger line's first field is `ledger` and a refuse line's is a family name. It is a Stage B component because no stage of the M1 build reads this prose, so run_m1 has nothing to record, and a stale value means the corpus needs rebuilding, not the tables."""
+def ledger_prose_lines(repo_root: Path) -> list[str]:
+    """Return a sorted `ledger\\t<id>\\t<key>\\t<text>` line for each `LEDGER_PROSE_KEYS` field of each divergence-ledger entry: the second input to `explain_prose`. That prose leaves the `data` digest and is hashed here so the corpus cannot serve a stale copy: the review build copies it into the manifest's classes and its `ledger_classes` lookup. No shard or sidecar carries it, so rewording a class restamps the corpus and re-enriches no unit. A ledger that fails to parse or decode, or is not the list `audit.load_ledger` expects, contributes `ledger\\t-\\t<raw digest>`."""
+    return _entry_prose_lines(Path(repo_root) / DIVERGENCE_LEDGER_LABEL, "ledger", LEDGER_PROSE_KEYS)
+
+
+def group_prose_lines(repo_root: Path) -> list[str]:
+    """Return a sorted `group\\t<id>\\t<key>\\t<text>` line for each `GROUP_PROSE_KEYS` field of each entry in rebuild/review/change-groups.yaml: the third input to `explain_prose`. Only the manifest reads that file (`change_groups.load_change_group_prose`), so it is in no other component, and rewording a group restamps the corpus and re-enriches no unit. A file that fails to parse or decode, or is not a list, contributes `group\\t-\\t<raw digest>`."""
+    return _entry_prose_lines(Path(repo_root) / CHANGE_GROUPS_LABEL, "group", GROUP_PROSE_KEYS)
+
+
+def explain_prose_value(repo_root: Path, spec_root: Path | None = None) -> str:
+    """Return the `explain_prose` component: the hash of `refuse_prose_lines`, `ledger_prose_lines` and `group_prose_lines` sorted together, so the manifest records whether the explain text and class copy it serves match the wording on disk. The rune and ledger prose come from `spec_root` when one is given, and the group prose always comes from `repo_root`, because the build reads the change groups' prose beside its own code and a bundled spec carries no rebuild/review/. The three kinds of line cannot collide, because a ledger line's first field is `ledger`, a group line's `group`, and a refuse line's a family name. It is a Stage B component because no stage of the M1 build reads this prose, so run_m1 has nothing to record, and a stale value means the corpus needs rebuilding, not the tables."""
     root = Path(repo_root)
-    lines = sorted(refuse_prose_lines(root) + ledger_prose_lines(root))
+    spec = Path(spec_root) if spec_root is not None else root
+    lines = sorted(refuse_prose_lines(spec) + ledger_prose_lines(spec) + group_prose_lines(root))
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
@@ -716,13 +737,13 @@ def stage_a(repo_root: Path) -> dict:
 
 
 def stage_b(repo_root: Path, before_font: Path, junior_font: Path, spec_root: Path | None = None) -> dict:
-    """Return the review-side components. `explain_prose` is computed over `spec_root` when the build names one, because a workload bundled with its own frozen spec serves that spec's rationales; otherwise it is computed over the checkout. `fonts` is `fonts_value` over the two site fonts, so the `make all` of a version bump leaves it unchanged."""
+    """Return the review-side components. `explain_prose` takes its rune and ledger prose from `spec_root` when the build names one, because a workload bundled with its own frozen spec serves that spec's rationales, and from the checkout otherwise; the change groups' prose comes from the checkout either way. `fonts` is `fonts_value` over the two site fonts, so the `make all` of a version bump leaves it unchanged."""
     root = Path(repo_root)
     return {
         "review_code": hash_paths(root, review_code_paths(root)),
         "static": hash_paths(root, static_paths(root)),
         "fonts": fonts_value(root, [Path(before_font), Path(junior_font)]),
-        "explain_prose": explain_prose_value(Path(spec_root) if spec_root is not None else root),
+        "explain_prose": explain_prose_value(root, spec_root),
     }
 
 

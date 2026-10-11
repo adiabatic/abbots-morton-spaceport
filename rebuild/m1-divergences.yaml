@@ -1,106 +1,124 @@
 # The M1 divergence ledger (M1-PLAN section 6): one entry per reviewed class of divergence between settlement and the section 13.1 baseline oracle, over the letters in `baseline_subset.M1_ALPHABET`.
-# Every divergent row should match exactly one entry. A row that matches two or more fails the run_m1 gate; a row that matches none is unmatched and waits for a verdict on the review corpus. `oracle.classify_divergence` gives each row the highest-precedence class its divergence tags allow, and its code is the authority on the order: boundary-window first (any row without a position divergence whose window contains a run-splitting boundary, space or ZWNJ), then no class for any other ss10 row, then ligation, then junction changes, then cell-grain changes. The cell-grain order is halves-entry-extension-restored, same-junction-extension-non-summing, the extension-dropped classes, the renamed and consolidated classes, then zwnj-word-initial-unification, dangling-anchor-dropped and bare-name-live-join; a row with a `+ex-bind-*` or `-ex-ext-1` token gets none of those last three. The classifier leaves some rows unassigned, and two entries match rows with a position divergence among them with function predicates: kern_out_of_scope and may_ligature_junction_loosened. The run never writes this file: `counts_by_entry` in rebuild/out/m1/oracle_summary.json gives each class's row count, and rebuild/out/m1/divergence-audit.tsv holds the per-row detail.
-# Status values: intended (designed behavior, needs no review) | accepted-pending-review (an observed mismatch, accepted pending human review) | triaged (per-row triage decisions, never accepted automatically) | reviewed-approved (the user approved the class's behavior in the round-1 verdict pass) | reviewed-rejected (the user rejected the class's behavior in the round-1 verdict pass; that round's policy records restore the old behavior, and the entry's why documents the remaining rows).
+# Every divergent row should match exactly one entry. A row that matches two or more fails the run_m1 gate; a row that matches none is unmatched, and the review corpus lists it under a change group. An entry's `match.predicate` names an oracle predicate (`oracle.PREDICATES`), whose name need not be the entry's id, and `oracle.classify_divergence` is the authority on which class a row's divergence tags pick and in what precedence. The run never writes this file: `counts_by_entry` in rebuild/out/m1/oracle_summary.json gives each class's row count, and rebuild/out/m1/divergence-audit.tsv holds the per-row detail.
+# `status` takes a value from `audit.LEDGER_STATUSES`, which says what each means, and `audit.class_section` places the class in the review app from its status and unit counts. `title`, `summary` and the optional `note` are the class's copy in the review app and `why` its full rationale; `audit.load_ledger` refuses an entry without a title or summary. `ink_identical: true` claims that every unit of the class draws exactly as in the old font, and the review corpus lists a unit whose picture differs under the change group it shows (`change_groups.reroutes`).
 # `no_verdict: true` means a ratified rule decides the whole class, so no unit in it needs its own verdict. The review build gives those units no batch, the review app disables their verdict buttons, and the verdict carry skips them.
 
-- id: boundary-window
-  status: intended
+- id: split-by-space-or-zwnj
+  title: "Split by a space or ZWNJ"
+  summary: "A space or ZWNJ ends the word, so each piece draws exactly as it does standing alone."
+  status: by-design
   no_verdict: true
   match: {predicate: boundary_window, configs: all}
   exemplars:
     - {config: default, codepoints: "200C:E67A:E665", baseline: "space|qsUtter.noentry|qsMay.en-y5 (y5 join on the shadow)", new: "uni200C|qsUtter.alternate.locked|qsMay.loop.en-y0 (y0 join, word-initial)"}
     - {config: default, codepoints: "0020:E650:E650", baseline: "space|qsPea.half.en-y6.ex-y6|qsPea.en-y6", new: "space|qsPea.half.ex-y6|qsPea.full.en-y6 (the bare E650:E650 row's name-grain divergence, repeated across a space)"}
   why: |
-    The ratified rule that a boundary is a word boundary (design section 3.4; ratified for ZWNJ on 2026-07-03 and extended to space the same day): a window containing a run-splitting boundary, space or ZWNJ, never needs its own verdict. The letter after a boundary is word-initial and the letter before it word-final, so the new font renders every segment of a boundary window the same as that segment standing alone. The font's own checks enforce this, not this ledger: gate:conform's split-buffer check tests it on every build over the full enumeration for every `splits_runs` token, and the rune schema has no `is: space` or `is: zwnj`, so no record can tell a run-splitting boundary from a text edge.
-    A boundary row can therefore diverge from the baseline in only two ways, and neither can be judged here. A divergence inside a segment also appears on that segment's own enumerated row, because every segment of a window of length 5 or less is itself such a window. Any other divergence is the old font treating the two sides of a boundary inconsistently: post-space ·Utter·May joins at y0 while post-ZWNJ ·Utter·May joins at y5 (the old font's post-ZWNJ `.noentry` variants), and space has counterparts of the same kind. This rule removes that inconsistency, and restoring it would require a form conditioned on the boundary.
-    ZWNJ evidence: the class absorbs the ZWNJ rows of zwnj-word-initial-unification (round 1: 1,421 ink-identical rows), zwnj-follower-exit-restored (reviewed-approved) and zwnj-word-initial-junction-moved, and the round-2 re-judgment of pairs asked twice (u-15220 approved and u-15230 rejected on identical new ink) that prompted the rule.
-    Space evidence: of the 744 space units verdicted before this class existed (679 approve, 32 reject, 31 neither, 2 either), only 2 rejects had no matching reject on their sibling across the boundary: u-15228 ·No·It·Day ␣ and u-15241 ·No·It·Utter ␣ (deferred-ss04). Both contradict their approved bare siblings u-15220 and u-15221: the same question was asked twice, as with the ZWNJ pair. No space reject was about the space itself, and the rule overrides those two rejects.
-    Rows with a position divergence are not absorbed here. They go through kern attribution, because the old font kerns across spaces and through ZWNJ.
+    The ratified rule that a boundary is a word boundary (design section 3.4): a window containing a run-splitting boundary, space or ZWNJ, never needs its own verdict. The letter after a boundary is word-initial and the letter before it word-final, so the new font renders every segment of a boundary window the same as that segment standing alone. The font's own checks enforce this, not this ledger: gate:conform's split-buffer check tests it on every build over the full enumeration for every `splits_runs` token, and the rune schema has no `is: space` or `is: zwnj`, so no record can tell a run-splitting boundary from a text edge.
+    A boundary row can therefore diverge from the baseline in only two ways, and neither can be judged here. A divergence inside a segment also appears on that segment's own enumerated row, because every segment of a window of length 5 or less is itself such a window. Any other divergence is the old font treating the two sides of a boundary inconsistently, such as `·Utter ~b~ ·May` after a space against `·Utter ~x~ ·May` after a ZWNJ, which this rule removes.
+    The class takes every ZWNJ row ahead of every other class, so the post-ZWNJ rulings that identical-unjoined-from-left, joins-next-letter-after-zwnj and join-height-after-zwnj record reach no ZWNJ row. Rows with a position divergence are not absorbed here. They go through kern attribution, because the old font kerns across spaces and through ZWNJ.
 
-- id: zwnj-word-initial-unification
-  status: intended
+- id: identical-unjoined-from-left
+  title: "Looks identical: letter not joined from the left"
+  summary: "A letter that doesn't join the letter before it (today ·Cheer after ·Way or ·He, and ·Thaw after ·Out+Tea) draws exactly as in the old font; only glyph names differ."
+  status: by-design
   match: {predicate: zwnj_word_initial_unification, configs: all}
   ink_identical: true
   exemplars:
     - {config: default, codepoints: "200C:E670:E670", baseline: "space|qsIt.ex-y5|qsIt", new: "uni200C|qsIt.sole.locked|qsIt.sole"}
   why: |
-    A letter after a ZWNJ is word-initial in the new model (design section 3.4). The new model has no authored `.noentry` variants; the ZWNJ lock mints locked copies instead, so every post-ZWNJ position differs at name grain (the old `<x>.noentry` or a leaked bare name, against the new `<cell>.locked`). The junctions agree, and the locked copy draws the same bitmap as the old `.noentry` glyph. boundary-window takes every ZWNJ row first, and the old pipeline mints no `.noentry` glyph after the namer dot, so the rows this entry covers are the `.noentry` variants the old font also draws after a letter, where both fonts break the pair: ·Thaw after a Tall letter where the old font draws its after-Tall break under the `.noentry` name rather than `qsThaw.after-tall` (after ·Out+Tea, and before ·See+Utter), and ·Cheer after ·Way or ·He (its `noentry_after` derive). Those rows differ from the new cells only at name grain: the `.noentry` suffix, the lock token in the `qsThaw.noentry` alias, or an onward exit the `.noentry` name does not spell out. The rows are not all ink-identical end to end, though: ·Way·Cheer·It·Roe and ·He·Cheer·It·Roe also draw the baseline bar that the old font's shortened-bottom ·Roe omits, and the `qsRoe.en-ext-1-at-5` alias keeps that redraw out of name grain. `roe-baseline-bar-kept-after-it` in `rebuild/standing-approvals.yaml` covers the redraw; this entry covers only the `.noentry` name grain. ·They+Utter's `noentry_after` variant, which the old font also draws after a letter, reaches this entry in no row, because every divergent row that has it also differs elsewhere. The entry is also the record of the post-ZWNJ ruling, which boundary-window cites.
+    A letter after a ZWNJ is word-initial in the new model (design section 3.4). The new model has no authored `.noentry` variants; the ZWNJ lock mints locked copies instead, so every post-ZWNJ position differs at name grain (the old `<x>.noentry` or a leaked bare name, against the new `<cell>.locked`). The junctions agree, and the locked copy draws the same bitmap as the old `.noentry` glyph. split-by-space-or-zwnj takes every ZWNJ row first, and the old pipeline mints no `.noentry` glyph after the namer dot, so the rows this entry covers are the `.noentry` variants the old font also draws after a letter, where both fonts break the pair: ·Thaw after a Tall letter where the old font draws its after-Tall break under the `.noentry` name rather than `qsThaw.after-tall` (after ·Out+Tea, and before ·See+Utter), and ·Cheer after ·Way or ·He (its `noentry_after` derive). Those rows differ from the new cells only at name grain: the `.noentry` suffix, the lock token in the `qsThaw.noentry` alias, or an onward exit the `.noentry` name does not spell out. The rows are not all ink-identical end to end, though: ·Way·Cheer·It·Roe and ·He·Cheer·It·Roe also draw the baseline bar that the old font's shortened-bottom ·Roe omits, and the `qsRoe.en-ext-1-at-5` alias keeps that redraw out of name grain. `roe-baseline-bar-kept-after-it` in `rebuild/standing-approvals.yaml` covers the redraw; this entry covers only the `.noentry` name grain. ·They+Utter's `noentry_after` variant, which the old font also draws after a letter, reaches this entry in no row, because every divergent row that has it also differs elsewhere. The entry is also the record of the post-ZWNJ ruling, which split-by-space-or-zwnj cites.
 
-- id: post-marker-ligature-formation
-  status: intended
+- id: ss03-tea-oy-ligature-kept
+  title: "ss03 keeps the ·Tea+Oy ligature"
+  summary: "With ss03 on, ·Tea·Oy still forms ·Tea+Oy, so `·May ~x~ ·Tea.half | ·Oy` becomes `·May | ·Tea+Oy`."
+  status: approved
   match: {predicate: post_marker_ligature_formation, configs: all}
   exemplars:
     - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.sole.locked"}
+  note: "The 2 units left also gain a join before ·May (`·Way ~b~ ·May`, `·He ~b~ ·May`), which no ruling covers."
   why: |
-    Ligature formation is unconditional and runs before the marker lookups and the ZWNJ lock (the prototype's stage order), so ·Tea·Oy forms directly after a ZWNJ and under every stylistic set except ss10, whose ss10 input substitution replaces every letter first. The old pipeline renames the lead letter first, so there the ligature never forms. Prototype divergence 5 / M1-PLAN expected class 6. Round-1 verdict: 32 approvals. The four "·May should use the loop stance" skip notes are superseded by the user's later choice: ·May settles on the loop stance with its full exit terminal and no pull-back. boundary-window takes the post-ZWNJ rows, so the classifier sends this entry the ·Tea·Oy rows under ss03 and the ·Day·Utter rows after the namer dot.
+    Ligature formation is unconditional and runs before the stylistic-set marker substitutions, so ·Tea·Oy forms under every stylistic set except ss10, whose input substitution replaces every letter first. Under ss03 the old font renames the lead ·Tea before its ligature pass, joining half-·Tea to a letter that leaves at the x-height, so there the ligature never forms: the old `·X ~x~ ·Tea.half | ·Oy` is `·X | ·Tea+Oy` in the rebuild. Prototype divergence 5 / M1-PLAN expected class 6.
+    The user approved this change as a whole ("never going to have a different opinion unless ·X is ·Out"). ·May before the ligature settles on its loop stance with the full exit terminal and no pull-back, as the user chose.
 
-- id: zwnj-follower-exit-restored
-  status: reviewed-approved
+- id: joins-next-letter-after-zwnj
+  title: "A letter after a ZWNJ still joins the next letter"
+  summary: "A letter right after a ZWNJ loses only its join to the left; it still joins the letter after it, as after a space."
+  status: approved
   match: {predicate: zwnj_follower_exit_restored, configs: all}
   exemplars:
     - {config: default, codepoints: "200C:E665:E665:E670", baseline: "space|qsMay.noentry|qsMay.ex-ext-1|qsIt.en-y5.ex-y0 (break after the locked May)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-y5.ex-ext-1|qsIt.sole.en-y5 (y0 join gained)"}
   why: |
-    In the old font the `qsMay.noentry` glyph keeps only the bare ·May's x-height exit, so where a post-ZWNJ ·May becomes that glyph it cannot join to the right at the baseline, as in the exemplar's break before the second ·May. The locked copy removes only the entry, because the ZWNJ break is the left junction, so the letter keeps its right-side joins. Design section 3.4: ZWNJ splits the run and does not take away the word-initial letter's joins. Round-1 verdict: 6 approvals. In u-0267's window the rejected en-ext-1 pixel went away when qsIt's halves entry-extension record was deleted, and the gained join remains. boundary-window takes every ZWNJ row first, so this entry covers only namer-dot rows, if any, where the old font's `.noentry` glyphs after the dot also lose their right-side joins. The entry is kept as the record of this ruling, which boundary-window cites.
+    In the old font the `qsMay.noentry` glyph keeps only the bare ·May's x-height exit, so where a post-ZWNJ ·May becomes that glyph it cannot join to the right at the baseline, as in the exemplar's break before the second ·May. The locked copy removes only the entry, because the ZWNJ break is the left junction, so the letter keeps its right-side joins. Design section 3.4: ZWNJ splits the run and does not take away the word-initial letter's joins. Round-1 verdict: 6 approvals. In u-0267's window the gained join draws without the en-ext-1 pixel the user rejected, because qsIt has no halves entry-extension record. split-by-space-or-zwnj takes every ZWNJ row first, so this entry covers only namer-dot rows, if any, where the old font's `.noentry` glyphs after the dot also lose their right-side joins. The entry is kept as the record of this ruling, which split-by-space-or-zwnj cites.
 
-- id: zwnj-word-initial-junction-moved
-  status: accepted-pending-review
+- id: join-height-after-zwnj
+  title: "Join height after a ZWNJ"
+  summary: "After a ZWNJ, a letter joins the next one at the height it uses after a space, so `·Utter ~x~ ·May` becomes `·Utter ~b~ ·May`."
+  status: by-design
   match: {predicate: zwnj_word_initial_junction_moved, configs: all}
   exemplars:
     - {config: default, codepoints: "200C:E67A:E665", baseline: "space|qsUtter.noentry|qsMay.en-y5 (y5 join on the shadow)", new: "uni200C|qsUtter.alternate.ex-baseline|qsMay.loop.en-baseline (y0 join, word-initial)"}
   why: |
-    The companion of zwnj-word-initial-unification for rows where the old `.noentry` stance joined its follower at a different junction height than word-initial settlement does, so the unification moves the junction. Post-ZWNJ ·Utter·May is the example: the old `qsUtter.noentry` joins ·May at the x-height (y5), but ·Utter settled as word-initial, identical to its post-space and bare forms, joins ·May at the baseline (y0). The old font is inconsistent here (post-space ·Utter·May joins at y0, post-ZWNJ at y5), and the new model uses the word-initial form after ZWNJ (design section 3.4). The predicate matches only when the only junction change is a move with no gain and no loss, so a post-ZWNJ row that also gains or loses a junction goes to its own class. The ratified rule that a ZWNJ is a word boundary replaces the human verdict pass this entry waited for: boundary-window takes every ZWNJ row first, so this entry covers only namer-dot rows, if any. The entry is kept as the record of this ruling, which boundary-window cites.
+    The companion of identical-unjoined-from-left for rows where the old `.noentry` stance joined its follower at a different junction height than word-initial settlement does, so the unification moves the junction. Post-ZWNJ ·Utter·May is the example: the old `qsUtter.noentry` joins ·May at the x-height (y5), but ·Utter settled as word-initial, identical to its post-space and bare forms, joins ·May at the baseline (y0). The old font is inconsistent here (post-space ·Utter·May joins at y0, post-ZWNJ at y5), and the new model uses the word-initial form after ZWNJ (design section 3.4). The predicate matches only when the only junction change is a move with no gain and no loss, so a post-ZWNJ row that also gains or loses a junction goes to its own class. The ratified rule that a ZWNJ is a word boundary replaces the human verdict pass this entry waited for: split-by-space-or-zwnj takes every ZWNJ row first, so this entry covers only namer-dot rows, if any. The entry is kept as the record of this ruling, which split-by-space-or-zwnj cites.
 
-- id: pre-ligature-cleanup-regularized
-  status: reviewed-approved
+- id: new-joins-near-tea-oy
+  title: "New joins near ·Tea+Oy"
+  summary: "In a word with ·Tea+Oy, letters the old font left apart join, mostly the two letters before it, as in `·Day ~b~ ·Gay | ·Tea+Oy`."
+  status: per-unit
   match: {predicate: pre_ligature_cleanup_regularized, configs: all}
   exemplars:
     - {config: default, codepoints: "E652:E670:E652:E679", baseline: "qsTea|qsIt|qsTea_qsOy (Tea.It break)", new: "qsTea.half.ex-y5|qsIt.sole.en-y5|qsTea_qsOy (y5 join kept)"}
   why: |
-    The old font's calt_post_liga_left_cleanup_pred reverts the join on the predecessor's left whenever the predecessor leaves its exit unjoined before the entryless ligature, which also undoes junctions the unjoined exit never touched (the demote and cleanup passes the rebuild does not port, design section 13.4). Settlement leaves only the one declined exit unjoined, and the unrelated join one position to the left stays. Round-1 verdict: 6 approvals. In u-0272 the kept join lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted; the exemplar shows the rendering without it.
+    The classifier sends a row here when it gains a join and loses or moves none in a window that holds ·Tea·Oy. Most of these rows join the two letters before the ligature. There the old font's calt_post_liga_left_cleanup_pred reverts the join on the predecessor's left whenever the predecessor leaves its exit unjoined before the entryless ligature, which also undoes junctions the unjoined exit never touched (the demote and cleanup passes the rebuild does not port, design section 13.4). Settlement leaves only the one declined exit unjoined, and the unrelated join one position to the left stays. In the other rows the ligature joins onward under ss04 or ss05, or a letter after it gains a join.
+    The user approved the cleanup case. No ruling covers the class as a whole, so each unit takes its own verdict.
 
-- id: regrouped-chain
-  status: reviewed-rejected
+- id: join-switches-sides
+  title: "Join switches sides of a letter"
+  summary: "A letter that joined one neighbor joins the other instead: `·Zoo | ·Utter ~b~ ·Ooze` becomes `·Zoo ~b~ ·Utter | ·Ooze`."
+  status: per-unit
   match: {predicate: regrouped_chain, configs: all}
   exemplars:
     - {config: default, codepoints: "E650:E665:E650:E650", baseline: "qsPea|qsMay.en-y0.ex-y5.en-ext-1|qsPea.half.en-y6.ex-y6|qsPea.en-y6 (y0,break,y6)", new: "qsPea.full.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsPea.full.en-y5|qsPea.full (y0,y5,break)"}
     - {config: default, codepoints: "200C:E665:E665:E665", baseline: "space|qsMay.noentry|qsMay.ex-y0|qsMay.en-y0.ex-y5 (break,y0 on the second pair)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-bind-pulled-back|qsMay.loop (y0 on the first pair)"}
     - {config: default, codepoints: "E679:E652:E670:E670", baseline: "qsOy|qsTea.en-y0|qsIt.ex-y5|qsIt (y0,break,break)", new: "qsOy.sole|qsTea.half.ex-y5|qsIt.sole.en-y5.ex-y0.ex-ext-1|qsIt.sole.en-y0 (break,y5,y0 — two joins for one)"}
   why: |
-    Settlement's ranking (the optimistic third term, then `order:`, then the final tiebreak) groups some chains differently from the old font's greedy chain of substitutions: the same number of joins on a different junction, the mismatches in unpinned windows of design section 15.4.
-    Round 1: 43 rejects ("The old way seems nicer to write out by hand"; u-0280 "I think I would rather prefer ·Tea·It to join"). The yielding prefers on qsOy, qsTea_qsOy (the ligature variant), qsIt (the ·It·It-before-·May decline) and qsMay (the greedy ·May·May pairing) restore the old grouping. That left u-0277 (·Pea·May·Pea·Pea, no ·Oy, ·It·It or ·May·May junction), u-0857 (post-ZWNJ ·May·May·May, grouping on the first pair like its space-boundary sibling), and four formerly machine-approved ·Oy windows (·Oy·Tea·It·It, ·Oy·It·May·Tea, ·Oy·It·May·May, ·Oy·Tea·May·Tea), where the qsOy decline gives up the word-initial ·Oy join for the follower joins the user said they prefer.
-    Round 3 (the duplicate-group review session of 2026-07-18): those open verdicts were approvals (the four ·Oy windows at u-9265, u-9268 and u-9296 to u-9298, and u-0277's unmatched-misc successor u-23024; u-0857's row is covered by boundary-window). Three families were rejected outright: ·X·Day·Tea·Day, ·X·Day·Tea·It and ·X·No·Tea·It, 17 windows tagged [echo-harmonize e-0059/e-0061/e-0087]. Wider yielding prefers restore them. qsDay has one unscoped record over the followers ·Day, ·Day·Utter, ·May, ·Low and ·It. qsNo declines its baseline exit before ·Tea·It after a left joined at the baseline. That record names its lefts because the ·Pea, ·Tea and ·No·No·Tea·It siblings carry approved junction-loss-unjoined verdicts for the M1 chain. Its ·Oy also matches the ·Tea·Oy ligature through left-family transparency, so forming ·Tea·Oy cannot change the grouping its trailing ·Oy would get unformed. Those rows reach the old junctions and match dangling-anchor-dropped at name grain. The ·X·Day·Tea·No family (11 windows judged neither, duplicate group e-0060) goes the other way: ·Day also yields before ·Tea·No at a run end (the `then: {is: boundary}` record), and full ·Tea joins ·No.alt at the baseline through qsTea's `order:` with no new ·Tea or ·No record. Those rows, with ·Day·Tea·No·dot (u-9176, previously either), are unmatched pending new verdicts.
-
-    Round 4 (the yield-family review session): the `·Day ~b~ ·Tea` and `·No ~b~ ·Tea` rows, a regrouping that moves the join one junction left, are ratified as they are, and the yielding lists from round 3 are final. The session judged one example per junction-follower shape the migrated alphabet reaches and left each with M1's grouping, some approved and the rest left unpinned. So a follower that qsDay and qsNo do not name keeps the left join, and ·Tea does not join onward. The lists record the user's preferences and are not an incomplete enumeration, so a later migration's `·Day·Tea·X` window is a spot check against this ruling, not a new question. The rows stay in this class and can still be judged one by one (no `no_verdict`), because the same predicate also matches regroupings that move the join one junction left on every other junction pair, such as ·Tea·Utter, ·Et·Pea and ·Roe·May, which this session did not rule on.
-
+    Settlement's ranking (the optimistic third term, then `order:`, then the final tiebreak) groups some chains differently from the old font's greedy chain of substitutions: the same number of joins on a different junction, the mismatches in unpinned windows of design section 15.4. The classifier sends a row here when it both loses a join and gains one. In most rows a letter trades its join on one side for a join on the other.
+    Where the user prefers the old grouping, yielding prefers restore it and the windows leave this class: on qsOy, on the ·Tea+Oy ligature, on qsIt (the ·It·It decline before ·May) and on qsMay (the greedy ·May·May pairing). One unscoped qsDay record yields before the followers ·Day, ·Day·Utter, ·May, ·Low and ·It, and qsNo declines its baseline exit before ·Tea·It after a left joined at the baseline, which restores the old grouping of the `·X·Day·Tea·Day`, `·X·Day·Tea·It` and `·X·No·Tea·It` families. The ·Oy in qsNo's list of lefts also matches the ·Tea+Oy ligature through left-family transparency, so forming ·Tea+Oy cannot change the grouping its trailing ·Oy would get unformed.
+    The `·Day ~b~ ·Tea` and `·No ~b~ ·Tea` regroupings, which move the join one junction left, are ruled as they are, and the qsDay and qsNo yielding lists are final: a follower they do not name keeps the left join, and ·Tea does not join onward. The lists record the user's preferences and are not an incomplete enumeration, so a later migration's `·Day·Tea·X` window is a spot check against this ruling, not a new question. ·Day also yields before ·Tea·No at a run end (the `then: {is: boundary}` record), and full ·Tea joins ·No.alt at the baseline through qsTea's `order:`, without a ·Tea or ·No record for it.
     The `·X·Tea·It·Y` windows keep the left join into ·Tea, as the old font and The Manual draw them (`·Day | ·Ye ~b~ ·Ooze ~b~ ·Tea | ·It ~b~ ·Zoo`), when ·X exits at the baseline (·Bay, ·Key, ·Gay, ·Zoo, ·J’ai, ·Cheer, ·Jay, ·Eight, ·Awe, ·Ox, ·Ooze) and the unentered ·It exits on its own: at the baseline before ·Day, ·Zoo, ·I and ·Utter, or at the x-height before ·Roe and the other x-height receivers. Each of those letters has a prefer that declines its baseline join into ·Tea, except when ·It and one of those receivers follow. qsEight also carries the opposite prefer (`exit baseline over exit none` on the same chain), because its stance order would otherwise settle the tie on the loop, which cannot exit into ·Tea. ·They and ·She decline without the exception, because the old font breaks their ·Tea join whenever ·It follows. ·Et is not in the receiver lists, because qsIt refuses `·It ~x~ ·Et` and qsTea's half-stance follower prefer before ·It·Et decides that window. An ·It·It follower is left out because the old font draws that ·It bare, so the window stays in this class as a same-count regrouping.
+    The Manual pin `·Key ~b~ ·No.alt | ·Tea.half ~x~ ·It` (the-manual.html:4153) is in this family and disagrees with the rebuild's grouping, and the pin gate allows no waivers. So qsNo's decline of its baseline exit before ·Tea·It names every baseline-exiting left the old font draws that way (·Bay, ·Key, ·Gay, ·Vie, ·Zoo, ·She, ·J'ai, ·Cheer, ·Jay, ·Ye and the rest, beside ·Day, ·It and ·Oy). It leaves out the x-height-entered ·Pea, ·Tea and ·No siblings, which the user approved as they are, and ·Roe, whose own x-height preference decides its junction. The ·Bay, ·Key and ·Ye lefts reach the old junctions and leave this class.
+    No ruling covers the other regroupings, such as ·Tea·Utter, ·Et·Pea and ·Roe·May, so each unit takes its own verdict.
 
-    The Manual pin `·Key ~b~ ·No.alt | ·Tea.half ~x~ ·It` (the-manual.html:4153) is in this family and disagrees with the rebuild's grouping, and the pin gate allows no waivers. So qsNo's decline of its baseline exit before ·Tea·It names every baseline-exiting left the old font draws that way (·Bay, ·Key, ·Gay, ·Vie, ·Zoo, ·She, ·J'ai, ·Cheer, ·Jay, ·Ye and the rest, beside ·Day, ·It and ·Oy from round 3). It still leaves out the x-height-entered ·Pea, ·Tea and ·No siblings, whose verdicts are approved, and ·Roe, whose own x-height preference decides its junction. The ·Bay, ·Key and ·Ye lefts reach the old junctions and leave this class.
-
-- id: ss03-chain-join-gains
-  status: reviewed-approved
+- id: ss03-adds-joins-around-tea
+  title: "ss03 adds joins around ·Tea"
+  summary: "With ss03 on, the full ·Tea joins the next letter, as in `·Utter ~x~ ·Tea ~b~ ·Low` where the old font drew `·Utter ~x~ ·Tea.half | ·Low`."
+  status: approved
   match: {predicate: ss03_chain_join_gains, configs: [ss03, ss03+ss05]}
   exemplars:
     - {config: ss03, codepoints: "E652:E665:E652", baseline: "qsTea|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsTea.full.ex-y0|qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
     - {config: ss03, codepoints: "E670:E665:E652", baseline: "qsIt|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsIt.sole.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
     - {config: ss03, codepoints: "E67A:E652:E67A", baseline: "qsUtter.ex-ext-1|qsTea.half.en-y5.after-xheight-exit|qsUtter (y5,break)", new: "qsUtter.mono.ex-y5.ex-ext-1|qsTea.full.en-y5.ex-y0|qsUtter.mono.en-y0 (y5,y0)"}
+  note: "About 60 units left also gain a join into ·May before the full ·Tea, which the full-bar ruling doesn't name."
   why: |
     Under ss03, maximizing the joins across the window gains chains that the old font's pair-by-pair substitutions cannot see. There are three shapes.
-    ·Tea·May·Tea and ·May·May·Tea gain the second join, on the ·May·Tea side (prototype deviation 3 / M1-PLAN expected class 7). ·It·May·Tea gains the first join: the old font uses ·May's entryless after-xheight-exit stance before half-·Tea, so the unentered ·It cannot reach it, while settlement's ·May cell has both anchors (en-y0 and the extended ex-y5), so the ·It·May baseline join and the ·May·Tea join both take effect. Round-1 verdict: 40 approvals. u-0356's post-ZWNJ ·Tea·It join keeps its gain, and its connector went back to the unextended width when qsIt's halves entry-extension record was deleted.
+    ·Tea·May·Tea and ·May·May·Tea gain the second join, on the ·May·Tea side (prototype deviation 3 / M1-PLAN expected class 7). ·It·May·Tea gains the first join: the old font uses ·May's entryless after-xheight-exit stance before half-·Tea, so the unentered ·It cannot reach it, while settlement's ·May cell has both anchors (en-y0 and the extended ex-y5), so the `·It ~b~ ·May` join and the `·May ~x~ ·Tea` join both take effect. The user approved both shapes.
+    The third shape comes from the full ·Tea bar. Under ss03, qsTea's full stance unlocks its x-height entry after ·Fee, ·May, ·Low, ·I, ·Ah, ·Utter and ·Out, so those x-height exiters reach the full bar. Where the follower accepts the bar's baseline exit, the whole window chains: ·Utter·Tea·Day and similar windows render `·X ~x~ ·Tea ~b~ ·Y`, where the old font drew the half stub and dropped the forward join. The unlock names only the left letter, with no follower condition and no except list; the user chose that form from rendered side-by-sides of it and of a form with an except list. Before a follower that cannot accept the join (·Pea, ·It, a second ·Tea), the entered full bar stands with its lower half dangling instead of the half stub, and ·X·Tea·No chains into the alternate ·No as in the default configuration. This is the ratified meaning of ss03: after a flat x-height stroke, ·Tea draws the full bar whether or not the follower joins it.
 
-    The third shape comes from the full ·Tea bar (the blessing-pass verdicts u-6645, u-6646 and u-6647, and the ss03 full-·Tea rejects u-6550, u-6551, u-6553, u-6642 and u-6643). Under ss03, qsTea's full stance unlocks its x-height entry after ·Fee, ·May, ·Low, ·I, ·Ah, ·Utter and ·Out, so those x-height exiters reach the full bar. Where the follower accepts the bar's baseline exit, the whole window chains: ·Utter·Tea·Day and similar windows render `·X ~x~ ·Tea(full) ~b~ ·Y`, where the old font drew the half stub and dropped the forward join. The unlock names only the left letter, with no follower condition and no except list; the user chose the form without an except list on 2026-07-04 from a rendered side-by-side of both options. Before a follower that cannot accept the join (·Pea, ·It, a second ·Tea), the entered full bar stands with its lower half dangling instead of the half stub, and ·X·Tea·No chains into the alternate ·No as in the default configuration. This replaces the u-1329-style approvals of the half-stub-and-break shapes. This is the ratified meaning of ss03: after a flat x-height stroke, ·Tea draws the full bar whether or not the follower joins it. These rows still await family-level approval on the review corpus like every other member.
-
-- id: entered-it-baseline-join-gain
-  status: reviewed-approved
+- id: it-joins-both-sides
+  title: "·It joins on both sides"
+  summary: "Mostly with ss04 on, an ·It joined after ·Bay, ·Gay, ·She or ·Day also joins the letter after it, as in `·Bay ~b~ ·It ~b~ ·Thaw`."
+  status: per-unit
   match: {predicate: entered_it_baseline_join_gain, configs: all}
   exemplars:
     - {config: default, codepoints: "E652:E670:E670", baseline: "qsTea.half.ex-y5|qsIt.en-y5.ex-y0|qsIt (y5,break)", new: "qsTea.half.ex-y5|qsIt.sole.en-y5.ex-y0.ex-ext-1|qsIt.sole.en-y0 (y5,y0)"}
   why: |
-    The class matches nothing. The user ruled that ·It never joins itself (IT1), so qsIt refuses its baseline entry after qsIt as it refuses the x-height one, and that rule supersedes the round-1 approvals of these gained joins that the `reviewed-approved` status records. The exemplar shows one of those approved ·It ~b~ ·It joins, which the rebuild no longer makes. The entry is kept as the record of this ruling.
-    The gain it recorded: the old YAML puts the not_before [qsTea, qsIt, qsRoe] baseline-exit refusal only on the unentered stance (quikscript.yaml `entry_nowhere_exit_baseline`; the entered en-y5/ex-y0 stance has no such refusal), so a self-scoped refusal is the faithful transcription, and an entered ·It may join a following ·It or ·Tea at the baseline. The old font's break there comes from its chain of substitutions, not from an authored rule. The extended exit (ex-ext-1, the entered-exit extension) keeps the two verticals two columns apart, so the refusal's reason (one extra-thick stroke) does not apply. The classifier sends a gain with an entered ·It on its left here; an unentered-·It gain under ss03 (the ·It·May·Tea chains) goes to ss03-chain-join-gains, and one outside ss03 stays unmatched. The round-1 skips u-0397 and u-0399 ("I like the extra join but the extension between ·Tea and ·It shouldn't change because ·It joins to something else next") were answered by deleting qsIt's halves entry-extension record.
-    The only divergence from the old font this ruling leaves is the ss04 ·X·It·It·Utter windows: the old font draws a baseline chain through both ·Its into ·Utter, and refuse records cannot be scoped to a feature, so the rebuild cannot carve it out. Those windows go to review as intended divergence.
+    The classifier sends a row here when it gains a join leaving an ·It that is joined on its left, and loses or moves none. Almost every such row differs only with ss04 on, where ·It joins at the baseline on both sides; a few ·They+Zoo·It windows differ without it.
+    The old YAML puts the not_before [qsTea, qsIt, qsRoe] baseline-exit refusal only on the unentered stance (quikscript.yaml `entry_nowhere_exit_baseline`; the entered en-y5/ex-y0 stance has no such refusal), so a self-scoped refusal is the faithful transcription, and an entered ·It may join the letter after it at the baseline. The old font's break there comes from its chain of substitutions, not from an authored rule. The extended exit (ex-ext-1, the entered-exit extension) keeps the two verticals two columns apart, so the refusal's reason (one extra-thick stroke) does not apply. An unentered-·It gain under ss03 (the ·It·May·Tea chains) goes to ss03-adds-joins-around-tea instead, and one outside ss03 stays unmatched.
+    ·It never joins itself (the IT1 ruling), so the exemplar's `·It ~b~ ·It` join is one the rebuild does not make. No ruling covers the joins the class holds, so each unit takes its own verdict.
 
-- id: pea-chain-regularized
-  status: reviewed-approved
+- id: pea-joins-next-letter
+  title: "·Pea joins the next letter"
+  summary: "Where the old font broke after ·Pea, it joins a following ·Pea, ·J’ai, ·Utter or ·May, as in `·Pea.half ~x~ ·J’ai`; in a few windows ·Utter joins ·Pea instead."
+  status: approved
   match: {predicate: pea_chain_regularized, configs: all}
   exemplars:
     - {config: default, codepoints: "E650:E650:E67A", baseline: "qsPea.half.en-y6.ex-y6|qsPea.en-y6|qsUtter (y6,break)", new: "qsPea.half.ex-y6|qsPea.full.en-y6.ex-y0|qsUtter.mono.en-y0 (y6,y0)"}
@@ -110,47 +128,62 @@
     After a y6 exit (half ·Pea or ·See), the old font draws the exitless qsPea.en-y6 before ·Utter, and under ss03 before a ·May that joins ·Tea: `·Pea.half ~6~ ·Pea | ·Utter`. Settlement gives that ·Pea the baseline exit the old font draws before its other baseline receivers (qsPea.en-y6.ex-y0): `·Pea.half ~6~ ·Pea ~b~ ·Utter`, and under ss03 `·Pea.half ~6~ ·Pea ~b~ ·May ~x~ ·Tea`.
     Round-1 verdict: 15 approvals.
 
-- id: halves-entry-extension-restored
-  status: reviewed-rejected
+- id: longer-entry-join
+  title: "Entry join a pixel longer"
+  summary: "A letter's entry is extended a pixel where the old font didn't extend it, mostly ·Eight after half-·Pea, half-·Tea or half-·He, and ·Cheer after ·Day+Utter."
+  status: per-unit
   match: {predicate: halves_entry_extension_restored, configs: all}
   exemplars:
     - {config: ss03, codepoints: "E652:E653:E67A:E652", baseline: "qsTea.ex-y0|qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1|qsTea.half.en-y5.after-xheight-exit", new: "qsTea/full/None/baseline/|qsDay_qsUtter/half/baseline/x-height/en-ext-1+ex-ext-1|qsTea/half/x-height/None/"}
   why: |
-    Round 1 rejected the class ("this widens the ·Tea·It extension for no reason"). Most of its rows came from qsIt's transcribed halves-minus-qsPea x-height entry-extension record, which the old font never realized, and that record is deleted.
-    All ten transcribed records of this shape are deleted. Those the oracle showed restore parity were deleted outright: qsDay, qsOy, both qsPea stances, qsMay's grounded loop, qsDay_qsUtter's own, and the qsTea and qsUtter records that never fired. ·No's record is half real, because the old font does draw its extension after half-·Pea and half-·Tea; no-xheight-entry-extension-dropped covers it. may-ligature-junction-loosened covers ·May's loop record.
-    The remaining rows are the ss03 composition in which the ligature's kept baseline en-ext-1 adds to its own exit extension on one cell while the old font drops the entry side. It is the ligature's form of the same-junction non-summing limit the engine cannot express; the exemplar is ·Tea·Day·Utter·Tea under ss03.
-    Round 2 rejected two groups: 15 ·Pea·May·Tea windows under ss03 ("pea-may", ·May composing en-ext-1 and ex-ext-1 on one cell) and 12 [X]·Oy·It·May windows ("it-may", the restored ·It·May baseline join carrying ·May's en-ext-1). The approved siblings u-0393 (·Pea·May·Tea·Tea) and u-0468 are the cases where ·May pulls back and never composes ex-ext-1, so the user rejects the summed extension and keeps the single one. A build-tested search of 25 candidate records across 5 approaches found no record in the closed `when:` vocabulary that reverts a reject to the old ink without changing other windows. The missing piece is a condition on the letter two to the left: in "pea-may", ·May's immediate left, a ·Pea, is byte-identical in the rejected ·Pea·May·Tea and the approved ·Pea·Pea·May·Tea except for that ·Pea's own entry (none against y6), and in "it-may" the difference is two letters back (·Oy). Removing qsMay's baseline-entry extend record resolves both groups without engine work: ·May's baseline entry never extends, so those windows match the old ink at the entry junction and leave this class, and may-baseline-entry-extension-dropped records the pixel the old font drew in ordinary words as intended.
+    The classifier sends a row here when a letter's entry is extended by a pixel (an added `en-ext-1`) where the old font drew no extension. The windows nobody has ruled on come mostly from extend records in qsEight and qsCheer: ·Eight's entry after half-·Pea, half-·Tea and half-·He, and ·Cheer's after ·Day+Utter. No ruling covers the class as a whole, so each unit takes its own verdict.
+    Under ss03, ·Day+Utter keeps its baseline en-ext-1 beside its own exit extension on one cell, where the old font drops the entry side: the ligature's form of the same-junction limit one-extension-per-join records. The exemplar is ·Tea·Day·Utter·Tea under ss03.
+    The user rejected qsIt's halves entry extension ("this widens the ·Tea·It extension for no reason"), so qsIt has no such record, and neither do qsDay, qsOy, qsPea, qsMay's grounded loop, qsDay_qsUtter, qsTea or qsUtter. halves-closer-to-no and may-farther-after-day-utter record how ·No after the half letters and ·May after ·Day+Utter differ from the old font without those records.
 
-- id: same-junction-extension-non-summing
-  status: reviewed-approved
+- id: one-extension-per-join
+  title: "At most one extension per join"
+  summary: "Where the old font extended both letters into one join, the rebuild extends at most one, so the pair sits a pixel or two closer, as in `·May ~x~ ·Zoo`."
+  status: approved
   match: {predicate: same_junction_extension_non_summing, configs: all}
   exemplars:
     - {config: default, codepoints: "E650:E670:E665", baseline: "qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0.ex-ext-1|qsMay.en-y0.ex-y5.en-ext-1", new: "...|qsIt...ex-ext-1|qsMay.loop.en-y0 (no en-ext-1)"}
     - {config: default, codepoints: "E655:E65D", baseline: "qsGay.ex-y5.ex-ext-2|qsJai.en-y5.ex-y0.en-ext-2", new: "qsGay/sole/None/x-height/ex-ext-3|qsJai/sole/x-height/None/ (no en-ext-2; ·Gay's exit carries the whole connector)"}
+  note: "Two round-2 rejects stand as an engine limit; the why names them."
   why: |
-    Extensions never add up on one junction (design section 6.2): when the predecessor's exit already carries the junction's extra pixel, the follower's entry extension is suppressed. The old pipeline applies both on these windows. Prototype divergence 3 / M1-PLAN expected class 4. Round-1 verdict: 28 approvals, 2 rejects, 3 eithers. The 2 rejects (u-0636 "new way has a worse ·May·It join", u-0656 "the old way seems nicer to write out by hand") contradict the 28 approvals of the same kind of change, and honoring them would repeal the non-summing rule, so they are presumed noise pending one ruling, to be shown next to u-0637, u-0654 and u-0663.
-    Round 2: the user confirmed the two re-presented rejects (u-0417 ·Pea·May·It·May, u-0437 ◊ZWNJ ·May·It·May). A build-tested search found no record in the closed vocabulary that turns them back to the old ink without changing other windows: the only mechanism that drops ·May's en-ext-1 is this suppression, which fires only on the immediate left predecessor's exit extension. Honoring the rejects would mean repealing the non-summing rule or adding a condition on the letter two to the left, which the engine does not have. The status stays reviewed-approved, because the 28 approvals govern the class, and these 2 windows are documented as limited by the engine. Removing qsMay's baseline-entry extend record resolved the halves-entry-extension-restored windows they were grouped with (see may-baseline-entry-extension-dropped) but does not reach these two: they are same-junction windows where the predecessor's own ex-ext-1 drives the suppression, so an engine fix still needs the condition on the letter two to the left.
+    Extensions never add up on one junction (design section 6.2): when the predecessor's exit already carries the junction's extra pixel, the follower's entry extension is suppressed. The old pipeline applies both on these windows. Prototype divergence 3 / M1-PLAN expected class 4. The user approved this kind of change in round 1, and `·May ~x~ ·Roe` and `·It ~b~ ·Vie` in the ·Roe and ·Vie review sessions.
+    Two windows the user rejected stand as an engine limit: u-0417 (·Pea·May·It·May) and u-0437 (·May·It·May after a ZWNJ). A build-tested search found no record in the closed vocabulary that turns them back to the old ink without changing other windows: the only mechanism that drops ·May's en-ext-1 is this suppression, which fires only on the immediate left predecessor's exit extension. Honoring the rejects would mean repealing the non-summing rule or adding a condition on the letter two to the left, which the engine does not have, so the approvals govern the class. Taking the pixel off ·May's baseline entry (may-closer-at-baseline-join) does not reach these two: they are same-junction windows where the predecessor's own ex-ext-1 drives the suppression, so an engine fix still needs the condition on the letter two to the left.
     ·Gay ~x~ ·J'ai shows the same kind of change at by-2. The old font draws that junction with both sides' extensions added (·Gay's ex-ext-2 and ·J'ai's or ·J'ai+Utter's en-ext-2), and settlement suppresses the entry side under the same rule. The classifier's same-junction token covers en-ext-2 against an ex-ext-2 predecessor as well as en-ext-1 against ex-ext-1, so these rows match this entry instead of going unmatched.
-    The ·Gay review session restored the pixel on ·Gay's side. ·Gay's x-height exit extends by 3 toward ·J'ai and ·J'ai+Utter, so the shaped width matches the old font and the divergence is at name grain only: one cell writes across one glyph what the old font wrote across two. The runes have no ·J'ai- or ·J'ai+Utter-side en-ext-2 records: the non-summing rule makes a receiver's entry extension unreachable behind an extending predecessor, and ·Gay's exit always extends here, so such records could never fire. ·Gay's own records carry the old font's conditions, read from the baseline rows.
+    ·Gay's side carries the pixel. ·Gay's x-height exit extends by 3 toward ·J'ai and ·J'ai+Utter, so the shaped width matches the old font and the divergence is at name grain only: one cell writes across one glyph what the old font wrote across two. The runes have no ·J'ai- or ·J'ai+Utter-side en-ext-2 records: the non-summing rule makes a receiver's entry extension unreachable behind an extending predecessor, and ·Gay's exit always extends here, so such records could never fire. ·Gay's own records carry the old font's conditions, read from the baseline rows.
     The junction is decided for the pair: ·Gay ~x~ ·J'ai carries by-3 whatever follows, before the ·J'ai+Utter ligature as before the bare letter. The old font withholds the long connector in two places, and neither is transcribed. When a ·Pea precedes the ·Gay, the old font's substitution takes bare `qsJai` as input, so any earlier lookup that has already renamed ·J'ai makes it miss; that is a compiled artifact, not a rule. The old source's `extend_entry_after` names ·Gay and ·May with no ·Pea clause, and the ·May branch of the same record shows no ·Pea suppression. ·Pea does not enter ·Gay, so the rune extends after it as after every other left. Those ·Pea windows are a position divergence and unmatched, because the old font draws no entry extension there. Before the followers that ·J'ai's own exit extend names, the old font withholds the connector because ·J'ai spends its single extension slot on the exit; the rebuild has no one-slot-per-glyph limit. Where the old font drew the connector long, the rows match this entry at name grain with the old font's shaped width. Where it drew it short, the rebuild is one pixel longer: the ·Vie, ·See, ·No and ·Low windows were already unmatched over ·J'ai's dropped forward reach and also carry ·Gay's longer exit, and the ·Tea, ·Roe, ·It and ·I windows are a new position divergence. Like the ·Gay ~x~ ·No trade-off, this is an intended departure from the old font, and verdicts decide those rows, not a ledger class.
 
-- id: may-baseline-entry-extension-dropped
-  status: intended
+- id: may-closer-at-baseline-join
+  title: "·May a pixel closer at a baseline join"
+  summary: "·May's baseline entry isn't extended, so ·May sits a pixel closer after ·Pea, ·Tea, ·He, ·Ye or ·It than in the old font."
+  status: approved
   match: {predicate: may_baseline_entry_extension_dropped, configs: all}
   exemplars:
     - {config: default, codepoints: "E650:E665", baseline: "qsPea|qsMay.en-y0.ex-y5.en-ext-1", new: "qsPea.full.ex-y0|qsMay.loop.en-y0 (no en-ext-1)"}
+  note: "In most units the amber highlight marks `·May ~x~ ·J’ai`, which is unchanged; look at the join into ·May. 19 units also show another change no ruling covers."
+  why: |
+    ·May's baseline entry never extends, because qsMay has no baseline-entry extend record. The old font extends it by one pixel after several letters that join ·May at the baseline, so the rebuild draws those joins a pixel tighter, and the letters after ·May move left with it.
+    The user chose this ("Never lengthen ·May's baseline-entry join"). They rejected the extension where it adds to ·May's own x-height exit extension (·Pea·May·Tea under ss03) and where the `·It ~b~ ·May` join carries it in ·Oy·It·May windows, and no record in the closed `when:` vocabulary can drop the pixel there alone, because each case turns on the letter two to the left. Taking the pixel off every baseline join into ·May honors those rejects without engine work, at the cost of departing from the old font wherever it draws the pixel in an ordinary word, such as `·Pea ~b~ ·May`.
 
-- id: day-baseline-entry-extension-dropped
-  status: intended
+- id: half-day-closer-at-baseline-join
+  title: "Half-·Day a pixel closer at a baseline join"
+  summary: "Half-·Day and half-·Day+Utter sit a pixel closer to the letter before them than in the old font; today that letter is always ·Tea+Oy, as in `·Tea+Oy ~b~ ·Day.half`."
+  status: approved
   match: {predicate: day_baseline_entry_extension_dropped, configs: all}
   exemplars:
     - {config: default, codepoints: "E652:E679:E653", baseline: "qsTea_qsOy|qsDay.half.en-y0.ex-y0.en-ext-1", new: "qsTea_qsOy/sole/None/baseline/|qsDay/half/baseline/None/ (no en-ext-1)"}
     - {config: default, codepoints: "E652:E679:E653:E67A", baseline: "qsTea_qsOy|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1", new: "qsTea_qsOy/sole/None/baseline/|qsDay_qsUtter/half/baseline/None/ (no en-ext-1)"}
   why: |
-    The old font extends half-·Day's (and half-·Day·Utter's) baseline entry by one pixel after the ·Tea·Oy ligature. The runes' baseline extend records name only bare qsTea and qsYe, and the ligature is neither, so the rebuild draws the same baseline join one pixel tighter. This was decided on 2026-07-15 with qsDay's own family, from side-by-side renders of both options. The alternative, adding qsTea_qsOy to both extend scopes, was scratch-built, restored the old ink on exactly these windows with no other change, and was declined, so the drop is intended. The 19 human verdicts on this kind of change, all approvals from 2026-06-29 carried onto every later corpus and covering the plain ·Day and ·Day·Utter forms and the word-final case, had already judged the tighter join right. Word-final members, whose exit is also dropped, match here and not dangling-anchor-dropped, whose ink-identical claim this pixel would break.
+    The old font extends half-·Day's (and half-·Day+Utter's) baseline entry by one pixel after the ·Tea+Oy ligature. The runes' baseline extend records name only bare qsTea and qsYe, and the ligature is neither, so the rebuild draws the same baseline join one pixel tighter. The user decided this with qsDay's own family, from side-by-side renders of `·Tea+Oy ~b~ ·Day.half` with and without the pixel. Adding qsTea_qsOy to both extend scopes restores the old ink on exactly these windows with no other change, and the user declined it, so the tighter join is intended.
+    The predicate takes half-·Day's dropped entry extension after any letter; today that letter is always ·Tea+Oy. Word-final members, whose exit is also dropped, match here and not identical-unused-join-name, whose identical-drawing claim this pixel would break.
 
-- id: vie-baseline-entry-extension-dropped
-  status: intended
+- id: vie-closer-at-baseline-join
+  title: "·Vie a pixel closer at a baseline join"
+  summary: "·Vie and ·Vie+Utter sit a pixel closer after ·Pea, ·Tea, ·It and ·Tea+Oy than in the old font."
+  status: approved
   no_verdict: true
   match: {predicate: vie_baseline_entry_extension_dropped, configs: all}
   exemplars:
@@ -162,23 +195,34 @@
   why: |
     The old font extends ·Vie's baseline entry by one pixel after ·It, after ·Tea, after the ·Tea·Oy ligature (by lead expansion) and after ·Pea. The ·Vie-side entry extends name none of those four, so the rebuild draws each of those baseline joins one pixel tighter. The qsVie review session (2026-08-13) decided this from the rendered windows, one left letter at a time. For each left letter shown, the reviewer asked for the shorter junction, and no ·Vie-side record can shorten it for one left letter alone, because `when.left` reads the left cell, whose `joined_at` is the junction in question. So the pixel came off for all of those left letters together, and the option of moving it onto the left letter's own record was dropped with it. ·Pea followed at the qsEight review session (2026-08-22), where the reviewer's note on ·Pea·Vie·See·Out asked for the same junction ("the new ways is an improvement but I want ·Pea·Vie to have the same lack of extra space between the two as ·Tea·Vie"), so qsPea came off the three extend lists, which name only qsYe and qsHe. The class covers the ·Vie·Utter ligature's token as well as ·Vie's own, so the ·X·Vie·Utter rows match here too. The qsIt, qsVie and qsVie_qsUtter runes carry the decision. `no_verdict` because the ruling applies to the junction, not to any one window: a left letter that reaches this class in a later alphabet gets the same answer, and queueing it again would ask a settled question. ·It-side rows where the old font drew an exit extension beside ·Vie are a separate kind of change and stay unmatched: the classifier keeps any row with `-ex-ext-1` out of the name-grain classes, and the `tea-i-exit-extension-dropped` standing approval is the precedent for that side.
 
-- id: no-xheight-entry-extension-dropped
-  status: intended
+- id: halves-closer-to-no
+  title: "·No a pixel closer after half letters"
+  summary: "After half-·Tea or half-·He, ·No sits a pixel closer at the x-height than in the old font, and the letters after it move left with it."
+  status: approved
   no_verdict: true
   match: {predicate: no_xheight_entry_extension_dropped, configs: all}
   exemplars:
     - {config: default, codepoints: "E652:E666:E653", baseline: "qsTea.half.ex-y5|qsNo.en-ext-1|qsDay", new: "qsTea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsDay/full/x-height/None/ (no en-ext-1, ·No and everything after it one pixel tighter)"}
     - {config: default, codepoints: "E652:E666:E666", baseline: "qsTea.half.ex-y5|qsNo.en-ext-1|qsNo", new: "qsTea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsNo/loop/x-height/None/ (no en-ext-1)"}
+  note: "You ruled this for half-·Pea and half-·Tea; the half-·He windows, about 80% of the class, came with the ·He migration and haven't been looked at."
+  why: |
+    The old font extends ·No's x-height entry by one pixel after the half letters that leave at the x-height: half-·Pea, half-·Tea and half-·He. qsNo has no such extend record, so ·No joins a pixel tighter and the letters after it move left with it. The user ruled this from live renders of ·No after half-·Pea and half-·Tea and kept the tighter join. `no_verdict` because the ruling applies to the junction, not to any one window.
 
-- id: may-ligature-junction-loosened
-  status: intended
+- id: may-farther-after-day-utter
+  title: "·May a pixel farther after ·Day+Utter"
+  summary: "After ·Day+Utter, ·May sits a pixel farther right than in the old font, which tucked it into the ligature."
+  status: approved
   no_verdict: true
   match: {predicate: may_ligature_junction_loosened, configs: all}
   exemplars:
     - {config: default, codepoints: "E652:E653:E67A:E665", baseline: "qsTea.ex-y0|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1|qsMay.en-y5", new: "slot 2 (qsMay.en-y5): origin want (350, 0), got (400, 0)"}
+  why: |
+    The old font tucks ·May's x-height entry one pixel into the exit of the ·Day+Utter ligature. The rebuild places ·May at the anchor-aligned column with no connector, so ·May sits a pixel farther right. The user ruled this from live renders and kept the looser position. The difference is in position, not in any cell name, so the oracle's `may_ligature_junction_loosened` function predicate matches these rows rather than the classifier: a non-kern position mismatch on a row whose old names put ·Day+Utter right before `qsMay.en-y5` and whose other cell-grain changes are all name grain. `no_verdict` because the ruling applies to the junction, not to any one window.
 
-- id: dangling-anchor-dropped
-  status: intended
+- id: identical-unused-join-name
+  title: "Looks identical: unused join in the old names"
+  summary: "A glyph the old font named for a join that never formed draws exactly as in the old font; only glyph names differ."
+  status: by-design
   match: {predicate: dangling_anchor_dropped, configs: all}
   ink_identical: true
   exemplars:
@@ -187,8 +231,10 @@
   why: |
     The old compiled names keep anchors that never join: a dangling exit before a letter that does not accept it (·It·It's harmless ex-y5), or an entry name at word start. Settlement's cells carry only committed anchors (E-UNACCEPTED-EXIT and lookahead closure; M1-PLAN expected class 3). The unjoined bindings involved are `safe`, so the ink is identical and the difference is at name grain only.
 
-- id: bare-name-live-join
-  status: intended
+- id: identical-variant-name
+  title: "Looks identical: plain glyph renamed to a variant"
+  summary: "Where the old font joined on the plain glyph and the rebuild names a variant, the letter draws exactly as in the old font; only glyph names differ."
+  status: by-design
   match: {predicate: bare_name_live_join, configs: all}
   ink_identical: true
   exemplars:
@@ -196,8 +242,10 @@
   why: |
     When the base drawing already has the live anchor, the old pipeline leaves the bare cmap glyph in place and joins on it. The new table always substitutes the settled cell glyph, and cell labels are never the bare name. The drawing and the junction are identical, and the difference is at name grain only.
 
-- id: see-out-fusion-renamed
-  status: intended
+- id: identical-see-out-fusion
+  title: "Looks identical: ·See·Out fusion"
+  summary: "The ·See·Out fusion draws exactly as in the old font; only glyph names differ."
+  status: by-design
   match: {predicate: see_out_fusion_renamed, configs: all}
   ink_identical: true
   exemplars:
@@ -206,17 +254,22 @@
   why: |
     The baseline ·See·Out fusion (the batch-11 review session's ruling) puts the junction's pull-back on the other side from the old font. The old pipeline's `ex-con-1` is a tuck, not a trim: the compiled contracted ·See keeps its whole tail, including the kick-left pixel on the baseline, and only moves the exit anchor in, pulling ·Out one column into the tail. The runes keep the tail whole at its convention anchor and pull back the raked redraw's foot instead, so every ·Out form after ·See (arch, swept-up and the ·Out+Tea ligature) produces the same fused composite as the old font. The renaming itself redraws no ink, which is what `ink_identical: true` states, and the oracle still enforces position equality across the family. The rows are not ink-identical end to end, though: the baseline-exit ·See has no blank column on its left, so every row also carries that one-column shift, and the letter after ·See moves with it. `see-grounded-left-column-dropped` in `rebuild/standing-approvals.yaml` covers that shift; this entry covers only the fusion's name grain.
 
-- id: may-jai-extension-consolidated
-  status: intended
+- id: may-jai-join-longer
+  title: "·May·J’ai join a pixel longer before some letters"
+  summary: "Before ·Ye, ·Tea and a few other letters, `·May ~x~ ·J’ai` is a pixel longer than in the old font; elsewhere it looks identical."
+  status: per-unit
   match: {predicate: may_jai_extension_consolidated, configs: all}
   exemplars:
     - {config: default, codepoints: "E665:E65D", baseline: "qsMay.ex-ext-1|qsJai.en-y5.ex-y0.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-2|qsJai/sole/x-height/None/"}
     - {config: default, codepoints: "E665:E65D:E67A", baseline: "qsMay.ex-ext-1|qsJai_qsUtter.en-ext-2", new: "qsMay/loop/None/x-height/ex-ext-2|qsJai_qsUtter/sole/x-height/None/"}
   why: |
-    The old pipeline splits the ·May·J'ai connector across the junction: ·May's exit extends by 1 and ·J'ai's crown entry extends by 2. M1's same-junction non-summing rule cannot keep that two-sided form, so qsMay's single by-2 exit record toward the qsJai family supplies the reach in every follower context. ·J'ai's aliases record the old names' en-ext-2, so these rows carry the dropped en-ext-2 beside ·May's replaced exit extension, and the classifier's subset guard admits it. That qsMay record has no `why:`. This class covers the resulting ink and name-grain change.
+    The old pipeline splits the ·May·J’ai connector across the junction: ·May's exit extends by 1 and ·J’ai's crown entry extends by 2. The one-extension-per-join rule cannot keep that two-sided form, so qsMay's single by-2 exit record toward the qsJai family supplies the reach in every follower context. ·J’ai's aliases record the old names' en-ext-2, so these rows carry the dropped en-ext-2 beside ·May's replaced exit extension, and the classifier's subset guard admits it. That qsMay record has no `why:`.
+    Most windows draw exactly as in the old font. Before ·Ye, ·Tea and a few other letters the old font withholds ·J’ai's entry extension, so there the rebuild's join is a pixel longer. No ruling covers that, so each unit takes its own verdict.
 
-- id: jai-entry-contraction-renamed
-  status: intended
+- id: identical-jai-jay-crown
+  title: "Looks identical: crown overlap before ·J’ai or ·Jay"
+  summary: "The crown overlap before ·J’ai or ·Jay draws exactly as in the old font; only glyph names differ."
+  status: by-design
   match: {predicate: jai_entry_contraction_renamed, configs: all}
   ink_identical: true
   exemplars:
@@ -225,8 +278,10 @@
   why: |
     The old pipeline's exit contractions before ·J'ai (by 1 on qsNo, qsLow and qsI, by 2 on qsAh, qsUtter and the `*_qsUtter` ligatures) are tucks, not trims: the compiled left glyph keeps its whole exit stroke and only the anchor moves in, pulling ·J'ai's crown over the kept ink. M1's contraction removes connector ink, and these exit strokes are too short to lose any (the ·Utter crown is exactly the two pixels a by-2 would take), so the runes put the tuck on the receiver: ·J'ai's own entry contracts, and the shortened crown gives up the columns the old font overlapped and abuts where the old one overlapped. Both forms place the same composite ink at the same coordinates with the same origins and advances. Only ·J'ai's cell name differs: it carries the con token where the old name put the contraction on the left (or, after ·Ah, the en-trim that the aliases already map). Where ·J'ai's exit also extends, the old font demotes its entry adjustment away entirely, and the runes' except-scoped entry records reproduce that, so this class sees only the left-side tucks that remain. ·Jay has the same crown and the same tuck after the unentered half-·Tea (the old `qsTea.half.ex-y5.ex-con-1` before ·Jay, whose alias records no adjustment), rewritten as ·Jay's own one-pixel entry contraction after ·Tea, and the ·Jay·Utter ligature inherits it on its lead.
 
-- id: zoo-entry-contraction-renamed
-  status: intended
+- id: identical-zoo-crown
+  title: "Looks identical: ·Zoo's crown after a half letter"
+  summary: "After half-·Tea or half-·He, ·Zoo's crown draws exactly as in the old font; only glyph names differ."
+  status: by-design
   match: {predicate: zoo_entry_contraction_renamed, configs: all}
   ink_identical: true
   exemplars:
@@ -235,8 +290,10 @@
   why: |
     The old unentered half-·Tea or half-·He exit tuck and ·Zoo entry trim place the same crown as ·Zoo's one-pixel entry contraction, which qsZoo's contract record draws after both letters. The aliases keep the old en-trim-1 name, so the only cell-grain change admitted here is its replacement by en-con-1 on that adjacent old-glyph pair, with the corresponding new half-·Tea or half-·He and full-·Zoo cells. The position comparison checks the full window and rejects unrelated non-kern shifts. The old qsIt.ex-y5 followed by qsRoe.en-ext-1-at-5 is excluded explicitly: its separate redraw changes the picture without changing glyph origins or advances, so position comparison cannot establish its ink identity.
 
-- id: roe-shortened-top-renamed
-  status: intended
+- id: identical-roe-short-top
+  title: "Looks identical: ·Roe's short top arm"
+  summary: "After the loop ·Ye, ·Roe's shortened top arm draws exactly as in the old font; only glyph names differ."
+  status: by-design
   match: {predicate: roe_shortened_top_renamed, configs: all}
   ink_identical: true
   exemplars:
@@ -245,17 +302,22 @@
     The old `qsRoe.en-ext-1-at-0` glyph draws ·Roe's shortened-top shape: the top arm starts a column further right, and the baseline entry is extended by one. The alias keeps only the en-ext-1 name, because the rebuild draws the full top arm after ·Jay, ·It, ·Eat and ·Eight. After the loop ·Ye, qsRoe binds `shortened-top` with the same one-pixel extension, so the composite ink, every origin and every advance match the old font, and only ·Roe's cell name gains the bind token. The token is name grain only wherever every bound ·Roe in the row is that old-and-new pair: a row whose single divergence it is takes this class, and a row with other divergences takes the class they decide, as it did before the bind. After the climbing-loop ·Ye, the entry is extended by two, which is an ink change, so those rows stay out.
 
 - id: ss03-out-tea-ligature-kept
-  status: intended
+  title: "ss03 keeps the ·Out+Tea ligature"
+  summary: "With ss03 on, ·Out·Tea still forms ·Out+Tea, as it does without ss03; the old font's ss03 split the pair."
+  status: approved
   no_verdict: true
   match: {predicate: ss03_out_tea_ligature_kept, configs: [ss03, ss03+ss05]}
   exemplars:
     - {config: ss03, codepoints: "E67B:E652", baseline: "qsOut.en-y0.ex-y5.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (y5)", new: "qsOut_qsTea (the ligature glyph)"}
     - {config: ss03, codepoints: "E65A:E67B:E652", baseline: "qsSee.ex-y0.ex-con-1|qsOut.en-y0.ex-y5.after-see.before-other|qsTea.half.en-y5.after-xheight-exit (y0,y5)", new: "qsSee.ex-y0.ex-con-1|qsOut_qsTea.after-see (y0,lig)"}
   why: |
-    The batch-11 ruling ("do what ·Tea·Oy does"): ·Out+Tea always forms. M1 formation does not depend on the configuration: the stylistic-set marker substitutions run after formation so that enabling a set cannot undo a ligature. The old font's ss03 splits the pair, because its calt substitutes the half-·Tea forward variant before its ligature pass runs (the `_LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS` exception). It renders ·Out ~x~ ·Tea.half wherever half-·Tea can carry the join, forms the ligature anyway when a second ·Tea follows, and in ·See·Out·Tea·Tea breaks the pair entirely. A transcription that ignores the configuration cannot reproduce both behaviors, and the default configuration's behavior is the one the ligature exists for, so the rebuild keeps the ligature under ss03 too. This class takes every ss03 and ss03+ss05 window with a formable E67B:E652 adjacency that differs at ligation grain. qsTea's two exit refusals keyed on an unjoined ·Out left implement the always-form ruling. That context arises only in the formation guard's simulation of the unformed trail, since ·Out·Tea always forms mid-run, and the refusals keep the section 5.7 guard from un-forming the exitless ligature before every follower an unformed ·Tea could reach. The replaced old renderings are the sibling of the intended ss03 ·Fee·Tea divergence and were ruled on as a whole, so the class has `no_verdict`: no unit in it needs its own verdict.
-- id: kern-out-of-scope
-  status: triaged
+    The batch-11 ruling ("do what ·Tea·Oy does"): ·Out+Tea always forms. M1 formation does not depend on the configuration: the stylistic-set marker substitutions run after formation so that enabling a set cannot undo a ligature. The old font's ss03 splits the pair, because its calt substitutes the half-·Tea forward variant before its ligature pass runs (the `_LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS` exception), so it renders `·Out ~x~ ·Tea.half` wherever half-·Tea can carry the join. The default configuration's behavior is the one the ligature exists for, so the rebuild keeps the ligature under ss03 too, and qsTea's two exit refusals keyed on an unjoined ·Out left implement that. The class takes every ss03 and ss03+ss05 window with a formable E67B:E652 adjacency that differs at ligation grain. The replaced old renderings are the sibling of the intended ss03 ·Fee·Tea divergence and were ruled on as a whole, so the class has `no_verdict`: no unit in it needs its own verdict.
+
+- id: spacing-at-kerned-pairs
+  title: "Spacing only, at kerned pairs"
+  summary: "Joins and shapes match the old font; a letter sits a pixel closer or farther at a pair the old font kerned."
+  status: per-unit
   match: {predicate: kern_out_of_scope, configs: all}
   exemplars: []
   why: |
-    Position-only rows that the comparison marks kern-attributable. The oracle shapes every row whose junctions and ligation match against the new font and compares per-slot positions with the baseline, with sidecar kerns removed (KernEvaluator over glyph_data/senior_quikscript_kerning.yaml). What remains can only be a kern the normalization modeled wrongly or a ZWNJ-adjacency artifact: the predicate requires the mismatched slots to sit on a kerned pair or a ZWNJ adjacency, and any other position mismatch stays unmatched. Expected to be zero. It is kept as the explicit triage entry for M1-PLAN section 6 class 9; remove it at review if it is still zero at cutover.
+    Position-only rows that the comparison marks kern-attributable. The oracle shapes every row whose junctions and ligation match against the new font and compares per-slot positions with the baseline, with sidecar kerns removed (KernEvaluator over glyph_data/senior_quikscript_kerning.yaml). What remains is a kern the normalization models differently from the old font, or a ZWNJ-adjacency artifact: the predicate requires the mismatched slots to sit on a kerned pair or a ZWNJ adjacency, and any other position mismatch stays unmatched. No class ruling covers these rows, so each unit takes its own verdict. The class is M1-PLAN section 6 class 9.

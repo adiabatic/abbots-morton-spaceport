@@ -8,8 +8,8 @@ test('parseHash returns nulls for an empty hash', () => {
 });
 
 test('parseHash reads every key and coerces batch to an integer', () => {
-  const state = parseHash('#class=dangling-anchor-dropped&batch=3&unit=u-0005&group=qsRoe:qsMay&config=ss05&family=qsMay&status=unverdicted');
-  assert.equal(state.class, 'dangling-anchor-dropped');
+  const state = parseHash('#class=join-dropped&batch=3&unit=u-0005&group=qsRoe:qsMay&config=ss05&family=qsMay&status=unverdicted');
+  assert.equal(state.class, 'join-dropped');
   assert.equal(state.batch, 3);
   assert.equal(state.unit, 'u-0005');
   assert.equal(state.group, 'qsRoe:qsMay');
@@ -30,7 +30,7 @@ test('writeHash omits null and empty values', () => {
 
 test('hash state round-trips', () => {
   const state = {
-    class: 'post-marker-ligature-formation',
+    class: 'ss03-tea-oy-ligature-kept',
     batch: 6,
     unit: 'u-0412',
     group: 'qsTea:qsOy',
@@ -72,7 +72,7 @@ test('the queue cursor is stored in the hash beside a units worklist and round-t
 });
 
 test('shedWorklist drops the units worklist, the queue cursor, and the queue view when a navigation patch changes class, batch, group, config, family, or status', () => {
-  for (const [key, value] of [['class', 'dangling-anchor-dropped'], ['batch', 2], ['group', 'qsTea:qsOy'], ['config', 'ss04'], ['family', 'qsMay'], ['status', 'verdicted']]) {
+  for (const [key, value] of [['class', 'join-dropped'], ['batch', 2], ['group', 'qsTea:qsOy'], ['config', 'ss04'], ['family', 'qsMay'], ['status', 'verdicted']]) {
     assert.deepEqual(shedWorklist({ [key]: value }), { units: null, order: null, queue: null, decision: null, stamp: null, view: null, [key]: value }, `changing ${key} must shed the worklist, queue cursor, and view`);
   }
   const cleared = shedWorklist({ family: null, config: null, status: null, group: null });

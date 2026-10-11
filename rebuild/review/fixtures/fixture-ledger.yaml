@@ -1,9 +1,11 @@
 # The class half of the review corpus's contract fixture (rebuild/review/fixtures/README.md): the two hand-written classes the fixture shards are filed under, in rebuild/review/audit.py's ledger schema.
-# Entry order is the corpus's class order, so these two also pin the order the fixture manifest's `classes` block runs in. The real ledger's `match` key is absent by design: nothing classifies these rows — fixture-audit.tsv names each row's class in its `matched_entry` column. `exemplars` is carried, because two shipped units are exemplars: `build_units` pools the (config, codepoints) keys across the whole ledger and marks a unit an exemplar when any of its rows matches one, so each key below names a row that unit actually has.
+# Both classes have human units and a ruled status, so both sit in Spot-check (`audit.class_section`) and entry order is the corpus's class order: these two also pin the order the fixture manifest's `classes` block runs in. The real ledger's `match` key is absent by design: nothing classifies these rows — fixture-audit.tsv names each row's class in its `matched_entry` column. `exemplars` is carried, because two shipped units are exemplars: `build_units` pools the (config, codepoints) keys across the whole ledger and marks a unit an exemplar when any of its rows matches one, so each key below names a row that unit actually has.
 # Hand-maintained beside the units it describes; no build ever writes this file.
 
 - id: fixture-intended
-  status: intended
+  status: by-design
+  title: Fixture class A
+  summary: Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches.
   ink_identical: true
   no_verdict: false
   exemplars:
@@ -13,7 +15,9 @@
     Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.
 
 - id: fixture-mismatch
-  status: accepted-pending-review
+  status: by-design
+  title: Fixture class B
+  summary: Hand-written units for the namer-dot and pair-null branches.
   ink_identical: false
   no_verdict: false
   why: |

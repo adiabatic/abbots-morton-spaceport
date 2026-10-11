@@ -2,7 +2,7 @@
 
 export const TOP_CLUSTER_COUNT = 25;
 export const SINGLETON_CHUNK = 40;
-export const RULED_STATUSES = ['intended', 'reviewed-approved', 'reviewed-rejected'];
+export const QUEUE_SECTION = 'open-questions';
 export const SINGLETON_DECISION = '#singletons';
 export const SHOWN_STORAGE_KEY = 'ams-review-queue-shown';
 
@@ -84,10 +84,11 @@ export function buildClusters(units, recordOf) {
   return clusters;
 }
 
+// The classes the queue leaves out: every class outside Open questions. The build's `audit.class_section` decides each class's section, so the queue reads it instead of a status list of its own.
 export function ruledClassIds(manifestClasses) {
   const ids = new Set();
   for (const cls of manifestClasses ?? []) {
-    if (RULED_STATUSES.includes(cls.status)) ids.add(cls.id);
+    if (cls.section !== QUEUE_SECTION) ids.add(cls.id);
   }
   return ids;
 }

@@ -8,7 +8,7 @@ Turn a "stop asking me about this" complaint into a rule in `rebuild/standing-ap
 
 ## Hard rules
 
-- The decision is the user's; the rule only records it. Find where it was made (an unmatched group, a rune edit, a review-session note) before writing anything, and cite it in the rule's `note:`. Never author a rune `why:`, which is written in the user's voice. The `note:` in `standing-approvals.yaml` is agent-written, in the pattern of the file's existing notes.
+- The decision is the user's; the rule only records it. Find where it was made (a change group's review, a rune edit, a review-session note) before writing anything, and cite it in the rule's `note:`. Never author a rune `why:`, which is written in the user's voice. The `note:` in `standing-approvals.yaml` is agent-written, in the pattern of the file's existing notes.
 - A rule must fill the whole surveyed kind of change and nothing else. Every shape leaves some changes unchecked, and its docstring says what it checks. Before landing a rule, list the blank units it would fill and check each one for a change the shape does not check.
 - Never hand-write the verdict store or any `verdicts-*.json`; the cycle lands the fill through `merge_verdicts`. Never join unit ids across manifests.
 - Counts belong to the dry run's output and the cycle summary, never to prose or the rule's note.

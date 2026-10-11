@@ -19,7 +19,7 @@ from typing import NamedTuple, Protocol
 
 import yaml
 
-from rebuild.review import unmatched_groups
+from rebuild.review import change_groups
 from rebuild.review.columns import MappingPool, StringTable, TuplePool
 
 ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
@@ -27,7 +27,49 @@ BATCH_SIZE = 300
 
 UNMATCHED_CLASS = "UNMATCHED"
 
-RESERVED_CLASS_IDS = frozenset({UNMATCHED_CLASS, *unmatched_groups.UNMATCHED_GROUP_ORDER})
+RESERVED_CLASS_IDS = frozenset({UNMATCHED_CLASS, *change_groups.CHANGE_GROUP_ORDER})
+
+# The status vocabulary of the divergence ledger. `by-design` means a rule of the rebuild's design decides the class, `approved` that the user ruled the class's change correct, and `per-unit` that no ruling covers the class as a whole, so each unit's verdict decides it. The change groups are `per-unit` too, and a table-diff bucket has no status.
+LEDGER_STATUSES = ("by-design", "approved", "per-unit")
+RULED_STATUSES = ("by-design", "approved")
+
+# The review app's sections, in the order the manifest lists their classes. `class_section` is the one place a class is assigned to one.
+OPEN_QUESTIONS = "open-questions"
+SPOT_CHECK = "spot-check"
+NO_REVIEW_NEEDED = "no-review-needed"
+SECTIONS = (OPEN_QUESTIONS, SPOT_CHECK, NO_REVIEW_NEEDED)
+
+# Every predicate name the oracle resolves (`oracle.PREDICATES`: the `CLASS_PREDICATE_IDS` class predicates and the two function predicates). The review build cannot import the oracle, whose import closure is outside the per-unit store's stamp (`unit_cache.PIPELINE_NON_CORPUS_MODULES`), so `load_ledger` checks a ledger's predicates against this copy, and rebuild/test_ledger_predicates.py checks the copy against the oracle.
+LEDGER_PREDICATES = frozenset(
+    {
+        "boundary_window",
+        "ss03_out_tea_ligature_kept",
+        "post_marker_ligature_formation",
+        "regrouped_chain",
+        "zwnj_word_initial_junction_moved",
+        "zwnj_follower_exit_restored",
+        "pre_ligature_cleanup_regularized",
+        "ss03_chain_join_gains",
+        "entered_it_baseline_join_gain",
+        "pea_chain_regularized",
+        "halves_entry_extension_restored",
+        "same_junction_extension_non_summing",
+        "may_baseline_entry_extension_dropped",
+        "no_xheight_entry_extension_dropped",
+        "day_baseline_entry_extension_dropped",
+        "vie_baseline_entry_extension_dropped",
+        "zwnj_word_initial_unification",
+        "dangling_anchor_dropped",
+        "bare_name_live_join",
+        "see_out_fusion_renamed",
+        "may_jai_extension_consolidated",
+        "jai_entry_contraction_renamed",
+        "zoo_entry_contraction_renamed",
+        "roe_shortened_top_renamed",
+        "kern_out_of_scope",
+        "may_ligature_junction_loosened",
+    }
+)
 
 AUDIT_HEADER = ("config", "codepoints", "kinds", "matched_entry", "baseline", "new")
 
@@ -56,12 +98,28 @@ class RowView(NamedTuple):
 
 @dataclass(frozen=True)
 class LedgerClass:
+    """One class of the review corpus: a divergence-ledger entry (`load_ledger`) or a change group the build synthesizes (`synthesize_unmatched_group_classes`). `title`, `summary` and the optional `note` are the review app's copy for the class, and `why` its full rationale."""
+
     id: str
     status: str
     why: str
     ink_identical: bool
     no_verdict: bool
     exemplar_keys: frozenset[tuple[str, str]]  # (config, codepoints)
+    title: str = ""
+    summary: str = ""
+    note: str = ""
+
+
+def class_section(status: str | None, no_verdict: bool, human_units: int) -> str:
+    """Return the review app's section for a class. A class that is `no_verdict`, or whose every unit a machine check approves (`human_units` is zero), needs no review, whatever its status. Otherwise a ruled status (`RULED_STATUSES`) makes it a spot-check, and `per-unit`, or None for a table-diff bucket, an open question. Any other status raises."""
+    if status is not None and status not in LEDGER_STATUSES:
+        raise ValueError(f"{status!r} is not a ledger status ({', '.join(LEDGER_STATUSES)})")
+    if no_verdict or human_units == 0:
+        return NO_REVIEW_NEEDED
+    if status in RULED_STATUSES:
+        return SPOT_CHECK
+    return OPEN_QUESTIONS
 
 
 MACHINE_CHECKS = ("ink_identical", "picture_identical", "junior_equivalent")
@@ -104,7 +162,7 @@ class Unit:
 
     `ordinal` is the unit's row in the workload table and in the build's unit store (`unit_store.UnitStore`), which share one index from the plan boundary on. It is -1 on a unit built outside a table. `input_key` is the unit cache's content key over the unit's inputs (`unit_cache.UnitKeyer.key`), which the plan reuses the unit by; it is copied from the store's column when a store is given. `unit_id` and the three machine flags also come from the store, and are empty or False on a unit the store has not loaded. The worker's phase 1 sets them on its own copy and returns them on the projection.
 
-    `ink_deltas` is always the shared empty mapping `NO_DELTAS` on a unit the build materializes: the store holds the per-config deltas, and drafting takes them as an argument. `ink_deltas` and `config_classes` (the table's pooled mapping) are typed `Mapping`, so a write through either is a type error at that line instead of a change every unit sharing the instance would see. `order` and `batch` are the unit's position in the manifest's triage index and the batch that position falls in, and None for a unit that takes no verdict. Neither is written into the fragment.
+    `ink_deltas` is always the shared empty mapping `NO_DELTAS` on a unit the build materializes: the store holds the per-config deltas, and drafting takes them as an argument. `ink_deltas` and `config_classes` (the table's pooled mapping) are typed `Mapping`, so a write through either is a type error at that line instead of a change every unit sharing the instance would see. `order` and `batch` are the unit's position in the manifest's triage index and the batch that position falls in, and None for a unit that takes no verdict. Neither is written into the fragment. `ledger_class` is the `ink_identical` ledger class of a unit the build lists under a change group because its picture changes (`change_groups.reroutes`), and empty on every other unit.
     """
 
     codepoints: str
@@ -132,6 +190,7 @@ class Unit:
     unmatched_group: str = ""
     duplicate_group: str | None = None
     cluster: str | None = None
+    ledger_class: str = ""
 
     @property
     def codepoint_values(self) -> tuple[int, ...]:
@@ -184,7 +243,17 @@ def load_audit(path: Path, names: TuplePool[str] | None = None) -> Iterator[Audi
             )
 
 
+def _prose_field(path: Path, identifier: str, entry: Mapping, key: str, *, required: bool) -> str:
+    value = entry.get(key)
+    if value is None and not required:
+        return ""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{path}: {identifier} needs a nonempty string {key}, not {value!r}")
+    return value.strip()
+
+
 def load_ledger(path: Path) -> list[LedgerClass]:
+    """Load the divergence ledger's entries as classes, in file order. An entry is refused unless it has a nonempty string id that no other entry and no class the build synthesizes (`RESERVED_CLASS_IDS`) uses, a status from `LEDGER_STATUSES`, a nonempty `title` and `summary`, and a `match.predicate`, when it names one, that the oracle resolves (`LEDGER_PREDICATES`): the oracle drops an entry whose predicate it cannot resolve, so a mistyped one would match no row and leave its rows unmatched without failing any gate."""
     entries = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or []
     classes: list[LedgerClass] = []
     seen: set[str] = set()
@@ -197,16 +266,29 @@ def load_ledger(path: Path) -> list[LedgerClass]:
         if identifier in seen:
             raise ValueError(f"{path}: {identifier} is declared twice")
         seen.add(identifier)
+        status = entry.get("status")
+        if status not in LEDGER_STATUSES:
+            raise ValueError(
+                f"{path}: {identifier} has status {status!r}, not one of {', '.join(LEDGER_STATUSES)}"
+            )
+        predicate = (entry.get("match") or {}).get("predicate")
+        if predicate is not None and predicate not in LEDGER_PREDICATES:
+            raise ValueError(
+                f"{path}: {identifier} names predicate {predicate!r}, which the oracle does not define"
+            )
         classes.append(
             LedgerClass(
                 id=identifier,
-                status=entry.get("status", ""),
+                status=status,
                 why=(entry.get("why") or "").strip(),
                 ink_identical=bool(entry.get("ink_identical", False)),
                 no_verdict=bool(entry.get("no_verdict", False)),
                 exemplar_keys=frozenset(
                     (exemplar["config"], exemplar["codepoints"]) for exemplar in entry.get("exemplars", ())
                 ),
+                title=_prose_field(path, identifier, entry, "title", required=True),
+                summary=_prose_field(path, identifier, entry, "summary", required=True),
+                note=_prose_field(path, identifier, entry, "note", required=False),
             )
         )
     return classes
@@ -214,19 +296,21 @@ def load_ledger(path: Path) -> list[LedgerClass]:
 
 def synthesize_unmatched_group_classes(
     table: UnitTable,
-    group_order: list[str],
-    group_why: dict[str, str],
+    group_order: Sequence[str],
+    group_prose: Mapping[str, change_groups.ChangeGroupProse],
 ) -> list[LedgerClass]:
-    """Synthetic `LedgerClass` records for the unmatched groups present among the UNMATCHED units, in `group_order`, found in the table's unmatched-group column. `status='unmatched'` marks them as a grouping for presentation only: they have no ledger predicate, so the oracle matches no row to them. Their units' unmatched rows, which do not fail the gate, stay unmatched until a ledger entry matches them or the rows stop diverging. The build appends them after the ledger classes, so each group gets a shard and a manifest entry the way a ledger class does. The build passes `unmatched_groups.UNMATCHED_GROUP_ORDER` and `unmatched_groups.UNMATCHED_GROUP_WHY`."""
+    """Synthetic `LedgerClass` records for the change groups present in the table's unmatched-group column, in `group_order`, with each group's title, summary and why from `group_prose`. Every group has status `per-unit`: no ruling covers it as a whole. A group has no ledger predicate, so the oracle matches no row to it, and its units' unmatched rows, which do not fail the gate, stay unmatched until a ledger entry matches them or the rows stop diverging. The build appends these after the ledger classes, so each group gets a shard and a manifest entry the way a ledger class does. The build passes `change_groups.CHANGE_GROUP_ORDER` and `change_groups.load_change_group_prose()`."""
     counts = table.unmatched_group_counts()
     return [
         LedgerClass(
             id=group_id,
-            status="unmatched",
-            why=group_why.get(group_id, ""),
+            status="per-unit",
+            why=group_prose[group_id].why,
             ink_identical=False,
             no_verdict=False,
             exemplar_keys=frozenset(),
+            title=group_prose[group_id].title,
+            summary=group_prose[group_id].summary,
         )
         for group_id in group_order
         if group_id in counts
@@ -390,7 +474,7 @@ class Compaction(NamedTuple):
 
 
 class UnitTable:
-    """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, an unmatched group from a worker and a duplicate-group id from a whole-corpus pass are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
+    """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, a change group from a worker and a duplicate-group id from a whole-corpus pass are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
 
     The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The merge marks the rows it removes (`merge_into`), and `compact` drops them and renumbers the rest in place. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the review-facts CLI and the tests. The debug tally measures the table through `build.unit_table_sizes` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
     """
@@ -773,7 +857,7 @@ def load_table(
     family_of: dict[int, str],
     names: TuplePool[str] | None = None,
 ) -> tuple[UnitTable, RowColumns]:
-    """Dedupe the audit rows to (codepoints, baseline, new) units, and return them as a `UnitTable` in load order together with the row columns the units' runs address. Load order is ledger class, group, window, with the UNMATCHED units after every ledger class, because unmatched groups are assigned only at enrichment. Once every unit has its unmatched group and id, the build orders the units for the manifest with `sort_for_triage` and assigns batches.
+    """Dedupe the audit rows to (codepoints, baseline, new) units, and return them as a `UnitTable` in load order together with the row columns the units' runs address. Load order is ledger class, group, window, with the UNMATCHED units after every ledger class, because change groups are assigned only at enrichment. Once every unit has its change group and id, the build orders the units for the manifest with `sort_for_triage` and assigns batches.
 
     A unit's matched ledger class can differ by config: a window can match a ledger class under an ss03 config and be UNMATCHED under a config without ss03, such as the default. Each unit keeps the full per-config class map in `config_classes`, in the order the file states the configs. Its `class_id` is the single matched class if every config matched, and UNMATCHED if any config did not, so the unmatched default behavior is what gets reviewed; the matched configs stay in `config_classes` for display. A unit whose rows match two different ledger classes raises `ValueError`.
 
@@ -1087,7 +1171,7 @@ def triage_key(
 def sort_for_triage(
     table: UnitTable, store: UnitStoreView, class_order: Mapping[str, int], family_of: Mapping[int, str]
 ) -> array:
-    """Return the triage order as a permutation of the table's rows. The rows are not reordered, so the row index stays the ordinal. The class term is each unit's final class (its ledger class, or the unmatched group the build promoted an UNMATCHED unit to), indexed through `class_order`, which maps every class the manifest lists. The id term is the store's `id_word`, the content key's first eight bytes as an integer. It sorts like the id strings `triage_key` uses, because `unit_cache.base58_64` writes a fixed-width base58 over an ascending alphabet. The other terms are `triage_key`'s."""
+    """Return the triage order as a permutation of the table's rows. The rows are not reordered, so the row index stays the ordinal. The class term is each unit's final class (its ledger class, or the change group the build promoted it to), indexed through `class_order`, which maps every class the manifest lists. The id term is the store's `id_word`, the content key's first eight bytes as an integer. It sorts like the id strings `triage_key` uses, because `unit_cache.base58_64` writes a fixed-width base58 over an ascending alphabet. The other terms are `triage_key`'s."""
     return _triage_permutation(table, class_order, family_ranks(family_of), store.id_word)
 
 
@@ -1299,8 +1383,15 @@ def load_workload(
     ledger_path: Path,
     family_of: dict[int, str],
 ) -> Workload:
+    """Load the ledger and the audit into a `Workload`. Every row's `matched_entry` must be UNMATCHED or a ledger id: an audit written by run_m1 under an older ledger, one whose ids have since been renamed, would otherwise list its units under classes the ledger does not describe."""
     ledger = load_ledger(ledger_path)
     table, rows = load_audit_table(audit_path, ledger, family_of)
+    named = {rows.table[index] for index in set(rows.entry)}
+    unknown = sorted(named - {UNMATCHED_CLASS} - {entry.id for entry in ledger})
+    if unknown:
+        raise ValueError(
+            f"{audit_path}: rows match classes {ledger_path} does not declare: {', '.join(unknown)}"
+        )
     present = table.classes_present()
     return Workload(
         table=table,

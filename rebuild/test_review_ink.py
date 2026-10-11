@@ -337,7 +337,7 @@ def test_verdicts_are_deterministic_across_two_comparators(mini_units, comparato
 
 
 def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
-    """In the may-baseline-entry-extension-dropped class, ·Pea·May drops ·May's one-pixel baseline entry extension. Followers after the judged pair add no cell to the delta: ·Low and ·Low·Fee paint the same picture shifted left by the dropped column, so the localized delta is the same across the follower contexts and they share one duplicate-group key. Only the recorded shift distinguishes a window with followers from the bare pair, whose shift is 0."""
+    """In the may-closer-at-baseline-join class, ·Pea·May drops ·May's one-pixel baseline entry extension. Followers after the judged pair add no cell to the delta: ·Low and ·Low·Fee paint the same picture shifted left by the dropped column, so the localized delta is the same across the follower contexts and they share one duplicate-group key. Only the recorded shift distinguishes a window with followers from the bare pair, whose shift is 0."""
     pair = "".join(chr(value) for value in (0xE650, 0xE665))
     one_follower = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
     two_followers = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667, 0xE658))

@@ -4,7 +4,7 @@ Columns avoid per-object overhead: a tuple header per span, a pointer per name, 
 
 The ordinal is the unit's row in the workload table (`audit.UnitTable`) after the ink-duplicate merge compacts it, and the store is allocated over the same count, so one index reads both tables. The two tables share one string table, passed in as `strings`. The plan's keyer loop writes every input key (`set_input_key`) before any row is loaded, and a load that carries an input key must match the one already written. The unit id is not stored. `unit_cache.unit_id_for` writes the first 64 bits of the content key as eleven base58 symbols over an ASCII-ordered alphabet, so the id is the key's first eight bytes read big-endian (`id_word`), and ids sort as strings in the same order as those integers. The primary-unit resolution pass breaks ties on the integer. Readers that hold an id string (the checker's cached-id lookup, the verification sample, `set_primary_units` given a string) go through `ordinal_of`, a bisect over the sorted words, built once after the load. That build fails on a repeated id, because two windows with one 64-bit prefix would share a fragment address.
 
-Every string (a digest, a cluster, an unmatched group, a config name, a glyph or cell name, a junction token, a part name, a class, a duplicate-group id, a policy file, a config note) is an id into one `columns.StringTable`, which interns through `sys.intern` and assigns ids in first-seen order as the load runs. In a pooled build that order depends on timing, but no output byte depends on it, because every accessor returns the string. Id 0 is the empty string, which the accessors read as `""` for a required field and as `None` for an optional one.
+Every string (a digest, a cluster, a change group, a ledger class, a config name, a glyph or cell name, a junction token, a part name, a class, a duplicate-group id, a policy file, a config note) is an id into one `columns.StringTable`, which interns through `sys.intern` and assigns ids in first-seen order as the load runs. In a pooled build that order depends on timing, but no output byte depends on it, because every accessor returns the string. Id 0 is the empty string, which the accessors read as `""` for a required field and as `None` for an optional one.
 
 The accessors build one unit's values on demand, in the shapes the build writes: `primary_unit_projection` is the `enrich.PrimaryUnitProjection` the primary-unit resolution pass compares, `primary_unit_projection_record` the `proj` dict of a store record, `junction_rects` the `[{"pair", "before", "after"}]` list `patch_fragment` reads, `primary_units_record` the `[[primary_unit, suppressed]]` list, `cached_unit` the `unit_cache.CachedUnit` for `record_line`, and `source` the `unit_cache.PriorFragment` the fragment is read back through. JSON key order is part of the shipped bytes, so each accessor builds its dicts in the order the writer reads them, and the load raises on input it could not rebuild byte for byte: rect dicts whose keys are not `x_min`, `x_max`, `advance_total` in that order, and rows whose spans, names and junctions disagree in length. The store is also the primary-unit resolution pass's `enrich.PrimaryUnitSource` (`windows`, `junction_count`, `projection`, `id_word`, `invisible` and `set_primary_units`), so `enrich.resolve_primary_unit_assignments` skips units with no secondary junction without building anything and writes its result straight into the junction side column.
 
@@ -39,11 +39,11 @@ BYTE_COPIED = 128
 
 _ALPHABET_INDEX = {symbol: index for index, symbol in enumerate(unit_cache.BASE58_ALPHABET)}
 
-# The columns the corpus write (`build._write_class`) never reads: the primary-unit projection and the store's copy of the window, which the whole-corpus passes before the write read; the diff digest, cluster, unmatched group and judged pair, which the plan, those passes and the cache write read; the shard address and config note, which the write produces and the parent stores; and the id index. `build._dump_columns` leaves them out of the copy each write worker loads.
+# The columns the corpus write (`build._write_class`) never reads: the primary-unit projection and the store's copy of the window, which the whole-corpus passes before the write read; the diff digest, cluster, change group and judged pair, which the plan, those passes and the cache write read; the shard address and config note, which the write produces and the parent stores; and the id index. `build._dump_columns` leaves them out of the copy each write worker loads.
 WRITE_UNREAD_COLUMNS = (
     "_diffs_digest",
     "_cluster",
-    "_unmatched_group",
+    "_change_group",
     "_pair_l",
     "_pair_r",
     "_out_part",
@@ -113,7 +113,9 @@ class RecomputedProjection(Protocol):
     @property
     def cluster(self) -> str: ...
     @property
-    def unmatched_group(self) -> str: ...
+    def change_group(self) -> str: ...
+    @property
+    def ledger_class(self) -> str: ...
     @property
     def pair_codepoints(self) -> tuple[int, int] | None: ...
     @property
@@ -162,7 +164,8 @@ class UnitStore:
         self._flags = array("B", [0]) * n
         self._diffs_digest = array("I", [0]) * n
         self._cluster = array("I", [0]) * n
-        self._unmatched_group = array("I", [0]) * n
+        self._change_group = array("I", [0]) * n
+        self._ledger_class = array("I", [0]) * n
         self._pair_l = array("b", [-1]) * n
         self._pair_r = array("b", [-1]) * n
         self._cell_pair_l = array("b", [-1]) * n
@@ -408,7 +411,8 @@ class UnitStore:
         )
         self._diffs_digest[ordinal] = self._table.id(projection.diffs_digest)
         self._cluster[ordinal] = self._table.id(projection.cluster)
-        self._unmatched_group[ordinal] = self._table.id(projection.unmatched_group)
+        self._change_group[ordinal] = self._table.id(projection.change_group)
+        self._ledger_class[ordinal] = self._table.id(projection.ledger_class)
         if projection.pair_codepoints is not None:
             self._pair_l[ordinal], self._pair_r[ordinal] = projection.pair_codepoints
         self._load_deltas(ordinal, projection.ink_deltas)
@@ -427,7 +431,7 @@ class UnitStore:
         codepoints: tuple[int, ...],
         found: unit_cache.PriorFragment | None = None,
     ) -> int:
-        """Load one cached unit's store record into its row and return the ordinal. `found` is the prior fragment the plan located for the record, by default the record's own address (`ParsedCachedUnit.located`), and becomes the row's source. It must carry the record's id and content key, because the plan reuses a unit only when they match. `codepoints` is the unit's window, which the workload table has and the record does not. The record's class, duplicate group, exemplar and exemption flags, primary units and policy file are stored as the record holds them, and `cached_as_is` compares them with this build's values."""
+        """Load one cached unit's store record into its row and return the ordinal. `found` is the prior fragment the plan located for the record, by default the record's own address (`ParsedCachedUnit.located`), and becomes the row's source. It must carry the record's id and content key, because the plan reuses a unit only when they match. `codepoints` is the unit's window, which the workload table has and the record does not. The record's class, duplicate group, exemplar and exemption flags, primary units and policy file are stored as the record holds them, and `cached_as_is` compares them with this build's values. Its change group and ledger class are this build's too: both follow from the unit's audit rows, its machine flags and the ledger's `ink_identical` ids, which the input key and the environment stamp cover, and from its exemption, which the plan's slim check holds equal."""
         if found is None:
             found = cached.located()
         if found is None:
@@ -449,7 +453,8 @@ class UnitStore:
         )
         self._diffs_digest[ordinal] = self._table.id(cached.diffs_digest)
         self._cluster[ordinal] = self._table.id(cached.cluster)
-        self._unmatched_group[ordinal] = self._table.id(cached.unmatched_group)
+        self._change_group[ordinal] = self._table.id(cached.change_group)
+        self._ledger_class[ordinal] = self._table.id(cached.ledger_class)
         if cached.pair_codepoints is not None:
             self._pair_l[ordinal], self._pair_r[ordinal] = cached.pair_codepoints
         self._prior_class[ordinal] = self._table.id(cached.prior_class)
@@ -556,6 +561,12 @@ class UnitStore:
     def ink_identical(self, ordinal: int) -> bool:
         return bool(self._flags[ordinal] & INK_IDENTICAL)
 
+    def picture_identical(self, ordinal: int) -> bool:
+        return bool(self._flags[ordinal] & PICTURE_IDENTICAL)
+
+    def junior_equivalent(self, ordinal: int) -> bool:
+        return bool(self._flags[ordinal] & JUNIOR_EQUIVALENT)
+
     def machine_approved(self, ordinal: int) -> bool:
         """Whether any machine check approves the unit (`audit.Unit.machine_approved`, read from the flag column)."""
         return bool(self._flags[ordinal] & (INK_IDENTICAL | PICTURE_IDENTICAL | JUNIOR_EQUIVALENT))
@@ -574,8 +585,13 @@ class UnitStore:
     def cluster(self, ordinal: int) -> str:
         return self._table[self._cluster[ordinal]]
 
-    def unmatched_group(self, ordinal: int) -> str:
-        return self._table[self._unmatched_group[ordinal]]
+    def change_group(self, ordinal: int) -> str:
+        """Return the change group phase 1 assigned the unit (`change_groups.assign_change_group`), or `""` for a unit that takes none."""
+        return self._table[self._change_group[ordinal]]
+
+    def ledger_class(self, ordinal: int) -> str:
+        """Return the `ink_identical` ledger class a re-routed unit was taken from (`change_groups.reroutes`), or `""` for every other unit."""
+        return self._table[self._ledger_class[ordinal]]
 
     def pair_codepoints(self, ordinal: int) -> tuple[int, int] | None:
         left = self._pair_l[ordinal]
@@ -818,7 +834,7 @@ class UnitStore:
     def cached_unit(
         self, ordinal: int, *, class_id: str, duplicate_group: str | None, exemplar: bool, no_verdict: bool
     ) -> unit_cache.CachedUnit:
-        """Return the unit's store record for this build. The keys, flags, deltas, digests, projection and junctions come from the columns, and `slim` from the flag column and `no_verdict`. The class, duplicate group, exemplar and exemption are the workload table's values, passed by the caller. The address, primary units and policy file are what the write and the primary-unit resolution pass set."""
+        """Return the unit's store record for this build. The keys, flags, deltas, digests, change group, ledger class, projection and junctions come from the columns, and `slim` from the flag column and `no_verdict`. The class, duplicate group, exemplar and exemption are the workload table's values, passed by the caller. The address, primary units and policy file are what the write and the primary-unit resolution pass set."""
         flags = self.flags(ordinal)
         return unit_cache.CachedUnit(
             key=self.input_key_hex(ordinal),
@@ -833,7 +849,8 @@ class UnitStore:
             ink_deltas=self.ink_deltas(ordinal),
             diffs_digest=self.diffs_digest(ordinal),
             cluster=self.cluster(ordinal),
-            unmatched_group=self.unmatched_group(ordinal),
+            change_group=self.change_group(ordinal),
+            ledger_class=self.ledger_class(ordinal),
             pair_codepoints=self.pair_codepoints(ordinal),
             proj=self.primary_unit_projection_record(ordinal),
             junctions=self.junction_rects(ordinal),

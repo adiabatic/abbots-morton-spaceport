@@ -62,7 +62,7 @@ Why the first batch took this shape: Recon A found that the four families qsPea,
 
 **The ss10 overlay is modeled, not settled.** The emitter’s ss10 input substitution replaces every letter’s cmap glyph with its anchor-free `.ss10` copy before formation, so under ss10 nothing forms, settles, or attaches, and the configuration has no settlement table (`conform.OVERLAY_CONFIGS`). The conformance sweep covers it to `conform.OVERLAY_MAX_LENGTH` behind read-back’s isolation check, and the oracle compares its rows with the bare stream (every letter its default-stance cell, every junction a break). The old font’s ss10 isolates every letter the same way, through its own anchor-free `.ss10` copies, so the classifier gives no class to an ss10 row off a boundary, and any such divergence waits for review.
 
-**Kerning is outside M1 settlement.** The sidecar kerning records for the migrated families move over through §12 later, and the mini-font emits no kerning. The oracle’s position comparison therefore evaluates `glyph_data/senior_quikscript_kerning.yaml` read-only over the migrated pairs and adds each expected kern back before diffing. Any remaining position divergence is real. Position-only divergences that the position comparison attributes to a kern or a ZWNJ adjacency match the `kern-out-of-scope` ledger entry, whose status `triaged` means they are never accepted automatically (§12 keeps ZWNJ kerns as a proven pattern).
+**Kerning is outside M1 settlement.** The sidecar kerning records for the migrated families move over through §12 later, and the mini-font emits no kerning. The oracle’s position comparison therefore evaluates `glyph_data/senior_quikscript_kerning.yaml` read-only over the migrated pairs and adds each expected kern back before diffing. Any remaining position divergence is real. Position-only divergences that the position comparison attributes to a kern or a ZWNJ adjacency match the `spacing-at-kerned-pairs` ledger entry, whose status `per-unit` means they are never accepted automatically: each unit's verdict decides it (§12 keeps ZWNJ kerns as a proven pattern).
 
 **The namer dot is in scope as a token.** M1’s emitter supplies its own dot-lowering stage, because `_namer_dot_calt_fea` does nothing on the `senior_fea` path (Recon B), and the glyph set includes `periodcentered` and `periodcentered.lowered`. No rune record conditions on `is: namer-dot`, so that condition value is registered but unexercised. The dot lowers with ZWNJ transparent to the match, as in the old font (baseline row `00B7:200C:E670`), so the split-buffer check treats the two dot forms as one slot signature, and the oracle’s name comparison folds `periodcentered.lowered` into `periodcentered`.
 
@@ -469,11 +469,13 @@ The old font’s behavior outranks a literal reading of its YAML when the two di
 
 ### Ledger format — `rebuild/m1-divergences.yaml` (checked-in, human-reviewed)
 
-One entry per divergence **class**, with a matching predicate, example rows, and a required `why:`:
+One entry per divergence **class**, with a matching predicate, example rows, the review app's title and one-line summary, and a required `why:`:
 
 ```yaml
-- id: zwnj-word-initial-unification
-  status: intended                # the ledger's header comment lists the status vocabulary
+- id: identical-unjoined-from-left
+  status: by-design               # audit.LEDGER_STATUSES is the status vocabulary
+  title: "Looks identical: letter not joined from the left"
+  summary: A letter that doesn't join the letter before it draws exactly as in the old font; only glyph names differ.
   match: {predicate: zwnj_word_initial_unification, configs: all}
     # predicate = a named matcher registered in oracle.py (small, reviewed functions over the row pair);
     # structured field predicates ({window: ..., junction_change: ...}) are also legal match shapes
@@ -485,15 +487,15 @@ One entry per divergence **class**, with a matching predicate, example rows, and
 
 `rebuild/m1-divergences.yaml` holds the reviewed classes. The nine classes drafted with this plan are listed here, and the ledger’s `why:` fields cite them by number:
 
-1. **zwnj-word-initial-unification** — the `.noentry` deletion. `oracle.classify_divergence` assigns it to rows with a `+locked` or `old-noentry` token; `boundary-window` takes every row that contains a ZWNJ first.
+1. **identical-unjoined-from-left** — the `.noentry` deletion. `oracle.classify_divergence` assigns it to rows with a `+locked` or `old-noentry` token; `split-by-space-or-zwnj` takes every row that contains a ZWNJ first.
 2. **space-vs-edge-guard-unification** — the same shape for the boundary-guard asymmetry. Not in the ledger: a class with no rows is not kept.
-3. **unaccepted-exit-unjoined** — `E-UNACCEPTED-EXIT` and lookahead-closure semantics: ·It·It loses the old font’s harmless dangling ex-y5, and an entered ·It before an entryless follower settles with its exit unjoined (prototype divergences 1–2, generalized). In the ledger as **dangling-anchor-dropped**.
-4. **same-junction-extension-non-summing** — the right junction of ·May·It·May matches that of ·Tea·It·May (prototype divergence 3).
-5. **ss03-zwnj-leak-fixed** — `qsMay ZWNJ qsTea` under ss03 does not join (prototype divergence 4; cross-shaper finding 1). Not in the ledger: the baseline junction was already a break, and every such row contains a ZWNJ, so the `boundary-window` class covers it.
-6. **post-marker-ligature-formation** — `qsMay qsTea qsOy` under ss03 and `ZWNJ qsTea qsOy` form the ligature (the ligature forms before the marker lookups; prototype divergence 5 and deviation 5).
-7. **ss03-chain-join-gains** — ·It·May·Tea and ·Tea·May·Tea under ss03 gain the second join under window join count (prototype deviation 3).
-8. **final-tiebreak-mismatches** — the remaining greedy-vs-old differences in unpinned windows per §15.4, the catch-all that must stay small and itemized; every member row is listed in the audit TSV and checked by eye. Implemented as the narrower **regrouped-chain** (rows with both a gain and a loss).
-9. **kern-out-of-scope** — position-only differences that the position comparison marks kern-attributable (every mismatched slot follows a kerned pair or sits next to a ZWNJ). Its status is `triaged`, so its rows are never accepted automatically. It is expected to be near zero after kern normalization.
+3. **unaccepted-exit-unjoined** — `E-UNACCEPTED-EXIT` and lookahead-closure semantics: ·It·It loses the old font’s harmless dangling ex-y5, and an entered ·It before an entryless follower settles with its exit unjoined (prototype divergences 1–2, generalized). In the ledger as **identical-unused-join-name**.
+4. **one-extension-per-join** — the right junction of ·May·It·May matches that of ·Tea·It·May (prototype divergence 3).
+5. **ss03-zwnj-leak-fixed** — `qsMay ZWNJ qsTea` under ss03 does not join (prototype divergence 4; cross-shaper finding 1). Not in the ledger: the baseline junction was already a break, and every such row contains a ZWNJ, so the `split-by-space-or-zwnj` class covers it.
+6. **ss03-tea-oy-ligature-kept** — `qsMay qsTea qsOy` under ss03 and `ZWNJ qsTea qsOy` form the ligature (the ligature forms before the marker lookups; prototype divergence 5 and deviation 5).
+7. **ss03-adds-joins-around-tea** — ·It·May·Tea and ·Tea·May·Tea under ss03 gain the second join under window join count (prototype deviation 3).
+8. **final-tiebreak-mismatches** — the remaining greedy-vs-old differences in unpinned windows per §15.4, the catch-all that must stay small and itemized; every member row is listed in the audit TSV and checked by eye. Implemented as the narrower **join-switches-sides** (rows with both a gain and a loss).
+9. **spacing-at-kerned-pairs** — position-only differences that the position comparison marks kern-attributable (every mismatched slot follows a kerned pair or sits next to a ZWNJ). Its status is `per-unit`: no class ruling covers it, so its rows are never accepted automatically and each unit's verdict decides it.
 
 A divergence that matches none of these gets a new reviewed entry with a `why:`, a fix, or a verdict on the review corpus.
 

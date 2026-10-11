@@ -24,8 +24,8 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.tools.review_queue import (  # noqa: E402
     ACCEPTING_VERDICTS,
-    RULED_STATUSES,
     latest_verdicts,
+    ruled_class_ids,
 )
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools.verdict_notes import strip_markers  # noqa: E402
@@ -295,6 +295,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
 
     corpus = pathlib.Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text())
+    ruled_ids = ruled_class_ids(manifest)
     stamp = manifest["generated_at"]
     verdicts_path = pathlib.Path(args.verdicts)
     data = json.loads(verdicts_path.read_text())
@@ -337,10 +338,6 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
     unknown = sum(1 for unit_id in records if unit_id not in unit_ids)
     if unknown:
         print(f"warning: {unknown} verdict records name units absent from this corpus", file=sys.stderr)
-    ruled_ids = {
-        entry["id"] for entry in manifest.get("classes", []) if entry.get("status") in RULED_STATUSES
-    }
-
     complaints.sort(key=lambda item: (_triage_position(item[0]), item[0]["id"]))
     threshold = args.since or stamp
     groups, naming = finalize_groups(

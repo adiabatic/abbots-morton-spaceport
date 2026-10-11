@@ -1,4 +1,4 @@
-"""Write a machine-readable snapshot of the review queue for the live corpus: cluster the blank human units by the build's `cluster` signature (the duplicate-group key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the ledger classes ruled intended, reviewed-approved or reviewed-rejected that still have blank units, and list the duplicate groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=queue` computes the same clustering live from the in-memory verdict store. This tool writes tmp/queue-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file."""
+"""Write a machine-readable snapshot of the review queue for the live corpus: cluster the blank human units by the build's `cluster` signature (the duplicate-group key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the classes outside Open questions (the manifest's `section`, which `rebuild.review.audit.class_section` decides) that still have blank units, and list the duplicate groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=queue` computes the same clustering live from the in-memory verdict store. This tool writes tmp/queue-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file."""
 
 import argparse
 import collections
@@ -16,7 +16,8 @@ from rebuild.review import unit_index  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
 DATA_OUT = ROOT / "tmp/queue-data.json"
-RULED_STATUSES = ("intended", "reviewed-approved", "reviewed-rejected")
+# `audit.OPEN_QUESTIONS`, spelled out because standing_verdicts imports this module, and importing rebuild.review.audit here would put the audit's code in the standing fill's memo stamp (`MEMO_CODE_MODULES`). rebuild/test_complaint_list.py checks that the two agree.
+QUEUE_SECTION = "open-questions"
 TOP_CLUSTER_COUNT = 25
 ACCEPTING_VERDICTS = frozenset({"approve", "either", "identical"})
 ACCEPTING_MIX = frozenset({"approve", "identical"})
@@ -37,6 +38,18 @@ def triage_position(unit):
 def load_human_units(corpus, *, fields: Iterable[str] | None = None):
     """Return the corpus's human units in the slim index shape and the id of every unit on the corpus. `rebuild.review.unit_index.load_human_units` does the projection, the classification and the fallback to the shards."""
     return unit_index.load_human_units(corpus, fields=fields)
+
+
+def ruled_class_ids(manifest):
+    """Return the ids of the manifest's classes outside Open questions, the one section the Queue draws from. The manifest carries each class's `section`, which `rebuild.review.audit.class_section` computes once per corpus, so a reader never re-derives it from statuses. A manifest without sections predates them and is refused, since reading it as all-open would put every ruled class's blanks in the Queue."""
+    classes = manifest.get("classes", [])
+    unsectioned = [entry["id"] for entry in classes if "section" not in entry]
+    if unsectioned:
+        raise SystemExit(
+            f"the corpus manifest gives no section for {len(unsectioned)} classes ({unsectioned[0]} first); "
+            "it predates the review sections, so rebuild it with the review cycle"
+        )
+    return {entry["id"] for entry in classes if entry["section"] != QUEUE_SECTION}
 
 
 def latest_verdicts(path):
@@ -61,6 +74,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
 
     corpus = pathlib.Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text())
+    ruled_ids = ruled_class_ids(manifest)
     verdicts_path = pathlib.Path(args.verdicts)
     data = json.loads(verdicts_path.read_text())
     if data.get("manifest_generated_at") != manifest["generated_at"]:
@@ -131,7 +145,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     blank_by_class = collections.Counter(unit["class"] for unit in blanks)
     ruled = []
     for entry in manifest["classes"]:
-        if entry["status"] in RULED_STATUSES and blank_by_class.get(entry["id"]):
+        if entry["id"] in ruled_ids and blank_by_class.get(entry["id"]):
             class_blanks = [unit for unit in blanks if unit["class"] == entry["id"]]
             ruled.append(
                 {
@@ -167,7 +181,6 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
                 }
             )
 
-    ruled_ids = {entry["id"] for entry in ruled}
     multi = [cluster for cluster in clusters if cluster["size"] > 1 and cluster["class"] not in ruled_ids]
     top = multi[:TOP_CLUSTER_COUNT]
 

@@ -387,7 +387,7 @@ def _integration_fixture(root, monkeypatch):
         "generated_at": CORPUS_STAMP,
         "batch_size": 10,
         "human_unit_ids": [unit["id"] for unit in units if unit["id"] != "u-machine"],
-        "classes": [{"id": "fixture", "shards": ["units/fixture.json"]}],
+        "classes": [{"id": "fixture", "section": "open-questions", "shards": ["units/fixture.json"]}],
     }
     (corpus / "manifest.json").write_text(json.dumps(manifest))
     (corpus / "units" / "fixture.json").write_text(json.dumps(units))

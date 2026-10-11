@@ -7,7 +7,7 @@
   "no_verdict": false,
   "duplicate_group": "e-0000",
   "cluster": "c-0da49c11",
-  "class": "dangling-anchor-dropped",
+  "class": "join-dropped",
   "group": "qsIt:qsDay",
   "codepoints": "E670:E653:E66C",
   "text_entities": "&#xE670;&#xE653;&#xE66C;",
@@ -155,7 +155,12 @@
   "no_verdict": false,
   "duplicate_group": "e-0000",
   "cluster": "c-0da49c11",
-  "class": "dangling-anchor-dropped",
+  "class": "join-dropped",
+  "ledger_class": "identical-unused-join-name",
+  "config_classes": {
+   "default": "identical-unused-join-name",
+   "ss05": "identical-unused-join-name"
+  },
   "group": "qsRoe:qsMay",
   "codepoints": "E668:E665:E657",
   "text_entities": "&#xE668;&#xE665;&#xE657;",

@@ -35,8 +35,8 @@ FP = {
 }
 
 DEFAULT_CLASSES = [
-    {"id": "class-a", "shards": ["units/class-a.json"], "status": "reviewed-approved"},
-    {"id": "class-b", "shards": ["units/class-b.json"], "status": "intended"},
+    {"id": "class-a", "shards": ["units/class-a.json"], "status": "approved", "section": "spot-check"},
+    {"id": "class-b", "shards": ["units/class-b.json"], "status": "per-unit", "section": "open-questions"},
 ]
 CLASS_A_UNITS = [{"id": "u-1", "batch": 1}, {"id": "u-2", "batch": 2}, {"id": "m-1", "batch": None}]
 CLASS_B_UNITS = [{"id": "u-3", "batch": 1}]

@@ -6,11 +6,11 @@ The key has two levels. The per-unit key (`UnitKeyer.key`) covers the unit's aud
 
 The whole-store stamp (`environment_stamp`) covers everything that can change a unit's products without changing a family digest: the code the corpus build runs (`corpus_code_paths`), the non-rune data files, the kernel's settlement mode flags, the resolved spec structure and capability-feature set (cross-rune routes: predicate-class and group memberships, ligature sequences, and the formation guard's feature combinations), the before and Junior fonts outside their `head` and `name` tables (`_font_digest`), the acceptance configs' subset tables, the draft harness (test/test_shaping.py, tools/*.py, postscript_glyph_names.yaml) and the site corpus files it validates pins against (`drafts.CORPUS_FILES`), and the after font's non-family glyphs, cmap, and GPOS wiring. `corpus_code_paths` is the review modules the build imports, the pipeline and validation modules they reach, and the crate modules the `settle-cases` and `guard-sweep` subcommands run. rebuild/test_review_code_closure.py checks these lists against the import graph. So an edit to the pipeline driver, a gate, the oracle or its row cache, the conformance sweep, the GSUB emitter, the pixel geometry, the font compile, or the crate's enumeration and fold leaves the store valid.
 
-Three inputs are outside the whole-store stamp. The after font's GSUB wiring is outside every stamp; `fingerprint.after_font_glyph_digests` explains why a window's glyph selection is covered without it. The divergence ledger reaches the shards only through the audit's `matched_entry` column, which is in the rows, and through fields the build recomputes and patches on every pass (`no_verdict`, `exemplar`, class promotion), so a ledger edit invalidates only the units whose rows it changed. The refuse `why` text the explain panel quotes is in the family keys instead, so rewording one re-enriches only the windows that contain that family.
+Four inputs are outside the whole-store stamp. The after font's GSUB wiring is outside every stamp; `fingerprint.after_font_glyph_digests` explains why a window's glyph selection is covered without it. The divergence ledger reaches the shards through the audit's `matched_entry` column, which is in the rows, through its `ink_identical` ids, which decide which units take a change group instead of their class (`change_groups.reroutes`) and are a stamp line of their own, and through fields the build recomputes and patches on every pass (`no_verdict`, `exemplar`, class promotion), so a ledger edit that leaves those ids alone invalidates only the units whose rows it changed. The refuse `why` text the explain panel quotes is in the family keys instead, so rewording one re-enriches only the windows that contain that family. The change groups' copy (rebuild/review/change-groups.yaml) reaches only the manifest, which every build writes afresh, so rewording a group re-enriches no unit.
 
-A store record holds the address of the previous build's fragment: the shard part, byte offset, and length the shard writer returned when it wrote the fragment, so the plan does not parse the previous corpus to find it. The record also holds what the parent's whole-corpus passes need: the machine flags and ink deltas, the unmatched group, the judged pair, the ink-diff digest for duplicate grouping, the primary-unit projection and per-junction rects, and the unit's mismatch lines. It records whether the fragment was written slim, because the shape depends on the exemption, a ledger fact outside the key. It also records the values the fragment was written with that come from outside the key: its duplicate group, its class after unmatched-group promotion, the ledger's exemplar and exemption flags, its primary units of secondary junctions, and the rune file its policy draft names. So a unit that becomes a human unit on a ledger edit (`no_verdict` changes) is a miss and is re-enriched in full instead of reused as the slim fragment it had before, and a unit that moves the other way is a miss too. This keeps a cached corpus byte-identical to a from-scratch one.
+A store record holds the address of the previous build's fragment: the shard part, byte offset, and length the shard writer returned when it wrote the fragment, so the plan does not parse the previous corpus to find it. The record also holds what the parent's whole-corpus passes need: the machine flags and ink deltas, the change group and the ledger class a re-routed unit was taken from, the judged pair, the ink-diff digest for duplicate grouping, the primary-unit projection and per-junction rects, and the unit's mismatch lines. It records whether the fragment was written slim, because the shape depends on the exemption, a ledger fact outside the key. It also records the values the fragment was written with that come from outside the key: its duplicate group, its class after change-group promotion, the ledger's exemplar and exemption flags, its primary units of secondary junctions, and the rune file its policy draft names. So a unit that becomes a human unit on a ledger edit (`no_verdict` changes) is a miss and is re-enriched in full instead of reused as the slim fragment it had before, and a unit that moves the other way is a miss too. This keeps a cached corpus byte-identical to a from-scratch one.
 
-Every field derived from the ledger or the whole-corpus passes (duplicate group, class, `no_verdict`, `exemplar`, the primary units of secondary junctions) is recomputed over all units on every build, and a unit's id depends only on its content key. A cached fragment whose recomputed fields all equal the values its record says it was written with is copied into the new corpus by address as bytes, without parsing (`unit_store.UnitStore.cached_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). The shard writer leaves a part in place when every fragment in it is copied this way. A cached fragment with a changed field is parsed once, patched, and serialized again, the same way a recomputed fragment is read from the build's own spool, so a cache hit never keeps a stale global field. The cluster id is the one global field taken from the cached record, because its inputs (configs, final class, ink diffs) are all covered by the key.
+Every field derived from the ledger or the whole-corpus passes (duplicate group, class, `no_verdict`, `exemplar`, the primary units of secondary junctions) is recomputed over all units on every build, and a unit's id depends only on its content key. A cached fragment whose recomputed fields all equal the values its record says it was written with is copied into the new corpus by address as bytes, without parsing (`unit_store.UnitStore.cached_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). The shard writer leaves a part in place when every fragment in it is copied this way. A cached fragment with a changed field is parsed once, patched, and serialized again, the same way a recomputed fragment is read from the build's own spool, so a cache hit never keeps a stale global field. The cluster id, the change group and the ledger class are the global fields taken from the cached record, because their inputs (configs, per-config classes, junctions, highlight totals, machine flags and ink diffs) are covered by the key, the `ink_identical` ids by the stamp, and the exemption, which decides whether an identical class's unit re-routes, by the slim check, since such a unit is slim exactly when it is exempt.
 
 `stream_store` parses a store line only if the workload names its key, into a `ParsedCachedUnit`, and yields the records one at a time in store order. The plan loads each into the packed unit store (`rebuild/review/unit_store.py`) and releases it, so for the rest of the build the parent holds a cached unit only as columns there. If the store stops reading after some records were yielded, the stream raises `StoreUnreadable`, and the plan discards what it loaded and runs a full build. An error the load itself raises propagates unchanged. `load_store` collects the same stream into a dict.
 
@@ -41,7 +41,7 @@ from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, RowColumns, UnitTable, parse_codepoints
 from rebuild.review.drafts import CORPUS_FILES
 
-STORE_FORMAT = "ams-review-unit-cache/8"
+STORE_FORMAT = "ams-review-unit-cache/9"
 STORE_NAME = "unit-cache.ndjson.gz"
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/2"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
@@ -236,8 +236,10 @@ def environment_stamp(
     junior_font: Path,
     after_helpers_digest: str,
     subset_digests: Mapping[str, str] | None = None,
+    *,
+    identical_classes: Iterable[str],
 ) -> fingerprint.EnvironmentStamp:
-    """Return the unit store's whole-store stamp. A change to any of its lines invalidates the whole store, and over-invalidation is the safe direction. The code line is `corpus_code_paths`, so a pipeline or crate edit outside the code the build runs leaves the store valid. The two site fonts are hashed through `_font_digest`, which ignores `head` and `name`, so the fonts a version bump rebuilds leave it valid too. The rune files are left out because the family keys cover them per unit, and the divergence ledger is left out for the reason the module docstring gives. The other data inputs are hashed by `fingerprint.data_path_lines`, so a schema hover or a comment in one of them leaves the store valid. The stamp carries the code closure's per-file lines as its `corpus_code` detail, from the same `path_lines` read the code digest is computed from, so the file a miss note names is the file the digest saw. `subset_digests` is each acceptance configuration's subset table, already hashed by the caller; the build hashes them once for this line and for the subset pack's header. When it is None, the tables are hashed here."""
+    """Return the unit store's whole-store stamp. A change to any of its lines invalidates the whole store, and over-invalidation is the safe direction. The code line is `corpus_code_paths`, so a pipeline or crate edit outside the code the build runs leaves the store valid. The two site fonts are hashed through `_font_digest`, which ignores `head` and `name`, so the fonts a version bump rebuilds leave it valid too. The rune files are left out because the family keys cover them per unit, and the divergence ledger is left out for the reason the module docstring gives, except its `ink_identical` ids (`identical_classes`), sorted, which decide a re-routed unit's class, cluster and fragment. The other data inputs are hashed by `fingerprint.data_path_lines`, so a schema hover or a comment in one of them leaves the store valid. The stamp carries the code closure's per-file lines as its `corpus_code` detail, from the same `path_lines` read the code digest is computed from, so the file a miss note names is the file the digest saw. `subset_digests` is each acceptance configuration's subset table, already hashed by the caller; the build hashes them once for this line and for the subset pack's header. When it is None, the tables are hashed here."""
     root = Path(repo_root)
     code_lines = fingerprint.path_lines(root, corpus_code_paths(root))
     runes = set(fingerprint.rune_paths(root))
@@ -265,6 +267,7 @@ def environment_stamp(
         "site_corpus\t" + " ".join(f"{name}={_sha256_file(root / name)}" for name in CORPUS_FILES),
         f"draft_harness\t{fingerprint.hash_paths(root, harness_paths)}",
         f"after_helpers\t{after_helpers_digest}",
+        "identical_classes\t" + json.dumps(sorted(identical_classes)),
     ]
     return fingerprint.EnvironmentStamp(lines=tuple(lines), detail=(("corpus_code", tuple(code_lines)),))
 
@@ -376,7 +379,8 @@ class CachedUnit:
     ink_deltas: dict[str, str]
     diffs_digest: str
     cluster: str
-    unmatched_group: str
+    change_group: str
+    ledger_class: str
     pair_codepoints: tuple[int, int] | None
     proj: dict
     junctions: list[dict]
@@ -400,7 +404,8 @@ class CachedUnit:
             "ink_deltas": self.ink_deltas,
             "diffs_digest": self.diffs_digest,
             "cluster": self.cluster,
-            "unmatched_group": self.unmatched_group,
+            "change_group": self.change_group,
+            "ledger_class": self.ledger_class,
             "pair_codepoints": list(self.pair_codepoints) if self.pair_codepoints else None,
             "proj": self.proj,
             "junctions": self.junctions,
@@ -430,7 +435,8 @@ class ParsedCachedUnit:
     ink_deltas: dict[str, str]
     diffs_digest: str
     cluster: str
-    unmatched_group: str
+    change_group: str
+    ledger_class: str
     pair_codepoints: tuple[int, int] | None
     duplicate_group: str | None
     exemplar: bool
@@ -460,7 +466,7 @@ _KEY_PREFIX = b'{"key": "'
 
 
 def _parsed_cached_unit(record: dict, trusted: Container[str], pool: dict, whole: bool) -> ParsedCachedUnit:
-    """Build the `ParsedCachedUnit` for one parsed store line. Strings that repeat across units (the class, the cluster and diff digests, the config names and delta digests, the address's part, and the projection's glyph names, cell names, and junction tokens) are interned with `sys.intern`, the table `audit.load_audit` describes. The projection's tuples are pooled through `pool` when `whole` is true (the caller holds the whole store) or when the record has no address (a streaming caller buffers those for the walk). An addressed record in a stream is loaded and released before the next line is parsed, so it pools only within itself, and a table shared across the stream holds nothing for the records already yielded. The address is kept only when its part is in `trusted`."""
+    """Build the `ParsedCachedUnit` for one parsed store line. Strings that repeat across units (the class, the change group and ledger class, the cluster and diff digests, the config names and delta digests, the address's part, and the projection's glyph names, cell names, and junction tokens) are interned with `sys.intern`, the table `audit.load_audit` describes. The projection's tuples are pooled through `pool` when `whole` is true (the caller holds the whole store) or when the record has no address (a streaming caller buffers those for the walk). An addressed record in a stream is loaded and released before the next line is parsed, so it pools only within itself, and a table shared across the stream holds nothing for the records already yielded. The address is kept only when its part is in `trusted`."""
     address = record.get("address")
     address = (
         (sys.intern(address[0]), int(address[1]), int(address[2]))
@@ -494,7 +500,8 @@ def _parsed_cached_unit(record: dict, trusted: Container[str], pool: dict, whole
         ink_deltas={sys.intern(config): sys.intern(delta) for config, delta in record["ink_deltas"].items()},
         diffs_digest=sys.intern(record["diffs_digest"]),
         cluster=sys.intern(record["cluster"]),
-        unmatched_group=sys.intern(record["unmatched_group"]),
+        change_group=sys.intern(record["change_group"]),
+        ledger_class=sys.intern(record["ledger_class"]),
         pair_codepoints=(pair[0], pair[1]) if pair else None,
         duplicate_group=record["duplicate_group"],
         exemplar=record["exemplar"],

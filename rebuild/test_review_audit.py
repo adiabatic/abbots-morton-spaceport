@@ -11,17 +11,21 @@ from pathlib import Path
 import pytest
 import yaml
 
-from rebuild.review import unmatched_groups
+from rebuild.review import change_groups
 from rebuild.review import unit_cache
 from rebuild.review import unit_store
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
+    LEDGER_STATUSES,
+    RULED_STATUSES,
+    SECTIONS,
     AuditRow,
     RowColumns,
     LedgerClass,
     assign_batches,
     batch_of,
     build_units,
+    class_section,
     format_codepoints,
     load_audit,
     load_audit_table,
@@ -33,6 +37,7 @@ from rebuild.review.audit import (
     release_rows,
     render_groups_for_rows,
     sort_for_triage,
+    synthesize_unmatched_group_classes,
     triage_key,
 )
 from rebuild.review.build import row_column_sizes, signature_text, unit_table_sizes
@@ -46,9 +51,9 @@ MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
 MINI_AUDIT = MINI / "audit.tsv"
 
 FIXTURE_AUDIT = """config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew
-default\tE650:E665\tcell\tdangling-anchor-dropped\tqsPea|qsMay.en-y0\tqsPea/full/None/baseline/|qsMay/loop/baseline/None/
-ss02\tE650:E665\tcell\tdangling-anchor-dropped\tqsPea|qsMay.en-y0\tqsPea/full/None/baseline/|qsMay/loop/baseline/None/
-default\tE652:E670\tcell,junction\thalves-entry-extension-restored\tqsTea.half.ex-y5|qsIt.en-y5\tqsTea/half/None/x-height/|qsIt/sole/x-height/None/en-ext-1
+default\tE650:E665\tcell\tidentical-unused-join-name\tqsPea|qsMay.en-y0\tqsPea/full/None/baseline/|qsMay/loop/baseline/None/
+ss02\tE650:E665\tcell\tidentical-unused-join-name\tqsPea|qsMay.en-y0\tqsPea/full/None/baseline/|qsMay/loop/baseline/None/
+default\tE652:E670\tcell,junction\tlonger-entry-join\tqsTea.half.ex-y5|qsIt.en-y5\tqsTea/half/None/x-height/|qsIt/sole/x-height/None/en-ext-1
 """
 
 
@@ -69,7 +74,7 @@ def test_load_audit_interns_every_label_and_pools_every_name_tuple(tmp_path):
     names = TuplePool()
     rows = list(load_audit(path, names))
     assert rows[0].config is sys.intern("default") is rows[2].config
-    assert rows[0].matched_entry is sys.intern("dangling-anchor-dropped") is rows[1].matched_entry
+    assert rows[0].matched_entry is sys.intern("identical-unused-join-name") is rows[1].matched_entry
     assert rows[0].codepoints is sys.intern("E650:E665") is rows[1].codepoints
     assert rows[0].baseline is rows[1].baseline
     assert rows[0].new is rows[1].new
@@ -113,14 +118,14 @@ def test_fixture_units_dedupe_and_carry_configs(mini_bundle, tmp_path):
 
 
 def test_conflicting_class_resolves_to_unmatched_with_config_classes(mini_bundle):
-    """A triple whose audit rows carry different classes per config is not a build error. When one config leaves it UNMATCHED (the ss03-chain-join-gains windows, blessed under ss03 but new under default), the unit's class is the UNMATCHED sentinel, so the new default behavior is what gets reviewed, and `config_classes` records every config's class. Two different matched classes for one triple is a classification bug and raises."""
+    """A triple whose audit rows carry different classes per config is not a build error. When one config leaves it UNMATCHED (the ss03-adds-joins-around-tea windows, blessed under ss03 but new under default), the unit's class is the UNMATCHED sentinel, so the new default behavior is what gets reviewed, and `config_classes` records every config's class. Two different matched classes for one triple is a classification bug and raises."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
-        AuditRow("ss03", "E650:E665", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),
+        AuditRow("ss03", "E650:E665", ("cell",), "ss03-adds-joins-around-tea", ("a",), ("b",)),
     ]
     (unit,), _rows = build_units(rows, load_ledger(mini_bundle.ledger), dict(LETTERS))
     assert unit.class_id == "UNMATCHED"
-    assert unit.config_classes == {"default": "UNMATCHED", "ss03": "ss03-chain-join-gains"}
+    assert unit.config_classes == {"default": "UNMATCHED", "ss03": "ss03-adds-joins-around-tea"}
 
     conflicting = [
         AuditRow("default", "E650:E665", ("cell",), "class-a", ("a",), ("b",)),
@@ -173,10 +178,10 @@ def test_two_units_stating_the_same_class_map_share_one_pooled_instance(mini_bun
     """The class maps pool to one instance per distinct mapping, keyed on the mapping's insertion order. Two units whose maps differ only in key order get two entries, and each materializes in its own order, which is the order the shipped fragment carries. The pooled instance is typed read-only, and a whole-build test in `rebuild/test_unit_cache.py` checks that no build, cold or cached, writes through it."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
-        AuditRow("ss03", "E650:E665", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),
+        AuditRow("ss03", "E650:E665", ("cell",), "ss03-adds-joins-around-tea", ("a",), ("b",)),
         AuditRow("default", "E650:E652", ("cell",), "UNMATCHED", ("a",), ("b",)),
-        AuditRow("ss03", "E650:E652", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),
-        AuditRow("ss03", "E650:E650", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),
+        AuditRow("ss03", "E650:E652", ("cell",), "ss03-adds-joins-around-tea", ("a",), ("b",)),
+        AuditRow("ss03", "E650:E650", ("cell",), "ss03-adds-joins-around-tea", ("a",), ("b",)),
         AuditRow("default", "E650:E650", ("cell",), "UNMATCHED", ("a",), ("b",)),
     ]
     table, _rows = load_table(rows, load_ledger(mini_bundle.ledger), dict(LETTERS))
@@ -332,7 +337,7 @@ def test_the_dedupe_loses_no_rows(mini):
 
 
 def test_triage_order_follows_ledger_then_group_then_codepoints(mini):
-    # The UNMATCHED units carry the sentinel class at workload level, because their unmatched group is assigned later in the build. They rank after every ledger class.
+    # The UNMATCHED units carry the sentinel class at workload level, because their change group is assigned later in the build. They rank after every ledger class.
     class_order = {entry.id: index for index, entry in enumerate(mini.ledger)}
     units = mini.units()
     indices = [class_order.get(unit.class_id, len(mini.ledger)) for unit in units]
@@ -358,7 +363,7 @@ def test_triage_order_follows_ledger_then_group_then_codepoints(mini):
 
 
 def test_unit_ids_batches_and_positions_are_unassigned_until_the_build_knows_them(mini):
-    """An id comes from the content key, which is stamped at enrichment, and a batch is assigned only once every unit has its ink flags and its unmatched group, so the loaded workload has neither."""
+    """An id comes from the content key, which is stamped at enrichment, and a batch is assigned only once every unit has its ink flags and its change group, so the loaded workload has neither."""
     for unit in mini.units():
         assert unit.unit_id == ""
         assert unit.order is None
@@ -407,8 +412,8 @@ def test_sort_for_triage_orders_by_class_group_window_then_id():
         AuditRow("default", "0020:E650:E652", ("cell",), "class-b", ("a",), ("b",)),
     ]
     ledger = [
-        LedgerClass("class-b", "intended", "", False, False, frozenset()),
-        LedgerClass("class-a", "intended", "", False, False, frozenset()),
+        LedgerClass("class-b", "by-design", "", False, False, frozenset()),
+        LedgerClass("class-a", "by-design", "", False, False, frozenset()),
     ]
     table, _rows = load_table(rows, ledger, dict(LETTERS))
     store = UnitStore(table.n, strings=table.strings)
@@ -445,7 +450,7 @@ def test_no_verdict_flag_mirrors_the_ledger_class():
     ledger = [
         LedgerClass(
             id="wholesale-adjudicated",
-            status="intended",
+            status="by-design",
             why="",
             ink_identical=False,
             no_verdict=True,
@@ -453,7 +458,7 @@ def test_no_verdict_flag_mirrors_the_ledger_class():
         ),
         LedgerClass(
             id="ordinary-class",
-            status="intended",
+            status="by-design",
             why="",
             ink_identical=False,
             no_verdict=False,
@@ -570,22 +575,22 @@ def test_ink_duplicate_merge_respects_matched_classes_and_exemptions(mini_bundle
 
     mixed, columns = load_table(
         [
-            AuditRow("default", "E650:E665", ("cell",), "boundary-window", ("a",), ("b",)),
+            AuditRow("default", "E650:E665", ("cell",), "split-by-space-or-zwnj", ("a",), ("b",)),
             AuditRow("ss04", "E650:E665", ("cell",), "UNMATCHED", ("a2",), ("b",)),
         ],
         load_ledger(mini_bundle.ledger),
         dict(LETTERS),
     )
     for ordinal in range(mixed.n):
-        mixed.set_no_verdict(ordinal, mixed.class_id(ordinal) == "boundary-window")
+        mixed.set_no_verdict(ordinal, mixed.class_id(ordinal) == "split-by-space-or-zwnj")
     merge_ink_duplicate_units(
-        mixed, columns, lambda window, config: window, exempt_classes={"boundary-window"}
+        mixed, columns, lambda window, config: window, exempt_classes={"split-by-space-or-zwnj"}
     )
     mixed.compact()
     (merged,) = mixed.units()
     assert merged.class_id == "UNMATCHED"
     assert merged.no_verdict is False
-    assert merged.config_classes == {"default": "boundary-window", "ss04": "UNMATCHED"}
+    assert merged.config_classes == {"default": "split-by-space-or-zwnj", "ss04": "UNMATCHED"}
 
 
 def test_units_whose_configs_render_differently_never_merge(mini_bundle):
@@ -643,33 +648,127 @@ def test_the_table_sizes_are_the_columns_bytes_and_the_pools_estimated_beside_th
     assert shrunk.count == reading.count - 1 and shrunk.est_bytes < reading.est_bytes
 
 
-def _ledger(tmp_path, *ids: str) -> Path:
-    path = tmp_path / "ledger.yaml"
-    path.write_text(
-        "".join(f"- id: {identifier}\n  status: accepted\n  why: because\n" for identifier in ids),
-        encoding="utf-8",
+def _entry(identifier: str) -> str:
+    return (
+        f"- id: {identifier}\n  title: The {identifier} title\n  summary: The {identifier} summary.\n"
+        "  status: by-design\n  match: {predicate: boundary_window, configs: all}\n  why: because\n"
     )
+
+
+def _ledger(tmp_path, *ids: str, text: str = "") -> Path:
+    path = tmp_path / "ledger.yaml"
+    path.write_text("".join(_entry(identifier) for identifier in ids) + text, encoding="utf-8")
     return path
 
 
 def test_a_ledger_declaring_one_class_twice_is_refused_at_load(tmp_path):
     """Code downstream indexes the ledger by id, so a repeated id would make one entry silently replace the other. `load_ledger` raises on it."""
-    with pytest.raises(ValueError, match="halves-entry-extension-restored"):
+    with pytest.raises(ValueError, match="longer-entry-join"):
         load_ledger(
             _ledger(
                 tmp_path,
-                "dangling-anchor-dropped",
-                "halves-entry-extension-restored",
-                "halves-entry-extension-restored",
+                "identical-unused-join-name",
+                "longer-entry-join",
+                "longer-entry-join",
             )
         )
 
 
-@pytest.mark.parametrize("identifier", ["UNMATCHED", unmatched_groups.UNMATCHED_GROUP_ORDER[0]])
+@pytest.mark.parametrize("identifier", ["UNMATCHED", change_groups.CHANGE_GROUP_ORDER[0]])
 def test_a_ledger_claiming_a_synthesized_class_is_refused_at_load(tmp_path, identifier):
-    """The build creates the UNMATCHED catch-all and the unmatched-group classes itself, so a ledger entry with one of those ids would be overridden by a class the ledger does not describe."""
+    """The build creates the UNMATCHED catch-all and the change-group classes itself, so a ledger entry with one of those ids would be overridden by a class the ledger does not describe."""
     with pytest.raises(ValueError, match=identifier):
         load_ledger(_ledger(tmp_path, identifier))
+
+
+def test_a_ledger_entry_carries_its_copy_and_an_optional_note(tmp_path):
+    """`load_ledger` copies each entry's title, summary and note, stripped, beside its why, and an entry without a note gets an empty one."""
+    noted = _entry("noted").replace(
+        "  why: because\n", '  note: "Look at the join into ·May."\n  why: because\n'
+    )
+    plain, with_note = load_ledger(_ledger(tmp_path, "plain", text=noted))
+    assert (plain.title, plain.summary, plain.note, plain.why) == (
+        "The plain title",
+        "The plain summary.",
+        "",
+        "because",
+    )
+    assert (with_note.status, with_note.note) == ("by-design", "Look at the join into ·May.")
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ("status: by-design", "status: intended", "status 'intended'"),
+        ("  status: by-design\n", "", "status None"),
+        ("  title: The bad title\n", "", "nonempty string title"),
+        ("summary: The bad summary.", "summary: ' '", "nonempty string summary"),
+        ("why: because", 'note: ""\n  why: because', "nonempty string note"),
+        ("predicate: boundary_window", "predicate: no_such_predicate", "no_such_predicate"),
+    ],
+)
+def test_a_ledger_entry_the_review_app_cannot_show_or_the_oracle_cannot_match_is_refused(
+    tmp_path, old, new, message
+):
+    """Every entry needs a status from `LEDGER_STATUSES`, which decides its section, and a nonempty title and summary, which the sidebar shows; a note, when present, must say something. A `match.predicate` the oracle does not define would match no row and leave the class's rows unmatched without failing any gate, so it is refused too."""
+    text = _entry("bad").replace(old, new)
+    assert text != _entry("bad")
+    with pytest.raises(ValueError, match=message):
+        load_ledger(_ledger(tmp_path, "good", text=text))
+
+
+def test_class_section_puts_exemption_and_machine_approval_ahead_of_the_status():
+    """A no-verdict class, or one whose every unit a machine check approves, needs no review whatever its status. Otherwise a ruled status makes a spot-check and `per-unit`, or a table-diff bucket's null status, an open question. A status outside the vocabulary raises rather than landing in a section by default."""
+    assert SECTIONS == ("open-questions", "spot-check", "no-review-needed")
+    assert set(RULED_STATUSES) < set(LEDGER_STATUSES)
+    for status in (*LEDGER_STATUSES, None):
+        assert class_section(status, True, 5) == "no-review-needed"
+        assert class_section(status, False, 0) == "no-review-needed"
+    assert class_section("by-design", False, 1) == "spot-check"
+    assert class_section("approved", False, 1) == "spot-check"
+    assert class_section("per-unit", False, 1) == "open-questions"
+    assert class_section(None, False, 1) == "open-questions"
+    with pytest.raises(ValueError, match="reviewed-approved"):
+        class_section("reviewed-approved", False, 1)
+
+
+def test_the_change_groups_a_table_holds_become_per_unit_classes_in_group_order():
+    """Only the groups some unit falls in get a class, in the order given, whatever order the units hold them in. Each takes status `per-unit`, since no ruling covers a change group, and its title, summary and why from the group prose."""
+    rows = [
+        AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
+        AuditRow("default", "E650:E652", ("cell",), "UNMATCHED", ("a",), ("c",)),
+        AuditRow("default", "E650:E650", ("cell",), "UNMATCHED", ("a",), ("d",)),
+    ]
+    table, _rows = load_table(rows, [], dict(LETTERS))
+    for ordinal, group in zip(range(table.n), ("join-raised", "join-lowered", "join-raised")):
+        table.set_unmatched_group(ordinal, group)
+    prose = {
+        group: change_groups.ChangeGroupProse(f"{group} title", f"{group} summary", f"{group} why")
+        for group in change_groups.CHANGE_GROUP_ORDER
+    }
+    classes = synthesize_unmatched_group_classes(table, change_groups.CHANGE_GROUP_ORDER, prose)
+    assert [entry.id for entry in classes] == ["join-lowered", "join-raised"]
+    assert classes[1] == LedgerClass(
+        id="join-raised",
+        status="per-unit",
+        why="join-raised why",
+        ink_identical=False,
+        no_verdict=False,
+        exemplar_keys=frozenset(),
+        title="join-raised title",
+        summary="join-raised summary",
+    )
+
+
+def test_a_workload_whose_rows_name_a_class_the_ledger_lacks_is_refused(tmp_path):
+    """An audit written under a ledger whose ids have since been renamed would list its units under classes the ledger no longer describes, so `load_workload` refuses any `matched_entry` that is neither UNMATCHED nor a ledger id."""
+    ledger = _ledger(tmp_path, "identical-unused-join-name", "longer-entry-join")
+    audit = tmp_path / "audit.tsv"
+    audit.write_text(FIXTURE_AUDIT, encoding="utf-8")
+    assert load_workload(audit, ledger, dict(LETTERS)).table.n == 2
+    audit.write_text(FIXTURE_AUDIT.replace("longer-entry-join", "a-class-renamed-since"))
+    with pytest.raises(ValueError, match="a-class-renamed-since"):
+        load_workload(audit, ledger, dict(LETTERS))
 
 
 def test_the_live_ledger_loads_one_class_per_entry():

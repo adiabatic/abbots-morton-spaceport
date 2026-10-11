@@ -1,12 +1,12 @@
 """The review facts: the counts and structural facts a corpus build reduces its state to, and the regenerator that writes them to rebuild/review-facts-pins.json, the last accepted review facts. Every non-staging artifact-cycle pass rewrites that file from the corpus's review-facts.json sidecar and names what moved in its invariant block. Committing the rewritten file accepts the new review facts. No gate checks the checked-in numbers, so a changed count is something to read, not a failure.
 
-The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and unmatched_groups groups, which change with every migrated letter. `invariant` holds the structural facts a person should review when they change: which classes the corpus ships, which classes the build machine-approves, which are exempt from individual verdicts, and which unmatched groups the corpus reaches. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the corpus's totals. The machine-approved and unmatched-group lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any machine check, whatever the ledger declares. `ledger_coverage` compares the ledger's declarations with them.
+The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and unmatched_groups groups, which change with every migrated letter. The unmatched_groups group counts the pre-merge units in each change group, the UNMATCHED units and the units re-routed out of an `ink_identical` class because their picture changes, and under `rerouted` how many each `ink_identical` class re-routed, so a broken identical claim shows as a number rather than as change-group growth. `invariant` holds the structural facts a person should review when they change: which classes the corpus ships, which classes the build machine-approves, which are exempt from individual verdicts, and which change groups the corpus reaches. Its class lists are in ledger order and then `CHANGE_GROUP_ORDER` (`class_rank`), not in the manifest's section order, so a class that changes section does not reorder them. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the corpus's totals. The machine-approved and change-group lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any machine check, whatever the ledger declares. `ledger_coverage` compares the ledger's declarations with them.
 
 No test reads this file, since a build asserting the numbers it just wrote would check nothing. The tests check internal consistency (the deduplicated units account for every audit row), invariants derived from the sources (the manifest's own totals, the ledger's no-verdict classes), and that each in-memory reduction matches the shard walk or shaping it replaces.
 
 The manifest and built groups are post-merge: they are read from a built corpus after the ink-duplicate merge. The audit, ink, and unmatched_groups groups count pre-merge units, the (codepoints, baseline, new) triples before the merge, which no corpus shard reports, so their class counts can differ from the manifest's. `audit.row_count` counts raw audit rows.
 
-The pre-merge groups come from the review-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the merge and the phase-1 products it computes anyway (each post-merge unit's ink verdict and each UNMATCHED unit's unmatched group), instead of shaping and enriching the whole corpus a second time. The review facts are then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a default-novel UNMATCHED unit that was merged away and on an UNMATCHED unit with no unmatched group, and it writes one ink flag per captured unit.
+The pre-merge groups come from the review-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the merge and the phase-1 products it computes anyway (each post-merge unit's machine flags and change group), instead of shaping and enriching the whole corpus a second time. The review facts are then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a unit that takes its survivor's change group but was merged away, on a unit that takes a change group and resolves to none, and on a unit the build re-routes and the review facts do not, or the reverse, and it writes one ink flag per captured unit.
 
 Usage:
     uv run python -m rebuild.review.facts --update --corpus rebuild/out/review  # what every non-staging artifact-cycle pass runs
@@ -26,7 +26,7 @@ import sys
 import tempfile
 import warnings
 from array import array
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, Protocol
@@ -36,6 +36,7 @@ from rebuild.review.audit import (
     BATCH_SIZE,
     NO_VERDICT,
     UNMATCHED_CLASS,
+    AuditRow,
     Compaction,
     LedgerClass,
     Unit,
@@ -45,19 +46,24 @@ from rebuild.review.audit import (
     format_codepoints,
     group_for,
     load_audit,
+    load_ledger,
+    load_table,
     load_workload,
+    merge_ink_duplicate_units,
     parse_codepoints,
     render_groups_for_rows,
     slim_fragment,
 )
+from rebuild.review.change_groups import (
+    CHANGE_GROUP_ORDER,
+    assign_change_group,
+    reroutes,
+    set_gate_group,
+    unexplained_configs,
+)
 from rebuild.review.columns import StringTable, TuplePool
 from rebuild.review.enrich import LETTERS, Enricher, load_spec
-from rebuild.review.unmatched_groups import (
-    UNMATCHED_GROUP_ORDER,
-    assign_unmatched_group,
-    deferred_unmatched_group,
-)
-from rebuild.review.ink import InkComparator
+from rebuild.review.ink import IDENTITY_DIFF, InkComparator, JuniorOracle, delta_digest
 
 if TYPE_CHECKING:
     from rebuild.review.unit_store import UnitStore
@@ -66,7 +72,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PINS_PATH = REPO_ROOT / "rebuild" / "review-facts-pins.json"
 
 FACTS_FILENAME = "review-facts.json"
-FACTS_FORMAT = "ams-review-facts/7"
+FACTS_FORMAT = "ams-review-facts/8"
 FACTS_REMEDY = "rebuild the corpus with: uv run python -m rebuild.review.build"
 
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
@@ -74,8 +80,9 @@ LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 SUBSET_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
+JUNIOR_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf"
 
-CLASS_UNIT_COUNT_KEYS = ("boundary-window", "dangling-anchor-dropped", "bare-name-live-join")
+CLASS_UNIT_COUNT_KEYS = ("split-by-space-or-zwnj", "identical-unused-join-name", "identical-variant-name")
 
 REFERENCE_WINDOW_CODEPOINTS = "E670:E653:E652:E666"
 _REFERENCE_WINDOW = parse_codepoints(REFERENCE_WINDOW_CODEPOINTS)
@@ -85,26 +92,36 @@ def _text(unit) -> str:
     return "".join(chr(value) for value in unit.codepoint_values)
 
 
+def class_rank(manifest: Mapping) -> Callable[[str], tuple[int, int]]:
+    """The sort key the pins list a corpus's classes by: the ledger classes in ledger order, which is the order of the manifest's `ledger_classes` lookup, then the change groups in `CHANGE_GROUP_ORDER`. The manifest itself lists its classes by section first, so a class whose section changes would otherwise move in the pins. The key raises KeyError on a class that is neither."""
+    ranks = {identifier: (0, index) for index, identifier in enumerate(manifest["ledger_classes"])}
+    ranks.update((identifier, (1, index)) for index, identifier in enumerate(CHANGE_GROUP_ORDER))
+    return ranks.__getitem__
+
+
 def manifest_group(manifest: dict) -> dict:
-    """The post-merge facts read straight from the built corpus's manifest.json."""
+    """The post-merge facts read straight from the built corpus's manifest.json, with the machine-approved histogram keyed in `class_rank` order."""
     by_id = {meta["id"]: meta for meta in manifest["classes"]}
+    by_class = manifest["machine_approved"]["by_class"]
     return {
         "totals": dict(manifest["totals"]),
         "machine_approved": {
             "units": manifest["machine_approved"]["units"],
-            "by_class": dict(manifest["machine_approved"]["by_class"]),
+            "by_class": {key: by_class[key] for key in sorted(by_class, key=class_rank(manifest))},
         },
         "class_unit_count": {key: by_id[key]["unit_count"] for key in CLASS_UNIT_COUNT_KEYS},
         "secondary_junctions": dict(manifest["secondary_junctions"]),
     }
 
 
-def invariant_group(manifest: dict, unmatched_groups: dict[str, int]) -> dict:
-    """The invariant block: which classes the corpus ships, which the build machine-approves, which are exempt from individual verdicts, and which unmatched groups the corpus reaches, each in its source's order. The classes are listed, not counted, so `invariant_delta` can say which class appeared or went."""
+def invariant_group(manifest: dict, unmatched_groups: Mapping[str, int]) -> dict:
+    """The invariant block: which classes the corpus ships, which the build machine-approves, and which are exempt from individual verdicts, each in `class_rank` order, and which change groups the corpus reaches, in the order of the pre-merge counts (`CHANGE_GROUP_ORDER`). The classes are listed, not counted, so `invariant_delta` can say which class appeared or went."""
+    rank = class_rank(manifest)
+    classes = sorted(manifest["classes"], key=lambda meta: rank(meta["id"]))
     return {
-        "classes": [meta["id"] for meta in manifest["classes"]],
-        "machine_approved_classes": list(manifest["machine_approved"]["by_class"]),
-        "no_verdict_classes": [meta["id"] for meta in manifest["classes"] if meta["no_verdict"]],
+        "classes": [meta["id"] for meta in classes],
+        "machine_approved_classes": sorted(manifest["machine_approved"]["by_class"], key=rank),
+        "no_verdict_classes": [meta["id"] for meta in classes if meta["no_verdict"]],
         "unmatched_groups": list(unmatched_groups),
     }
 
@@ -113,7 +130,7 @@ INVARIANT_LABELS = {
     "classes": "classes",
     "machine_approved_classes": "machine-approved",
     "no_verdict_classes": "no-verdict",
-    "unmatched_groups": "unmatched groups",
+    "unmatched_groups": "change groups",
 }
 
 
@@ -122,7 +139,7 @@ def _named(ids: Sequence[str]) -> str:
 
 
 def invariant_delta(accepted: Mapping, current: Mapping) -> list[str]:
-    """The changes in the invariant block since the accepted review facts, one finding per list and direction (`classes +2 (a, b)`, `machine-approved -1 (c)`), in the block's key order. The list is empty only when nothing changed. A list with the same members in a new order is reported only as `reordered`, because its order comes from the ledger or the manifest and says nothing new about the corpus. A key that only one side has is reported as newly or no longer recorded, so a change to the block's shape does not read as a list of new classes."""
+    """The changes in the invariant block since the accepted review facts, one finding per list and direction (`classes +2 (a, b)`, `machine-approved -1 (c)`), in the block's key order. The list is empty only when nothing changed. A list with the same members in a new order is reported only as `reordered`, because its order comes from the ledger and `CHANGE_GROUP_ORDER` and says nothing new about the corpus. A key that only one side has is reported as newly or no longer recorded, so a change to the block's shape does not read as a list of new classes."""
     findings: list[str] = []
     keys = list(accepted) + [key for key in current if key not in accepted]
     for key in keys:
@@ -164,7 +181,7 @@ def invariant_diff(accepted: Mapping, current: Mapping) -> list[str]:
 
 @dataclass(frozen=True)
 class LedgerCoverage:
-    """The ledger's declarations compared with what the corpus reached, from the ledger the corpus was built over and the invariant block. `unreached` lists the ledger entries no unit matched, so the corpus ships no class for them. `machine_approved` is emergent (a class is in it when the build approved at least one of its units through any machine check) and is compared with the ledger's `ink_identical` declarations both ways: `ink_declared_unapproved` lists declared classes with no machine-approved unit, and `machine_approved_undeclared` lists approving classes the ledger never declared. `no_verdict` is declared in the ledger and copied onto each class the corpus ships, so its only possible disagreement is a declared class the corpus never reached. `describe` puts all of this on one line."""
+    """The ledger's declarations compared with what the corpus reached, from the ledger the corpus was built over and the invariant block. `unreached` lists the ledger entries the corpus ships no class for: no unit matched them, or every unit that did was re-routed to a change group. `machine_approved` is emergent (a class is in it when the build approved at least one of its units through any machine check) and is compared with the ledger's `ink_identical` declarations both ways: `ink_declared_unapproved` lists declared classes with no machine-approved unit, and `machine_approved_undeclared` lists approving classes the ledger never declared. `no_verdict` is declared in the ledger and copied onto each class the corpus ships, so its only possible disagreement is a declared class the corpus never reached. `describe` puts all of this on one line."""
 
     ledger: tuple[str, ...]
     unreached: tuple[str, ...]
@@ -177,7 +194,7 @@ class LedgerCoverage:
     no_verdict_unreached: tuple[str, ...]
 
     def describe(self) -> str:
-        """The one summary line. Approving classes without a declaration are counted, not named, because approval through the picture or Junior check, or as a deferred unmatched group, is the usual case and `invariant_delta` already names a class that joins them; `as_json` has the names. Each declaration the corpus does not show is named."""
+        """The one summary line. Approving classes without a declaration are counted, not named, because approval through the picture or Junior check, or of a change group's units, is the usual case and `invariant_delta` already names a class that joins them; `as_json` has the names. Each declaration the corpus does not show is named."""
         machine = (
             f"machine-approved: {len(self.machine_approved)} classes approve units,"
             f" {len(self.machine_approved_undeclared)} undeclared;"
@@ -282,7 +299,7 @@ def audit_group(repo_root: Path = REPO_ROOT) -> dict:
 
 
 def ink_histogram(workload: Workload, comparator) -> dict:
-    """The ink group over the pre-merge workload, computed by shaping: flag every unit whose placed ink is identical in both fonts under every config in its set, count the machine-approved units per class, and count the boundary-window no-verdict exemptions, the human units, and their batches. It counts as `ink_group_from_flags` does: the ink verdict alone decides, and the batches are the human units cut into `BATCH_SIZE` slices. `workload.units()` materializes new records, and the flags are set on those."""
+    """The ink group over the pre-merge workload, computed by shaping: flag every unit whose placed ink is identical in both fonts under every config in its set, count the machine-approved units per class, and count the no-verdict exemptions (`boundary_window_exempt`), the human units, and their batches. It counts as `ink_group_from_flags` does: the ink verdict alone decides, and the batches are the human units cut into `BATCH_SIZE` slices. `workload.units()` materializes new records, and the flags are set on those."""
     units = workload.units()
     machine_by_class: dict[str, int] = {}
     for unit in units:
@@ -308,50 +325,224 @@ def ink_group(repo_root: Path = REPO_ROOT) -> dict:
     return ink_histogram(workload, comparator)
 
 
-def unmatched_group_assignments(repo_root: Path = REPO_ROOT) -> list[str]:
-    """Assign every UNMATCHED pre-merge unit to its unmatched group: load the audit, group rows by (codepoints, baseline, new) triple, enrich each triple that is UNMATCHED under any config, and classify it with `assign_unmatched_group`. Returns one group label per such triple, in audit order."""
-    by_triple: dict[tuple, list] = {}
-    for row in load_audit(AUDIT_PATH):
+def _settled_class(config_classes: Iterable[str]) -> str:
+    """The class a unit whose configs match `config_classes` is listed under before any change group is assigned, by the rule `audit.load_table` and the ink-duplicate merge share: UNMATCHED when any config is unmatched, otherwise the one ledger class every config matched."""
+    classes = set(config_classes)
+    if UNMATCHED_CLASS in classes:
+        return UNMATCHED_CLASS
+    if len(classes) != 1:
+        raise ValueError(f"a unit matches {len(classes)} ledger classes, not one: {sorted(classes)}")
+    return classes.pop()
+
+
+def premerge_set_group(
+    config_classes: Mapping[str, str],
+    configs: tuple[str, ...],
+    ink_deltas: Mapping[str, str],
+    identical_classes: Collection[str],
+) -> str | None:
+    """The set gate's group (`change_groups.set_gate_group`) for one pre-merge unit that takes a change group, over the configs no ruling explains (`change_groups.unexplained_configs`) by the unit's own configs, config classes and per-config ink deltas, as phase 1 decides it for a unit. None when the default config is among them; the unit then takes its merge survivor's group, which is its own, because the unit holding a window's default config always leads that window's merge. The sidecar and the from-scratch path both decide it here."""
+    return set_gate_group(
+        unexplained_configs(_Configs(config_classes, configs), ink_deltas, identical_classes)
+    )
+
+
+class ScratchComparator(Protocol):
+    """The `InkComparator` readings the from-scratch path re-routes by: ink and picture identity, and the signature the ink-duplicate merge groups by. A test stub can satisfy it without fonts."""
+
+    def ink_identical(self, text: str, configs: tuple[str, ...]) -> bool: ...
+
+    def picture_identical(self, text: str, configs: tuple[str, ...]) -> bool: ...
+
+    def signature(self, text: str, config: str) -> tuple: ...
+
+
+class ScratchOracle(Protocol):
+    """The `JuniorOracle` reading the from-scratch path re-routes by."""
+
+    def approves(self, configs: tuple[str, ...], text: str) -> bool: ...
+
+
+def _window_text(codepoints: str) -> str:
+    return "".join(chr(value) for value in parse_codepoints(codepoints))
+
+
+def _premerge_unit(
+    codepoints: str,
+    baseline: tuple[str, ...],
+    new: tuple[str, ...],
+    class_id: str,
+    members: list[AuditRow],
+    family_of: dict[int, str],
+) -> Unit:
+    """One pre-merge unit of class `class_id`, built from its audit rows as `audit.load_table` builds it, with no store behind it."""
+    ordered = tuple(sorted(members, key=lambda member: _config_index(member.config)))
+    return Unit(
+        codepoints=codepoints,
+        baseline=baseline,
+        new=new,
+        class_id=class_id,
+        row_count=len(ordered),
+        configs=tuple(member.config for member in ordered),
+        kinds=tuple(sorted({kind for member in members for kind in member.kinds})),
+        group=group_for(parse_codepoints(codepoints), family_of),
+        render_groups=render_groups_for_rows(
+            (member.baseline, member.new, member.config) for member in ordered
+        ),
+        config_classes={member.config: member.matched_entry for member in members},
+    )
+
+
+def _merge_survivors(
+    rows: list[AuditRow], ledger: Sequence[LedgerClass], comparator: ScratchComparator
+) -> dict[tuple[str, tuple[str, ...]], tuple[str, tuple[str, ...]]]:
+    """Run the build's ink-duplicate merge (`merge_ink_duplicate_units`) over `rows` with the comparator's signatures, and return, for each pre-merge unit keyed by its window and configs, the class its survivor settles in and the survivor's configs. A window's units cover disjoint configs, so the key names one unit."""
+    if not rows:
+        return {}
+    table, columns = load_table(rows, list(ledger), dict(LETTERS))
+    keys = [(table.codepoints_text(row), table.configs(row)) for row in range(table.n)]
+    merge_ink_duplicate_units(
+        table,
+        columns,
+        lambda codepoints, config: comparator.signature(_window_text(codepoints), config),
+        {entry.id for entry in ledger if entry.no_verdict},
+    )
+    survivor = table.compact().survivor
+    return {
+        key: (_settled_class(table.config_classes(survivor[row]).values()), table.configs(survivor[row]))
+        for row, key in enumerate(keys)
+    }
+
+
+def select_change_group_units(
+    rows: Iterable[AuditRow],
+    ledger: Sequence[LedgerClass],
+    comparator: ScratchComparator,
+    oracle: ScratchOracle,
+) -> list[tuple[Unit, str | None]]:
+    """The pre-merge units that take a change group, at the grain `derive_premerge` reports, decided from the audit rows and the fonts instead of the build's phase-1 products: each with the `ink_identical` ledger class it is re-routed out of, or None for an UNMATCHED unit, in audit order. A unit of an `ink_identical` class is re-routed by `change_groups.reroutes` over the machine flags its merge survivor has, and only while that survivor stays in the class, as `derive_premerge` decides it. Ink and picture identity are functions of the merge signature, so the unit's own readings are its survivor's; the Junior check reads the survivor's configs, which the merge widens. The merge runs only over the windows that hold such a unit beside a sibling unit."""
+    identical = frozenset(entry.id for entry in ledger if entry.ink_identical)
+    exempt = frozenset(entry.id for entry in ledger if entry.no_verdict)
+    family_of = dict(LETTERS)
+    by_triple: dict[tuple[str, tuple[str, ...], tuple[str, ...]], list[AuditRow]] = {}
+    for row in rows:
         by_triple.setdefault((row.codepoints, row.baseline, row.new), []).append(row)
+    siblings: dict[str, int] = {}
+    for codepoints, _baseline, _new in by_triple:
+        siblings[codepoints] = siblings.get(codepoints, 0) + 1
+    entries: list[tuple[Unit, str | None]] = []
+    merged: set[str] = set()
+    for (codepoints, baseline, new), members in by_triple.items():
+        class_id = _settled_class(member.matched_entry for member in members)
+        if class_id != UNMATCHED_CLASS and not reroutes(class_id, class_id in exempt, False, identical):
+            continue
+        unit = _premerge_unit(codepoints, baseline, new, class_id, members, family_of)
+        if class_id == UNMATCHED_CLASS:
+            entries.append((unit, None))
+            continue
+        text = _text(unit)
+        if comparator.ink_identical(text, unit.configs) or comparator.picture_identical(text, unit.configs):
+            continue
+        entries.append((unit, unit.class_id))
+        if siblings[codepoints] > 1:
+            merged.add(codepoints)
+    survivors = _merge_survivors(
+        [
+            member
+            for (codepoints, _b, _n), members in by_triple.items()
+            if codepoints in merged
+            for member in members
+        ],
+        ledger,
+        comparator,
+    )
+    selected: list[tuple[Unit, str | None]] = []
+    for unit, rerouted_from in entries:
+        if rerouted_from is not None:
+            settled, configs = survivors.get((unit.codepoints, unit.configs), (unit.class_id, unit.configs))
+            if settled != rerouted_from or oracle.approves(configs, _text(unit)):
+                continue
+        selected.append((unit, rerouted_from))
+    return selected
+
+
+def _ink_deltas(comparator: InkComparator, unit: Unit) -> dict[str, str]:
+    """The unit's per-config ink deltas as phase 1 computes them: a `delta_digest` for each config whose `config_diff` is not `IDENTITY_DIFF`."""
+    text = _text(unit)
+    deltas: dict[str, str] = {}
+    for config in unit.configs:
+        diff = comparator.config_diff(text, config)
+        if diff != IDENTITY_DIFF:
+            deltas[config] = delta_digest(diff)
+    return deltas
+
+
+def change_group_assignments(
+    ledger: Sequence[LedgerClass], repo_root: Path = REPO_ROOT
+) -> list[tuple[str, str | None]]:
+    """Assign every pre-merge unit that takes a change group its group from the source artifacts: select the units as `select_change_group_units` does, measure each one's ink deltas as phase 1 does, give each its `premerge_set_group` where there is one, and enrich the rest and classify them with `assign_change_group`, as phase 1 classifies each survivor. Returns one (group, the ledger class the unit is re-routed out of or None) per unit, in audit order."""
+    comparator = InkComparator(BEFORE_FONT, AFTER_FONT)
+    oracle = JuniorOracle(JUNIOR_FONT, BEFORE_FONT, AFTER_FONT)
+    identical = frozenset(entry.id for entry in ledger if entry.ink_identical)
+    selected = select_change_group_units(load_audit(AUDIT_PATH), ledger, comparator, oracle)
+    deltas = [_ink_deltas(comparator, unit) for unit, _rerouted_from in selected]
+    gated = [
+        premerge_set_group(unit.config_classes, unit.configs, unit_deltas, identical)
+        for (unit, _rerouted_from), unit_deltas in zip(selected, deltas, strict=True)
+    ]
+    pending = [
+        (unit, unit_deltas)
+        for (unit, _rerouted_from), unit_deltas, group in zip(selected, deltas, gated, strict=True)
+        if group is None
+    ]
+    del deltas
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(repo_root)
     enricher = Enricher(spec, SUBSET_DIR, AFTER_FONT, repo_root=repo_root, before_font=BEFORE_FONT)
-    units: list[Unit] = []
-    for (codepoints, baseline, new), members in by_triple.items():
-        if not any(member.matched_entry == "UNMATCHED" for member in members):
-            continue
-        config_classes = {member.config: member.matched_entry for member in members}
-        ordered = tuple(sorted(members, key=lambda member: _config_index(member.config)))
-        unit = Unit(
-            codepoints=codepoints,
-            baseline=baseline,
-            new=new,
-            class_id="UNMATCHED",
-            row_count=len(ordered),
-            configs=tuple(member.config for member in ordered),
-            kinds=tuple(sorted({kind for member in members for kind in member.kinds})),
-            group=group_for(parse_codepoints(codepoints), dict(LETTERS)),
-            render_groups=render_groups_for_rows(
-                (member.baseline, member.new, member.config) for member in ordered
-            ),
-            config_classes=config_classes,
-        )
-        units.append(unit)
-    return [assign_unmatched_group(enriched) for enriched in enricher.enrich_many(units)]
+    classified = iter(
+        [
+            assign_change_group(enriched, unit_deltas, identical)
+            for enriched, (_unit, unit_deltas) in zip(
+                enricher.enrich_many([unit for unit, _unit_deltas in pending]), pending, strict=True
+            )
+        ]
+    )
+    return [
+        (group if group is not None else next(classified), rerouted_from)
+        for group, (_unit, rerouted_from) in zip(gated, selected, strict=True)
+    ]
 
 
-def unmatched_group_counts(assignments: list[str]) -> dict[str, int]:
+def change_group_counts(assignments: Iterable[str]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for group in assignments:
         counts[group] = counts.get(group, 0) + 1
-    order = {group: index for index, group in enumerate(UNMATCHED_GROUP_ORDER)}
+    order = {group: index for index, group in enumerate(CHANGE_GROUP_ORDER)}
     return dict(sorted(counts.items(), key=lambda item: (order.get(item[0], len(order)), item[0])))
 
 
+def rerouted_counts(identical_classes: Sequence[str], rerouted: Iterable[str]) -> dict[str, int]:
+    """How many pre-merge units each `ink_identical` ledger class re-routed to a change group, keyed by every class in `identical_classes` in that order, zero where none moved. `rerouted` names each re-routed unit's class; a class outside `identical_classes` raises, since only an identical class re-routes its units."""
+    counts = dict.fromkeys(identical_classes, 0)
+    for class_id in rerouted:
+        if class_id not in counts:
+            raise ValueError(f"a unit is re-routed out of {class_id}, which is not an ink_identical class")
+        counts[class_id] += 1
+    return counts
+
+
 def unmatched_groups_group(repo_root: Path = REPO_ROOT) -> dict:
-    counts = unmatched_group_counts(unmatched_group_assignments(repo_root))
-    return {"counts": counts, "total": sum(counts.values())}
+    """The unmatched_groups group recomputed from the source artifacts (`change_group_assignments` over the checked-in ledger)."""
+    ledger = load_ledger(LEDGER_PATH)
+    assignments = change_group_assignments(ledger, repo_root)
+    return unmatched_groups_group_from(
+        [group for group, _rerouted_from in assignments],
+        rerouted_counts(
+            [entry.id for entry in ledger if entry.ink_identical],
+            [rerouted_from for _group, rerouted_from in assignments if rerouted_from is not None],
+        ),
+    )
 
 
 # --- the review-facts sidecar ---------------------------------------------------------
@@ -383,23 +574,23 @@ class Grain(NamedTuple):
 
 
 class _Configs(NamedTuple):
-    """A pre-merge row's config fields, in the shape `unmatched_groups.deferred_unmatched_group` reads."""
+    """A pre-merge row's config fields, in the shape `change_groups.unexplained_configs` reads."""
 
     config_classes: Mapping[str, str]
     configs: tuple[str, ...]
 
 
 class PremergeSnapshot:
-    """The workload as the build saw it before the ink-duplicate merge, as columns copied from the table with one entry per pre-merge row: the class id and config-set id (into the table's string table and tuple pool), the no-verdict byte, the window's offsets into the table's value column (which compaction does not move), and the deferred stylistic-set bucket. The bucket must be decided here, because deferral depends only on the pre-merge config classes and the merge changes them: an ss03-only survivor that absorbs an ss04-only sibling is deferred-ss03 before the merge and would read as deferred-ss04 after it. `rebase` takes the merge's compaction and records, for each pre-merge row, its survivor's post-merge row and whether the row was merged away; `derive_premerge` then reads the survivor's phase-1 products from the store and the table by index. The columns take 18 bytes a row, 23 after `rebase`; a list of per-row records was the largest collection the build held after the merge."""
+    """The workload as the build saw it before the ink-duplicate merge, as columns copied from the table with one entry per pre-merge row: the class id and config-set id (into the table's string table and tuple pool), the no-verdict byte, and the window's offsets into the table's value column (which compaction does not move). The configs must be copied here, because a row's set group (`premerge_set_group`) is decided over its own configs and the merge widens the survivor's: an ss03-only survivor that absorbs an ss04-only sibling is only-with-ss03 before the merge and would read as only-with-several-sets after it. `rebase` takes the merge's compaction and records, for each pre-merge row, its survivor's post-merge row and whether the row was merged away; `derive_premerge` then reads the survivor's phase-1 products from the store and the table by index. The columns take 14 bytes a row, 19 after `rebase`; a list of per-row records was the largest collection the build held after the merge."""
 
     __slots__ = (
         "n",
         "strings",
         "tuples",
+        "identical_classes",
         "class_id",
         "no_verdict",
         "configs",
-        "deferred",
         "window_start",
         "window_n",
         "window_values",
@@ -407,33 +598,18 @@ class PremergeSnapshot:
         "removed",
     )
 
-    def __init__(self, table: UnitTable) -> None:
+    def __init__(self, table: UnitTable, identical_classes: Collection[str] = frozenset()) -> None:
         self.n = table.n
         self.strings: StringTable = table.strings
         self.tuples: TuplePool[str] = table.tuples
+        self.identical_classes = frozenset(identical_classes)
         self.class_id = table.class_ids()
         flags = table.flags()
         self.no_verdict = bytearray(1 if flag & NO_VERDICT else 0 for flag in flags)
         self.configs = table.configs_ids()
         self.window_start, self.window_n, self.window_values = table.windows()
-        self.deferred = array("I", [0]) * table.n
         self.survivor: array | None = None
         self.removed: bytearray | None = None
-        unmatched = self.strings.find(UNMATCHED_CLASS)
-        if unmatched is None:
-            return
-        mappings = table.config_classes_ids()
-        buckets: dict[tuple[int, int], int] = {}
-        for row in range(table.n):
-            if self.class_id[row] != unmatched:
-                continue
-            key = (mappings[row], self.configs[row])
-            bucket = buckets.get(key)
-            if bucket is None:
-                bucket = buckets[key] = self.strings.optional(
-                    deferred_unmatched_group(_Configs(table.mappings[key[0]], self.tuples[key[1]]))
-                )
-            self.deferred[row] = bucket
 
     def __len__(self) -> int:
         return self.n
@@ -469,7 +645,6 @@ class PremergeSnapshot:
         yield self.class_id
         yield self.no_verdict
         yield self.configs
-        yield self.deferred
         yield self.window_start
         yield self.window_n
         if self.survivor is not None and self.removed is not None:
@@ -479,7 +654,7 @@ class PremergeSnapshot:
 
 @dataclass(frozen=True)
 class PremergeFacts:
-    """The pre-merge facts a build reports: how many units the workload held, the digest identifying them, one '0'/'1' ink flag per unit in capture order, and the unmatched group of every UNMATCHED unit with its index in that order."""
+    """The pre-merge facts a build reports: how many units the workload held, the digest identifying them, one '0'/'1' ink flag per unit in capture order, and the change group of every unit that takes one (each UNMATCHED unit and each re-routed unit) with its index in that order. A re-routed unit is one whose captured class is not UNMATCHED."""
 
     units: int
     workload_digest: str
@@ -487,13 +662,13 @@ class PremergeFacts:
     unmatched_groups: list[tuple[int, str]]
 
 
-def capture_premerge(table: UnitTable) -> PremergeSnapshot:
-    """Snapshot the workload for the sidecar. Call it immediately before `merge_ink_duplicate_units`, because each UNMATCHED row's deferral is decided here, from config classes the merge is about to widen. Matched rows get no deferral, since `deferred_unmatched_group` has no meaningful answer outside UNMATCHED."""
-    return PremergeSnapshot(table)
+def capture_premerge(table: UnitTable, identical_classes: Collection[str] = frozenset()) -> PremergeSnapshot:
+    """Snapshot the workload for the sidecar. Call it immediately before `merge_ink_duplicate_units`, because the merge widens the configs each row's set group is decided over. `identical_classes` are the ledger's `ink_identical` ids, the classes whose units the build re-routes when their picture changes; with none, `derive_premerge` re-routes no unit and refuses a build that re-routed one."""
+    return PremergeSnapshot(table, identical_classes)
 
 
 def workload_digest(units: Iterable[FactsGrain]) -> str:
-    """A sha256 over the `FactsGrain` fields of a unit sequence, in order. It identifies the unit list that the sidecar's ink flags and unmatched-group indices refer to. The units are hashed one newline-separated line at a time, so the payload for millions of rows is never built as one string."""
+    """A sha256 over the `FactsGrain` fields of a unit sequence, in order. It identifies the unit list that the sidecar's ink flags and change-group indices refer to. The units are hashed one newline-separated line at a time, so the payload for millions of rows is never built as one string."""
     digest = hashlib.sha256()
     first = True
     for unit in units:
@@ -507,9 +682,11 @@ def workload_digest(units: Iterable[FactsGrain]) -> str:
 
 
 def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitStore) -> PremergeFacts:
-    """Project the build's post-merge phase-1 products back onto the pre-merge units the review-facts pins count. A unit that survived the merge reads its own row. A unit that was merged away reads the survivor the merge recorded for it (`PremergeSnapshot.rebase`): the ink flag from the store and the unmatched group from the table.
+    """Project the build's post-merge phase-1 products back onto the pre-merge units the review-facts pins count. A unit that survived the merge reads its own row. A unit that was merged away reads the survivor the merge recorded for it (`PremergeSnapshot.rebase`): the ink flag and the other machine flags from the store, and the change group the build promoted onto the table.
 
-    Both projections are exact. The merge groups units only when every config of every sibling gives one identical `InkComparator.signature`, which is the pair of run-order ink lists `config_diff` reads, so a merged sibling's delta and ink verdict equal its survivor's. A pre-merge UNMATCHED unit that is novel under the default config always leads its window's merge order, so it is its own survivor and its phase-1 unmatched group is on its own row. Every other UNMATCHED unit is deferred and took its bucket at capture. The assert below checks the second argument where it could fail: an UNMATCHED, undeferred row that was merged away.
+    Each UNMATCHED unit takes a change group, and so does each re-routed unit: one whose class `change_groups.reroutes` moves (an `ink_identical` class the capture was given, no exemption, and no machine check approving its survivor) and whose survivor is still in that class. A unit merged into an UNMATCHED survivor is not re-routed. The decision is cross-checked against the build's: a unit whose survivor settled in its own class is re-routed exactly when the build listed that survivor under a change group, and a disagreement raises.
+
+    The projections are exact. The merge groups units only when every config of every sibling gives one identical `InkComparator.signature`, which is the pair of run-order ink lists `config_diff` reads, so a merged sibling's delta, ink verdict and picture verdict equal its survivor's. A unit's set group (`premerge_set_group`) is decided over its own captured configs, with the survivor's config classes and ink deltas for those configs: a window's units cover disjoint configs, so the survivor's merged config classes give each of them as the unit had it, and its deltas are the unit's own by the signature rule. A unit whose set group is None holds its window's default config, so it leads its window's merge order, is its own survivor, and finds its phase-1 change group on its own row. The assert below checks that argument where it could fail: a unit with no set group that was merged away.
     """
     if snapshot.survivor is None or snapshot.removed is None:
         raise ValueError(
@@ -517,28 +694,61 @@ def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitSto
         )
     strings = snapshot.strings
     unmatched = strings.find(UNMATCHED_CLASS)
+    identical_classes = snapshot.identical_classes
+    identical = {index for index in map(strings.find, identical_classes) if index is not None}
     survivor = snapshot.survivor
     removed = snapshot.removed
     class_ids = snapshot.class_id
-    deferred = snapshot.deferred
+    no_verdict = snapshot.no_verdict
+    configs = snapshot.configs
+    tuples = snapshot.tuples
     ink_identical = store.ink_identical
+    machine_approved = store.machine_approved
     flags = bytearray(snapshot.n)
     assigned: list[tuple[int, str]] = []
     for row in range(snapshot.n):
         target = survivor[row]
-        is_unmatched = class_ids[row] == unmatched
-        assert not is_unmatched or deferred[row] or not removed[row], (
-            f"window {format_codepoints(snapshot.codepoints(row))}: a default-novel UNMATCHED unit was merged "
-            "away, so its unmatched group cannot be read off its own phase-1 row"
-        )
         flags[row] = 49 if ink_identical(target) else 48
-        if is_unmatched:
-            group = strings[deferred[row]] if deferred[row] else table.unmatched_group(target)
-            if not group:
+        survivor_group = table.unmatched_group(target)
+        class_index = class_ids[row]
+        if class_index != unmatched:
+            class_id = strings[class_index]
+            rerouted = class_index in identical and reroutes(
+                class_id, bool(no_verdict[row]), machine_approved(target), identical_classes
+            )
+            if not rerouted and not survivor_group:
+                continue
+            if _settled_class(table.config_classes(target).values()) != class_id:
+                continue
+            if rerouted and not survivor_group:
                 raise ValueError(
-                    f"window {format_codepoints(snapshot.codepoints(row))}: UNMATCHED unit resolved to no unmatched group"
+                    f"window {format_codepoints(snapshot.codepoints(row))}: the review facts re-route this "
+                    f"{class_id} unit, but the build lists its survivor under no change group"
                 )
-            assigned.append((row, group))
+            if not rerouted:
+                raise ValueError(
+                    f"window {format_codepoints(snapshot.codepoints(row))}: the build lists this {class_id} unit "
+                    f"under change group {survivor_group}, but the review facts do not re-route it"
+                )
+        row_configs = tuples[configs[row]]
+        survivor_classes = table.config_classes(target)
+        survivor_deltas = store.ink_deltas(target)
+        set_group = premerge_set_group(
+            {config: survivor_classes[config] for config in row_configs},
+            row_configs,
+            {config: survivor_deltas[config] for config in row_configs if config in survivor_deltas},
+            identical_classes,
+        )
+        assert set_group or not removed[row], (
+            f"window {format_codepoints(snapshot.codepoints(row))}: a unit with the default config was merged "
+            "away, so its change group cannot be read off its own phase-1 row"
+        )
+        group = set_group or survivor_group
+        if not group:
+            raise ValueError(
+                f"window {format_codepoints(snapshot.codepoints(row))}: a unit that takes a change group resolved to none"
+            )
+        assigned.append((row, group))
     return PremergeFacts(
         units=snapshot.n,
         workload_digest=workload_digest(snapshot.grains()),
@@ -572,10 +782,10 @@ def ink_group_from_flags(class_rows: Iterable[tuple[str, bool]], flags: str) -> 
     }
 
 
-def unmatched_groups_group_from(assignments: list[str]) -> dict:
-    """The unmatched_groups group over groups already assigned, so a build can report the groups phase 1 computed without enriching every UNMATCHED window again."""
-    counts = unmatched_group_counts(assignments)
-    return {"counts": counts, "total": sum(counts.values())}
+def unmatched_groups_group_from(assignments: Iterable[str], rerouted: Mapping[str, int]) -> dict:
+    """The unmatched_groups group over change groups already assigned, so a build can report the groups phase 1 computed without enriching every window again: the units per change group in `CHANGE_GROUP_ORDER`, their total, and `rerouted`, the units each `ink_identical` class re-routed (`rerouted_counts`)."""
+    counts = change_group_counts(assignments)
+    return {"counts": counts, "total": sum(counts.values()), "rerouted": dict(rerouted)}
 
 
 def built_group_from_memory(table: UnitTable, config_notes: Mapping[int, str | None]) -> dict:
@@ -612,8 +822,19 @@ def build_facts(
     premerge: PremergeFacts,
     row_count: int,
 ) -> dict:
-    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, the pre-merge records they were reduced from, and the identity of the corpus that owns them. The pre-merge records let a reader re-reduce the pre-merge groups. Only rebuild/test_review_facts.py reads them."""
-    unmatched_groups = unmatched_groups_group_from([group for _index, group in premerge.unmatched_groups])
+    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, the pre-merge records they were reduced from, and the identity of the corpus that owns them. The pre-merge records let a reader re-reduce the pre-merge groups: a change-group record whose unit's class is not UNMATCHED is a re-routed unit, counted under that class, with the snapshot's identical classes in ledger order (`class_rank`). Only rebuild/test_review_facts.py reads them."""
+    unmatched = snapshot.strings.find(UNMATCHED_CLASS)
+    unmatched_groups = unmatched_groups_group_from(
+        (group for _index, group in premerge.unmatched_groups),
+        rerouted_counts(
+            sorted(snapshot.identical_classes, key=class_rank(manifest)),
+            (
+                snapshot.strings[snapshot.class_id[index]]
+                for index, _group in premerge.unmatched_groups
+                if snapshot.class_id[index] != unmatched
+            ),
+        ),
+    )
     return {
         "format": FACTS_FORMAT,
         "corpus": {
@@ -682,7 +903,7 @@ def _build_or_load_corpus(corpus: Path | None):
 
 
 def compute_pins(corpus: Path | None = None, repo_root: Path = REPO_ROOT, from_scratch: bool = False) -> dict:
-    """Both blocks of the pins. By default the volatile block is read from the corpus's review-facts.json sidecar, and the invariant block is reduced again from the corpus's manifest and the sidecar's unmatched-group counts, the same sources the build used, so the checked-in file has the block's current shape whichever build wrote the sidecar. With `from_scratch`, all five volatile groups are recomputed from the source artifacts, which shapes and enriches the corpus again."""
+    """Both blocks of the pins. By default the volatile block is read from the corpus's review-facts.json sidecar, and the invariant block is reduced again from the corpus's manifest and the sidecar's change-group counts, the same sources the build used, so the checked-in file has the block's current shape whichever build wrote the sidecar. With `from_scratch`, all five volatile groups are recomputed from the source artifacts, which shapes and enriches the corpus again."""
     if from_scratch:
         with _build_or_load_corpus(corpus) as (out_dir, manifest):
             unmatched_groups = unmatched_groups_group(repo_root)

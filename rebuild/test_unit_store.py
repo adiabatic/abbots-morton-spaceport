@@ -38,7 +38,8 @@ class _Projection:
     ink_deltas: tuple[tuple[str, str], ...]
     diffs_digest: str
     cluster: str
-    unmatched_group: str
+    change_group: str
+    ledger_class: str
     pair_codepoints: tuple[int, int] | None
     primary_unit_projection: PrimaryUnitProjection
     junction_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
@@ -99,7 +100,8 @@ def _projection(label: str, codepoints: tuple[int, ...] = (0xE652, 0xE670), **ov
         ink_deltas=(("ss03", "d-0123456789ab"), ("default", "d-ba9876543210")),
         diffs_digest="deadbeef",
         cluster="c-12345678",
-        unmatched_group="",
+        change_group="",
+        ledger_class="",
         pair_codepoints=(1, 0),
         primary_unit_projection=primary_unit_projection,
         junction_rects=_rects(primary_unit_projection),
@@ -145,6 +147,11 @@ def test_a_recomputed_projection_reads_back_what_the_load_was_handed():
         store.load_projection(projection, no_verdict=False, ordinal=0, address=_spooled(projection, 12)) == 0
     )
     assert store.machine_flags(0) == (True, False, False) and store.machine_approved(0)
+    assert (store.ink_identical(0), store.picture_identical(0), store.junior_equivalent(0)) == (
+        True,
+        False,
+        False,
+    )
     assert store.machine_check(0) == "ink_identical"
     flags = store.flags(0)
     assert (flags.ink_identical, flags.picture_identical, flags.junior_equivalent) == (True, False, False)
@@ -160,7 +167,8 @@ def test_a_recomputed_projection_reads_back_what_the_load_was_handed():
     assert list(store.ink_deltas(0)) == ["ss03", "default"]
     assert store.diffs_digest(0) == projection.diffs_digest
     assert store.cluster(0) == projection.cluster
-    assert store.unmatched_group(0) == projection.unmatched_group == ""
+    assert store.change_group(0) == projection.change_group == ""
+    assert store.ledger_class(0) == projection.ledger_class == ""
     assert store.pair_codepoints(0) == projection.pair_codepoints
     assert store.cell_pair(0) == projection.primary_unit_projection.pair
     assert store.codepoints(0) == projection.primary_unit_projection.codepoint_values == _WINDOW
@@ -219,13 +227,18 @@ def test_the_load_takes_the_ordinal_and_address_off_the_projection_when_not_give
 
 
 def _cached_record(
-    label: str, primary_units: list[list], address: tuple[str, int, int] | None
+    label: str,
+    primary_units: list[list],
+    address: tuple[str, int, int] | None,
+    *,
+    change_group: str = "",
+    ledger_class: str = "",
 ) -> unit_cache.CachedUnit:
     content_key = _key(f"content:{label}")
     return unit_cache.CachedUnit(
         key=_key(f"input:{label}"),
         prior_id=unit_cache.unit_id_for(content_key),
-        prior_class="boundary-window",
+        prior_class="split-by-space-or-zwnj",
         content_key=content_key,
         slim=False,
         address=address,
@@ -235,7 +248,8 @@ def _cached_record(
         ink_deltas={"default": "d-0123456789ab"},
         diffs_digest="deadbeef",
         cluster="c-12345678",
-        unmatched_group="",
+        change_group=change_group,
+        ledger_class=ledger_class,
         pair_codepoints=(1, 2),
         proj={
             "pair": [0, 1],
@@ -275,10 +289,14 @@ def _load(tmp_path: Path, records: list[unit_cache.CachedUnit]) -> dict[str, uni
 
 
 def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_path):
-    """A store record that is written, parsed as a `ParsedCachedUnit`, and loaded reads back through `cached_unit` as the same store line after its primary units are set by id and its written address is recorded. `primary_unit_ordinals` resolves a primary unit id to its ordinal through the index. The cached-only columns hold the record's class, duplicate group, flags, and primary units, which are what `cached_as_is` compares."""
+    """A store record that is written, parsed as a `ParsedCachedUnit`, and loaded reads back through `cached_unit` as the same store line after its primary units are set by id and its written address is recorded, a re-routed unit's change group and ledger class included. `primary_unit_ordinals` resolves a primary unit id to its ordinal through the index. The cached-only columns hold the record's class, duplicate group, flags, and primary units, which are what `cached_as_is` compares."""
     primary_unit = _cached_record("primary_unit", [[None, False]], ("units/small.json", 1, 5))
     with_primary = _cached_record(
-        "with_primary", [[primary_unit.prior_id, False]], ("units/small.json", 7, 5)
+        "with_primary",
+        [[primary_unit.prior_id, False]],
+        ("units/small.json", 7, 5),
+        change_group="same-joins-narrower",
+        ledger_class="identical-variant-name",
     )
     loaded = _load(tmp_path, [primary_unit, with_primary])
     store = UnitStore(2)
@@ -309,7 +327,9 @@ def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
     source = store.source(0)
     assert source == with_primary_cached.located() and source is not None and source.byte_copied
     assert store.flags(0).cached and store.flags(0).byte_copied and not store.flags(0).slim
-    assert store.cached_class(0) == "boundary-window"
+    assert store.cached_class(0) == "split-by-space-or-zwnj"
+    assert (store.change_group(0), store.ledger_class(0)) == ("same-joins-narrower", "identical-variant-name")
+    assert (store.change_group(1), store.ledger_class(1)) == ("", "")
     assert store.cached_duplicate_group(0) == "e-2WvdGAWe6bX"
     assert store.policy_file(0) == with_primary.policy_file
     assert store.cached_primary_units(0) == with_primary.primary_units
@@ -325,7 +345,7 @@ def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
     def held(ordinal: int, duplicate_group: str | None = "e-2WvdGAWe6bX", no_verdict: bool = False) -> bool:
         return store.cached_as_is(
             ordinal,
-            class_id="boundary-window",
+            class_id="split-by-space-or-zwnj",
             duplicate_group=duplicate_group,
             exemplar=False,
             no_verdict=no_verdict,
@@ -338,7 +358,7 @@ def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
         assert store.written_address(ordinal) == record.address
         cached_unit = store.cached_unit(
             ordinal,
-            class_id="boundary-window",
+            class_id="split-by-space-or-zwnj",
             duplicate_group="e-2WvdGAWe6bX",
             exemplar=False,
             no_verdict=False,
@@ -347,7 +367,7 @@ def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
     assert not held(0, duplicate_group="e-other")
     assert not held(0, no_verdict=True)
     assert store.cached_unit(
-        0, class_id="boundary-window", duplicate_group=None, exemplar=False, no_verdict=True
+        0, class_id="split-by-space-or-zwnj", duplicate_group=None, exemplar=False, no_verdict=True
     ).slim
     store.set_primary_units(0, [(1, True)])
     assert not held(0)
@@ -374,7 +394,11 @@ def test_a_cached_record_is_loaded_with_the_fragment_the_plan_located(tmp_path):
     store.load_cached(0, cached, codepoints=_WINDOW, found=walked)
     assert store.source(0) == walked and not store.flags(0).byte_copied
     assert not store.cached_as_is(
-        0, class_id="boundary-window", duplicate_group="e-2WvdGAWe6bX", exemplar=False, no_verdict=False
+        0,
+        class_id="split-by-space-or-zwnj",
+        duplicate_group="e-2WvdGAWe6bX",
+        exemplar=False,
+        no_verdict=False,
     )
 
 
@@ -551,10 +575,10 @@ def test_the_sizes_are_the_arrays_bytes_and_empty_primary_units_and_mismatches_c
 def test_the_written_address_policy_file_and_config_note_round_trip():
     store = UnitStore(1)
     store.load_projection(_projection("write"), no_verdict=False, ordinal=0)
-    store.set_written_address(0, ("units/boundary-window.000.json", 1234, 5678))
+    store.set_written_address(0, ("units/split-by-space-or-zwnj.000.json", 1234, 5678))
     store.set_policy_file(0, "glyph_data/runes/qsTea.yaml")
     store.set_config_note(0, "ss03 only")
-    assert store.written_address(0) == ("units/boundary-window.000.json", 1234, 5678)
+    assert store.written_address(0) == ("units/split-by-space-or-zwnj.000.json", 1234, 5678)
     assert store.policy_file(0) == "glyph_data/runes/qsTea.yaml"
     assert store.config_note(0) == "ss03 only"
     store.set_policy_file(0, None)
@@ -595,6 +619,7 @@ def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle, tmp_
         table=table,
         out_dir=tmp_path,
         subset_pack=mini_bundle.subset_pack,
+        identical_classes=frozenset(entry.id for entry in workload.ledger if entry.ink_identical),
     )
     try:
         runner.phase1(store)
@@ -618,11 +643,12 @@ def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle, tmp_
         )
         assert store.ink_deltas(ordinal) == dict(projection.ink_deltas)
         assert list(store.ink_deltas(ordinal)) == [config for config, _delta in projection.ink_deltas]
-        assert (store.diffs_digest(ordinal), store.cluster(ordinal), store.unmatched_group(ordinal)) == (
-            projection.diffs_digest,
-            projection.cluster,
-            projection.unmatched_group,
-        )
+        assert (
+            store.diffs_digest(ordinal),
+            store.cluster(ordinal),
+            store.change_group(ordinal),
+            store.ledger_class(ordinal),
+        ) == (projection.diffs_digest, projection.cluster, projection.change_group, projection.ledger_class)
         assert store.pair_codepoints(ordinal) == projection.pair_codepoints
         assert store.primary_unit_projection(ordinal) == projection.primary_unit_projection
         assert store.primary_unit_projection_record(ordinal) == _record(projection.primary_unit_projection)

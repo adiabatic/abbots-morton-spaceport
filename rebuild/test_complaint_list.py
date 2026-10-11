@@ -5,8 +5,9 @@ import weakref
 
 import pytest
 
+from rebuild.review import audit
 from rebuild.tools import complaint_list as cl
-from rebuild.tools.review_queue import load_human_units
+from rebuild.tools.review_queue import QUEUE_SECTION, load_human_units
 
 STAMP = "2026-07-10T00:00:00Z"
 NEW = "2026-07-10T12:00:00Z"
@@ -61,8 +62,8 @@ def repo(tmp_path):
             {
                 "generated_at": STAMP,
                 "classes": [
-                    {"id": "live-class", "status": "diff", "shards": []},
-                    {"id": "ruled-class", "status": "intended", "shards": []},
+                    {"id": "live-class", "status": "per-unit", "section": "open-questions", "shards": []},
+                    {"id": "ruled-class", "status": "approved", "section": "spot-check", "shards": []},
                 ],
             }
         )
@@ -242,6 +243,24 @@ def test_ruled_class_blanks_are_counted_but_not_deferred(repo):
     group = data(repo)["groups"][0]
     assert group["defer_candidates"]["unit_ids"] == ["u-0003"]
     assert group["ruled_class_blanks"] == {"count": 1, "by_class": {"ruled-class": 1}}
+
+
+def test_a_manifest_without_sections_is_refused(repo):
+    """The section decides which blanks are ruled, so a corpus built before the manifest carried it is refused rather than read as one where every class is open."""
+    write_corpus(repo, [unit("u-0001", [P_EXTEND_1]), unit("u-0002", [P_EXTEND_1], cls="ruled-class")])
+    manifest = json.loads((repo["corpus"] / "manifest.json").read_text())
+    for entry in manifest["classes"]:
+        del entry["section"]
+    (repo["corpus"] / "manifest.json").write_text(json.dumps(manifest))
+    write_verdicts(repo, [v("u-0001", "reject")])
+    with pytest.raises(SystemExit, match="predates the review sections"):
+        run(repo)
+    assert not repo["data_out"].exists()
+
+
+def test_the_queue_section_is_the_audits_open_questions():
+    """The review-queue tools spell the Queue's section out instead of importing the audit, so this pins the copy to `audit.class_section`'s value."""
+    assert QUEUE_SECTION == audit.OPEN_QUESTIONS
 
 
 def test_defer_emits_skip_verdicts_at_the_manifest_stamp_covering_exact_blanks(repo):

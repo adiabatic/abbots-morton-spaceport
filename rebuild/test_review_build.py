@@ -1,6 +1,6 @@
 """Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the recomputed spool, the pool records and the memory tally, the shape-memo release, `_write_json`, the triage export, the table-diff build, and the refusal to build into the served corpus while the review server listens.
 
-No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint, the feature descriptions, the sidebar order) needs no separate check. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `facts.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; rebuild/review-facts-pins.json records that the merge ran on the corpus, since its pre-merge `volatile.audit.units` is larger than its post-merge `volatile.manifest.totals.units`. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` cached windows on every build.
+No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint and the feature descriptions) needs no separate check; the class order and each class's copy and section are tested over a mini build. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `facts.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; rebuild/review-facts-pins.json records that the merge ran on the corpus, since its pre-merge `volatile.audit.units` is larger than its post-merge `volatile.manifest.totals.units`. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` cached windows on every build.
 """
 
 import copy
@@ -23,15 +23,17 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import app_index, tablediff, unit_cache
+from rebuild.review import app_index, facts, tablediff, unit_cache
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     NO_DELTAS,
+    SECTIONS,
     SLIM_OMITTED_KEYS,
     UnitTable,
     _config_index,
+    load_ledger,
     load_workload,
     machine_approved,
     slim_fragment,
@@ -52,6 +54,7 @@ from rebuild.review.build import (
     config_gate,
     config_note,
 )
+from rebuild.review.change_groups import CHANGE_GROUP_ORDER, load_change_group_prose
 from rebuild.review.enrich import LETTERS, EnrichedUnit
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
 from rebuild.review.ink import shape_memo_sizes
@@ -140,6 +143,11 @@ def test_fixture_sources_derive_the_checked_in_shards():
     for entry, meta in zip(workload.ledger, manifest["classes"], strict=True):
         assert entry.id == meta["id"]
         assert entry.status == meta["status"]
+        assert (entry.title, entry.summary, entry.note or None) == (
+            meta["title"],
+            meta["summary"],
+            meta.get("note"),
+        )
         assert entry.why == meta["why"]
         assert entry.ink_identical == meta["ink_identical"]
         assert entry.no_verdict == meta["no_verdict"]
@@ -239,6 +247,116 @@ def test_check_manifest_requires_the_three_machine_checks():
     assert not any("machine checks" in error for error in check_manifest(manifest))
     del manifest["machine_approved"]["checks"]["picture_identical"]
     assert any("three machine checks" in error for error in check_manifest(manifest))
+
+
+def test_check_manifest_requires_each_class_s_copy_status_and_section(mini_corpus):
+    """A class needs a nonempty title and summary, a note that is null or nonempty, a ledger status, and the section `audit.class_section` gives its status, exemption and human units, and the classes must be listed by section. The `ledger_classes` lookup must give every entry a title, a summary, a ledger status and a why. Each break below is made on a fresh copy of a manifest that passes."""
+    manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
+    assert check_manifest(manifest) == []
+    open_question = next(meta["id"] for meta in manifest["classes"] if meta["section"] == "open-questions")
+    ledger_id = next(iter(manifest["ledger_classes"]))
+
+    def class_of(edited: dict) -> dict:
+        return next(meta for meta in edited["classes"] if meta["id"] == open_question)
+
+    breaks = [
+        (lambda edited: class_of(edited).pop("title"), "title must be a nonempty string"),
+        (lambda edited: class_of(edited).update(summary=" "), "summary must be a nonempty string"),
+        (lambda edited: class_of(edited).update(note=""), "note must be absent, null or a nonempty string"),
+        (lambda edited: class_of(edited).update(status="intended"), "status must be one of"),
+        (lambda edited: class_of(edited).update(section="elsewhere"), "section must be one of"),
+        (lambda edited: class_of(edited).update(section="spot-check"), "section must be the one"),
+        (lambda edited: edited["classes"].reverse(), "classes must be listed by section"),
+        (lambda edited: edited.pop("ledger_classes"), "ledger_classes must map"),
+        (
+            lambda edited: edited["ledger_classes"][ledger_id].update(status="intended"),
+            f"ledger_classes[{ledger_id}]",
+        ),
+    ]
+    for change, message in breaks:
+        edited = copy.deepcopy(manifest)
+        change(edited)
+        assert any(message in error for error in check_manifest(edited)), message
+
+
+def test_the_manifest_lists_each_class_by_section_with_its_copy(mini_corpus, mini_bundle):
+    """Each class carries the copy the sidebar shows, from its ledger entry or from rebuild/review/change-groups.yaml, and the classes are listed by section, then in ledger order, then in `CHANGE_GROUP_ORDER`, which is the order the triage index walks. The `ledger_classes` lookup holds every ledger entry, reached or not, in ledger order."""
+    manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
+    ledger = load_ledger(mini_bundle.ledger)
+    prose = load_change_group_prose()
+    rank = {entry.id: index for index, entry in enumerate(ledger)}
+    rank.update((group, len(ledger) + index) for index, group in enumerate(CHANGE_GROUP_ORDER))
+    keys = [(SECTIONS.index(meta["section"]), rank[meta["id"]]) for meta in manifest["classes"]]
+    assert keys == sorted(keys)
+    assert len({section for section, _rank in keys}) == len(SECTIONS), "the mini corpus fills every section"
+    by_id = {entry.id: entry for entry in ledger}
+    for meta in manifest["classes"]:
+        entry = by_id.get(meta["id"])
+        if entry is None:
+            group = prose[meta["id"]]
+            expected = (group.title, group.summary, None, group.why)
+        else:
+            expected = (entry.title, entry.summary, entry.note or None, entry.why)
+        assert (meta["title"], meta["summary"], meta["note"], meta["why"]) == expected, meta["id"]
+    assert list(manifest["ledger_classes"]) == [entry.id for entry in ledger]
+    assert all(
+        record == {"title": entry.title, "summary": entry.summary, "status": entry.status, "why": entry.why}
+        for entry, record in zip(ledger, manifest["ledger_classes"].values(), strict=True)
+    )
+
+
+def test_a_human_unit_of_an_identical_class_is_listed_under_the_change_its_picture_shows(
+    mini_corpus, mini_bundle
+):
+    """Phase 1 moves a unit of an `ink_identical` ledger class that no machine check approves to the change group its picture shows: its fragment's class is the group, its `ledger_class` names the identical class, and it carries no exemplar flag. Every unit left in an identical class is machine-approved or exempt, so a "Looks identical" class lists only windows that draw as the old font does. The mini bundle holds such units in `identical-variant-name`. The rule's three branches (a human unit moves, a machine-approved one stays, an exempt class is skipped) are pinned on stubs in rebuild/test_review_change_groups.py."""
+    manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
+    identical = {entry.id for entry in load_ledger(mini_bundle.ledger) if entry.ink_identical}
+    rerouted = 0
+    for meta in manifest["classes"]:
+        for part in unit_index.class_shards(meta):
+            for fragment in json.loads((mini_corpus / part).read_text(encoding="utf-8")):
+                if meta["id"] in identical:
+                    assert slim_fragment(fragment) and fragment["ledger_class"] is None, fragment["id"]
+                elif fragment["ledger_class"] is not None:
+                    rerouted += 1
+                    assert fragment["ledger_class"] in identical, fragment["id"]
+                    assert meta["id"] in CHANGE_GROUP_ORDER, fragment["id"]
+                    assert not slim_fragment(fragment) and not fragment["exemplar"], fragment["id"]
+    assert rerouted, "the mini corpus must re-route a unit"
+
+
+def test_an_identical_class_whose_every_unit_is_re_routed_leaves_the_class_list(tmp_path, mini_bundle):
+    """A ledger class declared `ink_identical` whose every unit no machine check approves loses all of them to change groups, so the corpus ships no class for it: it leaves `classes`, stays in the `ledger_classes` lookup, and the review facts name it unreached. The mini bundle's `join-switches-sides` units are all human, so declaring that class identical empties it."""
+    emptied = "join-switches-sides"
+    entries = yaml.safe_load(mini_bundle.ledger.read_text(encoding="utf-8"))
+    for entry in entries:
+        if entry["id"] == emptied:
+            entry["ink_identical"] = True
+    ledger_path = tmp_path / "m1-divergences.yaml"
+    ledger_path.write_text(yaml.safe_dump(entries, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    out = tmp_path / "corpus"
+    review_build.build_m1(
+        out,
+        audit_path=MINI / "audit.tsv",
+        ledger_path=ledger_path,
+        subset_dir=MINI,
+        after_font=MINI / "M1.otf",
+        spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
+        jobs=1,
+    )
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert emptied not in {meta["id"] for meta in manifest["classes"]}
+    assert emptied in manifest["ledger_classes"]
+    rerouted = {
+        fragment["ledger_class"]
+        for meta in manifest["classes"]
+        for part in unit_index.class_shards(meta)
+        for fragment in json.loads((out / part).read_text(encoding="utf-8"))
+    }
+    assert emptied in rerouted
+    coverage = facts.ledger_coverage(load_ledger(ledger_path), facts.invariant_group(manifest, {}))
+    assert emptied in coverage.unreached
 
 
 def test_check_unit_leaves_ink_deltas_out_of_the_table_diff_contract():
@@ -688,7 +806,8 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
 
     monkeypatch.setattr(review_build.Drafter, "draft_pin", counting_draft_pin)
     monkeypatch.setattr(review_build, "_phase1_unit", watching_phase1_unit)
-    table = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).table
+    workload = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
+    table = workload.table
     store = UnitStore(table.n, strings=table.strings)
     for ordinal in range(table.n):
         store.set_input_key(ordinal, hashlib.sha256(f"k{ordinal}".encode()).hexdigest())
@@ -704,6 +823,7 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         table=table,
         out_dir=tmp_path,
         subset_pack=mini_bundle.subset_pack,
+        identical_classes=frozenset(entry.id for entry in workload.ledger if entry.ink_identical),
     )
     try:
         assert runner.phase1(store) is None
@@ -1383,6 +1503,7 @@ def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeyp
         table=UnitTable(0, StringTable(), TuplePool()),
         out_dir=tmp_path,
         subset_pack=tmp_path / "subsets.pack",
+        identical_classes=frozenset(),
     )
     parent, child = multiprocessing.Pipe()
     child.send(("batch", ["projection-a", "projection-b"], {}))
@@ -1441,6 +1562,9 @@ def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> l
         "repo_root": REPO_ROOT,
         "spec_root": mini_bundle.spec_root,
         "out_dir": out_dir,
+        "identical_classes": frozenset(
+            entry.id for entry in load_ledger(mini_bundle.ledger) if entry.ink_identical
+        ),
     }
     parent, child = multiprocessing.Pipe()
     worker = threading.Thread(target=review_build._corpus_worker, args=(child, init), daemon=True)
@@ -1627,7 +1751,7 @@ def _export_corpus():
 
 
 def test_the_machine_approved_classes_are_listed_in_the_manifests_class_order(mini_corpus):
-    """`by_class` is keyed in order of first appearance among the machine-approved units in triage order, so its classes follow the manifest's `classes`: ledger classes in ledger order, then the promoted unmatched groups in `unmatched_groups.UNMATCHED_GROUP_ORDER`. They must not follow the workload table's load order, where an UNMATCHED unit sits by its lead-family pair without an unmatched-group term. `facts.invariant_group` publishes this order as `machine_approved_classes` in the review-facts pins, so a build that walked the table in row order would change the pins' invariant block for no reason a reviewer could judge."""
+    """`by_class` is keyed in order of first appearance among the machine-approved units in triage order, so its classes follow the manifest's `classes`: by section, then ledger classes in ledger order, then the promoted change groups in `change_groups.CHANGE_GROUP_ORDER`. They must not follow the workload table's load order, where an UNMATCHED unit sits by its lead-family pair without a change-group term, which would list the histogram in an order that follows neither the sidebar nor the ledger. The review-facts pins re-sort it into ledger order (`facts.class_rank`)."""
     manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
     by_class = list(manifest["machine_approved"]["by_class"])
     classes = [meta["id"] for meta in manifest["classes"]]
@@ -1888,6 +2012,15 @@ def test_table_diff_build(tmp_path):
     assert manifest["mode"] == "table-diff"
     assert manifest["totals"]["units"] == 1
     assert check_output_dir(out_dir) == []
+    assert set(tablediff.BUCKET_TITLE) == set(tablediff.BUCKET_SUMMARY) == set(tablediff.DIFF_BUCKETS)
+    (meta,) = manifest["classes"]
+    assert (meta["title"], meta["summary"]) == (
+        tablediff.BUCKET_TITLE["changed"],
+        tablediff.BUCKET_SUMMARY["changed"],
+    )
+    assert meta["status"] is None and manifest["ledger_classes"] == {}
+    human = meta["unit_count"] - meta["machine_approved_count"]
+    assert meta["section"] == ("open-questions" if human else "no-review-needed")
     shard = json.loads((out_dir / "units" / "changed.json").read_text(encoding="utf-8"))
     assert len(shard) == 1
     assert shard[0]["class"] == "changed"

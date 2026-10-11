@@ -33,7 +33,15 @@ def corpus_with(tmp_path, units, classes=()):
         json.dumps(
             {
                 "generated_at": STAMP,
-                "classes": [*classes, {"id": "shard", "status": None, "shards": ["units/shard.json"]}],
+                "classes": [
+                    *classes,
+                    {
+                        "id": "shard",
+                        "status": None,
+                        "section": "open-questions",
+                        "shards": ["units/shard.json"],
+                    },
+                ],
             }
         )
     )

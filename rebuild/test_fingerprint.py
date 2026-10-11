@@ -331,19 +331,24 @@ def test_contact_allow_digest_ignores_prose_and_falls_back_to_bytes(tmp_path):
 
 LEDGER = textwrap.dedent("""\
     # The M1 divergence ledger: one entry per reviewed divergence class.
-    - id: boundary-window
-      status: intended
+    - id: split-by-space-or-zwnj
+      title: "Split by a space or ZWNJ"
+      summary: "A space or ZWNJ ends the word, so each piece draws as it does alone."
+      status: by-design
       no_verdict: true
       match: {predicate: boundary_window, configs: all}
       exemplars:
         - {config: default, codepoints: "0020:E650", baseline: "space|qsPea", new: "space|qsPea.half"}
       why: |
         A window holding a run-splitting boundary never needs its own verdict.
-    - id: junction-moved
-      status: accepted-pending-review
-      match: {predicate: junction_moved, configs: all}
+    - id: join-height-after-zwnj
+      title: "Join height after a ZWNJ"
+      summary: "After a ZWNJ, a letter joins the next one at the height it uses after a space."
+      status: approved
+      match: {predicate: zwnj_word_initial_junction_moved, configs: all}
       exemplars:
         - {config: default, codepoints: "E67A:E665", baseline: "qsUtter|qsMay.en-y5", new: "qsUtter|qsMay.en-y0"}
+      note: "No unit reaches this class."
       why: |
         The old shadow stance joined at the x-height where word-initial settlement lands at the baseline.
     """)
@@ -363,7 +368,27 @@ STANDING = textwrap.dedent("""\
     """)
 
 REWORDED_CLASS = LEDGER.replace("never needs its own verdict", "wants no verdict of its own")
+REWORDED_COPY = (
+    ("title", LEDGER.replace('"Join height after a ZWNJ"', '"Height of the join after a ZWNJ"')),
+    ("summary", LEDGER.replace("so each piece draws", "so every piece draws")),
+    ("note", LEDGER.replace("No unit reaches this class.", "This class reaches no unit.")),
+)
 REWORDED_RULE = STANDING.replace("never going to have a different opinion", "settled for good")
+
+GROUPS = textwrap.dedent("""\
+    # The reviewer copy for the change groups.
+    - id: join-lowered
+      title: "Join lowered"
+      summary: "Letters still join, but lower."
+      why: |
+        No ruling covers these windows as a whole.
+    - id: join-raised
+      title: "Join raised"
+      summary: "Letters still join, but higher."
+      why: |
+        No ruling covers these windows either.
+    """)
+REWORDED_GROUPS = GROUPS.replace("but higher", "but at a greater height")
 
 
 def _ledger_digest(path, text):
@@ -372,10 +397,13 @@ def _ledger_digest(path, text):
 
 
 def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path):
-    """Every ledger field except `why` moves the digest, since `audit.load_ledger`, `oracle.classify_divergence`, and the review facts read them: changing a class's status, its `no_verdict` flag, or an exemplar, or adding a class. Rewording a `why`, editing a comment, or reformatting moves nothing. A malformed ledger digests to its raw bytes, so two broken drafts get different values."""
+    """Every ledger field except the prose (`LEDGER_PROSE_KEYS`) moves the digest, since `audit.load_ledger`, `oracle.classify_divergence`, and the review facts read them: changing a class's status, its `no_verdict` flag, or an exemplar, or adding a class. Rewording a `why`, `title`, `summary` or `note`, editing a comment, or reformatting moves nothing. A malformed ledger digests to its raw bytes, so two broken drafts get different values."""
     path = tmp_path / "m1-divergences.yaml"
     parsed = _ledger_digest(path, LEDGER)
+    assert fingerprint.LEDGER_PROSE_KEYS == ("why", "title", "summary", "note")
     assert _ledger_digest(path, REWORDED_CLASS) == parsed
+    for key, reworded in REWORDED_COPY:
+        assert _ledger_digest(path, reworded) == parsed, key
     assert _ledger_digest(path, LEDGER.replace("# The M1", "# Retitled: the M1")) == parsed
     reflowed = LEDGER.replace(
         "match: {predicate: junction_moved, configs: all}",
@@ -383,15 +411,12 @@ def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path
     )
     assert _ledger_digest(path, reflowed) == parsed
     assert _ledger_digest(path, LEDGER.replace("no_verdict: true", "no_verdict: false")) != parsed
-    assert (
-        _ledger_digest(path, LEDGER.replace("status: accepted-pending-review", "status: reviewed-approved"))
-        != parsed
-    )
+    assert _ledger_digest(path, LEDGER.replace("status: approved", "status: per-unit")) != parsed
     assert (
         _ledger_digest(path, LEDGER.replace('new: "space|qsPea.half"', 'new: "space|qsPea.full"')) != parsed
     )
-    assert _ledger_digest(path, LEDGER + "- id: added\n  status: intended\n") != parsed
-    broken = "- id: boundary-window\n  match: {predicate: unclosed\n"
+    assert _ledger_digest(path, LEDGER + "- id: added\n  status: by-design\n") != parsed
+    broken = "- id: split-by-space-or-zwnj\n  match: {predicate: unclosed\n"
     broken_digest = _ledger_digest(path, broken)
     assert broken_digest == hashlib.sha256(broken.encode()).hexdigest()
     assert _ledger_digest(path, broken.replace("unclosed", "still unclosed")) not in (parsed, broken_digest)
@@ -642,22 +667,27 @@ def test_explain_prose_is_the_one_component_a_refuse_why_moves(tmp_path):
 
 
 def test_explain_prose_follows_the_spec_root_a_build_names(tmp_path):
-    """A workload bundled with its own frozen spec serves that spec's rationales, so `explain_prose` is computed over the spec root when a build names one and over the checkout otherwise. The other Stage B components come from the checkout either way."""
+    """A workload bundled with its own frozen spec serves that spec's rationales, so `explain_prose` takes its rune and ledger prose from the spec root when a build names one and from the checkout otherwise. The change groups' prose sits beside the review code, which a bundled spec does not carry, so it comes from the checkout either way, as do the other Stage B components."""
     root = _fake_repo(tmp_path / "checkout")
     spec_root = _fake_repo(tmp_path / "spec")
     (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
     (spec_root / "glyph_data" / "runes" / "qsPea.yaml").write_text(
         PROSE_RUNE.replace("render thick", "render thin")
     )
+    (root / fingerprint.CHANGE_GROUPS_LABEL).write_text(GROUPS)
     fonts = (root / "site" / "before.otf", root / "site" / "junior.otf")
     bundled = fingerprint.stage_b(root, *fonts, spec_root)
     checkout = fingerprint.stage_b(root, *fonts)
-    assert bundled["explain_prose"] == fingerprint.explain_prose_value(spec_root)
+    assert bundled["explain_prose"] == fingerprint.explain_prose_value(root, spec_root)
     assert checkout["explain_prose"] == fingerprint.explain_prose_value(root)
     assert bundled["explain_prose"] != checkout["explain_prose"]
     assert {key: value for key, value in bundled.items() if key != "explain_prose"} == {
         key: value for key, value in checkout.items() if key != "explain_prose"
     }
+    (spec_root / fingerprint.CHANGE_GROUPS_LABEL).write_text(REWORDED_GROUPS)
+    assert fingerprint.stage_b(root, *fonts, spec_root) == bundled
+    (root / fingerprint.CHANGE_GROUPS_LABEL).write_text(REWORDED_GROUPS)
+    assert fingerprint.stage_b(root, *fonts, spec_root)["explain_prose"] != bundled["explain_prose"]
 
 
 def _ledger_components(root, text):
@@ -676,17 +706,21 @@ def test_the_divergence_ledger_line_carries_the_prose_insensitive_digest(tmp_pat
 
 
 def test_wording_a_divergence_class_moves_the_explain_component_alone(tmp_path):
-    """The review build copies a class's `why` into the manifest's `classes[].why`, so the `why` is hashed into `explain_prose` alongside the refuse `why`s. Rewording a class moves only that component: `data`, `tables_value`, and the run_m1 skip key, which is built from `data_lines`, stay. The corpus rebuild it causes reuses every cached unit, because no shard carries the text."""
+    """The review build copies a class's `why`, `title`, `summary` and `note` into the manifest, so they are hashed into `explain_prose` alongside the refuse `why`s. Rewording any of them moves only that component: `data`, `tables_value`, and the run_m1 skip key, which is built from `data_lines`, stay. The corpus rebuild it causes reuses every cached unit, because no shard carries the text."""
     root = _fake_repo(tmp_path)
     (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
     before = _ledger_components(root, LEDGER)
     before_tables = fingerprint.tables_value(root)
+    before_run = artifact_cycle.run_m1_skip_fingerprint(root)
+    for key, reworded in (("why", REWORDED_CLASS), *REWORDED_COPY):
+        moved = _ledger_components(root, reworded)
+        assert moved["explain_prose"] != before["explain_prose"], key
+        assert {name: moved[name] for name in fingerprint.COMPONENTS if name != "explain_prose"} == {
+            name: before[name] for name in fingerprint.COMPONENTS if name != "explain_prose"
+        }, key
+        assert fingerprint.tables_value(root) == before_tables, key
+        assert artifact_cycle.run_m1_skip_fingerprint(root) == before_run, key
     after = _ledger_components(root, REWORDED_CLASS)
-    assert after["explain_prose"] != before["explain_prose"]
-    assert {key: after[key] for key in fingerprint.COMPONENTS if key != "explain_prose"} == {
-        key: before[key] for key in fingerprint.COMPONENTS if key != "explain_prose"
-    }
-    assert fingerprint.tables_value(root) == before_tables
     (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(
         PROSE_RUNE.replace("render thick", "render thin")
     )
@@ -707,22 +741,60 @@ def test_retriaging_a_divergence_class_moves_the_data_component_and_not_the_tabl
     assert artifact_cycle.run_m1_skip_fingerprint(root) != before_run
 
 
-def test_ledger_prose_lines_name_the_class(tmp_path):
-    """One line per class with a `why`, keyed by the class id the manifest uses, with `ledger` as the first field so it cannot collide with a refuse line's family name. A ledger that fails to parse contributes a raw-digest line, so a broken file reads as changed instead of as a ledger with no rationales."""
+def test_ledger_prose_lines_name_the_class_and_the_key(tmp_path):
+    """One line per prose field a class has, keyed by the class id the manifest uses and the field's name, with `ledger` as the first field so it cannot collide with a refuse line's family name. A class without a `note` contributes no note line. A ledger that fails to parse contributes a raw-digest line, so a broken file reads as changed instead of as a ledger with no prose."""
     root = _fake_repo(tmp_path)
     ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
     ledger.write_text(LEDGER)
     assert fingerprint.ledger_prose_lines(root) == [
-        "ledger\tboundary-window\tA window holding a run-splitting boundary never needs its own verdict.\n",
-        "ledger\tjunction-moved\tThe old shadow stance joined at the x-height where word-initial settlement lands at the baseline.\n",
+        "ledger\tjoin-height-after-zwnj\tnote\tNo unit reaches this class.",
+        "ledger\tjoin-height-after-zwnj\tsummary\tAfter a ZWNJ, a letter joins the next one at the height it uses after a space.",
+        "ledger\tjoin-height-after-zwnj\ttitle\tJoin height after a ZWNJ",
+        "ledger\tjoin-height-after-zwnj\twhy\tThe old shadow stance joined at the x-height where word-initial settlement lands at the baseline.\n",
+        "ledger\tsplit-by-space-or-zwnj\tsummary\tA space or ZWNJ ends the word, so each piece draws as it does alone.",
+        "ledger\tsplit-by-space-or-zwnj\ttitle\tSplit by a space or ZWNJ",
+        "ledger\tsplit-by-space-or-zwnj\twhy\tA window holding a run-splitting boundary never needs its own verdict.\n",
     ]
     combined = sorted(fingerprint.refuse_prose_lines(root) + fingerprint.ledger_prose_lines(root))
     assert fingerprint.explain_prose_value(root) == hashlib.sha256("\n".join(combined).encode()).hexdigest()
-    broken = "- id: boundary-window\n  match: {predicate: unclosed\n"
+    broken = "- id: split-by-space-or-zwnj\n  match: {predicate: unclosed\n"
     ledger.write_text(broken)
     assert fingerprint.ledger_prose_lines(root) == [
         f"ledger\t-\t{hashlib.sha256(broken.encode()).hexdigest()}"
     ]
+
+
+def test_group_prose_lines_name_the_group_and_the_key_and_move_the_explain_component_alone(tmp_path):
+    """The build reads the change groups' title, summary and why from rebuild/review/change-groups.yaml into the manifest and nowhere else, so `group_prose_lines` hashes them into `explain_prose`, with `group` as the first field, and rewording one moves that component alone. `GROUP_PROSE_KEYS` names every field `change_groups.load_change_group_prose` reads. A missing file contributes nothing, and one that fails to parse contributes a raw-digest line."""
+    from rebuild.review import change_groups
+
+    assert fingerprint.GROUP_PROSE_KEYS == change_groups.ChangeGroupProse._fields
+    root = _fake_repo(tmp_path)
+    groups = root / fingerprint.CHANGE_GROUPS_LABEL
+    assert fingerprint.group_prose_lines(root) == []
+    before = fingerprint.compute_all(root)
+    groups.write_text(GROUPS)
+    assert fingerprint.group_prose_lines(root) == [
+        "group\tjoin-lowered\tsummary\tLetters still join, but lower.",
+        "group\tjoin-lowered\ttitle\tJoin lowered",
+        "group\tjoin-lowered\twhy\tNo ruling covers these windows as a whole.\n",
+        "group\tjoin-raised\tsummary\tLetters still join, but higher.",
+        "group\tjoin-raised\ttitle\tJoin raised",
+        "group\tjoin-raised\twhy\tNo ruling covers these windows either.\n",
+    ]
+    combined = sorted(fingerprint.refuse_prose_lines(root) + fingerprint.group_prose_lines(root))
+    assert fingerprint.explain_prose_value(root) == hashlib.sha256("\n".join(combined).encode()).hexdigest()
+    written = fingerprint.compute_all(root)
+    groups.write_text(REWORDED_GROUPS)
+    reworded = fingerprint.compute_all(root)
+    for after in (written, reworded):
+        assert {key: after[key] for key in fingerprint.COMPONENTS if key != "explain_prose"} == {
+            key: before[key] for key in fingerprint.COMPONENTS if key != "explain_prose"
+        }
+    assert len({before["explain_prose"], written["explain_prose"], reworded["explain_prose"]}) == 3
+    broken = "- id: join-lowered\n  title: [unclosed\n"
+    groups.write_text(broken)
+    assert fingerprint.group_prose_lines(root) == [f"group\t-\t{hashlib.sha256(broken.encode()).hexdigest()}"]
 
 
 def test_the_standing_approvals_reach_no_fingerprint_component(tmp_path):

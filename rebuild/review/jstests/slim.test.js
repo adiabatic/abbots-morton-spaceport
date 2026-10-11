@@ -29,7 +29,7 @@ import { needsNoVerdict } from '../static/render.js';
 
 const fixtureDir = new URL('./fixtures/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', fixtureDir), 'utf8'));
-const shardA = JSON.parse(await readFile(new URL('units/post-marker-ligature-formation.json', fixtureDir), 'utf8'));
+const shardA = JSON.parse(await readFile(new URL('units/ss03-tea-oy-ligature-kept.json', fixtureDir), 'utf8'));
 
 const drain = (state, chunks) => {
   const lines = [];
@@ -254,8 +254,8 @@ test('a fold window is a positive count', () => {
 });
 
 test('shardPartPath resolves a row to the part its bytes are in, for both spellings _write_shard produces', () => {
-  const bare = { class: 'dangling-anchor-dropped', shard_part: 0 };
-  assert.equal(shardPartPath(manifest, bare), 'units/dangling-anchor-dropped.json');
+  const bare = { class: 'join-dropped', shard_part: 0 };
+  assert.equal(shardPartPath(manifest, bare), 'units/join-dropped.json');
   const numbered = {
     classes: [{ id: 'wide', shards: ['units/wide.000.json', 'units/wide.001.json', 'units/wide.002.json'] }],
   };
@@ -264,7 +264,7 @@ test('shardPartPath resolves a row to the part its bytes are in, for both spelli
 
 test('shardPartPath yields nothing for an unknown class or a part the manifest does not list', () => {
   assert.equal(shardPartPath(manifest, { class: 'no-such-class', shard_part: 0 }), null);
-  assert.equal(shardPartPath(manifest, { class: 'dangling-anchor-dropped', shard_part: 7 }), null);
+  assert.equal(shardPartPath(manifest, { class: 'join-dropped', shard_part: 7 }), null);
   assert.equal(shardPartPath(undefined, { class: 'x', shard_part: 0 }), null);
 });
 
@@ -325,7 +325,7 @@ test('looksGzipped reads the magic number off a body a server handed over undeco
 test('machineFoldPlan names one fold per class in the batch that holds units needing no verdict', () => {
   const plan = machineFoldPlan(manifest, viewState());
   assert.deepEqual(plan, [
-    { classId: 'post-marker-ligature-formation', total: 1, check: 'ink_identical', provisional: false },
+    { classId: 'ss03-tea-oy-ligature-kept', total: 1, check: 'ink_identical', provisional: false },
   ]);
 });
 
@@ -340,7 +340,7 @@ test('machineFoldPlan marks its totals provisional under a filter the manifest c
   }
   // The plan applies the class filter itself, so the totals stay exact.
   assert.equal(
-    machineFoldPlan(manifest, viewState({ class: 'post-marker-ligature-formation' }))[0].provisional,
+    machineFoldPlan(manifest, viewState({ class: 'ss03-tea-oy-ligature-kept' }))[0].provisional,
     false,
   );
 });
@@ -352,14 +352,19 @@ test('machineFoldPlan plans nothing while the show-machine toggle is off, or ins
 
 test('machineFoldPlan honors the class filter and skips classes with nothing to fold', () => {
   assert.deepEqual(
-    machineFoldPlan(manifest, viewState({ class: 'post-marker-ligature-formation' })).map((fold) => fold.classId),
-    ['post-marker-ligature-formation'],
+    machineFoldPlan(manifest, viewState({ class: 'ss03-tea-oy-ligature-kept' })).map((fold) => fold.classId),
+    ['ss03-tea-oy-ligature-kept'],
   );
-  assert.deepEqual(machineFoldPlan(manifest, viewState({ class: 'dangling-anchor-dropped' })), []);
+  assert.deepEqual(machineFoldPlan(manifest, viewState({ class: 'join-dropped' })), []);
 });
 
 test('machineFoldPlan drops a class out of the view when the batch moves past it', () => {
-  assert.deepEqual(machineFoldPlan(manifest, viewState({ batch: 1 })), []);
+  assert.deepEqual(
+    machineFoldPlan(manifest, viewState({ batch: 1 })).map((fold) => fold.classId),
+    ['ss03-tea-oy-ligature-kept'],
+    'the Spot-check class runs on into batch 1 behind the Open questions class',
+  );
+  assert.deepEqual(machineFoldPlan(manifest, viewState({ batch: 2 })), []);
 });
 
 test('machineFoldPlan includes a batchless class with batch 0, the way unitsForView did', () => {

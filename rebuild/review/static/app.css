@@ -371,6 +371,12 @@ summary:focus-visible {
         .search-where {
           color: inherit;
         }
+
+        .class-status {
+          color: inherit;
+          background: none;
+          border-color: currentColor;
+        }
       }
 
       .search-id {
@@ -386,9 +392,24 @@ summary:focus-visible {
       }
 
       .search-class {
-        font-family: var(--code-font);
-        font-size: 11px;
+        display: flex;
+        align-items: baseline;
+        gap: 0.35rem;
+        max-width: 16rem;
+        min-width: 0;
+        white-space: nowrap;
+        font-size: 12px;
         color: var(--muted);
+
+        .search-class-title {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .class-status {
+          flex: none;
+        }
       }
 
       .search-where {
@@ -478,6 +499,95 @@ summary:focus-visible {
   @media (width < 75em) {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+.corpus-refusal {
+  max-width: 50rem;
+  margin: 3rem auto;
+  padding: 1rem 1.25rem;
+  font-size: 16px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--reject) 8%, var(--card));
+  border: 1px solid var(--reject);
+  border-left-width: 5px;
+  border-radius: 6px;
+}
+
+/* Who decides a class, keyed on data-status alone so that every element naming a class status can use it: the sidebar pills, the class chips, the search results, the class header, the explain panel and the legend. */
+[data-status="per-unit"] {
+  --pill-color: var(--hot);
+}
+
+[data-status="approved"] {
+  --pill-color: var(--approve);
+}
+
+[data-status="by-design"] {
+  --pill-color: var(--muted);
+}
+
+[data-status="machine-approved"] {
+  --pill-color: var(--skip);
+}
+
+/* A pill's text leans a little toward the body text so the lighter status tokens keep small-text contrast; a table-diff bucket's pill has no status color. */
+.class-status {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  padding: 0 0.45em;
+  color: color-mix(in srgb, var(--pill-color, var(--muted)) 85%, currentColor);
+  background: color-mix(in srgb, var(--pill-color, transparent) 10%, transparent);
+  border: 1px solid var(--pill-color, var(--hairline));
+  border-radius: 8px;
+}
+
+.class-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+  font-size: 0.8rem;
+  padding: 0.05em 0.5em;
+  background: light-dark(#f0f0f0, #333);
+  border: 1px solid color-mix(in srgb, var(--pill-color, var(--hairline)) 55%, var(--hairline));
+  border-radius: 8px;
+  cursor: default;
+
+  .class-status {
+    font-size: 0.85em;
+  }
+}
+
+.class-rationale {
+  margin-top: 0.5rem;
+
+  > summary {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 13px;
+  }
+
+  p {
+    font-size: 13px;
+    color: light-dark(#444, #ccc);
+    max-width: 60rem;
+  }
+
+  .rationale-empty,
+  .rationale-rows {
+    color: var(--muted);
+  }
+
+  .rationale-rows {
+    font-family: var(--code-font);
+    font-size: 11px;
+  }
 }
 
 .class-nav {
@@ -492,13 +602,65 @@ summary:focus-visible {
     max-height: none;
   }
 
-  h2 {
-    font-size: 15px;
+  .class-nav-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0.75rem;
+
+    h2 {
+      font-size: 15px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .open-legend {
+      font-size: 12px;
+      padding: 0.1rem 0.5rem;
+      color: var(--muted);
+    }
+  }
+
+  details.class-section {
+    margin-bottom: 1rem;
+
+    > summary {
+      cursor: pointer;
+      padding: 0.25rem 0;
+      margin-bottom: 0.35rem;
+
+      h3 {
+        display: inline;
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .section-totals {
+        font-weight: 400;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+    }
+
+    &[data-section="no-review-needed"] > summary h3 {
+      color: var(--muted);
+    }
+  }
+
+  .class-subhead {
+    margin: 0.9rem 0 0.4rem;
+    padding-top: 0.5rem;
+    font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--muted);
-    margin: 0.5rem 0;
+    border-top: 1px solid var(--hairline);
   }
 
   ul {
@@ -511,7 +673,9 @@ summary:focus-visible {
   }
 
   .class-button {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
     width: 100%;
     text-align: left;
     padding: 0.45rem 0.6rem;
@@ -538,35 +702,51 @@ summary:focus-visible {
       box-shadow: inset 3px 0 0 var(--accent);
     }
 
-    .class-id {
-      font-family: var(--code-font);
+    &[data-section="no-review-needed"] {
+      background: transparent;
+    }
+
+    .class-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+
+    .class-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .class-summary {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      overflow: hidden;
       font-size: 12px;
-      display: block;
-      overflow-wrap: anywhere;
+      color: light-dark(#444, #bbb);
+
+      code {
+        font-size: 0.95em;
+      }
     }
 
     .class-counts {
-      display: block;
       font-size: 12px;
       color: var(--muted);
+      font-variant-numeric: tabular-nums;
     }
 
-    .class-status {
-      font-size: 11px;
-      border: 1px solid var(--hairline);
-      border-radius: 8px;
-      padding: 0 0.4em;
-      color: var(--muted);
-
-      &[data-status="accepted-pending-review"],
-      &[data-status="drift-accepted"] {
-        color: var(--hot);
-        border-color: var(--hot);
+    &[data-done] {
+      .class-title,
+      .class-summary {
+        opacity: 0.6;
       }
 
-      &[data-status="unmatched"] {
-        color: var(--either);
-        border-color: var(--either);
+      .class-status {
+        --pill-color: var(--muted);
+        opacity: 0.75;
       }
     }
   }
@@ -583,6 +763,71 @@ summary:focus-visible {
     code {
       overflow-wrap: anywhere;
     }
+
+    .open-legend {
+      font-size: inherit;
+      padding: 0 0.35rem;
+    }
+  }
+}
+
+#class-header {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.8rem 1.1rem;
+  font-size: 14px;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-left: 4px solid var(--accent);
+  border-radius: 6px;
+
+  &[hidden] {
+    display: none;
+  }
+
+  h2 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin: 0 0 0.35rem;
+    font-size: 18px;
+    font-weight: 600;
+
+    .class-header-id {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--muted);
+    }
+  }
+
+  p {
+    margin: 0.3rem 0;
+    max-width: 60rem;
+  }
+
+  .class-header-summary {
+    font-size: 15px;
+  }
+
+  .class-header-note {
+    padding-left: 0.6rem;
+    color: var(--neither);
+    border-left: 3px solid var(--neither);
+  }
+
+  .class-header-counts {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .class-header-section,
+  .class-header-identical {
+    color: light-dark(#444, #ccc);
+  }
+
+  .class-header-show {
+    font-size: 13px;
+    padding: 0.1rem 0.6rem;
   }
 }
 
@@ -643,6 +888,15 @@ summary:focus-visible {
 details.group.machine-group {
   border-color: var(--approve);
   border-style: dashed;
+
+  > summary .group-name {
+    font-family: var(--chrome-font);
+  }
+
+  > summary .group-class-id {
+    font-size: 11px;
+    color: var(--muted);
+  }
 
   > summary .group-counts {
     color: var(--approve);
@@ -873,6 +1127,11 @@ details.group {
         cursor: default;
         color: var(--either);
         border-color: var(--either);
+      }
+
+      .class-chip {
+        font-size: inherit;
+        color: light-dark(#333, #ddd);
       }
 
       .machine-badge {
@@ -1135,6 +1394,23 @@ details.group {
     border-top: 1px dashed var(--hairline);
     padding-top: 0.6rem;
 
+    .explain-kind {
+      p {
+        margin: 0.2rem 0 0.4rem;
+        color: light-dark(#333, #ddd);
+      }
+
+      .class-link {
+        font-weight: 600;
+        color: var(--accent);
+        text-decoration: none;
+
+        &:hover {
+          text-decoration: underline;
+        }
+      }
+    }
+
     .explain-intro,
     .explain-pending {
       margin: 0.2rem 0 0.4rem;
@@ -1377,6 +1653,53 @@ dialog {
     margin: 0.6rem 0;
   }
 
+  #legend {
+    margin-top: 1rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--hairline);
+    scroll-margin-top: 1rem;
+
+    h3 {
+      margin: 0.5rem 0;
+      font-size: 15px;
+    }
+
+    dl {
+      margin: 0.5rem 0;
+      font-size: 13px;
+
+      dt {
+        margin-top: 0.45rem;
+        font-weight: 600;
+      }
+
+      dd {
+        margin: 0.1rem 0 0 1rem;
+        color: var(--muted);
+      }
+    }
+
+    .legend-pills {
+      margin: 0.75rem 0;
+
+      caption {
+        padding-bottom: 0.3rem;
+        text-align: left;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      td {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      td:first-child {
+        white-space: nowrap;
+      }
+    }
+  }
+
   .dialog-actions {
     display: flex;
     gap: 0.6rem;
@@ -1480,6 +1803,12 @@ body.queue-view main {
     font-size: 0.9rem;
     max-width: 60rem;
     margin: 0.4rem 0;
+  }
+
+  .queue-footer {
+    margin-top: 2.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--hairline);
   }
 
   .queue-readiness {

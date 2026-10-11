@@ -3143,7 +3143,7 @@ impl<'i> Engine<'i> {
 
     /// Turn the winning candidate into the cell it settles as: the ZWNJ lock first, then each live side's extend and contract, then the exit side's extension in pixels, then, for a declined join mid-word, the unjoined bindings.
     ///
-    /// Same-junction extensions do not add up (the `same-junction-extension-non-summing` divergence class): a follower's entry extension is suppressed when the predecessor's exit already carries the junction's connector pixels, because both would otherwise draw them. The suppressed record still fires and is still noted as applied, because it matched and the dead-policy check should see it, and the suppression adds its own note.
+    /// Same-junction extensions do not add up (the `one-extension-per-join` divergence class): a follower's entry extension is suppressed when the predecessor's exit already carries the junction's connector pixels, because both would otherwise draw them. The suppressed record still fires and is still noted as applied, because it matched and the dead-policy check should see it, and the suppression adds its own note.
     ///
     /// `right` is the two-slot window: the caller passes only `right1` and `right2`, with the deeper slots `UNKNOWN`, so an adjustment record whose condition reaches past the follower reads the window edge, and geometry never depends on a slot the emitted lookup cannot key on.
     fn commit(

@@ -97,7 +97,11 @@
  "classes": [
   {
    "id": "fixture-intended",
-   "status": "intended",
+   "title": "Fixture class A",
+   "summary": "Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches.",
+   "note": null,
+   "section": "spot-check",
+   "status": "by-design",
    "ink_identical": true,
    "no_verdict": false,
    "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.",
@@ -118,7 +122,11 @@
   },
   {
    "id": "fixture-mismatch",
-   "status": "accepted-pending-review",
+   "title": "Fixture class B",
+   "summary": "Hand-written units for the namer-dot and pair-null branches.",
+   "note": null,
+   "section": "spot-check",
+   "status": "by-design",
    "ink_identical": false,
    "no_verdict": false,
    "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches.",
@@ -138,6 +146,20 @@
    ]
   }
  ],
+ "ledger_classes": {
+  "fixture-intended": {
+   "title": "Fixture class A",
+   "summary": "Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches.",
+   "status": "by-design",
+   "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract."
+  },
+  "fixture-mismatch": {
+   "title": "Fixture class B",
+   "summary": "Hand-written units for the namer-dot and pair-null branches.",
+   "status": "by-design",
+   "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches."
+  }
+ },
  "build_command": "uv run python -m rebuild.review.build",
  "serve_command": "uv run python -m rebuild.review.serve"
 }

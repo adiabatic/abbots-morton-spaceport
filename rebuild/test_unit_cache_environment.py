@@ -108,7 +108,9 @@ def test_a_gsub_only_recompile_leaves_every_cache_key_alone(tmp_path, spec, mini
     assert helpers == helpers_after
     assert families == families_after
     for stamp in (
-        lambda digest: unit_cache.environment_stamp(root, spec, MINI, MINI_FONT, MINI_FONT, digest),
+        lambda digest: unit_cache.environment_stamp(
+            root, spec, MINI, MINI_FONT, MINI_FONT, digest, identical_classes=()
+        ),
         lambda digest: unit_cache.signature_environment(root, MINI_FONT, digest),
     ):
         assert stamp(helpers) == stamp(helpers_after)
@@ -165,7 +167,9 @@ def test_a_version_bump_of_the_before_font_leaves_both_whole_store_stamps(tmp_pa
     widened = _with_a_widened_family(MINI_FONT, tmp_path / "widened.otf")
     assert bumped.read_bytes() != MINI_FONT.read_bytes()
     for stamp in (
-        lambda font: unit_cache.environment_stamp(root, spec, MINI, font, font, helpers),
+        lambda font: unit_cache.environment_stamp(
+            root, spec, MINI, font, font, helpers, identical_classes=()
+        ),
         lambda font: unit_cache.signature_environment(root, font, helpers),
     ):
         base = stamp(MINI_FONT)

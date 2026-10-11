@@ -21,10 +21,73 @@ PINNED_PATHS: tuple[str, ...] = (
     "rebuild/script.yaml",
     "rebuild/m1-divergences.yaml",
 )
+LEDGER_PATH = "rebuild/m1-divergences.yaml"
+
+RENAMED_CLASS_IDS: dict[str, str] = {
+    "boundary-window": "split-by-space-or-zwnj",
+    "zwnj-word-initial-unification": "identical-unjoined-from-left",
+    "post-marker-ligature-formation": "ss03-tea-oy-ligature-kept",
+    "zwnj-follower-exit-restored": "joins-next-letter-after-zwnj",
+    "zwnj-word-initial-junction-moved": "join-height-after-zwnj",
+    "pre-ligature-cleanup-regularized": "new-joins-near-tea-oy",
+    "regrouped-chain": "join-switches-sides",
+    "ss03-chain-join-gains": "ss03-adds-joins-around-tea",
+    "entered-it-baseline-join-gain": "it-joins-both-sides",
+    "pea-chain-regularized": "pea-joins-next-letter",
+    "halves-entry-extension-restored": "longer-entry-join",
+    "same-junction-extension-non-summing": "one-extension-per-join",
+    "may-baseline-entry-extension-dropped": "may-closer-at-baseline-join",
+    "day-baseline-entry-extension-dropped": "half-day-closer-at-baseline-join",
+    "vie-baseline-entry-extension-dropped": "vie-closer-at-baseline-join",
+    "no-xheight-entry-extension-dropped": "halves-closer-to-no",
+    "may-ligature-junction-loosened": "may-farther-after-day-utter",
+    "dangling-anchor-dropped": "identical-unused-join-name",
+    "bare-name-live-join": "identical-variant-name",
+    "see-out-fusion-renamed": "identical-see-out-fusion",
+    "may-jai-extension-consolidated": "may-jai-join-longer",
+    "jai-entry-contraction-renamed": "identical-jai-jay-crown",
+    "zoo-entry-contraction-renamed": "identical-zoo-crown",
+    "roe-shortened-top-renamed": "identical-roe-short-top",
+    "ss03-out-tea-ligature-kept": "ss03-out-tea-ligature-kept",
+    "kern-out-of-scope": "spacing-at-kerned-pairs",
+}
+
+RENAMED_CLASS_STATUSES: dict[str, str] = {
+    "split-by-space-or-zwnj": "by-design",
+    "identical-unjoined-from-left": "by-design",
+    "ss03-tea-oy-ligature-kept": "approved",
+    "joins-next-letter-after-zwnj": "approved",
+    "join-height-after-zwnj": "by-design",
+    "new-joins-near-tea-oy": "per-unit",
+    "join-switches-sides": "per-unit",
+    "ss03-adds-joins-around-tea": "approved",
+    "it-joins-both-sides": "per-unit",
+    "pea-joins-next-letter": "approved",
+    "longer-entry-join": "per-unit",
+    "one-extension-per-join": "approved",
+    "may-closer-at-baseline-join": "approved",
+    "half-day-closer-at-baseline-join": "approved",
+    "vie-closer-at-baseline-join": "approved",
+    "halves-closer-to-no": "approved",
+    "may-farther-after-day-utter": "approved",
+    "identical-unused-join-name": "by-design",
+    "identical-variant-name": "by-design",
+    "identical-see-out-fusion": "by-design",
+    "may-jai-join-longer": "per-unit",
+    "identical-jai-jay-crown": "by-design",
+    "identical-zoo-crown": "by-design",
+    "identical-roe-short-top": "by-design",
+    "ss03-out-tea-ligature-kept": "approved",
+    "spacing-at-kerned-pairs": "per-unit",
+}
 
 
 class MissingPinnedObjects(RuntimeError):
     """Raised when the repository no longer holds an object the pin names."""
+
+
+class StalePinnedLedger(RuntimeError):
+    """Raised when `_adopt_reviewer_class_ids` cannot carry a pinned ledger entry to the working tree's ledger."""
 
 
 def _git(args: list[str], repo_root: Path) -> bytes:
@@ -80,8 +143,35 @@ def _preserve_authored_outgoing(dest: Path) -> None:
     schema_path.write_text(json.dumps(schema, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _adopt_reviewer_class_ids(dest: Path, repo_root: Path) -> None:
+    """Adapt a pinned divergence ledger that predates the reviewer-facing class ids to the current loader. Such a ledger names its classes by their old ids and statuses and has no `title` or `summary`, so each entry takes its new id from `RENAMED_CLASS_IDS`, the status `RENAMED_CLASS_STATUSES` gives that id, and the `title` and `summary` of the working tree's ledger entry with that id. The bundle's `audit.tsv` names its classes by the new ids, as a run under the adapted ledger writes them. Every `match` stays, so the oracle classifies as the pinned ledger did, and the copied prose is all this takes from the working tree. A pinned ledger whose every entry has a `title` is current and is left unchanged. An entry that neither table nor the working tree's ledger can place raises `StalePinnedLedger`, because the bundle then needs regenerating."""
+    ledger_path = dest / LEDGER_PATH
+    entries = yaml.safe_load(ledger_path.read_text(encoding="utf-8")) or []
+    if all("title" in entry for entry in entries):
+        return
+    live = {
+        entry["id"]: entry for entry in yaml.safe_load((repo_root / LEDGER_PATH).read_text(encoding="utf-8"))
+    }
+    regenerate = "regenerate the bundle: uv run python rebuild/review/fixtures/mini/regenerate.py"
+    for entry in entries:
+        new_id = RENAMED_CLASS_IDS.get(entry["id"])
+        if new_id is None:
+            raise StalePinnedLedger(
+                f"the pinned ledger's {entry['id']} has no reviewer-facing id; {regenerate}"
+            )
+        if new_id not in live:
+            raise StalePinnedLedger(
+                f"the working tree's ledger has no {new_id} (was {entry['id']}); {regenerate}"
+            )
+        entry["id"] = new_id
+        entry["status"] = RENAMED_CLASS_STATUSES[new_id]
+        entry["title"] = live[new_id]["title"]
+        entry["summary"] = live[new_id]["summary"]
+    ledger_path.write_text(yaml.safe_dump(entries, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
 def materialize(dest: Path, pin_path: Path = PIN_PATH, repo_root: Path = REPO_ROOT) -> Path:
-    """Write the pinned objects under `dest` at their repository paths, the trees whole, apply `_preserve_authored_outgoing`, and return `dest`. The result is a spec root that `rebuild.review.enrich.load_spec` and `rebuild.pipeline.fingerprint.rune_digests` can read. Every pinned object is checked before any is written, so a missing object leaves no partial spec root. Nothing is cached; the caller chooses where the files go and how long they stay."""
+    """Write the pinned objects under `dest` at their repository paths, the trees whole, apply `_preserve_authored_outgoing` and `_adopt_reviewer_class_ids`, and return `dest`. The result is a spec root that `rebuild.review.enrich.load_spec` and `rebuild.pipeline.fingerprint.rune_digests` can read. Every pinned object is checked before any is written, so a missing object leaves no partial spec root. Nothing is cached; the caller chooses where the files go and how long they stay."""
     dest = Path(dest)
     objects = read_pin(pin_path)["objects"]
     missing = [
@@ -108,4 +198,5 @@ def materialize(dest: Path, pin_path: Path = PIN_PATH, repo_root: Path = REPO_RO
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(_git(["cat-file", "blob", sha], repo_root))
     _preserve_authored_outgoing(dest)
+    _adopt_reviewer_class_ids(dest, repo_root)
     return dest

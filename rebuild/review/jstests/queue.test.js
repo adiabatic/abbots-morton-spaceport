@@ -195,17 +195,20 @@ test('duplicateConflicts orders a group by triage position too', () => {
   assert.deepEqual(members, ['u-10', 'u-2', 'u-9'], 'the duplicate index itself is never reordered under the app');
 });
 
-test('ruledClassIds picks exactly the intended and reviewed statuses and tolerates undefined input', () => {
+test('ruledClassIds leaves out every class outside Open questions, by the section the build gave it, and tolerates undefined input', () => {
   const ids = ruledClassIds([
-    { id: 'a', status: 'intended' },
-    { id: 'b', status: 'reviewed-approved' },
-    { id: 'c', status: 'reviewed-rejected' },
-    { id: 'd', status: 'unverdicted' },
-    { id: 'e', status: 'proposed' },
+    { id: 'a', status: 'approved', section: 'spot-check' },
+    { id: 'b', status: 'by-design', section: 'no-review-needed' },
+    { id: 'c', status: 'per-unit', section: 'no-review-needed' },
+    { id: 'd', status: 'per-unit', section: 'open-questions' },
+    { id: 'e', status: null, section: 'open-questions' },
+    { id: 'f', status: 'approved', section: 'open-questions' },
   ]);
   assert.ok(ids instanceof Set);
   assert.deepEqual([...ids].sort(), ['a', 'b', 'c']);
   assert.equal(ids.has('d'), false);
+  assert.equal(ids.has('e'), false, 'a table-diff bucket, with no status, is an open question');
+  assert.equal(ids.has('f'), false, 'the section decides, never the status');
   assert.equal(ruledClassIds(undefined).size, 0);
   assert.equal(ruledClassIds().size, 0);
 });

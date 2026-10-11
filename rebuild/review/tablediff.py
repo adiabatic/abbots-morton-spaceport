@@ -16,6 +16,22 @@ SETTLED_CONFIGS = tuple(config for config in ACCEPTANCE_CONFIGS if config != "ss
 
 DIFF_BUCKETS = ("added", "removed", "regrouped", "changed", "provenance-only")
 
+BUCKET_TITLE = {
+    "added": "Added",
+    "removed": "Removed",
+    "regrouped": "Regrouped",
+    "changed": "Changed",
+    "provenance-only": "Provenance only",
+}
+
+BUCKET_SUMMARY = {
+    "added": "Rows only the new tables have: behavior the baseline never produced.",
+    "removed": "Rows only the baseline tables have: behavior the new tables no longer produce.",
+    "regrouped": "Rows removed and added for one config and input, shown together as one regrouped row.",
+    "changed": "Rows in both tables whose outcome, junction, extension or kern differs.",
+    "provenance-only": "Rows that behave the same and differ only in which rule is credited; low priority.",
+}
+
 BUCKET_WHY = {
     "added": "Settlement/join rows present only in the new tables: behavior the baseline never produced.",
     "removed": "Rows present only in the baseline tables: behavior the new tables no longer produce.",

@@ -36,6 +36,27 @@ import {
   corpusDetailRows,
   machineTitle,
   classCountsLine,
+  classVerdictTallies,
+  classLeft,
+  classIsDone,
+  STATUS_LABELS,
+  SECTION_ORDER,
+  SECTION_LABELS,
+  PREDATES_APP,
+  manifestRefusal,
+  classInfo,
+  pillStatus,
+  pillText,
+  classChip,
+  codeRuns,
+  appendCodeRuns,
+  rationaleParagraphs,
+  sidebarSections,
+  sectionTotalsLine,
+  classSectionSentence,
+  classProgressLine,
+  configSetPhrase,
+  configClassBadge,
   nextUnverdictedIndex,
   stepIndex,
   availableBatches,
@@ -52,8 +73,8 @@ import {
 
 const fixtureDir = new URL('./fixtures/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', fixtureDir), 'utf8'));
-const shardA = JSON.parse(await readFile(new URL('units/post-marker-ligature-formation.json', fixtureDir), 'utf8'));
-const shardB = JSON.parse(await readFile(new URL('units/dangling-anchor-dropped.json', fixtureDir), 'utf8'));
+const shardA = JSON.parse(await readFile(new URL('units/ss03-tea-oy-ligature-kept.json', fixtureDir), 'utf8'));
+const shardB = JSON.parse(await readFile(new URL('units/join-dropped.json', fixtureDir), 'utf8'));
 const explainSamples = JSON.parse(await readFile(new URL('explain-samples.json', fixtureDir), 'utf8'));
 
 test('featureSettingsValue maps config tokens per the plan', () => {
@@ -354,13 +375,14 @@ test('renderGroupsOf collapses a single-group unit and tolerates missing render_
 });
 
 test('duplicateChip appears only for multi-member duplicate groups and deep-links the worklist', () => {
-  const unit = { id: 'u-YAQVKvoqzCv', duplicate_group: 'e-0000', class: 'dangling-anchor-dropped' };
+  const unit = { id: 'u-YAQVKvoqzCv', duplicate_group: 'e-0000', class: 'join-dropped' };
   assert.equal(duplicateChip(unit, ['u-YAQVKvoqzCv']), null);
   assert.equal(duplicateChip({ ...unit, duplicate_group: null }, ['u-YAQVKvoqzCv', 'u-DdkFp23muye']), null);
-  const chip = duplicateChip(unit, ['u-YAQVKvoqzCv', 'u-DdkFp23muye', 'u-0007']);
+  const chip = duplicateChip(unit, ['u-YAQVKvoqzCv', 'u-DdkFp23muye', 'u-0007'], 'Join dropped');
   assert.equal(chip.label, 'duplicate ×3');
   assert.equal(chip.href, '#units=u-YAQVKvoqzCv,u-DdkFp23muye,u-0007');
-  assert.ok(chip.title.includes('dangling-anchor-dropped'));
+  assert.ok(chip.title.includes('3 windows of “Join dropped”'), 'the tooltip names the kind of change by its title');
+  assert.ok(duplicateChip(unit, ['u-YAQVKvoqzCv', 'u-DdkFp23muye']).title.includes('“join-dropped”'), 'and by its id without one');
 });
 
 test('duplicateFillTargets excludes the unit itself and anything already verdicted', () => {
@@ -454,8 +476,8 @@ test('unitMatchesFilters covers class, group, family, config, and status', () =>
   const unit = shardA.find((candidate) => candidate.id === 'u-Yt4bRkgFmpk');
   const empty = { class: null, group: null, family: null, config: null, status: null };
   assert.equal(unitMatchesFilters(unit, empty, undefined), true);
-  assert.equal(unitMatchesFilters(unit, { ...empty, class: 'post-marker-ligature-formation' }, undefined), true);
-  assert.equal(unitMatchesFilters(unit, { ...empty, class: 'dangling-anchor-dropped' }, undefined), false);
+  assert.equal(unitMatchesFilters(unit, { ...empty, class: 'ss03-tea-oy-ligature-kept' }, undefined), true);
+  assert.equal(unitMatchesFilters(unit, { ...empty, class: 'join-dropped' }, undefined), false);
   assert.equal(unitMatchesFilters(unit, { ...empty, group: 'qsTea:qsOy' }, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, family: 'qsOy' }, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, family: 'qsPea' }, undefined), false);
@@ -499,7 +521,7 @@ test('the units worklist filter keeps only the listed ids and composes with othe
   const empty = { class: null, group: null, family: null, config: null, status: null, units: null };
   assert.equal(unitMatchesFilters(unit, { ...empty, units: `other,${unit.id}` }, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, units: 'u-9990,u-9991' }, undefined), false);
-  assert.equal(unitMatchesFilters(unit, { ...empty, units: unit.id, class: 'dangling-anchor-dropped' }, undefined), false);
+  assert.equal(unitMatchesFilters(unit, { ...empty, units: unit.id, class: 'join-dropped' }, undefined), false);
 });
 
 const emptyFilters = {
@@ -539,7 +561,7 @@ test('a units worklist is exclusive: class/config/status filters never drop a li
   const filters = {
     ...emptyFilters,
     units: wanted.join(','),
-    class: 'dangling-anchor-dropped',
+    class: 'join-dropped',
     config: 'ss04',
     status: 'verdicted',
   };
@@ -646,13 +668,13 @@ test('class and family filters apply to machine units; the status filter does no
   const filters = { ...emptyFilters, machine: '1', status: 'unverdicted' };
   const partitioned = partitionUnits(allUnits, filters, noRecords);
   assert.ok(partitioned.machine.some((unit) => unit.id === machineUnit.id));
-  const wrongClass = partitionUnits(allUnits, { ...filters, class: 'dangling-anchor-dropped' }, noRecords);
+  const wrongClass = partitionUnits(allUnits, { ...filters, class: 'join-dropped' }, noRecords);
   assert.deepEqual(wrongClass.machine, []);
 });
 
 test('human and machine counts come from the manifest class metadata', () => {
-  const marker = manifest.classes.find((cls) => cls.id === 'post-marker-ligature-formation');
-  const dangling = manifest.classes.find((cls) => cls.id === 'dangling-anchor-dropped');
+  const marker = manifest.classes.find((cls) => cls.id === 'ss03-tea-oy-ligature-kept');
+  const dangling = manifest.classes.find((cls) => cls.id === 'join-dropped');
   assert.equal(humanClassCount(marker), marker.unit_count - 1);
   assert.equal(humanClassCount(dangling), dangling.unit_count);
   assert.equal(humanTotal(manifest), manifest.totals.units - manifest.machine_approved.units);
@@ -660,8 +682,8 @@ test('human and machine counts come from the manifest class metadata', () => {
 });
 
 test('machineFoldTotal counts what a class fold will hold before the class is fetched', () => {
-  const marker = manifest.classes.find((cls) => cls.id === 'post-marker-ligature-formation');
-  const dangling = manifest.classes.find((cls) => cls.id === 'dangling-anchor-dropped');
+  const marker = manifest.classes.find((cls) => cls.id === 'ss03-tea-oy-ligature-kept');
+  const dangling = manifest.classes.find((cls) => cls.id === 'join-dropped');
   assert.equal(machineFoldTotal(marker), 1);
   assert.equal(machineFoldTotal(dangling), 0, 'a class with nothing machine-approved folds nothing');
   assert.equal(machineFoldTotal({ no_verdict: true, unit_count: 6344, machine_approved_count: 4465 }), 6344);
@@ -697,12 +719,12 @@ test('machineFoldCheck picks the narrowest check that accounts for every machine
 test('machineFoldCheck falls back to the no-verdict badge for a class carrying no check split', () => {
   assert.equal(machineFoldCheck({ no_verdict: false, unit_count: 10, machine_approved_count: 10 }), 'no_verdict');
   assert.equal(machineFoldCheck({ no_verdict: false, unit_count: 10, machine_approved_count: 0 }), 'no_verdict');
-  const marker = manifest.classes.find((cls) => cls.id === 'post-marker-ligature-formation');
+  const marker = manifest.classes.find((cls) => cls.id === 'ss03-tea-oy-ligature-kept');
   assert.equal(machineFoldCheck(marker), 'ink_identical');
 });
 
 test('a no-verdict class contributes nothing to the human units and everything non-identical to the exempt total', () => {
-  const exemptClass = { id: 'boundary-window', no_verdict: true, unit_count: 6344, machine_approved_count: 4465 };
+  const exemptClass = { id: 'split-by-space-or-zwnj', no_verdict: true, unit_count: 6344, machine_approved_count: 4465 };
   assert.equal(humanClassCount(exemptClass), 0);
   const synthetic = { totals: { units: 6350 }, classes: [exemptClass, { id: 'x', no_verdict: false, unit_count: 6, machine_approved_count: 1 }] };
   assert.equal(humanTotal(synthetic), 5);
@@ -753,7 +775,7 @@ test('the collapsed chip carries the corpus total and the popover breaks it down
       checks: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
     },
     classes: [
-      { id: 'boundary-window', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
+      { id: 'split-by-space-or-zwnj', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
       { id: 'x', no_verdict: false, unit_count: 9704, machine_approved_count: 6986 },
     ],
   };
@@ -765,7 +787,7 @@ test('the collapsed chip carries the corpus total and the popover breaks it down
       ['machine-approved', '11,926', false],
       ['ink-identical', '8,350', true],
       ['junior-equivalent', '3,576', true],
-      ['in no-verdict classes', '1,316', false],
+      ['covered by a ruling', '1,316', false],
       ['for human review', '2,718', false],
     ],
   );
@@ -780,7 +802,7 @@ test('a third machine check takes its own sub row, and a lone check merges back 
   const corpus = {
     totals: { units: 15960 },
     classes: [
-      { id: 'boundary-window', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
+      { id: 'split-by-space-or-zwnj', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 },
       { id: 'x', no_verdict: false, unit_count: 9704, machine_approved_count: 6986 },
     ],
   };
@@ -800,7 +822,7 @@ test('a third machine check takes its own sub row, and a lone check merges back 
       ['ink-identical', '8,350', true],
       ['picture-identical', '1,200', true],
       ['junior-equivalent', '3,576', true],
-      ['in no-verdict classes', '1,316', false],
+      ['covered by a ruling', '1,316', false],
       ['for human review', '2,718', false],
     ],
   );
@@ -817,7 +839,7 @@ test('a third machine check takes its own sub row, and a lone check merges back 
     [
       ['Corpus', '15,960', false],
       ['picture-identical machine-approved', '3', false],
-      ['in no-verdict classes', '1,316', false],
+      ['covered by a ruling', '1,316', false],
       ['for human review', '2,718', false],
     ],
   );
@@ -834,7 +856,7 @@ test('a third machine check takes its own sub row, and a lone check merges back 
     [
       ['Corpus', '15,960', false],
       ['junior-equivalent machine-approved', '3,576', false],
-      ['in no-verdict classes', '1,316', false],
+      ['covered by a ruling', '1,316', false],
       ['for human review', '2,718', false],
     ],
     'a check with no units gets no row, so the one check left names the total',
@@ -892,17 +914,54 @@ test('the machine-approved tooltip leads with the check split, then the verifica
   assert.equal(machineTitle({}), '');
 });
 
-test('classCountsLine orders each sidebar entry big to small: units, machine, human progress, rows', () => {
-  const mixed = { no_verdict: false, unit_count: 3361, machine_approved_count: 3344, row_count: 22075 };
-  assert.equal(classCountsLine(mixed, null), '3,361 units · 3,344 machine · 17 to review · 22,075 rows');
-  assert.equal(classCountsLine(mixed, 12), '3,361 units · 3,344 machine · 12/17 · 22,075 rows');
-  const plain = { no_verdict: false, unit_count: 166, machine_approved_count: 0, row_count: 1048 };
-  assert.equal(classCountsLine(plain, null), '166 units · 166 to review · 1,048 rows');
-  assert.equal(classCountsLine(plain, 0), '166 units · 0/166 · 1,048 rows');
-  const allMachine = { no_verdict: false, unit_count: 1722, machine_approved_count: 1722, row_count: 1722 };
-  assert.equal(classCountsLine(allMachine, null), '1,722 units · 1,722 machine · 1,722 rows');
-  const exempt = { no_verdict: true, unit_count: 6256, machine_approved_count: 4940, row_count: 34477 };
-  assert.equal(classCountsLine(exempt, null), '6,256 units — no verdict needed · 34,477 rows');
+test('classCountsLine counts an Open questions entry to review, done, and machine-approved, dropping zero parts', () => {
+  const open = { section: 'open-questions', no_verdict: false, unit_count: 3361, machine_approved_count: 3344 };
+  assert.equal(classCountsLine(open, null), '17 to review · 3,344 machine-approved', 'before the index loads nothing counts as done');
+  assert.equal(classCountsLine(open, { done: 12, skipped: 0, rejected: 1 }), '5 to review · 12 done · 3,344 machine-approved');
+  const plain = { section: 'open-questions', no_verdict: false, unit_count: 166, machine_approved_count: 0 };
+  assert.equal(classCountsLine(plain, { done: 0, skipped: 0, rejected: 0 }), '166 to review');
+});
+
+test('classCountsLine keeps skipped units to review, as the Queue does, and says how many', () => {
+  const open = { section: 'open-questions', no_verdict: false, unit_count: 10, machine_approved_count: 0 };
+  assert.equal(classCountsLine(open, { done: 6, skipped: 3, rejected: 0 }), '4 to review (3 skipped) · 6 done');
+  assert.equal(classCountsLine(open, { done: 7, skipped: 3, rejected: 0 }), '3 to review (3 skipped) · 7 done', 'a class whose last units are skipped is not done');
+});
+
+test('classCountsLine counts a Spot-check entry to confirm and names the rejects a spot-check looks for', () => {
+  const spot = { section: 'spot-check', no_verdict: false, unit_count: 460, machine_approved_count: 10 };
+  assert.equal(classCountsLine(spot, { done: 0, skipped: 0, rejected: 0 }), '450 to confirm');
+  assert.equal(classCountsLine(spot, { done: 50, skipped: 0, rejected: 0 }), '400 to confirm · 50 done');
+  assert.equal(classCountsLine(spot, { done: 50, skipped: 2, rejected: 3 }), '400 to confirm (2 skipped) · 50 done (3 rejected)');
+  assert.equal(classCountsLine(spot, { done: 450, skipped: 0, rejected: 3 }), 'all 450 done (3 rejected)');
+});
+
+test('classCountsLine reads "all N done" once nothing is left, and says why a class with no human units needs none', () => {
+  const finished = { section: 'open-questions', no_verdict: false, unit_count: 5555, machine_approved_count: 4528 };
+  assert.equal(classCountsLine(finished, { done: 1027, skipped: 0, rejected: 0 }), 'all 1,027 done');
+  assert.equal(classIsDone(finished, { done: 1027, skipped: 0, rejected: 0 }), true);
+  assert.equal(classIsDone(finished, null), false, 'nothing is done before the index loads');
+  const exempt = { section: 'no-review-needed', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 };
+  assert.equal(classCountsLine(exempt, null), '6,256 units · covered by a ruling');
+  const allMachine = { section: 'no-review-needed', no_verdict: false, unit_count: 1722, machine_approved_count: 1722 };
+  assert.equal(classCountsLine(allMachine, null), '1,722 units · all machine-approved');
+  assert.equal(classIsDone(allMachine, { done: 0, skipped: 0, rejected: 0 }), false, 'a class with nothing to judge is never dimmed as done');
+});
+
+test('classVerdictTallies counts done, skipped, and rejected units per class in one pass', () => {
+  const rows = [
+    { id: 'u-1', class: 'a' },
+    { id: 'u-2', class: 'a' },
+    { id: 'u-3', class: 'a' },
+    { id: 'u-4', class: 'b' },
+    { id: 'u-5', class: 'b' },
+  ];
+  const records = { 'u-1': { verdict: 'approve' }, 'u-2': { verdict: 'reject' }, 'u-3': { verdict: 'skip' }, 'u-5': { verdict: 'either' } };
+  const tallies = classVerdictTallies(rows, (id) => records[id]);
+  assert.deepEqual(tallies.get('a'), { done: 2, skipped: 1, rejected: 1 });
+  assert.deepEqual(tallies.get('b'), { done: 1, skipped: 0, rejected: 0 });
+  assert.equal(classVerdictTallies(rows, () => undefined).size, 0);
+  assert.equal(classLeft({ no_verdict: false, unit_count: 3, machine_approved_count: 0 }, tallies.get('a')), 1);
 });
 
 test('nextUnverdictedIndex advances, wraps, and reports exhaustion', () => {
@@ -926,26 +985,26 @@ test('stepIndex clamps at the ends', () => {
 
 test('availableBatches respects a class filter', () => {
   assert.deepEqual(availableBatches(manifest, null), [0, 1]);
-  assert.deepEqual(availableBatches(manifest, 'dangling-anchor-dropped'), [0, 1]);
-  assert.deepEqual(availableBatches(manifest, 'post-marker-ligature-formation'), [0]);
+  assert.deepEqual(availableBatches(manifest, 'join-dropped'), [0]);
+  assert.deepEqual(availableBatches(manifest, 'ss03-tea-oy-ligature-kept'), [0, 1]);
   assert.deepEqual(availableBatches(manifest, 'nonexistent'), []);
 });
 
 test('classesInBatch names the classes with units in a batch, batchless classes included with batch 0', () => {
   assert.deepEqual(
     [...classesInBatch(manifest, 0)].sort(),
-    ['dangling-anchor-dropped', 'post-marker-ligature-formation'],
+    ['join-dropped', 'ss03-tea-oy-ligature-kept'],
   );
-  assert.deepEqual([...classesInBatch(manifest, 1)], ['dangling-anchor-dropped']);
-  const withExempt = { classes: [...manifest.classes, { id: 'boundary-window', batches: [], no_verdict: true }] };
+  assert.deepEqual([...classesInBatch(manifest, 1)], ['ss03-tea-oy-ligature-kept']);
+  const withExempt = { classes: [...manifest.classes, { id: 'split-by-space-or-zwnj', batches: [], no_verdict: true }] };
   assert.deepEqual(
     [...classesInBatch(withExempt, 0)].sort(),
-    ['boundary-window', 'dangling-anchor-dropped', 'post-marker-ligature-formation'],
+    ['join-dropped', 'split-by-space-or-zwnj', 'ss03-tea-oy-ligature-kept'],
   );
-  assert.deepEqual([...classesInBatch(withExempt, 1)], ['dangling-anchor-dropped']);
+  assert.deepEqual([...classesInBatch(withExempt, 1)], ['ss03-tea-oy-ligature-kept']);
   assert.deepEqual(
     [...classesInBatch(withExempt, 0, false)].sort(),
-    ['dangling-anchor-dropped', 'post-marker-ligature-formation'],
+    ['join-dropped', 'ss03-tea-oy-ligature-kept'],
     'with machine rows hidden a batchless class contributes nothing to batch 0',
   );
 });
@@ -955,7 +1014,7 @@ test('copyPreamble names only the unit, codepoints, and notation — the rest is
   assert.match(text, /rebuild\/out\/review\/ unit u-YAQVKvoqzCv/);
   assert.match(text, /E668:E665:E657/);
   assert.match(text, /·Roe·May·They/);
-  assert.doesNotMatch(text, /dangling-anchor-dropped/);
+  assert.doesNotMatch(text, /join-dropped/);
   assert.doesNotMatch(text, /ss05/);
 });
 
@@ -1172,7 +1231,7 @@ test('searchHaystack folds id, notation, codepoints, class, group, duplicate gro
   assert.ok(haystack.includes('teaoy'), 'notation with the namer dots stripped is searchable');
   assert.ok(haystack.includes('200c:e652:e679'));
   assert.ok(haystack.includes('200ce652e679'), 'codepoints with the colons stripped are searchable');
-  assert.ok(haystack.includes('post-marker-ligature-formation'));
+  assert.ok(haystack.includes('ss03-tea-oy-ligature-kept'));
   assert.ok(haystack.includes('qstea:qsoy'));
   assert.ok(haystack.includes('ligation'));
   assert.ok(haystack.includes('e-0001'), 'the duplicate group id is searchable');
@@ -1234,15 +1293,31 @@ test('searchUnits matches codepoints with and without the colons', () => {
 });
 
 test('searchUnits matches class, group, and kind, and includes machine-approved units', () => {
-  const byClass = searchUnits(allUnits, 'dangling-anchor-dropped');
+  const byClass = searchUnits(allUnits, 'join-dropped');
   assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-DdkFp23muye', 'u-YAQVKvoqzCv']);
   const extension = searchUnits(allUnits, 'extension');
   assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-DcLHyHTscUE']);
   assert.equal(extension.matches[0].ink_identical, true, 'a machine-approved unit is still findable');
 });
 
+test('searchUnits matches a kind of change by its title, a re-routed unit by the class its glyph names gave it, and the raw config badge', () => {
+  const info = classInfo(manifest);
+  const titleOf = (id) => info.get(id)?.title ?? id;
+  const fresh = allUnits.map((unit) => ({ ...unit }));
+  assert.deepEqual(
+    searchUnits(fresh, 'keeps', 50, titleOf).matches.map((unit) => unit.id).sort(),
+    ['u-DcLHyHTscUE', 'u-LK4WFNGn5Kk', 'u-Yt4bRkgFmpk', 'u-ejrhc5MnMoF'],
+  );
+  const untitled = allUnits.map((unit) => ({ ...unit }));
+  assert.equal(searchUnits(untitled, 'keeps').total, 0, 'only the title says "keeps"');
+  assert.deepEqual(searchUnits(fresh, 'identical-unused-join-name', 50, titleOf).matches.map((unit) => unit.id), ['u-YAQVKvoqzCv']);
+  const noted = { ...allUnits[0], id: 'u-noted', config_class_note: 'blessed as ss03-adds-joins-around-tea under ss03' };
+  assert.deepEqual(searchUnits([noted], 'blessed').matches.map((unit) => unit.id), ['u-noted']);
+});
+
 test('searchUnits requires every whitespace-separated token to match (AND)', () => {
-  assert.deepEqual(searchUnits(allUnits, 'tea oy').matches.map((unit) => unit.id).sort(), ['u-Yt4bRkgFmpk', 'u-ejrhc5MnMoF']);
+  assert.deepEqual(searchUnits(allUnits, 'teaoy').matches.map((unit) => unit.id).sort(), ['u-Yt4bRkgFmpk', 'u-ejrhc5MnMoF']);
+  assert.deepEqual(searchUnits(allUnits, 'teaoy 200c').matches.map((unit) => unit.id), ['u-Yt4bRkgFmpk']);
   assert.equal(searchUnits(allUnits, 'tea exam').total, 0);
 });
 
@@ -1260,4 +1335,212 @@ test('searchUnits caps the matches at the limit but reports the true total', () 
 
 test('searchUnits returns nothing for a blank query', () => {
   assert.deepEqual(searchUnits(allUnits, '   '), { matches: [], total: 0 });
+});
+
+test('the fixture manifest lists its classes in section order, each with a title, a summary, and a ledger status', () => {
+  const ranks = manifest.classes.map((cls) => SECTION_ORDER.indexOf(cls.section));
+  assert.ok(ranks.every((rank) => rank >= 0));
+  assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b));
+  for (const cls of manifest.classes) {
+    assert.ok(cls.title && cls.summary, cls.id);
+    assert.ok(['by-design', 'approved', 'per-unit'].includes(cls.status), cls.id);
+  }
+  const info = classInfo(manifest);
+  for (const unit of allUnits) {
+    for (const classId of [unit.class, unit.ledger_class, ...Object.values(unit.config_classes ?? {})]) {
+      if (classId) assert.ok(info.has(classId), `${unit.id} names ${classId}, which the manifest cannot title`);
+    }
+  }
+  assert.ok(allUnits.some((unit) => unit.ledger_class), 'the fixtures must exercise a re-routed unit');
+});
+
+test('STATUS_LABELS has a pill and a legend line for every fixture status, the derived machine-approved pill, and a table-diff bucket', () => {
+  const statuses = new Set(manifest.classes.map((cls) => cls.status));
+  for (const entry of Object.values(manifest.ledger_classes)) statuses.add(entry.status);
+  assert.deepEqual([...statuses].sort(), ['approved', 'by-design', 'per-unit'], 'the fixtures exercise every ledger status');
+  for (const status of [...statuses, 'machine-approved', 'diff']) {
+    assert.ok(STATUS_LABELS[status]?.pill, status);
+    assert.ok(STATUS_LABELS[status]?.legend, status);
+  }
+  assert.deepEqual(
+    ['per-unit', 'approved', 'by-design', 'machine-approved', 'diff'].map(pillText),
+    ['you decide', 'you approved', 'by design', 'machine-approved', 'diff'],
+  );
+});
+
+test('pillStatus shows machine-approved only on a No review needed class the machine clears, and diff on a table-diff bucket', () => {
+  const cls = (over) => ({ no_verdict: false, unit_count: 10, machine_approved_count: 0, ...over });
+  assert.equal(pillStatus(cls({ section: 'no-review-needed', status: 'by-design', machine_approved_count: 10 })), 'machine-approved');
+  assert.equal(pillStatus(cls({ section: 'no-review-needed', status: 'approved', no_verdict: true })), 'approved', 'a ruling, not the machine, cleared a no_verdict class');
+  assert.equal(pillStatus(cls({ section: 'spot-check', status: 'approved', machine_approved_count: 4 })), 'approved');
+  assert.equal(pillStatus(cls({ section: 'open-questions', status: null })), 'diff');
+  assert.equal(pillStatus({ status: 'by-design', title: 'x', summary: 'y' }), 'by-design', 'a ledger entry that reaches no unit shows its status');
+  assert.equal(pillStatus(null), null);
+});
+
+test('manifestRefusal refuses a manifest without sections, which would otherwise leave the Queue empty', () => {
+  assert.equal(manifestRefusal(manifest), null);
+  const unsectioned = { ...manifest, classes: manifest.classes.map(({ section, ...rest }) => rest) };
+  assert.equal(manifestRefusal(unsectioned), PREDATES_APP);
+  assert.equal(manifestRefusal({ classes: [{ ...manifest.classes[0], section: 'ruled' }] }), PREDATES_APP);
+  assert.equal(manifestRefusal({ classes: [] }), null);
+  assert.equal(PREDATES_APP, 'This corpus predates the app; run the review cycle.');
+});
+
+test('classChip names a class by its title, with its id and summary to hover and its pill status to color it', () => {
+  const info = classInfo(manifest);
+  const kept = manifest.classes.find((cls) => cls.id === 'ss03-tea-oy-ligature-kept');
+  assert.deepEqual(classChip('ss03-tea-oy-ligature-kept', info), {
+    text: 'ss03 keeps the ·Tea+Oy ligature',
+    title: `ss03-tea-oy-ligature-kept — ${kept.summary}`,
+    status: 'approved',
+    pill: 'you approved',
+  });
+  assert.equal(classChip('join-dropped', info).status, 'per-unit');
+  const unlisted = classChip('identical-see-out-fusion', info);
+  assert.equal(unlisted.text, 'Looks identical: ·See·Out fusion');
+  assert.equal(unlisted.status, 'by-design');
+  assert.equal(info.get('identical-see-out-fusion').listed, false, 'a ledger entry that reaches no unit is named but not listed');
+  assert.equal(info.get('ss03-tea-oy-ligature-kept').listed, true);
+  assert.deepEqual(classChip('no-such-class', info), { text: 'no-such-class', title: 'no-such-class', status: null, pill: null });
+});
+
+function fakeDocument() {
+  const element = (tagName) => ({
+    tagName,
+    textContent: '',
+    children: [],
+    append(...nodes) {
+      this.children.push(...nodes);
+    },
+  });
+  return {
+    createElement: (tag) => element(tag.toUpperCase()),
+    createTextNode: (text) => ({ nodeValue: text }),
+    root: () => element('SPAN'),
+  };
+}
+
+test('appendCodeRuns builds each backtick span as a code element and the rest as text, never as markup', () => {
+  const doc = fakeDocument();
+  const target = appendCodeRuns(doc.root(), 'Letters still join, but lower: `·Pea.half ~x~ ·No` becomes `·Pea ~b~ ·No`, <b>likewise</b>.', doc);
+  assert.deepEqual(
+    target.children.map((node) => (node.tagName ? [node.tagName, node.textContent] : node.nodeValue)),
+    [
+      'Letters still join, but lower: ',
+      ['CODE', '·Pea.half ~x~ ·No'],
+      ' becomes ',
+      ['CODE', '·Pea ~b~ ·No'],
+      ', <b>likewise</b>.',
+    ],
+  );
+});
+
+test('codeRuns keeps the copy whole, leaves an unpaired backtick as text, and yields nothing for no copy', () => {
+  const text = 'A `·Way ~b~ ·May` join and a stray ` here';
+  const runs = codeRuns(text);
+  assert.deepEqual(runs.map((run) => run.code), [false, true, false]);
+  assert.equal(runs[2].text, ' join and a stray ` here');
+  assert.deepEqual(codeRuns('`·Zoo | ·Utter ~b~ ·Ooze`'), [{ text: '·Zoo | ·Utter ~b~ ·Ooze', code: true }]);
+  assert.deepEqual(codeRuns(''), []);
+  assert.deepEqual(codeRuns(null), []);
+});
+
+test('rationaleParagraphs splits a why into its non-blank lines', () => {
+  assert.deepEqual(rationaleParagraphs('First paragraph.\n\n  Second, with `code`.\n'), ['First paragraph.', 'Second, with `code`.']);
+  assert.equal(rationaleParagraphs(manifest.ledger_classes['identical-see-out-fusion'].why).length, 2);
+  assert.deepEqual(rationaleParagraphs(''), []);
+  assert.deepEqual(rationaleParagraphs(undefined), []);
+});
+
+test('sidebarSections sorts the classes into the three sections, with the change groups after the ledger classes', () => {
+  const sections = sidebarSections(manifest);
+  assert.deepEqual(sections.map((section) => section.id), SECTION_ORDER);
+  assert.deepEqual(sections.map((section) => section.title), ['Open questions', 'Spot-check (already ruled)', 'No review needed']);
+  assert.deepEqual(sections.map((section) => section.open), [true, true, false]);
+  assert.deepEqual(sections[0].entries, []);
+  assert.deepEqual(sections[0].changeGroups.map((cls) => cls.id), ['join-dropped'], 'a class the ledger lookup does not name is a change group');
+  assert.deepEqual(sections[1].entries.map((cls) => cls.id), ['ss03-tea-oy-ligature-kept']);
+  assert.deepEqual(sections[2].entries, []);
+  const tableDiff = { classes: [{ id: 'bucket', section: 'open-questions', status: null }], ledger_classes: {} };
+  assert.deepEqual(sidebarSections(tableDiff)[0].entries.map((cls) => cls.id), ['bucket'], 'a table-diff bucket gets no change-group subheading');
+  for (const id of SECTION_ORDER) assert.ok(SECTION_LABELS[id].legend, id);
+});
+
+test('sectionTotalsLine counts a section\'s entries and what is left in it', () => {
+  const open = [
+    { id: 'a', section: 'open-questions', no_verdict: false, unit_count: 10, machine_approved_count: 2 },
+    { id: 'b', section: 'open-questions', no_verdict: false, unit_count: 5, machine_approved_count: 0 },
+  ];
+  assert.equal(sectionTotalsLine('open-questions', open, null), '2 · 13 to review');
+  assert.equal(sectionTotalsLine('open-questions', open, new Map([['a', { done: 8, skipped: 1, rejected: 0 }]])), '2 · 5 to review');
+  const spot = [{ id: 'c', section: 'spot-check', no_verdict: false, unit_count: 3000, machine_approved_count: 61 }];
+  assert.equal(sectionTotalsLine('spot-check', spot, new Map()), '1 · 2,939 to confirm');
+  const none = [
+    { id: 'd', section: 'no-review-needed', no_verdict: true, unit_count: 233079, machine_approved_count: 199141 },
+    { id: 'e', section: 'no-review-needed', no_verdict: false, unit_count: 3149, machine_approved_count: 3149 },
+  ];
+  assert.equal(sectionTotalsLine('no-review-needed', none, null), '2 · 236,228 units');
+});
+
+test('the class header says what each section asks, and the progress strip counts the class by its title', () => {
+  const [open, spot] = manifest.classes;
+  assert.equal(
+    classSectionSentence(open),
+    'No ruling covers this whole class. Judge each unit; units you have already ruled count as done. The Queue draws from here.',
+  );
+  assert.equal(
+    classSectionSentence(spot),
+    'You ruled this kind of change (you approved). Approve a unit that shows what you ruled; reject one that doesn’t. The Queue skips these.',
+  );
+  assert.equal(
+    classSectionSentence({ section: 'no-review-needed', unit_count: 3904, no_verdict: true }),
+    'Nothing to judge: a ruling or the machine covers all 3,904 units.',
+  );
+  assert.equal(classProgressLine(open, { done: 1, skipped: 0, rejected: 0 }), '“Join dropped”: 1 to review of 2');
+  assert.equal(classProgressLine(spot, null), '“ss03 keeps the ·Tea+Oy ligature”: 3 to confirm of 3');
+});
+
+test('configSetPhrase names a config set by its one stylistic set only when the set is exactly the configs that turn it on, and a set another config also turns on as that set alone', () => {
+  const configs = ['default', 'ss03', 'ss04', 'ss05', 'ss03+ss05'];
+  assert.equal(configSetPhrase(['ss03', 'ss03+ss05'], configs), 'with ss03 on');
+  assert.equal(configSetPhrase(['ss05', 'ss03+ss05'], configs), 'with ss05 on');
+  assert.equal(configSetPhrase(['ss03'], configs), 'with ss03 alone on');
+  assert.equal(configSetPhrase(['ss04'], configs), 'with ss04 on');
+  assert.equal(configSetPhrase(['ss03+ss05'], configs), 'with ss03+ss05 on');
+  assert.equal(configSetPhrase(['default', 'ss04', 'ss05'], configs), 'with no set, ss04 or ss05 alone on');
+  assert.equal(configSetPhrase(['ss03', 'ss04'], configs), 'with ss03 alone or ss04 on');
+});
+
+test('configClassBadge says which configs a ruling covers, by its title and pill, and which ones you are judging', () => {
+  const info = classInfo({
+    ...manifest,
+    ledger_classes: {
+      ...manifest.ledger_classes,
+      'ss03-adds-joins-around-tea': { title: 'ss03 adds joins around ·Tea', summary: 'With ss03 on, the full ·Tea joins the next letter.', status: 'approved', why: '' },
+    },
+  });
+  const unit = {
+    configs: ['default', 'ss03', 'ss04', 'ss05', 'ss03+ss05'],
+    config_classes: {
+      default: 'UNMATCHED',
+      ss03: 'ss03-adds-joins-around-tea',
+      ss04: 'UNMATCHED',
+      ss05: 'UNMATCHED',
+      'ss03+ss05': 'ss03-adds-joins-around-tea',
+    },
+    config_class_note: 'blessed as ss03-adds-joins-around-tea under ss03, ss03+ss05; novel under default, ss04, ss05',
+  };
+  assert.equal(
+    configClassBadge(unit, info),
+    'With ss03 on: covered by “ss03 adds joins around ·Tea” (you approved). With no set, ss04 or ss05 alone on, no ruling covers it; that is what you’re judging.',
+  );
+});
+
+test('configClassBadge shows nothing for a unit with one class under every config, and the raw note without a class map', () => {
+  const info = classInfo(manifest);
+  const rerouted = allUnits.find((unit) => unit.id === 'u-YAQVKvoqzCv');
+  assert.equal(configClassBadge(rerouted, info), null, 'a re-routed unit is one identical class under every config');
+  assert.equal(configClassBadge({ config_class_note: 'novel under default' }, info), 'novel under default');
+  assert.equal(configClassBadge({ config_classes: null, config_class_note: null }, info), null);
 });

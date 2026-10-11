@@ -51,11 +51,11 @@ At cutover the app moves out of `rebuild/out/`, and the serve script is likely t
 
 ### 2.1 Units, dedupe, ordering
 
-A unit is one (`codepoints`, `baseline`, `new`) triple and covers every audit row that shares it. The ledger class can differ by config: a unit carries the per-config map in `config_classes`, and its own class is the single matched class, or UNMATCHED when any config leaves it unmatched. Because the triple compares glyph names, a config that only renames a glyph can split one visual question into two units; `audit.merge_ink_duplicate_units` merges such siblings back together when their ink is identical under every config.
+A unit is one (`codepoints`, `baseline`, `new`) triple and covers every audit row that shares it. The ledger class can differ by config: a unit carries the per-config map in `config_classes`, and its own class is the single matched class, or UNMATCHED when any config leaves it unmatched. The build lists an UNMATCHED unit under a change group, and does the same for a human unit of an `ink_identical` ledger class without `no_verdict`, since its changed picture contradicts the class's claim; that unit keeps the ledger id as `ledger_class` (`change_groups.assign_change_group` and `change_groups.reroutes`). Because the triple compares glyph names, a config that only renames a glyph can split one visual question into two units; `audit.merge_ink_duplicate_units` merges such siblings back together when their ink is identical under every config.
 
 Each unit carries its config list, a `config_gate`, and its prose form `config_note`. Both are null when the set covers every non-ss10 acceptance config, which is the common case. Otherwise the gate is the minimal conjunction of feature on/off constraints that selects exactly that set, on-constraints first, one clause per constraint, each clause carrying the text the badge prints. `build.config_badge` is the authority, including the literal “only under: …” fallback for a set no short conjunction selects. `render_groups` partitions the configs by rendered outcome. Under the M1 dedupe key it is always a single group; extra groups would render stacked. A verdict applies to every (config, codepoints) audit row of the unit.
 
-Units are ordered for triage by ledger class in the ledger's file order, then by group (the lead family pair, in code-point order), then by window length and codepoints, then by id (`audit.triage_key`).
+Units are ordered for triage by class in manifest order, then by group (the lead family pair, in code-point order), then by window length and codepoints, then by id (`audit.triage_key`). Manifest order is the sidebar's: by section (`audit.class_section`), then the ledger's file order, then the change groups' `change_groups.CHANGE_GROUP_ORDER` (§7.1).
 
 **Kern-neutrality rule (binding for every review-corpus comparison)**: the rebuild has no kerning until the design's §12 milestone, so the old font's `kern` feature is noise in any before/after comparison. Everywhere the review build shapes text (the ink comparison, highlight x-ranges, boundary-mark positions, pin-semantics validation) it passes `kern: False` to HarfBuzz for both fonts through `ink.kern_neutral`, which adds kern-off to the config's stylistic-set features. The frontend renders both sample columns with `font-kerning: none`, alongside each row's inline `font-feature-settings`. The before-font highlight pens come from a live kern-neutral shaping, because the §13.1 subset rows' positions were extracted with kerning on; the glyph identities are still checked against the subset row. The rule changes nothing on the after font today, but it is explicit so it still holds after §12, where kern differences get their own review. Other rebuild consumers (oracle conformance, pin replay) keep their own shaping; the rule applies only in `rebuild/review/`.
 
@@ -67,7 +67,7 @@ Units are ordered for triage by ledger class in the ledger's file order, then by
 
 ### 2.2 Encoding: sharded JSON, everything precomputed
 
-Decision: **one `manifest.json` plus one JSON shard per ledger class, with everything computed at build time.** A unit with its explain text and drafts runs to several kilobytes, so a single JSON file for the whole corpus would be too large to load at once. Each worker batches its settle and explain work through the Rust kernel before it enriches the units. Provenance, junctions, highlight offsets, and all three verdict drafts are computed at build time. The browser does not compute any of them; it renders and collects verdicts. There is no server-side logic and no explain endpoint.
+Decision: **one `manifest.json` plus one JSON shard per class (a ledger class or a change group), with everything computed at build time.** A unit with its explain text and drafts runs to several kilobytes, so a single JSON file for the whole corpus would be too large to load at once. Each worker batches its settle and explain work through the Rust kernel before it enriches the units. Provenance, junctions, highlight offsets, and all three verdict drafts are computed at build time. The browser does not compute any of them; it renders and collects verdicts. There is no server-side logic and no explain endpoint.
 
 The app boots from a slim index of the human units (§7.4). The index leaves out everything a card draws from the unit's own record: `explain`, `provenance`, and `drafts`, and also the sample text, the pair band, and the settled cells. When a card renders, and when its explain panel opens, the app reads the record with an HTTP Range request against the shard the build wrote, using the byte span in the index row. The directory stays static, and the tab holds the queue, not the corpus.
 
@@ -215,7 +215,7 @@ identical:                  # one per identical-verdicted unit: the reviewer can
 
 ### 5.1 Python (`rebuild/test_review_*.py` and their neighbors, in the contracts lane of `make test-rebuild`)
 
-No review test reads the live corpus. Every example window comes from the frozen mini bundle under `rebuild/review/fixtures/mini/` (the `mini_bundle` and `example_units` fixtures in `rebuild/conftest.py`). What the build can check per unit, it checks during the build (`check_unit` and the cross-unit checks in `build.py`, the drafter's and enricher's own errors, and the verification sample, which recomputes a sample of cached units and compares them with what the cache supplied), so no test re-checks shipped shards. Each test module's docstring says what it covers and which build-time check covers the rest. The tests derive their expectations from the checked-in sources, except for a few values hardcoded where they are used: the drafts example window, the enrich `diff_positions` exemplar, `UNMATCHED_GROUP_ORDER`, and the unlock lists in `rebuild/test_surface.py`.
+No review test reads the live corpus. Every example window comes from the frozen mini bundle under `rebuild/review/fixtures/mini/` (the `mini_bundle` and `example_units` fixtures in `rebuild/conftest.py`). What the build can check per unit, it checks during the build (`check_unit` and the cross-unit checks in `build.py`, the drafter's and enricher's own errors, and the verification sample, which recomputes a sample of cached units and compares them with what the cache supplied), so no test re-checks shipped shards. Each test module's docstring says what it covers and which build-time check covers the rest. The tests derive their expectations from the checked-in sources, except for a few values hardcoded where they are used: the drafts example window, the enrich `diff_positions` exemplar, the one stub unit per change group in `rebuild/test_review_change_groups.py`, and the unlock lists in `rebuild/test_surface.py`.
 
 ### 5.2 JavaScript
 
@@ -264,17 +264,26 @@ The example is abridged; `check_manifest` checks every required key.
   },
   "classes": [
     {
-      "id": "dangling-anchor-dropped",
-      "status": "accepted-pending-review",
+      "id": "may-closer-at-baseline-join",
+      "title": "·May a pixel closer at a baseline join",
+      "summary": "·May's baseline entry isn't extended, so ·May sits a pixel closer after ·Pea, ·Tea, ·He, ·Ye or ·It than in the old font.",
+      "note": "…the ledger's caution line, or null…",
+      "section": "spot-check",
+      "status": "approved",
       "ink_identical": false,
+      "no_verdict": false,
       "why": "…the ledger's reviewed rationale, verbatim…",
       "unit_count": …,
       "row_count": …,
       "machine_approved_count": …,
-      "shards": ["units/dangling-anchor-dropped.json"],
-      "batches": []
+      "machine_checks": {"ink_identical": …, "picture_identical": …, "junior_equivalent": …},
+      "shards": ["units/may-closer-at-baseline-join.json"],
+      "batches": […]
     }
   ],
+  "ledger_classes": {
+    "may-closer-at-baseline-join": {"title": "…", "summary": "…", "status": "approved", "why": "…"}
+  },
   "build_command": "uv run python -m rebuild.review.build",
   "serve_command": "uv run python -m rebuild.review.serve"
 }
@@ -286,7 +295,8 @@ Types:
 - All counts are integers.
 - `batches` lists the zero-based global batch indices the class's human units occupy, and `totals.batches` counts human batches.
 - `machine_approved.by_class` lists only classes with a nonzero count, while every class carries `machine_approved_count` (possibly 0).
-- `classes` is in ledger file order, which is triage order. In table-diff mode `classes` holds the diff buckets (`added`, `removed`, `regrouped`, `changed`, `provenance-only`) with `status: null` and a generated `why`.
+- `classes` is in triage order: by `section` (Open questions, Spot-check, No review needed; `audit.SECTIONS`), then ledger file order, then `change_groups.CHANGE_GROUP_ORDER`. `audit.class_section` decides each class's `section` once per corpus from its `status`, `no_verdict` and human unit count, and every reader takes it from here instead of re-deriving it. `status` is one of `audit.LEDGER_STATUSES`, and every change group's is `per-unit`. `title` and `summary` are the reviewer copy from the ledger or `rebuild/review/change-groups.yaml`, and `note` is the ledger's optional caution line. In table-diff mode `classes` holds the diff buckets (`added`, `removed`, `regrouped`, `changed`, `provenance-only`) with `status: null`, a generated `why`, and `tablediff.BUCKET_TITLE` and `BUCKET_SUMMARY` copy.
+- `ledger_classes` maps every ledger id, including the entries that reach no unit, to its title, summary, status and why, so a unit's config badge and explain panel can name any class its `config_classes` or `ledger_class` names. It is empty in table-diff mode.
 - The class-level `ink_identical` flag is the ledger's reviewed classification. It is separate from the per-unit `ink_identical` boolean, which the build computes from the fonts.
 
 ### 7.2 Unit shard (the parts the class’s `shards` list names) — an array of units, the parts concatenating in triage order
@@ -297,7 +307,7 @@ Within a class, the parts hold the fragments in id order (§2.1). The example is
 {
   "id": "u-3mJ7kPq2Xw9",
   "ink_identical": false,
-  "class": "post-marker-ligature-formation",
+  "class": "ss03-tea-oy-ligature-kept",
   "group": "qsTea:qsOy",
   "codepoints": "200C:E652:E679",
   "text_entities": "&#x200C;&#xE652;&#xE679;",
@@ -331,8 +341,9 @@ Within a class, the parts hold the fragments in id order (§2.1). The example is
 Field semantics:
 
 - `secondary_junctions` is optional: `null` or absent when the unit has no visible secondary junction, and never present on machine-approved units. Otherwise it is a list of `{pair: {left, right}, before: rect, after: rect, primary_unit: <unit id> | null}` entries resolved by the §2.2 rules, with rects in the same font-unit form as `highlight`.
-- `ink_identical` is required on every unit in both modes. A unit that any machine check approves is outside the manifest's `human_unit_ids`, and the frontend shows it only behind the “Show no-verdict units” toggle, with verdict controls disabled.
+- `ink_identical` is required on every unit in both modes. A unit that any machine check approves is outside the manifest's `human_unit_ids`, and the frontend shows it only behind the “Show units that need no review” toggle, with verdict controls disabled.
 - A machine-approved unit, or a unit of a no-verdict class (`audit.slim_fragment`), has a slim fragment: `explain`, `drafts`, and `highlight` (`audit.SLIM_OMITTED_KEYS`) are absent, not null, so the app can tell a slim fragment from a whole record with a blank field. `check_unit` enforces this in both directions: a human unit always has its explain material, and a slim unit never has any of it.
+- `ledger_class` is null except on a unit the build moved out of an `ink_identical` ledger class into a change group, where it names that class.
 - `text_entities` is the rendered run as numeric character references, never raw PUA. The frontend injects it with `innerHTML` into the sample cells only.
 - `junctions` arrays have one entry per inter-glyph gap (`break`, `lig`, or `yN`).
 - `diff_positions` are the glyph indices whose cell or trailing junction diverges.

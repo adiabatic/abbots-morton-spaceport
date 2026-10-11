@@ -244,7 +244,7 @@ def test_everything_else_is_served_uncompressed_and_uncached():
         "index.html",
         "app.js",
         "manifest.json",
-        "units/boundary-window.000.json",
+        "units/split-by-space-or-zwnj.000.json",
         "fonts/after.otf",
         app_index.LOCATOR_ROWS_NAME,
         f"/{app_index.LOCATOR_ROWS_NAME}",

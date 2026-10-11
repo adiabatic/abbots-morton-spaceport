@@ -4473,7 +4473,10 @@ def _fake_run_m1_root(tmp_path):
         ("rebuild/script.yaml", "script: 1\n"),
         ("glyph_data/punctuation.yaml", "punctuation: 1\n"),
         ("rebuild/m1-aliases.yaml", "qsX: X\n"),
-        ("rebuild/m1-divergences.yaml", "- id: x\n  status: intended\n  why: one\n"),
+        (
+            "rebuild/m1-divergences.yaml",
+            "- id: x\n  status: by-design\n  title: X\n  summary: One.\n  why: one\n",
+        ),
         ("glyph_data/senior_quikscript_kerning.yaml", "pairs: {}\n"),
         ("rebuild/m1-contact-allow.yaml", "- signature: junction-1\n  why: blessed once\n"),
         ("rebuild/pipeline/oracle.py", "verdict = 1\n"),
@@ -4555,17 +4558,19 @@ def test_the_allow_list_line_ignores_prose(tmp_path):
 
 
 def test_the_divergence_ledger_line_ignores_prose(tmp_path):
-    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why` must not, because no classifier reads it. The review build copies the `why` into the manifest and the Stage B `explain_prose` component hashes it, so a reword costs a corpus rebuild that reuses every cached unit and no gates-only rerun."""
+    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why`, `title` or `summary` must not, because no classifier reads them. The review build copies them into the manifest and the Stage B `explain_prose` component hashes them, so a reword costs a corpus rebuild that reuses every cached unit and no gates-only rerun."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
     ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
     before = ac.run_m1_skip_fingerprint(root)
     ledger.write_text(
-        "# a header nobody classifies by\n- id: x\n  status: intended\n  why: one, at greater length\n"
+        "# a header nobody classifies by\n- id: x\n  status: by-design\n  title: X, retitled\n  summary: One, said again.\n  why: one, at greater length\n"
     )
     assert ac.run_m1_skip_fingerprint(root) == before
-    ledger.write_text("- id: x\n  status: reviewed-approved\n  why: one, at greater length\n")
+    ledger.write_text(
+        "- id: x\n  status: approved\n  title: X, retitled\n  summary: One, said again.\n  why: one, at greater length\n"
+    )
     assert ac.run_m1_skip_fingerprint(root) != before
 
 
@@ -4575,7 +4580,10 @@ def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tm
     conform = ac.conform_skip_fingerprint(root, 4)
     run_key = ac.run_m1_skip_fingerprint(root)
     for rel, text in (
-        ("rebuild/m1-divergences.yaml", "- id: y\n  status: intended\n  why: one\n"),
+        (
+            "rebuild/m1-divergences.yaml",
+            "- id: y\n  status: by-design\n  title: X\n  summary: One.\n  why: one\n",
+        ),
         ("rebuild/m1-aliases.yaml", "qsX: Y\n"),
         ("glyph_data/senior_quikscript_kerning.yaml", "pairs: {qsX_qsY: -1}\n"),
         ("rebuild/m1-contact-allow.yaml", "- signature: junction-2\n"),
@@ -4966,7 +4974,7 @@ def test_contracts_fingerprint_ignores_prose_in_the_ledgers(tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild").mkdir()
     ledger = tmp_path / "rebuild" / "m1-divergences.yaml"
-    ledger.write_text("- id: junction-moved\n  status: intended\n  no_verdict: true\n  why: one\n")
+    ledger.write_text("- id: junction-moved\n  status: by-design\n  no_verdict: true\n  why: one\n")
     standing = tmp_path / "rebuild" / "standing-approvals.yaml"
     standing.write_text(
         "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one\n"
@@ -4974,7 +4982,7 @@ def test_contracts_fingerprint_ignores_prose_in_the_ledgers(tmp_path):
     before = ac.contracts_fingerprint(tmp_path)
 
     ledger.write_text(
-        "# a header nobody classifies by\n- id: junction-moved\n  status: intended\n  no_verdict: true\n  why: two, at greater length\n"
+        "# a header nobody classifies by\n- id: junction-moved\n  status: by-design\n  no_verdict: true\n  why: two, at greater length\n"
     )
     standing.write_text(
         "format: ams-standing-approvals/1\n# a header nobody matches on\nrules:\n  - id: r1\n    verdict: approve\n    note: two, at greater length\n"
@@ -4982,7 +4990,7 @@ def test_contracts_fingerprint_ignores_prose_in_the_ledgers(tmp_path):
     assert ac.contracts_fingerprint(tmp_path) == before
 
     ledger.write_text(
-        "- id: junction-moved\n  status: intended\n  no_verdict: false\n  why: two, at greater length\n"
+        "- id: junction-moved\n  status: by-design\n  no_verdict: false\n  why: two, at greater length\n"
     )
     reclassified = ac.contracts_fingerprint(tmp_path)
     assert reclassified != before
@@ -5362,7 +5370,7 @@ def test_a_refuse_why_edit_restamps_the_corpus_and_nothing_upstream(tmp_path):
 
 
 def test_a_ledger_why_edit_restamps_the_corpus_and_nothing_upstream(tmp_path):
-    """The review build copies each divergence class's `why` into the manifest, so the corpus must notice a rewording. The oracle does not read the `why`, so the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key stay unchanged. Reclassifying the class must change the run_m1 key, the Stage A record and the lane key."""
+    """The review build copies each divergence class's `why`, `title` and `summary` into the manifest, so the corpus must notice a rewording. The oracle reads none of them, so the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key stay unchanged. Reclassifying the class must change the run_m1 key, the Stage A record and the lane key."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -5374,11 +5382,15 @@ def test_a_ledger_why_edit_restamps_the_corpus_and_nothing_upstream(tmp_path):
     upstream = _upstream_keys(root)
     assert all(value is not None for value in upstream.values())
 
-    ledger.write_text("- id: x\n  status: intended\n  why: one, said at greater length\n")
+    ledger.write_text(
+        "- id: x\n  status: by-design\n  title: X, retitled\n  summary: One, said again.\n  why: one, said at greater length\n"
+    )
     assert not ac.corpus_build_skippable(root, corpus)
     assert _upstream_keys(root) == upstream
 
-    ledger.write_text("- id: x\n  status: reviewed-approved\n  why: one, said at greater length\n")
+    ledger.write_text(
+        "- id: x\n  status: approved\n  title: X, retitled\n  summary: One, said again.\n  why: one, said at greater length\n"
+    )
     reclassified = _upstream_keys(root)
     assert reclassified["run_m1"] != upstream["run_m1"]
     assert reclassified["stage_a"] != upstream["stage_a"]
@@ -6279,19 +6291,28 @@ def test_classify_rebuild_recordable_whenever_it_is_green():
 
 _ACCEPTED_PINS = {
     "invariant": {
-        "classes": ["boundary-window", "bare-name-live-join"],
-        "machine_approved_classes": ["boundary-window", "bare-name-live-join"],
-        "no_verdict_classes": ["boundary-window"],
-        "unmatched_groups": ["no-chain-gains"],
+        "classes": ["split-by-space-or-zwnj", "identical-variant-name"],
+        "machine_approved_classes": ["split-by-space-or-zwnj", "identical-variant-name"],
+        "no_verdict_classes": ["split-by-space-or-zwnj"],
+        "unmatched_groups": ["new-join-at-baseline"],
     },
     "volatile": {"audit": {"row_count": 10, "units": 4}},
 }
 
-_LEDGER_YAML = """- id: boundary-window
+_LEDGER_YAML = """- id: split-by-space-or-zwnj
+  status: by-design
+  title: Split by a space or ZWNJ
+  summary: A space or ZWNJ ends the word.
   no_verdict: true
-- id: bare-name-live-join
+- id: identical-variant-name
+  status: by-design
+  title: "Looks identical: plain glyph renamed to a variant"
+  summary: Only glyph names differ.
   ink_identical: true
-- id: vie-baseline-entry-extension-dropped
+- id: vie-closer-at-baseline-join
+  status: approved
+  title: ·Vie a pixel closer at a baseline join
+  summary: ·Vie sits a pixel closer than in the old font.
   no_verdict: true
 """
 
@@ -6310,10 +6331,10 @@ def _review_facts_fixture(monkeypatch, tmp_path, *, accepted, current):
 def _moved_invariant() -> dict:
     return {
         "invariant": {
-            "classes": ["boundary-window", "bare-name-live-join", "vie-baseline-entry-extension-dropped"],
-            "machine_approved_classes": ["boundary-window", "bare-name-live-join"],
-            "no_verdict_classes": ["boundary-window", "vie-baseline-entry-extension-dropped"],
-            "unmatched_groups": ["no-chain-gains", "deferred-ss10"],
+            "classes": ["split-by-space-or-zwnj", "identical-variant-name", "vie-closer-at-baseline-join"],
+            "machine_approved_classes": ["split-by-space-or-zwnj", "identical-variant-name"],
+            "no_verdict_classes": ["split-by-space-or-zwnj", "vie-closer-at-baseline-join"],
+            "unmatched_groups": ["new-join-at-baseline", "only-with-ss10"],
         },
         "volatile": {"audit": {"row_count": 12, "units": 5}},
     }
@@ -6335,13 +6356,13 @@ def test_the_invariant_diff_prints_under_the_review_facts_step_in_full(tmp_path,
         assert cycle_console._open == {}
 
     out = capsys.readouterr().out
-    assert '+    "deferred-ss10"' in out.splitlines()
-    assert '+    "vie-baseline-entry-extension-dropped"' in out.splitlines()
+    assert '+    "only-with-ss10"' in out.splitlines()
+    assert '+    "vie-closer-at-baseline-join"' in out.splitlines()
     assert "row_count" not in out
     assert out.count("---- step ") == 1
     assert report.facts_status.startswith("invariant moved: ")
     facts_log = (log_dir / "01-review-facts.log").read_text()
-    assert '+    "deferred-ss10"' in facts_log.splitlines()
+    assert '+    "only-with-ss10"' in facts_log.splitlines()
     assert not (log_dir / "00-invariant-diff.log").exists()
 
 
@@ -6446,7 +6467,7 @@ def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path
 
 
 def test_do_review_facts_names_the_invariant_movement_and_reports_ledger_coverage(monkeypatch, tmp_path):
-    """The review-facts status names the invariant movement: which classes appeared, and which no-verdict exemptions and unmatched groups came with them. Beside it, the ledger-coverage line compares the ledger's declarations with the classes the corpus reached. Both go to the cycle log and to cycle_summary.json."""
+    """The review-facts status names the invariant movement: which classes appeared, and which no-verdict exemptions and change groups came with them. Beside it, the ledger-coverage line compares the ledger's declarations with the classes the corpus reached. Both go to the cycle log and to cycle_summary.json."""
     _review_facts_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
     calls: list[str] = []
 
@@ -6458,8 +6479,8 @@ def test_do_review_facts_names_the_invariant_movement_and_reports_ledger_coverag
     ac._do_review_facts(report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan())
     assert calls == ["review-facts"]
     assert report.facts_status == (
-        "invariant moved: classes +1 (vie-baseline-entry-extension-dropped);"
-        " no-verdict +1 (vie-baseline-entry-extension-dropped); unmatched groups +1 (deferred-ss10)"
+        "invariant moved: classes +1 (vie-closer-at-baseline-join);"
+        " no-verdict +1 (vie-closer-at-baseline-join); change groups +1 (only-with-ss10)"
         " — its diff is shown above; review it at commit time"
     )
     assert report.ledger_coverage == (
@@ -6467,7 +6488,7 @@ def test_do_review_facts_names_the_invariant_movement_and_reports_ledger_coverag
         " no-verdict: 2 of 2 declared reached; ledger: 3 of 3 classes reached"
     )
     assert report.ledger_coverage_sets is not None
-    assert report.ledger_coverage_sets["machine_approved_undeclared"] == ["boundary-window"]
+    assert report.ledger_coverage_sets["machine_approved_undeclared"] == ["split-by-space-or-zwnj"]
     payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
     assert payload["facts_status"] == report.facts_status
     assert payload["ledger_coverage"] == report.ledger_coverage
@@ -6497,7 +6518,7 @@ def test_do_review_facts_says_the_invariant_is_unchanged_when_only_the_volatile_
     )
     assert not any(line.startswith(("---", "+++", "@@")) for line in printed)
     assert report.ledger_coverage.startswith("machine-approved: ")
-    assert "unreached 1 (vie-baseline-entry-extension-dropped)" in report.ledger_coverage
+    assert "unreached 1 (vie-closer-at-baseline-join)" in report.ledger_coverage
 
 
 def test_do_review_facts_says_so_when_the_refresh_moved_nothing(monkeypatch, tmp_path):

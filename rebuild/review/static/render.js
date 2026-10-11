@@ -173,13 +173,13 @@ export function triageOrder(unit) {
   return typeof unit?.order === 'number' ? unit.order : Number.POSITIVE_INFINITY;
 }
 
-export function duplicateChip(unit, memberIds) {
+export function duplicateChip(unit, memberIds, kindTitle = unit.class) {
   if (!unit.duplicate_group || !Array.isArray(memberIds) || memberIds.length < 2) return null;
   return {
     label: `duplicate ×${formatCount(memberIds.length)}`,
     href: `#units=${memberIds.join(',')}`,
     title:
-      `The before→after change here is pixel-identical in ${formatCount(memberIds.length)} ${unit.class} windows with the same judged pair and configs — ` +
+      `The before→after change here is pixel-identical in ${formatCount(memberIds.length)} windows of “${kindTitle}” with the same judged pair and configs — ` +
       'the surrounding letters differ but the change is the same picture. A verdict on any of them fills the unverdicted rest ' +
       '(each can still be overridden or cleared individually). Click to view the whole duplicate group stacked.',
   };
@@ -284,6 +284,10 @@ export function formatCount(value) {
   return COUNT_FORMAT.format(value);
 }
 
+export function unitCount(value) {
+  return `${formatCount(value)} ${value === 1 ? 'unit' : 'units'}`;
+}
+
 export function machineChecks(manifest) {
   const machine = manifest.machine_approved ?? {};
   const checks = machine.checks ?? {};
@@ -330,7 +334,7 @@ export function corpusStampLine(manifest) {
 }
 
 const NO_VERDICT_DETAIL_TITLE =
-  'Units in a no-verdict ledger class are adjudicated wholesale by a ratified rule and never need individual verdicts; hover the class in the sidebar for its rationale.';
+  'Units covered by a ruling are decided as a whole by that ruling and never need individual verdicts; select their class in the sidebar to read the ruling.';
 
 export function corpusDetailRows(manifest) {
   const rows = [{ label: 'Corpus', value: formatCount(manifest.totals.units) }];
@@ -346,7 +350,7 @@ export function corpusDetailRows(manifest) {
     }
   }
   const exempt = noVerdictTotal(manifest);
-  if (exempt > 0) rows.push({ label: 'in no-verdict classes', value: formatCount(exempt), title: NO_VERDICT_DETAIL_TITLE });
+  if (exempt > 0) rows.push({ label: 'covered by a ruling', value: formatCount(exempt), title: NO_VERDICT_DETAIL_TITLE });
   rows.push({ label: 'for human review', value: formatCount(humanTotal(manifest)), title: 'The Overall denominator: everything the corpus leaves to a person.' });
   return rows;
 }
@@ -360,20 +364,49 @@ export function machineTitle(manifest) {
   return method ? `${parts} ${method}` : parts;
 }
 
-export function classCountsLine(cls, verdicted = null) {
-  const parts = [`${formatCount(cls.unit_count)} units${cls.no_verdict ? ` — ${NO_VERDICT_BADGE}` : ''}`];
-  if (!cls.no_verdict) {
-    if (cls.machine_approved_count) parts.push(`${formatCount(cls.machine_approved_count)} machine`);
-    const human = humanClassCount(cls);
-    if (human > 0) {
-      parts.push(
-        verdicted === null
-          ? `${formatCount(human)} to review`
-          : `${formatCount(verdicted)}/${formatCount(human)}`,
-      );
+// A class's verdict tallies from the human rows in one pass: `done` counts real verdicts, `skipped` the skips (which leave a unit to review, as the Queue counts it), and `rejected` the rejects among the done.
+export function classVerdictTallies(rows, recordOf) {
+  const tallies = new Map();
+  for (const row of rows) {
+    const record = recordOf(row.id);
+    if (!record) continue;
+    let tally = tallies.get(row.class);
+    if (!tally) {
+      tally = { done: 0, skipped: 0, rejected: 0 };
+      tallies.set(row.class, tally);
+    }
+    if (record.verdict === 'skip') tally.skipped += 1;
+    else {
+      tally.done += 1;
+      if (record.verdict === 'reject') tally.rejected += 1;
     }
   }
-  parts.push(`${formatCount(cls.row_count)} rows`);
+  return tallies;
+}
+
+export function classLeft(cls, tally = null) {
+  return Math.max(humanClassCount(cls) - (tally?.done ?? 0), 0);
+}
+
+export function classIsDone(cls, tally = null) {
+  return tally !== null && humanClassCount(cls) > 0 && classLeft(cls, tally) === 0;
+}
+
+export function classCountsLine(cls, tally = null) {
+  if (cls.no_verdict) return `${unitCount(cls.unit_count)} · covered by a ruling`;
+  const human = humanClassCount(cls);
+  if (human === 0) return `${unitCount(cls.unit_count)} · all machine-approved`;
+  const done = tally?.done ?? 0;
+  const skipped = tally?.skipped ?? 0;
+  const rejected = tally?.rejected ?? 0;
+  const spotCheck = cls.section === 'spot-check';
+  const rejects = spotCheck && rejected > 0 ? ` (${formatCount(rejected)} rejected)` : '';
+  const left = classLeft(cls, tally);
+  if (classIsDone(cls, tally)) return `all ${formatCount(done)} done${rejects}`;
+  const skips = skipped > 0 ? ` (${formatCount(skipped)} skipped)` : '';
+  const parts = [`${formatCount(left)} ${spotCheck ? 'to confirm' : 'to review'}${skips}`];
+  if (done > 0) parts.push(`${formatCount(done)} done${rejects}`);
+  if (!spotCheck && cls.machine_approved_count) parts.push(`${formatCount(cls.machine_approved_count)} machine-approved`);
   return parts.join(' · ');
 }
 
@@ -421,7 +454,8 @@ export function copyPreamble(unit) {
 // Keyed on the unit object, which is not modified after parsing, so an entry cannot go stale and is collected with its row. Without the cache every keystroke would rebuild and lowercase one string per unit in the queue.
 const haystacks = new WeakMap();
 
-export function searchHaystack(unit) {
+// `titleOf` maps a class id to its title, so a class is found by its title as well as its id. It is the same function for the life of the page, so the cache can ignore it.
+export function searchHaystack(unit, titleOf = null) {
   const cached = haystacks.get(unit);
   if (cached !== undefined) return cached;
   const codepoints = unit.codepoints ?? '';
@@ -432,9 +466,12 @@ export function searchHaystack(unit) {
     codepoints,
     codepoints.replaceAll(':', ''),
     unit.class,
+    titleOf?.(unit.class) ?? '',
+    unit.ledger_class ?? '',
     unit.group,
     unit.duplicate_group ?? '',
     unit.cluster ?? '',
+    unit.config_class_note ?? '',
     ...(unit.kinds ?? []),
   ];
   const haystack = parts.join(' ').toLowerCase();
@@ -450,13 +487,13 @@ function searchScore(unit, tokens, query) {
   return 3;
 }
 
-export function searchUnits(units, query, limit = 50) {
+export function searchUnits(units, query, limit = 50, titleOf = null) {
   const trimmed = (query ?? '').trim().toLowerCase();
   if (!trimmed) return { matches: [], total: 0 };
   const tokens = trimmed.split(/\s+/u);
   const ranked = [];
   for (const unit of units) {
-    const haystack = searchHaystack(unit);
+    const haystack = searchHaystack(unit, titleOf);
     if (tokens.every((token) => haystack.includes(token))) {
       ranked.push({ unit, score: searchScore(unit, tokens, trimmed) });
     }
@@ -510,4 +547,226 @@ export function tokenMarkRuns(tokens, separators, pairSpan, junctionSpans) {
     push(token, marks.pair, marks.junction);
   }
   return runs;
+}
+
+export const SECTION_ORDER = ['open-questions', 'spot-check', 'no-review-needed'];
+
+export const SECTION_LABELS = {
+  'open-questions': {
+    title: 'Open questions',
+    open: true,
+    legend: 'No ruling covers the whole class; your verdicts decide it. The Queue draws only from here.',
+  },
+  'spot-check': {
+    title: 'Spot-check (already ruled)',
+    open: true,
+    legend:
+      'You ruled this kind of change. Its units still take verdicts and count toward Overall progress: approve one that shows what you ruled, reject one that doesn’t. The Queue leaves them out.',
+  },
+  'no-review-needed': {
+    title: 'No review needed',
+    open: false,
+    legend: 'A ruling covers every unit, or every unit draws exactly as in the old font. Hidden unless the machine toggle is on.',
+  },
+};
+
+export const STATUS_LABELS = {
+  'per-unit': {
+    pill: 'you decide',
+    legend:
+      'No ruling covers this kind of change as a whole; your verdict on each unit decides it, and the Queue draws only from these.',
+  },
+  approved: {
+    pill: 'you approved',
+    legend:
+      'You ruled this kind of change correct, in a review round, a letter’s review session or from side-by-side renders. Its remaining units are a spot-check: approve one that shows what you ruled, reject one that doesn’t.',
+  },
+  'by-design': {
+    pill: 'by design',
+    legend:
+      'A rule of the rebuild’s design decides the change: a space or ZWNJ splits the word, or the letter looks identical and only glyph names differ.',
+  },
+  'machine-approved': {
+    pill: 'machine-approved',
+    legend: 'Every unit draws exactly as in the old font, so the machine approved it without a ruling. Shown only in No review needed.',
+  },
+  diff: {
+    pill: 'diff',
+    legend: 'A table-diff bucket, which has no ledger status.',
+  },
+};
+
+export const PREDATES_APP = 'This corpus predates the app; run the review cycle.';
+
+// The banner text for a manifest the app cannot sort into sections, or null. Without `section` the Queue would read every class as ruled and show nothing, so the app refuses the corpus instead.
+export function manifestRefusal(manifest) {
+  const classes = Array.isArray(manifest?.classes) ? manifest.classes : [];
+  return classes.some((cls) => !SECTION_ORDER.includes(cls?.section)) ? PREDATES_APP : null;
+}
+
+export function classInfo(manifest) {
+  const info = new Map();
+  for (const [id, entry] of Object.entries(manifest?.ledger_classes ?? {})) info.set(id, { ...entry, id, listed: false });
+  for (const cls of manifest?.classes ?? []) info.set(cls.id, { ...info.get(cls.id), ...cls, listed: true });
+  return info;
+}
+
+export function pillStatus(cls) {
+  if (!cls) return null;
+  if (cls.section === 'no-review-needed' && !cls.no_verdict && typeof cls.unit_count === 'number' && humanClassCount(cls) === 0) {
+    return 'machine-approved';
+  }
+  return cls.status ?? 'diff';
+}
+
+export function pillText(status) {
+  return STATUS_LABELS[status]?.pill ?? status ?? '';
+}
+
+export function classTitle(cls, id = cls?.id) {
+  return cls?.title || id || '';
+}
+
+export function classChip(id, info) {
+  const cls = info?.get(id) ?? null;
+  const status = pillStatus(cls);
+  return {
+    text: classTitle(cls, id),
+    title: cls?.summary ? `${id} — ${cls.summary}` : id,
+    status,
+    pill: status ? pillText(status) : null,
+  };
+}
+
+// Splits copy on backtick spans, which the ledger and change-group prose use for data-expect notation, so the app builds each span as a <code> element instead of parsing markup. An unpaired backtick stays as text.
+export function codeRuns(text) {
+  if (typeof text !== 'string' || text === '') return [];
+  const runs = [];
+  let from = 0;
+  for (const match of text.matchAll(/`([^`]+)`/gu)) {
+    if (match.index > from) runs.push({ text: text.slice(from, match.index), code: false });
+    runs.push({ text: match[1], code: true });
+    from = match.index + match[0].length;
+  }
+  if (from < text.length) runs.push({ text: text.slice(from), code: false });
+  return runs;
+}
+
+export function appendCodeRuns(target, text, doc = target.ownerDocument) {
+  for (const run of codeRuns(text)) {
+    if (run.code) {
+      const code = doc.createElement('code');
+      code.textContent = run.text;
+      target.append(code);
+    } else {
+      target.append(doc.createTextNode(run.text));
+    }
+  }
+  return target;
+}
+
+export function rationaleParagraphs(why) {
+  if (typeof why !== 'string') return [];
+  return why
+    .split(/\n+/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+export function sidebarSections(manifest) {
+  const ledger = manifest?.ledger_classes ?? {};
+  const split = Object.keys(ledger).length > 0;
+  const sections = SECTION_ORDER.map((id) => ({ id, ...SECTION_LABELS[id], entries: [], changeGroups: [] }));
+  const byId = new Map(sections.map((section) => [section.id, section]));
+  for (const cls of manifest?.classes ?? []) {
+    const section = byId.get(cls.section);
+    if (!section) continue;
+    if (split && !Object.hasOwn(ledger, cls.id)) section.changeGroups.push(cls);
+    else section.entries.push(cls);
+  }
+  return sections;
+}
+
+export function sectionTotalsLine(sectionId, classes, tallies = null) {
+  const count = formatCount(classes.length);
+  if (sectionId === 'no-review-needed') {
+    let units = 0;
+    for (const cls of classes) units += cls.unit_count;
+    return `${count} · ${unitCount(units)}`;
+  }
+  let left = 0;
+  for (const cls of classes) left += classLeft(cls, tallies?.get(cls.id) ?? null);
+  return `${count} · ${formatCount(left)} ${sectionId === 'spot-check' ? 'to confirm' : 'to review'}`;
+}
+
+export function classSectionSentence(cls) {
+  if (cls.section === 'spot-check') {
+    return `You ruled this kind of change (${pillText(pillStatus(cls))}). Approve a unit that shows what you ruled; reject one that doesn’t. The Queue skips these.`;
+  }
+  if (cls.section === 'no-review-needed') {
+    return `Nothing to judge: a ruling or the machine covers ${cls.unit_count === 1 ? 'its one unit' : `all ${unitCount(cls.unit_count)}`}.`;
+  }
+  return 'No ruling covers this whole class. Judge each unit; units you have already ruled count as done. The Queue draws from here.';
+}
+
+export const LOOKS_IDENTICAL_SENTENCE =
+  'Every unit here draws exactly as in the old font, and the machine approves it. Windows that look different are listed under the kind of change they show.';
+
+export function classProgressLine(cls, tally = null) {
+  const verb = cls.section === 'spot-check' ? 'to confirm' : 'to review';
+  return `“${classTitle(cls)}”: ${formatCount(classLeft(cls, tally))} ${verb} of ${formatCount(humanClassCount(cls))}`;
+}
+
+export const UNMATCHED_CLASS = 'UNMATCHED';
+
+function listPhrase(items) {
+  if (items.length <= 1) return items.join('');
+  return `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`;
+}
+
+// "with ss03 on" only when the configs are exactly the unit's configs that turn ss03 on; otherwise a set that another of the unit's configs also turns on is named "ss03 alone", so the phrase never claims the whole set.
+export function configSetPhrase(configs, unitConfigs) {
+  const chosen = new Set(configs);
+  for (const feature of configs[0].split('+')) {
+    if (feature === 'default') continue;
+    const holding = unitConfigs.filter((config) => config.split('+').includes(feature));
+    if (holding.length === chosen.size && holding.every((config) => chosen.has(config))) return `with ${feature} on`;
+  }
+  const name = (config) => {
+    if (config === 'default') return 'no set';
+    const shared = unitConfigs.some((other) => !chosen.has(other) && other.split('+').includes(config));
+    return shared ? `${config} alone` : config;
+  };
+  return `with ${listPhrase(configs.map(name))} on`;
+}
+
+function capitalize(text) {
+  return text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
+}
+
+export function configClassBadge(unit, info) {
+  const map = unit?.config_classes;
+  if (!map || typeof map !== 'object') return unit?.config_class_note || null;
+  const unitConfigs = Array.isArray(unit.configs) && unit.configs.length > 0 ? unit.configs : Object.keys(map);
+  const rank = (config) => {
+    const index = unitConfigs.indexOf(config);
+    return index === -1 ? Number.POSITIVE_INFINITY : index;
+  };
+  const byClass = new Map();
+  for (const config of Object.keys(map).sort((a, b) => rank(a) - rank(b))) {
+    const classId = map[config];
+    if (!byClass.has(classId)) byClass.set(classId, []);
+    byClass.get(classId).push(config);
+  }
+  if (byClass.size < 2) return null;
+  const sentences = [];
+  for (const [classId, configs] of byClass) {
+    if (classId === UNMATCHED_CLASS) continue;
+    const chip = classChip(classId, info);
+    const pill = chip.pill ? ` (${chip.pill})` : '';
+    sentences.push(`${capitalize(configSetPhrase(configs, unitConfigs))}: covered by “${chip.text}”${pill}.`);
+  }
+  const open = byClass.get(UNMATCHED_CLASS);
+  if (open) sentences.push(`${capitalize(configSetPhrase(open, unitConfigs))}, no ruling covers it; that is what you’re judging.`);
+  return sentences.join(' ');
 }

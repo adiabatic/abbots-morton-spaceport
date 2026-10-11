@@ -1,0 +1,99 @@
+# The reviewer copy for the review corpus's change groups: one entry per group, with the title and one-line summary the sidebar shows and the why the class header's rationale holds. `change_groups.CHANGE_GROUP_ORDER` is the authority on the ids and their order, `change_groups.assign_change_group` on which window goes where, and `change_groups.load_change_group_prose` refuses a file that disagrees with the order. Only the manifest reads this file, so rewording an entry re-enriches no unit.
+
+- id: new-join-at-baseline
+  title: "New join at the baseline"
+  summary: "Letters the old font left apart join at the baseline, for example `·No ~b~ ·Ye` or `·Utter ~b~ ·Tea`; other joins may move with it."
+  why: |
+    No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, and reading left to right, the first junction where the old font broke and the rebuild joins does so at the baseline.
+    A new join decides before any other change because it is usually the cause: when a letter starts joining its neighbor, the joins beside it often move to meet it. So a window here can also drop, raise or lower another join; judge the whole word.
+
+- id: new-join-at-xheight-or-top
+  title: "New join at the x-height or top"
+  summary: "Letters the old font left apart join at the x-height or the top, for example `·Ah ~x~ ·Gay` or `·May ~x~ ·Fee`; other joins may move with it."
+  why: |
+    No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, and reading left to right, the first junction where the old font broke and the rebuild joins does so above the baseline, at the x-height or the top.
+    A new join decides before any other change because it is usually the cause: when a letter starts joining its neighbor, the joins beside it often move to meet it, as when `·Gay ~b~ ·No | ·Oy` becomes `·Gay ~x~ ·No ~x~ ·Oy`. So a window here can also drop, raise or lower another join; judge the whole word.
+
+- id: join-dropped
+  title: "Join dropped"
+  summary: "Letters the old font joined stand apart, for example `·At | ·It` and `·It | ·Et`, where the old font drew `·At ~x~ ·It` and `·It ~x~ ·Et`."
+  why: |
+    No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, no junction gains a join, and at least one junction the old font joined now breaks; the leftmost such break names the pair.
+    Other joins in the word may move as well. A window that also gains a join is listed under the new join instead, because a new join usually causes the changes around it.
+
+- id: join-lowered
+  title: "Join lowered"
+  summary: "Letters still join, but lower: `·Pea.half ~x~ ·No` becomes `·Pea ~b~ ·No`, and likewise for ·Tea, with the full bar."
+  why: |
+    No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, every junction joins or breaks where the old font's did, and the leftmost junction whose height changed now joins lower.
+    A window that also gains or drops a join is listed under that change instead, so every window here is a pure change of height.
+
+- id: join-raised
+  title: "Join raised"
+  summary: "Letters still join, but higher: `·Gay ~b~ ·No` becomes `·Gay ~x~ ·No`."
+  why: |
+    No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, every junction joins or breaks where the old font's did, and the leftmost junction whose height changed now joins higher.
+    A window that also gains or drops a join is listed under that change instead, so every window here is a pure change of height.
+
+- id: ligature-forms-or-splits
+  title: "Ligature forms or splits"
+  summary: "A ligature forms where the old font drew two letters, or splits where it drew one."
+  why: |
+    The two fonts draw the window with different numbers of joins between letters, because a ligature formed where the old font drew two letters or split where it drew one, so the junctions cannot be compared one by one. Judge whether the ligature belongs in this word.
+    The group is a guard that keeps every window listed somewhere; the corpus lists it only when a window reaches it.
+
+- id: same-joins-narrower
+  title: "Same joins, narrower"
+  summary: "Every join is where the old font put it, but the word is narrower: one join a pixel shorter, as in `·It ~b~ ·Thaw`, or a letter a pixel closer."
+  why: |
+    No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, every junction joins at the height the old font's did, and the word is narrower than in the old font, usually because one join is a pixel shorter or a letter sits a pixel closer.
+    Width is the net change across the word under the window's first config, so a window tighter in one place and wider in another is listed by the sum. A letter that only moves is listed here too: the same pixel change often carries other labels, and listing by label would split one picture change across two entries.
+
+- id: same-joins-wider
+  title: "Same joins, wider"
+  summary: "Every join is where the old font put it, but the word is wider, usually a join from ·Gay or `·I ~x~ ·They` a pixel or two longer."
+  why: |
+    No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, every junction joins at the height the old font's did, and the word is wider than in the old font, usually because a join is a pixel or two longer.
+    Width is the net change across the word under the window's first config, so a window wider in one place and tighter in another is listed by the sum. A letter that only moves is listed here too: the same pixel change often carries other labels, and listing by label would split one picture change across two entries.
+
+- id: same-joins-same-width
+  title: "Same joins and width, letter redrawn or shifted"
+  summary: "Joins and width match the old font, but a letter is drawn or placed differently, for example ·I's smaller loop or ·Roe's full top arm after ·Eight."
+  why: |
+    No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, every junction joins at the height the old font's did, and the word keeps the old font's width, yet a letter is drawn differently or sits elsewhere: a redrawn stroke, or a letter shifted while the word's width stays the same.
+    A changed junction the review cannot read stops the build instead of landing here, so every window here keeps its joins and its width.
+
+- id: only-with-ss03
+  title: "Only with ss03 on"
+  summary: "Default text is unchanged. With ss03 on, mostly the full ·Tea replaces half-·Tea after a letter that leaves at the x-height, joins unchanged."
+  why: |
+    Without a stylistic set the window draws as in the old font, or as a ruling covers it: every config in which it differs and no ruling explains it has ss03 on, while ss04 and ss10 are each off in at least one of them. A config of a “Looks identical” class whose picture changed counts as one no ruling explains.
+    Stylistic sets are checked before joins and width, so a window here is judged as what ss03 does to it. Each takes its own verdict.
+
+- id: only-with-ss04
+  title: "Only with ss04 on"
+  summary: "Default text is unchanged. With ss04 on, letters join ·It where the old font broke, for example `·Jay ~b~ ·It`."
+  why: |
+    Without a stylistic set the window draws as in the old font, or as a ruling covers it: every config in which it differs and no ruling explains it has ss04 on. A config of a “Looks identical” class whose picture changed counts as one no ruling explains.
+    Stylistic sets are checked before joins and width, and ss04 first, so a window here is judged as what ss04 does to it. Each takes its own verdict.
+
+- id: only-with-ss05
+  title: "Only with ss05 on"
+  summary: "Default text is unchanged. With ss05 on, letters join ·Tea at the baseline where the old font broke, for example `·She ~b~ ·Tea`."
+  why: |
+    Without a stylistic set the window draws as in the old font, or as a ruling covers it: every config in which it differs and no ruling explains it has ss05 on, while ss04, ss10 and ss03 are each off in at least one of them. A config of a “Looks identical” class whose picture changed counts as one no ruling explains.
+    Stylistic sets are checked before joins and width, so a window here is judged as what ss05 does to it. Each takes its own verdict.
+
+- id: only-with-ss10
+  title: "Only with ss10 on"
+  summary: "Default text is unchanged; the difference shows only with ss10 on."
+  why: |
+    Without a stylistic set the window draws as in the old font, or as a ruling covers it: every config in which it differs and no ruling explains it has ss10 on, while ss04 is off in at least one of them. A config of a “Looks identical” class whose picture changed counts as one no ruling explains.
+    Stylistic sets are checked before joins and width, so a window here is judged as what ss10 does to it. Each takes its own verdict. The group is a guard; the corpus lists it only when a window reaches it.
+
+- id: only-with-several-sets
+  title: "Only with stylistic sets on"
+  summary: "Default text is unchanged; the difference shows under more than one stylistic set, and no single set is on in every case."
+  why: |
+    Without a stylistic set the window draws as in the old font, or as a ruling covers it, and no one of ss04, ss10, ss03 and ss05 is on in every config in which it differs and no ruling explains it, as when a window differs under ss03 alone and under ss05 alone. A config of a “Looks identical” class whose picture changed counts as one no ruling explains.
+    Each takes its own verdict. The group is a guard; the corpus lists it only when a window reaches it.
