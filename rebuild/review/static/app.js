@@ -78,6 +78,7 @@ import {
   pillText,
   classTitle,
   classChip,
+  plainText,
   appendCodeRuns,
   rationaleParagraphs,
   sidebarSections,
@@ -1027,7 +1028,11 @@ function renderBatch(units, machine, plan) {
   machineFoldBuilders.clear();
   foldRecords.clear();
   if (units.length === 0 && machine.length === 0 && plan.length === 0) {
-    container.append(el('p', 'empty', 'No units match the current batch and filters.'));
+    const cls = state.class ? classById.get(state.class) : null;
+    const hidden = cls?.section === 'no-review-needed' && state.machine !== '1';
+    container.append(
+      el('p', 'empty', hidden ? 'This kind of change needs no review, so its units are hidden. Turn on “Show units that need no review” to list them.' : 'No units match the current batch and filters.'),
+    );
     return;
   }
   // A provisional plan's fold totals are upper bounds, so the folds may hold no unit that matches the filter. Say that no unit awaiting a verdict matches, so a filter that matched nothing does not look like a full view.
@@ -1380,7 +1385,7 @@ function updateClassProgress(tallies = verdictTallies()) {
     return;
   }
   setText(line, classProgressLine(cls, tallyOf(tallies, cls.id)));
-  line.title = cls.summary ?? '';
+  line.title = plainText(cls.summary ?? '');
   line.hidden = false;
 }
 
@@ -1423,7 +1428,7 @@ function classEntryEl(cls) {
   button.type = 'button';
   button.dataset.class = cls.id;
   button.dataset.section = cls.section;
-  button.title = cls.id;
+  button.title = classChip(cls.id, classInfoById).title;
   button.setAttribute('aria-pressed', String(state.class === cls.id));
   const head = el('span', 'class-head');
   head.append(el('span', 'class-title', classTitle(cls)));
@@ -1538,6 +1543,25 @@ function updateSidebarHighlights() {
     const details = section ? document.querySelector(`#class-list > details[data-section="${section}"]`) : null;
     if (details) details.open = true;
   }
+  const target = currentClass ?? state.class;
+  const button = target ? document.querySelector(`.class-button[data-class="${CSS.escape(target)}"]`) : null;
+  if (button) revealInSidebar(button);
+}
+
+// Scrolls only the sidebar's own pane, never the page: on a narrow window the pane is static and has nothing to scroll, and scrolling the page there would move the units away.
+function revealInSidebar(button) {
+  const nav = button.closest('.class-nav');
+  if (!nav || nav.scrollHeight <= nav.clientHeight) return;
+  const view = nav.getBoundingClientRect();
+  const box = button.getBoundingClientRect();
+  if (box.top >= view.top && box.bottom <= view.bottom) return;
+  nav.scrollTop += box.top - view.top - (view.height - box.height) / 2;
+}
+
+function trackStripHeight() {
+  const strip = document.querySelector('.progress-strip');
+  const root = document.documentElement;
+  new ResizeObserver(() => root.style.setProperty('--strip-height', `${strip.offsetHeight}px`)).observe(strip);
 }
 
 function updateBatchNav() {
@@ -3811,6 +3835,7 @@ if (refusal) {
   refuseCorpus(refusal);
 } else {
   renderChrome();
+  trackStripHeight();
   renderLegend();
   renderSidebar();
   keepTabAlive();

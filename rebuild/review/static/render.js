@@ -566,7 +566,7 @@ export const SECTION_LABELS = {
   'no-review-needed': {
     title: 'No review needed',
     open: false,
-    legend: 'A ruling covers every unit, or every unit draws exactly as in the old font. Hidden unless the machine toggle is on.',
+    legend: 'A ruling covers every unit, or every unit draws exactly as in the old font. Their units stay hidden unless “Show units that need no review” is on.',
   },
 };
 
@@ -632,7 +632,7 @@ export function classChip(id, info) {
   const status = pillStatus(cls);
   return {
     text: classTitle(cls, id),
-    title: cls?.summary ? `${id} — ${cls.summary}` : id,
+    title: cls?.summary ? `${id} — ${plainText(cls.summary)}` : id,
     status,
     pill: status ? pillText(status) : null,
   };
@@ -650,6 +650,12 @@ export function codeRuns(text) {
   }
   if (from < text.length) runs.push({ text: text.slice(from), code: false });
   return runs;
+}
+
+export function plainText(text) {
+  return codeRuns(text)
+    .map((run) => run.text)
+    .join('');
 }
 
 export function appendCodeRuns(target, text, doc = target.ownerDocument) {
@@ -701,7 +707,7 @@ export function sectionTotalsLine(sectionId, classes, tallies = null) {
 
 export function classSectionSentence(cls) {
   if (cls.section === 'spot-check') {
-    return `You ruled this kind of change (${pillText(pillStatus(cls))}). Approve a unit that shows what you ruled; reject one that doesn’t. The Queue skips these.`;
+    return `You ruled this kind of change. Approve a unit that shows what you ruled; reject one that doesn’t. The Queue skips these.`;
   }
   if (cls.section === 'no-review-needed') {
     return `Nothing to judge: a ruling or the machine covers ${cls.unit_count === 1 ? 'its one unit' : `all ${unitCount(cls.unit_count)}`}.`;
@@ -710,7 +716,7 @@ export function classSectionSentence(cls) {
 }
 
 export const LOOKS_IDENTICAL_SENTENCE =
-  'Every unit here draws exactly as in the old font, and the machine approves it. Windows that look different are listed under the kind of change they show.';
+  'Every unit here draws exactly as in the old font, and the machine approves it. Units that look different are listed under the kind of change they show.';
 
 export function classProgressLine(cls, tally = null) {
   const verb = cls.section === 'spot-check' ? 'to confirm' : 'to review';

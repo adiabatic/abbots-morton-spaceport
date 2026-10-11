@@ -1387,12 +1387,11 @@ test('manifestRefusal refuses a manifest without sections, which would otherwise
   assert.equal(PREDATES_APP, 'This corpus predates the app; run the review cycle.');
 });
 
-test('classChip names a class by its title, with its id and summary to hover and its pill status to color it', () => {
+test('classChip names a class by its title, with its id and plain-text summary to hover and its pill status to color it', () => {
   const info = classInfo(manifest);
-  const kept = manifest.classes.find((cls) => cls.id === 'ss03-tea-oy-ligature-kept');
   assert.deepEqual(classChip('ss03-tea-oy-ligature-kept', info), {
     text: 'ss03 keeps the ·Tea+Oy ligature',
-    title: `ss03-tea-oy-ligature-kept — ${kept.summary}`,
+    title: 'ss03-tea-oy-ligature-kept — With ss03 on, ·Tea·Oy still forms ·Tea+Oy, so ·May ~x~ ·Tea.half | ·Oy becomes ·May | ·Tea+Oy.',
     status: 'approved',
     pill: 'you approved',
   });
@@ -1491,7 +1490,7 @@ test('the class header says what each section asks, and the progress strip count
   );
   assert.equal(
     classSectionSentence(spot),
-    'You ruled this kind of change (you approved). Approve a unit that shows what you ruled; reject one that doesn’t. The Queue skips these.',
+    'You ruled this kind of change. Approve a unit that shows what you ruled; reject one that doesn’t. The Queue skips these.',
   );
   assert.equal(
     classSectionSentence({ section: 'no-review-needed', unit_count: 3904, no_verdict: true }),

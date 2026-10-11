@@ -593,8 +593,8 @@ summary:focus-visible {
 .class-nav {
   align-self: start;
   position: sticky;
-  top: 4rem;
-  max-height: calc(100vh - 5rem);
+  top: calc(var(--strip-height, 4rem) + 0.5rem);
+  max-height: calc(100vh - var(--strip-height, 4rem) - 1rem);
   overflow-y: auto;
 
   @media (width < 75em) {
