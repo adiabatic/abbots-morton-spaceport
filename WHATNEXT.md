@@ -26,9 +26,7 @@ The rebuild migrates the cursive-join engine rune by rune and checks each batch 
 
 ## The review app's kinds of change
 
-**Land the class rejig.** It changes every unit id once and then regroups the corpus, so it reaches the main checkout in two lands, and no live artifact or review cycle runs from the first land until the second landing pass, or verdicts are orphaned. Before the first land (the commit “Keep each verdict on its unit when a class is renamed or regrouped”), compute the forward id map from the live corpus and keep it under `var/keep/` (the `rebuild/tools/rekey_verdicts.py` module docstring has the commands); after it, run a staging pass with `--allow-orphans`, re-key the store onto the staged corpus with a dry run first, and run a landing pass with `--keep-history` whose carry orphans nothing. After the second land (the commits that follow it), run a staging pass whose carry must orphan no verdict, then a duplicate-fill preview on a scratch copy of the store for the author to approve, because units re-routed out of the “Looks identical” classes join duplicate groups whose approved twins would fill them unreviewed, then the landing pass with `--keep-history`. Remove this item once that pass's review-facts pins are committed.
-
-The items below move unit ids or counts on purpose, so each is a pass of its own after the rejig's landing pass, with its expected deltas written down before it runs.
+The items below move unit ids or counts on purpose, so each is a pass of its own, with its expected deltas written down before it runs.
 
 **Lift `no_verdict` on `halves-closer-to-no` for one look.** The ruling behind it saw only the half-·Pea and half-·Tea windows, and the half-·He windows, most of the class, came with the ·He migration; the class note says so. Lifting the flag gives the class's units full fragments and new ids and puts them in Spot-check, and orphans no verdict, because no-verdict units carry none. `ss03-tea-oy-ligature-kept` and `may-closer-at-baseline-join` take `no_verdict` only after their stray blanks, which their notes name, are judged.
 
