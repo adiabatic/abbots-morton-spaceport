@@ -153,7 +153,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("corpus-write",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from the corpus build's write (`_WritePool` in rebuild/review/build.py), one per pass whose write ran in more than one worker, with one observation per worker that answered: its peak RSS, which counts its copy of the workload table and of the unit store less the columns the write never reads (`unit_store.WRITE_UNREAD_COLUMNS`) and the per-unit results of the largest run of classes it wrote. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures. The row is quiet on a pass whose write ran in the parent, as a width of one gives.",
+        note="These pool records come from the corpus build's write (`_WritePool` in rebuild/review/build.py), one per pass whose write ran in more than one worker, with one observation per worker that answered: its peak RSS, which counts its copy of the workload table and of the unit store less the columns the write never reads (`unit_store.WRITE_UNREAD_COLUMNS`) and the per-unit results of the heaviest run of classes it wrote, the one with the most human units. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures. The row is quiet on a pass whose write ran in the parent, as a width of one gives.",
         headroom=1.25,
         quantum=10_000_000,
     ),
