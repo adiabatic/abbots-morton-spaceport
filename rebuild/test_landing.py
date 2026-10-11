@@ -1,6 +1,6 @@
 """Tests for the land (`rebuild/review/landing.py`), which moves a pass's corpus and verdict store into place together under the store's lock beside a running review server.
 
-The overlay keeps every set and clear the live store gained after the snapshot over the prepared store, sends a set on a unit the new corpus lacks to the orphan document, drops a skip on a stamp change and clears the verdict the skip replaced, and keeps the live store's tombstones for surviving units. A land whose live store moved to another stamp since the snapshot aborts and keeps the staged tree. The tree swap and its fallback where the filesystem refuses the swap call, the discard rename that never deletes, the discard a land leaves to its caller, the copy-on-write clone, the stash link, the event naming the stash, which holds the sets and clears from the replaced store until the journal's last base is a day old and a base after that, the read of the journal resumed from retention's scan state, and the empty store a pass that carries nothing lands, which it journals as a base because its sets and clears would reach its record count. After a store write the journal missed (a server save whose append failed, was cut short or never ran, or a store copied back after a refused re-key undo) the land journals a base and removes the marker that write left, and the journal restores the live store from that land on. A land killed at each step of its locked section is finished or dropped by the next holder of the lock, which first cuts off what the dead land half appended to the journal, or the sets and clears it appended whole; one whose result is gone is swapped back out, or refused when the old corpus is gone too. The review server's request path does the same while the lock is free and waits while it is held, and its locked save path refuses while a dead land's intent is there. Saves applied through the server's locked POST path while two lands run end either in the landed store or in an orphan document. Last, the code digest the server advertises on /capabilities covers exactly the protocol's modules.
+The overlay keeps every set and clear the live store gained after the snapshot over the prepared store, sends a set on a unit the new corpus lacks to the orphan document, drops a skip on a stamp change and clears the verdict the skip replaced, and keeps the live store's tombstones for surviving units. A land whose live store moved to another stamp since the snapshot aborts and keeps the staged tree. The tree swap and its fallback where the filesystem refuses the swap call, the discard rename that never deletes, the discard a land leaves to its caller, the copy-on-write clone, the stash link, the event naming the stash, which holds the sets and clears from the replaced store until the journal's last base is a day old and a base after that, the read of the journal resumed from retention's scan state, and the empty store a pass that carries nothing lands, which it journals as a base because its sets and clears would reach its record count. After a store write the journal missed (a server save whose append failed, was cut short or never ran, or a store copied back after a refused re-key undo) the land journals a base and removes the marker that write left, and the journal restores the live store from that land on. A land killed at each step of its locked section is finished or dropped by the next holder of the lock, which first cuts off what the dead land half appended to the journal, or the sets and clears it appended whole; one whose result is gone is swapped back out, or refused when the old corpus is gone too. The review server's request path does the same while the lock is free and waits while it is held, and its locked save path refuses while a dead land's intent is there and reads the served corpus only under the lock. Every save applied through that path while two lands run, or a later save on its unit, ends in the landed store, in an orphan document, or, for a save the pass's snapshot already held on a unit the new corpus lacks, in the old corpus's stash. Last, the code digest the server advertises on /capabilities covers exactly the protocol's modules.
 """
 
 import errno
@@ -15,8 +15,14 @@ import pytest
 
 from rebuild.review import journal, landing
 from rebuild.review.serve import DELTA_FORMAT, receive_autosave_locked
-from rebuild.review.store_lock import store_lock
-from rebuild.review.verdict_store import ServedCorpus, VerdictStore, orphan_path, orphans_dir_for
+from rebuild.review.store_lock import holder, lock_path_for, store_lock
+from rebuild.review.verdict_store import (
+    ServedCorpus,
+    VerdictStore,
+    orphan_path,
+    orphans_dir_for,
+    stash_path_for,
+)
 
 
 def record(unit, verdict="approve", note="", at="2026-09-01T00:00:00Z"):
@@ -705,7 +711,7 @@ def test_the_server_path_waits_while_a_land_holds_the_lock_and_finishes_a_dead_o
                 "sets": [record("u-2", "reject", at="2026-09-09T00:00:00Z")],
             }
         ).encode(),
-        ServedCorpus("B", frozenset({"u-1", "u-2"})),
+        lambda: ServedCorpus("B", frozenset({"u-1", "u-2"})),
     )
     assert status == 200 and body["corpus_stamp"] == "B"
     assert set(units(repo["autosave"])) == {"u-1", "u-2"}
@@ -727,14 +733,37 @@ def test_a_save_that_takes_the_lock_after_a_land_died_is_refused_until_the_land_
                 "sets": [record("u-2", "reject", at="2026-09-09T00:00:00Z")],
             }
         ).encode(),
-        ServedCorpus("B", frozenset({"u-1", "u-2"})),
+        lambda: ServedCorpus("B", frozenset({"u-1", "u-2"})),
     )
     assert status == 503 and body["retry"] is True and body["reason"] == "land-interrupted"
     assert (repo["autosave"].read_bytes(), repo["journal"].read_bytes()) == before
 
 
+def test_the_locked_save_path_reads_the_served_corpus_under_the_lock(repo):
+    """A land swaps the corpus under the store's lock, so the server's locked POST path reads the served corpus only once it holds that lock. A corpus read before it could be the one a land has just replaced, and a save stamped for that corpus would carry the landed store back onto it."""
+    store = VerdictStore(repo["autosave"], repo["journal"])
+    reads: list[str | None] = []
+
+    def served() -> ServedCorpus:
+        reads.append(holder(lock_path_for(repo["autosave"])))
+        return ServedCorpus("A", frozenset({"u-1", "u-2", "u-3"}))
+
+    status, _body = receive_autosave_locked(
+        store,
+        json.dumps(
+            {
+                "format": DELTA_FORMAT,
+                "manifest_generated_at": "A",
+                "sets": [record("u-3", "reject", at="2026-09-09T00:00:00Z")],
+            }
+        ).encode(),
+        served,
+    )
+    assert status == 200 and len(reads) == 1 and reads[0] is not None
+
+
 def test_saves_made_while_two_lands_run_end_in_the_store_or_an_orphan_document(repo):
-    """One thread saves through the server's locked POST path, as a tab loaded on the old corpus keeps doing, retrying each 503, while the main thread lands a new corpus and then a store alone. Every save the server acknowledged ends in the final store, with that `at` or a later one, or in an orphan document."""
+    """One thread saves through the server's locked POST path, as a tab loaded on the old corpus keeps doing, retrying each 503, while the main thread lands a new corpus and then a store alone. Every save the server acknowledged ends, with that `at` or a later one, in the final store or an orphan document, or, when the first snapshot already held it on a unit the new corpus lacks, in the old corpus's stash, where the carry leaves it."""
     ids_a = [f"u-{n}" for n in range(1, 31)]
     ids_b = [f"u-{n}" for n in range(1, 21)] + [f"u-{n}" for n in range(31, 41)]
     corpus(repo["live"], "A", ids_a)
@@ -757,7 +786,7 @@ def test_saves_made_while_two_lands_run_end_in_the_store_or_an_orphan_document(r
             sent = record(unit, "reject", at=f"2026-09-10T00:{tick // 60:02d}:{tick % 60:02d}Z")
             body = json.dumps({"format": DELTA_FORMAT, "manifest_generated_at": "A", "sets": [sent]}).encode()
             while True:
-                status, _answer = receive_autosave_locked(store, body, served())
+                status, _answer = receive_autosave_locked(store, body, served)
                 if status == 200:
                     acknowledged.append(sent)
                     break
@@ -787,14 +816,21 @@ def test_saves_made_while_two_lands_run_end_in_the_store_or_an_orphan_document(r
     assert not thread.is_alive()
 
     final = units(repo["autosave"])
+    snapshotted = units(repo["run"] / landing.SNAPSHOT_NAME)
+    stashed = units(stash_path_for(repo["autosave"], "A"))
     kept: list[dict] = []
     for path in orphans_dir_for(repo["autosave"]).glob("*.json"):
         kept.extend(json.loads(path.read_text())["verdicts"])
+
+    def holds(records: dict[str, dict], sent: dict) -> bool:
+        return sent["unit"] in records and records[sent["unit"]]["at"] >= sent["at"]
+
     missing = [
         sent
         for sent in acknowledged
-        if not (sent["unit"] in final and final[sent["unit"]]["at"] >= sent["at"])
-        and not any(entry["unit"] == sent["unit"] and entry["at"] == sent["at"] for entry in kept)
+        if not holds(final, sent)
+        and not any(entry["unit"] == sent["unit"] and entry["at"] >= sent["at"] for entry in kept)
+        and not (sent["unit"] not in ids_b and holds(snapshotted, sent) and holds(stashed, sent))
     ]
     assert acknowledged and missing == []
     assert json.loads(repo["autosave"].read_text())["manifest_generated_at"] == "B"

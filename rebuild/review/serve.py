@@ -1,6 +1,6 @@
 """Dev server for the generated review app. It serves rebuild/out/review/ with livereload on port 7294, as tools/serve.py serves site/ on port 7293, so the two can run at the same time.
 
-The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. POSTs accept only deltas; a whole-store export gets a 400 with recovery instructions and changes nothing. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/, which a pass's land replaces as a whole. Each delta POST is applied with the served corpus (`served_corpus`: the manifest's stamp and human unit ids), so a delta from a tab loaded on another corpus is carried onto the store by unit id when the store is on the served corpus, and its conflicts and orphans are kept in var/verdict-orphans/ and reported back to the tab (`verdict_store` gives the rules). A delta stamped for the served corpus while the store is on another stamp carries the store onto the served corpus by unit id, keeping the old file as verdicts-autosave-<stamp>.json; a delta made on neither corpus gets a retryable 503. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file records only as tombstones. Each POST is applied under the verdict store's lock (rebuild.review.store_lock), which every writer of the store and the journal holds. The server never waits for it, because a POST runs on the IOLoop and waiting would stall every other request: while another writer holds it, a POST gets a 503 with `Retry-After: 1`. The app keeps every unconfirmed save in its outbox in the browser's storage and retries a 503 with backoff, but the save a closing tab sends (the pagehide beacon) is retried only when the app is next opened, so the hand-run writers that take the lock (a merge, a re-key, a restore) refuse to write the live store while a server listens unless --yes is passed. An artifact-cycle pass holds the lock beside a running server only for its store snapshot, its land and its retention's journal tail, a few seconds each.
+The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. POSTs accept only deltas; a whole-store export gets a 400 with recovery instructions and changes nothing. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/, which a pass's land replaces as a whole. Each delta POST is applied with the served corpus (`served_corpus`: the manifest's stamp and human unit ids), so a delta from a tab loaded on another corpus is carried onto the store by unit id when the store is on the served corpus, and its conflicts and orphans are kept in var/verdict-orphans/ and reported back to the tab (`verdict_store` gives the rules). A delta stamped for the served corpus while the store is on another stamp carries the store onto the served corpus by unit id, keeping the old file as verdicts-autosave-<stamp>.json; a delta made on neither corpus gets a retryable 503. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file records only as tombstones. Each POST is applied under the verdict store's lock (rebuild.review.store_lock), which every writer of the store and the journal holds, and reads the served corpus under it, because a land swaps the corpus under the same lock. The server never waits for it, because a POST runs on the IOLoop and waiting would stall every other request: while another writer holds it, a POST gets a 503 with `Retry-After: 1`. The app keeps every unconfirmed save in its outbox in the browser's storage and retries a 503 with backoff, but the save a closing tab sends (the pagehide beacon) is retried only when the app is next opened, so the hand-run writers that take the lock (a merge, a re-key, a restore) refuse to write the live store while a server listens unless --yes is passed. An artifact-cycle pass holds the lock beside a running server only for its store snapshot, its land and its retention's journal tail, a few seconds each.
 
 The server keeps running through every artifact-cycle pass. A pass builds its corpus beside the served one and runs the verdict update on scratch copies of the store, then lands the corpus and the store together under the lock (rebuild.review.landing). A land killed inside that section leaves its intent file (`landing.intent_path_for`); before it answers /autosave or /status, the server finishes such a land when the lock is free, in its executor, and any request to either made while a land still holds the lock gets the retryable 503, so no tab reads the new corpus beside the old store. At boot the server waits for the lock, finishing an interrupted land first, before it loads the store. /capabilities names the land protocol the server speaks, the digest of its protocol modules as it loaded them, its repo root and its store (`capabilities_payload`); the cycle keeps the server running only when that root is its own checkout and that digest is the working tree's, and restarts a server whose code is older.
 
@@ -11,7 +11,7 @@ Usage: uv run python -m rebuild.review.serve
 
 import json
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from rebuild.review import app_index, journal, landing
@@ -92,9 +92,9 @@ def receive_autosave(
 
 
 def receive_autosave_locked(
-    store: VerdictStore, raw: bytes, served: ServedCorpus | None = None
+    store: VerdictStore, raw: bytes, served: Callable[[], ServedCorpus | None] | None = None
 ) -> tuple[int, dict]:
-    """Apply one POST body to `store` under the verdict store's lock, and return the HTTP status and response body. When another writer holds the lock, or a land's intent file is there once the lock is taken (a land died after the request's own check, `landing.intent_path_for`), nothing is applied and the answer is a 503 whose body says to retry; the handler adds `Retry-After`, and the retry's check finishes that land first."""
+    """Apply one POST body to `store` under the verdict store's lock, and return the HTTP status and response body. `served` reads the served corpus, and is called only once the lock is held: a land swaps the corpus under the same lock, so a corpus read before the lock could name the corpus a land has just replaced, and a save stamped for that corpus would carry the landed store back onto it (`verdict_store`, rule 3). With no `served` the served corpus is unknown. When another writer holds the lock, or a land's intent file is there once the lock is taken (a land died after the request's own check, `landing.intent_path_for`), nothing is applied and the answer is a 503 whose body says to retry; the handler adds `Retry-After`, and the retry's check finishes that land first."""
     try:
         with store_lock(store.path, blocking=False):
             if landing.intent_path_for(store.path).exists():
@@ -104,7 +104,7 @@ def receive_autosave_locked(
                     "reason": "land-interrupted",
                     "error": "a pass's land stopped halfway; the server finishes it before the next save",
                 }
-            return store.receive(raw, served)
+            return store.receive(raw, served() if served is not None else None)
     except LockBusy:
         return 503, {
             "ok": False,
@@ -276,7 +276,7 @@ def main() -> None:
             if not await finish_orphaned_land():
                 answer_land_running(self)
                 return
-            status_code, body = receive_autosave_locked(store, self.request.body, served_corpus())
+            status_code, body = receive_autosave_locked(store, self.request.body, served_corpus)
             self.set_status(status_code)
             if status_code == 503:
                 self.set_header("Retry-After", str(RETRY_AFTER_S))
