@@ -1980,10 +1980,10 @@ E651 E662 E653           # ·He yields its entry from ·Bay to its baseline exit
 E653 E662 E653           # ·He yields its entry from ·Day to its baseline exit into half-·Day
 E651 E662 E65D           # ·He yields its entry from ·Bay to its half's exit into ·Jai
 E651 E662 E655           # ·Bay joins ·He when ·He cannot exit into ·Gay
-E651 E662 E670 E65F      # ·He yields its entry from ·Bay to its baseline exit into ·It, which joins ·Jay at the x-height
+E651 E662 E670 E65F      # ·He yields its entry from ·Bay to its half's exit into ·It, which does not join ·Jay
 E651 E662 E67A E656      # ·Bay joins ·He, and the alternate ·Utter takes the baseline join into ·Thaw
 E651 E662 E674 E665      # ·Bay joins ·He, and the falling ·At's extended exit takes ·May
-E662 E670 E65D           # ·He's baseline exit into ·It, whose extended x-height exit reaches ·Jai
+E662 E670 E65D           # ·He before ·It (break), whose extended x-height exit reaches ·Jai
 E662 E670 E656           # ·He's half into ·It, which does not join ·Thaw after a Tall letter
 E662 E670 E653           # ·He's half into ·It, which joins half-·Day at the baseline
 E662 E655                # ·He before ·Gay (break)

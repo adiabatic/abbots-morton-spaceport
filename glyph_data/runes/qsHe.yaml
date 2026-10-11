@@ -67,7 +67,6 @@ stances:
             - qsMay
             - qsLow
             - qsExam
-            - qsIt
             - qsEat
             - qsAt
             - qsI
@@ -131,10 +130,6 @@ policy:
   prefer:
   - cell: {entry: none}
     over: {entry: baseline}
-  - cell: {exit: x-height}
-    over: {exit: baseline}
-    when:
-      right: {family: qsIt}
   extend:
   - exit: baseline
     by: 1
