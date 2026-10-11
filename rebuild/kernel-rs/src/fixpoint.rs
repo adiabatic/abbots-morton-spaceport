@@ -17,7 +17,7 @@ use crate::deep_slots::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, t
 use crate::engine::{CacheSize, Engine, EngineModes, Slots};
 use crate::error::SettleError;
 use crate::fiber::DeepFiberDeriver;
-use crate::hash::{HashMap, HashSet};
+use crate::hash::{HashMap, HashSet, ShardedMap};
 use crate::index::SpecIndex;
 use crate::liveness::ProspectLiveness;
 use crate::memo::{MemoFile, MemoSnapshot, SharedMemo, write_memo};
@@ -333,7 +333,8 @@ fn enumerate_from_seeds<'i>(
     let mut labels = LabelPool::default();
     let mut settled_pool = SettledPool::default();
     let mut notes = NotesPool::default();
-    let mut transitions: HashMap<WindowKey, Row> = HashMap::default();
+    // Sharded so that the map's last doubling, which comes near the enumeration's peak, holds one shard's two tables rather than two tables of every window.
+    let mut transitions: ShardedMap<WindowKey, Row> = ShardedMap::default();
     // The in-flight class-grain rows in creation order, which the member cross-check walks, and a map from each row's key to its index.
     let mut pending_rows: Vec<PendingDeepRow> = Vec::new();
     let mut pending_ids: HashMap<PendingKey, usize> = HashMap::default();
@@ -643,7 +644,8 @@ fn enumerate_from_seeds<'i>(
                             labels.slot(index, right4),
                         ];
                         // A worklist item with different slot restrictions can reach a window key already recorded. The recorded settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit goes straight to the successor enqueue, whose slot restrictions still differ per item. The left-state comparison checks that premise and fails only if `cell_label` stops being injective over settled lefts.
-                        let settled = if let Some(existing) = transitions.get(&window_key) {
+                        let shard = transitions.shard_mut(&window_key);
+                        let settled = if let Some(existing) = shard.get(&window_key) {
                             if existing.left_settled != left_id {
                                 return Err(partition_error(
                                     index,
@@ -666,7 +668,7 @@ fn enumerate_from_seeds<'i>(
                                     ),
                                 )
                                 .map_err(error_message)?;
-                            transitions.insert(
+                            shard.insert(
                                 window_key,
                                 Row {
                                     settled: settled_pool.intern(&trace.settled),
@@ -806,13 +808,14 @@ fn enumerate_from_seeds<'i>(
                 ));
             }
         }
-        if transitions.contains_key(&window_key) {
+        let shard = transitions.shard_mut(&window_key);
+        if shard.contains_key(&window_key) {
             return Err(format!(
                 "deep-class window {:?} collides with an existing row",
                 labels.spelled(&window_key)
             ));
         }
-        transitions.insert(
+        shard.insert(
             window_key,
             Row {
                 settled: pending.settled,
@@ -933,9 +936,10 @@ fn enumerate_from_seeds<'i>(
         .collect();
     // Rank tuples compare in the same order as the label texts, while the rows keep their product-local ids.
     let ranks = labels.ranks();
-    let mut rows: Vec<TransitionRow> = transitions
-        .into_iter()
-        .map(|(key, row)| {
+    // One shard at a time, so each shard's table is freed once its rows have moved.
+    let mut rows: Vec<TransitionRow> = Vec::with_capacity(transitions.len());
+    for shard in transitions.into_shards() {
+        rows.extend(shard.into_iter().map(|(key, row)| {
             let [input_glyph, left, right1, right2, right3, right4] = key;
             TransitionRow {
                 input_glyph,
@@ -950,8 +954,8 @@ fn enumerate_from_seeds<'i>(
                 prospect: row.prospect,
                 joint: row.joint,
             }
-        })
-        .collect();
+        }));
+    }
     rows.sort_unstable_by_key(|row| row.labels().map(|label| ranks[label.0 as usize]));
     if let Some(lines) = cache_stats.as_mut() {
         lines.push(format!(

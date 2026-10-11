@@ -1,4 +1,4 @@
-//! The crate's hash maps and sets: [`HashMap`] and [`HashSet`] are the standard library's tables on [`FastHasher`], a multiply-rotate hasher with an avalanche finalizer, in place of the standard `RandomState` SipHash. Every module imports the two aliases from here and constructs them through `Default`, so no call site names the hasher.
+//! The crate's hash maps and sets: [`HashMap`] and [`HashSet`] are the standard library's tables on [`FastHasher`], a multiply-rotate hasher with an avalanche finalizer, in place of the standard `RandomState` SipHash. Every module imports the two aliases from here and constructs them through `Default`, so no call site names the hasher. [`ShardedMap`] splits one map over many of these tables, for a map large enough that one table's doubling would set a peak.
 //!
 //! The crate's map keys are small `Copy` structs of packed integers: `TraceKey`, `CandidatesKey` and `ProspectKey` in `engine.rs` (each a run of `u16` field ordinals and one packed word of token kinds), `Pointer` beside them, `Candidate` in `types.rs`, `Sym` in `model.rs`, `StanceId` in `index.rs`, and the fixpoint's and the replay's window keys. The three memo keys write their fields packed into two to four words (their `Hash` impls in `engine.rs`), and the others' derived `Hash` makes one write per field. The tables they key are the largest the build holds (`--cache-stats` reports their sizes). The standard SipHash-1-3 has no integer fast path: every write goes through its byte buffer, it runs a compression round per eight bytes, and `finish` runs four more. Settlement pays that on every probe. This hasher folds each word into the state with one rotate, one xor and one multiply.
 //!
@@ -6,13 +6,62 @@
 //!
 //! Two consequences follow. Iteration order over these tables depends only on the keys and is the same in every process, where the standard tables reseed per process. No result depends on that order. Every table that reaches output is drained and sorted first, except the replay's window memo: [`crate::replay::Replay::write_window_memo`] writes its rows in table order, and the file's reader indexes them by window. And the hasher is not collision-resistant: a caller that could choose the keys could choose colliding ones. That does not matter for a build tool reading a spec this repository authors, but a crate fed untrusted input should use the standard hasher.
 
-use std::hash::{BuildHasherDefault, Hasher};
+use std::hash::{BuildHasher, BuildHasherDefault, Hash, Hasher};
 
 /// A hash map on [`FastHasher`]. Build one through `Default` (`HashMap::default()`, `HashMap::with_capacity_and_hasher(n, Default::default())`), because `new` is defined only for the standard hasher.
 pub type HashMap<K, V, S = BuildHasherDefault<FastHasher>> = std::collections::HashMap<K, V, S>;
 
 /// A hash set on [`FastHasher`], built through `Default` for the same reason as [`HashMap`].
 pub type HashSet<T, S = BuildHasherDefault<FastHasher>> = std::collections::HashSet<T, S>;
+
+/// How many bits of a key's hash pick its [`ShardedMap`] shard: four, for sixteen shards, so a doubling allocates a sixteenth of what one table's would. More shards would not lower a peak further: each shard spends more of its growth in tables small enough for the macOS allocator's medium regions, which keep a freed table's pages in the resident size, though not in the footprint, while a freed large table goes back to the system at once. The comment on `SCRATCH_PEAK_BYTES` in `rebuild/pipeline/kernel_exec.py` has the readings.
+const SHARD_BITS: u32 = 4;
+
+/// A hash map split into [`HashMap`] shards by bits of each key's hash that no shard's table reads, so that it grows one shard at a time. A table grows by allocating one of twice as many buckets and moving every entry across before freeing the old one, so while it doubles it holds both, one and a half times the size it grows to; a table of millions of windows that doubles beside the memos near an enumeration's peak raises that peak by its whole new size. The shards take keys at one rate, since the bits that pick a shard are as uniform as the rest of the hash, so they reach each size at about the point one table holding every key would, one after another, and each doubling holds only one shard's two tables beside the others. A caller reaches a key's shard through [`ShardedMap::shard_mut`] and calls the table's own methods there, so a lookup and the insert after it pick the shard once.
+pub struct ShardedMap<K, V> {
+    shards: Vec<HashMap<K, V>>,
+}
+
+impl<K, V> Default for ShardedMap<K, V> {
+    fn default() -> Self {
+        Self {
+            shards: (0..1 << SHARD_BITS).map(|_| HashMap::default()).collect(),
+        }
+    }
+}
+
+impl<K: Hash + Eq, V> ShardedMap<K, V> {
+    /// The index of the shard that holds `key`: the bits just below the hash's top seven. Hashbrown picks a bucket with the low bits and compares the top seven as the control byte, so the keys one shard holds still spread over its buckets and its control bytes.
+    fn index(key: &K) -> usize {
+        let hash = BuildHasherDefault::<FastHasher>::default().hash_one(key);
+        (hash >> (64 - 7 - SHARD_BITS)) as usize & ((1 << SHARD_BITS) - 1)
+    }
+
+    /// The shard that holds `key`, or would hold it once inserted. Insert into it only `key` itself: a different key put there is in the wrong shard, so no later lookup finds it.
+    pub fn shard_mut(&mut self, key: &K) -> &mut HashMap<K, V> {
+        &mut self.shards[Self::index(key)]
+    }
+
+    /// The shards' lengths added up.
+    pub fn len(&self) -> usize {
+        self.shards.iter().map(HashMap::len).sum()
+    }
+
+    /// Whether every shard is empty.
+    pub fn is_empty(&self) -> bool {
+        self.shards.iter().all(HashMap::is_empty)
+    }
+
+    /// The shards' capacities added up.
+    pub fn capacity(&self) -> usize {
+        self.shards.iter().map(HashMap::capacity).sum()
+    }
+
+    /// The shards, to be drained one at a time, so that a drain into another collection frees each shard's table once its entries have moved instead of holding every table until the last entry has.
+    pub fn into_shards(self) -> std::vec::IntoIter<HashMap<K, V>> {
+        self.shards.into_iter()
+    }
+}
 
 /// The hasher behind the crate's tables: one rotate-xor-multiply per word written, and an avalanche finalizer on `finish`. Every unsigned integer write folds one word. The signed writes keep the trait's defaults, which forward to the unsigned ones; a derived `Hash` writes enum and `Option` discriminants as `isize` this way. A byte slice folds eight bytes at a time, then a four-, two- and one-byte tail, each read little-endian so a text hashes the same on every host.
 #[derive(Clone, Copy, Default)]
@@ -127,6 +176,32 @@ mod tests {
             stuck.is_empty(),
             "flipping these (key, bit) pairs in the last word left the low 32 bits of the hash unchanged, which is what a finalizer-less multiply does to every one of them: {stuck:?}"
         );
+    }
+
+    #[test]
+    fn a_sharded_map_holds_each_key_once_and_spreads_the_keys_evenly_over_its_shards() {
+        let key = |n: u32| [n & 63, (n >> 6) & 63, n >> 12, 0, 0, 0].map(crate::stream::Label);
+        let count = 1u32 << 16;
+        let mut map: ShardedMap<[crate::stream::Label; 6], u32> = ShardedMap::default();
+        for n in 0..count {
+            assert_eq!(map.shard_mut(&key(n)).insert(key(n), n), None);
+        }
+        for n in 0..count {
+            assert_eq!(map.shard_mut(&key(n)).get(&key(n)), Some(&n));
+        }
+        assert_eq!(map.len(), count as usize);
+        let mean = count as usize >> SHARD_BITS;
+        let mut drained = Vec::new();
+        for shard in map.into_shards() {
+            assert!(
+                shard.len().abs_diff(mean) < mean / 8,
+                "a shard holds {} keys where the mean is {mean}",
+                shard.len()
+            );
+            drained.extend(shard.into_values());
+        }
+        drained.sort_unstable();
+        assert_eq!(drained, (0..count).collect::<Vec<u32>>());
     }
 
     #[test]
