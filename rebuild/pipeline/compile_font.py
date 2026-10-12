@@ -1,6 +1,6 @@
 """Compile the M1 mini font (M1-PLAN section 5, Group 3).
 
-`build_mini_font` passes `tools/build_font.build_font` a glyph-data dict that holds only legacy `glyphs:` records, with an empty `glyph_families` so the old IR emitter emits nothing, and passes the hand-built FEA as `senior_fea=`. Quikscript glyphs are keyed `<name>.prop` so the Senior build uses them as its proportional glyphs. `build_font` returns the unsaved TTFont (`output_path=None`), and this module packs it and writes the OTF and the `.fea` sidecar itself.
+`build_mini_font` passes `tools/build_font.build_font` a glyph-data dict that holds only legacy `glyphs:` records, with an empty `glyph_families` so the old IR emitter emits nothing, and passes the hand-built FEA as `senior_fea=`. Quikscript glyphs are keyed `<name>.prop` so the Senior build uses them as its proportional glyphs. `build_font` returns the unsaved TTFont (`output_path=None`), and this module packs it and writes the OTF and the `.fea` sidecar itself. The call passes `quiet=True` rather than redirecting stdout, because a redirect swaps `sys.stdout` for the whole process: run_m1's table-only branch writes its `[t]` and `[phase]` lines from another thread while the font compiles, and `rebuild/tools/console.py` resolves `sys.stdout` when each line is written.
 
 Packing must happen before the first save. `pack_gsub.pack_font` repacks the settlement lookup's per-rule format-3 chained-context subtables into shared-ClassDef format-2 subtables on the in-memory font; that module's docstring says why. With follower prefer slots on (`kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT`), the unpacked lookup can overflow its own uint16 subtable-offset array (at about 6,400 merged rules). fontTools' overflow resolution cannot fix an overflow of that array, so the unpacked font cannot be saved at all. `pack_font` runs on every build, so conform tests one code path. `readback.verify_font` checks the packed lookup in the written bytes and reports a failure when the subtable-offset headroom is below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR` or the largest packed group passes `readback.GROUP_RULE_BYTES_CEILING`.
 
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import io
 import sys
-from contextlib import redirect_stdout
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
@@ -93,9 +92,7 @@ def build_mini_font(glyphs: Mapping, fea: str, out_path: Path) -> Path:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     glyph_data = _glyph_data(glyphs)
-    build_log = io.StringIO()
-    with redirect_stdout(build_log):
-        font = build_font(glyph_data, None, variant="senior", senior_fea=fea)
+    font = build_font(glyph_data, None, variant="senior", senior_fea=fea, quiet=True)
 
     try:
         pack_gsub.pack_font(font)

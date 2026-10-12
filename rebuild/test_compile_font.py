@@ -1,10 +1,13 @@
 """Integration test for `compile_font.build_mini_font`: compile six glyphs of four mini-spec letters and a hand-written settlement lookup through `tools/build_font.build_font`'s `senior_fea=` path, then shape and classify the result. The old pipeline is only read, never modified."""
 
+import threading
+
 import pytest
 
 from rebuild.pipeline import compile_font, emit_gpos, geometry, pack_gsub
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId, CellPlan
+from rebuild.tools import console
 
 
 @pytest.fixture(scope="module")
@@ -104,3 +107,22 @@ class TestBuildMiniFont:
         with pytest.raises(compile_font.GroupTooLargeError, match="over the 64,000 bytes"):
             compile_font.build_mini_font(glyphs, fea, out_path)
         assert not out_path.exists()
+
+    def test_another_threads_lines_reach_stdout_while_the_font_compiles(
+        self, inputs, tmp_path, monkeypatch, capsys
+    ):
+        """run_m1's table-only branch writes its `[t]` and `[phase]` lines from its own thread while the glyph chain compiles the font, and `console` resolves `sys.stdout` when each line is written, so such a line reaches stdout only while the compile leaves the process's stdout in place. The probe thread writes its line from inside the `build_font` call, and `build_font(quiet=True)` adds nothing of its own."""
+        import build_font
+
+        real_build_font = build_font.build_font
+
+        def build_beside_a_thread(*args, **kwargs):
+            thread = threading.Thread(target=console.timing, args=("probe", 0.0))
+            thread.start()
+            thread.join()
+            return real_build_font(*args, **kwargs)
+
+        monkeypatch.setattr(build_font, "build_font", build_beside_a_thread)
+        glyphs, fea, _names = inputs
+        compile_font.build_mini_font(glyphs, fea, tmp_path / "M1Probe.otf")
+        assert capsys.readouterr().out == "[t] probe 0.0s\n"

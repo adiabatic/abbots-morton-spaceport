@@ -1024,6 +1024,7 @@ def build_font(
     senior_fea: str | None = None,
     compiled: CompiledGlyphSet | None = None,
     senior_otl: CompiledSeniorOTL | None = None,
+    quiet: bool = False,
 ) -> TTFont:
     """Build a CFF OpenType font for one variant and style, write it to *output_path* unless that is None, and return the TTFont.
 
@@ -1034,6 +1035,7 @@ def build_font(
         senior_fea: Precomputed Senior feature code from `build_senior_fea`, used only for Senior. When None, the build emits its own.
         compiled: The variant's compiled glyph set. `bold` does not affect it, so `main()` compiles Senior once for both Senior jobs. When None, the build compiles its own.
         senior_otl: The Senior GDEF, GSUB, and GPOS from `compile_senior_otl`, used only for Senior. When given, the build writes these bytes instead of compiling the feature code.
+        quiet: Print nothing: no save or feature-code lines, no GSUB budget, and no summary.
     """
     metadata = glyph_data.get("metadata", {})
     is_proportional = variant != "mono"
@@ -1308,10 +1310,13 @@ def build_font(
 
         if output_path is not None:
             fea_path = output_path.with_suffix(".fea")
-            if _write_if_changed(fea_path, (fea_code + "\n").encode()):
-                print(f"  Feature code saved to: {fea_path}")
-            else:
-                print(f"  Feature code unchanged: {fea_path}")
+            fea_saved = _write_if_changed(fea_path, (fea_code + "\n").encode())
+            if not quiet:
+                print(
+                    f"  Feature code saved to: {fea_path}"
+                    if fea_saved
+                    else f"  Feature code unchanged: {fea_path}"
+                )
 
     # The mono build has no feature code of its own. It copies Departure Mono's layout tables so DM's shaping (its substitutions, such as ccmp and locl, and its mark positioning) works for the DM glyphs. The Quikscript letters are in none of these lookups.
     if variant == "mono":
@@ -1329,17 +1334,17 @@ def build_font(
                 fb.save(buffer)
         else:
             fb.save(buffer)
-        if _write_if_changed(output_path, buffer.getvalue()):
-            print(f"Font saved to: {output_path}")
-        else:
-            print(f"Font unchanged: {output_path}")
-        if is_senior:
-            _report_gsub_budget(output_path, fea_code)
+        font_saved = _write_if_changed(output_path, buffer.getvalue())
+        if not quiet:
+            print(f"Font saved to: {output_path}" if font_saved else f"Font unchanged: {output_path}")
+            if is_senior:
+                _report_gsub_budget(output_path, fea_code)
 
-    print(f"  Variant: {variant}")
-    print(f"  Glyphs: {len(glyph_order)}")
-    print(f"  Units per em: {units_per_em}")
-    print(f"  Pixel: {pixel_width}×{pixel_height} units")
+    if not quiet:
+        print(f"  Variant: {variant}")
+        print(f"  Glyphs: {len(glyph_order)}")
+        print(f"  Units per em: {units_per_em}")
+        print(f"  Pixel: {pixel_width}×{pixel_height} units")
 
     font = fb.font
     font._fea_code = fea_code  # pyright: ignore[reportAttributeAccessIssue]
