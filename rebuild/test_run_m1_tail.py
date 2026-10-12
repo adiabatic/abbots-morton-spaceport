@@ -1,4 +1,4 @@
-"""Tests for the end of `run_m1.run`: the table-only branch (the string replay, the witness stage, the shipped-order walks) running beside the glyph chain, the window packing that runs after the head reads, and the join that decides the gate. The build reports the first failure in serial order, whatever the glyph chain made of the tables. The witness stage runs after the replay that fills the settle memo it loads. The oracle starts once the replay has returned, but writes the settle memo only once the witness stage's writes are on disk. Every stage that runs the crate or compiles a font is stubbed with a barrier or a recorder; the packing tests build the mini fixture's real tables, because the packer is what they test."""
+"""Tests for the end of `run_m1.run`: the table-only branch (the string replay, the witness stage, the shipped-order walks) running beside the glyph chain, the window packing that runs after the head reads, and the join that decides the gate. The build reports the first failure in serial order, whatever the glyph chain made of the tables. The witness stage runs after the replay that fills the settle memo it loads. The oracle starts once the replay has returned, but writes the settle memo only once the witness stage's writes are on disk. Every stage that runs the crate, spawns a process or compiles a font is stubbed with a barrier or a recorder; the packing tests build the mini fixture's real tables, because the packer is what they test."""
 
 import functools
 import json
@@ -73,7 +73,7 @@ def _stub_gates(
     on_witnesses=None,
     on_emitted=None,
 ):
-    """Stubs the three table-only stages as recorders: each appends its start and end to `events`, calls its hook in between, and returns the summary it was given. The table build is stubbed too, so no crate runs."""
+    """Stubs the three table-only stages as recorders: each appends its start and end to `events`, calls its hook in between, and returns the summary it was given. The witness stage is stubbed where the branch spawns its process (`_spawn_rule_witnesses`), so no process starts, and its stub reports a peak of zero. The table build is stubbed too, so no crate runs."""
     monkeypatch.setattr(
         run_m1,
         "build_tables",
@@ -90,12 +90,12 @@ def _stub_gates(
         events.append("replay:done")
         return dict(replay)
 
-    def run_rule_witnesses(spec, tables, out_dir, memo_inputs):
+    def spawn_rule_witnesses(spec, tables, out_dir, memo_inputs):
         events.append("witnesses:start")
         if on_witnesses is not None:
             on_witnesses()
         events.append("witnesses:done")
-        return dict(witnesses)
+        return dict(witnesses), 0
 
     def run_emitted_order(spec, tables, out_dir, ready=None):
         for config in tables:
@@ -108,7 +108,7 @@ def _stub_gates(
         return dict(emitted)
 
     monkeypatch.setattr(run_m1, "run_replay_strings", run_replay_strings)
-    monkeypatch.setattr(run_m1, "run_rule_witnesses", run_rule_witnesses)
+    monkeypatch.setattr(run_m1, "_spawn_rule_witnesses", spawn_rule_witnesses)
     monkeypatch.setattr(run_m1, "run_emitted_order", run_emitted_order)
 
 

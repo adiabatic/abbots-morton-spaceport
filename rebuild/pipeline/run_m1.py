@@ -2,7 +2,7 @@
 
 First, `build_tables` builds the decision and join tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the table's row chains, and writes the window enumeration stamped with the fingerprint of its sources. `--conform-only` takes its glyph inventory from that enumeration and stops with an error when it is stale or missing. The payloads are packed on a background pool once their heads are read.
 
-Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`run_rule_witnesses`, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
+Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`run_rule_witnesses`, in a spawned process of its own, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
 
 `main` then runs the Manual-pin gate and the oracle. The oracle starts once the string replay has returned, beside the witness stage, and writes to the settle memo files only after the witness stage's writes are on disk. `main` joins the table-only branch after the oracle, before it decides the run_m1 gate. The join raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order), and any of those is raised in place of a glyph-chain failure, so a failing build reports what a serial build would.
 
@@ -678,7 +678,7 @@ def _defect_summary_fields(report: defects.DefectReport) -> dict:
 
 @dataclass
 class _TableGateState:
-    """What the table-only branch leaves for `TableGates`. `replay_ready` is set once the string replay has returned, with every settle memo file it fills on disk, and `memo_ready` once the witness stage's settle memo writes are on disk too. Both are also set as soon as the replay-then-witness sequence fails. The `*_red` fields hold the exception each stage would have raised in a serial run. The summaries reach their readers as the JSON files each stage writes."""
+    """What the table-only branch leaves for `TableGates`. `replay_ready` is set once the string replay has returned, with every settle memo file it fills on disk, and `memo_ready` once the witness stage's process has returned, with its settle memo writes on disk too. Both are also set as soon as the replay-then-witness sequence fails. The `*_red` fields hold the exception each stage would have raised in a serial run. The summaries reach their readers as the JSON files each stage writes."""
 
     replay_ready: threading.Event = field(default_factory=threading.Event)
     memo_ready: threading.Event = field(default_factory=threading.Event)
@@ -717,7 +717,9 @@ def _run_table_gates(
     replay_threads: int | None,
     state: _TableGateState,
 ) -> None:
-    """Run the table-only branch on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, or the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage runs after it. The order matters: a full replay writes each configuration's settle memo file whole (`conform.absorb_replay_memo`), and the witness stage then loads the rows of that file its certificates can ask for, writes the windows it settled fresh as a part, and merges the part into the file before it returns. `state.replay_ready` is set once the replay has returned, and the oracle starts after it. `state.memo_ready` is set once the witness stage's files are on disk, and the oracle's own memo writes wait for it. Both are set as soon as that sequence fails, and `TableGates` also sets them when this thread ends any other way, so a wait on either never hangs.
+    """Run the table-only branch on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, or the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage runs after it, in one spawned process this thread waits on (`_spawn_rule_witnesses`). The order matters: a full replay writes each configuration's settle memo file whole (`conform.absorb_replay_memo`), and the witness stage then loads the rows of that file its certificates can ask for, writes the windows it settled fresh as a part, and merges the part into the file before its process returns. `state.replay_ready` is set once the replay has returned, and the oracle starts after it. `state.memo_ready` is set once the witness stage's process has returned with its files on disk, and the oracle's own memo writes wait for it. Both are set as soon as that sequence fails, and `TableGates` also sets them when this thread ends any other way, so a wait on either never hangs.
+
+    The witness stage's walk is CPU-bound Python, so it gets a process of its own. On a thread of run_m1's process it would hold the interpreter lock that the main thread needs for the glyph chain and the oracle's setup, and slow both, the work that reads and hashes files most (`[t] stage_a`, and the cache keys within `[t] oracle_setup`). The process runs one serial walk over the configurations. A process per configuration would need a memory-derived width of its own (`doc/parallelism.md`) and would take cores from the oracle's pool, which takes every core. The process gets the spec, each configuration's decision table, the output directory and the memo inputs, and runs the formation-guard sweep itself. It writes `witness_summary.json` and merges its parts into the settle memo files before it returns, so `TableGates.wait_for_memo` orders its writes before any oracle write. Its `[t] rule_witnesses[<config>]` lines go to the stdout it inherits, and the `[t] rule_witnesses` line this thread prints carries its peak memory (`rss_token`).
 
     When `inputs` is given, the shipped-order walks run on a thread of their own beside that sequence, one walk per configuration up to the cores (`_core_bound_threads`, from the configuration count and the cores, not from the build's or the oracle's width), each waiting for its own configuration's pack (`Packing.wait`). They are not narrowed to the cores the oracle's pool leaves: that pool uses the whole machine, so the walks would run one at a time on the critical path. What remains of them shares the machine with the pool's first seconds, the overlap `doc/parallelism.md` describes. The packing is closed here after the last walk. Nothing is raised from this thread: each stage's exception is stored in `state`, and `TableGates` raises the first one in serial order.
     """
@@ -745,8 +747,8 @@ def _run_table_gates(
 
             console.phase("rule_witnesses")
             start = time.perf_counter()
-            witness_summary = run_rule_witnesses(spec, tables, out_dir, memo_inputs)
-            console.timing("rule_witnesses", time.perf_counter() - start)
+            witness_summary, witness_peak = _spawn_rule_witnesses(spec, tables, out_dir, memo_inputs)
+            console.timing("rule_witnesses", time.perf_counter() - start, rss_token(witness_peak))
             if not witness_summary["pass"]:
                 raise conform.WitnessError(
                     f"{len(witness_summary['failures'])} rule(s) whose certificate does not fire them; see {out_dir / 'witness_summary.json'}"
@@ -767,11 +769,11 @@ def _run_table_gates(
 
 
 class TableGates:
-    """The handle `run` returns for its table-only branch, with the two points where the oracle waits for it. `wait_for_replay` is called before the oracle starts: it blocks until the string replay has returned (every settle memo file the replay fills is on disk, and the replay crate has exited), reports the wait as `[t] settle_memo_wait`, and raises the replay's failure, or the witness stage's if that stage has already failed. `wait_for_memo` is called before the oracle writes a shared settle memo file: it blocks until the witness stage has returned, with its parts merged into the settle memo files, reports the wait as `[t] witness_memo_wait`, and raises either failure.
+    """The handle `run` returns for its table-only branch, with the two points where the oracle waits for it. `wait_for_replay` is called before the oracle starts: it blocks until the string replay has returned (every settle memo file the replay fills is on disk, and the replay crate has exited), reports the wait as `[t] settle_memo_wait`, and raises the replay's failure, or the witness stage's if that stage has already failed. `wait_for_memo` is called before the oracle writes a shared settle memo file: it blocks until the witness stage's process has returned, with its parts merged into the settle memo files, reports the wait as `[t] witness_memo_wait`, and raises either failure.
 
     For each configuration, the witness stage writes the windows it settles fresh as a part and merges the part into that configuration's file (`conform.absorb_settle_memo_parts`), and that merge reads the file and writes it back whole with the part's windows added. An oracle write between that read and that write would be lost, and an oracle write based on a read made before the merge's write would drop the stage's windows. So the oracle makes no write to a shared file before `wait_for_memo` (`run_oracle`'s `memo_ready`): its pooled ranges write only parts, which it merges into the files after the wait, and its `--jobs 1` walks, which replace the files whole, start after the wait. The witness stage is then the only writer while the two overlap, and every oracle write includes what the stage wrote.
 
-    `join` waits for the whole branch and raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order). `first_red` returns that failure instead, for the paths where the glyph chain has also failed and the branch's failure is raised in its place. Call `close` in a `finally`, so no thread or pool outlives the run on an interrupt.
+    `join` waits for the whole branch and raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order). `first_red` returns that failure instead, for the paths where the glyph chain has also failed and the branch's failure is raised in its place. Call `close` in a `finally`, so no thread, pool or process outlives the run on an interrupt. It waits for the branch, which shuts the witness stage's pool down before it ends. A Ctrl-C reaches the witness stage's process as well, since that process stays in run_m1's process group, so on an interrupt the wait ends as soon as that process does.
     """
 
     def __init__(
@@ -849,7 +851,7 @@ def run(
     overlap_memo_writes: bool | None = None,
     scratch_beside_default: int | None = None,
 ) -> tuple[dict, TableGates]:
-    """Build the tables, then run two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage and the shipped-order walks. The glyph chain (minting, the defect gates, the emission, the compile and read-back) runs on the calling thread, writes `pipeline_summary.json` and the Stage A record, and returns its summary with the branch's `TableGates` handle without joining the branch. The caller joins it: `main` calls `wait_for_replay` before the oracle, passes `wait_for_memo` for the oracle to call before its memo writes, calls `join` after the oracle so the gate covers both branches, and calls `close` in a `finally`. When the glyph chain raises, the branch's first failure is raised in its place if there is one, so a failed replay is reported as incomplete tables and not as whatever the glyph chain made of them.
+    """Build the tables, then run two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage (in a spawned process of its own) and the shipped-order walks. The glyph chain (minting, the defect gates, the emission, the compile and read-back) runs on the calling thread, writes `pipeline_summary.json` and the Stage A record, and returns its summary with the branch's `TableGates` handle without joining the branch. The caller joins it: `main` calls `wait_for_replay` before the oracle, passes `wait_for_memo` for the oracle to call before its memo writes, calls `join` after the oracle so the gate covers both branches, and calls `close` in a `finally`. When the glyph chain raises, the branch's first failure is raised in its place if there is one, so a failed replay is reported as incomplete tables and not as whatever the glyph chain made of them.
 
     `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memo files the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from, and so do `overlap_memo_writes` and `scratch_beside_default` (`build_tables`). `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
     """
@@ -972,7 +974,9 @@ def _run_glyph_chain(
         "font": str(font_path),
     }
     (out_dir / "pipeline_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    start = time.perf_counter()
     fingerprint.write_stage_a(REPO_ROOT, out_dir)
+    console.timing("stage_a", time.perf_counter() - start)
     return summary
 
 
@@ -1177,7 +1181,7 @@ def _absorb_replay_memo(
 
 def run_rule_witnesses(
     spec: ResolvedSpec,
-    tables: Mapping[str, tuple],
+    tables: Mapping[str, tuple | DecisionTable],
     out_dir: Path,
     memo_inputs: oracle_cache.SettleMemoInputs | None,
 ) -> dict:
@@ -1185,7 +1189,7 @@ def run_rule_witnesses(
 
     Each configuration's walk shares the settle memo that the string replay fills and the oracle and the conformance sweep load (`conform.settle_memo_files`, keyed per family from `memo_inputs`, as the oracle row cache is), so a window any of them has settled since the runes it names last changed is settled once. After a full replay, this stage serves every certificate's windows from the file the replay just wrote and settles only what a narrowed replay left out. The certificates ask for a small part of the file, so the walk loads only the rows its certificate texts can ask for (`conform._SettledWindowWalk.load_only_asked_by`). It writes the windows it settled fresh as a part in a scratch directory (`SettleMemoFile.write_path`, the same form each row range of the pooled oracle uses), and this stage merges the part into the shared file (`conform.absorb_settle_memo_parts`) inside the configuration's timed span. The file then holds every existing window plus the fresh ones, and a walk that settled nothing writes no part and leaves the file unchanged. Because the key is per family, a rune edit invalidates only the memo entries naming an edited family, so only the certificates naming one are settled again. A caller with its own spec has no memo inputs and no memo, and settles everything.
 
-    The summary is written to `witness_summary.json`; a failure is raised at the join, ahead of any glyph-chain failure. The stage runs after the string replay on the table-only branch (`_run_table_gates`), so it can load the file the replay wrote. The oracle also starts once the replay has returned, but it makes no write to a shared file until this stage has returned (`TableGates.wait_for_memo`). Its pooled ranges may map the file before or after this stage's merge, and they write the windows they settle fresh as parts, which the oracle merges into the files only after that wait. Its `--jobs 1` walks replace the files whole and start only after that wait, so any file one of them maps already holds this stage's windows. So no oracle write can produce a file without this stage's windows or be overwritten by this stage's.
+    `tables` maps each configuration to its decision table, alone or with its join table, which this stage never reads. The summary is written to `witness_summary.json`; a failure is raised at the join, ahead of any glyph-chain failure. The build runs this stage in a spawned process of its own (`_spawn_rule_witnesses`), which the table-only branch (`_run_table_gates`) starts after the string replay, so it can load the file the replay wrote. The oracle also starts once the replay has returned, but it makes no write to a shared file until this stage has returned (`TableGates.wait_for_memo`). Its pooled ranges may map the file before or after this stage's merge, and they write the windows they settle fresh as parts, which the oracle merges into the files only after that wait. Its `--jobs 1` walks replace the files whole and start only after that wait, so any file one of them maps already holds this stage's windows. So no oracle write can produce a file without this stage's windows or be overwritten by this stage's.
     """
     guard_verdicts = kernel_exec.guard_sweep(spec)
     memos = conform.settle_memo_files(out_dir, spec, memo_inputs)
@@ -1225,6 +1229,37 @@ def run_rule_witnesses(
     summary = {"pass": not failures, "configs": per_config, "failures": failures[:50]}
     (out_dir / "witness_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
+
+
+def _spawn_rule_witnesses(
+    spec: ResolvedSpec,
+    tables: Mapping[str, tuple],
+    out_dir: Path,
+    memo_inputs: oracle_cache.SettleMemoInputs | None,
+) -> tuple[dict, int]:
+    """Run the witness stage (`run_rule_witnesses`) in one spawned process, block until it returns, and return its summary and the process's peak memory. The process gets each configuration's decision table without its join table. `_run_table_gates` calls this and says why the stage has a process of its own."""
+    decisions = {
+        config: entry[0] if isinstance(entry, (tuple, list)) else entry for config, entry in tables.items()
+    }
+    with _spawn_pool(1, 1) as pool:
+        return pool.submit(_rule_witnesses_child, spec, decisions, out_dir, memo_inputs).result()
+
+
+def _rule_witnesses_child(
+    spec: ResolvedSpec,
+    decisions: Mapping[str, DecisionTable],
+    out_dir: Path,
+    memo_inputs: oracle_cache.SettleMemoInputs | None,
+) -> tuple[dict, int]:
+    """Run the witness stage in the process `_spawn_rule_witnesses` starts, with the cyclic collector off as in run_m1's own process, and return its summary and this process's peak memory (`peak_rss_self_bytes`)."""
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        summary = run_rule_witnesses(spec, decisions, out_dir, memo_inputs)
+    finally:
+        if enabled:
+            gc.enable()
+    return summary, peak_rss_self_bytes()
 
 
 EMITTED_ORDER_SUMMARY = "emitted_order_summary.json"
@@ -1800,7 +1835,7 @@ def _absorb_settle_memo_parts(
 def _shard_settle_memo(
     memo: conform.SettleMemoFile | None, scratch: Path, shard: oracle.OracleShard
 ) -> conform.SettleMemoFile | None:
-    """Return the settle memo file one row range reads and writes: it reads the configuration's shared file and writes its own part under the run's scratch directory, whether or not the configuration is split into several ranges. So no range replaces the shared file, either over another range of its configuration or over the witness stage, which can be merging its own part into that file while the pool runs. The parent merges every part once all the ranges have finished and the witness stage has returned."""
+    """Return the settle memo file one row range reads and writes: it reads the configuration's shared file and writes its own part under the run's scratch directory, whether or not the configuration is split into several ranges. So no range replaces the shared file, either over another range of its configuration or over the witness stage's process, which can be merging its own part into that file while the pool runs. The parent merges every part once all the ranges have finished and the witness stage's process has returned."""
     if memo is None:
         return None
     return replace(memo, write_path=oracle.settle_memo_part(scratch, shard.config, shard.index))
@@ -1815,7 +1850,7 @@ def run_oracle(
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
     memo_ready: Callable[[], None] | None = None,
 ) -> dict:
-    """Run the baseline oracle (`rebuild/M1-PLAN.md` §6) over the subset tables, reading the row cache before the first row and writing it after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table: `oracle.oracle_shard_plan` splits every table (by the row counts the subset stamp records, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that each of `jobs` workers gets an equal share of the whole, and `_spawn_pool` starts up to `jobs` workers, one per range at most. Each range writes its own audit segment and store segment, and writes the settle memo windows it settled fresh as a part. The parent merges the ranges' tallies (`oracle.merge_config_shards`), concatenates the segments (`oracle.join_oracle_audit`, `oracle_cache.join_store_segments`), and merges the parts into the shared memo files (`conform.absorb_settle_memo_parts`, on the same pool, each merge's peak recorded in the pool record as `<config> absorb` beside the ranges'), all in row order, so the summary, the audit and every store's records match an unsplit run. The crate's formation-guard verdicts are computed once here and passed with every submission, as in the conformance sweep's fan-out.
+    """Run the baseline oracle (`rebuild/M1-PLAN.md` §6) over the subset tables, reading the row cache before the first row and writing it after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table: `oracle.oracle_shard_plan` splits every table (by the row counts the subset stamp records, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that each of `jobs` workers gets an equal share of the whole, and `_spawn_pool` starts up to `jobs` workers, one per range at most. Each range writes its own audit segment and store segment, and writes the settle memo windows it settled fresh as a part. The parent merges the ranges' tallies (`oracle.merge_config_shards`), concatenates the segments (`oracle.join_oracle_audit`, `oracle_cache.join_store_segments`), and merges the parts into the shared memo files (`conform.absorb_settle_memo_parts`, on the same pool, each merge's peak recorded in the pool record as `<config> absorb` beside the ranges'), all in row order, so the summary, the audit and every store's records match an unsplit run. The crate's formation-guard verdicts are computed once here and passed with every submission, as in the conformance sweep's fan-out. `[t] oracle_setup` times this process's work before the pool takes over, from entry to the last range's submission: the cache keys, the shard plan, the guard sweep and the submissions.
 
     `memo_inputs` is `settle_memo_inputs` as the caller took it before loading `spec`, and names the settle memo files this pass shares with the conformance sweep (`conform.settle_memo_files`). The oracle's rows are the conformance sweep's texts, so a settlement configuration whose file the replay or the conformance sweep already wrote under these keys settles nothing here, and one neither has reached yet writes the file the conformance sweep will load. A caller with no inputs shares nothing, and the overlay configuration has no memo, since its worker settles nothing. `memo_ready`, when given, is called before this pass writes a shared settle memo file. On the pooled path that is once every range has finished, because ranges write only parts and the parent's merges are the pass's only writes to the files. On the `--jobs 1` path it is before the first walk, because those walks replace the files whole as they go. `main` passes `TableGates.wait_for_memo`, which returns once the witness stage has merged its own part into each file. That lets the pool start after the string replay alone while the witness stage still runs: a range reads a whole file whether it maps it before or after the witness stage's merge, and every write this pass makes includes what the witness stage wrote.
 
@@ -1827,6 +1862,7 @@ def run_oracle(
 
     Every range's peak is recorded as one observation of the `oracle-shard` pool (`cycle_timings.record_pool`), which `make job-costs` compares against `artifact_cycle.ORACLE_SHARD_BYTES`, and every absorb's, labeled `<config> absorb`, which it compares against `artifact_cycle.ORACLE_ABSORB_BYTES`.
     """
+    setup_started = time.perf_counter()
     if spec is None:
         spec = load_default_spec()
     oracle.discard_oracle_audit_scratch(out_dir)
@@ -1892,6 +1928,7 @@ def run_oracle(
                     ): shard
                     for shard in shards
                 }
+                console.timing("oracle_setup", time.perf_counter() - setup_started)
                 done = 0
                 for future in as_completed(futures):
                     result = future.result()

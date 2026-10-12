@@ -1,6 +1,6 @@
 """Tests for rule certificates. The table builder emits each settlement rule with a certificate: a string completed from the shortest row chain that reaches a row the rule first-matches (`certificate.rs`). The build's witness stage (`run_m1.run_rule_witnesses`, over `witness.check_rule_certificates`) settles each certificate through the crate and asserts that its rule fires. This is the reachability part of the checks that fail the build on a rule that can never fire. A rule that no string fires is dead code in the emitted FEA, which is a generator defect. The fold cannot check this, because its unreachable-rule check replays only the table's own rows, and a row is reachable only if its left state is. The worked example is the `qsNo.loop qsMay' qsMay …` rules, whose certificates run from ·Out+Tea·No·May·May to ones as long as ·Out+Tea·No·May·May·Gay·At·May. No affordable exhaustive sweep reaches that length (the per-edit sweep stops at `conform.SWEEP_MAX_LENGTH`), so the certificate is what keeps the check exact as the alphabet grows.
 
-The stage runs in the build and not in this suite, because a certificate is a fact about the tables it was folded beside, and only the run that folded them can check it without first checking that the tables are current. A failing certificate fails the run_m1 gate, and `--gates-only` reuses tables that passed. This module tests the machinery on the mini fixture, without a font or a stamped artifact: both mini tables are certified rule for rule, a certificate that names the wrong text is reported, a table whose certificates do not cover its rules has none of them checked, and every row the fold emits names sources among the certified rules, exactly one row per rule.
+The stage runs in the build and not in this suite, because a certificate is a fact about the tables it was folded beside, and only the run that folded them can check it without first checking that the tables are current. A failing certificate fails the run_m1 gate, and `--gates-only` reuses tables that passed. This module tests the machinery on the mini fixture, without a font or a stamped artifact: both mini tables are certified rule for rule, a certificate that names the wrong text is reported, a table whose certificates do not cover its rules has none of them checked, the stage run in its own process writes what it writes in process, and every row the fold emits names sources among the certified rules, exactly one row per rule.
 
 The emitted lookup is covered by construction: `emit_gsub._assert_fold_sources` raises at emit time unless every table rule of every configuration folds into exactly one emitted row, so a build that compiled a font cannot have dropped or doubled a certified rule.
 """
@@ -144,6 +144,22 @@ def test_the_witness_stage_writes_a_summary_and_shares_the_settle_memo(spec, tab
     again = run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs)
     for config in CONFIGS:
         assert again["configs"][config]["served_windows"] and not again["configs"][config]["fresh_windows"]
+
+
+def test_the_stage_in_a_process_of_its_own_writes_what_it_writes_in_process(spec, tables, tmp_path):
+    """The build runs the stage in one spawned process (`run_m1._spawn_rule_witnesses`), which gets each configuration's decision table without its join table and runs its own formation-guard sweep. Over the mini tables it returns the summary the stage returns in this process, writes the same `witness_summary.json` and settle memo files, and reports its own peak memory."""
+    inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+    here, apart = tmp_path / "here", tmp_path / "apart"
+    here.mkdir()
+    apart.mkdir()
+    summary = run_m1.run_rule_witnesses(spec, tables, here, inputs)
+    spawned, peak = run_m1._spawn_rule_witnesses(spec, tables, apart, inputs)
+    assert summary["pass"] and spawned == summary
+    assert peak > 0
+    assert (apart / "witness_summary.json").read_bytes() == (here / "witness_summary.json").read_bytes()
+    for config in CONFIGS:
+        written = conform.settle_memo_files(apart, spec, inputs)[config].path
+        assert written.read_bytes() == conform.settle_memo_files(here, spec, inputs)[config].path.read_bytes()
 
 
 def _memo_rows(memo, spec) -> set[tuple[str, ...]]:
