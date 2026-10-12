@@ -477,7 +477,7 @@ def test_both_contracts_callers_make_the_same_lifecycle_decisions(contracts_tree
             return ac._StepResult(name, returncode, stdout, "", 0.1)
 
         gate = ac._gate_contracts_task(
-            "overlap", None, None, spawn, ac._Emitter(), ac._ChildRegistry(), ac.contracts_argv(), force, True
+            False, None, None, spawn, ac._Emitter(), ac._ChildRegistry(), ac.contracts_argv(), force, True
         )
         result_ok = gate.outcome in {"green", "skipped"}
     assert result_ok == (case != "failure")
@@ -522,7 +522,7 @@ def test_queued_contracts_refreshes_selection_after_waiting(contracts_tree, monk
         return ac._StepResult(name, 0, "", "", 0.1)
 
     gate = ac._gate_contracts_task(
-        "queue", None, finished, spawn, ac._Emitter(), ac._ChildRegistry(), ac.contracts_argv(), False, True
+        True, None, finished, spawn, ac._Emitter(), ac._ChildRegistry(), ac.contracts_argv(), False, True
     )
     assert gate.ok and selected == [frozenset()]
     record = ac.read_green_record(ac.contracts_green())
@@ -544,7 +544,7 @@ def test_spawn_exception_clears_the_matching_record_and_propagates(contracts_tre
             rg.main(["--force"])
         else:
             ac._gate_contracts_task(
-                "overlap",
+                False,
                 None,
                 None,
                 failed,
@@ -562,7 +562,7 @@ def test_an_unpublished_cycle_run_leaves_the_green_record_alone(contracts_tree, 
     monkeypatch.setattr(ac, "ROOT", contracts_tree)
     original = ac.contracts_green().read_bytes()
     gate = ac._gate_contracts_task(
-        "overlap",
+        False,
         None,
         None,
         lambda name, argv, **kwargs: ac._StepResult(name, 1, "", "", 0.1),

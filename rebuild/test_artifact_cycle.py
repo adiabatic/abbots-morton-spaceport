@@ -1110,12 +1110,12 @@ def _make_ok(argv, spawn, emit, registry):
 
 
 def _contracts_green(
-    pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
+    queue, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
 ):
     return _lane_result("rebuild-contracts")
 
 
-def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
+def _conform_green(queue, make_fut, spawn, emit, registry, argv):
     return _conform_result()
 
 
@@ -1425,7 +1425,7 @@ def test_the_rebuild_suite_waits_for_run_m1_pass(monkeypatch):
         return _run_m1_green()
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
+        queue, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         record["contracts_invoked"] = time.monotonic()
         return _lane_result("rebuild-contracts")
@@ -1451,7 +1451,7 @@ def test_the_rebuild_suite_is_skipped_when_run_m1_fails(monkeypatch, capsys):
         return None
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
+        queue, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         called["contracts"] = True
         return _lane_result("rebuild-contracts")
@@ -1473,10 +1473,22 @@ def test_the_rebuild_suite_is_skipped_when_run_m1_fails(monkeypatch, capsys):
     assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
 
 
-def test_pool_queue_serializes_the_contracts_lane_after_make_test(monkeypatch):
+@pytest.mark.parametrize(
+    "shape",
+    [{"pool_policy": "queue"}, {"pool_policy": "overlap", "skip_run_m1": True, "skip_corpus": True}],
+    ids=["queue-policy", "overlap-policy-no-build-lane"],
+)
+def test_pool_queue_serializes_the_contracts_lane_after_make_test(monkeypatch, shape):
+    """The rebuild suite waits for gate:make-test whenever the heavy gates queue: under the queue policy, and under the overlap policy on a pass that runs gate:make-test and neither run_m1 nor the corpus build (`gates_queue`). While gate:make-test is held, the suite does not even begin to prepare its run."""
     record = {}
     release_make = threading.Event()
     make_running = threading.Event()
+    contracts_preparing = threading.Event()
+    prepare_run = ac.contracts.prepare_run
+
+    def watched_prepare_run(*args, **kwargs):
+        contracts_preparing.set()
+        return prepare_run(*args, **kwargs)
 
     def fake_make(argv, spawn, emit, registry):
         make_running.set()
@@ -1493,9 +1505,10 @@ def test_pool_queue_serializes_the_contracts_lane_after_make_test(monkeypatch):
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    monkeypatch.setattr(ac.contracts, "prepare_run", watched_prepare_run)
     _patch_build_chain(monkeypatch)
 
-    plan = _plan(pool_policy="queue")
+    plan = _plan(**shape)
     report = ac.CycleReport()
     box = {}
     t = threading.Thread(
@@ -1505,9 +1518,11 @@ def test_pool_queue_serializes_the_contracts_lane_after_make_test(monkeypatch):
     )
     t.start()
     make_running.wait()
+    prepared_beside_make = contracts_preparing.wait(0.2)
     release_make.set()
     t.join()
 
+    assert not prepared_beside_make
     assert record["contracts_start"] >= record["make_finish"]
 
 
@@ -1570,7 +1585,7 @@ def test_pool_queue_runs_make_test_then_conform_then_contracts(monkeypatch):
         record["make_finish"] = time.monotonic()
         return _step("gate:make-test", 0)
 
-    def fake_conform(pool_policy, make_fut, spawn, emit, registry, argv):
+    def fake_conform(queue, make_fut, spawn, emit, registry, argv):
         conform_running.set()
         release_conform.wait()
         record["conform_finish"] = time.monotonic()
@@ -1700,7 +1715,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         return _step("gate:make-test", 0)
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
+        queue, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         ev_contracts.wait()
         return _lane_result("rebuild-contracts", "green (annotated)")
@@ -1867,7 +1882,7 @@ def test_contracts_stays_captured_and_parses_failures(capsys):
     emit = ac._Emitter()
     registry = ac._ChildRegistry()
     argv = ac.contracts_argv()
-    result = ac._gate_contracts_task("overlap", None, None, fake_spawn, emit, registry, argv)
+    result = ac._gate_contracts_task(False, None, None, fake_spawn, emit, registry, argv)
 
     assert seen["name"] == "gate:rebuild-contracts"
     assert seen["stream"] is False
@@ -2024,7 +2039,7 @@ def test_queue_policy_contracts_runs_when_make_test_task_raises(monkeypatch, cap
 
 
 def test_queue_policy_contracts_runs_when_conform_task_raises(monkeypatch, capsys):
-    def raising_conform(pool_policy, make_fut, spawn, emit, registry, argv):
+    def raising_conform(queue, make_fut, spawn, emit, registry, argv):
         raise FileNotFoundError("conform pool blew up")
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
@@ -2660,7 +2675,7 @@ class TestTheConformSweepWidth:
             )
 
     def test_beside_a_corpus_build_the_conform_sweep_takes_the_cores_the_build_leaves(self):
-        """Beside a corpus build the conformance sweep's cap is the cores less the build's parent and its workers, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The verdict-update step's refill pool is not subtracted. The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap. Under the overlap policy beside a gated build the two lanes already fill the cores, so the subtraction leaves none and the floor sets the cap. With the corpus build skipped the sweep takes the build lane's cores beside gate:make-test's gate-lane share, and on a pass that runs neither run_m1 nor the corpus build that pool holds every core, so the floor sets the cap again."""
+        """Beside a corpus build the conformance sweep's cap is the cores less the build's parent and its workers, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The verdict-update step's refill pool is not subtracted. The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap. Under the overlap policy beside a gated build the two lanes already fill the cores, so the subtraction leaves none and the floor sets the cap. With the corpus build skipped the sweep takes the build lane's cores beside gate:make-test's gate-lane share, and on a pass that runs neither run_m1 nor the corpus build the heavy gates queue, so the sweep subtracts nothing for that pool and takes every core after it."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         configs = len(ACCEPTANCE_CONFIGS)
@@ -2682,7 +2697,7 @@ class TestTheConformSweepWidth:
         )
         unbuilt: dict[str, Any] = dict(wide, skip_corpus=True, ncores=40)
         assert ac.conform_job_budget(**unbuilt, pool_policy="overlap") == 40 - make_test
-        assert ac.conform_job_budget(**unbuilt, pool_policy="overlap", build_lane_runs=False) == configs
+        assert ac.conform_job_budget(**unbuilt, pool_policy="overlap", build_lane_runs=False) == 40
 
         narrow: dict[str, Any] = dict(wide, skip_corpus=False, ncores=10)
         assert 10 - 1 - ac.corpus_job_budget(**wide, ncores=10) < configs
@@ -2860,14 +2875,32 @@ def test_make_test_takes_every_core_when_no_build_lane_runs():
 
 
 def test_the_plan_gives_make_test_every_core_only_when_neither_build_lane_step_runs():
-    """`build_plan` tells the budgets the build lane runs when run_m1 or the corpus build does. On a roomy 18-core machine gate:make-test's pool is the gate lane's share while either runs and every core when neither does, and the widths that subtract that pool (the rebuild suite's and the conformance sweep's cap under the overlap policy, and the standing fill's memory term) subtract the same width. The table build's width subtracts the gate lane's share on any pass, because run_m1 holds the build lane whenever it runs, and its plan line names that width."""
+    """`build_plan` tells the budgets the build lane runs when run_m1 or the corpus build does. On a roomy 18-core machine gate:make-test's pool is the gate lane's share while either runs and every core when neither does, and the t0 lane line states that width. With no build lane the heavy gates queue under the overlap policy too, so the rebuild suite and the conformance sweep subtract nothing for that pool and take every core after it, and the lane lines say why they wait; a pass with no build lane that skips gate:make-test does not queue, and its sweep and suite run side by side. The standing fill's memory term, whose pool can run beside gate:make-test's, subtracts its bytes at that width. The table build's width subtracts the gate lane's share on any pass, because run_m1 holds the build lane whenever it runs, and its plan line names that width."""
     machine: dict[str, Any] = dict(ncores=18, total_bytes=MACHINE_48_GIB, pool_policy="overlap")
     for shape in ({}, {"skip_run_m1": True}, {"skip_corpus": True}):
-        assert _plan(**machine, **shape).make_test_workers == 9
+        plan = _plan(**machine, **shape)
+        assert (plan.make_test_workers, plan.gates_queue) == (9, False)
+    assert "gate:make-test -n 9 (the gate lane's 9 of 18 cores" in _plan_text(_plan(**machine))
     idle = _plan(**machine, skip_run_m1=True, skip_corpus=True)
-    assert idle.make_test_workers == 18
-    assert idle.contracts_workers == 1
-    assert "gate:make-test's 18 (overlap policy)" in idle.conform_reason
+    assert (idle.make_test_workers, idle.gates_queue) == (18, True)
+    text = _plan_text(idle)
+    assert (
+        "gate:make-test -n 18 (all 18 cores, since neither run_m1 nor the corpus build runs this pass)"
+        in text
+    )
+    assert "QUEUED behind gate:make-test (no build lane this pass — one heavy pool at a time)" in text
+    assert "QUEUED behind gate:conform (no build lane this pass — one heavy pool at a time)" in text
+    no_make = _plan(**machine, skip_run_m1=True, skip_corpus=True, skip_make_test=True)
+    assert not no_make.gates_queue
+    no_make_text = _plan_text(no_make)
+    assert "QUEUED" not in no_make_text
+    assert "CO-RESIDENT with gate:rebuild-contracts' pool (overlap policy)" in no_make_text
+    assert "CO-RESIDENT with gate:conform's sweep (overlap policy)" in no_make_text
+    assert no_make.contracts_workers == 18
+    assert idle.contracts_workers == 18
+    assert idle.contracts_reason == "18 of 18 cores, the whole machine (no corpus build to share it with)"
+    assert idle.conform_reason.endswith("the cap is the 18 usable cores")
+    assert "gate:make-test" not in idle.conform_reason
     alone = ac.standing_fill_derivation(
         skip_gates=False, build_lane_runs=False, ncores=18, total_bytes=MACHINE_48_GIB
     )
@@ -4326,7 +4359,7 @@ def test_a_held_suite_leaves_the_gate_lane_idle_for_the_units_pool(monkeypatch):
     release_conform = threading.Event()
 
     def waiting_contracts(
-        pool_policy,
+        queue,
         conform_fut,
         make_fut,
         spawn,
@@ -4343,7 +4376,7 @@ def test_a_held_suite_leaves_the_gate_lane_idle_for_the_units_pool(monkeypatch):
         started.set()
         return _lane_result("rebuild-contracts")
 
-    def waiting_conform(pool_policy, make_fut, spawn, emit, registry, argv):
+    def waiting_conform(queue, make_fut, spawn, emit, registry, argv):
         release_conform.wait()
         return _conform_result()
 
@@ -4392,7 +4425,7 @@ def test_a_held_suite_starts_once_the_build_prints_its_units_line(monkeypatch, t
     with ThreadPoolExecutor(max_workers=1) as pool:
         suite = pool.submit(
             ac._gate_contracts_task,
-            "overlap",
+            False,
             None,
             None,
             lambda *a, **k: pytest.fail("a skippable suite spawns nothing"),
@@ -4443,7 +4476,7 @@ def test_a_held_suite_still_runs_when_the_build_fails_before_its_units_line(monk
     ran: list[bool] = []
 
     def waiting_contracts(
-        pool_policy,
+        queue,
         conform_fut,
         make_fut,
         spawn,
@@ -5717,7 +5750,7 @@ def test_run_cycle_never_spawns_a_skipped_rebuild_suite(monkeypatch):
     record = {"contracts": 0}
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
+        queue, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         record["contracts"] += 1
         return _lane_result("rebuild-contracts")
@@ -5995,7 +6028,7 @@ def test_run_cycle_skips_the_sweep_after_run_m1_on_the_key_the_finished_artifact
     ac.record_green(cycle_paths.CONFORM_GREEN, "cfp")
     swept: list[list[str]] = []
 
-    def conform_spy(pool_policy, make_fut, spawn, emit, registry, argv):
+    def conform_spy(queue, make_fut, spawn, emit, registry, argv):
         swept.append(argv)
         return _conform_result()
 
@@ -6028,7 +6061,7 @@ def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch
     ac.record_green(cycle_paths.CONFORM_GREEN, "a-font-ago")
     swept: list[list[str]] = []
 
-    def conform_spy(pool_policy, make_fut, spawn, emit, registry, argv):
+    def conform_spy(queue, make_fut, spawn, emit, registry, argv):
         swept.append(argv)
         return _conform_result()
 
@@ -7023,7 +7056,7 @@ def test_the_contracts_suite_is_submitted_before_the_corpus_build_starts(monkeyp
         return _run_m1_green()
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
+        queue, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         order.append("contracts")
         contracts_invoked.set()
@@ -7057,7 +7090,7 @@ def test_corpus_build_failure_still_joins_the_rebuild_suite_it_started(monkeypat
     calls = {"contracts": 0}
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
+        queue, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         calls["contracts"] += 1
         return _lane_result("rebuild-contracts")
