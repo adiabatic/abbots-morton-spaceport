@@ -1293,7 +1293,7 @@ def _handout_width(recomputed: int, nworkers: int) -> int:
 def _units_pool_width(
     jobs: int, gates_idle_jobs: int | None, gates_idle_marker: Path | None
 ) -> tuple[int, str]:
-    """Return the units pool's width and, under a gated cycle, the gate lane's state that chose it. The cycle passes `gates_idle_jobs` and `gates_idle_marker` beside `jobs` (`artifact_cycle.corpus_gates_idle_job_budget`) and writes the marker once gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished, so the build reads it here, as the pool starts, after its load and plan phases: the wider width when the marker exists, and `jobs`, the build lane's share, otherwise. A hand build passes neither and takes `jobs`. The build reads it again as the write starts, to size the write's pool in the memory a units pool started then would hold (`artifact_cycle.corpus_write_job_budget`)."""
+    """Return the units pool's width and, under a gated cycle, the gate lane's state that chose it. The cycle passes `gates_idle_jobs` and `gates_idle_marker` beside `jobs` (`artifact_cycle.corpus_gates_idle_job_budget`) and writes the marker once the gate lane has nothing left to run beside the units pool (`artifact_cycle._GateLaneWatch` says when), so the build reads it here, as the pool starts, after its load and plan phases: the wider width when the marker exists, and `jobs`, the build lane's share, otherwise. A hand build passes neither and takes `jobs`. The build reads it again as the write starts, to size the write's pool in the memory a units pool started then would hold (`artifact_cycle.corpus_write_job_budget`)."""
     if gates_idle_jobs is None or gates_idle_marker is None:
         return jobs, ""
     if gates_idle_marker.exists():
@@ -4335,7 +4335,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--gates-idle-jobs",
         type=int,
-        help="the units pool's width in place of `--jobs` when the file `--gates-idle-marker` names exists as the pool starts, after the load and plan phases. A gated artifact cycle passes both (`artifact_cycle.corpus_gates_idle_job_budget`, every usable core less the parent) and writes that file once gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished; a hand run passes neither.",
+        help="the units pool's width in place of `--jobs` when the file `--gates-idle-marker` names exists as the pool starts, after the load and plan phases. A gated artifact cycle passes both (`artifact_cycle.corpus_gates_idle_job_budget`, every usable core less the parent) and writes that file once the gate lane has nothing left to run beside the units pool (`artifact_cycle._GateLaneWatch`); a hand run passes neither.",
     )
     parser.add_argument(
         "--gates-idle-marker",

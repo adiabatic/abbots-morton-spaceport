@@ -1110,7 +1110,7 @@ def _make_ok(argv, spawn, emit, registry):
 
 
 def _contracts_green(
-    pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+    pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
 ):
     return _lane_result("rebuild-contracts")
 
@@ -1425,7 +1425,7 @@ def test_the_rebuild_suite_waits_for_run_m1_pass(monkeypatch):
         return _run_m1_green()
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         record["contracts_invoked"] = time.monotonic()
         return _lane_result("rebuild-contracts")
@@ -1451,7 +1451,7 @@ def test_the_rebuild_suite_is_skipped_when_run_m1_fails(monkeypatch, capsys):
         return None
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         called["contracts"] = True
         return _lane_result("rebuild-contracts")
@@ -1700,7 +1700,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         return _step("gate:make-test", 0)
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         ev_contracts.wait()
         return _lane_result("rebuild-contracts", "green (annotated)")
@@ -3351,6 +3351,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "standing_fill_jobs": plan.standing_fill_jobs,
         "make_test_workers": plan.make_test_workers,
         "contracts_workers": plan.contracts_workers,
+        "contracts_after_units": False,
         "conform_jobs": plan.conform_jobs,
         "pool_policy": ac.REBUILD_POOL_POLICY_DEFAULT,
         "skip_gates": False,
@@ -4127,6 +4128,52 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     )
 
 
+def test_a_pass_with_no_other_gate_pool_holds_the_suite_until_the_units_pool_finishes():
+    """On a pass that runs the corpus build and neither gate:make-test nor gate:conform, the suite is the gate lane's only pool, so the plan holds it until the build's units pool finishes and says so on both lane lines and the step note, at the gate lane's share. Where run_m1 decides gate:conform, the plan holds it only if the sweep is re-skipped. A pass that runs gate:make-test, runs gate:conform for certain, or builds no corpus submits the suite where it always has."""
+    quiet = dict(
+        skip_make_test=True, make_test_note="closure unchanged", ncores=18, total_bytes=MACHINE_48_GIB
+    )
+    held = _plan(
+        skip_run_m1=True,
+        run_m1_note="unchanged",
+        skip_conform=True,
+        conform_note=ac.CONFORM_SKIP_NOTE,
+        **quiet,
+    )
+    assert held.contracts_after_units and not held.conform_undecided()
+    assert (held.corpus_jobs, held.corpus_gates_idle_jobs, held.contracts_workers) == (8, 17, 9)
+    text = _plan_text(held)
+    assert (
+        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts (held until the corpus build's units pool finishes) -> corpus-seed -> corpus-build"
+        in text
+    )
+    assert (
+        "Lane rebuild-contracts           : held until the corpus build's units pool finishes, -n 9 (9 of 18 cores, the gate lane's share: less the corpus build's parent and its 8 workers at the build lane's share, which the suite keeps after the build's units pool finishes);"
+        in text
+    )
+    assert {step.name: step for step in held.steps}["gate:rebuild-contracts"].note == (
+        "held until the corpus build's units pool finishes"
+    )
+
+    undecided = _plan(**quiet)
+    assert undecided.contracts_after_units and undecided.conform_undecided()
+    assert (
+        "run_m1 -> submit gate:rebuild-contracts (held until the corpus build's units pool finishes if gate:conform is re-skipped after run_m1) -> corpus-seed"
+        in _plan_text(undecided)
+    )
+    assert {step.name: step for step in undecided.steps}["gate:rebuild-contracts"].note == (
+        "held until the corpus build's units pool finishes if gate:conform is re-skipped after run_m1, otherwise submitted beside the corpus build"
+    )
+
+    for beside in (
+        _plan(ncores=18, total_bytes=MACHINE_48_GIB),
+        _plan(skip_run_m1=True, run_m1_note="unchanged", **quiet),
+        _plan(skip_run_m1=True, skip_corpus=True, corpus_note="unchanged", skip_conform=True, **quiet),
+    ):
+        assert not beside.contracts_after_units
+        assert "held until the corpus build's units pool" not in _plan_text(beside)
+
+
 def test_skip_make_test_frees_the_corpus_build_budget():
     """gate:make-test does not affect the oracle sweep width, and the corpus build gets the pytest pool's memory back when that pool is not running, but not its cores: the other gates hold the gate lane, so the build keeps the build lane's share. On the 48 GiB machine both cases reach that share less the parent, so the widths are equal; `test_the_pytest_pool_comes_off_the_machine_before_the_division` checks that their terms differ. This test checks that the plan uses each case's own terms and that its reason line says which: the gated derivation includes the pool's memory in its co-resident amount, and the skipped-gate line says no pool's bytes come off. The widths are computed from the budget functions, so re-measuring either corpus constant does not require editing this test."""
     plan = _plan(
@@ -4197,7 +4244,7 @@ def test_a_gated_corpus_build_is_offered_every_core_less_its_parent_for_an_idle_
     rendered = _plan_text(plan)
     assert f"    corpus-build --jobs              : {lane}  (the build lane holds 9 of 18 cores" in rendered
     assert (
-        "    corpus-build --gates-idle-jobs   : 17  (taken in place of --jobs when, as the units pool starts, gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished, which the driver signals by writing "
+        "    corpus-build --gates-idle-jobs   : 17  (taken in place of --jobs when, as the units pool starts, gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished, or the suite is held until the pool finishes, which the driver signals by writing "
         f"{marker}; every usable core less its parent; 17 at {format_gb(ac.CORPUS_WORKER_BYTES)} GB each"
     ) in rendered
 
@@ -4256,6 +4303,189 @@ def test_the_corpus_build_finds_the_gates_idle_marker_only_once_every_gate_pool_
         )
         assert not marker.exists()
     assert seen == [(False, True), (True, True)]
+
+
+def _held_plan():
+    return _plan(
+        skip_run_m1=True,
+        run_m1_note="unchanged",
+        skip_make_test=True,
+        make_test_note="closure unchanged",
+        skip_conform=True,
+        conform_note=ac.CONFORM_SKIP_NOTE,
+        ncores=18,
+        total_bytes=MACHINE_48_GIB,
+    )
+
+
+def test_a_held_suite_leaves_the_gate_lane_idle_for_the_units_pool(monkeypatch):
+    """On a pass that holds the suite, the driver arms the gate-lane watch without it, so the marker is there as the corpus build starts while the suite has not started, and the run line records the hold. Where run_m1 leaves gate:conform to run, nothing is held, and the sweep still keeps the marker back."""
+    seen: list[tuple[bool, bool]] = []
+    held_with: list[threading.Event | None] = []
+    started = threading.Event()
+    release_conform = threading.Event()
+
+    def waiting_contracts(
+        pool_policy,
+        conform_fut,
+        make_fut,
+        spawn,
+        emit,
+        registry,
+        argv,
+        force=False,
+        _record=False,
+        units_done=None,
+    ):
+        held_with.append(units_done)
+        if units_done is not None:
+            units_done.wait()
+        started.set()
+        return _lane_result("rebuild-contracts")
+
+    def waiting_conform(pool_policy, make_fut, spawn, emit, registry, argv):
+        release_conform.wait()
+        return _conform_result()
+
+    def fake_corpus(report, *, spawn, emit, registry, review_out, **_):
+        seen.append((ac.gates_idle_marker_path().exists(), started.is_set()))
+        release_conform.set()
+        return True
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_conform_task", waiting_conform)
+    monkeypatch.setattr(ac, "_gate_contracts_task", waiting_contracts)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_corpus_build", fake_corpus)
+    _patch_gate_fingerprints(monkeypatch)
+
+    held = _held_plan()
+    report = ac.CycleReport()
+    ac._run_cycle(held, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert seen == [(True, False)]
+    assert isinstance(held_with[0], threading.Event) and started.is_set()
+    assert ac.cycle_summary_payload(report, [], held, "ok")["plan"]["contracts_after_units"] is True
+
+    undecided = _plan(
+        skip_make_test=True, make_test_note="closure unchanged", ncores=18, total_bytes=MACHINE_48_GIB
+    )
+    assert undecided.contracts_after_units
+    release_conform.clear()
+    report = ac.CycleReport()
+    ac._run_cycle(undecided, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert seen[1][0] is False
+    assert held_with[1] is None
+    assert ac.cycle_summary_payload(report, [], undecided, "ok")["plan"]["contracts_after_units"] is False
+
+
+def test_a_held_suite_starts_once_the_build_prints_its_units_line(monkeypatch, tmp_path):
+    """A held gate:rebuild-contracts reads its selection only after its event is set, and the corpus build sets that event when the build prints the line that closes its units phase, while the build still runs."""
+    prepared: list[bool] = []
+
+    def prepare_run(root, force=False):
+        prepared.append(force)
+        return SimpleNamespace(skippable=True)
+
+    monkeypatch.setattr(ac.contracts, "prepare_run", prepare_run)
+    units_done = threading.Event()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        suite = pool.submit(
+            ac._gate_contracts_task,
+            "overlap",
+            None,
+            None,
+            lambda *a, **k: pytest.fail("a skippable suite spawns nothing"),
+            ac._Emitter(),
+            ac._ChildRegistry(),
+            ac.contracts_argv(),
+            False,
+            False,
+            units_done,
+        )
+        with pytest.raises(TimeoutError):
+            suite.result(timeout=0.2)
+        assert prepared == []
+        units_done.set()
+        assert suite.result(timeout=30).outcome == "skipped"
+    assert prepared == [False]
+
+    corpus = _built_corpus(tmp_path, units=1, rows=1, batches=1, duplicate_groups=0)
+    release = tmp_path / "release"
+    child = (
+        "import pathlib, sys, time\n"
+        "print('[t] review.build units 1.0s rss_gb=1.00\\tjobs=17 (gate lane idle)', file=sys.stderr, flush=True)\n"
+        "deadline = time.monotonic() + 30\n"
+        "while not pathlib.Path(sys.argv[1]).exists() and time.monotonic() < deadline:\n"
+        "    time.sleep(0.01)\n"
+    )
+    units_done = threading.Event()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        built = pool.submit(
+            ac._do_corpus_build,
+            ac.CycleReport(),
+            spawn=ac._run_step,
+            emit=ac._Emitter(),
+            registry=ac._ChildRegistry(),
+            review_out=corpus,
+            argv=[sys.executable, "-c", child, str(release)],
+            units_done=units_done,
+        )
+        assert units_done.wait(timeout=30)
+        assert not built.done()
+        release.touch()
+        assert built.result(timeout=30)
+
+
+@pytest.mark.parametrize("failure", ["corpus seed failed", "corpus rebuild failed"])
+def test_a_held_suite_still_runs_when_the_build_fails_before_its_units_line(monkeypatch, capsys, failure):
+    """The driver releases a held suite on every path that ends the build or the pass without the units line, so a failed corpus build, or a failed seed that stops the pass before the build starts, ends the pass instead of waiting forever, and the suite still runs and is joined."""
+    ran: list[bool] = []
+
+    def waiting_contracts(
+        pool_policy,
+        conform_fut,
+        make_fut,
+        spawn,
+        emit,
+        registry,
+        argv,
+        force=False,
+        _record=False,
+        units_done=None,
+    ):
+        assert units_done is not None
+        units_done.wait()
+        ran.append(True)
+        return _lane_result("rebuild-contracts")
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_contracts_task", waiting_contracts)
+    _patch_build_chain(monkeypatch)
+    if failure == "corpus seed failed":
+        monkeypatch.setattr(ac, "_do_corpus_seed", lambda report, **_: False)
+    else:
+        monkeypatch.setattr(ac, "_do_corpus_build", lambda report, **_: False)
+    _patch_gate_fingerprints(monkeypatch)
+
+    report = ac.CycleReport()
+    finished: list[int] = []
+    cycle = threading.Thread(
+        target=lambda: finished.append(
+            ac._run_cycle(
+                _held_plan(), report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()
+            )
+        ),
+        daemon=True,
+    )
+    cycle.start()
+    cycle.join(timeout=60)
+    assert not cycle.is_alive()
+    assert finished == [1]
+    assert ran == [True]
+    assert report.gate_contracts == "green"
+    assert failure in capsys.readouterr().out
 
 
 def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):
@@ -5487,7 +5717,7 @@ def test_run_cycle_never_spawns_a_skipped_rebuild_suite(monkeypatch):
     record = {"contracts": 0}
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         record["contracts"] += 1
         return _lane_result("rebuild-contracts")
@@ -6793,7 +7023,7 @@ def test_the_contracts_suite_is_submitted_before_the_corpus_build_starts(monkeyp
         return _run_m1_green()
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         order.append("contracts")
         contracts_invoked.set()
@@ -6827,7 +7057,7 @@ def test_corpus_build_failure_still_joins_the_rebuild_suite_it_started(monkeypat
     calls = {"contracts": 0}
 
     def fake_contracts(
-        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False
+        pool_policy, conform_fut, make_fut, spawn, emit, registry, argv, force=False, _record=False, *_
     ):
         calls["contracts"] += 1
         return _lane_result("rebuild-contracts")
