@@ -9,7 +9,7 @@ A small hand-written `build_m1` corpus that the Python contract tests and the re
 - Each unit's `content_key`, from which the unit's id derives, so it must stay byte-identical for every recorded verdict to find its unit. `rebuild/test_carry_verdicts.py` checks it, and `carry_content_hash` in `rebuild/review/unit_cache.py` computes it. `picture_identical` is in `CARRY_PRESENTATION_KEYS` there, so changing it on a unit does not change the stamp.
 - `test_fixture_duplicate_groups_and_clusters_follow_the_build_keys`, which checks every duplicate group and cluster against the whole key `build_m1` gives it, since `check_shards` checks only part of each key.
 - `test_fixture_units_exercise_the_contract_branches`, which names the branches these units cover. Keep them covered when the fixture grows. One is the slim shape: a unit that takes no verdict (`audit.slim_fragment`) omits `explain`, `drafts`, and `highlight`, and its `content_key` is the hash of what it carries.
-- The node tests, which load every shard the manifest lists, in manifest order. Their `the fixtures must …` assertions name the branches they need beyond the contract's, and their other assertions name unit ids, class ids, titles, and totals, so growing the fixture means updating those literals.
+- The node tests, which load every shard the manifest lists, in manifest order. Their `the fixtures must …` assertions name the branches they need beyond the contract's, and their other assertions name unit ids, class ids, titles, and totals, so growing the fixture or re-stamping a unit means updating those literals.
 - The tests that read the whole corpus (`rebuild/test_unit_index.py`, `rebuild/test_app_index.py`, `rebuild/test_rekey_verdicts.py`) read `units/` as one `units/<class id>.json` per manifest class, so nothing else goes there. The tests in `rebuild/test_rekey_verdicts.py` take the first units of `units/fixture-intended.json` in the order a shard walk visits them (`unit_index.iter_shard_fragments`, sorted by `unit_index.class_shard_key`), so a new class that keeps units must have an id that sorts after `fixture-intended`, and a new unit must go in another class's shard.
 
 ## `mini/` — the frozen mini-M1 bundle
@@ -36,3 +36,11 @@ uv run python rebuild/review/fixtures/mini/regenerate.py
 4. Set the unit's `content_key` to `carry_content_hash` of the unit without its `content_key` key, and give it the id `unit_id_for` derives from that key, which every `secondary_junctions` entry naming the unit as its `primary_unit` takes too. Keep each shard sorted by id.
 5. Update `unit_count`, `row_count`, `machine_approved_count`, `human_unit_ids` (the human units in `audit.triage_key` order: manifest class order, group, window, id), each class's `batches` (the slices of `batch_size` its human units fall in along `human_unit_ids`), and `totals`, `duplicate_groups` included, in `manifest.json`.
 6. Run `make test-rebuild`, which reruns every test that read a changed fixture file, and `node --test rebuild/review/jstests/*.test.js`.
+
+Editing an existing unit outside `unit_cache.CARRY_PRESENTATION_KEYS` changes its `content_key` and so its id. Redo step 4 for it, redo step 5, because `human_unit_ids` and `batches` follow the triage order, which breaks ties by id, and replace the old id wherever it still appears: other units' `secondary_junctions`, and the literals in the Python and node tests. This search lists every place:
+
+```zsh
+git grep -n <old id> -- rebuild
+```
+
+Then run step 6.
