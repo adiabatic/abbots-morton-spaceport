@@ -27,9 +27,13 @@ import {
 } from '../static/slim.js';
 import { needsNoVerdict } from '../static/render.js';
 
-const fixtureDir = new URL('./fixtures/', import.meta.url);
+const fixtureDir = new URL('../fixtures/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', fixtureDir), 'utf8'));
-const shardA = JSON.parse(await readFile(new URL('units/ss03-tea-oy-ligature-kept.json', fixtureDir), 'utf8'));
+const allUnits = [];
+for (const cls of manifest.classes) {
+  for (const part of cls.shards) allUnits.push(...JSON.parse(await readFile(new URL(part, fixtureDir), 'utf8')));
+}
+const human = allUnits.find((unit) => !needsNoVerdict(unit));
 
 const drain = (state, chunks) => {
   const lines = [];
@@ -116,8 +120,8 @@ test('checkIndexHeader refuses an unreadable or stampless header rather than tru
 });
 
 test('hasExplainSource separates a slim row from a whole shard record', () => {
-  assert.equal(hasExplainSource(shardA[0]), true);
-  const slim = { ...shardA[0] };
+  assert.equal(hasExplainSource(human), true);
+  const slim = { ...human };
   delete slim.explain;
   delete slim.provenance;
   delete slim.drafts;
@@ -127,7 +131,7 @@ test('hasExplainSource separates a slim row from a whole shard record', () => {
   assert.equal(hasExplainSource(null), false);
 });
 
-const machineFragment = shardA.find((unit) => needsNoVerdict(unit));
+const machineFragment = allUnits.find((unit) => needsNoVerdict(unit));
 
 test('the fixture carries one machine fragment in the slim shape the build writes', () => {
   assert.ok(machineFragment, 'the fixtures must carry a machine-approved or no-verdict unit');
@@ -137,23 +141,22 @@ test('the fixture carries one machine fragment in the slim shape the build write
 
 test('isSlimFragment reads the shape off a machine fragment and nothing else', () => {
   assert.equal(isSlimFragment(machineFragment), true);
-  const human = shardA.find((unit) => !needsNoVerdict(unit));
   assert.equal(isSlimFragment(human), false, 'a whole human record');
   const row = { ...human };
   delete row.explain;
   delete row.drafts;
   delete row.highlight;
   assert.equal(isSlimFragment(row), false, 'a slim app-index row still takes a verdict, so its explain lives in its shard');
-  assert.equal(isSlimFragment({ ...machineFragment, explain: 'sequence E653:E67A:E667   config ss02', drafts: null }), false, 'a machine record carrying the fields is whole, not slim');
+  assert.equal(isSlimFragment({ ...machineFragment, explain: 'sequence E650:E665   config ss02', drafts: null }), false, 'a machine record carrying the fields is whole, not slim');
   assert.equal(isSlimFragment({ ...machineFragment, explain: null }), false, 'an emptied field is a blank on a whole record, never the slim shape');
   assert.equal(isSlimFragment(null), false);
   assert.equal(isSlimFragment(undefined), false);
 });
 
 test('carriesSamples tells a shard record, slim fragment included, from an app-index row', () => {
-  assert.equal(carriesSamples(shardA[0]), true);
+  assert.equal(carriesSamples(human), true);
   assert.equal(carriesSamples(machineFragment), true, 'a slim fragment still carries its text and cells');
-  const row = { ...shardA[0] };
+  const row = { ...human };
   delete row.text_entities;
   delete row.highlight;
   delete row.after;
@@ -325,7 +328,7 @@ test('looksGzipped reads the magic number off a body a server handed over undeco
 test('machineFoldPlan names one fold per class in the batch that holds units needing no verdict', () => {
   const plan = machineFoldPlan(manifest, viewState());
   assert.deepEqual(plan, [
-    { classId: 'ss03-tea-oy-ligature-kept', total: 1, check: 'ink_identical', provisional: false },
+    { classId: 'fixture-intended', total: 1, check: 'ink_identical', provisional: false },
   ]);
 });
 
@@ -340,7 +343,7 @@ test('machineFoldPlan marks its totals provisional under a filter the manifest c
   }
   // The plan applies the class filter itself, so the totals stay exact.
   assert.equal(
-    machineFoldPlan(manifest, viewState({ class: 'ss03-tea-oy-ligature-kept' }))[0].provisional,
+    machineFoldPlan(manifest, viewState({ class: 'fixture-intended' }))[0].provisional,
     false,
   );
 });
@@ -352,8 +355,8 @@ test('machineFoldPlan plans nothing while the show-machine toggle is off, or ins
 
 test('machineFoldPlan honors the class filter and skips classes with nothing to fold', () => {
   assert.deepEqual(
-    machineFoldPlan(manifest, viewState({ class: 'ss03-tea-oy-ligature-kept' })).map((fold) => fold.classId),
-    ['ss03-tea-oy-ligature-kept'],
+    machineFoldPlan(manifest, viewState({ class: 'fixture-intended' })).map((fold) => fold.classId),
+    ['fixture-intended'],
   );
   assert.deepEqual(machineFoldPlan(manifest, viewState({ class: 'join-dropped' })), []);
 });
@@ -361,7 +364,7 @@ test('machineFoldPlan honors the class filter and skips classes with nothing to 
 test('machineFoldPlan drops a class out of the view when the batch moves past it', () => {
   assert.deepEqual(
     machineFoldPlan(manifest, viewState({ batch: 1 })).map((fold) => fold.classId),
-    ['ss03-tea-oy-ligature-kept'],
+    ['fixture-intended'],
     'the Spot-check class runs on into batch 1 behind the Open questions class',
   );
   assert.deepEqual(machineFoldPlan(manifest, viewState({ batch: 2 })), []);

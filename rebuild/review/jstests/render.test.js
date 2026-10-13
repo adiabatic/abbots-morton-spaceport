@@ -57,6 +57,7 @@ import {
   classProgressLine,
   configSetPhrase,
   configClassBadge,
+  UNMATCHED_CLASS,
   nextUnverdictedIndex,
   stepIndex,
   availableBatches,
@@ -71,11 +72,18 @@ import {
   duplicateFillTargets,
 } from '../static/render.js';
 
-const fixtureDir = new URL('./fixtures/', import.meta.url);
+const fixtureDir = new URL('../fixtures/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', fixtureDir), 'utf8'));
-const shardA = JSON.parse(await readFile(new URL('units/ss03-tea-oy-ligature-kept.json', fixtureDir), 'utf8'));
-const shardB = JSON.parse(await readFile(new URL('units/join-dropped.json', fixtureDir), 'utf8'));
-const explainSamples = JSON.parse(await readFile(new URL('explain-samples.json', fixtureDir), 'utf8'));
+const allUnits = [];
+for (const cls of manifest.classes) {
+  for (const part of cls.shards) allUnits.push(...JSON.parse(await readFile(new URL(part, fixtureDir), 'utf8')));
+}
+const fixtureUnit = (id) => {
+  const unit = allUnits.find((candidate) => candidate.id === id);
+  assert.ok(unit, `no fixture unit ${id}`);
+  return unit;
+};
+const explainSamples = JSON.parse(await readFile(new URL('./explain-samples.json', import.meta.url), 'utf8'));
 
 test('featureSettingsValue maps config tokens per the plan', () => {
   assert.equal(featureSettingsValue('default'), 'normal');
@@ -94,8 +102,9 @@ test('every fixture config token produces a parseable settings value', () => {
 });
 
 test('configGateChips draws one glossed chip per gate clause, on-constraints first', () => {
-  const gated = shardA.find((unit) => (unit.config_gate ?? []).length > 1);
-  assert.ok(gated, 'the fixtures must exercise a multi-clause config gate');
+  const states = (unit) => new Set((unit.config_gate ?? []).map((clause) => clause.state));
+  const gated = allUnits.find((unit) => states(unit).has('on') && states(unit).has('off'));
+  assert.ok(gated, 'the fixtures must exercise a config gate with both an on and an off clause');
   const chips = configGateChips(gated, manifest.feature_descriptions);
   assert.equal(chips.length, gated.config_gate.length);
   assert.equal(chips[0].state, 'on');
@@ -108,7 +117,7 @@ test('configGateChips draws one glossed chip per gate clause, on-constraints fir
 });
 
 test('configGateChips falls back to one unattributed chip when no conjunction pins the set', () => {
-  const fallback = shardA.find((unit) => unit.config_gate === null && unit.config_note);
+  const fallback = allUnits.find((unit) => unit.config_gate === null && unit.config_note);
   assert.ok(fallback, 'the fixtures must exercise the literal config-note fallback');
   assert.deepEqual(configGateChips(fallback, manifest.feature_descriptions), [
     { feature: null, state: null, text: fallback.config_note, detail: null },
@@ -122,7 +131,7 @@ test('configGateChips draws nothing for a unit whose config set carries no infor
 
 test('every fixture gate clause resolves to a feature description', () => {
   let clauses = 0;
-  for (const unit of [...shardA, ...shardB]) {
+  for (const unit of allUnits) {
     for (const chip of configGateChips(unit, manifest.feature_descriptions)) {
       if (!chip.feature) continue;
       assert.ok(['on', 'off'].includes(chip.state));
@@ -164,12 +173,12 @@ test('configFilterOptions yields nothing for a manifest with no config list', ()
 test('every configFilterOptions value is a config token the unit filter understands', () => {
   const options = configFilterOptions(manifest);
   const offered = new Set(options.map((option) => option.value));
-  for (const unit of [...shardA, ...shardB]) {
+  for (const unit of allUnits) {
     for (const config of unit.configs) assert.ok(offered.has(config), `${unit.id} carries unofferable config ${config}`);
   }
   let matched = 0;
   for (const option of options) {
-    for (const unit of [...shardA, ...shardB]) {
+    for (const unit of allUnits) {
       const filters = { class: null, group: null, family: null, config: option.value, status: null };
       assert.equal(unitMatchesFilters(unit, filters, undefined), unit.configs.includes(option.value), unit.id);
       if (unit.configs.includes(option.value)) matched += 1;
@@ -214,7 +223,7 @@ test('pinStylisticSetScope zero-pads a bare set number and falls back to the bar
 test('every fixture pin resolves its scope to sets the unit actually diverges under', () => {
   let scoped = 0;
   let unscoped = 0;
-  for (const unit of [...shardA, ...shardB]) {
+  for (const unit of allUnits) {
     const pin = unit.drafts?.pin;
     if (!pin) continue;
     const scope = pinStylisticSetScope(pin.stylistic_set, manifest.feature_descriptions);
@@ -398,7 +407,7 @@ test('duplicateFillTargets excludes the unit itself and anything already verdict
 
 test('fixture duplicate-group ids group only within a shard and singletons carry their own id', () => {
   const members = new Map();
-  for (const unit of [...shardA, ...shardB]) {
+  for (const unit of allUnits) {
     if (unit.duplicate_group === null) {
       assert.equal(needsNoVerdict(unit), true, unit.id);
       continue;
@@ -407,12 +416,12 @@ test('fixture duplicate-group ids group only within a shard and singletons carry
     members.get(unit.duplicate_group).push(unit);
   }
   const grouped = [...members.values()].find((units) => units.length > 1);
-  assert.ok(grouped, 'fixtures must exercise a multi-member duplicate group');
+  assert.ok(grouped, 'the fixtures must exercise a multi-member duplicate group');
   assert.equal(new Set(grouped.map((unit) => unit.class)).size, 1);
 });
 
 test('every fixture unit carries exactly one render group covering its configs', () => {
-  for (const unit of [...shardA, ...shardB]) {
+  for (const unit of allUnits) {
     const groups = renderGroupsOf(unit);
     assert.equal(groups.length, 1, unit.id);
     assert.deepEqual(groups[0].configs, unit.configs, unit.id);
@@ -429,12 +438,12 @@ test('highlightRect converts font units at font-size / upem', () => {
 });
 
 test('pairBand draws the judged pair from a whole record and nothing from a slim fragment', () => {
-  const human = shardA.find((unit) => !needsNoVerdict(unit) && unit.pair !== null);
+  const human = allUnits.find((unit) => !needsNoVerdict(unit) && unit.pair !== null);
   const upem = manifest.fonts.after.upem;
   assert.deepEqual(pairBand(human, 'after', 88, upem), highlightRect(human.highlight.after, 88, upem));
   assert.deepEqual(pairBand(human, 'before', 88, upem), highlightRect(human.highlight.before, 88, upem));
   assert.equal(pairBand({ ...human, pair: null }, 'after', 88, upem), null, 'no primary pair, no band');
-  const slim = shardA.find((unit) => needsNoVerdict(unit));
+  const slim = allUnits.find((unit) => needsNoVerdict(unit));
   assert.equal('highlight' in slim, false, 'the fixture machine fragment is slim');
   assert.equal(pairBand(slim, 'after', 88, upem), null);
   assert.equal(pairBand(slim, 'before', 88, upem), null);
@@ -442,7 +451,7 @@ test('pairBand draws the judged pair from a whole record and nothing from a slim
 
 test('a slim fragment reaching the fold renderer yields a row from its cells and junctions alone', () => {
   // Runs the pure helpers buildRow uses over the fixture's machine fragment, as the app does for a fold's rows. None may throw on the missing explain, drafts, and highlight.
-  const slim = shardA.find((unit) => needsNoVerdict(unit));
+  const slim = allUnits.find((unit) => needsNoVerdict(unit));
   for (const key of ['explain', 'drafts', 'highlight']) assert.equal(key in slim, false, key);
   assert.equal(needsNoVerdict(slim), true);
   const groups = renderGroupsOf(slim);
@@ -473,10 +482,10 @@ test('familiesOfGroup splits the lead pair', () => {
 });
 
 test('unitMatchesFilters covers class, group, family, config, and status', () => {
-  const unit = shardA.find((candidate) => candidate.id === 'u-Yt4bRkgFmpk');
+  const unit = fixtureUnit('u-BLyK6Z13RtN');
   const empty = { class: null, group: null, family: null, config: null, status: null };
   assert.equal(unitMatchesFilters(unit, empty, undefined), true);
-  assert.equal(unitMatchesFilters(unit, { ...empty, class: 'ss03-tea-oy-ligature-kept' }, undefined), true);
+  assert.equal(unitMatchesFilters(unit, { ...empty, class: 'fixture-intended' }, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, class: 'join-dropped' }, undefined), false);
   assert.equal(unitMatchesFilters(unit, { ...empty, group: 'qsTea:qsOy' }, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, family: 'qsOy' }, undefined), true);
@@ -517,7 +526,7 @@ test('unitWorklist splits, trims, and drops empties', () => {
 });
 
 test('the units worklist filter keeps only the listed ids and composes with other filters', () => {
-  const unit = shardA[0];
+  const unit = fixtureUnit('u-5NP1CPJxyNT');
   const empty = { class: null, group: null, family: null, config: null, status: null, units: null };
   assert.equal(unitMatchesFilters(unit, { ...empty, units: `other,${unit.id}` }, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, units: 'u-9990,u-9991' }, undefined), false);
@@ -533,7 +542,6 @@ const emptyFilters = {
   machine: null,
   units: null,
 };
-const allUnits = [...shardA, ...shardB];
 const noRecords = () => undefined;
 
 test('partitionUnits with a units worklist narrows the human queue to the listed ids', () => {
@@ -561,8 +569,8 @@ test('a units worklist is exclusive: class/config/status filters never drop a li
   const filters = {
     ...emptyFilters,
     units: wanted.join(','),
-    class: 'join-dropped',
-    config: 'ss04',
+    class: 'fixture-mismatch',
+    config: 'ss03',
     status: 'verdicted',
   };
   const { human, machine } = partitionUnits(allUnits, filters, noRecords);
@@ -673,7 +681,7 @@ test('class and family filters apply to machine units; the status filter does no
 });
 
 test('human and machine counts come from the manifest class metadata', () => {
-  const marker = manifest.classes.find((cls) => cls.id === 'ss03-tea-oy-ligature-kept');
+  const marker = manifest.classes.find((cls) => cls.id === 'fixture-intended');
   const dangling = manifest.classes.find((cls) => cls.id === 'join-dropped');
   assert.equal(humanClassCount(marker), marker.unit_count - 1);
   assert.equal(humanClassCount(dangling), dangling.unit_count);
@@ -682,7 +690,7 @@ test('human and machine counts come from the manifest class metadata', () => {
 });
 
 test('machineFoldTotal counts what a class fold will hold before the class is fetched', () => {
-  const marker = manifest.classes.find((cls) => cls.id === 'ss03-tea-oy-ligature-kept');
+  const marker = manifest.classes.find((cls) => cls.id === 'fixture-intended');
   const dangling = manifest.classes.find((cls) => cls.id === 'join-dropped');
   assert.equal(machineFoldTotal(marker), 1);
   assert.equal(machineFoldTotal(dangling), 0, 'a class with nothing machine-approved folds nothing');
@@ -719,7 +727,7 @@ test('machineFoldCheck picks the narrowest check that accounts for every machine
 test('machineFoldCheck falls back to the no-verdict badge for a class carrying no check split', () => {
   assert.equal(machineFoldCheck({ no_verdict: false, unit_count: 10, machine_approved_count: 10 }), 'no_verdict');
   assert.equal(machineFoldCheck({ no_verdict: false, unit_count: 10, machine_approved_count: 0 }), 'no_verdict');
-  const marker = manifest.classes.find((cls) => cls.id === 'ss03-tea-oy-ligature-kept');
+  const marker = manifest.classes.find((cls) => cls.id === 'fixture-intended');
   assert.equal(machineFoldCheck(marker), 'ink_identical');
 });
 
@@ -740,6 +748,7 @@ test('formatCount groups thousands', () => {
 
 test('machineChecks splits the machine-approved total and treats a check-less manifest as all ink-identical', () => {
   assert.deepEqual(machineChecks(manifest), { units: 1, inkIdentical: 1, pictureIdentical: 0, juniorEquivalent: 0 });
+  assert.deepEqual(machineChecks({ machine_approved: { units: 1 } }), { units: 1, inkIdentical: 1, pictureIdentical: 0, juniorEquivalent: 0 });
   const splitManifest = {
     machine_approved: {
       units: 11926,
@@ -758,13 +767,13 @@ test('machineChecks splits the machine-approved total and treats a check-less ma
 });
 
 test('the collapsed chip carries the corpus total and the popover breaks it down to the human units', () => {
-  assert.equal(corpusChipLabel(manifest), '6 units');
+  assert.equal(corpusChipLabel(manifest), '11 units');
   assert.deepEqual(
     corpusDetailRows(manifest).map((row) => [row.label, row.value]),
     [
-      ['Corpus', '6'],
+      ['Corpus', '11'],
       ['ink-identical machine-approved', '1'],
-      ['for human review', '5'],
+      ['for human review', '10'],
     ],
   );
   const splitManifest = {
@@ -986,34 +995,34 @@ test('stepIndex clamps at the ends', () => {
 test('availableBatches respects a class filter', () => {
   assert.deepEqual(availableBatches(manifest, null), [0, 1]);
   assert.deepEqual(availableBatches(manifest, 'join-dropped'), [0]);
-  assert.deepEqual(availableBatches(manifest, 'ss03-tea-oy-ligature-kept'), [0, 1]);
+  assert.deepEqual(availableBatches(manifest, 'fixture-intended'), [0, 1]);
   assert.deepEqual(availableBatches(manifest, 'nonexistent'), []);
 });
 
 test('classesInBatch names the classes with units in a batch, batchless classes included with batch 0', () => {
   assert.deepEqual(
     [...classesInBatch(manifest, 0)].sort(),
-    ['join-dropped', 'ss03-tea-oy-ligature-kept'],
+    ['fixture-intended', 'join-dropped', 'same-joins-same-width'],
   );
-  assert.deepEqual([...classesInBatch(manifest, 1)], ['ss03-tea-oy-ligature-kept']);
+  assert.deepEqual([...classesInBatch(manifest, 1)], ['fixture-intended', 'fixture-mismatch']);
   const withExempt = { classes: [...manifest.classes, { id: 'split-by-space-or-zwnj', batches: [], no_verdict: true }] };
   assert.deepEqual(
     [...classesInBatch(withExempt, 0)].sort(),
-    ['join-dropped', 'split-by-space-or-zwnj', 'ss03-tea-oy-ligature-kept'],
+    ['fixture-intended', 'join-dropped', 'same-joins-same-width', 'split-by-space-or-zwnj'],
   );
-  assert.deepEqual([...classesInBatch(withExempt, 1)], ['ss03-tea-oy-ligature-kept']);
+  assert.deepEqual([...classesInBatch(withExempt, 1)], ['fixture-intended', 'fixture-mismatch']);
   assert.deepEqual(
     [...classesInBatch(withExempt, 0, false)].sort(),
-    ['join-dropped', 'ss03-tea-oy-ligature-kept'],
+    ['fixture-intended', 'join-dropped', 'same-joins-same-width'],
     'with machine rows hidden a batchless class contributes nothing to batch 0',
   );
 });
 
 test('copyPreamble names only the unit, codepoints, and notation — the rest is looked up from the shards', () => {
-  const text = copyPreamble(shardB.find((unit) => unit.id === 'u-YAQVKvoqzCv'));
-  assert.match(text, /rebuild\/out\/review\/ unit u-YAQVKvoqzCv/);
-  assert.match(text, /E668:E665:E657/);
-  assert.match(text, /·Roe·May·They/);
+  const text = copyPreamble(fixtureUnit('u-WT2Pjqw8CKB'));
+  assert.match(text, /rebuild\/out\/review\/ unit u-WT2Pjqw8CKB/);
+  assert.match(text, /E670:E653/);
+  assert.match(text, /·It·Day/);
   assert.doesNotMatch(text, /join-dropped/);
   assert.doesNotMatch(text, /ss05/);
 });
@@ -1037,7 +1046,7 @@ test('tokenSeparators reproduces the notation spacing rule', () => {
 });
 
 test('every fixture unit joins its notation tokens back into its notation string', () => {
-  for (const unit of [...shardA, ...shardB]) {
+  for (const unit of allUnits) {
     const tokens = unit.notation_tokens;
     assert.equal(tokens.length, unit.codepoints.split(':').length, unit.id);
     const joined = tokenSeparators(tokens).map((sep, index) => sep + tokens[index]).join('');
@@ -1051,9 +1060,9 @@ test('every fixture unit joins its notation tokens back into its notation string
 });
 
 test('secondaryJunctionsOf returns junctions for human units and nothing for machine-approved or legacy units', () => {
-  const withPrimary = shardB.find((unit) => unit.id === 'u-YAQVKvoqzCv');
+  const withPrimary = fixtureUnit('u-Xp5KzYAPYK7');
   assert.equal(secondaryJunctionsOf(withPrimary).length, 1);
-  assert.equal(secondaryJunctionsOf(withPrimary)[0].primary_unit, 'u-LK4WFNGn5Kk');
+  assert.equal(secondaryJunctionsOf(withPrimary)[0].primary_unit, 'u-6VFDHaMNgCP');
   const legacy = { ink_identical: false };
   assert.deepEqual(secondaryJunctionsOf(legacy), []);
   const nulled = { ink_identical: false, secondary_junctions: null };
@@ -1132,7 +1141,7 @@ test('onlyHereJunctionSpans reads a row whose junctions all have primary units t
 });
 
 test('the only-here fixture unit underlines its junction tokens', () => {
-  const unit = shardB.find((entry) => entry.id === 'u-DdkFp23muye');
+  const unit = fixtureUnit('u-LhDRYppbBuN');
   assert.deepEqual(onlyHereJunctionSpans(unit), [[1, 2]]);
 });
 
@@ -1159,7 +1168,7 @@ test('tokenMarkRuns without junction spans reproduces the single pair-mark split
 });
 
 test('fixture units satisfy the contract fields the frontend relies on', () => {
-  for (const unit of [...shardA, ...shardB]) {
+  for (const unit of allUnits) {
     assert.match(unit.id, /^u-[1-9A-HJ-NP-Za-km-z]{11}$/);
     assert.equal(typeof unit.ink_identical, 'boolean');
     assert.equal(typeof unit.picture_identical, 'boolean');
@@ -1195,7 +1204,7 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
     }
     for (const mark of unit.boundary_marks) {
       assert.equal(typeof mark.x, 'number');
-      assert.ok(['zwnj', 'space'].includes(mark.kind));
+      assert.ok(['zwnj', 'space', 'namer-dot'].includes(mark.kind));
     }
     if (unit.secondary_junctions != null) {
       assert.ok(Array.isArray(unit.secondary_junctions) && unit.secondary_junctions.length >= 1);
@@ -1215,48 +1224,48 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
     }
   }
   assert.ok(
-    [...shardA, ...shardB].some((unit) => (unit.secondary_junctions ?? []).some((junction) => junction.primary_unit)),
+    allUnits.some((unit) => (unit.secondary_junctions ?? []).some((junction) => junction.primary_unit)),
     'the fixtures must exercise a secondary junction with a primary unit',
   );
   assert.ok(
-    [...shardA, ...shardB].some((unit) => (unit.secondary_junctions ?? []).some((junction) => junction.primary_unit === null)),
+    allUnits.some((unit) => (unit.secondary_junctions ?? []).some((junction) => junction.primary_unit === null)),
     'the fixtures must exercise a secondary junction with no primary unit',
   );
 });
 
 test('searchHaystack folds id, notation, codepoints, class, group, duplicate group, cluster, and kinds into one lowercase string', () => {
-  const haystack = searchHaystack(shardA.find((unit) => unit.id === 'u-Yt4bRkgFmpk'));
-  assert.ok(haystack.includes('u-yt4brkgfmpk'), 'the id, folded to lowercase like everything else');
+  const haystack = searchHaystack(fixtureUnit('u-BLyK6Z13RtN'));
+  assert.ok(haystack.includes('u-blyk6z13rtn'), 'the id, folded to lowercase like everything else');
   assert.ok(haystack.includes('·tea·oy'));
   assert.ok(haystack.includes('teaoy'), 'notation with the namer dots stripped is searchable');
   assert.ok(haystack.includes('200c:e652:e679'));
   assert.ok(haystack.includes('200ce652e679'), 'codepoints with the colons stripped are searchable');
-  assert.ok(haystack.includes('ss03-tea-oy-ligature-kept'));
+  assert.ok(haystack.includes('fixture-intended'));
   assert.ok(haystack.includes('qstea:qsoy'));
   assert.ok(haystack.includes('ligation'));
   assert.ok(haystack.includes('e-0001'), 'the duplicate group id is searchable');
-  assert.ok(haystack.includes('c-3a570001'), 'the cluster signature id is searchable');
+  assert.ok(haystack.includes('c-f1a70001'), 'the cluster signature id is searchable');
 });
 
 test('searchHaystack is memoized per unit, so a keystroke folds each row at most once', () => {
   // Rows are immutable once parsed; mutating one here is only a probe for whether the second call refolded it.
-  const unit = { ...shardA[0] };
+  const unit = { ...fixtureUnit('u-5NP1CPJxyNT') };
   const first = searchHaystack(unit);
   unit.notation = '·Nope';
   assert.equal(searchHaystack(unit), first, 'the second call is answered from the cache');
-  const twin = { ...shardA[0], notation: '·Nope' };
+  const twin = { ...fixtureUnit('u-5NP1CPJxyNT'), notation: '·Nope' };
   assert.notEqual(searchHaystack(twin), first, 'a row the cache has not seen folds on its own');
   assert.ok(searchHaystack(twin).includes('·nope'));
 });
 
 test('searchUnits finds units by duplicate group id and by cluster id', () => {
   assert.deepEqual(
-    searchUnits(allUnits, 'e-0000').matches.map((unit) => unit.id).sort(),
-    ['u-DdkFp23muye', 'u-YAQVKvoqzCv'],
+    searchUnits(allUnits, 'e-0005').matches.map((unit) => unit.id).sort(),
+    ['u-HLeS39nnjSM', 'u-WT2Pjqw8CKB'],
   );
   assert.deepEqual(
-    searchUnits(allUnits, 'c-0da49c11').matches.map((unit) => unit.id).sort(),
-    ['u-DdkFp23muye', 'u-YAQVKvoqzCv'],
+    searchUnits(allUnits, 'c-f1a70012').matches.map((unit) => unit.id).sort(),
+    ['u-5NP1CPJxyNT', 'u-Nc3wVLJaPHB'],
   );
 });
 
@@ -1271,33 +1280,33 @@ test('duplicateGroupOfQuery offers the duplicate group for a content-addressed i
 });
 
 test('searchUnits finds a unit by its exact id across every shard', () => {
-  const { matches, total } = searchUnits(allUnits, 'u-DdkFp23muye');
+  const { matches, total } = searchUnits(allUnits, 'u-SupLKT1ijWn');
   assert.equal(total, 1);
-  assert.equal(matches[0].id, 'u-DdkFp23muye');
+  assert.equal(matches[0].id, 'u-SupLKT1ijWn');
 });
 
 test('searchUnits matches notation with and without the namer dots, case-insensitively', () => {
   assert.deepEqual(
     searchUnits(allUnits, '·Pea·May').matches.map((unit) => unit.id),
-    ['u-LK4WFNGn5Kk'],
+    ['u-DBug8cSj15L'],
   );
   assert.deepEqual(
     searchUnits(allUnits, 'peamay').matches.map((unit) => unit.id),
-    ['u-LK4WFNGn5Kk'],
+    ['u-DBug8cSj15L'],
   );
 });
 
 test('searchUnits matches codepoints with and without the colons', () => {
-  assert.deepEqual(searchUnits(allUnits, 'E66C').matches.map((unit) => unit.id), ['u-DdkFp23muye']);
-  assert.deepEqual(searchUnits(allUnits, 'e670e653').matches.map((unit) => unit.id), ['u-DdkFp23muye']);
+  assert.deepEqual(searchUnits(allUnits, 'E667').matches.map((unit) => unit.id), ['u-LhDRYppbBuN']);
+  assert.deepEqual(searchUnits(allUnits, 'e653e667').matches.map((unit) => unit.id), ['u-LhDRYppbBuN']);
 });
 
 test('searchUnits matches class, group, and kind, and includes machine-approved units', () => {
   const byClass = searchUnits(allUnits, 'join-dropped');
-  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-DdkFp23muye', 'u-YAQVKvoqzCv']);
-  const extension = searchUnits(allUnits, 'extension');
-  assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-DcLHyHTscUE']);
-  assert.equal(extension.matches[0].ink_identical, true, 'a machine-approved unit is still findable');
+  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-HLeS39nnjSM', 'u-LhDRYppbBuN', 'u-WT2Pjqw8CKB']);
+  const junction = searchUnits(allUnits, 'junction');
+  assert.deepEqual(junction.matches.map((unit) => unit.id).sort(), ['u-DBug8cSj15L', 'u-HLeS39nnjSM', 'u-LhDRYppbBuN', 'u-WT2Pjqw8CKB']);
+  assert.equal(junction.matches.find((unit) => unit.id === 'u-DBug8cSj15L').ink_identical, true, 'a machine-approved unit is still findable');
 });
 
 test('searchUnits matches a kind of change by its title, a re-routed unit by the class its glyph names gave it, and the raw config badge', () => {
@@ -1305,31 +1314,31 @@ test('searchUnits matches a kind of change by its title, a re-routed unit by the
   const titleOf = (id) => info.get(id)?.title ?? id;
   const fresh = allUnits.map((unit) => ({ ...unit }));
   assert.deepEqual(
-    searchUnits(fresh, 'keeps', 50, titleOf).matches.map((unit) => unit.id).sort(),
-    ['u-DcLHyHTscUE', 'u-LK4WFNGn5Kk', 'u-Yt4bRkgFmpk', 'u-ejrhc5MnMoF'],
+    searchUnits(fresh, 'whole', 50, titleOf).matches.map((unit) => unit.id).sort(),
+    ['u-5NP1CPJxyNT', 'u-BLyK6Z13RtN', 'u-DBug8cSj15L', 'u-Nc3wVLJaPHB'],
   );
   const untitled = allUnits.map((unit) => ({ ...unit }));
-  assert.equal(searchUnits(untitled, 'keeps').total, 0, 'only the title says "keeps"');
-  assert.deepEqual(searchUnits(fresh, 'identical-unused-join-name', 50, titleOf).matches.map((unit) => unit.id), ['u-YAQVKvoqzCv']);
+  assert.equal(searchUnits(untitled, 'whole').total, 0, 'only the title says "whole"');
+  assert.deepEqual(searchUnits(fresh, 'fixture-identical', 50, titleOf).matches.map((unit) => unit.id), ['u-D6rjFJxbdV6']);
   const noted = { ...allUnits[0], id: 'u-noted', config_class_note: 'blessed as ss03-adds-joins-around-tea under ss03' };
   assert.deepEqual(searchUnits([noted], 'blessed').matches.map((unit) => unit.id), ['u-noted']);
 });
 
 test('searchUnits requires every whitespace-separated token to match (AND)', () => {
-  assert.deepEqual(searchUnits(allUnits, 'teaoy').matches.map((unit) => unit.id).sort(), ['u-Yt4bRkgFmpk', 'u-ejrhc5MnMoF']);
-  assert.deepEqual(searchUnits(allUnits, 'teaoy 200c').matches.map((unit) => unit.id), ['u-Yt4bRkgFmpk']);
-  assert.equal(searchUnits(allUnits, 'tea exam').total, 0);
+  assert.deepEqual(searchUnits(allUnits, 'teaoy').matches.map((unit) => unit.id).sort(), ['u-6VFDHaMNgCP', 'u-BLyK6Z13RtN', 'u-SupLKT1ijWn']);
+  assert.deepEqual(searchUnits(allUnits, 'teaoy 200c').matches.map((unit) => unit.id), ['u-BLyK6Z13RtN']);
+  assert.equal(searchUnits(allUnits, 'tea low').total, 0);
 });
 
 test('searchUnits ranks an exact id hit ahead of incidental substring hits', () => {
   // Only one fixture unit contains this id. searchScore ranks an exact id match first, so it would stay first even if another unit's haystack contained the id.
-  const { matches } = searchUnits(allUnits, 'u-YAQVKvoqzCv');
-  assert.equal(matches[0].id, 'u-YAQVKvoqzCv');
+  const { matches } = searchUnits(allUnits, 'u-WT2Pjqw8CKB');
+  assert.equal(matches[0].id, 'u-WT2Pjqw8CKB');
 });
 
 test('searchUnits caps the matches at the limit but reports the true total', () => {
   const { matches, total } = searchUnits(allUnits, 'u-', 2);
-  assert.equal(total, 6, 'every fixture unit id starts with u-');
+  assert.equal(total, allUnits.length, 'every fixture unit id starts with u-');
   assert.equal(matches.length, 2);
 });
 
@@ -1348,7 +1357,7 @@ test('the fixture manifest lists its classes in section order, each with a title
   const info = classInfo(manifest);
   for (const unit of allUnits) {
     for (const classId of [unit.class, unit.ledger_class, ...Object.values(unit.config_classes ?? {})]) {
-      if (classId) assert.ok(info.has(classId), `${unit.id} names ${classId}, which the manifest cannot title`);
+      if (classId && classId !== UNMATCHED_CLASS) assert.ok(info.has(classId), `${unit.id} names ${classId}, which the manifest cannot title`);
     }
   }
   assert.ok(allUnits.some((unit) => unit.ledger_class), 'the fixtures must exercise a re-routed unit');
@@ -1389,18 +1398,18 @@ test('manifestRefusal refuses a manifest without sections, which would otherwise
 
 test('classChip names a class by its title, with its id and plain-text summary to hover and its pill status to color it', () => {
   const info = classInfo(manifest);
-  assert.deepEqual(classChip('ss03-tea-oy-ligature-kept', info), {
-    text: 'ss03 keeps the ·Tea+Oy ligature',
-    title: 'ss03-tea-oy-ligature-kept — With ss03 on, ·Tea·Oy still forms ·Tea+Oy, so ·May ~x~ ·Tea.half | ·Oy becomes ·May | ·Tea+Oy.',
+  assert.deepEqual(classChip('fixture-intended', info), {
+    text: 'Fixture class A, approved as a whole',
+    title: 'fixture-intended — Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches, such as ◊ZWNJ | ·Tea+Oy.',
     status: 'approved',
     pill: 'you approved',
   });
   assert.equal(classChip('join-dropped', info).status, 'per-unit');
-  const unlisted = classChip('identical-see-out-fusion', info);
-  assert.equal(unlisted.text, 'Looks identical: ·See·Out fusion');
+  const unlisted = classChip('fixture-identical', info);
+  assert.equal(unlisted.text, 'Fixture class C: looks identical');
   assert.equal(unlisted.status, 'by-design');
-  assert.equal(info.get('identical-see-out-fusion').listed, false, 'a ledger entry that reaches no unit is named but not listed');
-  assert.equal(info.get('ss03-tea-oy-ligature-kept').listed, true);
+  assert.equal(info.get('fixture-identical').listed, false, 'a ledger class whose every unit is re-routed is named but not listed');
+  assert.equal(info.get('fixture-intended').listed, true);
   assert.deepEqual(classChip('no-such-class', info), { text: 'no-such-class', title: 'no-such-class', status: null, pill: null });
 });
 
@@ -1447,7 +1456,7 @@ test('codeRuns keeps the copy whole, leaves an unpaired backtick as text, and yi
 
 test('rationaleParagraphs splits a why into its non-blank lines', () => {
   assert.deepEqual(rationaleParagraphs('First paragraph.\n\n  Second, with `code`.\n'), ['First paragraph.', 'Second, with `code`.']);
-  assert.equal(rationaleParagraphs(manifest.ledger_classes['identical-see-out-fusion'].why).length, 2);
+  assert.equal(rationaleParagraphs(manifest.ledger_classes['fixture-identical'].why).length, 2);
   assert.deepEqual(rationaleParagraphs(''), []);
   assert.deepEqual(rationaleParagraphs(undefined), []);
 });
@@ -1458,8 +1467,8 @@ test('sidebarSections sorts the classes into the three sections, with the change
   assert.deepEqual(sections.map((section) => section.title), ['Open questions', 'Spot-check (already ruled)', 'No review needed']);
   assert.deepEqual(sections.map((section) => section.open), [true, true, false]);
   assert.deepEqual(sections[0].entries, []);
-  assert.deepEqual(sections[0].changeGroups.map((cls) => cls.id), ['join-dropped'], 'a class the ledger lookup does not name is a change group');
-  assert.deepEqual(sections[1].entries.map((cls) => cls.id), ['ss03-tea-oy-ligature-kept']);
+  assert.deepEqual(sections[0].changeGroups.map((cls) => cls.id), ['join-dropped', 'same-joins-same-width'], 'a class the ledger lookup does not name is a change group');
+  assert.deepEqual(sections[1].entries.map((cls) => cls.id), ['fixture-intended', 'fixture-mismatch']);
   assert.deepEqual(sections[2].entries, []);
   const tableDiff = { classes: [{ id: 'bucket', section: 'open-questions', status: null }], ledger_classes: {} };
   assert.deepEqual(sidebarSections(tableDiff)[0].entries.map((cls) => cls.id), ['bucket'], 'a table-diff bucket gets no change-group subheading');
@@ -1483,7 +1492,8 @@ test('sectionTotalsLine counts a section\'s entries and what is left in it', () 
 });
 
 test('the class header says what each section asks, and the progress strip counts the class by its title', () => {
-  const [open, spot] = manifest.classes;
+  const open = manifest.classes.find((cls) => cls.section === 'open-questions');
+  const spot = manifest.classes.find((cls) => cls.section === 'spot-check');
   assert.equal(
     classSectionSentence(open),
     'No ruling covers this whole class. Judge each unit; units you have already ruled count as done. The Queue draws from here.',
@@ -1496,8 +1506,8 @@ test('the class header says what each section asks, and the progress strip count
     classSectionSentence({ section: 'no-review-needed', unit_count: 3904, no_verdict: true }),
     'Nothing to judge: a ruling or the machine covers all 3,904 units.',
   );
-  assert.equal(classProgressLine(open, { done: 1, skipped: 0, rejected: 0 }), '“Join dropped”: 1 to review of 2');
-  assert.equal(classProgressLine(spot, null), '“ss03 keeps the ·Tea+Oy ligature”: 3 to confirm of 3');
+  assert.equal(classProgressLine(open, { done: 1, skipped: 0, rejected: 0 }), '“Join dropped”: 2 to review of 3');
+  assert.equal(classProgressLine(spot, null), '“Fixture class A, approved as a whole”: 3 to confirm of 3');
 });
 
 test('configSetPhrase names a config set by its one stylistic set only when the set is exactly the configs that turn it on, and a set another config also turns on as that set alone', () => {
@@ -1538,7 +1548,8 @@ test('configClassBadge says which configs a ruling covers, by its title and pill
 
 test('configClassBadge shows nothing for a unit with one class under every config, and the raw note without a class map', () => {
   const info = classInfo(manifest);
-  const rerouted = allUnits.find((unit) => unit.id === 'u-YAQVKvoqzCv');
+  const rerouted = fixtureUnit('u-D6rjFJxbdV6');
+  assert.ok(Object.keys(rerouted.config_classes).length > 1);
   assert.equal(configClassBadge(rerouted, info), null, 'a re-routed unit is one identical class under every config');
   assert.equal(configClassBadge({ config_class_note: 'novel under default' }, info), 'novel under default');
   assert.equal(configClassBadge({ config_classes: null, config_class_note: null }, info), null);

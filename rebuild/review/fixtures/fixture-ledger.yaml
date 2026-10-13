@@ -1,24 +1,35 @@
-# The class half of the review corpus's contract fixture (rebuild/review/fixtures/README.md): the two hand-written classes the fixture shards are filed under, in rebuild/review/audit.py's ledger schema.
-# Both classes have human units and a ruled status, so both sit in Spot-check (`audit.class_section`) and entry order is the corpus's class order: these two also pin the order the fixture manifest's `classes` block runs in. The real ledger's `match` key is absent by design: nothing classifies these rows — fixture-audit.tsv names each row's class in its `matched_entry` column. `exemplars` is carried, because two shipped units are exemplars: `build_units` pools the (config, codepoints) keys across the whole ledger and marks a unit an exemplar when any of its rows matches one, so each key below names a row that unit actually has.
+# The class half of the review corpus's contract fixture (rebuild/review/fixtures/README.md): the ledger classes fixture-audit.tsv matches its rows to, in rebuild/review/audit.py's ledger schema.
+# Entry order is ledger order, which `build_m1` keeps within a section, so the ledger classes that keep units of their own appear in the same order in the manifest's `classes` block. Every unit `fixture-identical` matches is re-routed (`change_groups.reroutes`), so that class has no `classes` entry and the manifest names it only in `ledger_classes`. The real ledger's `match` key is absent by design: nothing classifies these rows, because fixture-audit.tsv names each row's class, or UNMATCHED, in its `matched_entry` column. `exemplars` is carried, because some shipped units are exemplars: `build_units` pools the (config, codepoints) keys across the whole ledger and marks a unit an exemplar when any of its rows matches one, so each key below names a row that unit actually has.
 # Hand-maintained beside the units it describes; no build ever writes this file.
 
 - id: fixture-intended
-  status: by-design
-  title: Fixture class A
-  summary: Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches.
-  ink_identical: true
+  status: approved
+  title: Fixture class A, approved as a whole
+  summary: Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches, such as `◊ZWNJ | ·Tea+Oy`.
+  ink_identical: false
   no_verdict: false
   exemplars:
     - {config: ss03, codepoints: "200C:E652:E679", baseline: "space|qsTea_qsOy", new: "zwnj/boundary/None/None/|qsTea_qsOy/sole/None/None/"}
     - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt/sole/None/None/|qsIt/sole/None/None/"}
   why: |
     Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.
+    You approved it as a whole, so its human units are spot-checks.
 
 - id: fixture-mismatch
   status: by-design
   title: Fixture class B
-  summary: Hand-written units for the namer-dot and pair-null branches.
+  summary: Hand-written units for the namer-dot and pair-null branches and a config gate with an on and an off clause.
   ink_identical: false
   no_verdict: false
   why: |
-    Fixture class B: hand-written units exercising the namer-dot and pair-null branches.
+    Fixture class B: hand-written units exercising the namer-dot and pair-null branches and a config gate with an on and an off clause.
+
+- id: fixture-identical
+  status: by-design
+  title: "Fixture class C: looks identical"
+  summary: A hand-written ink-identical class whose every unit changes its picture, so the build lists those units under a change group.
+  ink_identical: true
+  no_verdict: false
+  why: |
+    Fixture class C: the audit rows of the re-routed units match this class, which says their ink is unchanged.
+    Each of those units changes its picture, so the build lists it under the change group it shows, and this class keeps no listed class of its own.

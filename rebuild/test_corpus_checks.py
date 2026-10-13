@@ -339,12 +339,12 @@ def test_a_no_verdict_class_carrying_batches_fails_the_build():
 
 
 def _corpus_with_primary_unit() -> tuple[dict, dict[str, list[dict]]]:
-    """Returns the fixture with its one junction with a primary unit made to look like the resolver's output: a `secondary_junctions` count record in the manifest, which marks the primary units as resolver-assigned, a primary unit window that is a substring of the bearer's window, and a primary pair on the primary unit. The fixture ships without those counts because its junction is placed by hand."""
+    """Returns the fixture with its one junction with a primary unit made to look like the resolver's output: a `secondary_junctions` count record in the manifest, which marks the primary units as resolver-assigned and counts that junction and the fixture's junction with no primary unit, a primary unit window that is a substring of the bearer's window, and a primary pair on the primary unit. The fixture ships without those counts because its junctions are placed by hand."""
     manifest, shards = _corpus()
     manifest["secondary_junctions"] = {
-        "units_with_markers": 1,
+        "units_with_markers": 2,
         "junctions_with_primary_unit": 1,
-        "junctions_without_primary_unit": 0,
+        "junctions_without_primary_unit": 1,
         "junctions_suppressed_invisible": 0,
     }
     primary_unit = _unit(shards, PRIMARY_UNIT)

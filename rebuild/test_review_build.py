@@ -31,6 +31,7 @@ from rebuild.review.audit import (
     NO_DELTAS,
     SECTIONS,
     SLIM_OMITTED_KEYS,
+    UNMATCHED_CLASS,
     UnitTable,
     _config_index,
     load_ledger,
@@ -54,12 +55,19 @@ from rebuild.review.build import (
     config_gate,
     config_note,
 )
-from rebuild.review.change_groups import CHANGE_GROUP_ORDER, load_change_group_prose
+from rebuild.review.change_groups import (
+    CHANGE_GROUP_ORDER,
+    assign_change_group,
+    load_change_group_prose,
+    reroutes,
+)
+from rebuild.review.drafts import features_dict, stylistic_set_value
 from rebuild.review.enrich import LETTERS, EnrichedUnit
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
 from rebuild.review.ink import shape_memo_sizes
 from rebuild.review.columns import StringTable, TuplePool
 from rebuild.review.unit_store import UnitStore
+from rebuild.test_review_change_groups import _StubEnriched, _StubUnit
 from rebuild.tools import console, memory_tally
 from rebuild.tools.cycle_timings import parse_inner_timings
 
@@ -67,6 +75,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
 MINI = FIXTURES / "mini"
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
+# The contract fixture's units whose kinds differ from the ones `conform._compare_row` gives their glyphs, cells, and junctions. Both are frozen: their ids are their content keys.
+KINDS_DEPARTURES = frozenset({"u-BLyK6Z13RtN", "u-DBug8cSj15L"})
 
 
 def _load_fixture_units():
@@ -82,8 +92,9 @@ def test_fixture_manifest_passes_the_contract_checker():
 
 
 def test_fixture_units_pass_the_contract_checker():
+    manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
     units = _load_fixture_units()
-    assert len(units) == 6
+    assert len(units) == manifest["totals"]["units"]
     for unit in units:
         assert check_unit(unit, "m1-audit") == []
 
@@ -118,46 +129,127 @@ def test_fixture_units_exercise_the_contract_branches():
     ), "a fixture unit must exercise the ink_deltas branch where only some configs diverge"
 
 
+def test_fixture_duplicate_groups_and_clusters_follow_the_build_keys():
+    """`build_m1` keys a duplicate group on the config set, the judged pair's two code points, the class, and the ink diffs, and a cluster on the same key without the pair (`build._cluster_id`). `check_shards` checks only that each group and each cluster holds one class and one config set and that each group lies inside one cluster, so this checks the whole key of every hand-written group and cluster, with the units' per-config `ink_deltas` standing in for the diffs: one key per group or cluster, and no key shared by two. `check_manifest` only type-checks the manifest's `totals.duplicate_groups`, so this also checks it counts the groups."""
+    manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+    group_keys: dict[str, set[tuple]] = {}
+    cluster_keys: dict[str, set[tuple]] = {}
+    for unit in _load_fixture_units():
+        key = (tuple(unit["configs"]), unit["class"], tuple(sorted(unit["ink_deltas"].items())))
+        if unit["cluster"] is not None:
+            cluster_keys.setdefault(unit["cluster"], set()).add(key)
+        if unit["duplicate_group"] is not None:
+            values = unit["codepoints"].split(":")
+            pair = (
+                None
+                if unit["pair_codepoints"] is None
+                else tuple(values[index] for index in unit["pair_codepoints"])
+            )
+            group_keys.setdefault(unit["duplicate_group"], set()).add((*key, pair))
+    for keys_by_id in (group_keys, cluster_keys):
+        assert all(len(keys) == 1 for keys in keys_by_id.values()), keys_by_id
+        assert len({key for keys in keys_by_id.values() for key in keys}) == len(keys_by_id), keys_by_id
+    assert manifest["totals"]["duplicate_groups"] == len(group_keys)
+
+
 def test_fixture_sources_derive_the_checked_in_shards():
-    """Checks that `load_workload` over fixture-audit.tsv and fixture-ledger.yaml reproduces every unit the fixture shards ship, every class the manifest lists, and every count it declares. `check_shards` compares the manifest's per-class and total row counts only with each other, so this is the only check of them against the rows.
+    """Checks that `load_workload` over fixture-audit.tsv and fixture-ledger.yaml reproduces every unit the fixture shards ship, every class the manifest lists, its `ledger_classes` lookup, and every count it declares. `check_shards` compares the manifest's per-class and total row counts only with each other, so this is the only check of them against the rows.
+
+    A unit's class is its rows' ledger class, except on a unit `build_m1` lists under a change group: an UNMATCHED unit, and a re-routed unit (`change_groups.reroutes`), whose rows match an `ink_identical` ledger class that it names as its `ledger_class` and in `config_classes`. A unit names a `ledger_class` exactly when that rule re-routes it, a re-routed unit is no exemplar, and either kind sits in the change group `change_groups.assign_change_group` gives its configs, config classes, junctions, cells, and widths. A unit's `config_classes`, which every unit in a change group carries, must be the ones its rows give. A listed class the ledger does not declare is that change group, with its copy from rebuild/review/change-groups.yaml, and an `ink_identical` class every unit of which is re-routed is named only in `ledger_classes`. The classes are listed as `build_m1` lists them: by section, then ledger order, then `CHANGE_GROUP_ORDER`.
+
+    The fields the build derives from a unit's configs must be the ones `build.unit_scaffold` and `drafts.Drafter` give them: the config badge, and the pin's stylistic set and the any-of record's features. Every unit outside `KINDS_DEPARTURES` must carry the kinds `conform._compare_row` gives its glyphs, cells, and junctions: `ligation` exactly when the glyph and cell counts differ, and otherwise `junction` exactly when the junctions differ.
 
     Two comparisons are looser than equality. The workload's unit order is not the shards' order, so each derived unit is matched to its shard unit by codepoints. Configs are compared as a multiset because the fixture's configs that include `ss02` are outside `ACCEPTANCE_CONFIGS`: the workload sorts them after the ranked configs, while the shards keep the hand-written order.
     """
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
     workload = load_workload(FIXTURES / "fixture-audit.tsv", FIXTURES / "fixture-ledger.yaml", dict(LETTERS))
-    shipped = {unit["codepoints"]: unit for unit in _load_fixture_units()}
-    assert len(shipped) == 6
+    fixture_units = _load_fixture_units()
+    shipped = {unit["codepoints"]: unit for unit in fixture_units}
+    assert len(shipped) == len(fixture_units)
     units = workload.units()
     assert {unit.codepoints for unit in units} == set(shipped)
+    ledger = {entry.id: entry for entry in workload.ledger}
+    identical = {entry.id for entry in workload.ledger if entry.ink_identical}
 
+    counts: dict[str, tuple[int, int]] = {}
     for derived in units:
         unit = shipped[derived.codepoints]
-        assert derived.class_id == unit["class"]
+        rerouted = reroutes(derived.class_id, unit["no_verdict"], machine_approved(unit), identical)
+        assert bool(unit.get("ledger_class")) == rerouted, derived.codepoints
+        if rerouted:
+            assert unit["ledger_class"] == derived.class_id
+            assert not unit["exemplar"]
+        grouped = rerouted or derived.class_id == UNMATCHED_CLASS
+        if grouped or "config_classes" in unit:
+            assert unit["config_classes"] == dict(derived.config_classes)
+        if not grouped:
+            assert unit["class"] == derived.class_id
+        else:
+            shown = _StubEnriched(
+                unit=_StubUnit(config_classes=unit["config_classes"], configs=tuple(unit["configs"])),
+                before_junctions=tuple(unit["before"]["junctions"]),
+                after_junctions=tuple(unit["after"]["junctions"]),
+                after_cells=tuple(unit["after"]["cells"]),
+                highlight_before=unit["highlight"]["before"],
+                highlight_after=unit["highlight"]["after"],
+            )
+            assert (
+                assign_change_group(shown, unit["ink_deltas"], identical) == unit["class"]
+            ), derived.codepoints
         assert derived.group == unit["group"]
         assert derived.kinds == tuple(unit["kinds"])
         assert sorted(derived.configs) == sorted(unit["configs"])
         assert derived.exemplar == unit["exemplar"]
         assert derived.baseline == tuple(unit["before"]["glyphs"])
         assert derived.new == tuple(unit["after"]["cells"])
+        configs = tuple(unit["configs"])
+        assert (unit["config_gate"], unit["config_note"]) == config_badge(configs, tuple(manifest["configs"]))
+        if unit.get("drafts"):
+            assert unit["drafts"]["pin"]["stylistic_set"] == stylistic_set_value(configs)
+            assert unit["drafts"]["any_of"]["features"] == features_dict(configs)
+        if unit["id"] not in KINDS_DEPARTURES:
+            ligation = len(unit["before"]["glyphs"]) != len(unit["after"]["cells"])
+            assert ("ligation" in unit["kinds"]) == ligation, unit["id"]
+            if not ligation:
+                junctions = [junction for junction in unit["before"]["junctions"] if junction != "lig"]
+                assert ("junction" in unit["kinds"]) == (junctions != unit["after"]["junctions"]), unit["id"]
+        unit_count, row_count = counts.get(unit["class"], (0, 0))
+        counts[unit["class"]] = (unit_count + 1, row_count + derived.row_count)
 
-    for entry, meta in zip(workload.ledger, manifest["classes"], strict=True):
-        assert entry.id == meta["id"]
-        assert entry.status == meta["status"]
-        assert (entry.title, entry.summary, entry.note or None) == (
-            meta["title"],
-            meta["summary"],
-            meta.get("note"),
-        )
-        assert entry.why == meta["why"]
-        assert entry.ink_identical == meta["ink_identical"]
-        assert entry.no_verdict == meta["no_verdict"]
-
-    assert [entry.id for entry in workload.classes_present] == [meta["id"] for meta in manifest["classes"]]
-    by_class = workload.table.rows_by_class(range(workload.table.n))
+    assert list(manifest["ledger_classes"].items()) == list(
+        review_build._ledger_classes_meta(workload.ledger).items()
+    )
+    prose = load_change_group_prose()
     for meta in manifest["classes"]:
-        members = by_class[meta["id"]]
-        assert len(members) == meta["unit_count"]
-        assert sum(map(workload.table.row_count, members)) == meta["row_count"]
+        entry = ledger.get(meta["id"])
+        if entry is None:
+            assert meta["id"] in CHANGE_GROUP_ORDER
+            group = prose[meta["id"]]
+            assert (meta["status"], meta["ink_identical"], meta["no_verdict"]) == ("per-unit", False, False)
+            assert (meta["title"], meta["summary"], meta["note"], meta["why"]) == (
+                group.title,
+                group.summary,
+                None,
+                group.why,
+            )
+        else:
+            assert entry.status == meta["status"]
+            assert (entry.title, entry.summary, entry.note or None) == (
+                meta["title"],
+                meta["summary"],
+                meta.get("note"),
+            )
+            assert entry.why == meta["why"]
+            assert entry.ink_identical == meta["ink_identical"]
+            assert entry.no_verdict == meta["no_verdict"]
+        assert counts[meta["id"]] == (meta["unit_count"], meta["row_count"])
+
+    sections = {meta["id"]: meta["section"] for meta in manifest["classes"]}
+    assert set(sections) == set(counts)
+    expected = [entry.id for entry in workload.ledger if entry.id in counts]
+    expected += [group for group in CHANGE_GROUP_ORDER if group in counts]
+    expected.sort(key=lambda class_id: SECTIONS.index(sections[class_id]))
+    assert [meta["id"] for meta in manifest["classes"]] == expected
     assert workload.table.n == len(units) == manifest["totals"]["units"]
     assert workload.row_count == manifest["totals"]["rows"]
 
@@ -1720,7 +1812,7 @@ def test_write_json_leaves_the_previous_file_alone_when_serializing_fails(tmp_pa
 
 
 def _export_corpus():
-    """Build a stand-in for a built corpus from the checked-in fixture units, so `build_triage` sees every unit shape it handles differently. The fixture's six units include no exempt unit and none without a policy draft, so three clones are added: a no-verdict unit whose verdict must be ignored, a reject with no mechanical draft, and one more plain approvable unit, which is also what gives `test_export_round_trip` the four ids it takes from `ids[3:]`. The manifest is the fixture's with its totals and human-id list recomputed over the larger set. The machine-approved block is unchanged, because the one machine-approved unit is unchanged and `machine_approved_section` recomputes its own copy from the units.
+    """Build a stand-in for a built corpus from the checked-in fixture units, so `build_triage` sees every unit shape it handles differently. The fixture's units include no exempt unit and none without a policy draft, so two clones are added: a no-verdict unit whose verdict must be ignored, and a reject with no mechanical draft. The manifest is the fixture's with its totals and human-id list recomputed over the larger set. The machine-approved block is unchanged, because the one machine-approved unit is unchanged and `machine_approved_section` recomputes its own copy from the units.
 
     The units are returned projected, because the CLI only ever passes `build_triage` the projection, and testing with whole fixture units would not show that the projection holds every field the export reads.
     """
@@ -1736,7 +1828,6 @@ def _export_corpus():
 
     clone("u-clone6exempt", no_verdict=True)
     clone("u-clone7nopol", drafts={**copy.deepcopy(template["drafts"]), "policy": None})
-    clone("u-clone8plain")
     manifest["totals"]["units"] = len(units)
     manifest["human_unit_ids"] = sorted(unit["id"] for unit in units.values() if not slim_fragment(unit))
     positions = {unit_id: position for position, unit_id in enumerate(manifest["human_unit_ids"])}

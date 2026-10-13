@@ -1,0 +1,476 @@
+[
+ {
+  "id": "u-HLeS39nnjSM",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-2b7e1f40c9a3",
+   "ss02": "d-2b7e1f40c9a3",
+   "ss03": "d-2b7e1f40c9a3",
+   "ss05": "d-2b7e1f40c9a3",
+   "ss02+ss03": "d-2b7e1f40c9a3",
+   "ss02+ss03+ss05": "d-2b7e1f40c9a3"
+  },
+  "no_verdict": false,
+  "duplicate_group": "e-0005",
+  "cluster": "c-0da49c11",
+  "class": "join-dropped",
+  "ledger_class": null,
+  "group": "qsBay:qsIt",
+  "codepoints": "E651:E670:E653",
+  "text_entities": "&#xE651;&#xE670;&#xE653;",
+  "notation": "\u00b7Bay\u00b7It\u00b7Day",
+  "notation_tokens": [
+   "\u00b7Bay",
+   "\u00b7It",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss02",
+   "ss03",
+   "ss05",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only when ss04 is off",
+  "config_gate": [
+   {
+    "feature": "ss04",
+    "state": "off",
+    "text": "only when ss04 is off"
+   }
+  ],
+  "config_classes": {
+   "default": "UNMATCHED",
+   "ss02": "UNMATCHED",
+   "ss03": "UNMATCHED",
+   "ss05": "UNMATCHED",
+   "ss02+ss03": "UNMATCHED",
+   "ss02+ss03+ss05": "UNMATCHED"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss02",
+     "ss03",
+     "ss05",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "junction"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsBay",
+    "qsIt.ex-y0.before-day.after-no-baseline-join",
+    "qsDay.half.en-y0.ex-y0"
+   ],
+   "junctions": [
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsBay/sole/None/None/",
+    "qsIt/sole/None/None/",
+    "qsDay/full/None/None/"
+   ],
+   "junctions": [
+    "break",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 450,
+    "x_max": 1275,
+    "advance_total": 1275
+   },
+   "after": {
+    "x_min": 450,
+    "x_max": 1330,
+    "advance_total": 1330
+   }
+  },
+  "boundary_marks": [],
+  "secondary_junctions": null,
+  "explain": "sequence E651:E670:E653   config default\nsettled: qsBay.sole qsIt.sole qsDay.full\n\nposition 1: qsIt\n  decided by: join-count",
+  "summary": "New: \u00b7Bay\u00b7It\u00b7Day settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Bay | \u00b7It | \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsIt.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E651:E670:E653 (\u00b7Bay\u00b7It\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E651:E670:E653 (\u00b7Bay\u00b7It\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsBay qsIt qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7Bay | \u00b7It | \u00b7Day",
+     "\u00b7Bay | \u00b7It ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "61aecaf9d3edc57ebf8543969cb78d01fdc04f00257298a50d0659fc76509944"
+ },
+ {
+  "id": "u-LhDRYppbBuN",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-4c81e0d27a95",
+   "ss02": "d-4c81e0d27a95",
+   "ss03": "d-4c81e0d27a95",
+   "ss05": "d-4c81e0d27a95",
+   "ss02+ss03": "d-4c81e0d27a95",
+   "ss02+ss03+ss05": "d-4c81e0d27a95"
+  },
+  "no_verdict": false,
+  "duplicate_group": "e-0007",
+  "cluster": "c-0da49c12",
+  "class": "join-dropped",
+  "ledger_class": null,
+  "group": "qsIt:qsDay",
+  "codepoints": "E670:E653:E667",
+  "text_entities": "&#xE670;&#xE653;&#xE667;",
+  "notation": "\u00b7It\u00b7Day\u00b7Low",
+  "notation_tokens": [
+   "\u00b7It",
+   "\u00b7Day",
+   "\u00b7Low"
+  ],
+  "configs": [
+   "default",
+   "ss02",
+   "ss03",
+   "ss05",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only when ss04 is off",
+  "config_gate": [
+   {
+    "feature": "ss04",
+    "state": "off",
+    "text": "only when ss04 is off"
+   }
+  ],
+  "config_classes": {
+   "default": "UNMATCHED",
+   "ss02": "UNMATCHED",
+   "ss03": "UNMATCHED",
+   "ss05": "UNMATCHED",
+   "ss02+ss03": "UNMATCHED",
+   "ss02+ss03+ss05": "UNMATCHED"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss02",
+     "ss03",
+     "ss05",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "junction"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsIt.ex-y0.before-day.after-no-baseline-join",
+    "qsDay.half.en-y0.ex-y0",
+    "qsLow"
+   ],
+   "junctions": [
+    "y0",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsIt/sole/None/None/",
+    "qsDay/full/None/None/",
+    "qsLow/sole/None/None/"
+   ],
+   "junctions": [
+    "break",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 825,
+    "advance_total": 1375
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 880,
+    "advance_total": 1430
+   }
+  },
+  "boundary_marks": [],
+  "secondary_junctions": [
+   {
+    "pair": {
+     "left": 1,
+     "right": 2
+    },
+    "before": {
+     "x_min": 450,
+     "x_max": 1375,
+     "advance_total": 1375
+    },
+    "after": {
+     "x_min": 450,
+     "x_max": 1430,
+     "advance_total": 1430
+    },
+    "primary_unit": null
+   }
+  ],
+  "explain": "sequence E670:E653:E667   config default\nsettled: qsIt.sole qsDay.full qsLow.sole\n\nposition 0: qsIt\n  decided by: join-count",
+  "summary": "New: \u00b7It\u00b7Day\u00b7Low settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7It | \u00b7Day | \u00b7Low",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsIt.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E670:E653:E667 (\u00b7It\u00b7Day\u00b7Low)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E670:E653:E667 (\u00b7It\u00b7Day\u00b7Low)"
+   },
+   "any_of": {
+    "text": "qsIt qsDay qsLow",
+    "features": {},
+    "candidates": [
+     "\u00b7It | \u00b7Day | \u00b7Low",
+     "\u00b7It ~b~ \u00b7Day ~b~ \u00b7Low"
+    ]
+   }
+  },
+  "content_key": "75bd2459b7e6cca5b5602c2459b1f6763a56eb6045a326018eebba07e54955a3"
+ },
+ {
+  "id": "u-WT2Pjqw8CKB",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-2b7e1f40c9a3",
+   "ss02": "d-2b7e1f40c9a3",
+   "ss03": "d-2b7e1f40c9a3",
+   "ss05": "d-2b7e1f40c9a3",
+   "ss02+ss03": "d-2b7e1f40c9a3",
+   "ss02+ss03+ss05": "d-2b7e1f40c9a3"
+  },
+  "no_verdict": false,
+  "duplicate_group": "e-0005",
+  "cluster": "c-0da49c11",
+  "class": "join-dropped",
+  "ledger_class": null,
+  "group": "qsIt:qsDay",
+  "codepoints": "E670:E653",
+  "text_entities": "&#xE670;&#xE653;",
+  "notation": "\u00b7It\u00b7Day",
+  "notation_tokens": [
+   "\u00b7It",
+   "\u00b7Day"
+  ],
+  "configs": [
+   "default",
+   "ss02",
+   "ss03",
+   "ss05",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": "only when ss04 is off",
+  "config_gate": [
+   {
+    "feature": "ss04",
+    "state": "off",
+    "text": "only when ss04 is off"
+   }
+  ],
+  "config_classes": {
+   "default": "UNMATCHED",
+   "ss02": "UNMATCHED",
+   "ss03": "UNMATCHED",
+   "ss05": "UNMATCHED",
+   "ss02+ss03": "UNMATCHED",
+   "ss02+ss03+ss05": "UNMATCHED"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss02",
+     "ss03",
+     "ss05",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "junction"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsIt.ex-y0.before-day.after-no-baseline-join",
+    "qsDay.half.en-y0.ex-y0"
+   ],
+   "junctions": [
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsIt/sole/None/None/",
+    "qsDay/full/None/None/"
+   ],
+   "junctions": [
+    "break"
+   ],
+   "extensions": [
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 825,
+    "advance_total": 825
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 880,
+    "advance_total": 880
+   }
+  },
+  "boundary_marks": [],
+  "secondary_junctions": null,
+  "explain": "sequence E670:E653   config default\nsettled: qsIt.sole qsDay.full\n\nposition 0: qsIt\n  decided by: join-count",
+  "summary": "New: \u00b7It\u00b7Day settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7It | \u00b7Day",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsIt.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsDay]}}, why: 'Reviewer rejected the M1 outcome for E670:E653 (\u00b7It\u00b7Day)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E670:E653 (\u00b7It\u00b7Day)"
+   },
+   "any_of": {
+    "text": "qsIt qsDay",
+    "features": {},
+    "candidates": [
+     "\u00b7It | \u00b7Day",
+     "\u00b7It ~b~ \u00b7Day"
+    ]
+   }
+  },
+  "content_key": "b00fed2001b981a29dbf3705c5738c9d0906db8499cfbc4b6d84303bc1c61c53"
+ }
+]

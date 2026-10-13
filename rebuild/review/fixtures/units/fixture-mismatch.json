@@ -112,6 +112,143 @@
   "content_key": "20cdf5a9d162b338b79715d94eace22a76a877400ea326d8c733a61d61f28951"
  },
  {
+  "id": "u-SupLKT1ijWn",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-6de18326a65d"
+  },
+  "no_verdict": false,
+  "duplicate_group": "e-0006",
+  "cluster": "c-0d41f7a6",
+  "class": "fixture-mismatch",
+  "ledger_class": null,
+  "group": "qsI:qsTea",
+  "codepoints": "E675:E652:E679",
+  "text_entities": "&#xE675;&#xE652;&#xE679;",
+  "notation": "\u00b7I\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7I",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
+  "configs": [
+   "ss03"
+  ],
+  "config_note": "only when ss03 is on and ss02 is off",
+  "config_gate": [
+   {
+    "feature": "ss03",
+    "state": "on",
+    "text": "only when ss03 is on"
+   },
+   {
+    "feature": "ss02",
+    "state": "off",
+    "text": "and ss02 is off"
+   }
+  ],
+  "config_classes": {
+   "ss03": "fixture-mismatch"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "ss03"
+    ]
+   }
+  ],
+  "kinds": [
+   "ligation"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsI.ex-ext-1",
+    "qsTea.half.en-y5.after-xheight-exit",
+    "qsOy"
+   ],
+   "junctions": [
+    "y5",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsI/loop/None/None/",
+    "qsTea_qsOy/sole/None/None/"
+   ],
+   "junctions": [
+    "break"
+   ],
+   "extensions": [
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 800,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 800,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_junctions": null,
+  "explain": "sequence E675:E652:E679   config ss03\nsettled: qsI.loop qsTea_qsOy.sole\n\nposition 0: qsI\n  decided by: order\n\nposition 1: qsTea_qsOy\n  decided by: only-candidate",
+  "summary": "New: \u00b7I\u00b7Tea\u00b7Oy settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7I | \u00b7Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsI.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, when: {right: {family: [qsTea_qsOy]}}, why: 'Reviewer rejected the M1 outcome for E675:E652:E679 (\u00b7I\u00b7Tea\u00b7Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "order",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E675:E652:E679 (\u00b7I\u00b7Tea\u00b7Oy)"
+   },
+   "any_of": {
+    "text": "qsI qsTea qsOy",
+    "features": {
+     "ss03": true
+    },
+    "candidates": [
+     "\u00b7I | \u00b7Tea+Oy",
+     "\u00b7I ~x~ \u00b7Tea | \u00b7Oy"
+    ]
+   }
+  },
+  "content_key": "9ae8d43f89ba644f0c6b7697a30ce144f023afbae8b58e3c31c1a0eb45fe5aec"
+ },
+ {
   "id": "u-Xp5KzYAPYK7",
   "ink_identical": false,
   "picture_identical": false,

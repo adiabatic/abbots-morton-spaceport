@@ -55,19 +55,24 @@
   "ss07": "allow \u00b7Owe\u00b7Day to join at the x-height again",
   "ss10": "suppress all joins for the wrapped letter(s)"
  },
- "batch_size": 300,
+ "batch_size": 5,
  "human_unit_ids": [
+  "u-HLeS39nnjSM",
+  "u-WT2Pjqw8CKB",
+  "u-LhDRYppbBuN",
+  "u-D6rjFJxbdV6",
   "u-5NP1CPJxyNT",
   "u-BLyK6Z13RtN",
   "u-Nc3wVLJaPHB",
   "u-6VFDHaMNgCP",
+  "u-SupLKT1ijWn",
   "u-Xp5KzYAPYK7"
  ],
  "totals": {
-  "units": 6,
-  "rows": 27,
-  "batches": 1,
-  "duplicate_groups": 5
+  "units": 11,
+  "rows": 53,
+  "batches": 2,
+  "duplicate_groups": 9
  },
  "machine_approved": {
   "units": 1,
@@ -96,15 +101,65 @@
  },
  "classes": [
   {
+   "id": "join-dropped",
+   "title": "Join dropped",
+   "summary": "Letters the old font joined stand apart, for example `\u00b7At | \u00b7It` and `\u00b7It | \u00b7Et`, where the old font drew `\u00b7At ~x~ \u00b7It` and `\u00b7It ~x~ \u00b7Et`.",
+   "note": null,
+   "section": "open-questions",
+   "status": "per-unit",
+   "ink_identical": false,
+   "no_verdict": false,
+   "why": "No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, no junction gains a join, and at least one junction the old font joined now breaks; the leftmost such break names the pair.\nOther joins in the word may move as well. A window that also gains a join is listed under the new join instead, because a new join usually causes the changes around it.",
+   "unit_count": 3,
+   "row_count": 18,
+   "machine_approved_count": 0,
+   "machine_checks": {
+    "ink_identical": 0,
+    "picture_identical": 0,
+    "junior_equivalent": 0
+   },
+   "shards": [
+    "units/join-dropped.json"
+   ],
+   "batches": [
+    0
+   ]
+  },
+  {
+   "id": "same-joins-same-width",
+   "title": "Same joins and width, letter redrawn or shifted",
+   "summary": "Joins and width match the old font, but a letter is drawn or placed differently, for example \u00b7I's smaller loop or \u00b7Roe's full top arm after \u00b7Eight.",
+   "note": null,
+   "section": "open-questions",
+   "status": "per-unit",
+   "ink_identical": false,
+   "no_verdict": false,
+   "why": "No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, every junction joins at the height the old font's did, and the word keeps the old font's width, yet a letter is drawn differently or sits elsewhere: a redrawn stroke, or a letter shifted while the word's width stays the same.\nA changed junction the review cannot read stops the build instead of landing here, so every window here keeps its joins and its width.",
+   "unit_count": 1,
+   "row_count": 7,
+   "machine_approved_count": 0,
+   "machine_checks": {
+    "ink_identical": 0,
+    "picture_identical": 0,
+    "junior_equivalent": 0
+   },
+   "shards": [
+    "units/same-joins-same-width.json"
+   ],
+   "batches": [
+    0
+   ]
+  },
+  {
    "id": "fixture-intended",
-   "title": "Fixture class A",
-   "summary": "Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches.",
+   "title": "Fixture class A, approved as a whole",
+   "summary": "Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches, such as `\u25caZWNJ | \u00b7Tea+Oy`.",
    "note": null,
    "section": "spot-check",
-   "status": "by-design",
-   "ink_identical": true,
+   "status": "approved",
+   "ink_identical": false,
    "no_verdict": false,
-   "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.",
+   "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.\nYou approved it as a whole, so its human units are spot-checks.",
    "unit_count": 4,
    "row_count": 20,
    "machine_approved_count": 1,
@@ -117,21 +172,22 @@
     "units/fixture-intended.json"
    ],
    "batches": [
-    0
+    0,
+    1
    ]
   },
   {
    "id": "fixture-mismatch",
    "title": "Fixture class B",
-   "summary": "Hand-written units for the namer-dot and pair-null branches.",
+   "summary": "Hand-written units for the namer-dot and pair-null branches and a config gate with an on and an off clause.",
    "note": null,
    "section": "spot-check",
    "status": "by-design",
    "ink_identical": false,
    "no_verdict": false,
-   "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches.",
-   "unit_count": 2,
-   "row_count": 7,
+   "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches and a config gate with an on and an off clause.",
+   "unit_count": 3,
+   "row_count": 8,
    "machine_approved_count": 0,
    "machine_checks": {
     "ink_identical": 0,
@@ -142,22 +198,28 @@
     "units/fixture-mismatch.json"
    ],
    "batches": [
-    0
+    1
    ]
   }
  ],
  "ledger_classes": {
   "fixture-intended": {
-   "title": "Fixture class A",
-   "summary": "Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches.",
-   "status": "by-design",
-   "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract."
+   "title": "Fixture class A, approved as a whole",
+   "summary": "Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches, such as `\u25caZWNJ | \u00b7Tea+Oy`.",
+   "status": "approved",
+   "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.\nYou approved it as a whole, so its human units are spot-checks."
   },
   "fixture-mismatch": {
    "title": "Fixture class B",
-   "summary": "Hand-written units for the namer-dot and pair-null branches.",
+   "summary": "Hand-written units for the namer-dot and pair-null branches and a config gate with an on and an off clause.",
    "status": "by-design",
-   "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches."
+   "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches and a config gate with an on and an off clause."
+  },
+  "fixture-identical": {
+   "title": "Fixture class C: looks identical",
+   "summary": "A hand-written ink-identical class whose every unit changes its picture, so the build lists those units under a change group.",
+   "status": "by-design",
+   "why": "Fixture class C: the audit rows of the re-routed units match this class, which says their ink is unchanged.\nEach of those units changes its picture, so the build lists it under the change group it shows, and this class keeps no listed class of its own."
   }
  },
  "build_command": "uv run python -m rebuild.review.build",

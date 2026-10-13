@@ -1,0 +1,149 @@
+[
+ {
+  "id": "u-D6rjFJxbdV6",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-4dfafb1320b6",
+   "ss02": "d-4dfafb1320b6",
+   "ss03": "d-4dfafb1320b6",
+   "ss04": "d-4dfafb1320b6",
+   "ss05": "d-4dfafb1320b6",
+   "ss02+ss03": "d-4dfafb1320b6",
+   "ss02+ss03+ss05": "d-4dfafb1320b6"
+  },
+  "no_verdict": false,
+  "duplicate_group": "e-0008",
+  "cluster": "c-5a3e0001",
+  "class": "same-joins-same-width",
+  "ledger_class": "fixture-identical",
+  "group": "qsMay:qsI",
+  "codepoints": "E665:E675",
+  "text_entities": "&#xE665;&#xE675;",
+  "notation": "\u00b7May\u00b7I",
+  "notation_tokens": [
+   "\u00b7May",
+   "\u00b7I"
+  ],
+  "configs": [
+   "default",
+   "ss02",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss02+ss03",
+   "ss02+ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "config_classes": {
+   "default": "fixture-identical",
+   "ss02": "fixture-identical",
+   "ss03": "fixture-identical",
+   "ss04": "fixture-identical",
+   "ss05": "fixture-identical",
+   "ss02+ss03": "fixture-identical",
+   "ss02+ss03+ss05": "fixture-identical"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss02",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss02+ss03",
+     "ss02+ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsMay.ex-y0",
+    "qsI"
+   ],
+   "junctions": [
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsMay/grounded-loop/None/baseline/",
+    "qsI/smaller-loop/baseline/None/"
+   ],
+   "junctions": [
+    "y0"
+   ],
+   "extensions": [
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 500
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 500
+   }
+  },
+  "boundary_marks": [],
+  "secondary_junctions": null,
+  "explain": "sequence E665:E675   config default\nsettled: qsMay.grounded-loop.ex-y0 qsI.smaller-loop.en-y0\n\nposition 1: qsI\n  decided by: yielding-prefer (over loop entry=baseline junction=none)\n  note: prefer applied: glyph_data/runes/qsI.yaml:policy.prefer[1]",
+  "summary": "New: \u00b7May\u00b7I settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
+  "provenance": [
+   "glyph_data/runes/qsI.yaml:policy.prefer[1]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7May ~b~ \u00b7I",
+    "attribute": "data-expect",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": "site/the-manual.html:9999",
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsI.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {entry: none}, over: {entry: baseline}, mode: absolute, when: {left: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E665:E675 (\u00b7May\u00b7I)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsI.yaml:policy.prefer[1]"
+    ],
+    "decided_stage": "yielding-prefer",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E665:E675 (\u00b7May\u00b7I)"
+   },
+   "any_of": {
+    "text": "qsMay qsI",
+    "features": {},
+    "candidates": [
+     "\u00b7May ~b~ \u00b7I"
+    ]
+   }
+  },
+  "content_key": "4858dace23bfca4dde01777a39277c79247a4585af681f2e36b00c423d012b27"
+ }
+]

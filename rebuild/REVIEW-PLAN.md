@@ -10,7 +10,7 @@ This is the design record for the table-diff review app: why the corpus has its 
 
 `rebuild/review/` is a Python package, and each module's docstring says what it does. `static/` holds the app's ES modules, CSS, and HTML shell, and `jstests/` holds the modules' `node --test` tests (§5.2). Two ingestion front ends produce the same unit model. `audit.py` (M1 mode) loads `rebuild/out/m1/divergence-audit.tsv` and `rebuild/m1-divergences.yaml`, dedupes the rows to units, and orders them. `tablediff.py` (table-diff mode, §2.3) diffs two settlement/join table directories by key. Everything after ingestion is the same in both modes: enrichment, the three verdict drafters, the ink comparison, the generation CLI, and the triage-YAML export.
 
-The server, `serve.py`, runs the same livereload server and no-store static handler as `tools/serve.py`, over `rebuild/out/review/`, and adds the `/autosave`, `/status` and `/capabilities` endpoints; `/capabilities` names the land protocol (`landing.py`) the cycle relies on to keep the server running through a pass. Unlike `tools/serve.py`, it reloads no tab on a file change: the cycle sends an `ams:` path to livereload's `/forcereload` when what the server serves changes, and the app decides when to reload (`static/reload.js`). `rebuild/review/fixtures/` holds a hand-written miniature corpus (a `manifest.json` and two unit shards) that satisfies the §7 contract, so the frontend and the contract checker can run without a build. Python tests are `rebuild/test_review_*.py` and their neighbors (§5.1).
+The server, `serve.py`, runs the same livereload server and no-store static handler as `tools/serve.py`, over `rebuild/out/review/`, and adds the `/autosave`, `/status` and `/capabilities` endpoints; `/capabilities` names the land protocol (`landing.py`) the cycle relies on to keep the server running through a pass. Unlike `tools/serve.py`, it reloads no tab on a file change: the cycle sends an `ams:` path to livereload's `/forcereload` when what the server serves changes, and the app decides when to reload (`static/reload.js`). `rebuild/review/fixtures/` holds a hand-written miniature corpus (a `manifest.json`, its unit shards, and the audit rows and ledger they derive from) that satisfies the §7 contract, so the contract checker and the frontend's node tests run against it without a build. Python tests are `rebuild/test_review_*.py` and their neighbors (§5.1).
 
 The only import from outside `rebuild/` is the data-expect parser in `test/test_shaping.py`, loaded read-only by `drafts._import_test_shaping()`, which follows `rebuild/validation/pins.py`'s helper of the same name.
 
@@ -45,7 +45,7 @@ Build and serve are separate commands because the server is long-running. `serve
 
 ### 1.4 At cutover
 
-At cutover the app moves out of `rebuild/out/`, and the serve script is likely to merge into `tools/serve.py`'s livereload. The `review-build` and `review-serve` Makefile targets stay as they are, and the move needs no `site/` changes and touches no existing pipeline files. Two leftovers wait for the move without blocking anything: the build copies a `{"type":"module"}` `package.json` from `static/` into the output verbatim, which is harmless, and `rebuild/review/fixtures/` and `rebuild/review/jstests/fixtures/` are divergent copies that should converge on one source of truth before cutover.
+At cutover the app moves out of `rebuild/out/`, and the serve script is likely to merge into `tools/serve.py`'s livereload. The `review-build` and `review-serve` Makefile targets stay as they are, and the move needs no `site/` changes and touches no existing pipeline files. One leftover waits for the move without blocking anything: the build copies a `{"type":"module"}` `package.json` from `static/` into the output verbatim, which is harmless.
 
 ## 2. Data model
 
@@ -219,7 +219,7 @@ No review test reads the live corpus. Every example window comes from the frozen
 
 ### 5.2 JavaScript
 
-Every ES module in `static/` except `app.js` is a pure module with no DOM access at top level, and each has a `*.test.js` under `rebuild/review/jstests/`. Node's built-in runner needs no new dependency; run it as `node --test rebuild/review/jstests/*.test.js` (`artifact_cycle.jstest_argv` says why the files are listed instead of the directory). There is no headless-browser test (no Playwright or puppeteer); the HTML sanity check and a manual serve-and-click pass cover integration.
+Every ES module in `static/` except `app.js` is a pure module with no DOM access at top level, and each has a `*.test.js` under `rebuild/review/jstests/`. Node's built-in runner needs no new dependency; run it as `node --test rebuild/review/jstests/*.test.js` (`artifact_cycle.jstest_argv` says why the files are listed instead of the directory). There is no headless-browser test (no Playwright or puppeteer); the HTML sanity check and a manual serve-and-click pass cover integration. `render.test.js` and `slim.test.js` read the §7 fixture corpus in `rebuild/review/fixtures/`, the same units the Python contract tests check, and `render.test.js` also reads `jstests/explain-samples.json`, explain dumps copied from a real build.
 
 ## 6. Gates
 
@@ -233,7 +233,7 @@ The executable authority is `check_manifest`, `check_unit`, `check_shards`, and 
 
 The m1 build checks every unit it computes. `check_unit` runs in two subsets (`CHECKED_AT` in `build.py`; `check_unit`'s docstring says which predicates run in each): `DRAFTED` in the worker that drafts the fragment, and `PATCHED` in the process that writes it (`_write_class`). A unit the unit cache supplied skips `check_unit`: the build reuses a fragment only when its stamp equals the unit's `content_key`, and the build that drafted the fragment ran `check_unit` on it. The fields a later build re-patches onto a cached fragment (`duplicate_group`, `cluster`, and the secondary junctions) are not re-checked per unit (`_CorpusCheck.unit`). The cross-unit predicates run over every unit (`_CorpusCheck`). `check_output_dir`, which re-reads a finished corpus, and the table-diff build, which runs `check_shards` over the dicts it serialized, run all of `check_unit`. `check_manifest` and the checks on files beside the manifest run through `check_output_dir`. The contracts lane requires an empty error list from it over a real mini-bundle m1 build (`rebuild/test_app_index.py`) and a real table-diff build (`rebuild/test_review_build.py`), and `rebuild/test_corpus_checks.py` runs each predicate over the checked-in fixture corpus and over that corpus with one field broken at a time.
 
-What follows describes the shape of the JSON and the design decisions in its fields; it does not list every field. The JSON is the only interface between the engine (`rebuild/review/*.py`) and the frontend (`static/` and `jstests/`), and `rebuild/review/fixtures/` lets the frontend be built against the contract without running a build.
+What follows describes the shape of the JSON and the design decisions in its fields; it does not list every field. The JSON is the only interface between the engine (`rebuild/review/*.py`) and the frontend (`static/` and `jstests/`), and `rebuild/review/fixtures/` lets the frontend be built and tested against the contract without running a build.
 
 ### 7.1 `manifest.json`
 
@@ -359,7 +359,7 @@ Field semantics:
 - `row_key` (table-diff mode, required) is the diffed row's table key (`key.label()` in `rebuild/review/tablediff.py`). It is inside the carry projection, so two rows that share an example text and both outcomes keep distinct ids.
 - All strings are NFC, and all field names are snake_case. `ink_deltas` and `config_classes` are keyed by configuration name (`ss03+ss05`).
 
-The shards under `rebuild/review/fixtures/` hold a handful of hand-written units that cover the contract's branches; `test_fixture_units_exercise_the_contract_branches` in `rebuild/test_review_build.py` lists the branches. The same checker validates the fixtures and real output.
+The shards under `rebuild/review/fixtures/` hold a handful of hand-written units that cover the contract's branches; `test_fixture_units_exercise_the_contract_branches` in `rebuild/test_review_build.py` lists the branches. The same checker validates the fixtures and real output. The app's node tests (§5.2) read the same units; the fixture's README says what each reader needs from it.
 
 ### 7.3 `verdicts.json`
 
