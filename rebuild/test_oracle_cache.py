@@ -826,9 +826,9 @@ def test_a_store_promoted_during_a_load_is_read_from_the_file_its_header_came_fr
     newer = _joined_store(tmp_path / "newer", repo, spec, pass_ordinal=7)[0]
     real = oracle_cache._indexed_records
 
-    def promoted_first(path, *args):
+    def promoted_first(path, *args, **kwargs):
         os.replace(newer, path)
-        return real(path, *args)
+        return real(path, *args, **kwargs)
 
     monkeypatch.setattr(oracle_cache, "_indexed_records", promoted_first)
     loaded = oracle_cache.load_store(joined, stamp, "subset-digest", spec, keys, first_row=3, stop_row=5)
@@ -1303,7 +1303,7 @@ def test_a_moved_position_stamp_keeps_the_rows_and_retires_every_position(repo):
 
 
 def test_a_row_stamp_move_outside_the_position_lines_keeps_the_positions_servable(repo, tmp_path):
-    """A store whose row stamp moved loads with every row verdict stale, so that its positions can be served by settled digest, when only lines outside `POSITION_ROW_STAMP_LABELS` moved: here `oracle_code`, as a crate or walk edit moves it. `position_servable` still refuses a position whose family moved its position key, one the scheduled re-derivation takes, and every one under a moved position stamp. A move of the format, the configuration, its features or the subset table refuses the store, because each of those reaches a position without passing through settlement. A store whose row stamp holds still makes every row verdict stale when a moved family is one the registry cannot place, as `StaleMask` rules. The settled digest each record holds reads back in place."""
+    """A store whose row stamp moved loads with every row verdict stale, so that its positions can be served by settled digest, when only lines outside `POSITION_ROW_STAMP_LABELS` moved: here `oracle_code`, as a crate or walk edit moves it. `position_servable` still refuses a position whose family moved its position key and one the scheduled re-derivation takes. A store that could serve no position, under a moved position stamp or on a pass with no font, does not load. A move of the format, the configuration, its features or the subset table refuses the store, because each of those reaches a position without passing through settlement. A store whose row stamp holds still makes every row verdict stale when a moved family is one the registry cannot place, as `StaleMask` rules. The settled digest each record holds reads back in place."""
     spec = fixtures.mini_spec()
     stamp, keys = _stamp(repo, spec), _keys(repo, spec)
     position_keys, position_stamp = _position(repo, spec, MINI_FONT)
@@ -1369,15 +1369,93 @@ def test_a_row_stamp_move_outside_the_position_lines_keeps_the_positions_servabl
         True,
     ]
     stamp_moved = oracle_cache.EnvironmentStamp(lines=position_stamp.lines[:-1] + ("kern\tanother",))
-    dropped = opened(moved("oracle_code"), environment_of_positions=stamp_moved)
-    assert dropped is not None
-    assert not any(
-        dropped.position_servable(index, dropped.mask.mask_of(row)) for index, row in enumerate(rows)
-    )
+    assert opened(moved("oracle_code"), environment_of_positions=stamp_moved) is None
+    assert oracle_cache.load_store(path, moved("oracle_code"), "subset-digest", spec, keys) is None
 
     assert set(oracle_cache.POSITION_ROW_STAMP_LABELS) <= set(stamp.labels)
     for label in oracle_cache.POSITION_ROW_STAMP_LABELS:
         assert opened(moved(label)) is None, label
+
+
+def test_a_store_whose_row_stamp_moved_holds_only_each_record_s_position_part(repo, tmp_path):
+    """A pass whose row stamp moved derives every row verdict again, so `load_store` keeps only each record's row check digest, settled digest, position verdict and ages, whether a range inflates its own segment of a joined store or reads the whole file. Each range reads the settled digests, the positions and the ages a store whose row stamp holds reads, and `serve` refuses to hand back the row verdicts it no longer holds."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position_keys, position_stamp = _position(repo, spec, MINI_FONT)
+    divergent = oracle_cache.CachedRow(("cell",), 1, ("qsPea/full", "qsTea/half"), ("y5",), ("stance",))
+    mismatched = oracle_cache.CachedPosition(("slot 1 (qsTea): origin want (150, 0), got (100, 0)",), True)
+    verdicts = [
+        (divergent if index % 2 else None, (oracle_cache.UNSHAPED, None, mismatched)[index % 3])
+        for index in range(9)
+    ]
+    segment_rows = (3, 2, 4)
+    scratch = tmp_path / "scratch"
+    whole = tmp_path / "whole.tsv.gz"
+
+    def append(writer: oracle_cache.RowWriter, index: int) -> None:
+        cached, position = verdicts[index]
+        writer.append((PEA, PEA + index), cached, 21 - index % 3, position, 21 - index % 2, f"{index:016x}")
+
+    with oracle_cache.RowWriter(
+        whole, stamp, "subset-digest", 21, keys, position_stamp, position_keys
+    ) as writer:
+        for index in range(len(verdicts)):
+            append(writer, index)
+    first = 0
+    for segment, count in enumerate(segment_rows):
+        path = oracle_cache.scratch_store_path(scratch, "default", segment)
+        with oracle_cache.RowWriter(path, stamp, "subset-digest", 21, keys, segment=True) as writer:
+            for index in range(first, first + count):
+                append(writer, index)
+        first += count
+    joined = oracle_cache.join_store_segments(
+        scratch,
+        "default",
+        list(segment_rows),
+        stamp,
+        "subset-digest",
+        21,
+        keys,
+        position_stamp,
+        position_keys,
+    )
+    assert joined is not None
+    moved = oracle_cache.EnvironmentStamp(
+        lines=tuple(
+            "oracle_code\tmoved" if line.startswith("oracle_code\t") else line for line in stamp.lines
+        )
+    )
+    for path, first_row, stop_row in ((joined, 3, 5), (joined, 5, None), (joined, 1, 4), (whole, 0, None)):
+
+        def opened(environment):
+            return oracle_cache.load_store(
+                path,
+                environment,
+                "subset-digest",
+                spec,
+                keys,
+                0,
+                position_stamp,
+                position_keys,
+                first_row=first_row,
+                stop_row=stop_row,
+            )
+
+        held, trimmed = opened(stamp), opened(moved)
+        assert held is not None and trimmed is not None
+        assert held.row_verdicts_held and not trimmed.row_verdicts_held
+        assert b"\tP\t" not in bytes(trimmed._blob)
+        for index in range(trimmed.first_row, trimmed.stop_row):
+            codepoints = (PEA, PEA + index)
+            assert held.serve(index, codepoints).row == verdicts[index][0]
+            assert trimmed.settled(index) == held.settled(index) == f"{index:016x}"
+            assert trimmed.serve_position(index, codepoints) == held.serve_position(index, codepoints)
+            assert (trimmed.age(index), trimmed.position_age(index)) == (
+                held.age(index),
+                held.position_age(index),
+            )
+            with pytest.raises(ValueError, match="position parts"):
+                trimmed.serve(index, codepoints)
 
 
 def _due_rows(rows: int, pass_ordinal: int) -> set[int]:

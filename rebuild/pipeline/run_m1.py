@@ -1566,13 +1566,14 @@ def oracle_position_keys(
 
 
 def _report_oracle_cache(
+    spec: ResolvedSpec,
     out_dir: Path,
     keys: Mapping[str, str],
     stamps: Mapping[str, oracle_cache.EnvironmentStamp],
     position_keys: Mapping[str, str] | None = None,
     position_stamp: oracle_cache.EnvironmentStamp | None = None,
 ) -> None:
-    """Print, before the fan-out, which stored verdicts will and will not be served. The hit rate is bimodal, and a whole-store drop looks like a bug unless the line that caused it is named. A changed stamp line (a pipeline module, a predicate class gaining a member, the settlement mode flags `kernel_exec.settlement_flags` returns) re-derives every row of every configuration; unless the line is one of `oracle_cache.POSITION_ROW_STAMP_LABELS` or the position stamp moved too, each position whose settled cells did not change is still served. A changed family key re-derives only the rows that can reach that family, the usual result of a rune edit. The position store is reported on its own line: a changed position stamp line (the position comparison's code closure, the kern sidecar, the font's helpers) re-shapes every row while the row verdicts are still served, and a changed position key re-shapes only the rows that reach that family, the usual result of a glyph edit."""
+    """Print, before the fan-out, which stored verdicts will and will not be served. The hit rate is bimodal, and a whole-store drop looks like a bug unless the line that caused it is named. A changed stamp line (a pipeline module, a predicate class gaining a member, the settlement mode flags `kernel_exec.settlement_flags` returns) re-derives every row of every configuration; unless the line is one of `oracle_cache.POSITION_ROW_STAMP_LABELS` or `oracle_cache.position_stale_mask` makes every position stale (the position stamp moved too, a moved family is one the registry cannot place, or there is no font), each position whose settled cells did not change is still served, and otherwise the store is dropped, the same test `oracle_cache.load_store` makes. A changed family key re-derives only the rows that can reach that family, the usual result of a rune edit. The position store is reported on its own line: a changed position stamp line (the position comparison's code closure, the kern sidecar, the font's helpers) re-shapes every row while the row verdicts are still served, and a changed position key re-shapes only the rows that reach that family, the usual result of a glyph edit."""
     recorded = oracle_cache.read_header(oracle_cache.store_path(out_dir, conform.ACCEPTANCE_CONFIGS[0]))
     if recorded is None:
         console.say("oracle row cache: no store on disk — this pass derives every row and writes one")
@@ -1594,6 +1595,7 @@ def _report_oracle_cache(
         if position_stamp is None
         else oracle_cache.moved_note(stored_position_lines, position_stamp.labels)
     )
+    stored_keys = {str(name): str(value) for name, value in (recorded.get("family_keys") or {}).items()}
     if moved_stamp is not None:
         if any(
             stored_lines.get(label) != stamp.labels.get(label)
@@ -1601,19 +1603,19 @@ def _report_oracle_cache(
         ):
             console.warn(f"oracle row cache: dropped — the stamp moved at {moved_stamp}")
             return
-        positions_outlive = (
-            position_keys is not None and position_stamp is not None and moved_position_stamp is None
-        )
+        positions_outlive = not oracle_cache.position_stale_mask(
+            spec,
+            oracle_cache.moved_families(stored_keys, dict(keys)),
+            recorded,
+            position_stamp,
+            position_keys,
+        ).everything
         console.warn(
-            f"oracle row cache: re-deriving every row — the stamp moved at {moved_stamp}"
-            + (
-                "; each position whose settled cells did not change is still served"
-                if positions_outlive
-                else ""
-            )
+            f"oracle row cache: re-deriving every row — the stamp moved at {moved_stamp}; each position whose settled cells did not change is still served"
+            if positions_outlive
+            else f"oracle row cache: dropped — the stamp moved at {moved_stamp}, and no stored position can be served"
         )
     else:
-        stored_keys = {str(name): str(value) for name, value in (recorded.get("family_keys") or {}).items()}
         moved_keys = oracle_cache.moved_note(stored_keys, dict(keys))
         if moved_keys is None:
             console.say("oracle row cache: the stamp and every family key still stand")
@@ -1886,7 +1888,7 @@ def run_oracle(
         if fresh_cache:
             console.say("oracle row cache: distrusted for this pass — every row is derived")
         else:
-            _report_oracle_cache(out_dir, keys, stamps, position_keys, position_stamp)
+            _report_oracle_cache(spec, out_dir, keys, stamps, position_keys, position_stamp)
         row_cache = oracle.OracleRowCache(
             environment=stamps,
             family_keys=keys,

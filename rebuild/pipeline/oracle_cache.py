@@ -14,7 +14,7 @@ The row key is not `review.unit_cache.family_content_keys`. That key includes a 
 
 The row store's whole-store stamp (`environment_stamp`) leaves out `M1.otf` and the kern sidecar, which the position stamp covers; `rebuild/m1-divergences.yaml`, because classification always runs again; `rebuild/m1-contact-allow.yaml`, which no oracle stage reads and which is not in `fingerprint.data_paths`; and the rune files, which the per-family keys cover. It covers everything that can change a verdict without changing a named family's key: the comparison's code closure, the other data inputs, the resolved spec structure and the capability-feature set, the engine's settlement flags, the configuration's feature set, and the subset table's bytes. The spec structure and the capability features cover cross-rune routes that the per-family keys cannot split: a predicate class gaining a member, a rune-local group, a ligature sequence, a feature unlock. For example, the kernel's specificity order (`rebuild/kernel-rs/src/specificity.rs`) expands a class reference to its whole member set before it compares records, so a rune joining a class can change the result in a window that contains no such rune. A store whose position stamp alone moved serves rows and re-shapes positions; one whose row stamp moved is the next paragraph's case.
 
-A position verdict outlives a move of the row stamp, which drops every row verdict. `load_store` still loads a store whose row stamp differs only outside `POSITION_ROW_STAMP_LABELS`, with every row stale, and a row the walk settles again keeps its stored position when its fresh settled digest equals the record's, no family it reaches moved its position key, the position stamp holds, and `position_due` does not (`RowStore.position_servable`). The verdict is `_position_mismatch(shaper, kern, features, row)`, and each of its inputs is covered without the row stamp:
+A position verdict outlives a move of the row stamp, which drops every row verdict. `load_store` still loads a store whose row stamp differs only outside `POSITION_ROW_STAMP_LABELS`, with every row stale, when its position stamp holds and the pass has a font to shape against, and a row the walk settles again keeps its stored position when its fresh settled digest equals the record's, no family it reaches moved its position key, the position stamp holds, and `position_due` does not (`RowStore.position_servable`). The verdict is `_position_mismatch(shaper, kern, features, row)`, and each of its inputs is covered without the row stamp:
 
 - The row, its baseline glyphs, positions and clusters: the `subset` line and the header's subset digest pin the table, so the ordinal still names the row, and the row check digest checks it on every read.
 - `features`: the `config` and `features` lines, which must hold, with `format`, for the store to load.
@@ -32,7 +32,7 @@ Two mechanisms stop a wrong record from being served indefinitely. They are need
 
 The key relies on one assumption that nothing else in the pipeline checks: every old compiled glyph name in a row belongs to a family the row's codepoints reach, so the alias entries a served row used are inside its own key. `unreachable_glyph_heads` checks it. Its answer depends only on the subset row and the registry, which the whole-store stamp covers, so the check runs when a pass that writes a store derives a row, not when a row is served: a row that fails it is recorded at `UNCOVERED_AGE`, which every later pass under the same stamp finds due.
 
-Every failure falls back toward a full pass. `load_store` returns None for an absent, unreadable, format-mismatched, digest-mismatched, short or trailer-less store, and for one whose row stamp moved in a `POSITION_ROW_STAMP_LABELS` line, and None costs one uncached oracle pass. A store whose row stamp moved in another line loads with every row stale, which costs one pass of deriving rows and shaping the positions whose settled cells changed. A store whose position stamp or position keys do not match loads with every position stale, which costs one pass of shaping.
+Every failure falls back toward a full pass. `load_store` returns None for an absent, unreadable, format-mismatched, digest-mismatched, short or trailer-less store, for one whose row stamp moved in a `POSITION_ROW_STAMP_LABELS` line, and for one whose row stamp moved where no position can be served, because the position stamp moved too or the pass has no font, and None costs one uncached oracle pass. A store whose row stamp moved in another line, and whose positions can be served, loads with every row stale, which costs one pass of deriving rows and shaping the positions whose settled cells changed. A store whose position stamp or position keys do not match loads with every position stale, which costs one pass of shaping.
 
 The settle memo that the oracle shares with the conformance sweep (`conform.SettleMemoFile`) keys its entries with the same primitives, so they live here too. `settle_family_keys` is `family_keys` without the alias line, because the walk never reads the alias map. `settle_memo_stamp` is the row stamp without the format, subset and alias-boundary lines, because a memo entry is only a settlement. A memo entry's reach is read from its window's labels instead of a row's codepoints: the six slots' families, the rune a formed ligature label names, and every ligature rune whose components all appear among them. `StaleMask.bit_of` maps one label to its bit. `SettleMemoInputs` is the disk-derived half of both keys, read before the spec is loaded, as `run_m1.tables_inputs` is. The settlements are then at least as new as the content the keys name, so a rune edited during a run ends up under a key the next pass reports as moved, whichever side of the load the edit happened on.
 """
@@ -494,7 +494,7 @@ def decode_position(line: str) -> tuple[PositionVerdict, int]:
 
 
 class RowStore:
-    """One row range's part of a configuration's loaded store: the records of rows `[first_row, first_row + len(ages))`, held as one buffer and three packed arrays (each record's offset into the buffer and its two ages), indexed by `index - first_row`, so a worker holds only its own range's records. Every method takes the row's absolute ordinal in the table, so a cut configuration's ranges are self-contained segments of one store (rebuild/pipeline/oracle.py). An index outside the range raises instead of serving another row's record, since Python's arrays would otherwise read a negative index from the end. `rows` is the table's row count, not the range's. When it is not given it is the range's end, which is the table's count when the range runs to the table's end. The oracle treats an index at or above `rows` as fresh (`oracle._compare_config`), so a range given its own length as the count would re-derive every row above its range and write a store an uncut pass never writes. Only the rows a pass serves are decoded, and the staleness scan reads only the age arrays, never the buffer.
+    """One row range's part of a configuration's loaded store: the records of rows `[first_row, first_row + len(ages))`, held as one buffer and three packed arrays (each record's offset into the buffer and its two ages), indexed by `index - first_row`, so a worker holds only its own range's records. Every method takes the row's absolute ordinal in the table, so a cut configuration's ranges are self-contained segments of one store (rebuild/pipeline/oracle.py). An index outside the range raises instead of serving another row's record, since Python's arrays would otherwise read a negative index from the end. `rows` is the table's row count, not the range's. When it is not given it is the range's end, which is the table's count when the range runs to the table's end. The oracle treats an index at or above `rows` as fresh (`oracle._compare_config`), so a range given its own length as the count would re-derive every row above its range and write a store an uncut pass never writes. Only the rows a pass serves are decoded, and the staleness scan reads only the age arrays, never the buffer. A store whose row stamp moved serves no row verdict, so its buffer holds only each record's position part (`_position_part`) and `row_verdicts_held` is False, which makes `serve` raise.
 
     `rotation` is set by a pass that will not write a store. The scheduled re-derivation and the verification sample both advance with the pass ordinal, and the ordinal advances only when a store is written. A read-only pass run repeatedly, which is how `--gates-only` is used when rerunning the gates after a ledger edit, would otherwise re-derive the same rows and check the same sample every time. A writing pass leaves this at zero and uses its own ordinal. A read-only pass sets it from the clock, so the rows covered change even when nothing on disk does.
     """
@@ -515,6 +515,7 @@ class RowStore:
         position_ages: "array[int] | None" = None,
         first_row: int = 0,
         rows: int | None = None,
+        row_verdicts_held: bool = True,
     ) -> None:
         self.environment = environment
         self.recorded_lines = recorded_lines
@@ -530,6 +531,7 @@ class RowStore:
         self._ages = ages
         self.first_row = first_row
         self._rows = first_row + len(ages) if rows is None else rows
+        self.row_verdicts_held = row_verdicts_held
         if position_mask is None:
             position_mask = StaleMask(mask.spec, mask.moved)
             position_mask.everything = True
@@ -624,6 +626,10 @@ class RowStore:
 
     def serve(self, index: int, codepoints: Sequence[int]) -> StoredRecord:
         """Return this row's full record after checking its row check digest. The caller decides which of the two verdicts the keys allow it to use, and counts a served position in `positions_served` itself. A mismatched row check digest is not a miss: it means the table under this store was replaced or reordered and every other record is wrong in the same way, so it exits."""
+        if not self.row_verdicts_held:
+            raise ValueError(
+                "this oracle row store holds only its records' position parts, because its row stamp moved, so it has no row verdict to serve"
+            )
         at = self._at(index)
         start = self._offsets[at]
         end = self._offsets[at + 1] - 1
@@ -697,7 +703,7 @@ def load_store(
     first_row: int = 0,
     stop_row: int | None = None,
 ) -> RowStore | None:
-    """Return the previous pass's records for rows `[first_row, stop_row)` of one configuration (`stop_row` None means the table's end), or `None` when the store cannot be trusted: absent, unreadable, format-mismatched, stamp-mismatched in a `POSITION_ROW_STAMP_LABELS` line, written against another subset table, or missing its row-count trailer. A store whose row stamp moved only in other lines loads with every row stale (`StaleMask.everything`), so that only its position verdicts can be served (`RowStore.position_servable`). `None` costs one uncached oracle pass, so every parse failure returns `None`, including `zlib.error`, which a corrupt deflate body raises instead of `OSError`. A range that starts and ends on one segment of a joined store inflates that segment alone (`_indexed_records`), after checking the file's header member against the header line read here, and every segment's bytes and the trailer against the store's member index. Any other range, and every range of a store with no index (an uncut configuration's, or one the index does not describe), reads the file to its end: the trailer is the last line and holds the count the store is checked against, and every record's two ages are parsed in range or out. Both reads load a store only when it is the one its writer wrote, so all ranges of one configuration agree on whether the store loads. Only the range's records are kept, in one buffer with three packed arrays. A range whose kept bytes exceed the packed offsets' width returns `None` like any other parse failure. The position stamp and keys do not affect loading: `position_stale_mask` decides which position verdicts may be served. `rotation` is passed to the store unread; see `RowStore`."""
+    """Return the previous pass's records for rows `[first_row, stop_row)` of one configuration (`stop_row` None means the table's end), or `None` when the store cannot be trusted: absent, unreadable, format-mismatched, stamp-mismatched in a `POSITION_ROW_STAMP_LABELS` line, written against another subset table, or missing its row-count trailer, and when its row stamp moved and `position_stale_mask` makes every position stale, because the position stamp moved, a moved family is one the registry cannot place, or the pass has no position stamp or keys (no font): such a store could serve nothing, and a pass that loads no store walks the same rows without holding its records. A store whose row stamp moved only in other lines loads with every row stale (`StaleMask.everything`), so that only its position verdicts can be served (`RowStore.position_servable`). `None` costs one uncached oracle pass, so every parse failure returns `None`, including `zlib.error`, which a corrupt deflate body raises instead of `OSError`. A range that starts and ends on one segment of a joined store inflates that segment alone (`_indexed_records`), after checking the file's header member against the header line read here, and every segment's bytes and the trailer against the store's member index. Any other range, and every range of a store with no index (an uncut configuration's, or one the index does not describe), reads the file to its end: the trailer is the last line and holds the count the store is checked against, and every record's two ages are parsed in range or out. Both reads load a store only when it is the one its writer wrote, so all ranges of one configuration agree on whether the store loads. Only the range's records are kept, in one buffer with three packed arrays. When the row stamp moved, each record is cut to its position part as it is read (`_position_part`), so the range holds the row check digests, settled digests, position verdicts and ages a walk over every row reads, and none of the row verdicts it derives again. A range whose kept bytes exceed the packed offsets' width returns `None` like any other parse failure. Where the row stamp holds, the position stamp and keys do not affect loading: `position_stale_mask` decides which position verdicts may be served. `rotation` is passed to the store unread; see `RowStore`."""
     store_file = Path(path)
     if not store_file.is_file():
         return None
@@ -715,9 +721,17 @@ def load_store(
                 return None
             recorded_keys = {str(name): str(value) for name, value in header["family_keys"].items()}
             pass_ordinal = int(header["pass_ordinal"])
+            moved = moved_families(recorded_keys, current_keys)
+            position_mask = position_stale_mask(
+                spec, moved, header, position_environment, current_position_keys
+            )
+            if not rows_hold and position_mask.everything:
+                return None
 
             blob: bytes | bytearray
-            indexed = _indexed_records(store_file, header_line, first_row, stop_row)
+            indexed = _indexed_records(
+                store_file, header_line, first_row, stop_row, positions_only=not rows_hold
+            )
             if indexed is not None:
                 blob, seen = indexed
                 offsets, ages, position_ages = _record_arrays(blob)
@@ -736,7 +750,7 @@ def load_store(
                     position_age = int(pending[last_tab + 1 : end])
                     age = int(pending[pending.rindex(b"\t", 0, last_tab) + 1 : last_tab])
                     if seen >= first_row and (stop_row is None or seen < stop_row):
-                        blob += pending
+                        blob += pending if rows_hold else _position_part(pending)
                         offsets.append(len(blob))
                         ages.append(age)
                         position_ages.append(position_age)
@@ -751,7 +765,6 @@ def load_store(
                     return None
     except OSError, EOFError, ValueError, KeyError, IndexError, TypeError, OverflowError, zlib.error:
         return None
-    moved = moved_families(recorded_keys, current_keys)
     mask = StaleMask(spec, moved)
     if not rows_hold:
         mask.everything = True
@@ -766,10 +779,11 @@ def load_store(
         offsets=offsets,
         ages=ages,
         rotation=rotation,
-        position_mask=position_stale_mask(spec, moved, header, position_environment, current_position_keys),
+        position_mask=position_mask,
         position_ages=position_ages,
         first_row=first_row,
         rows=seen,
+        row_verdicts_held=rows_hold,
     )
 
 
@@ -866,9 +880,9 @@ def _member_index(stream: IO[bytes]) -> list[tuple[int, int, int]] | None:
 
 
 def _indexed_records(
-    path: Path, header: bytes, first_row: int, stop_row: int | None
-) -> tuple[bytes, int] | None:
-    """Return the records of rows `[first_row, stop_row)` of a joined store and the table's row count by inflating the one segment that holds exactly those rows, or None when the caller must read the whole file instead: the store has no member index, no segment starts and ends on the range's bounds, the file's header member is not `header`, or the file disagrees with the index. `header` is the line the caller read through its own open of `path`, so a store promoted over the path between the two opens (`os.replace`, by a pass beside this one) is read whole through the caller's handle rather than paired with the header of the file it replaced. Every segment's compressed bytes are checked against the CRC-32 the index records, and the trailer member against the index's row total, before any record is used. A range therefore loads here only from a file whose every byte is the one `join_store_segments` wrote, which the whole-file read would also load, so all ranges of one configuration agree on whether the store loads, whichever of the two reads each takes. The segment is inflated into a buffer of the size its gzip trailer records, so its records are held once; a range over several segments reads the whole file instead, because joining their records would hold them twice."""
+    path: Path, header: bytes, first_row: int, stop_row: int | None, positions_only: bool = False
+) -> tuple[bytes | bytearray, int] | None:
+    """Return the records of rows `[first_row, stop_row)` of a joined store and the table's row count by inflating the one segment that holds exactly those rows, or None when the caller must read the whole file instead: the store has no member index, no segment starts and ends on the range's bounds, the file's header member is not `header`, or the file disagrees with the index. `header` is the line the caller read through its own open of `path`, so a store promoted over the path between the two opens (`os.replace`, by a pass beside this one) is read whole through the caller's handle rather than paired with the header of the file it replaced. Every segment's compressed bytes are checked against the CRC-32 the index records, and the trailer member against the index's row total, before any record is used. A range therefore loads here only from a file whose every byte is the one `join_store_segments` wrote, which the whole-file read would also load, so all ranges of one configuration agree on whether the store loads, whichever of the two reads each takes. The segment is inflated into a buffer of the size its gzip trailer records, so its records are held once, or with `positions_only` a piece at a time with each record cut to its position part (`_inflated_position_parts`); a range over several segments reads the whole file instead, because joining their records would hold them twice."""
     try:
         with path.open("rb") as stream:
             index = _member_index(stream)
@@ -910,15 +924,51 @@ def _indexed_records(
                 or inflater.unused_data
             ):
                 return None
-            records = zlib.decompress(held, 16 + zlib.MAX_WBITS, max(1, int.from_bytes(held[-4:], "little")))
-    except OSError, ValueError, zlib.error:
+            records: bytes | bytearray
+            if positions_only:
+                records = _inflated_position_parts(held)
+            else:
+                records = zlib.decompress(
+                    held, 16 + zlib.MAX_WBITS, max(1, int.from_bytes(held[-4:], "little"))
+                )
+    except OSError, ValueError, IndexError, zlib.error:
         return None
     if records.count(b"\n") != stop - first_row or not records.endswith(b"\n"):
         return None
     return records, bounds[-1]
 
 
-def _record_arrays(records: bytes) -> tuple["array[int]", "array[int]", "array[int]"]:
+# Where a record's row verdict starts, after the row check digest, the settled digest and the tab after each, and the byte that opens a divergent row's verdict there.
+_ROW_VERDICT_AT = ROW_CHECK_WIDTH + 1 + SETTLED_DIGEST_WIDTH + 1
+_DIVERGENT_ROW = ord("P")
+
+
+def _position_part(record: bytes) -> bytes:
+    """Return a record with its row verdict replaced by the `-` a clean row's record holds there, keeping the row check digest, the settled digest, the position verdict and both ages. A store whose row stamp moved serves no row verdict, so `load_store` keeps only this part of each record, and `RowStore.settled`, `RowStore.serve_position` and the ages read it unchanged. A trailing newline is kept."""
+    if record[_ROW_VERDICT_AT] != _DIVERGENT_ROW:
+        return record
+    return record[:_ROW_VERDICT_AT] + b"-\t" + record.split(b"\t", 8)[8]
+
+
+def _inflated_position_parts(member: bytes) -> bytearray:
+    """Return the records of one segment's gzip member with each cut to `_position_part`, inflated a piece at a time, so the segment's whole records are never held at once. A member that ends early, or has bytes after its end, raises `ValueError`."""
+    inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    kept = bytearray()
+    tail = b""
+    view = memoryview(member)
+    step = 1 << 20
+    for at in range(0, len(member), step):
+        records = (tail + inflater.decompress(view[at : at + step])).split(b"\n")
+        tail = records.pop()
+        for record in records:
+            kept += _position_part(record)
+            kept += b"\n"
+    if tail or not inflater.eof or inflater.unused_data:
+        raise ValueError("a store segment ends inside a record or has bytes after its member")
+    return kept
+
+
+def _record_arrays(records: bytes | bytearray) -> tuple["array[int]", "array[int]", "array[int]"]:
     """Return the packed arrays `RowStore` keeps beside a buffer of whole records: each record's end offset after a leading zero, its row age and its position age."""
     offsets: array[int] = array("I", [0])
     ages: array[int] = array("i")
