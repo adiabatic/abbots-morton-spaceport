@@ -15,7 +15,7 @@ use std::num::NonZeroU16;
 use std::rc::Rc;
 
 use crate::error::SettleError;
-use crate::hash::{HashMap, HashSet};
+use crate::hash::{HashMap, HashSet, ShardedMap};
 use crate::index::{Ordinal, Read, SpecIndex, StanceId};
 use crate::memo::{MemoSnapshot, SharedMemo, SnapshotVerdicts};
 use crate::model::{
@@ -886,10 +886,10 @@ impl TraceEntry {
     }
 }
 
-/// The window memo and its fired journal, with the settled and notes pools its entries index. The delta is an id in the entry, not a second map on the same twenty-byte key, which would cost the key and its hash-table slack again for a value only read with its trace. It resolves through [`Engine::deltas`] because the candidate, closure and prospect memos store their deltas in the same table (issue #167). The pools belong to the memo, not to a fixpoint, because the memo lives no longer than a fixpoint and is released as one piece. `rankings` uses the same key and is filled only when the engine records rankings, so a fixpoint's memo has no ranking slot per entry, and an explain-mode hit returns the ranking its miss recorded.
+/// The window memo and its fired journal, with the settled and notes pools its entries index. The delta is an id in the entry, not a second map on the same twenty-byte key, which would cost the key and its hash-table slack again for a value only read with its trace. It resolves through [`Engine::deltas`] because the candidate, closure and prospect memos store their deltas in the same table (issue #167). The pools belong to the memo, not to a fixpoint, because the memo lives no longer than a fixpoint and is released as one piece. The entries are a [`ShardedMap`], because a configuration's memo grows to tens of millions of windows and one table's doubling near the end of an enumeration would hold the whole old table beside the new one. `rankings` uses the same key and is filled only when the engine records rankings, so a fixpoint's memo has no ranking slot per entry, and an explain-mode hit returns the ranking its miss recorded.
 #[derive(Clone, Debug, Default)]
 struct TraceMemo {
-    entries: HashMap<TraceKey, TraceEntry>,
+    entries: ShardedMap<TraceKey, TraceEntry>,
     settled: SettledPool,
     notes: NotesPool,
     rankings: HashMap<TraceKey, Box<TraceRanking>>,
@@ -1054,7 +1054,7 @@ impl<'i> Engine<'i> {
         &self.shared_memo_hits
     }
 
-    /// Detach this engine's trace memo: the entries compacted into an immutable array, with the tables their ids index and every fired delta and read set the engine stored, and the liveness verdicts it published, compacted the same way. The candidate, closure and prospect memos are released before compaction, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is consumed and freed before the array is partitioned and sorted. The engine stops publishing verdicts here, since a verdict captured later could read windows the snapshot lacks. Returns `None` for an engine without a trace memo. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
+    /// Detach this engine's trace memo: the entries compacted into an immutable array, with the tables their ids index and every fired delta and read set the engine stored, and the liveness verdicts it published, compacted the same way. The candidate, closure and prospect memos are released before compaction, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is drained one shard at a time, each shard's table freed once its entries have moved, before the array is partitioned and sorted. The engine stops publishing verdicts here, since a verdict captured later could read windows the snapshot lacks. Returns `None` for an engine without a trace memo. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
     pub fn take_memo(&mut self) -> Option<MemoSnapshot> {
         let memo = self.trace_cache.take()?;
         let deltas = std::mem::take(&mut self.deltas);
@@ -5765,7 +5765,7 @@ mod tests {
                 let mut memo = source.take_memo().expect("the source journals");
                 memo.entries = [(key, *memo.entries.get(&key).expect("the source window"))]
                     .into_iter()
-                    .collect::<HashMap<_, _>>()
+                    .collect::<ShardedMap<_, _>>()
                     .into();
                 assert_eq!(memo.len(), 1);
                 SharedMemo {
@@ -7653,7 +7653,7 @@ mod tests {
             .iter()
             .filter(|(key, _)| **key != ranked_key)
             .map(|(key, entry)| (*key, *entry))
-            .collect::<HashMap<_, _>>()
+            .collect::<ShardedMap<_, _>>()
             .into();
         let mut engine = Engine::with_modes(&index, no_features(), modes);
         engine.attach_shared_memos(vec![SharedMemo {

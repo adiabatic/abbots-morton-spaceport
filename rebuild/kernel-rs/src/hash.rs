@@ -17,7 +17,8 @@ pub type HashSet<T, S = BuildHasherDefault<FastHasher>> = std::collections::Hash
 /// How many bits of a key's hash pick its [`ShardedMap`] shard: four, for sixteen shards, so a doubling allocates a sixteenth of what one table's would. More shards would not lower a peak further: each shard spends more of its growth in tables small enough for the macOS allocator's medium regions, which keep a freed table's pages in the resident size, though not in the footprint, while a freed large table goes back to the system at once. The comment on `SCRATCH_PEAK_BYTES` in `rebuild/pipeline/kernel_exec.py` has the readings.
 const SHARD_BITS: u32 = 4;
 
-/// A hash map split into [`HashMap`] shards by bits of each key's hash that no shard's table reads, so that it grows one shard at a time. A table grows by allocating one of twice as many buckets and moving every entry across before freeing the old one, so while it doubles it holds both, one and a half times the size it grows to; a table of millions of windows that doubles beside the memos near an enumeration's peak raises that peak by its whole new size. The shards take keys at one rate, since the bits that pick a shard are as uniform as the rest of the hash, so they reach each size at about the point one table holding every key would, one after another, and each doubling holds only one shard's two tables beside the others. A caller reaches a key's shard through [`ShardedMap::shard_mut`] and calls the table's own methods there, so a lookup and the insert after it pick the shard once.
+/// A hash map split into [`HashMap`] shards by bits of each key's hash that no shard's table reads, so that it grows one shard at a time. A table grows by allocating one of twice as many buckets and moving every entry across before freeing the old one, so while it doubles it holds both, one and a half times the size it grows to; a table of millions of windows that doubles beside the memos near an enumeration's peak raises that peak by its whole new size. The shards take keys at one rate, since the bits that pick a shard are as uniform as the rest of the hash, so they reach each size at about the point one table holding every key would, one after another, and each doubling holds only one shard's two tables beside the others. [`ShardedMap::get`] and [`ShardedMap::insert`] pick the key's shard on each call; a caller that looks a key up and then inserts it can reach the shard once through [`ShardedMap::shard_mut`] and call the table's own methods there.
+#[derive(Clone, Debug)]
 pub struct ShardedMap<K, V> {
     shards: Vec<HashMap<K, V>>,
 }
@@ -42,6 +43,21 @@ impl<K: Hash + Eq, V> ShardedMap<K, V> {
         &mut self.shards[Self::index(key)]
     }
 
+    /// The value `key` maps to, if any.
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.shards[Self::index(key)].get(key)
+    }
+
+    /// Whether `key` maps to a value.
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.shards[Self::index(key)].contains_key(key)
+    }
+
+    /// Map `key` to `value` in its shard, returning the value it replaced.
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        self.shard_mut(&key).insert(key, value)
+    }
+
     /// The shards' lengths added up.
     pub fn len(&self) -> usize {
         self.shards.iter().map(HashMap::len).sum()
@@ -60,6 +76,16 @@ impl<K: Hash + Eq, V> ShardedMap<K, V> {
     /// The shards, to be drained one at a time, so that a drain into another collection frees each shard's table once its entries have moved instead of holding every table until the last entry has.
     pub fn into_shards(self) -> std::vec::IntoIter<HashMap<K, V>> {
         self.shards.into_iter()
+    }
+}
+
+impl<K: Hash + Eq, V> FromIterator<(K, V)> for ShardedMap<K, V> {
+    fn from_iter<I: IntoIterator<Item = (K, V)>>(entries: I) -> Self {
+        let mut map = Self::default();
+        for (key, value) in entries {
+            map.insert(key, value);
+        }
+        map
     }
 }
 
@@ -187,7 +213,7 @@ mod tests {
             assert_eq!(map.shard_mut(&key(n)).insert(key(n), n), None);
         }
         for n in 0..count {
-            assert_eq!(map.shard_mut(&key(n)).get(&key(n)), Some(&n));
+            assert_eq!(map.get(&key(n)), Some(&n));
         }
         assert_eq!(map.len(), count as usize);
         let mean = count as usize >> SHARD_BITS;

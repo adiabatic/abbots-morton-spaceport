@@ -18,7 +18,7 @@ use crate::engine::{
     DeltaId, Pointer, ReadsId, TraceEntry, TraceKey, TraceNotesId, TraceSettledId, VerdictEntry,
     VerdictKey,
 };
-use crate::hash::{FastHasher, HashMap, HashSet};
+use crate::hash::{FastHasher, HashMap, HashSet, ShardedMap};
 use crate::index::{Read, SpecIndex};
 use crate::model::{PolicyRecord, Provenance, Sym, When};
 use crate::types::{
@@ -231,9 +231,13 @@ impl SnapshotEntries {
     }
 }
 
-impl From<HashMap<TraceKey, TraceEntry>> for SnapshotEntries {
-    fn from(entries: HashMap<TraceKey, TraceEntry>) -> Self {
-        let records = entries.into_iter().collect();
+impl From<ShardedMap<TraceKey, TraceEntry>> for SnapshotEntries {
+    /// The records are drained one shard at a time, so each shard's table is freed once its entries have moved. Their order does not reach the snapshot, which sorts each bucket on the key.
+    fn from(entries: ShardedMap<TraceKey, TraceEntry>) -> Self {
+        let mut records = Vec::with_capacity(entries.len());
+        for shard in entries.into_shards() {
+            records.extend(shard);
+        }
         Self::from_records(records).expect("a live memo holds fewer than 2^32 windows")
     }
 }
