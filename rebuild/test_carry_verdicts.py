@@ -66,7 +66,9 @@ def test_content_hash_is_the_sha256_of_the_projection():
     for current in _fixture_units():
         stripped = {key: value for key, value in current.items() if key != "content_key"}
         assert content_hash(current) == content_hash(stripped), current["id"]
-        assert current["content_key"] == hashlib.sha256(content_key(stripped).encode()).hexdigest()
+        assert (
+            current["content_key"] == hashlib.sha256(content_key(stripped).encode()).hexdigest()
+        ), f"{current['id']}: run `uv run python rebuild/review/fixtures/restamp.py`"
 
 
 def test_a_change_to_the_judged_window_moves_the_content_key():

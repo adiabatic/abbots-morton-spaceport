@@ -1234,8 +1234,10 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
 });
 
 test('searchHaystack folds id, notation, codepoints, class, group, duplicate group, cluster, and kinds into one lowercase string', () => {
-  const haystack = searchHaystack(fixtureUnit('u-BLyK6Z13RtN'));
-  assert.ok(haystack.includes('u-blyk6z13rtn'), 'the id, folded to lowercase like everything else');
+  const unit = fixtureUnit('u-BLyK6Z13RtN');
+  const haystack = searchHaystack(unit);
+  assert.notEqual(unit.id.toLowerCase(), unit.id);
+  assert.ok(haystack.includes(unit.id.toLowerCase()), 'the id, folded to lowercase like everything else');
   assert.ok(haystack.includes('·tea·oy'));
   assert.ok(haystack.includes('teaoy'), 'notation with the namer dots stripped is searchable');
   assert.ok(haystack.includes('200c:e652:e679'));
@@ -1261,11 +1263,11 @@ test('searchHaystack is memoized per unit, so a keystroke folds each row at most
 test('searchUnits finds units by duplicate group id and by cluster id', () => {
   assert.deepEqual(
     searchUnits(allUnits, 'e-0005').matches.map((unit) => unit.id).sort(),
-    ['u-HLeS39nnjSM', 'u-WT2Pjqw8CKB'],
+    ['u-HLeS39nnjSM', 'u-WT2Pjqw8CKB'].sort(),
   );
   assert.deepEqual(
     searchUnits(allUnits, 'c-f1a70012').matches.map((unit) => unit.id).sort(),
-    ['u-5NP1CPJxyNT', 'u-Nc3wVLJaPHB'],
+    ['u-5NP1CPJxyNT', 'u-Nc3wVLJaPHB'].sort(),
   );
 });
 
@@ -1303,9 +1305,9 @@ test('searchUnits matches codepoints with and without the colons', () => {
 
 test('searchUnits matches class, group, and kind, and includes machine-approved units', () => {
   const byClass = searchUnits(allUnits, 'join-dropped');
-  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-HLeS39nnjSM', 'u-LhDRYppbBuN', 'u-WT2Pjqw8CKB']);
+  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-HLeS39nnjSM', 'u-LhDRYppbBuN', 'u-WT2Pjqw8CKB'].sort());
   const junction = searchUnits(allUnits, 'junction');
-  assert.deepEqual(junction.matches.map((unit) => unit.id).sort(), ['u-DBug8cSj15L', 'u-HLeS39nnjSM', 'u-LhDRYppbBuN', 'u-WT2Pjqw8CKB']);
+  assert.deepEqual(junction.matches.map((unit) => unit.id).sort(), ['u-DBug8cSj15L', 'u-HLeS39nnjSM', 'u-LhDRYppbBuN', 'u-WT2Pjqw8CKB'].sort());
   assert.equal(junction.matches.find((unit) => unit.id === 'u-DBug8cSj15L').ink_identical, true, 'a machine-approved unit is still findable');
 });
 
@@ -1315,7 +1317,7 @@ test('searchUnits matches a kind of change by its title, a re-routed unit by the
   const fresh = allUnits.map((unit) => ({ ...unit }));
   assert.deepEqual(
     searchUnits(fresh, 'whole', 50, titleOf).matches.map((unit) => unit.id).sort(),
-    ['u-5NP1CPJxyNT', 'u-BLyK6Z13RtN', 'u-DBug8cSj15L', 'u-Nc3wVLJaPHB'],
+    ['u-5NP1CPJxyNT', 'u-BLyK6Z13RtN', 'u-DBug8cSj15L', 'u-Nc3wVLJaPHB'].sort(),
   );
   const untitled = allUnits.map((unit) => ({ ...unit }));
   assert.equal(searchUnits(untitled, 'whole').total, 0, 'only the title says "whole"');
@@ -1325,7 +1327,7 @@ test('searchUnits matches a kind of change by its title, a re-routed unit by the
 });
 
 test('searchUnits requires every whitespace-separated token to match (AND)', () => {
-  assert.deepEqual(searchUnits(allUnits, 'teaoy').matches.map((unit) => unit.id).sort(), ['u-6VFDHaMNgCP', 'u-BLyK6Z13RtN', 'u-SupLKT1ijWn']);
+  assert.deepEqual(searchUnits(allUnits, 'teaoy').matches.map((unit) => unit.id).sort(), ['u-6VFDHaMNgCP', 'u-BLyK6Z13RtN', 'u-SupLKT1ijWn'].sort());
   assert.deepEqual(searchUnits(allUnits, 'teaoy 200c').matches.map((unit) => unit.id), ['u-BLyK6Z13RtN']);
   assert.equal(searchUnits(allUnits, 'tea low').total, 0);
 });

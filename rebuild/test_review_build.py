@@ -96,7 +96,9 @@ def test_fixture_units_pass_the_contract_checker():
     units = _load_fixture_units()
     assert len(units) == manifest["totals"]["units"]
     for unit in units:
-        assert check_unit(unit, "m1-audit") == []
+        assert (
+            check_unit(unit, "m1-audit") == []
+        ), "when an error names the content key or the id, run `uv run python rebuild/review/fixtures/restamp.py`"
 
 
 def test_fixture_units_exercise_the_contract_branches():
