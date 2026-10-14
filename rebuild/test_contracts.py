@@ -120,14 +120,6 @@ class TestGuardEndToEnd:
             expected = "3" if workers == "auto" else workers
             result.stdout.fnmatch_lines([f"*{expected} workers*2 items*"])
 
-    @pytest.mark.parametrize("choice", ["contracts", "all"])
-    def test_the_compatibility_option_keeps_the_same_collection_and_guard(
-        self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, choice: str
-    ):
-        result = _child(pytester, monkeypatch, "--lane", choice, "-n", "0")
-        result.assert_outcomes(passed=1, failed=1)
-        result.stdout.fnmatch_lines(["*ContractsLaneViolation*"])
-
 
 def _mixed_child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: str):
     """Collect a synthetic rebuild/ and font-test tree through the plugin, retaining the live-path boundary so live reads are guarded only in the rebuild file."""

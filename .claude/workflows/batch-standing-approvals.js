@@ -20,7 +20,7 @@ log(`${UNITS.length} unit ids`)
 const SCRATCH = 'tmp/standing-wf'
 const CORPUS_HOLDERS = 3
 const SKILL = '.claude/skills/dont-bug-me-about-this-ever-again/SKILL.md'
-const TARGETED_TESTS = 'uv run pytest rebuild/test_standing_verdicts.py rebuild/test_standing_probe.py --lane contracts -n auto --dist worksteal'
+const TARGETED_TESTS = 'uv run pytest rebuild/test_standing_verdicts.py rebuild/test_standing_probe.py -n auto --dist worksteal'
 const CHAIN = 'nohup caffeinate -i sh -c \'make test-rebuild && make review-cycle SERVE=bg; echo "rc=$?"\' > tmp/cycle-pass.log 2>&1 &'
 
 const COMMON = `You work in the git repository at your working directory (its CLAUDE.md names Abbots Morton Spaceport). Read, in this order, before anything else: CLAUDE.md, and obey it in full; ${SKILL} in full, including its Batches section, which is the procedure you are one stage of; the module docstring at the top of rebuild/tools/standing_verdicts.py, the authority on every rule shape and on the combined match (never restate its contracts anywhere); doc/parallelism.md and doc/running-long-steps.md; and skim rebuild/standing-approvals.yaml for the file's patterns (ids, the wording of the agent-written note: fields, match blocks, cell lists, except_left).

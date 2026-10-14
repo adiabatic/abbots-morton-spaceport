@@ -132,8 +132,8 @@ class ImportGraph:
 
 
 def untraced_inputs(entry: dict) -> bool:
-    """Whether a recorded test entry started a child the hook cannot follow. A green record may spell the flag `unclosable`, which is read the same way."""
-    return bool(entry.get("untraced_inputs", entry.get("unclosable")))
+    """Whether a recorded test entry started a child the hook cannot follow. An entry without the flag counts as untraced, so its test runs."""
+    return bool(entry.get("untraced_inputs", True))
 
 
 def test_file_of(nodeid: str) -> str:
@@ -141,7 +141,7 @@ def test_file_of(nodeid: str) -> str:
 
 
 def closure_of(closures: dict, nodeid: str, kernel: frozenset[str] = frozenset()) -> frozenset[str] | None:
-    """Return one test's closure from a record, or None when the test must run: its inputs are untraced, it has no entry, or a static closure it needs is missing. `kernel` is the crate's files, added for a test that spawned the kernel."""
+    """Return one test's closure from a record, or None when the test must run: its inputs are untraced or its entry does not record whether they are, it has no entry, or a static closure it needs is missing. `kernel` is the crate's files, added for a test that spawned the kernel."""
     entry = closures.get("tests", {}).get(nodeid)
     static = closures.get("static", {})
     module_reads = closures.get("module_reads", {})

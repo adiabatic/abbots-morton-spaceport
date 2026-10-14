@@ -306,13 +306,6 @@ def announced_import(name: str) -> ModuleType:
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
-        "--lane",
-        action="store",
-        default=None,
-        choices=["contracts", "all"],
-        help="Compatibility option for standing-approval workflows; contracts and all collect the same tests.",
-    )
-    parser.addoption(
         "--closure-record",
         action="store",
         default=None,

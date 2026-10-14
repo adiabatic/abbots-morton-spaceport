@@ -196,10 +196,10 @@ class TestSelection:
         record = _record(BASE_FILES, TESTS, dict(STATIC))
         assert "rebuild/test_t.py::spawns" not in cc.select(record, {**BASE_FILES, "a.yaml": "9"}).skip
 
-    def test_a_record_that_spells_the_flag_unclosable_still_runs_the_test(self):
-        spawns = {"reads": [], "modules": [], "unclosable": True}
-        record = _record(BASE_FILES, {**TESTS, "rebuild/test_t.py::spawns": spawns}, dict(STATIC))
-        assert "rebuild/test_t.py::spawns" not in cc.select(record, {**BASE_FILES, "a.yaml": "9"}).skip
+    def test_an_entry_without_the_untraced_flag_runs_the_test(self):
+        unflagged = {"reads": [], "modules": []}
+        record = _record(BASE_FILES, {**TESTS, "rebuild/test_t.py::unflagged": unflagged}, dict(STATIC))
+        assert "rebuild/test_t.py::unflagged" not in cc.select(record, {**BASE_FILES, "a.yaml": "9"}).skip
 
     def test_a_test_that_spawned_the_kernel_runs_on_a_crate_edit_and_on_nothing_else_new(self):
         settles = {"reads": ["a.yaml"], "modules": [], "kernel": True, "untraced_inputs": False}
