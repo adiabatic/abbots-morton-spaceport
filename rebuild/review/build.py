@@ -2248,7 +2248,7 @@ def _write_corpus(
         at=(PATCHED,),
     )
     if tally:
-        tally.hold("checker.identity", check._identity, packed=_packed_shape("checker.identity"))
+        tally.hold("checker.identity", check._identity)
     written: dict[int, _RunWritten] = {}
     by_ordinals = {entry.id: entry.ordinals for entry in to_write}
 
@@ -2381,69 +2381,6 @@ def unit_table_sizes(table: UnitTable) -> memory_tally.Measure:
 def premerge_sizes(snapshot: facts.PremergeSnapshot) -> memory_tally.Measure:
     """Return the pre-merge snapshot's exact reading for the debug tally, under `facts.premerge`: one row per pre-merge unit, with the snapshot's own columns (its window offsets only; the values are the table's) as the bytes. The string table it indexes is the workload table's, printed beside the rows and counted under `workload.units`."""
     return memory_tally.column_sizes(snapshot.n, snapshot.columns(), snapshot.strings, holds_table=False)
-
-
-@lru_cache(maxsize=None)
-def _packed_shape(collection: str) -> memory_tally.Shape:
-    """Return the packed row the debug tally measures one member of the named collection against (`memory_tally.hold(..., packed=)`; the memory_tally module docstring defines the terms). Each shape matches the record the parent holds, field for field: `unit_cache.ParsedCachedUnit` under `unit_cache.unplaced`, the input-key-to-id map under `unit_cache.keys`, and the checker's identity triple under `checker.identity`. The rest of the per-unit state is columns, measured exactly elsewhere: the workload table under `workload.units` (`unit_table_sizes`), the unit store under `unit_store`, the audit's row columns under `workload.rows`, and the pre-merge snapshot under `facts.premerge`.
-
-    A unit's own id costs nothing where the collection is keyed by it, because a packed store indexes by ordinal; that applies to the checker's identity. `unit_cache.keys` does count its key, since it maps the input key to the id and the plan's key map needs an index for that lookup. `unit_cache.unplaced` holds the records a cached plan received without an address, buffered whole until the walk over the previous shards places them (none, on a store this code wrote), and each carries its `key` as a digest column because the plan finds the record's unit through it. The shapes are constant and requested at every boundary a collection is held at, so one is built per collection name and cached.
-    """
-    flag = memory_tally.Flag()
-    name = memory_tally.Id()
-    names = memory_tally.Many(name)
-    digest = memory_tally.Hex()
-    content_id = memory_tally.Slot(8)
-    window = memory_tally.Derived(lambda text: 1 + 2 * len(parse_codepoints(text)))
-    pair = memory_tally.Slot(2)
-    labeled = memory_tally.Table(name, name)
-    spans = memory_tally.Many(memory_tally.Slot(4))
-    cell_pairs = memory_tally.Many(pair)
-    address = memory_tally.Positional((name, memory_tally.Slot(4), memory_tally.Slot(4)))
-    edge = memory_tally.Keyed(
-        {"x_min": memory_tally.Slot(4), "x_max": memory_tally.Slot(4), "advance_total": memory_tally.Slot(4)}
-    )
-    junction_rects = memory_tally.Many(memory_tally.Keyed({"pair": pair, "before": edge, "after": edge}))
-    cached = memory_tally.Record(
-        {
-            "key": digest,
-            "prior_id": content_id,
-            "prior_class": name,
-            "content_key": digest,
-            "slim": flag,
-            "address": address,
-            "ink_identical": flag,
-            "picture_identical": flag,
-            "junior_equivalent": flag,
-            "ink_deltas": labeled,
-            "diffs_digest": name,
-            "cluster": name,
-            "change_group": name,
-            "ledger_class": name,
-            "pair_codepoints": pair,
-            "duplicate_group": name,
-            "exemplar": flag,
-            "no_verdict": flag,
-            "primary_units": memory_tally.Many(memory_tally.Positional((content_id, flag))),
-            "policy_file": name,
-            "junction_rects": junction_rects,
-            "mismatches": names,
-            "pair": pair,
-            "after_spans": spans,
-            "after_cells": names,
-            "after_junctions": names,
-            "before_spans": spans,
-            "before_glyphs": names,
-            "before_junctions": names,
-            "junction_pairs": cell_pairs,
-        }
-    )
-    shapes: dict[str, memory_tally.Shape] = {
-        "unit_cache.keys": memory_tally.Table(digest, content_id),
-        "unit_cache.unplaced": cached,
-        "checker.identity": memory_tally.Positional((window, flag, flag)),
-    }
-    return shapes[collection]
 
 
 def _slim_for(no_verdict: bool, cached: unit_cache.ParsedCachedUnit) -> bool:
@@ -2683,18 +2620,7 @@ def build_m1(
     del sampled
     verify_units = [table.unit(ordinal, store) for ordinal in sampled_ordinals]
     if tally:
-        # Read at each boundary, not held: the map's keys and values are new strings built from the store's columns, and holding the dict would keep them alive for the whole build, which an untallied pass never does.
-        tally.hold_reading(
-            "unit_cache.keys",
-            lambda: memory_tally.measure(
-                {
-                    store.input_key_hex(ordinal): (store.unit_id(ordinal) if store.loaded(ordinal) else "")
-                    for ordinal in range(table.n)
-                },
-                packed=_packed_shape("unit_cache.keys"),
-            ),
-        )
-        tally.hold("unit_cache.unplaced", unplaced, packed=_packed_shape("unit_cache.unplaced"))
+        tally.hold("unit_cache.unplaced", unplaced)
         tally.hold_reading("unit_store", store.sizes)
         tally.boundary("plan")
     # The buffered records have been loaded into the unit store or rejected, so they are freed here. Only a tallied pass keeps them, through the hold above.

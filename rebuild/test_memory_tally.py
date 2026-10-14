@@ -4,9 +4,6 @@ import io
 import re
 from array import array
 from dataclasses import dataclass
-from typing import Any
-
-import pytest
 
 from rebuild.review import columns
 from rebuild.tools import memory_tally
@@ -30,127 +27,6 @@ class _Unit:
     key: str
     rows: tuple[_Row, ...]
     flags: dict
-
-
-@dataclass(slots=True)
-class _State:
-    flag: bool
-    digest: str | None
-    names: tuple[str, ...]
-    deltas: dict[str, str]
-    home: _Row | None
-    key: str
-
-
-def _state(index: int) -> _State:
-    shared = ("qsPea", "qsBay") if index % 3 else ("qsTea",)
-    return _State(
-        bool(index % 3),
-        f"d-{index:012x}" if index < 1000 else "d-shared",
-        shared,
-        {} if index % 5 else {"default": "delta-a", "ss03": "delta-b"},
-        None if index % 7 else _Row("ss10", shared),
-        "ab" * 32,
-    )
-
-
-_STATE_SHAPE = memory_tally.Record(
-    {
-        "flag": memory_tally.Flag(),
-        "digest": memory_tally.Id(),
-        "names": memory_tally.Many(memory_tally.Id()),
-        "deltas": memory_tally.Table(memory_tally.Id(), memory_tally.Id()),
-        "home": memory_tally.Record(
-            {"label": memory_tally.Id(), "names": memory_tally.Many(memory_tally.Slot(2))}
-        ),
-        "key": memory_tally.Hex(),
-    }
-)
-
-
-def _packed_bytes(state: _State) -> float:
-    fixed = memory_tally.OFFSET_WIDTH + memory_tally.COUNT_WIDTH
-    return (
-        1 / 8
-        + memory_tally.ID_WIDTH
-        + fixed
-        + memory_tally.ID_WIDTH * len(state.names)
-        + fixed
-        + 2 * memory_tally.ID_WIDTH * len(state.deltas)
-        + memory_tally.ID_WIDTH
-        + fixed
-        + (0 if state.home is None else 2 * len(state.home.names))
-        + 32
-    )
-
-
-@dataclass(slots=True)
-class _Pinned:
-    flags: tuple[bool, ...]
-    key: str
-    codepoints: tuple[int, ...]
-    cluster: str
-    names: tuple[str, ...]
-    deltas: dict[str, str]
-    address: tuple[str, int, int]
-
-
-def _pinned() -> _Pinned:
-    return _Pinned(
-        (True, False, False, True, False, False, False, True),
-        "ab" * 32,
-        (0xE650, 0xE651),
-        "cluster-a",
-        ("qsPea", "qsBay"),
-        {"default": "qsPea"},
-        ("units/qsPea.json", 12, 40),
-    )
-
-
-_PINNED_SHAPE = memory_tally.Record(
-    {
-        "flags": memory_tally.Positional((memory_tally.Flag(),) * 8),
-        "key": memory_tally.Hex(),
-        "codepoints": memory_tally.Derived(lambda values: 1 + 2 * len(values)),
-        "cluster": memory_tally.Id(),
-        "names": memory_tally.Many(memory_tally.Id()),
-        "deltas": memory_tally.Table(memory_tally.Id(), memory_tally.Id()),
-        "address": memory_tally.Positional((memory_tally.Id(), memory_tally.Slot(4), memory_tally.Slot(4))),
-    }
-)
-
-
-class _CountedCollection(list):
-    """A list that counts the passes made over it, so a test can check how many times the string-table walk reads every member."""
-
-    def __init__(self, members) -> None:
-        super().__init__(members)
-        self.passes = 0
-
-    def __iter__(self):
-        self.passes += 1
-        return list.__iter__(self)
-
-
-class _CountedView:
-    def __init__(self, owner, items) -> None:
-        self._owner = owner
-        self._items = items
-
-    def __iter__(self):
-        self._owner.passes += 1
-        return iter(self._items)
-
-
-class _CountedMap(dict):
-    """A dict that counts the passes made over its items view, so a test can check that the string-table walk reads the view and does not copy it into a list."""
-
-    def __init__(self, members) -> None:
-        super().__init__(members)
-        self.passes = 0
-
-    def items(self) -> Any:
-        return _CountedView(self, dict.items(self))
 
 
 def test_the_tally_exists_only_when_the_variable_is_exactly_one():
@@ -270,166 +146,31 @@ def test_a_held_collection_is_reread_at_every_boundary_and_a_released_one_is_not
     assert lines[-1] == "[tally] third largest=-"
 
 
-def test_a_packed_shape_estimates_each_field_off_the_member_it_reads():
-    for index in (0, 1, 5, 7, 1200):
-        state = _state(index)
-        assert memory_tally.packed_size(_STATE_SHAPE, state) == _packed_bytes(state)
-    absent = memory_tally.packed_size(_STATE_SHAPE, None)
-    assert absent == 1 / 8 + 4 + 5 + 5 + 4 + 5 + 32
-    assert (
-        memory_tally.packed_size(memory_tally.Positional((memory_tally.Slot(3), memory_tally.Flag())), None)
-        == 3.125
-    )
-    assert memory_tally.packed_size(memory_tally.Derived(lambda text: 1 + 2 * len(text)), "abc") == 7
-
-
-def test_a_drifted_declaration_raises_rather_than_estimating_the_wrong_field():
-    with pytest.raises(TypeError):
-        memory_tally.packed_size(memory_tally.Id(), 7)
-    with pytest.raises(TypeError):
-        memory_tally.packed_size(memory_tally.Many(memory_tally.Id()), "not a sequence")
-    with pytest.raises(ValueError):
-        memory_tally.packed_size(memory_tally.Positional((memory_tally.Slot(1),)), (1, 2))
-    with pytest.raises(AttributeError):
-        memory_tally.packed_size(memory_tally.Record({"missing": memory_tally.Slot(1)}), _state(0))
-
-
-def test_a_hex_column_charges_its_width_whether_the_digest_is_there_or_not():
-    """A member whose digest is None or empty costs the same bytes as one that has it. Otherwise the packed figure would jump by the column width whenever a boundary sampled a member that had no key yet. A digest of a different length raises, because it means the column was declared for the wrong field."""
-    digest = memory_tally.Hex()
-    assert memory_tally.packed_size(digest, "ab" * 32) == memory_tally.HEX_WIDTH == 32
-    assert memory_tally.packed_size(digest, None) == 32
-    assert memory_tally.packed_size(digest, "") == 32
-    assert memory_tally.packed_size(memory_tally.Hex(8), "ab" * 8) == 8
-    with pytest.raises(ValueError):
-        memory_tally.packed_size(memory_tally.Hex(8), "ab" * 32)
-    with pytest.raises(TypeError):
-        memory_tally.packed_size(digest, 7)
-
-
-def test_a_derived_column_estimates_an_absent_value_without_reading_it():
-    """An absent value is never passed to the callable and costs the column's `absent` width, by default the `COUNT_WIDTH` count slot. The build's `checker.identity` shape in rebuild/review/build.py is a codepoint window in a `Positional` triple, and a member with no window must cost a zero count there instead of raising."""
-    window = memory_tally.Derived(lambda values: 1 + 2 * len(values))
-    assert memory_tally.packed_size(window, (0xE650, 0xE651)) == 5
-    assert memory_tally.packed_size(window, None) == memory_tally.COUNT_WIDTH
-    assert memory_tally.packed_size(memory_tally.Derived(lambda values: 9, absent=2), None) == 2
-    identity = memory_tally.Positional((window, memory_tally.Flag(), memory_tally.Flag()))
-    assert memory_tally.packed_size(identity, None) == memory_tally.COUNT_WIDTH + 2 / 8
-
-
-def test_a_nested_collection_takes_no_packed_shape_at_the_call_site_or_at_the_boundary():
-    """A nested collection's count is the rows of its tables, while a packed shape describes one member, so a line with both would divide bytes by the wrong count. `measure` and `hold` raise at once, not at a later boundary."""
-    tables = {"default": {"E650": _Row("r", ("qsPea",))}}
-    with pytest.raises(ValueError):
-        memory_tally.measure(tables, nested=True, packed=_STATE_SHAPE)
-    with pytest.raises(ValueError):
-        memory_tally.MemoryTally().hold("subset.rows", tables, nested=True, packed=_STATE_SHAPE)
-    assert memory_tally.measure(tables, nested=True).count == 1
-
-
-def test_a_pinned_record_is_estimated_at_the_width_it_is_declared_at():
-    """A member with one field of each shape kind costs a known number of bytes: eight flags take one byte, a digest its thirty-two raw bytes, a window a count byte plus two bytes per codepoint, an id four bytes, a variable-length field an offset and a count plus its elements, a mapping the same pair plus a key and a value per entry, and a positional address its three slots. An absent member costs every fixed column under it and the offset-and-count pair of every variable one."""
-    assert memory_tally.packed_size(_PINNED_SHAPE, _pinned()) == 80
-    assert memory_tally.packed_size(_PINNED_SHAPE, None) == 60
-    cost = memory_tally.packed_estimate([_pinned()] * 64, _PINNED_SHAPE, sample_size=8)
-    assert cost.est_bytes == 80 * 64
-    assert cost.strings == 5
-    assert cost.string_bytes == sum(
-        len(string) + memory_tally.OFFSET_WIDTH
-        for string in ("cluster-a", "qsPea", "qsBay", "default", "units/qsPea.json")
-    )
-
-
-def test_the_packed_rows_scale_with_the_sample_and_the_strings_are_counted_over_every_member():
-    collection = [_state(index) for index in range(4096)]
-    cost = memory_tally.packed_estimate(collection, _STATE_SHAPE, sample_size=64)
-    walked = sum(map(_packed_bytes, collection))
-    assert abs(cost.est_bytes - walked) / walked < 0.05
-    strings = {state.digest for state in collection if state.digest} | {
-        "qsPea",
-        "qsBay",
-        "qsTea",
-        "default",
-        "ss03",
-        "delta-a",
-        "delta-b",
-        "ss10",
-    }
-    assert cost.strings == len(strings) == 1000 + 1 + 8
-    assert cost.string_bytes == sum(len(string) + memory_tally.OFFSET_WIDTH for string in strings)
-    assert memory_tally.packed_estimate([], _STATE_SHAPE) == memory_tally.PackedCost(0, 0, 0)
-
-
-def test_the_bare_ids_of_one_record_come_off_one_pass_over_the_members():
-    """The string table is counted over every member, so each id column costs a pass over the whole collection. The bare `Id` fields of one record share a getter and so share one pass. Here the three id columns take two passes, plus one pass to take the sample."""
-    shape = memory_tally.Record(
-        {
-            "cluster": memory_tally.Id(),
-            "key": memory_tally.Id(),
-            "names": memory_tally.Many(memory_tally.Id()),
-        }
-    )
-    collection = _CountedCollection(_pinned() for _ in range(64))
-    cost = memory_tally.packed_estimate(collection, shape, sample_size=8)
-    assert collection.passes == 3
-    strings = {"cluster-a", "ab" * 32, "qsPea", "qsBay"}
-    assert cost.strings == len(strings)
-    assert cost.string_bytes == sum(len(string) + memory_tally.OFFSET_WIDTH for string in strings)
-
-
-def test_a_mapping_is_estimated_by_its_values_unless_a_table_estimates_its_entries():
-    collection = {f"{index:064x}": _state(index) for index in range(512)}
-    by_ordinal = memory_tally.packed_estimate(collection, _STATE_SHAPE, sample_size=512)
-    by_key = memory_tally.packed_estimate(
-        collection, memory_tally.Table(memory_tally.Hex(), _STATE_SHAPE), sample_size=512
-    )
-    assert by_ordinal.est_bytes == round(sum(map(_packed_bytes, collection.values())))
-    assert by_key.est_bytes == by_ordinal.est_bytes + 32 * 512
-    assert by_key.strings == by_ordinal.strings
-    named = memory_tally.packed_estimate(
-        {"a": "x", "b": "x", "c": None}, memory_tally.Table(memory_tally.Id(), memory_tally.Id())
-    )
-    assert named == memory_tally.PackedCost(24, 4, sum(len(s) + 4 for s in "abcx"))
-
-
-def test_the_string_table_reads_the_items_view_rather_than_a_list_of_the_entries():
-    """The tally runs inside the process it measures, so the string-table walk must not hold anything per member. It reads the mapping's items view once per id column; copying the entries into a list first would add about 70 MB of tuples for a collection of a million units. Here there are five id columns plus the pass that takes the sample."""
-    collection = _CountedMap({f"{index:064x}": _state(index) for index in range(64)})
-    cost = memory_tally.packed_estimate(
-        collection, memory_tally.Table(memory_tally.Hex(), _STATE_SHAPE), sample_size=8
-    )
-    assert collection.passes == 6
-    assert cost.strings > 0
-
-
-def test_a_collection_with_a_packed_shape_prints_the_documented_tokens_and_one_without_prints_none():
+def test_a_column_reading_prints_the_documented_tokens_and_a_walked_one_prints_none():
+    table = columns.StringTable()
+    for value in ("ink", "picture", "junior"):
+        table.id(value)
+    rows = [array("I", [1, 2, 3]), bytearray(b"\x01\x02\x03")]
+    strings = len("inkpicturejunior") + 3 * memory_tally.OFFSET_WIDTH
     out = io.StringIO()
-    tally = memory_tally.MemoryTally(out=out, sample_size=64)
-    tally.hold("states", [_state(index) for index in range(300)], packed=_STATE_SHAPE)
-    tally.hold("plain", [_state(index) for index in range(3)])
-    tally.hold("empty", {}, packed=memory_tally.Table(memory_tally.Hex(), _STATE_SHAPE))
-    tally.hold_reading(
-        "rows",
-        lambda: memory_tally.measure(
-            [_Row("ss03", ("qsPea",))], packed=memory_tally.Record({"label": memory_tally.Id()})
-        ),
-    )
+    tally = memory_tally.MemoryTally(out=out)
+    tally.hold_reading("store", lambda: memory_tally.column_sizes(3, rows, table, 4))
+    tally.hold_reading("shared", lambda: memory_tally.column_sizes(3, rows, table, holds_table=False))
+    tally.hold_reading("empty", lambda: memory_tally.Measure(0, 0, memory_tally.PackedCost(0, 0, 0)))
+    tally.hold("plain", [_Row("ss03", ("qsPea",))] * 3)
     tally.hold_reading("ink.shape_memo", lambda: (12, 4_500_000_000))
     readings = {reading.collection: reading for reading in tally.boundary("units")}
     lines = {line.split()[2]: line for line in out.getvalue().splitlines()[:-1]}
     assert _COLLECTION_LINE.match(lines["plain"]) and _COLLECTION_LINE.match(lines["ink.shape_memo"])
     assert readings["plain"].packed is None and readings["ink.shape_memo"].packed is None
-    states = _PACKED_LINE.match(lines["states"])
-    assert states and states.group(3) == "300"
-    packed = readings["states"].packed
-    assert packed and states.group(6) == str(packed.est_bytes)
-    assert states.group(7) == f"{packed.est_bytes / 300:.1f}"
-    assert states.group(8) == f"{readings['states'].est_bytes / 300:.1f}"
-    assert states.group(9) == f"{readings['states'].est_bytes / packed.est_bytes:.2f}"
-    assert (states.group(10), states.group(11)) == (str(packed.strings), str(packed.string_bytes))
-    assert float(states.group(9)) > 1
-    rows = _PACKED_LINE.match(lines["rows"])
-    assert rows and rows.group(6) == "4" and rows.group(10) == "1" and rows.group(11) == str(len("ss03") + 4)
+    store = _PACKED_LINE.match(lines["store"])
+    packed_bytes = 12 + 3 + 4
+    assert store and store.group(3, 4, 6) == ("3", str(packed_bytes + strings), str(packed_bytes))
+    assert store.group(7, 8) == (f"{packed_bytes / 3:.1f}", f"{(packed_bytes + strings) / 3:.1f}")
+    assert store.group(9) == f"{(packed_bytes + strings) / packed_bytes:.2f}"
+    assert store.group(10, 11) == ("3", str(strings))
+    shared = _PACKED_LINE.match(lines["shared"])
+    assert shared and shared.group(4) == shared.group(6) == str(12 + 3) and shared.group(9) == "1.00"
     empty = _PACKED_LINE.match(lines["empty"])
     assert empty and empty.groups()[5:] == ("0", "0.0", "0.0", "-", "0", "0")
     assert all(line.startswith(memory_tally.TALLY) for line in out.getvalue().splitlines())

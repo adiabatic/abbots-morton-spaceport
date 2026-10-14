@@ -4,28 +4,13 @@ The figures are for attribution and are approximate. A held collection's estimat
 
 A collection registered with `hold` is re-estimated at every later boundary, because the build mutates and drains what it holds. A collection the build has emptied reads as empty at later boundaries and stays in the output. `hold_reading` registers a callable instead, returning `(count, bytes)` or a `Measure`. It serves a collection that keeps its own exact figures (`ink.shape_memo_sizes`), a collection stored as packed columns (`column_sizes`, as used by `UnitStore.sizes` and `build.row_column_sizes`), and a collection the build holds only through another object. `build_m1`, `_RecomputeRunner.hold_collections`, `_write_corpus` and `_corpus_worker` in `rebuild/review/build.py` register what they hold. A recomputed unit's fragment is written to the spool as it is drafted, so no process holds a collection of enrichments. What remains of a recomputed unit after its batch is its spool address: a column of the parent's packed unit store (`unit_store`), and a field of the projections a pooled worker holds until it has sent them (`worker.projections`).
 
-A collection can also declare the packed layout of one member (`hold(..., packed=)`, or `measure(..., packed=)` under `hold_reading`). Its line then also reports what a packed row of the same fields would take. `packed_estimate` sizes the layout over the same sample the walk reads, so the ratio compares like with like. A layout is a tree of these declarations, one per field of the record:
-
-- `Slot(width)`: a fixed-width column, such as a flag byte, an ordinal, an integer of a stated width, or the two cell indices of a pair.
-- `Flag()`: one bit of a flag byte.
-- `Id()`: an `ID_WIDTH` id into the string table. The string itself is charged to the table, not to the row.
-- `Hex(width)`: a hex digest stored as raw bytes, `HEX_WIDTH` of them for the sha256 the build keys by. It is charged whether or not the value is present, because a fixed-width column has no gaps. A present digest whose length disagrees with the declared width raises, so a column declared for one digest cannot silently size another.
-- `Derived(bytes, absent)`: whatever the callable returns for the value, for a column whose width depends on the value, such as a window of two to four codepoints stored inline. An absent value costs `absent`, by default the `COUNT_WIDTH` count slot such a column writes for an empty value, and the callable is not called.
-- `Many(element)`: a variable-length field, stored as an `OFFSET_WIDTH` offset and a `COUNT_WIDTH` count into a side column of elements, each sized by `element`. A field that is empty costs only the offset and count.
-- `Table(key, value)`: the same as `Many`, over a mapping's entries.
-- `Record(fields)`, `Keyed(fields)`, `Positional(shapes)`: an object's named attributes, a dict's named keys, and a tuple's slots in order. An absent value (None) still costs every slot under it, because a column has no gaps, but adds nothing to the string table.
-
-Over a mapping collection, the layout sizes the values, and the key is taken to be the ordinal a packed store indexes by. A `Table` layout instead sizes the collection's own entries as key and value.
-
-The string table is not sampled, because a vocabulary saturates instead of growing with the count. It is counted over every member of the collection, in one pass per id-bearing column. The bare `Id` fields of one record are read together by one multi-argument getter, so a record with a dozen names costs one pass. Every pass uses only `map`, `filter`, `chain` and the `operator` getters, so it runs in C, and the distinct strings are held in one set during the pass. A collection of a million members with five id columns therefore costs five million reads and a set of the vocabulary, which is a fraction of a second and a few megabytes at every boundary the collection is held at. Each distinct string is charged once, at its UTF-8 length plus an `OFFSET_WIDTH` offset. Absent and empty strings add nothing to the table.
-
 Each boundary prints one line per collection, largest first, then one line naming the largest. Every line starts with `[tally] ` (`TALLY`) and is whitespace-separated, so a `grep '^\\[tally\\]'` over the cycle's corpus-build step log (`var/build-logs/<run>/<nn>-corpus-build.log`, which receives the build's stdout) recovers the whole record:
 
     [tally] <boundary> <collection> count=<n> est_bytes=<n> est_gb=<x.xx>
     [tally] <boundary> <collection> count=<n> est_bytes=<n> est_gb=<x.xx> packed_bytes=<n> packed_per=<x.x> walked_per=<x.x> ratio=<x.xx|-> strings=<n> string_bytes=<n>
     [tally] <boundary> largest=<collection>
 
-The first form is a collection with no packed layout declared, and the second is a collection with one. `packed_bytes` is the packed rows over the whole count. `packed_per` and `walked_per` are bytes per member for the packed row and for the walk. `ratio` is `walked_per` divided by `packed_per`, or `-` when either is zero, as for an empty collection. `strings` and `string_bytes` are the collection's string table: the number of distinct strings and their bytes. The table is left out of `packed_bytes` and of both per-member figures, because one table would serve every collection, and adding it to each would count the same strings several times. It is printed so a reader can add it back where it matters; on the corpus the build measures, it is under a megabyte against collections of hundreds of megabytes. `<boundary>` is the build phase at whose end the reading was taken (`load`, `plan`, `units`, `manifest+check`, `review-facts`, `cache`), or `w<i>/phase1-<n>` for a pooled worker's own collections after its nth batch. Neither contains whitespace. `est_gb` is in decimal gigabytes, the unit of the `rss_gb=` token on the same phase's `[t]` line. A boundary with nothing held prints only the `largest=` line, with `-` as the name.
+The first form is a walked estimate or a bare `(count, bytes)` reading. The second is a reading that carries a `PackedCost`, which `column_sizes` returns for a collection stored as columns. `packed_bytes` is the columns' bytes over the whole count. `packed_per` and `walked_per` are bytes per member for the columns and for `est_bytes`. `ratio` is `walked_per` divided by `packed_per`, or `-` when either is zero, as for an empty collection. `strings` and `string_bytes` are the string table the columns index: the number of distinct strings and their bytes. The table is left out of `packed_bytes` because one table serves several collections, and `est_bytes` adds it only on the line of the collection that holds it (`column_sizes`), so the strings are counted once. `<boundary>` is the build phase at whose end the reading was taken (`load`, `plan`, `units`, `manifest+check`, `review-facts`, `cache`), or `w<i>/phase1-<n>` for a pooled worker's own collections after its nth batch. Neither contains whitespace. `est_gb` is in decimal gigabytes, the unit of the `rss_gb=` token on the same phase's `[t]` line. A boundary with nothing held prints only the `largest=` line, with `-` as the name.
 
 The module imports only the standard library. rebuild/test_review_code_closure.py lists it in `WIDTH_AND_TELEMETRY_MODULES`, the rebuild/tools modules the build may import that cannot change a unit's output.
 """
@@ -36,11 +21,10 @@ import os
 import sys
 from array import array
 from collections import deque
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
-from itertools import chain, islice
-from operator import attrgetter, itemgetter, methodcaller
-from typing import IO, Any, Protocol
+from itertools import islice
+from typing import IO, Protocol
 
 TALLY_ENV = "AMS_CORPUS_MEMORY_TALLY"
 TALLY = "[tally] "
@@ -48,9 +32,6 @@ SAMPLE_SIZE = 256
 
 ID_WIDTH = 4
 OFFSET_WIDTH = 4
-COUNT_WIDTH = 1
-HEX_WIDTH = 32
-_FLAG_BYTES = 1 / 8
 
 _BYTES_PER_GB = 1e9
 _LEAVES = (str, bytes, bytearray, int, float, complex, bool, type(None))
@@ -135,209 +116,11 @@ def estimate(
     return count, total + round(sampled * members / len(sample))
 
 
-class Shape:
-    """One node of a packed-row declaration. The module docstring lists the shapes and how each is sized."""
-
-
-@dataclass(frozen=True)
-class Slot(Shape):
-    width: int
-
-
-@dataclass(frozen=True)
-class Flag(Shape):
-    pass
-
-
-@dataclass(frozen=True)
-class Id(Shape):
-    pass
-
-
-@dataclass(frozen=True)
-class Hex(Shape):
-    width: int = HEX_WIDTH
-
-
-@dataclass(frozen=True)
-class Derived(Shape):
-    bytes: Callable[[Any], float]
-    absent: float = COUNT_WIDTH
-
-
-@dataclass(frozen=True)
-class Many(Shape):
-    element: Shape
-
-
-@dataclass(frozen=True)
-class Table(Shape):
-    key: Shape
-    value: Shape
-
-
-@dataclass(frozen=True)
-class Record(Shape):
-    fields: Mapping[str, Shape]
-
-
-@dataclass(frozen=True)
-class Keyed(Shape):
-    fields: Mapping[str, Shape]
-
-
-@dataclass(frozen=True)
-class Positional(Shape):
-    shapes: tuple[Shape, ...]
-
-
-def packed_size(shape: Shape, value: object) -> float:
-    """Return the bytes a packed row holds for `value` under `shape`: the row's own columns and its share of every side column, excluding the string table. A value the shape cannot read (a name that is not a string under `Id`, a tuple of the wrong length under `Positional`) raises, so a declaration that no longer matches its record fails the tests that build with the tally on instead of sizing the wrong field."""
-    if isinstance(shape, Slot):
-        return shape.width
-    if isinstance(shape, Flag):
-        return _FLAG_BYTES
-    if isinstance(shape, Id):
-        if value is not None and not isinstance(value, str):
-            raise TypeError(f"an Id column holds a string or None, not {type(value).__name__}")
-        return ID_WIDTH
-    if isinstance(shape, Hex):
-        if value is not None and not isinstance(value, str):
-            raise TypeError(f"a Hex column holds a hex digest or None, not {type(value).__name__}")
-        if value and len(value) != 2 * shape.width:
-            raise ValueError(f"a Hex column of {shape.width} bytes holds {len(value)} hex characters")
-        return shape.width
-    if isinstance(shape, Derived):
-        return shape.absent if value is None else shape.bytes(value)
-    if isinstance(shape, Many):
-        if value is None:
-            return OFFSET_WIDTH + COUNT_WIDTH
-        if isinstance(value, (str, bytes, Mapping)) or not isinstance(value, Iterable):
-            raise TypeError(f"a Many column holds a sequence, not {type(value).__name__}")
-        return OFFSET_WIDTH + COUNT_WIDTH + sum(packed_size(shape.element, member) for member in value)
-    if isinstance(shape, Table):
-        if value is None:
-            return OFFSET_WIDTH + COUNT_WIDTH
-        if not isinstance(value, Mapping):
-            raise TypeError(f"a Table column holds a mapping, not {type(value).__name__}")
-        return (
-            OFFSET_WIDTH
-            + COUNT_WIDTH
-            + sum(
-                packed_size(shape.key, key) + packed_size(shape.value, member)
-                for key, member in value.items()
-            )
-        )
-    if isinstance(shape, Record):
-        return sum(
-            packed_size(field, None if value is None else getattr(value, name))
-            for name, field in shape.fields.items()
-        )
-    if isinstance(shape, Keyed):
-        if value is not None and not isinstance(value, Mapping):
-            raise TypeError(f"a Keyed column holds a mapping, not {type(value).__name__}")
-        return sum(
-            packed_size(field, None if value is None else value[name]) for name, field in shape.fields.items()
-        )
-    if isinstance(shape, Positional):
-        if value is None:
-            return sum(packed_size(field, None) for field in shape.shapes)
-        if not isinstance(value, Sequence) or len(value) != len(shape.shapes):
-            raise ValueError(f"a Positional column of {len(shape.shapes)} slots holds {value!r}")
-        return sum(packed_size(field, member) for field, member in zip(shape.shapes, value))
-    raise TypeError(f"not a packed shape: {shape!r}")
-
-
-_Column = Callable[[Iterable], Iterable]
-
-
-def _string_columns(shape: Shape, take: _Column) -> list[_Column]:
-    """Return the column readers for the `Id`s under `shape`. Each reader turns an iterable of values shaped like `shape` into the strings its id columns hold, and is built from `map`, `filter`, `chain` and `operator` getters only, so the pass over a corpus runs in C. There is one reader per id column, except that the bare `Id` members of one record or tuple share a reader (`_fold_members`), because one getter reads them all at once. `take` maps the collection's members to this shape's values; an absent value along the path (`filter(None, ...)`) contributes nothing."""
-    if isinstance(shape, Id):
-        return [lambda values: filter(None, take(values))]
-    if isinstance(shape, Many):
-        return _string_columns(shape.element, lambda values: chain.from_iterable(filter(None, take(values))))
-    if isinstance(shape, Table):
-        keys: _Column = lambda values: chain.from_iterable(
-            map(methodcaller("keys"), filter(None, take(values)))
-        )
-        members: _Column = lambda values: chain.from_iterable(
-            map(methodcaller("values"), filter(None, take(values)))
-        )
-        return _string_columns(shape.key, keys) + _string_columns(shape.value, members)
-    if isinstance(shape, (Record, Keyed)):
-        getter = attrgetter if isinstance(shape, Record) else itemgetter
-        return _fold_members(list(shape.fields.items()), getter, take)
-    if isinstance(shape, Positional):
-        return _fold_members(list(enumerate(shape.shapes)), itemgetter, take)
-    return []
-
-
-def _fold_members(
-    members: list[tuple[Any, Shape]], getter: Callable[..., Any], take: _Column
-) -> list[_Column]:
-    """Return the column readers under one record's or tuple's members. The members that are bare `Id`s are read together by one multi-argument getter, so a record of a dozen names costs one pass, the same as a record of one."""
-    plain = [key for key, field in members if isinstance(field, Id)]
-    columns: list[_Column] = []
-    if len(plain) == 1:
-        columns.append(
-            lambda values, get=getter(plain[0]): filter(None, map(get, filter(None, take(values))))
-        )
-    elif plain:
-        columns.append(
-            lambda values, get=getter(*plain): filter(
-                None, chain.from_iterable(map(get, filter(None, take(values))))
-            )
-        )
-    for key, field in members:
-        if isinstance(field, Id):
-            continue
-        columns += _string_columns(
-            field, lambda values, get=getter(key): map(get, filter(None, take(values)))
-        )
-    return columns
-
-
 @dataclass(frozen=True)
 class PackedCost:
     est_bytes: int
     strings: int
     string_bytes: int
-
-
-def packed_estimate(collection: Collection, shape: Shape, *, sample_size: int = SAMPLE_SIZE) -> PackedCost:
-    """Return what a packed store of `collection` takes: the rows, sized over the same sample `estimate` walks and scaled by the count, and the string table, counted over every member (the module docstring says why the table is not sampled). Over a mapping, the shape sizes the values and the key is the ordinal, unless the shape is a `Table`, which sizes the entries."""
-    members = len(collection)
-    if members == 0:
-        return PackedCost(0, 0, 0)
-    sample = _sample(collection, sample_size)
-    strings: set[str] = set()
-    if isinstance(collection, Mapping) and isinstance(shape, Table):
-        sampled = sum(packed_size(shape.key, key) + packed_size(shape.value, value) for key, value in sample)
-        items = collection.items()
-        columns = _string_columns(shape.key, lambda members: map(itemgetter(0), members)) + _string_columns(
-            shape.value, lambda members: map(itemgetter(1), members)
-        )
-        for column in columns:
-            strings.update(column(items))
-    else:
-        members_view: Collection = collection.values() if isinstance(collection, Mapping) else collection
-        sampled = sum(
-            packed_size(shape, member[1] if isinstance(collection, Mapping) else member) for member in sample
-        )
-        for column in _string_columns(shape, lambda members: members):
-            strings.update(column(members_view))
-    string_bytes = sum(
-        (len(string) if string.isascii() else len(string.encode())) + OFFSET_WIDTH for string in strings
-    )
-    return PackedCost(round(sampled * members / len(sample)), len(strings), string_bytes)
-
-
-def _refuse_nested_packed(nested: bool, packed: Shape | None) -> None:
-    if nested and packed is not None:
-        raise ValueError(
-            "a nested collection counts the rows of its tables, whose memory a packed row cannot estimate"
-        )
 
 
 @dataclass(frozen=True)
@@ -380,25 +163,10 @@ def column_sizes(
     *,
     holds_table: bool = True,
 ) -> Measure:
-    """Return the exact reading of a packed collection: `n` rows, with the columns' bytes plus `extra_bytes` (a tuple pool's `pool_bytes`, or lines the collection keeps as objects beside its arrays) as the packed figure. The string table is reported beside it, counted as `packed_estimate` counts one: each distinct string once at its UTF-8 length plus an offset. The walked figure is the packed figure plus the table, so the line's ratio shows the table's share: it reads `1.00` or `1.01` on the corpus and up to `1.09` on the mini bundle, whose table is larger beside its columns. A collection whose table another collection's line already counts passes `holds_table=False`, and its walked figure is then its rows alone, with the table still printed beside them. The workload table's strings are shared this way by the audit's row columns, the unit store and the pre-merge snapshot, so they are counted on one line, and a boundary's `largest=` compares what each collection holds on its own."""
+    """Return the exact reading of a packed collection: `n` rows, with the columns' bytes plus `extra_bytes` (a tuple pool's `pool_bytes`, or lines the collection keeps as objects beside its arrays) as the packed figure. The string table is reported beside it: each distinct string once at its UTF-8 length plus an `OFFSET_WIDTH` offset. The walked figure is the packed figure plus the table, so the line's ratio shows the table's share: it reads `1.00` or `1.01` on the corpus and up to `1.09` on the mini bundle, whose table is larger beside its columns. A collection whose table another collection's line already counts passes `holds_table=False`, and its walked figure is then its rows alone, with the table still printed beside them. The workload table's strings are shared this way by the audit's row columns, the unit store and the pre-merge snapshot, so they are counted on one line, and a boundary's `largest=` compares what each collection holds on its own."""
     rows = sum(bytes_of(column) for column in columns) + extra_bytes
     strings = table.chars + len(table) * OFFSET_WIDTH
     return Measure(n, rows + strings if holds_table else rows, PackedCost(rows, len(table), strings))
-
-
-def measure(
-    collection: Collection,
-    *,
-    leaf_types: tuple[type, ...] = (),
-    sample_size: int = SAMPLE_SIZE,
-    nested: bool = False,
-    packed: Shape | None = None,
-) -> Measure:
-    """Return `estimate` and, given a shape, `packed_estimate` over one collection as one `Measure`. A nested collection cannot take a packed shape: its count is the rows of the tables under it, while the packed figure is one row per member, so the per-member figures would divide bytes by the wrong count."""
-    _refuse_nested_packed(nested, packed)
-    count, est_bytes = estimate(collection, leaf_types=leaf_types, sample_size=sample_size, nested=nested)
-    cost = None if packed is None else packed_estimate(collection, packed, sample_size=sample_size)
-    return Measure(count, est_bytes, cost)
 
 
 @dataclass(frozen=True)
@@ -428,7 +196,7 @@ class MemoryTally:
     def __init__(self, *, out: IO[str] | None = None, sample_size: int = SAMPLE_SIZE) -> None:
         self._out = out
         self._sample_size = sample_size
-        self._held: dict[str, tuple[Collection, tuple[type, ...], bool, Shape | None]] = {}
+        self._held: dict[str, tuple[Collection, tuple[type, ...], bool]] = {}
         self._readings: dict[str, Callable[[], tuple[int, int] | Measure]] = {}
 
     def hold(
@@ -438,11 +206,9 @@ class MemoryTally:
         *,
         leaf_types: tuple[type, ...] = (),
         nested: bool = False,
-        packed: Shape | None = None,
     ) -> None:
-        _refuse_nested_packed(nested, packed)
         self._readings.pop(name, None)
-        self._held[name] = (collection, leaf_types, nested, packed)
+        self._held[name] = (collection, leaf_types, nested)
 
     def hold_reading(self, name: str, read: Callable[[], tuple[int, int] | Measure]) -> None:
         self._held.pop(name, None)
@@ -454,11 +220,11 @@ class MemoryTally:
 
     def readings(self) -> list[Reading]:
         readings = []
-        for name, (collection, leaf_types, nested, packed) in self._held.items():
-            measured = measure(
-                collection, leaf_types=leaf_types, sample_size=self._sample_size, nested=nested, packed=packed
+        for name, (collection, leaf_types, nested) in self._held.items():
+            count, est_bytes = estimate(
+                collection, leaf_types=leaf_types, sample_size=self._sample_size, nested=nested
             )
-            readings.append(Reading(name, measured.count, measured.est_bytes, measured.packed))
+            readings.append(Reading(name, count, est_bytes))
         for name, read in self._readings.items():
             result = read()
             if isinstance(result, Measure):

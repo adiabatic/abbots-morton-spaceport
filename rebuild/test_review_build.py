@@ -1419,7 +1419,7 @@ def _tally_lines(text: str, parent: bool = False) -> dict[str, dict[str, int]]:
 
 
 def _packed_collections(text: str) -> dict[str, dict[str, int]]:
-    """Map every boundary in `text` to {collection: packed_bytes} over the collections whose line carries the packed tokens, so a test can tell which collections declare a packed shape, which print the plain line, and what the declared shape estimated. A collection with a declared shape prints the tokens at every count, zero included."""
+    """Map every boundary in `text` to {collection: packed_bytes} over the collections whose line carries the packed tokens, which are the exact column readings (`memory_tally.column_sizes`), so a test can tell which collections report columns, which print the walked line, and what their columns hold. A column reading prints the tokens at every count, zero included."""
     packed: dict[str, dict[str, int]] = {}
     for line in text.splitlines():
         collection = _TALLY_COLLECTION.match(line)
@@ -1469,7 +1469,7 @@ def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writ
     for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
         assert "signatures" not in tallies[boundary]
     assert re.search(_SIGNATURE_NOTE, captured.err)
-    assert tallies["plan"]["unit_cache.keys"] == total and tallies["plan"]["unit_cache.unplaced"] == 0
+    assert tallies["plan"]["unit_cache.unplaced"] == 0
     for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
         assert tallies[boundary]["unit_store"] == total
     assert tallies["units"]["runner.subset_pack"] > 0
@@ -1489,9 +1489,9 @@ def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writ
     assert "[tally]" not in captured.err
     packed = _packed_collections(captured.out)
     assert packed["load"].keys() >= {"workload.units", "workload.rows"}
-    assert packed["plan"].keys() >= {"unit_cache.keys", "unit_cache.unplaced", "unit_store"}
+    assert packed["plan"].keys() >= {"unit_store"}
     assert packed["units"].keys() >= {"workload.units", "unit_store"}
-    assert packed["cache"].keys() >= {"unit_store", "checker.identity"}
+    assert packed["cache"].keys() >= {"unit_store"}
     assert min(packed["units"][collection] for collection in ("workload.units", "unit_store")) > 0
     assert _store_lines_are_exact(captured.out) == {
         boundary: True for boundary in ("plan", "units", "manifest+check", "review-facts", "cache")
@@ -1567,7 +1567,6 @@ def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it
     assert tallies["plan"]["unit_store"] == total
     assert not _subsumed_collections(tallies)
     packed = _packed_collections(captured.out)
-    assert "unit_cache.unplaced" in packed["plan"]
     assert packed["plan"]["unit_store"] > 0
     assert _store_lines_are_exact(captured.out)["plan"]
 
@@ -1575,7 +1574,7 @@ def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it
 def test_a_cached_rebuild_estimates_the_records_the_walk_has_to_place(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The records a cached plan buffers are measured whenever there are any. In a store written before addresses were recorded, every record waits for the walk, so the plan boundary estimates one record per unit under `unit_cache.unplaced`, by the declared shape and above zero, which shows the collection is estimated and not only declared. Every unit is still reused."""
+    """The records a cached plan buffers are measured whenever there are any. In a store written before addresses were recorded, every record waits for the walk, so the plan boundary counts one record per unit under `unit_cache.unplaced`. Every unit is still reused."""
     monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
     corpus = tmp_path / "corpus"
     _cached_build(corpus, mini_bundle)
@@ -1591,8 +1590,6 @@ def test_a_cached_rebuild_estimates_the_records_the_walk_has_to_place(
     assert tallies["plan"]["unit_cache.unplaced"] == total
     assert tallies["plan"]["unit_store"] == total
     assert not _subsumed_collections(tallies)
-    packed = _packed_collections(captured.out)
-    assert packed["plan"]["unit_cache.unplaced"] > 0
 
 
 def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeypatch):
