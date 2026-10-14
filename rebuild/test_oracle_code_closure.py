@@ -6,7 +6,7 @@ The walk is at module grain, as in `rebuild/test_verdict_update_closure.py`. Tha
 
 Because of the module grain, the witness stage's rule replay is in `rebuild/pipeline/witness.py` and not in conform.py. The replay imports `rebuild/pipeline/emit_gsub.py`, and if it were in conform.py, the roster would have to name the emitter.
 
-The position comparison has its own walk, from `rebuild/pipeline/oracle_positions.py`, and `POSITION_CODE_PATHS` must name exactly the modules it reaches. The position stamp is checked on its own, without the row stamp, because a stored position is served across a move of the row stamp when the row's settled stream did not change, so a module the position comparison reaches is covered only when that roster names it. `rebuild/pipeline/oracle.py`, the classifier, must be unreachable from the position comparison: it re-runs over every served verdict and is in neither roster, and if the position comparison imported it, a predicate edit would change `position_code` and re-shape every position. The row store, the settlement walk and the crate driver must be unreachable too, or an edit to one would re-shape every position where the settled digest already covers what it decides.
+The position comparison has its own walk, from `rebuild/pipeline/oracle_positions.py`, and `POSITION_CODE_PATHS` must name exactly the modules it reaches outside the stop-set. The position stamp is checked on its own, without the row stamp, because a stored position is served across a move of the row stamp when the row's settled stream did not change, so a module the position comparison reaches is covered only when that roster names it. `rebuild/pipeline/oracle.py`, the classifier, must be unreachable from the position comparison: it re-runs over every served verdict and is in neither roster, and if the position comparison imported it, a predicate edit would change `position_code` and re-shape every position. The row store, the settlement walk and the crate driver must be unreachable too, or an edit to one would re-shape every position where the settled digest already covers what it decides.
 """
 
 from __future__ import annotations
@@ -193,7 +193,7 @@ def test_the_position_comparison_s_entry_points_live_in_the_walked_module():
 
 
 def test_the_position_comparison_s_import_graph_is_inside_its_own_roster():
-    """A stored position is served across a move of the row stamp, so the position stamp covers the position comparison's code on its own: every module the comparison reaches must be named by `POSITION_CODE_PATHS`. A fix to a module it does not name would be served around as though the previous pass had already applied it."""
+    """A stored position is served across a move of the row stamp, so the position stamp covers the position comparison's code on its own: every module the comparison reaches outside the walk's stop-set (see the module docstring) must be named by `POSITION_CODE_PATHS`. A fix to a module it does not name would be served around as though the previous pass had already applied it."""
     files = _position_reached_files()
     assert (
         REPO_ROOT / "rebuild" / "pipeline" / "shapers.py" in files
