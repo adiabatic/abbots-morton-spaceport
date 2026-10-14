@@ -1147,11 +1147,11 @@ STEP_DESCRIPTIONS = {
     "review-facts": "Rewrites rebuild/review-facts-pins.json from the review-facts sidecar the corpus build emitted, names what moved in its invariant block against the last accepted review facts (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the review facts are accepted.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
-    "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts and checks it against a fresh re-settlement window by window, the split-buffer check at maximum length 4 included; the ss10 overlay runs its own two-letter case against the bare rendering. The check that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
+    "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts, up to the pass's maximum length (`CONFORM_MAX_LENGTH_DEFAULT` unless `--conform-max-length` sets it), and checks it against a fresh re-settlement window by window, the split-buffer check included; the ss10 overlay runs its own short-text case (`conform.OVERLAY_MAX_LENGTH`) against the bare rendering. The check that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
     "gate:rebuild-contracts": "Runs the rebuild suite: every test whose subject is the code, over checked-in fixtures and the hermetic mini bundle. Reads no live build artifact.",
     "gate:make-test": "Runs the main font suite and pyright over the whole tree, the same make test you run by hand. Skips when its input closure is unchanged since its last green run.",
     "job-costs": "Checks the recorded per-worker peaks against the memory-budget constants that size every fan-out. A drift here means a width somewhere is derived from stale numbers.",
-    "retention": "Prunes the regenerable files a green cycle leaves behind: stale carried files, stashes the journal already replays, the journal past its 7-day floor, and build logs beyond the last 10.",
+    "retention": f"Prunes the regenerable files a green cycle leaves behind: stale carried files, stashes the journal already replays, the journal past its {RETENTION_WINDOW_DAYS}-day floor, and build logs beyond the last {cycle_paths.BUILD_LOGS_KEEP}.",
 }
 
 
