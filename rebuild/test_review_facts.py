@@ -16,7 +16,6 @@ from rebuild.review.audit import (
     LedgerClass,
     UnitTable,
     Workload,
-    build_units,
     load_ledger,
     load_table,
     merge_ink_duplicate_units,
@@ -41,7 +40,6 @@ from rebuild.review.facts import (
     load_facts,
     premerge_set_group,
     select_change_group_units,
-    workload_digest,
     write_facts,
 )
 from rebuild.review.enrich import LETTERS
@@ -146,7 +144,6 @@ def test_merged_siblings_take_their_survivors_ink_verdict():
     premerge = derive_premerge(capture, table, store)
     flags = premerge.ink_flags
     assert premerge.units == len(capture) == len(flags) == 8
-    assert premerge.workload_digest == workload_digest(capture.grains())
     assert flags[_index_of(capture, MERGE_WINDOW, "default")] == "1"
     assert flags[_index_of(capture, MERGE_WINDOW, "ss04")] == "1"
     assert flags[_index_of(capture, DEFERRED_WINDOW, "ss03")] == "0"
@@ -309,15 +306,15 @@ def test_identical_class_units_whose_picture_changes_take_a_change_group():
     assert premerge.ink_flags[keys.index((INK_IDENTICAL, ("default",)))] == "1"
 
 
-def test_the_from_scratch_path_reroutes_the_units_the_sidecar_does():
+def test_the_from_scratch_path_reroutes_the_units_derive_premerge_does():
     """`select_change_group_units`, the `--from-scratch` path, decides from the audit rows and the fonts which pre-merge units take a change group and which ledger class each is re-routed out of. It must agree with `derive_premerge` over the build's products for the same rows and readings, and where a unit has a set group, give it the same one."""
     capture, table, store = _rerouted_build()
     premerge = derive_premerge(capture, table, store)
     grains = list(capture.grains())
-    sidecar = {
+    derived = {
         (grains[index].codepoints, grains[index].configs): group for index, group in premerge.unmatched_groups
     }
-    sidecar_rerouted = {
+    derived_rerouted = {
         (grains[index].codepoints, grains[index].configs): (
             None if grains[index].class_id == UNMATCHED_CLASS else grains[index].class_id
         )
@@ -326,13 +323,13 @@ def test_the_from_scratch_path_reroutes_the_units_the_sidecar_does():
     selected = select_change_group_units(REROUTE_ROWS, REROUTE_LEDGER, FONTS, FONTS)
     assert {
         (unit.codepoints, unit.configs): rerouted_from for unit, rerouted_from in selected
-    } == sidecar_rerouted
+    } == derived_rerouted
     identical = {entry.id for entry in REROUTE_LEDGER if entry.ink_identical}
     for unit, _rerouted_from in selected:
         set_group = premerge_set_group(
             unit.config_classes, unit.configs, dict.fromkeys(unit.configs, "changed"), identical
         )
-        assert set_group is None or set_group == sidecar[(unit.codepoints, unit.configs)]
+        assert set_group is None or set_group == derived[(unit.codepoints, unit.configs)]
 
 
 def test_a_set_group_counts_an_identical_class_config_only_where_its_ink_changed():
@@ -406,25 +403,8 @@ def test_ink_group_from_flags_mirrors_the_histogram():
     )
 
 
-def test_workload_digest_tracks_order_and_configs():
-    """The digest shows that a flag string is indexed against the workload a reader loaded, so it must change when the unit order or a unit's config set changes. Either change would misalign every index after it."""
-    units, _rows = build_units(
-        [
-            _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
-            _row("default", STANDALONE_UNMATCHED, "UNMATCHED", ("qsDay", "qsDay")),
-            _row("default", STANDALONE_MATCHED, "identical-unused-join-name", ("qsKey", "qsKey")),
-        ],
-        load_ledger(LEDGER_PATH),
-        dict(LETTERS),
-    )
-    base = workload_digest(units)
-    assert workload_digest([units[1], units[0], units[2]]) != base
-    units[0].configs = (*units[0].configs, "ss10")
-    assert workload_digest(units) != base
-
-
-def test_the_snapshots_grains_digest_as_the_materialized_units_do():
-    """The snapshot's grains carry the same window, class, no-verdict flag, and configs, in row order, as the units the table materializes, so both give the same digest. The sidecar carries this digest."""
+def test_the_snapshots_grains_match_the_materialized_units():
+    """The snapshot's grains carry the same window, class, no-verdict flag, and configs, in row order, as the units the table materializes. `ink_group_from_flags` relies on the snapshot's no-verdict column matching the table's, so the fixture includes a no-verdict unit."""
     table, _rows = load_table(
         [
             _row("default", MERGE_WINDOW, "UNMATCHED", ("qsPea", "qsMay")),
@@ -434,10 +414,11 @@ def test_the_snapshots_grains_digest_as_the_materialized_units_do():
         load_ledger(LEDGER_PATH),
         dict(LETTERS),
     )
-    snapshot = capture_premerge(table)
-    assert workload_digest(snapshot.grains()) == workload_digest(table.units())
-    assert [grain.no_verdict for grain in snapshot.grains()] == [unit.no_verdict for unit in table.units()]
-    assert any(grain.no_verdict for grain in snapshot.grains())
+    grains = list(capture_premerge(table).grains())
+    assert grains == [
+        (unit.codepoints, unit.class_id, unit.no_verdict, unit.configs) for unit in table.units()
+    ]
+    assert any(grain.no_verdict for grain in grains)
 
 
 def _example_table() -> tuple[UnitTable, dict[int, str | None], list[dict]]:
@@ -558,7 +539,6 @@ def _facts(pins: dict, generated_at: str = "2026-01-01T00:00:00Z") -> dict:
         "format": FACTS_FORMAT,
         "corpus": manifest,
         "pins": pins,
-        "premerge": {"units": 0, "workload_digest": "", "ink_identical": "", "unmatched_groups": []},
     }
 
 
@@ -625,8 +605,8 @@ def test_invariant_group_lists_classes_in_ledger_then_group_order():
         invariant_group({**manifest, "classes": [{"id": "not-a-class", "no_verdict": False}]}, {})
 
 
-def test_build_facts_reduces_its_own_premerge_records(tmp_path):
-    """The sidecar's pins are reductions of the pre-merge records beside them, so a reader can recompute them from those records. A change-group record whose unit's class is not UNMATCHED counts as a unit that class re-routed, and the re-routed counts list every `ink_identical` class in ledger order. The invariant block is reduced from the same manifest and change-group counts as the volatile groups, so the two blocks cannot disagree."""
+def test_build_facts_reduces_the_premerge_records_to_the_pins(tmp_path):
+    """The sidecar's ink and unmatched_groups groups are reduced from the pre-merge records `derive_premerge` returns. A change-group record whose unit's class is not UNMATCHED counts as a unit that class re-routed, and the re-routed counts list every `ink_identical` class in ledger order. The invariant block is reduced from the same manifest and change-group counts as the volatile groups, so the two blocks cannot disagree."""
     table, config_notes, records = _example_table()
     manifest = _write_shard(tmp_path, records)
     ledger = load_ledger(LEDGER_PATH)
@@ -646,7 +626,6 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
     matched = _index_of(capture, STANDALONE_MATCHED, "default")
     premerge = PremergeFacts(
         units=len(capture),
-        workload_digest=workload_digest(capture.grains()),
         ink_flags="".join("1" if index == matched else "0" for index in range(len(capture))),
         unmatched_groups=sorted(
             [
@@ -678,8 +657,6 @@ def test_build_facts_reduces_its_own_premerge_records(tmp_path):
         "no_verdict_classes": ["split-by-space-or-zwnj"],
         "unmatched_groups": ["new-join-at-baseline", "same-joins-narrower"],
     }
-    assert built["premerge"]["ink_identical"] == premerge.ink_flags
-    assert built["premerge"]["workload_digest"] == workload_digest(capture.grains())
 
 
 def _cli_corpus(tmp_path: Path, pins: dict) -> Path:

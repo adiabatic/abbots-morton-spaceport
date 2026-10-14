@@ -6,7 +6,7 @@ No test reads this file, since a build asserting the numbers it just wrote would
 
 The manifest and built groups are post-merge: they are read from a built corpus after the ink-duplicate merge. The audit, ink, and unmatched_groups groups count pre-merge units, the (codepoints, baseline, new) triples before the merge, which no corpus shard reports, so their class counts can differ from the manifest's. `audit.row_count` counts raw audit rows.
 
-The pre-merge groups come from the review-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the merge and the phase-1 products it computes anyway (each post-merge unit's machine flags and change group), instead of shaping and enriching the whole corpus a second time. The review facts are then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a unit that takes its survivor's change group but was merged away, on a unit that takes a change group and resolves to none, and on a unit the build re-routes and the review facts do not, or the reverse, and it writes one ink flag per captured unit.
+The pre-merge groups come from the review-facts.json sidecar, which `build_m1` writes. It derives them from the pre-merge state it captured just before the merge and the phase-1 products it computes anyway (each post-merge unit's machine flags and change group), instead of shaping and enriching the whole corpus a second time. The review facts are then less independent of the build, but it takes milliseconds instead of minutes. `--from-scratch` recomputes the groups from the source inputs (TSV, ledger, fonts, spec) when an independent comparison is wanted. `derive_premerge` checks the derivation's assumptions: it fails on a unit that takes its survivor's change group but was merged away, on a unit that takes a change group and resolves to none, and on a unit the build re-routes and the review facts do not, or the reverse, and it returns one ink flag per captured unit, which `ink_group_from_flags` counts. The sidecar (`build_facts`) holds the finished pins and the identity of the corpus that owns them; the per-unit ink flags and change groups that the ink and unmatched_groups groups are reduced from stay in the build's memory.
 
 Usage:
     uv run python -m rebuild.review.facts --update --corpus rebuild/out/review  # what every non-staging artifact-cycle pass runs
@@ -20,7 +20,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import difflib
-import hashlib
 import json
 import sys
 import tempfile
@@ -548,24 +547,8 @@ def unmatched_groups_group(repo_root: Path = REPO_ROOT) -> dict:
 # --- the review-facts sidecar ---------------------------------------------------------
 
 
-class FactsGrain(Protocol):
-    """The four fields the pre-merge facts are defined over. A materialized `Unit` and a `PremergeSnapshot` row (`PremergeSnapshot.grains`) both satisfy it, so `workload_digest` can be taken from either."""
-
-    @property
-    def codepoints(self) -> str: ...
-
-    @property
-    def class_id(self) -> str: ...
-
-    @property
-    def no_verdict(self) -> bool: ...
-
-    @property
-    def configs(self) -> tuple[str, ...]: ...
-
-
 class Grain(NamedTuple):
-    """One pre-merge unit's `FactsGrain` fields. The snapshot yields one at a time for `workload_digest`."""
+    """One pre-merge unit's window, class, no-verdict flag, and configs, as `PremergeSnapshot.grains` yields them in capture order."""
 
     codepoints: str
     class_id: str
@@ -654,10 +637,9 @@ class PremergeSnapshot:
 
 @dataclass(frozen=True)
 class PremergeFacts:
-    """The pre-merge facts a build reports: how many units the workload held, the digest identifying them, one '0'/'1' ink flag per unit in capture order, and the change group of every unit that takes one (each UNMATCHED unit and each re-routed unit) with its index in that order. A re-routed unit is one whose captured class is not UNMATCHED."""
+    """The pre-merge facts `derive_premerge` returns: how many units the workload held, one '0'/'1' ink flag per unit in capture order, and the change group of every unit that takes one (each UNMATCHED unit and each re-routed unit) with its index in that order. A re-routed unit is one whose captured class is not UNMATCHED. `build_facts` reduces the ink flags and the change groups into the pins; the pins' unit count is the snapshot's."""
 
     units: int
-    workload_digest: str
     ink_flags: str
     unmatched_groups: list[tuple[int, str]]
 
@@ -665,20 +647,6 @@ class PremergeFacts:
 def capture_premerge(table: UnitTable, identical_classes: Collection[str] = frozenset()) -> PremergeSnapshot:
     """Snapshot the workload for the sidecar. Call it immediately before `merge_ink_duplicate_units`, because the merge widens the configs each row's set group is decided over. `identical_classes` are the ledger's `ink_identical` ids, the classes whose units the build re-routes when their picture changes; with none, `derive_premerge` re-routes no unit and refuses a build that re-routed one."""
     return PremergeSnapshot(table, identical_classes)
-
-
-def workload_digest(units: Iterable[FactsGrain]) -> str:
-    """A sha256 over the `FactsGrain` fields of a unit sequence, in order. It identifies the unit list that the sidecar's ink flags and change-group indices refer to. The units are hashed one newline-separated line at a time, so the payload for millions of rows is never built as one string."""
-    digest = hashlib.sha256()
-    first = True
-    for unit in units:
-        line = f"{unit.codepoints}\t{unit.class_id}\t{int(unit.no_verdict)}\t{','.join(unit.configs)}"
-        if first:
-            first = False
-        else:
-            digest.update(b"\n")
-        digest.update(line.encode("utf-8"))
-    return digest.hexdigest()
 
 
 def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitStore) -> PremergeFacts:
@@ -751,7 +719,6 @@ def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitSto
         assigned.append((row, group))
     return PremergeFacts(
         units=snapshot.n,
-        workload_digest=workload_digest(snapshot.grains()),
         ink_flags=flags.decode("ascii"),
         unmatched_groups=assigned,
     )
@@ -822,7 +789,7 @@ def build_facts(
     premerge: PremergeFacts,
     row_count: int,
 ) -> dict:
-    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, the pre-merge records they were reduced from, and the identity of the corpus that owns them. The pre-merge records let a reader re-reduce the pre-merge groups: a change-group record whose unit's class is not UNMATCHED is a re-routed unit, counted under that class, with the snapshot's identical classes in ledger order (`class_rank`). Only rebuild/test_review_facts.py reads them."""
+    """The sidecar payload: the finished pins the regenerator copies into the checked-in file, and the identity of the corpus that owns them. The ink and unmatched_groups groups are reduced from `premerge`: a change-group record whose unit's class is not UNMATCHED is a re-routed unit, counted under that class, with the snapshot's identical classes in ledger order (`class_rank`)."""
     unmatched = snapshot.strings.find(UNMATCHED_CLASS)
     unmatched_groups = unmatched_groups_group_from(
         (group for _index, group in premerge.unmatched_groups),
@@ -852,17 +819,11 @@ def build_facts(
                 "unmatched_groups": unmatched_groups,
             },
         },
-        "premerge": {
-            "units": premerge.units,
-            "workload_digest": premerge.workload_digest,
-            "ink_identical": premerge.ink_flags,
-            "unmatched_groups": [[index, group] for index, group in premerge.unmatched_groups],
-        },
     }
 
 
 def write_facts(out_dir: Path, facts: dict) -> None:
-    """Write the sidecar beside the manifest as compact JSON. The flag string has one character per pre-merge unit, and the file stays a small fraction of one shard."""
+    """Write the sidecar beside the manifest as compact JSON."""
     path = Path(out_dir) / FACTS_FILENAME
     path.write_text(json.dumps(facts, separators=(",", ":"), ensure_ascii=True) + "\n", encoding="utf-8")
 
