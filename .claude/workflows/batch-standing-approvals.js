@@ -301,7 +301,7 @@ ${JSON.stringify(landing, null, 2)}`, { label: 'verify:all', phase: 'Verify', sc
     phase('Launch')
     launch = await agent(`${COMMON}
 
-Every rule of this batch is committed and no agent holds the corpus any longer. Read doc/running-long-steps.md and the skill's steps 6(b) and 7. Check that git status --porcelain is empty and that no gate, cycle or corpus-loading process is running (pgrep -f 'standing_verdict[s]|standing_prob[e]|artifact_cycl[e]|rebuild_gat[e]|run_m[1]', bracketed so the watcher cannot match itself); refuse with why_not if either check fails. Then mkdir -p tmp and launch exactly this line: ${CHAIN}
+Every rule of this batch is committed and no agent holds the corpus any longer. Read doc/running-long-steps.md and the skill's steps 6 and 7. Check that git status --porcelain is empty and that no gate, cycle or corpus-loading process is running (pgrep -f 'standing_verdict[s]|standing_prob[e]|artifact_cycl[e]|rebuild_gat[e]|run_m[1]', bracketed so the watcher cannot match itself); refuse with why_not if either check fails. Then mkdir -p tmp and launch exactly this line: ${CHAIN}
 Capture $! as the pid, wait a few seconds, and confirm kill -0 <pid>. Return the pid, the log path tmp/cycle-pass.log, and whether it is alive. Do not wait for it.`, { label: 'launch:chain', phase: 'Launch', effort: 'low', schema: LAUNCH_SCHEMA })
     log(launch && launch.launched ? `chain launched, pid ${launch.pid}` : `chain not launched: ${launch ? launch.why_not : 'the launcher returned nothing'}`)
   } else {
@@ -316,7 +316,7 @@ const watch = launch && launch.launched ? [
   'when the pass prints its rebuild/review-facts-pins.json diff, read the invariant block and commit that diff as its own commit as soon as it appears; never leave it uncommitted in the tree',
   'make verdict-ready must read READY; if it reads NOT READY, name the unmet clause and clear it',
 ] : [
-  `no chain launched: ${launch ? launch.why_not : ordered.length ? 'nothing committed or the tree is not clean' : 'nothing landed'}; once commits exist on a clean tree, launch it by hand as the skill's step 6(b) says: ${CHAIN}`,
+  `no chain launched: ${launch ? launch.why_not : ordered.length ? 'nothing committed or the tree is not clean' : 'nothing landed'}; once commits exist on a clean tree, launch it by hand as the skill's step 6 says: ${CHAIN}`,
 ]
 
 return {
