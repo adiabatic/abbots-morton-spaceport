@@ -877,7 +877,7 @@ class TestOracleFanIn:
 
     def test_a_spawn_pool_is_never_wider_than_the_tasks_it_is_given(self):
         """A hand `--jobs` can be any number, so `_spawn_pool` caps the pool at one process per task the caller submits before its absorbs: the conformance sweep's units, or the oracle's row ranges. A smaller number narrows the pool. The conformance sweep's pool runs one task per process and the oracle's reuses its workers, so the keyword passes through and defaults to reuse."""
-        units = len(run_m1.sweep_units(("a", "b", "c"), conform.SWEEP_MAX_LENGTH))
+        units = len(run_m1_gates.sweep_units(("a", "b", "c"), conform.SWEEP_MAX_LENGTH))
         wide = run_m1._spawn_pool(64, units, max_tasks_per_child=1)
         try:
             assert wide._max_workers == units  # pyright: ignore[reportAttributeAccessIssue]
@@ -1051,7 +1051,7 @@ class TestConformFanIn:
         """A pooled conformance sweep writes one record, at the pool's width capped at the unit count, with one observation per acceptance configuration, under a unit name listed in `calibrate_budgets.UNITS`; a record under an unlisted name would be ignored, as if the conformance sweep had never run pooled on this machine. The inline pool runs each unit at submission in unit order and the futures resolve in reverse, and each configuration's highest reading belongs to its middle unit, which resolves neither first nor last: a fan-in that recorded a unit's peak under another configuration, or kept its first or last reading rather than its highest, would fail. The controller's own reading goes in its own field."""
         self._pool(monkeypatch)
         assert "conform-sweep" in {name for unit in cb.UNITS for name in unit.pool_units}
-        units = run_m1.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH)
+        units = run_m1_gates.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH)
         monkeypatch.setattr(run_m1_gates, "peak_rss_self_bytes", lambda: 10**9)
         readings = [0] * len(units)
         for rank, config in enumerate(conform.ACCEPTANCE_CONFIGS, start=1):
@@ -1059,7 +1059,7 @@ class TestConformFanIn:
             for index, slot in enumerate(slots):
                 readings[slot] = 10 * rank + (2 if index == len(slots) // 2 else 1)
         for jobs in (6, len(units) + 5):
-            monkeypatch.setattr(run_m1, "peak_footprint_bytes", iter(readings).__next__)
+            monkeypatch.setattr(run_m1_gates, "peak_footprint_bytes", iter(readings).__next__)
             before = len(ct.load_pool_records(ct.JOURNAL))
             run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=jobs)
             records = ct.load_pool_records(ct.JOURNAL)[before:]
@@ -1082,7 +1082,7 @@ class TestConformFanIn:
     def test_the_sweep_writes_the_same_summary_at_every_width(self, monkeypatch, tmp_path):
         """Width 1 runs `conform.run_conformance`, one whole walk per configuration, and wider widths run the pooled fan-in over the units, whose futures resolve here in reverse. The report is byte-identical at every width, up to one process per unit, so changing the conformance sweep's width does not change its report."""
         self._pool(monkeypatch)
-        units = len(run_m1.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH))
+        units = len(run_m1_gates.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH))
         written = {}
         for jobs in (1, 2, 6, units):
             run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=jobs)
@@ -1178,7 +1178,7 @@ class TestConformFanIn:
         with pytest.raises(ValueError, match="the overlay failed"):
             run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=2)
         assert ran[0] in conform.OVERLAY_CONFIGS
-        assert len(ran) <= 2 < len(run_m1.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH))
+        assert len(ran) <= 2 < len(run_m1_gates.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH))
         assert absorbed == {}
         assert not (tmp_path / "conform_summary.json").exists()
 

@@ -1,6 +1,6 @@
 """The M1 driver's gate half, the code the table build and the font compile never run: the gates that check the tables and the M1.otf a build has written under rebuild/out/m1, the guards that check the oracle's baselines and aliases before those gates run, and the command line `uv run python -m rebuild.pipeline.run_m1` hands to `main`.
 
-It holds the pre-gate guards (`_run_pregate_guards`), the Manual-pin gate (`run_manual_pin_gate`), the baseline oracle and its row-cache helpers (`run_oracle`), the conformance sweep, serial or pooled (`run_font_conformance`), the `--gates-only` rerun (`run_gates_only`), and the check line and green record each invocation leaves (`_record_cli_check`, `_settle_green`). `main` parses the command line and runs `--gates-only` and `--conform-only` itself. A bare run goes to `run_m1.full_run`, which builds the tables and the font and then calls these gates.
+It holds the pre-gate guards (`_run_pregate_guards`), the Manual-pin gate (`run_manual_pin_gate`), the baseline oracle and its row-cache helpers (`run_oracle`), the conformance sweep, serial or pooled (`run_font_conformance`), the units the pooled sweep, `make conform-deep` and the deep replay run in (`sweep_units`), the `--gates-only` rerun (`run_gates_only`), and the check line and green record each invocation leaves (`_record_cli_check`, `_settle_green`). `main` parses the command line and runs `--gates-only` and `--conform-only` itself. A bare run goes to `run_m1.full_run`, which builds the tables and the font and then calls these gates.
 
 `fingerprint.COMPARISON_CODE_MODULES` names this module, so it is in `pipeline_code_paths` and the run_m1 skip key but not in the tables' stamp (`fingerprint.table_code_paths`): an edit here re-runs the gates over the tables and font on disk instead of forcing a full build, and rebuild/test_build_code_closure.py checks that the build never reaches it. It reaches the build's own helpers through the `run_m1` module object at call time rather than importing their names, so a test that patches one on `run_m1` patches what this module calls. The `out_dir` defaults, the three YAML paths (`ALIAS_YAML`, `DIVERGENCES_YAML`, `KERN_SIDECAR_YAML`) and `load_default_spec` are bound when this module is imported, so a test patches those on this module or passes `out_dir`. `run_m1.full_run` loads the spec through `run_m1.load_default_spec`, so a test that drives the full run patches that binding instead.
 """
@@ -46,7 +46,12 @@ from rebuild.tools.cycle_timings import (
     record_pool,
 )
 from rebuild.tools.memory_budget import describe_fit
-from rebuild.tools.peak_rss import peak_rss_self_bytes, process_peak_rss_bytes, rss_token
+from rebuild.tools.peak_rss import (
+    peak_footprint_bytes,
+    peak_rss_self_bytes,
+    process_peak_rss_bytes,
+    rss_token,
+)
 
 ALIAS_YAML = run_m1.REPO_ROOT / "rebuild" / "m1-aliases.yaml"
 DIVERGENCES_YAML = run_m1.REPO_ROOT / "rebuild" / "m1-divergences.yaml"
@@ -61,7 +66,7 @@ def run_font_conformance(
 ) -> dict:
     """Run the exhaustive font-versus-settlement sweep: the per-edit sweep at `max_length` 4 over every settlement configuration, the overlay configuration at `conform.OVERLAY_MAX_LENGTH` whatever `max_length` is, and a hand run past `conform.SWEEP_MAX_LENGTH` through `--conform-max-length`. `make conform-deep` does not call it: `rebuild/tools/deep_sweep.py` runs its own pool. The tables under `out_dir` are read only for the glyph inventory `run_m1.mint_cell_glyphs` needs to name settled cells and read their anchors. The sweep itself takes no table, because it checks HarfBuzz's behavior against the kernel's, and read-back has already checked that the font holds the rules the build planned. A stamp mismatch stops with an error instead of rebuilding: the enumeration costs a whole kernel fan-out, and an inventory built here could describe runes that have since changed. The split-buffer check runs as part of this sweep, on every text that contains a splitter.
 
-    Above `jobs` 1 the sweep runs in units (`_pooled_conformance`): the ss10 overlay whole and each settlement configuration once per symbol of the alphabet (`run_m1.sweep_units`), one spawn process each. The serial path sweeps each configuration whole inside `conform.run_conformance`, and both write the same summary. The pooled path computes the `doc/rebuild-design.md` §5.7 formation-guard verdicts (`kernel_exec.guard_sweep`) once for the whole run and passes them with each submission. A spawned worker inherits nothing, so each would otherwise build the crate and sweep the spec itself.
+    Above `jobs` 1 the sweep runs in units (`_pooled_conformance`): the ss10 overlay whole and each settlement configuration once per symbol of the alphabet (`sweep_units`), one spawn process each. The serial path sweeps each configuration whole inside `conform.run_conformance`, and both write the same summary. The pooled path computes the `doc/rebuild-design.md` §5.7 formation-guard verdicts (`kernel_exec.guard_sweep`) once for the whole run and passes them with each submission. A spawned worker inherits nothing, so each would otherwise build the crate and sweep the spec itself.
 
     At the per-edit maximum length, each settlement configuration's walks share its settle memo with the string replay that fills it and with the oracle's walk over the same texts, through a file under `out_dir` keyed per family as the oracle row cache is (`conform.settle_memo_files`, from `run_m1.settle_memo_inputs` taken before the spec loads). The replay writes what it settled, each later phase loads it and writes back what it added, and a rune edit invalidates only the entries whose windows name an edited family. This sweep also prunes the rows no text reaches: the serial path in its walk's save, the pooled path in the parent over the units' reaches (`_pooled_conformance`). A deeper sweep shares nothing: its memo is a multiple of the conformance sweep's, and a file that size would cost the next conformance-sweep and oracle workers more to decode than they save.
 
@@ -280,6 +285,64 @@ def _report_oracle_cache(
         console.warn(f"oracle position store: re-shaping the rows that reach {moved_position_keys}")
 
 
+@dataclass(frozen=True)
+class SweepUnit:
+    """One process's share of a pooled conformance sweep (`run_font_conformance` and `make conform-deep`'s `deep_sweep.run_sweep`), or of the deep replay, which walks the settlement units (`deep_replay.walk_units`): a configuration, the symbol its texts end in or None for a configuration swept whole, the count of texts it shapes, which is the `sequences` its worker returns, and its trigger letters: when there are any, the unit shapes only the texts that contain one (`conform.sweep_texts`), which only the deep sweep asks for."""
+
+    config: str
+    last: str | None
+    texts: int
+    triggers: frozenset[str] = frozenset()
+
+    @property
+    def overlay(self) -> bool:
+        return self.config in conform.OVERLAY_CONFIGS
+
+
+def sweep_units(
+    alphabet: Sequence[str], max_length: int, triggers: Mapping[str, frozenset[str]] | None = None
+) -> tuple[SweepUnit, ...]:
+    """Return the sweep's units in the order the pool takes them: each overlay configuration whole, to `conform.OVERLAY_MAX_LENGTH`, then each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, one unit per symbol of `alphabet` in its order, each shaping the texts of length 1 to `max_length` that end in its symbol. A settlement configuration that `triggers` maps to letters shapes only the texts that contain one of them: all of a unit's texts when its symbol is one, and otherwise each length's texts less the ones whose other characters avoid them all."""
+    size = len(alphabet)
+    overlay = sum(size**length for length in range(1, conform.OVERLAY_MAX_LENGTH + 1))
+    unit = sum(size ** (length - 1) for length in range(1, max_length + 1))
+
+    def settlement_unit(config: str, symbol: str) -> SweepUnit:
+        letters = (triggers or {}).get(config, frozenset())
+        if not letters or symbol in letters:
+            return SweepUnit(config, symbol, unit, letters)
+        rest = size - len(letters.intersection(alphabet))
+        texts = sum(size ** (length - 1) - rest ** (length - 1) for length in range(1, max_length + 1))
+        return SweepUnit(config, symbol, texts, letters)
+
+    return tuple(SweepUnit(config, None, overlay) for config in conform.OVERLAY_CONFIGS) + tuple(
+        settlement_unit(config, symbol) for config in conform.SETTLEMENT_CONFIGS for symbol in alphabet
+    )
+
+
+def config_texts(
+    spec: ResolvedSpec, max_length: int, triggers: Mapping[str, frozenset[str]] | None = None
+) -> dict[str, int]:
+    """Return how many texts each acceptance configuration's units shape between them: every text of one letter up to its maximum length over the spec's alphabet, which is `max_length` for a settlement configuration and `conform.OVERLAY_MAX_LENGTH` for an overlay, and for a settlement configuration that `triggers` maps to letters, only the texts that contain one of them. `run_font_conformance` and `deep_sweep.run_sweep` check each configuration's merged `sequences` against it before they write anything, and `deep_replay.main` each settlement configuration's merged texts and skipped texts."""
+    alphabet = conform.spec_alphabet(spec)
+    size = len(alphabet)
+    counts: dict[str, int] = {}
+    for config in conform.ACCEPTANCE_CONFIGS:
+        longest = conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length
+        letters = (triggers or {}).get(config, frozenset())
+        rest = size - len(letters.intersection(alphabet))
+        counts[config] = sum(
+            size**length - (rest**length if letters else 0) for length in range(1, longest + 1)
+        )
+    return counts
+
+
+def _peak_footprint() -> int:
+    """This process's peak footprint (`peak_rss.peak_footprint_bytes`), or its peak resident set where the footprint cannot be read."""
+    peak = peak_footprint_bytes()
+    return peak if peak is not None else peak_rss_self_bytes()
+
+
 def _conformance_unit(
     spec: ResolvedSpec,
     font_path: Path,
@@ -290,11 +353,11 @@ def _conformance_unit(
     guard_verdicts: FormationGuard | None,
     settle_memo: conform.SettleMemoFile | None,
 ) -> tuple[conform.ConformanceConfigResult, int]:
-    """Run one unit of the pooled conformance sweep in a pool worker (`conform.conformance_config_worker` with `last`) and return its peak footprint (`run_m1._peak_footprint`) with the result, so the parent can write the `conform-sweep` pool record. The pool runs one unit per process, so the reading is this unit's own. It is a footprint rather than a resident peak because every settlement unit of a configuration maps the same settle memo file, whose clean pages the page cache holds once however many units touch them, while each unit's resident peak counts them again. The peak is returned in a pair instead of as a field on the result because conform.py is in `oracle_cache.ORACLE_ROW_CODE_PATHS`, and an edit there would invalidate every settle memo and row store."""
+    """Run one unit of the pooled conformance sweep in a pool worker (`conform.conformance_config_worker` with `last`) and return its peak footprint (`_peak_footprint`) with the result, so the parent can write the `conform-sweep` pool record. The pool runs one unit per process, so the reading is this unit's own. It is a footprint rather than a resident peak because every settlement unit of a configuration maps the same settle memo file, whose clean pages the page cache holds once however many units touch them, while each unit's resident peak counts them again. The peak is returned in a pair instead of as a field on the result because conform.py is in `oracle_cache.ORACLE_ROW_CODE_PATHS`, and an edit there would invalidate every settle memo and row store."""
     result = conform.conformance_config_worker(
         spec, font_path, config, max_length, glyphs, guard_verdicts, settle_memo, last=last
     )
-    return result, run_m1._peak_footprint()
+    return result, _peak_footprint()
 
 
 def _absorb_sweep_memo(
@@ -306,10 +369,10 @@ def _absorb_sweep_memo(
     prune: bool,
     discard: bool,
 ) -> tuple[bool, int, int, float, int]:
-    """Prune one configuration's settle memo file to the rows its conformance-sweep units reached and merge their parts into it (`conform.absorb_sweep_memo`) in a pool worker. Return whether the file was written, the rows pruned, the windows the parts added, the seconds the absorb took, and the worker's peak footprint (`run_m1._peak_footprint`), which goes into the `conform-sweep` pool record as `<config> absorb`. The write holds the configuration's rows, their remapped copies, and the index at once, so it runs in a worker rather than in the parent."""
+    """Prune one configuration's settle memo file to the rows its conformance-sweep units reached and merge their parts into it (`conform.absorb_sweep_memo`) in a pool worker. Return whether the file was written, the rows pruned, the windows the parts added, the seconds the absorb took, and the worker's peak footprint (`_peak_footprint`), which goes into the `conform-sweep` pool record as `<config> absorb`. The write holds the configuration's rows, their remapped copies, and the index at once, so it runs in a worker rather than in the parent."""
     started = time.perf_counter()
     written, pruned, fresh = conform.absorb_sweep_memo(memo, parts, spec, identity, reached, prune, discard)
-    return written, pruned, fresh, time.perf_counter() - started, run_m1._peak_footprint()
+    return written, pruned, fresh, time.perf_counter() - started, _peak_footprint()
 
 
 @dataclass
@@ -357,14 +420,14 @@ def _pooled_conformance(
     glyphs: Mapping[CellId, GlyphRecord],
     settle_memos: Mapping[str, conform.SettleMemoFile],
 ) -> conform.ConformReport:
-    """Sweep every unit of `run_m1.sweep_units` at `max_length`, `jobs` at a time, one spawn process per unit (`run_m1._spawn_pool` with `max_tasks_per_child=1`), and return the merged report; `run_font_conformance` writes it.
+    """Sweep every unit of `sweep_units` at `max_length`, `jobs` at a time, one spawn process per unit (`run_m1._spawn_pool` with `max_tasks_per_child=1`), and return the merged report; `run_font_conformance` writes it.
 
     Every unit is submitted up front, in unit order. A settlement unit whose configuration has a settle memo maps the shared file and writes the windows it settled fresh as a part in a scratch directory that lives as long as the pool, so a failed run leaves no part where a later run would read it. As each unit finishes, the parent folds its reach into its configuration's `_MemoFold` and drops the unit's flags, so the parent holds one integer the size of the file's row count per configuration however many units there are. When a unit raises, the units still queued are cancelled and the error propagates before any absorb is submitted.
 
-    Once every unit has finished, each configuration's units merge into its result (`conform.merge_unit_results`), whose sequences must be every text of its lengths (`run_m1.config_texts`), or this raises before any file is written, so no memo is ever pruned from a partial set of units. Only then does the pool absorb each configuration whose units wrote a part, left a live row unreached, or found the file corrupt (`_absorb_sweep_memo`); a configuration with neither (a current memo) gets no task and its file is not touched. One `[t] settle_memo` line per settlement configuration follows (`conform.settle_memo_line`), with the units' loaded and stale counts, the absorb's fresh and pruned counts, and the units' memo seconds plus the absorb's, the same line the serial sweep's walk prints. The configurations then merge in `conform.ACCEPTANCE_CONFIGS` order, so the report is the serial sweep's at any width and in any finishing order. At `conform.SWEEP_MAX_LENGTH` this writes the `conform-sweep` pool record.
+    Once every unit has finished, each configuration's units merge into its result (`conform.merge_unit_results`), whose sequences must be every text of its lengths (`config_texts`), or this raises before any file is written, so no memo is ever pruned from a partial set of units. Only then does the pool absorb each configuration whose units wrote a part, left a live row unreached, or found the file corrupt (`_absorb_sweep_memo`); a configuration with neither (a current memo) gets no task and its file is not touched. One `[t] settle_memo` line per settlement configuration follows (`conform.settle_memo_line`), with the units' loaded and stale counts, the absorb's fresh and pruned counts, and the units' memo seconds plus the absorb's, the same line the serial sweep's walk prints. The configurations then merge in `conform.ACCEPTANCE_CONFIGS` order, so the report is the serial sweep's at any width and in any finishing order. At `conform.SWEEP_MAX_LENGTH` this writes the `conform-sweep` pool record.
     """
     font_path = out_dir / "M1.otf"
-    units = run_m1.sweep_units(conform.spec_alphabet(spec), max_length)
+    units = sweep_units(conform.spec_alphabet(spec), max_length)
     kernel_exec.ensure_built()
     guard_verdicts = kernel_exec.guard_sweep(spec)
     collected: dict[int, conform.ConformanceConfigResult] = {}
@@ -405,7 +468,7 @@ def _pooled_conformance(
             except BaseException:
                 pool.shutdown(wait=True, cancel_futures=True)
                 raise
-            expected = run_m1.config_texts(spec, max_length)
+            expected = config_texts(spec, max_length)
             results = []
             for config in conform.ACCEPTANCE_CONFIGS:
                 result = conform.merge_unit_results(

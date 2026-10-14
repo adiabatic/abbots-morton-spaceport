@@ -6,7 +6,7 @@ The per-edit sweep's split-buffer check (every text split at a boundary shapes t
 
 Each settlement configuration other than `default` differs from it only through the few runes its features rename (`conform.renamed_runes`; the plan line names them). So the sweep shapes `default` over every text and each other configuration only over the texts that name one of those runes (`sweep_triggers`), when a plan-time check passes for it: every policy record gated on one of its features restricts a slot of its window to a rune that feature renames (`conform.unconfined_feature_records`). A text that names none of those runes then reaches the font's settlement lookup with the glyphs `default` gives it, since the stylistic sets' lookups rename only those runes and the settlement lookup is the same in every configuration, and settles as it does under `default`, since no record or unlock row that reads the configuration's features fires on any of its windows. Its comparison is `default`'s, which this sweep makes. A configuration that fails the check, or renames nothing, is swept over every text, and the plan line names which texts each configuration shapes and any records that failed the check. The per-edit sweep stays exhaustive in every configuration.
 
-The sweep runs in units, each in a spawn process of its own (`run_sweep`, `sweep_units`): the ss10 overlay whole, and each settlement configuration once per alphabet symbol, over the texts that end in that symbol and, in a configuration that skips texts, contain one of its trigger letters (`conform.conformance_config_worker` with `last` and `triggers`). The pool takes the units in that order and runs one per process (`max_tasks_per_child=1`), so no unit starts in a process that still holds what an earlier one allocated. A settlement unit's walk shares no memo file at this depth and keeps every distinct window it settles except the pinned ones (`conform._SettledWindowWalk`, `horizon`) until its last text, or until a wave of settles could take them past the window ceiling below. Every window whose right slots reach its text's end names the unit's symbol, so a unit keeps all of that reuse while it holds the window; a window whose right slots stop at a boundary before the text's end does not, so each unit whose texts reach it settles it again. The results merge per configuration (`conform.merge_unit_results`) and then across configurations in `conform.ACCEPTANCE_CONFIGS` order, and each configuration's summed sequences must equal every text of length 1 to its maximum length, or in a configuration that skips texts every such text that contains one of its trigger letters (`run_m1.config_texts`), before the summary is written, so the summary and its exemplars are the ones a single walk per configuration gives, whatever the width and the order in which units finish.
+The sweep runs in units, each in a spawn process of its own (`run_sweep`, `sweep_units`): the ss10 overlay whole, and each settlement configuration once per alphabet symbol, over the texts that end in that symbol and, in a configuration that skips texts, contain one of its trigger letters (`conform.conformance_config_worker` with `last` and `triggers`). The pool takes the units in that order and runs one per process (`max_tasks_per_child=1`), so no unit starts in a process that still holds what an earlier one allocated. A settlement unit's walk shares no memo file at this depth and keeps every distinct window it settles except the pinned ones (`conform._SettledWindowWalk`, `horizon`) until its last text, or until a wave of settles could take them past the window ceiling below. Every window whose right slots reach its text's end names the unit's symbol, so a unit keeps all of that reuse while it holds the window; a window whose right slots stop at a boundary before the text's end does not, so each unit whose texts reach it settles it again. The results merge per configuration (`conform.merge_unit_results`) and then across configurations in `conform.ACCEPTANCE_CONFIGS` order, and each configuration's summed sequences must equal every text of length 1 to its maximum length, or in a configuration that skips texts every such text that contains one of its trigger letters (`config_texts`), before the summary is written, so the summary and its exemplars are the ones a single walk per configuration gives, whatever the width and the order in which units finish.
 
 A unit's windows grow through its walk until they would pass the window ceiling (`sweep_memo_windows`: DEEP_SWEEP_MEMO_WINDOWS unless `AMS_DEEP_SWEEP_MEMO_WINDOWS` states another). Before a wave of settles that could take them past it, the walk empties its window dict and continues, settling again any window it meets after that (`conform._SettledWindowWalk`, `max_windows`). Below the ceiling a unit's footprint peaks at the window dict's last doubling late in the walk, when it briefly holds the old and new tables together. DEEP_SWEEP_MEMO_WINDOWS is the most a dict holds before it doubles, so a walk at that ceiling fills one table and never doubles past it. The width is therefore fixed before anything is spawned, from the most windows a unit's walk holds, priced so that it covers that peak: `window_bound` counts in closed form the windows the walk of the unit whose texts end in one symbol can hold at the requested maximum length with no ceiling, `unit_window_bounds` bounds every symbol's unit in every configuration, including a unit that skips texts, which holds a subset of the windows of its own configuration's unit over every text that ends in its symbol (its docstring has the argument), `settlement_worker_bytes` prices the smaller of the heaviest unit's bound and the ceiling as each settlement unit's need, and `sweep_width` fits that many settlement units into the machine's memory, capped at the cores and the unit count. At maximum length 5 every unit's bound is below the ceiling, on the alphabet projected to every letter too, so no walk releases and the bound sets the width; it grows with the alphabet, so a new letter needs no new measurement. At maximum length 6 the heaviest unit's bound is many times the ceiling, so every settlement unit is priced at the ceiling, and a unit's price, and with it the width, does not depend on the alphabet: every fleet machine sweeps as many units at once as it has cores, which `rebuild/test_deep_sweep.py` checks. When even one settlement unit does not fit, which only a ceiling stated well above DEEP_SWEEP_MEMO_WINDOWS can cause on a fleet machine, `memory_shortfall` says so before anything is spawned: a warning when it exceeds the memory less the reserve, and a refusal without a stated width when it exceeds the machine's memory in all. The ss10 overlay holds no windows, only what every worker holds before its walk (`DEEP_SWEEP_BASE_BYTES`). The parent holds the spec, the glyph inventory and the guard verdicts, well inside the reserve, as the per-edit sweep's controller does. Each unit returns its peak footprint (`peak_rss.peak_footprint_bytes`), and the run's check line in the cycle-timings journal records each configuration's highest unit peak beside its estimate, so a real run can be held against the estimate.
 
@@ -46,9 +46,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.pipeline import conform, fingerprint, kernel_exec, run_m1, table, witness
+from rebuild.pipeline import conform, fingerprint, kernel_exec, run_m1, run_m1_gates, table, witness
 from rebuild.pipeline.labels import features_for_config
-from rebuild.pipeline.run_m1 import SweepUnit, config_texts, sweep_units
+from rebuild.pipeline.run_m1_gates import SweepUnit, config_texts, sweep_units
 from rebuild.pipeline.model import MARKER_TAG_SEPARATOR, ResolvedSpec
 from rebuild.pipeline.table import DecisionTable, Rule
 from rebuild.tools import console, cycle_paths, memory_budget, peak_rss
@@ -593,7 +593,7 @@ class SweepProgress:
 
 
 def tables_stamped() -> bool:
-    """Return whether the serialized enumeration under rebuild/out/m1 was produced from the sources on disk, by the same `tables_inputs()` stamp `run_font_conformance` checks. It checks the artifacts themselves, not a record of a past run, so tables from a `--gates-only` pass or from another machine qualify the same way as a local build."""
+    """Return whether the serialized enumeration under rebuild/out/m1 was produced from the sources on disk, by the same `tables_inputs()` stamp `run_m1_gates.run_font_conformance` checks. It checks the artifacts themselves, not a record of a past run, so tables from a `--gates-only` pass or from another machine qualify the same way as a local build."""
     return run_m1.serialized_tables(run_m1.OUT_DIR, run_m1.tables_inputs()) is not None
 
 
@@ -680,7 +680,7 @@ def _unit_worker(
     memo_windows: int,
     slot: int,
 ):
-    """Run one unit's sweep in its own process, over the texts that contain one of `triggers` when there are any, with a settlement unit's walk releasing its windows before they pass `memo_windows`, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint (`run_m1._peak_footprint`), read just before it returns."""
+    """Run one unit's sweep in its own process, over the texts that contain one of `triggers` when there are any, with a settlement unit's walk releasing its windows before they pass `memo_windows`, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint (`run_m1_gates._peak_footprint`), read just before it returns."""
     result = conform.conformance_config_worker(
         spec,
         font_path,
@@ -693,7 +693,7 @@ def _unit_worker(
         triggers=triggers,
         max_windows=memo_windows,
     )
-    return result, run_m1._peak_footprint()
+    return result, run_m1_gates._peak_footprint()
 
 
 def _run_units(
@@ -1004,7 +1004,7 @@ def _texts_worker(
         if store is not None:
             store(result.sequences)
     result.modes = sorted(modes)
-    return result, run_m1._peak_footprint()
+    return result, run_m1_gates._peak_footprint()
 
 
 def run_targeted(

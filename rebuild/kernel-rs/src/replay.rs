@@ -41,7 +41,7 @@ const NAMED_DISAGREEMENTS: usize = 5;
 pub struct TextSet<'a> {
     pub max_length: usize,
     pub families: Option<&'a [Sym]>,
-    /// The alphabet symbol every walked text ends in, or `None` for every last symbol. The walks over each symbol of the alphabet partition the texts between them, as the deep sweep's units do (`run_m1.sweep_units`). A text the narrowing leaves out is not walked and not counted, so `skipped` counts only the texts ending in `last` that the family filter leaves out.
+    /// The alphabet symbol every walked text ends in, or `None` for every last symbol. The walks over each symbol of the alphabet partition the texts between them, as the deep sweep's units do (`run_m1_gates.sweep_units`). A text the narrowing leaves out is not walked and not counted, so `skipped` counts only the texts ending in `last` that the family filter leaves out.
     pub last: Option<RightToken>,
     /// The most windows the walk keeps memoized, or one text's windows when the ceiling is below the maximum length. A text of `length` raw tokens settles at most `length` new windows, because formation only merges tokens, so before any text that could push the walk memo past the ceiling, the walk releases that memo and its engine's memos. `None` never releases.
     pub memo_windows: Option<usize>,

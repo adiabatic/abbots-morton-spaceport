@@ -303,7 +303,7 @@ def test_the_units_are_the_overlay_whole_then_each_settlement_configuration_by_l
 
 
 def test_a_unit_with_trigger_letters_counts_the_texts_that_contain_one():
-    """A settlement configuration with trigger letters shapes, in the unit of a trigger letter, every text that ends in it, and in any other unit only the texts that contain one, which `conform.sweep_texts` yields; the units' counts sum to `run_m1.config_texts`' count for the configuration. The other configurations, and the overlay, keep every text."""
+    """A settlement configuration with trigger letters shapes, in the unit of a trigger letter, every text that ends in it, and in any other unit only the texts that contain one, which `conform.sweep_texts` yields; the units' counts sum to `run_m1_gates.config_texts`' count for the configuration. The other configurations, and the overlay, keep every text."""
     triggers = {"ss03": frozenset("a"), "ss04": frozenset("bc")}
     units = deep_sweep.sweep_units(TOY_ALPHABET, 4, triggers)
     spec = _gated_spec(("qsTea",))
@@ -609,7 +609,7 @@ class _ThreadPool(ThreadPoolExecutor):
 
 
 def _thread_sweep(tmp_path, monkeypatch, worker, max_length):
-    """Point `run_sweep` at `worker` through a thread pool in place of the spawn pool, with the crate, the guard verdicts and the output directory stubbed, and each configuration's text count taken from the toy alphabet at `max_length` (`run_m1.config_texts`)."""
+    """Point `run_sweep` at `worker` through a thread pool in place of the spawn pool, with the crate, the guard verdicts and the output directory stubbed, and each configuration's text count taken from the toy alphabet at `max_length` (`run_m1_gates.config_texts`)."""
     monkeypatch.setattr(deep_sweep, "_COUNTERS", None)
     monkeypatch.setattr(deep_sweep.kernel_exec, "ensure_built", lambda: None)
     monkeypatch.setattr(deep_sweep.kernel_exec, "guard_sweep", lambda spec: {})
