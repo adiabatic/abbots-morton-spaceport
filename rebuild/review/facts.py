@@ -361,9 +361,8 @@ class PremergeSnapshot:
 
 @dataclass(frozen=True)
 class PremergeFacts:
-    """The pre-merge facts `derive_premerge` returns: how many units the workload held, one '0'/'1' ink flag per unit in capture order, and the change group of every unit that takes one (each UNMATCHED unit and each re-routed unit) with its index in that order. A re-routed unit is one whose captured class is not UNMATCHED. `build_facts` reduces the ink flags and the change groups into the pins; the pins' unit count is the snapshot's."""
+    """The pre-merge facts `derive_premerge` returns: one '0'/'1' ink flag per unit in capture order, and the change group of every unit that takes one (each UNMATCHED unit and each re-routed unit) with its index in that order. A re-routed unit is one whose captured class is not UNMATCHED. `build_facts` reduces the ink flags and the change groups into the pins."""
 
-    units: int
     ink_flags: str
     unmatched_groups: list[tuple[int, str]]
 
@@ -442,7 +441,6 @@ def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitSto
             )
         assigned.append((row, group))
     return PremergeFacts(
-        units=snapshot.n,
         ink_flags=flags.decode("ascii"),
         unmatched_groups=assigned,
     )

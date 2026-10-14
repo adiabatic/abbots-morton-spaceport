@@ -849,7 +849,7 @@ def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
     for ordinal in range(table.n):
         table.set_unmatched_group(ordinal, "a-group")
     premerge = facts.derive_premerge(capture, table, store)
-    assert len(premerge.ink_flags) == premerge.units == table.n == 2
+    assert len(premerge.ink_flags) == len(capture) == table.n == 2
     assert [index for index, _group in premerge.unmatched_groups] == [0, 1]
 
 

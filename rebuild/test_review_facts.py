@@ -134,7 +134,7 @@ def test_merged_siblings_take_their_survivors_ink_verdict():
     capture, table, store = _merged_fixture()
     premerge = derive_premerge(capture, table, store)
     flags = premerge.ink_flags
-    assert premerge.units == len(capture) == len(flags) == 8
+    assert len(capture) == len(flags) == 8
     assert flags[_index_of(capture, MERGE_WINDOW, "default")] == "1"
     assert flags[_index_of(capture, MERGE_WINDOW, "ss04")] == "1"
     assert flags[_index_of(capture, DEFERRED_WINDOW, "ss03")] == "0"
@@ -572,7 +572,6 @@ def test_build_facts_reduces_the_premerge_records_to_the_pins():
     )
     matched = _index_of(capture, STANDALONE_MATCHED, "default")
     premerge = PremergeFacts(
-        units=len(capture),
         ink_flags="".join("1" if index == matched else "0" for index in range(len(capture))),
         unmatched_groups=sorted(
             [
