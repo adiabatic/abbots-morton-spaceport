@@ -148,7 +148,7 @@ def _carry(tmp_path, corpus_units, *verdict_files, machine=(), allow_orphans=Fal
 
 
 def test_a_verdict_goes_to_the_unit_of_its_id_and_a_stale_stamp_is_no_bar(tmp_path):
-    """The carry matches verdicts to units by id alone, so a verdicts file stamped for an older corpus still carries. The unit still on the corpus gets its verdict under the new manifest stamp, and the verdict whose unit is gone is orphaned."""
+    """The carry matches verdicts to units by id alone, so a verdicts file stamped for an older corpus still carries. The unit still on the corpus gets its verdict, note and `at` as recorded, under the new manifest stamp, and the verdict whose unit is gone is orphaned."""
     kept, gone = _content_unit("E650:E652"), _content_unit("E652:E653")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(
@@ -162,7 +162,33 @@ def test_a_verdict_goes_to_the_unit_of_its_id_and_a_stale_stamp_is_no_bar(tmp_pa
         "approve",
         "2026-07-01T01:00:00Z",
     )
-    assert record["note"] == f"[carried {kept['id']}@verdicts.json, verdicted 2026-07-01] fine"
+    assert record["note"] == "fine"
+
+
+def test_the_carry_drops_carried_markers_from_the_head_of_a_note(tmp_path):
+    """A `[carried …]` marker anywhere in a note's leading marker run is dropped, the run's other markers and the prose kept; one after the prose is prose."""
+    tag = "[carried u-0@verdicts-autosave.json, verdicted 2026-07-01]"
+    notes = {
+        "E650:E652": f"{tag} {tag} overshoots",
+        "E652:E653": f"[duplicate-fill from u-9] {tag} fine",
+        "E653:E654": f"see {tag} here",
+    }
+    units = {codepoints: _content_unit(codepoints) for codepoints in notes}
+    verdicts = tmp_path / "verdicts.json"
+    _write_verdicts(
+        verdicts,
+        "S0",
+        [_record(units[codepoints], "approve", note=note) for codepoints, note in notes.items()],
+    )
+    carried = {
+        record["unit"]: record["note"]
+        for record in _carry(tmp_path, list(units.values()), verdicts)["verdicts"]
+    }
+    assert carried == {
+        units["E650:E652"]["id"]: "overshoots",
+        units["E652:E653"]["id"]: "[duplicate-fill from u-9] fine",
+        units["E653:E654"]["id"]: f"see {tag} here",
+    }
 
 
 def test_the_newest_verdict_per_unit_wins_across_files_and_skips_never_carry(tmp_path):

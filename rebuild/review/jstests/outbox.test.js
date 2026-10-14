@@ -135,13 +135,16 @@ test('a reload leaves the entries of a tab still open, and replays those of a ta
   assert.deepEqual([...liveTabs(storage, now)].sort(), ['B', 'D']);
 });
 
-test('a record the carry moved with its provenance counts as saved', () => {
+test('a record whose note differs only by leading carried markers counts as saved', () => {
   const outbox = { 'u-1': entry({ unit: 'u-1', verdict: 'approve', note: 'looks fine', at: 't1' }) };
   const carried = { unit: 'u-1', verdict: 'approve', note: '[carried u-0@old, verdicted 2026-09-30] looks fine', at: 't1' };
   const now = Date.parse('2026-09-30T00:00:01.000Z');
   assert.deepEqual(planOutboxReplay(outbox, new Map([['u-1', carried]]), { now }).drop, ['u-1']);
   const edited = { ...carried, note: '[carried u-0@old, verdicted 2026-09-30] other' };
   assert.deepEqual(planOutboxReplay(outbox, new Map([['u-1', edited]]), { now }).drop, []);
+  const marked = { 'u-1': entry(carried) };
+  const bare = { unit: 'u-1', verdict: 'approve', note: 'looks fine', at: 't1' };
+  assert.deepEqual(planOutboxReplay(marked, new Map([['u-1', bare]]), { now }).drop, ['u-1']);
 });
 
 test('entries read at boot are sent only while their tab and seq are still in the outbox', () => {

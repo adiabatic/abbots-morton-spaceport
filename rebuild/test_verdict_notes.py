@@ -1,6 +1,6 @@
-"""Tests for `rebuild.tools.verdict_notes`: `cap_markers`, which the carry and the duplicate fill use to keep only the newest provenance markers at the head of a note while keeping its human prose, and `strip_markers`, which returns the prose alone for the complaint list."""
+"""Tests for `rebuild.tools.verdict_notes`: `cap_markers`, which the duplicate fill uses to keep only the newest provenance markers at the head of a note while keeping its human prose, `drop_carried_markers`, which the carry applies to every note it moves, and `strip_markers`, which returns the prose alone for the complaint list."""
 
-from rebuild.tools.verdict_notes import cap_markers, strip_markers
+from rebuild.tools.verdict_notes import cap_markers, drop_carried_markers, strip_markers
 
 CARRIED_A = "[carried u-1@review-pre-aaa, verdicted 2026-07-18]"
 CARRIED_B = "[carried u-2@review-pre-bbb, verdicted 2026-07-17]"
@@ -13,7 +13,7 @@ def test_keeps_the_two_newest_markers_of_any_kind():
     assert cap_markers(note) == f"{CARRIED_A} {CARRIED_B}"
 
 
-def test_drops_an_interior_duplicate_fill_behind_two_carries():
+def test_drops_an_interior_duplicate_fill_past_the_first_two_markers():
     note = f"{CARRIED_A} {CARRIED_B} {DUPLICATE}"
     assert cap_markers(note) == f"{CARRIED_A} {CARRIED_B}"
 
@@ -86,10 +86,18 @@ def test_recognizes_standing_markers():
     assert cap_markers(note) == f"{standing} {CARRIED_A} keep me"
 
 
-def test_a_standing_marker_ages_out_behind_newer_carries():
+def test_a_standing_marker_past_the_first_two_is_dropped():
     standing = "[standing: tea-oy-ligature-break]"
     note = f"{CARRIED_A} {CARRIED_B} {standing} keep me"
     assert cap_markers(note) == f"{CARRIED_A} {CARRIED_B} keep me"
+
+
+def test_drop_carried_markers_removes_only_the_carried_markers_of_the_leading_run():
+    assert drop_carried_markers(f"{CARRIED_A} {CARRIED_B} keep me") == "keep me"
+    assert drop_carried_markers(f"{DUPLICATE} {CARRIED_A} keep me") == f"{DUPLICATE} keep me"
+    assert drop_carried_markers(f"{CARRIED_A} {DUPLICATE} {CARRIED_B}") == DUPLICATE
+    for note in ("I prefer M1.  ", f"{DUPLICATE}  keep", f"see {CARRIED_A} here", ""):
+        assert drop_carried_markers(note) == note
 
 
 def test_strip_markers_leaves_only_the_prose():

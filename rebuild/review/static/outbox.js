@@ -125,7 +125,7 @@ export function sameRecord(a, b) {
 
 const CARRIED_PREFIX = /^(?:\[carried [^\]]*\]\s*)+/u;
 
-// Whether the server's record is the entry's, allowing for the `[carried …]` provenance the carry puts before the note of each record it moves onto a rebuilt corpus.
+// Whether the server's record is the entry's, allowing for `[carried …]` markers at the head of either note: the carry drops them from each note it moves onto a rebuilt corpus, so a tab can hold a marked note whose record the server holds bare.
 export function heldByServer(record, serverRecord) {
   if (sameRecord(record, serverRecord)) return true;
   if (!record || !serverRecord) return false;
@@ -143,7 +143,7 @@ export function currentEntries(storage, entries) {
   return entries.filter((entry) => outbox[entry.unit]?.tab === entry.tab && outbox[entry.unit]?.seq === entry.seq);
 }
 
-// Sorts the outbox against the server's records at boot. The entries of the tabs in `live` are left alone, because those tabs are still open to send them. An entry whose record the server already holds (a clear the server has no record for included, and a record the carry moved with its provenance) was saved, so it is dropped. The rest are replayed when written within `maxAgeMs`, grouped by the stamp they were made on, and the older ones are left for the reader to download.
+// Sorts the outbox against the server's records at boot. The entries of the tabs in `live` are left alone, because those tabs are still open to send them. An entry whose record the server already holds (a clear the server has no record for included, and a record whose note differs from the entry's only by leading `[carried …]` markers) was saved, so it is dropped. The rest are replayed when written within `maxAgeMs`, grouped by the stamp they were made on, and the older ones are left for the reader to download.
 export function planOutboxReplay(
   outbox,
   serverRecords,

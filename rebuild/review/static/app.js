@@ -833,6 +833,8 @@ function buildRow(unit) {
   note.placeholder = 'note (n)';
   note.disabled = exempt;
   note.setAttribute('aria-label', `Note for ${unit.id}`);
+  const noteArea = el('div', 'note-area');
+  noteArea.append(note, el('time', 'verdict-at'));
 
   const groups = renderGroupsOf(unit);
   row.append(label, buildSample(unit, 'before', groups[0].featureSettings), buildSample(unit, 'after', groups[0].featureSettings));
@@ -843,7 +845,7 @@ function buildRow(unit) {
     extra.append(buildSample(unit, 'before', group.featureSettings), buildSample(unit, 'after', group.featureSettings));
     row.append(extra);
   }
-  row.append(note);
+  row.append(noteArea);
 
   const summary = el('div', 'summary');
   summary.append(el('p', 'summary-text', unit.summary ?? ''));
@@ -1256,6 +1258,9 @@ function syncRowVerdict(unitId, row = rowFor(unitId)) {
   }
   const note = row.querySelector('.note');
   if (record && record.note && note.value !== record.note && document.activeElement !== note) note.value = record.note;
+  const verdictedAt = row.querySelector('.verdict-at');
+  verdictedAt.textContent = record?.at ? `verdicted ${record.at.slice(0, 10)}` : '';
+  verdictedAt.dateTime = record?.at ?? '';
 }
 
 function cursorUnitId() {

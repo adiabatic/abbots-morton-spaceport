@@ -153,7 +153,7 @@ def read_manifest(corpus: Path) -> tuple[str, frozenset[str]]:
 
 
 def snapshot(autosave: Path, run_dir: Path) -> str | None:
-    """Copy the live store to `run_dir` as the snapshot and the prepared store, under the store's lock, and return the snapshot's stamp. A missing store writes neither file and returns None. The snapshot keeps the store's file name (`SNAPSHOT_NAME`), because the carry writes the name of the file each verdict came from into the verdict's note, so a verdict carried from the snapshot reads as carried from the store."""
+    """Copy the live store to `run_dir` as the snapshot (`SNAPSHOT_NAME`) and the prepared store (`PREPARED_NAME`), under the store's lock, and return the snapshot's stamp. A missing store writes neither file and returns None."""
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     with locked_store(autosave, quiet=True):

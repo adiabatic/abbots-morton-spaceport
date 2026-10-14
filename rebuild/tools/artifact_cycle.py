@@ -5302,7 +5302,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
                 master_aligned = master_stamped_for_corpus(args.verdicts, REVIEW_OUT)
                 if not master_aligned:
                     announce(DIRECT_MERGE_DECLINED_NOTE)
-            # A master stamped for the served corpus needs no carry: every unit id maps to itself, and the carry keeps each record's `at`, so the merge (which takes only a strictly newer `at`) would drop its re-prefixed notes. Merging the master directly into the store gives the same result.
+            # A master stamped for the served corpus needs no carry: every unit id maps to itself, and the carry keeps each record's `at`, so the merge (which takes only a strictly newer `at`) would drop any note the carry changes. Merging the master directly into the store gives the same result.
             direct_merge = master_aligned
 
     short_id = resolve_short_id()
