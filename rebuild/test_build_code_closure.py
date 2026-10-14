@@ -111,7 +111,7 @@ def _tools_entry_points() -> set[Path]:
 
 
 def _font_compile_closure() -> set[Path]:
-    """Return the tools/ modules reachable by import from every tools/ module the pipeline imports. A name resolves only against tools/<head>.py, so stdlib, third-party, and `rebuild.*` imports are dropped. `pipeline_code_paths` hashes rebuild/pipeline and rebuild/validation whole but not rebuild/tools, so a `rebuild.tools` module that tools/build_font.py imports is in no `fingerprint` component (the oracle row cache's stamp, `oracle_cache.ORACLE_ROW_CODE_PATHS`, lists some of them)."""
+    """Return the tools/ modules reachable by import from every tools/ module the pipeline imports. A name resolves only against tools/<head>.py, so stdlib, third-party, and `rebuild.*` imports are dropped. `pipeline_code_paths` hashes rebuild/pipeline and rebuild/validation whole but not rebuild/tools, so a `rebuild.tools` module that tools/build_font.py imports is in no `fingerprint` component."""
     seen: set[Path] = set()
     queue = sorted(_tools_entry_points())
     while queue:

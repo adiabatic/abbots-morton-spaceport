@@ -1760,7 +1760,7 @@ class TestTheReplayStage:
         assert run_m1._replay_threads(count) == min(count, 2)
 
     def test_a_memo_file_absent_or_restamped_widens_the_walk_and_asks_for_a_dump(self, monkeypatch, tmp_path):
-        """The settle memo's stamp covers modules the replay's stamp does not. So when a configuration's settle memo file is absent or has another stamp, a build that would otherwise walk nothing walks every text and asks for the window memo dumps that refill it. A rune edit walks that rune's families and asks for no dumps, and a pass where every memo file is current and nothing moved walks nothing. A missing dump (the stub writes none) is a warning and does not fail the stage."""
+        """When a configuration's settle memo file is absent or has another stamp while the replay's structure stamp still matches, a build that would otherwise walk nothing walks every text and asks for the window memo dumps that refill it. A rune edit walks that rune's families and asks for no dumps, and a pass where every memo file is current and nothing moved walks nothing. A missing dump (the stub writes none) is a warning and does not fail the stage."""
         asked: list = []
 
         def replay_strings(
