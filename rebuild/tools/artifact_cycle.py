@@ -535,38 +535,6 @@ def moved_inputs_note(record: dict | None, current: dict[str, str], limit: int =
     return capped_labels([f"{name} ({how})" for name, how in moved], limit)
 
 
-def oracle_cache_note(moved: str | None, root: Path = ROOT) -> str | None:
-    """Return what the inputs a run_m1 skip miss named will cost the oracle's per-row verdict store. The store invalidates at four levels, which look different in the timings. A rune file changes one family key and re-derives only the rows that can reach that letter. An input only the whole-store row stamp hashes (the comparison's code outside the position comparison's closure, the crate, the other data inputs) re-derives every row of every configuration and keeps each position whose settled cells did not change. An input only the position stamp hashes (the position comparison's module, the kern sidecar, the toolchain lock) keeps every row verdict and re-shapes every position. Inputs that move both stamps, such as a module in both closures, drop the store whole. An edit confined to the classifier's module, rebuild/pipeline/oracle.py, returns None, as a divergence-ledger edit does: the classifier is in neither stamp and re-runs over served verdicts, so the store costs nothing. The note names the stamp cases because an oracle that serves no rows after a legitimate class-membership or pipeline edit is expected and would otherwise look like a broken cache. Both sides of the comparison are repo-relative labels, the form `moved_inputs_note` reports in; matched against basenames, nothing would match and no error would show. No rune verdict is given when the note was truncated, since the inputs it left out could be anything."""
-    if not moved:
-        return None
-    from rebuild.pipeline import fingerprint, oracle_cache
-
-    def label(path: Path) -> str:
-        try:
-            return path.resolve().relative_to(Path(root).resolve()).as_posix()
-        except ValueError:
-            return path.name
-
-    stamped = set(oracle_cache.ORACLE_ROW_CODE_PATHS)
-    stamped |= {label(path) for path in oracle_cache.oracle_code_paths(root)}
-    stamped |= {label(path) for path in oracle_cache.stamped_data_paths(root)}
-    positions = set(oracle_cache.POSITION_CODE_PATHS)
-    positions |= {oracle_cache.TOOLCHAIN_LOCK, "glyph_data/senior_quikscript_kerning.yaml"}
-    runes = {label(path) for path in fingerprint.rune_paths(root)}
-    names = [entry.rsplit(" (", 1)[0] for entry in moved.split(", ")]
-    row_store = sorted({name for name in names if name in stamped})
-    position_store = sorted({name for name in names if name in positions})
-    if row_store and position_store:
-        return f"the oracle row cache drops whole: {', '.join(sorted(set(row_store) | set(position_store)))} is inside its row and position stamps"
-    if row_store:
-        return f"the oracle row cache re-derives every row and keeps each position whose settled cells did not change: {', '.join(row_store)} is inside its row stamp"
-    if position_store:
-        return f"the oracle row cache keeps its rows and re-shapes every position: {', '.join(position_store)} is inside its position stamp"
-    if not moved.endswith(" more") and names and all(name in runes for name in names):
-        return "the oracle row cache re-derives only the rows reaching those runes"
-    return None
-
-
 def m1_artifacts_present(root: Path = ROOT) -> bool:
     """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries the skip re-evaluates the gate from, and the artifacts the corpus build reads. It is the plain skip's predicate only. A gates-only rerun writes two of those summaries, the audit and the Stage A record itself, so it is planned on what it reads instead (`m1_gates_only_base_present`)."""
     m1 = root / "rebuild" / "out" / "m1"
@@ -5276,9 +5244,6 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
                 note = moved_inputs_note(green, current)
                 if note is not None:
                     run_m1_note = f"inputs moved since its last green: {note}"
-                    cache_note = oracle_cache_note(note)
-                    if cache_note is not None:
-                        run_m1_note = f"{run_m1_note}; {cache_note}"
     if skip_run_m1 or (rerun_gates_only and m1_stage_a_current(ROOT)):
         if args.review_out is None and not first_run:
             if corpus_build_skippable(ROOT):

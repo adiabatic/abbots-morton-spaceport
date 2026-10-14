@@ -5110,51 +5110,6 @@ def test_moved_inputs_note_names_changed_new_and_gone():
     assert note.endswith("and 4 more")
 
 
-def test_oracle_cache_note_speaks_the_labels_a_skip_miss_actually_reports():
-    """The test takes its labels from the real tree, not literals, because a mismatch makes `oracle_cache_note` return None, which looks the same as an unaffected cache. `moved_inputs_note` reports repo-relative POSIX labels, so comparing against basenames would return None for every real input."""
-    from rebuild.pipeline import fingerprint, oracle_cache
-
-    rune = sorted(path.relative_to(ac.ROOT).as_posix() for path in fingerprint.rune_paths(ac.ROOT))[0]
-    code = oracle_cache.ORACLE_ROW_CODE_PATHS[0]
-    assert any(line.startswith(f"{rune}\t") for line in fingerprint.data_lines(ac.ROOT))
-
-    assert code not in oracle_cache.POSITION_CODE_PATHS
-    for row_only in (code, "rebuild/script.yaml", "rebuild/kernel-rs/Cargo.toml"):
-        assert (
-            ac.oracle_cache_note(f"{row_only} (changed)")
-            == f"the oracle row cache re-derives every row and keeps each position whose settled cells did not change: {row_only} is inside its row stamp"
-        )
-    shared = "rebuild/pipeline/settle.py"
-    assert shared in oracle_cache.ORACLE_ROW_CODE_PATHS and shared in oracle_cache.POSITION_CODE_PATHS
-    assert (
-        ac.oracle_cache_note(f"{shared} (changed)")
-        == f"the oracle row cache drops whole: {shared} is inside its row and position stamps"
-    )
-    assert (
-        ac.oracle_cache_note(f"{rune} (changed)")
-        == "the oracle row cache re-derives only the rows reaching those runes"
-    )
-    note = ac.oracle_cache_note(f"{rune} (changed), {code} (changed)")
-    assert note is not None and note.startswith("the oracle row cache re-derives every row")
-    for positional in (
-        "rebuild/pipeline/oracle_positions.py",
-        "glyph_data/senior_quikscript_kerning.yaml",
-        "uv.lock",
-    ):
-        assert (
-            ac.oracle_cache_note(f"{positional} (changed)")
-            == f"the oracle row cache keeps its rows and re-shapes every position: {positional} is inside its position stamp"
-        )
-    note = ac.oracle_cache_note(f"{rune} (changed), rebuild/pipeline/oracle_positions.py (changed)")
-    assert note is not None and note.startswith("the oracle row cache keeps its rows")
-    note = ac.oracle_cache_note(f"{code} (changed), rebuild/pipeline/oracle_positions.py (changed)")
-    assert note is not None and note.startswith("the oracle row cache drops whole")
-    assert ac.oracle_cache_note("rebuild/m1-divergences.yaml (changed)") is None
-    assert ac.oracle_cache_note("rebuild/pipeline/oracle.py (changed)") is None
-    assert ac.oracle_cache_note(f"{rune} (changed) and 4 more") is None
-    assert ac.oracle_cache_note(None) is None
-
-
 def test_m1_artifacts_present(tmp_path):
     """The plain skip's predicate needs every gate summary and every artifact the corpus build reads, so a missing gate summary alone fails it. A gates-only rerun is planned on `m1_gates_only_base_present` instead."""
     m1 = tmp_path / "rebuild" / "out" / "m1"
