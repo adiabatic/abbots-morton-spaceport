@@ -76,7 +76,7 @@ AUDIT_HEADER = ("config", "codepoints", "kinds", "matched_entry", "baseline", "n
 
 @dataclass(frozen=True, slots=True)
 class AuditRow:
-    """One parsed line of the audit. `load_audit` yields these for the review-facts CLI and the tests, and `load_table` writes each row's ids into the row columns as the rows stream past; later readers (the ink-signature keys, the unit content key) read the columns. The build parses the audit with `load_audit_table`, which builds none."""
+    """One parsed line of the audit. `load_audit` yields these for the tests, and `load_table` writes each row's ids into the row columns as the rows stream past; later readers (the ink-signature keys, the unit content key) read the columns. The build parses the audit with `load_audit_table`, which builds none."""
 
     config: str
     codepoints: str
@@ -156,7 +156,7 @@ class UnitStoreView(Protocol):
 
 @dataclass(slots=True)
 class Unit:
-    """One (codepoints, baseline, new) unit of the audit and what the build derives for it. `UnitTable.unit` materializes one from the workload table for a reader that needs a record: the worker's phase 1, the enricher, the drafter, `build.unit_scaffold` at the write, the verification sample, the review-facts CLI and the tests. The build's parent never holds a list of them.
+    """One (codepoints, baseline, new) unit of the audit and what the build derives for it. `UnitTable.unit` materializes one from the workload table for a reader that needs a record: the worker's phase 1, the enricher, the drafter, `build.unit_scaffold` at the write, the verification sample and the tests. The build's parent never holds a list of them.
 
     `rows_start` and `row_count` address the unit's run of the row columns (`RowColumns`): its audit rows in config order, in file order within a config. The ink-signature keys and the build's content key read the run. After that, `release_rows` drops the columns and only `row_count` remains. `row_count` has no default, because the manifest's row totals are summed from it and a missing count must not read as zero.
 
@@ -476,7 +476,7 @@ class Compaction(NamedTuple):
 class UnitTable:
     """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, a change group from a worker and a duplicate-group id from a whole-corpus pass are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
 
-    The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The merge marks the rows it removes (`merge_into`), and `compact` drops them and renumbers the rest in place. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the review-facts CLI and the tests. The debug tally measures the table through `build.unit_table_sizes` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
+    The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The merge marks the rows it removes (`merge_into`), and `compact` drops them and renumbers the rest in place. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the tests. The debug tally measures the table through `build.unit_table_sizes` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
     """
 
     __slots__ = (
@@ -847,7 +847,7 @@ class UnitTable:
         )
 
     def units(self, store: UnitStoreView | None = None) -> list[Unit]:
-        """Every live row materialized, in row order, for the review-facts CLI and the tests. The build's parent does not call this."""
+        """Every live row materialized, in row order, for the tests. The build's parent does not call this."""
         return [self.unit(ordinal, store) for ordinal in range(self.n) if self._flags[ordinal] & LIVE]
 
 
@@ -1366,7 +1366,7 @@ def batch_of(order: int | None, batch_size: int) -> int | None:
 
 @dataclass
 class Workload:
-    """What `load_workload` returns to the build: the unit table, the ledger, the audit's row count, the row columns until `release_rows` drops them, and the ledger classes the units reach. `units` materializes the table's rows into a list for the review-facts CLI and the tests; the build does not hold that list."""
+    """What `load_workload` returns to the build: the unit table, the ledger, the audit's row count, the row columns until `release_rows` drops them, and the ledger classes the units reach. `units` materializes the table's rows into a list for the tests; the build does not hold that list."""
 
     table: UnitTable
     ledger: list[LedgerClass]

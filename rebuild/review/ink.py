@@ -6,7 +6,7 @@ Placed outlines are compared without being built. `OutlineIntern` interns each o
 
 There are two readings:
 
-- `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config. `ink_histogram` in `rebuild/review/facts.py` flags units with it.
+- `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config. `_phase1_unit` in `rebuild/review/build.py` flags each unit with it.
 - `config_diff` returns the pixel-level delta that every deduplication check keys on: the cells only one font paints, read over each font's whole rasterized window and not piece by piece. A change that paints no different pixel (an overlap removed at a junction, a stroke passed to a neighbor) does not appear in it, so a window containing such a change has the same digest as its siblings without it. Its sentinel `IDENTITY_DIFF` (no cell lost or gained, no follower shift) is the only implementation of `picture_identical`, the machine check the build checks for every unit that is not ink-identical. Piece identity implies the sentinel, because `config_diff` returns it before rasterizing anything. `rebuild/test_review_ink.py` checks over the frozen windows that the sentinel agrees with the reference picture comparison, `picture_equal` over `run_cells`.
 
 `signature` is built from the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas, equal ink flags, and equal delta digests without any sampling.

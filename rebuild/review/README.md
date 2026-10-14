@@ -119,7 +119,7 @@ The corpus build stores each unit's per-config delta digests as `ink_deltas` (`i
 
 ### Review-facts pins as one reviewable file
 
-`rebuild/review-facts-pins.json` holds the last accepted review facts: what a build measured about its own corpus, in one checked-in file that a person accepts by committing it. Every non-staging artifact-cycle pass rewrites it from the build's `review-facts.json` sidecar, and the cycle summary's `review facts` line says what the commit would accept. The `volatile` block's counts change with every migrated letter, and a change in the `invariant` block (which classes ship, which the build machine-approves, which are exempt, and which change groups the corpus reaches) needs an explanation. `doc/review-cycle.md` § The review facts says how to read the summary lines, and the module docstring of `rebuild/review/facts.py` defines both blocks and the manual `--check` and `--update` tool.
+`rebuild/review-facts-pins.json` holds the last accepted review facts: what a build measured about its own corpus, in one checked-in file that a person accepts by committing it. Every non-staging artifact-cycle pass rewrites it from the build's `review-facts.json` sidecar, and the cycle summary's `review facts` line says what the commit would accept. The `volatile` block's counts change with every migrated letter, and a change in the `invariant` block (which classes ship, which the build machine-approves, which are exempt, and which change groups the corpus reaches) needs an explanation. `doc/review-cycle.md` § The review facts says how to read the summary lines, and the module docstring of `rebuild/review/facts.py` defines both blocks and the `--update` command that rewrites the file.
 
 ### Policy drafters
 
