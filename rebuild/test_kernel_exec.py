@@ -23,6 +23,7 @@ from rebuild.pipeline import (
     kernel_io,
     oracle_cache,
     run_m1,
+    run_m1_gates,
     settle,
     spec_load,
 )
@@ -1077,14 +1078,14 @@ class TestTheKernelInvocation:
             raise Reached
 
         monkeypatch.setattr(artifact_cycle, "run_m1_skip_fingerprint", lambda root: "pinned-key")
-        monkeypatch.setattr(run_m1.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
-        monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda root: False)
+        monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
+        monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", lambda root: False)
         monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)
         monkeypatch.setattr(run_m1, "load_default_spec", lambda: SPEC)
         monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
         monkeypatch.setattr(run_m1, "run", run)
         with pytest.raises(Reached):
-            run_m1.main(argv)
+            run_m1_gates.main(argv)
         assert seen["kernel_threads"] == kernel and seen["replay_threads"] == replay
         assert "fold_jobs" not in seen
 

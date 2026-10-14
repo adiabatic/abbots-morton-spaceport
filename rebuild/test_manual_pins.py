@@ -1,6 +1,6 @@
 """Tests for the Manual-pin gate in `rebuild/pipeline/manual_pins.py`: trait and exact-glyph matching resolve through stance declarations, not glyph-name substrings; `summarize` projects a report correctly; and the gate fails on a pin that contradicts the font.
 
-The build checks the live gate itself: `run_m1.main()` exits when the gate fails, has no pins in scope, or does not replay every pin in scope (`run_m1.manual_pin_gate_failure`), so no test repeats that `run_gate` call.
+The build checks the live gate itself: `run_m1_gates.main()` exits when the gate fails, has no pins in scope, or does not replay every pin in scope (`run_m1_gates.manual_pin_gate_failure`), so no test repeats that `run_gate` call.
 """
 
 from pathlib import Path

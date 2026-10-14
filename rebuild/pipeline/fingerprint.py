@@ -4,7 +4,7 @@ Each component is a SHA-256 over sorted lines that hold no mtimes, so two builds
 
 run_m1 writes the Stage A components (`data`, `baselines`, `pipeline_code`) to `rebuild/out/m1/inputs_fingerprint.json` when it builds. The review build copies those recorded values into the manifest instead of recomputing them, so a corpus rebuilt over stale `rebuild/out/m1` artifacts carries the stale values and the checker flags it. The review build computes the Stage B components (`review_code`, `static`, `fonts`, `explain_prose`) itself.
 
-`tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar). Its code half, `table_code_paths`, leaves out `COMPARISON_CODE_MODULES` (oracle.py and oracle_positions.py). Those inputs are read only by gates that run against tables and a font already built, so editing one re-runs those gates over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never imports the comparison modules.
+`tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar). Its code half, `table_code_paths`, leaves out the comparison-side code `COMPARISON_CODE_MODULES` names. Those inputs are read or run only by the gates that check the tables and font a build has written and by the guards that run before them, so editing one re-runs them over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never reaches the comparison modules.
 
 The three human-reviewed ledgers have prose-insensitive digests, like the rune files below:
 
@@ -77,8 +77,19 @@ def data_paths(repo_root: Path) -> list[Path]:
     return paths
 
 
-# Pipeline modules that only run against tables and a font already built: the oracle's driver and classifier (oracle.py) and its position comparison (oracle_positions.py, whose import closure the oracle row cache stamps on its own as `oracle_cache.POSITION_CODE_PATHS`). They stay in `pipeline_code_paths`, and `table_code_paths` leaves them out, so an edit to one re-runs the gates over the tables on disk instead of forcing a full build. A module of this kind that is missing from the set is hashed into the tables' stamp, so every edit to it forces a full build. rebuild/test_build_code_closure.py fails if the build imports any module listed here.
-COMPARISON_CODE_MODULES = frozenset({"oracle.py", "oracle_positions.py"})
+# The code of `pipeline_code_paths` that the table build and the font compile never run, as repo-relative paths: the gates that check the tables and font a build has written, and the guards that check the oracle's baselines and aliases before those gates run. These are the oracle's driver and classifier (oracle.py), its position comparison (oracle_positions.py, whose import closure the oracle row cache stamps on its own as `oracle_cache.POSITION_CODE_PATHS`), the Manual-pin gate (manual_pins.py) and the rebuild/validation modules it replays the pins through, the subsetter that filters the oracle's baselines (baseline_subset.py), and run_m1's gate half (run_m1_gates.py). They stay in `pipeline_code_paths`, and `table_code_paths` leaves them out, so an edit to one re-runs the gates over the tables on disk instead of forcing a full build. A module of this kind that is missing from the set is hashed into the tables' stamp, so every edit to it forces a full build. rebuild/test_build_code_closure.py fails if the build reaches any module listed here.
+COMPARISON_CODE_MODULES = frozenset(
+    {
+        "rebuild/pipeline/baseline_subset.py",
+        "rebuild/pipeline/manual_pins.py",
+        "rebuild/pipeline/oracle.py",
+        "rebuild/pipeline/oracle_positions.py",
+        "rebuild/pipeline/run_m1_gates.py",
+        "rebuild/validation/classify.py",
+        "rebuild/validation/pins.py",
+        "rebuild/validation/shaping.py",
+    }
+)
 
 
 FONT_COMPILE_TOOL_MODULES = frozenset(
@@ -703,18 +714,14 @@ def explain_prose_value(repo_root: Path, spec_root: Path | None = None) -> str:
 
 
 def table_code_paths(repo_root: Path) -> list[Path]:
-    """Return `pipeline_code_paths` without `COMPARISON_CODE_MODULES`: the code half of `tables_value`. Everything that can change a table or the font stays, including the crate, the spec loader, the emitters, the compiler, and the gates that run inside the build. A module leaves only when `COMPARISON_CODE_MODULES` names it, and rebuild/test_build_code_closure.py checks that the build never imports one."""
+    """Return `pipeline_code_paths` without `COMPARISON_CODE_MODULES`: the code half of `tables_value`. Everything that can change a table or the font stays, including the crate, the spec loader, the emitters, the compiler, and the gates that run inside the build. A module leaves only when `COMPARISON_CODE_MODULES` names it, and rebuild/test_build_code_closure.py checks that the build never reaches one."""
     root = Path(repo_root)
-    pipeline = root / "rebuild" / "pipeline"
-    return [
-        path
-        for path in pipeline_code_paths(root)
-        if not (path.parent == pipeline and path.name in COMPARISON_CODE_MODULES)
-    ]
+    comparison = {root / relative for relative in COMPARISON_CODE_MODULES}
+    return [path for path in pipeline_code_paths(root) if path not in comparison]
 
 
 def tables_value(repo_root: Path) -> str:
-    """Return the content key over everything the decision-table fixpoint and the font compile read: `table_data_value` and the hash of `table_code_paths`. A serialized window enumeration carries it, and the conformance sweep stops with an error when it no longer matches. It is narrower than the Stage A record: the baselines, the alias map, the divergence ledger, the kern sidecar, and the oracle's own code feed no table, so editing one of them keeps the enumeration. The contact allow-list is in neither."""
+    """Return the content key over everything the decision-table fixpoint and the font compile read: `table_data_value` and the hash of `table_code_paths`. A serialized window enumeration carries it, and the conformance sweep stops with an error when it no longer matches. It is narrower than the Stage A record: the baselines, the alias map, the divergence ledger, the kern sidecar, and the comparison-side code `COMPARISON_CODE_MODULES` names feed no table, so editing one of them keeps the enumeration. The contact allow-list is in neither."""
     root = Path(repo_root)
     lines = (
         f"table_data\t{table_data_value(root)}",

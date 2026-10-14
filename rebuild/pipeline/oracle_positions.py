@@ -2,7 +2,7 @@
 
 This module is the entry of `oracle_cache.POSITION_CODE_PATHS`, which names its whole import closure: the shapers (rebuild/pipeline/shapers.py), `geometry.PIXEL`, the row model, the record types (rebuild/pipeline/position_record.py), and what those import. The position stamp hashes that closure on its own, because a stored position is served across a move of the row stamp (rebuild/pipeline/oracle_cache.py). So this module imports neither the row store's module nor conform.py, whose settlement walk, settle memo and crate driver the settled digest covers instead. It must never import rebuild/pipeline/oracle.py either, or the classifier's code would be in the position stamp and a classifier edit would re-shape every position. rebuild/test_oracle_code_closure.py walks the import graph from here, checks that `POSITION_CODE_PATHS` names exactly the modules it reaches, and checks that the classifier, the store, and the walk are unreachable.
 
-For the tables' stamp this module is comparison code: `fingerprint.COMPARISON_CODE_MODULES` names it with oracle.py, so it is in `pipeline_code_paths` and the run_m1 green record but not in `table_code_paths`, and a cycle after an edit here runs `run_m1 --gates-only` instead of a rebuild. rebuild/test_build_code_closure.py checks that the build never imports it.
+For the tables' stamp this module is comparison code: `fingerprint.COMPARISON_CODE_MODULES` names it, so it is in `pipeline_code_paths` and the run_m1 green record but not in `table_code_paths`, and a cycle after an edit here runs `run_m1 --gates-only` instead of a rebuild. rebuild/test_build_code_closure.py checks that the build never reaches it.
 """
 
 from __future__ import annotations

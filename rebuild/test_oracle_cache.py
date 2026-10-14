@@ -26,6 +26,7 @@ from rebuild.pipeline import (
     oracle_positions,
     position_record,
     run_m1,
+    run_m1_gates,
 )
 from rebuild.pipeline.model import CellId, Settled
 from rebuild.tools import artifact_cycle
@@ -368,14 +369,14 @@ def test_the_stamp_is_snapshotted_before_the_work_and_reverified_at_promotion(
 ):
     """An input edited during the run must stop promotion, because otherwise the store would be accepted as current indefinitely. The keys are computed before the first row is compared and again at promotion. If a rune, the alias map, or the registry changed in between, the run's verdicts match nothing on disk, so promotion writes nothing and names what moved. A run whose inputs did not change promotes every acceptance configuration; without that control, "nothing was promoted" would only show that promotion is broken."""
     monkeypatch.setattr(run_m1, "REPO_ROOT", repo)
-    monkeypatch.setattr(run_m1, "ALIAS_YAML", _alias(repo))
+    monkeypatch.setattr(run_m1_gates, "ALIAS_YAML", _alias(repo))
     spec = fixtures.mini_spec()
     out_dir = tmp_path / "m1"
-    keys, stamps = run_m1.oracle_row_cache_keys(spec, out_dir)
+    keys, stamps = run_m1_gates.oracle_row_cache_keys(spec, out_dir)
 
     steady = tmp_path / "steady"
     _stage(steady, stamps, keys)
-    run_m1._promote_oracle_row_cache(spec, out_dir, steady, keys, stamps)
+    run_m1_gates._promote_oracle_row_cache(spec, out_dir, steady, keys, stamps)
     assert _promoted(out_dir) == set(conform.ACCEPTANCE_CONFIGS)
     assert "written for" in capsys.readouterr().out
 
@@ -384,7 +385,7 @@ def test_the_stamp_is_snapshotted_before_the_work_and_reverified_at_promotion(
     _perturb_rune(rune)
     edited_rune = tmp_path / "edited-rune"
     _stage(edited_rune, stamps, keys)
-    run_m1._promote_oracle_row_cache(spec, tmp_path / "m1-rune", edited_rune, keys, stamps)
+    run_m1_gates._promote_oracle_row_cache(spec, tmp_path / "m1-rune", edited_rune, keys, stamps)
     message = capsys.readouterr().out
     assert _promoted(tmp_path / "m1-rune") == set()
     assert "not written" in message and "qsPea (changed)" in message
@@ -397,7 +398,7 @@ def test_the_stamp_is_snapshotted_before_the_work_and_reverified_at_promotion(
     _rewrite_script(repo, lambda document: document["heights"].update({"y6": 7}))
     edited_registry = tmp_path / "edited-registry"
     _stage(edited_registry, stamps, keys)
-    run_m1._promote_oracle_row_cache(spec, tmp_path / "m1-registry", edited_registry, keys, stamps)
+    run_m1_gates._promote_oracle_row_cache(spec, tmp_path / "m1-registry", edited_registry, keys, stamps)
     message = capsys.readouterr().out
     assert _promoted(tmp_path / "m1-registry") == set()
     assert "not written" in message and "data (changed)" in message
@@ -408,20 +409,20 @@ def test_an_alias_map_edited_into_a_shape_the_guard_refuses_promotes_nothing(
 ):
     """If an alias head loses its family key during the run, the key computation at promotion raises instead of reporting a change. That raise must end in the same "not written" result, not a traceback that stops the run after the audit has been promoted. An alias map edited into invalid YAML raises `yaml`'s own error instead of `ValueError` and must be handled the same way."""
     monkeypatch.setattr(run_m1, "REPO_ROOT", repo)
-    monkeypatch.setattr(run_m1, "ALIAS_YAML", _alias(repo))
+    monkeypatch.setattr(run_m1_gates, "ALIAS_YAML", _alias(repo))
     spec = fixtures.mini_spec()
     out_dir = tmp_path / "m1"
-    keys, stamps = run_m1.oracle_row_cache_keys(spec, out_dir)
+    keys, stamps = run_m1_gates.oracle_row_cache_keys(spec, out_dir)
     scratch = tmp_path / "scratch"
     _stage(scratch, stamps, keys)
 
     _write_alias(repo, {**ALIAS_MAP, "qsBay.en-y0": {"rune": "qsBay", "stance": "full"}})
-    run_m1._promote_oracle_row_cache(spec, out_dir, scratch, keys, stamps)
+    run_m1_gates._promote_oracle_row_cache(spec, out_dir, scratch, keys, stamps)
     assert _promoted(out_dir) == set()
     assert "not written" in capsys.readouterr().out
 
     _alias(repo).write_text("qsPea.half: [unclosed\n", encoding="utf-8")
-    run_m1._promote_oracle_row_cache(spec, out_dir, scratch, keys, stamps)
+    run_m1_gates._promote_oracle_row_cache(spec, out_dir, scratch, keys, stamps)
     assert _promoted(out_dir) == set()
     assert "not written" in capsys.readouterr().out
 
@@ -1471,22 +1472,22 @@ def _due_rows(rows: int, pass_ordinal: int) -> set[int]:
 def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypatch, capsys):
     """A font recompiled or a kern sidecar edited while the oracle was shaping means the positions match nothing on disk, so promotion writes nothing and names what moved, as it does for a rune edited during the run. The control promotes every acceptance configuration when the font and sidecar did not change."""
     monkeypatch.setattr(run_m1, "REPO_ROOT", repo)
-    monkeypatch.setattr(run_m1, "ALIAS_YAML", _alias(repo))
+    monkeypatch.setattr(run_m1_gates, "ALIAS_YAML", _alias(repo))
     kern = tmp_path / "kern.yaml"
     kern.write_text("global:\n  value: 0\n", encoding="utf-8")
-    monkeypatch.setattr(run_m1, "KERN_SIDECAR_YAML", kern)
+    monkeypatch.setattr(run_m1_gates, "KERN_SIDECAR_YAML", kern)
     spec = fixtures.mini_spec()
     out_dir = tmp_path / "m1"
     out_dir.mkdir()
     shutil.copyfile(MINI_FONT, out_dir / "M1.otf")
-    keys, stamps = run_m1.oracle_row_cache_keys(spec, out_dir)
-    position_keys, position_stamp = run_m1.oracle_position_keys(keys, out_dir)
+    keys, stamps = run_m1_gates.oracle_row_cache_keys(spec, out_dir)
+    position_keys, position_stamp = run_m1_gates.oracle_position_keys(keys, out_dir)
     assert position_keys is not None and position_stamp is not None
-    assert run_m1.oracle_position_keys(keys, tmp_path / "nowhere") == (None, None)
+    assert run_m1_gates.oracle_position_keys(keys, tmp_path / "nowhere") == (None, None)
 
     steady = tmp_path / "steady"
     _stage(steady, stamps, keys)
-    run_m1._promote_oracle_row_cache(spec, out_dir, steady, keys, stamps, position_keys, position_stamp)
+    run_m1_gates._promote_oracle_row_cache(spec, out_dir, steady, keys, stamps, position_keys, position_stamp)
     assert _promoted(out_dir) == set(conform.ACCEPTANCE_CONFIGS)
     assert "written for" in capsys.readouterr().out
     promoted = {
@@ -1496,7 +1497,9 @@ def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypat
     _font_edited(MINI_FONT, out_dir / "M1.otf", lambda name: name.split(".")[0] == "qsTea")
     edited_font = tmp_path / "edited-font"
     _stage(edited_font, stamps, keys)
-    run_m1._promote_oracle_row_cache(spec, out_dir, edited_font, keys, stamps, position_keys, position_stamp)
+    run_m1_gates._promote_oracle_row_cache(
+        spec, out_dir, edited_font, keys, stamps, position_keys, position_stamp
+    )
     message = capsys.readouterr().out
     assert "not written" in message and "positions qsTea (changed)" in message
     shutil.copyfile(MINI_FONT, out_dir / "M1.otf")
@@ -1504,7 +1507,9 @@ def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypat
     kern.write_text("global:\n  value: 2\n", encoding="utf-8")
     edited_kern = tmp_path / "edited-kern"
     _stage(edited_kern, stamps, keys)
-    run_m1._promote_oracle_row_cache(spec, out_dir, edited_kern, keys, stamps, position_keys, position_stamp)
+    run_m1_gates._promote_oracle_row_cache(
+        spec, out_dir, edited_kern, keys, stamps, position_keys, position_stamp
+    )
     message = capsys.readouterr().out
     assert "not written" in message and "positions kern (changed)" in message
     assert {

@@ -93,7 +93,7 @@ class _ParserBuilt(Exception):
 
 
 def _parser_built_by(main: Callable[[list[str]], object]) -> argparse.ArgumentParser:
-    """Return the parser a tool's `main` builds, by running `main` until it calls `parse_args`. The test reads the parser the tool ships, not a copy assembled here. This is used instead of hoisting a `build_parser()` out of the two tools it serves, because both files are hashed into build stamps: `rebuild/pipeline/run_m1.py` is in `fingerprint.pipeline_code_paths` and `rebuild/review/build.py` in `fingerprint.review_code_paths`. A one-line hoist in either would make a stamped artifact stale and force its rebuild, and would prove nothing more about the default than reading it here does. Tools whose files no stamp covers expose a `build_parser()` instead."""
+    """Return the parser a tool's `main` builds, by running `main` until it calls `parse_args`. The test reads the parser the tool ships, not a copy assembled here. This is used instead of hoisting a `build_parser()` out of the two tools it serves, because both files are hashed into build stamps: `rebuild/pipeline/run_m1_gates.py` is in `fingerprint.pipeline_code_paths` and `rebuild/review/build.py` in `fingerprint.review_code_paths`. A one-line hoist in either would make a stamped artifact stale and force its rebuild, and would prove nothing more about the default than reading it here does. Tools whose files no stamp covers expose a `build_parser()` instead."""
     captured: list[argparse.ArgumentParser] = []
 
     def spy(parser: argparse.ArgumentParser, args=None, namespace=None) -> None:
@@ -255,17 +255,17 @@ class TestTheHandRunDefaults:
     ):
         """run_m1's `--jobs` is the width of the post-build sweeps. A run that names none takes `sweep_job_budget()`, the width the artifact cycle passes, so a hand run splits the oracle's tables into row ranges at the cycle's width. That width is the cores clamped by the memory division over `ORACLE_SHARD_BYTES`, after the settle-memo absorbs' excess over it (`ORACLE_ABSORB_BYTES`), with nothing subtracted for a co-resident pool. The parser's default is None, because `--conform-only` resolves an unstated width to the conformance sweep's budget (`conform_job_budget`) instead, so the test reads the width where `main` passes it to `run_gates_only`. The conformance sweep's budget is patched to differ from the oracle's, because on a machine where the two are equal a run given the conformance sweep's default would pass unnoticed. `--gates-only` with `--conform-only` still takes the oracle's width, because the gates-only branch runs first and runs no conformance sweep."""
         import rebuild.tools.artifact_cycle as ac
-        from rebuild.pipeline import run_m1
+        from rebuild.pipeline import run_m1_gates
 
-        assert _parser_built_by(run_m1.main).parse_args([]).jobs is None
+        assert _parser_built_by(run_m1_gates.main).parse_args([]).jobs is None
         sweep = ac.sweep_job_budget()
         monkeypatch.setattr(ac, "conform_job_budget", lambda **_: sweep + 1)
         handed: list[int] = []
         monkeypatch.setattr(
-            run_m1, "run_gates_only", lambda *, out_dir, jobs, fresh_cache: handed.append(jobs)
+            run_m1_gates, "run_gates_only", lambda *, out_dir, jobs, fresh_cache: handed.append(jobs)
         )
-        run_m1.main(["--gates-only"])
-        run_m1.main(["--gates-only", "--conform-only"])
+        run_m1_gates.main(["--gates-only"])
+        run_m1_gates.main(["--gates-only", "--conform-only"])
         assert handed == [sweep, sweep]
 
     def test_the_corpus_build_takes_its_own_budget_with_no_memory_set_aside_for_gates(

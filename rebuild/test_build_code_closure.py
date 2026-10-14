@@ -1,6 +1,6 @@
 """Checks that `fingerprint.COMPARISON_CODE_MODULES` and `fingerprint.FONT_COMPILE_TOOL_MODULES` match the import graph.
 
-`COMPARISON_CODE_MODULES` lists the pipeline modules left out of a serialized window enumeration's stamp (`fingerprint.table_code_paths`, the code half of `tables_value`). Reusing the tables and M1.otf on disk, as `run_m1 --gates-only` and `--conform-only` do, is safe only if no module on that list can change a table or the font. The first check walks the import graph from every build-side module and requires it to reach nothing on the list. Like `rebuild/test_oracle_code_closure.py`, it works at module grain and follows `if TYPE_CHECKING:` imports, which errs toward including too much. The driver, `rebuild/pipeline/run_m1.py`, imports the comparison side because it also runs the gates, so it is checked at function grain instead: no expression in `run_m1.run`, or in any module-level function it calls transitively, may name a comparison-side module or anything imported from one.
+`COMPARISON_CODE_MODULES` lists, as repo-relative paths, the modules of `pipeline_code_paths` left out of a serialized window enumeration's stamp (`fingerprint.table_code_paths`, the code half of `tables_value`). Reusing the tables and M1.otf on disk, as `run_m1 --gates-only` and `--conform-only` do, is safe only if no module on that list can change a table or the font. The first check walks the import graph from every build-side module and requires it to reach nothing on the list. Like `rebuild/test_oracle_code_closure.py`, it works at module grain and follows `if TYPE_CHECKING:` imports, which errs toward including too much. The driver, `rebuild/pipeline/run_m1.py`, reaches the comparison side through rebuild/pipeline/run_m1_gates.py from `full_run` and its `python -m` entry, because a full run also runs the gates, so it is checked at function grain instead: no expression in `run_m1.run`, or in any module-level function it calls transitively, may name a comparison-side module or anything imported from one.
 
 The reverse also holds: every entry on the list must be a module the driver reaches, so the list names only modules the gates run. The list is also checked against `oracle_cache.ORACLE_ROW_CODE_PATHS`, because a comparison-side module named there would drop the oracle row cache on every classifier edit for no benefit.
 
@@ -35,15 +35,25 @@ def _module_name(path: Path) -> str:
     return ".".join(path.relative_to(REPO_ROOT).with_suffix("").parts)
 
 
-def _imports(tree: ast.AST) -> set[str]:
-    """Return every repo module the tree names in an absolute import (the tree has no relative imports). `from X import y` is recorded as both X and X.y, so a submodule import is followed."""
+def _imports(path: Path) -> set[str]:
+    """Return every repo module the file imports. `from X import y` is recorded as both X and X.y, so a submodule import is followed. A relative import, which rebuild/validation uses, is resolved against the file's package first."""
     found: set[str] = set()
-    for node in ast.walk(tree):
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
             found.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            found.add(node.module)
-            found.update(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = path.parent
+                for _ in range(node.level - 1):
+                    base = base.parent
+                package = ".".join(base.relative_to(REPO_ROOT).parts)
+                module = f"{package}.{node.module}" if node.module else package
+            elif node.module:
+                module = node.module
+            else:
+                continue
+            found.add(module)
+            found.update(f"{module}.{alias.name}" for alias in node.names)
     return {name for name in found if name.split(".")[0] in ("rebuild", "tools")}
 
 
@@ -59,12 +69,12 @@ def reachable_modules(entry_points: tuple[str, ...]) -> dict[str, Path]:
         if path is None:
             continue
         seen[module] = path
-        queue.extend(_imports(ast.parse(path.read_text(encoding="utf-8"))))
+        queue.extend(_imports(path))
     return seen
 
 
 def _comparison_paths() -> set[Path]:
-    return {PIPELINE / name for name in fingerprint.COMPARISON_CODE_MODULES}
+    return {REPO_ROOT / relative for relative in fingerprint.COMPARISON_CODE_MODULES}
 
 
 def _build_side_paths() -> list[Path]:
@@ -145,10 +155,15 @@ def test_the_font_compile_roster_is_included_in_both_the_run_record_and_the_tabl
 
 
 def test_every_roster_entry_is_a_pipeline_module_on_disk():
-    missing = sorted(name for name in fingerprint.COMPARISON_CODE_MODULES if not (PIPELINE / name).is_file())
+    pipeline_code = set(fingerprint.pipeline_code_paths(REPO_ROOT))
+    missing = sorted(
+        relative
+        for relative in fingerprint.COMPARISON_CODE_MODULES
+        if REPO_ROOT / relative not in pipeline_code
+    )
     assert (
         missing == []
-    ), f"COMPARISON_CODE_MODULES names files that are not under rebuild/pipeline/: {', '.join(missing)}"
+    ), f"COMPARISON_CODE_MODULES names files that are not in pipeline_code_paths on disk: {', '.join(missing)}"
 
 
 def test_table_code_paths_is_pipeline_code_minus_exactly_the_roster():

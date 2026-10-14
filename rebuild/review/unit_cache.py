@@ -163,6 +163,7 @@ PIPELINE_NON_CORPUS_MODULES = frozenset(
         "position_record.py",
         "readback.py",
         "run_m1.py",
+        "run_m1_gates.py",
         "shapers.py",
         "surface.py",
         "witness.py",

@@ -185,7 +185,7 @@ def test_gate_fails_on_defect_errors():
 
 
 def test_gate_fails_on_a_manual_pin_gate_with_nothing_in_scope():
-    """A Manual-pin summary with nothing in scope has `pass` true, because `pass` is `not disagreements`. The gate uses run_m1's `manual_pin_gate_failure`, which also checks the scope, so the gate fails."""
+    """A Manual-pin summary with nothing in scope has `pass` true, because `pass` is `not disagreements`. The gate uses run_m1_gates's `manual_pin_gate_failure`, which also checks the scope, so the gate fails."""
     s = _pass_summaries()
     s["manual_pins"] = {"pass": True, "disagreements": [], "pins_in_scope": 0, "replayed": 0}
     result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
@@ -4766,9 +4766,7 @@ def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
     assert ac.comparison_side_label(fingerprint.CONTACT_ALLOW_LABEL)
     assert ac.comparison_side_label("baselines")
     assert ac.comparison_side_label("baseline-default.subset.tsv.gz")
-    assert all(
-        ac.comparison_side_label(f"rebuild/pipeline/{name}") for name in fingerprint.COMPARISON_CODE_MODULES
-    )
+    assert all(ac.comparison_side_label(label) for label in fingerprint.COMPARISON_CODE_MODULES)
     assert not ac.comparison_side_label("uv.lock")
     assert not ac.comparison_side_label("glyph_data/runes/qsPea.yaml")
     assert not ac.comparison_side_label("rebuild/script.yaml")

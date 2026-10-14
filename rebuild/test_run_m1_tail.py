@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebuild.pipeline import conform, defects, fixtures, kernel_exec, run_m1
+from rebuild.pipeline import conform, defects, fixtures, kernel_exec, run_m1, run_m1_gates
 from rebuild.pipeline import table as table_module
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import console, cycle_paths
@@ -328,10 +328,10 @@ class TestTheFirstRed:
 
 
 def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None, **gates):
-    """Stubs everything `main` calls around `run` (the pre-gate guards, the keys, the spec, the pin gate, and the oracle) and leaves `run` real, writing under `tmp_path`. The oracle stub records its start, calls `on_oracle`, then the `memo_ready` it was passed (where the real oracle waits before its first memo write), then `after_memo`, and records its end."""
+    """Stubs everything `run_m1.full_run` calls around `run` (the pre-gate guards, the keys, the spec, the pin gate, and the oracle) and leaves `run` real, writing under `tmp_path`. The oracle stub records its start, calls `on_oracle`, then the `memo_ready` it was passed (where the real oracle waits before its first memo write), then `after_memo`, and records its end."""
     real_run = run_m1.run
-    monkeypatch.setattr(run_m1.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
-    monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
+    monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
+    monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root: False)
     monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)
     monkeypatch.setattr(run_m1, "settle_memo_inputs", lambda: None)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: SPEC)
@@ -340,7 +340,7 @@ def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {})
     monkeypatch.setattr(run_m1, "run", functools.partial(real_run, tmp_path))
     monkeypatch.setattr(
-        run_m1,
+        run_m1_gates,
         "run_manual_pin_gate",
         lambda spec: {"pass": True, "disagreements": [], "pins_in_scope": 3, "replayed": 3},
     )
@@ -356,7 +356,7 @@ def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None
         events.append("oracle")
         return {"unmatched": 0, "multi_matched": 0}
 
-    monkeypatch.setattr(run_m1, "run_oracle", run_oracle)
+    monkeypatch.setattr(run_m1_gates, "run_oracle", run_oracle)
     _stub_chain(monkeypatch, events)
     _stub_gates(monkeypatch, events, **gates)
 
@@ -386,7 +386,7 @@ class TestMain:
             on_oracle=oracle_started.set,
             after_memo=lambda: standing.append(conform.settle_memo_standing(memo)),
         )
-        run_m1.main([])
+        run_m1_gates.main([])
         assert events.index("replay:done") < events.index("oracle:start") < events.index("witnesses:done")
         assert events.index("witnesses:done") < events.index("oracle")
         assert standing == [True]
@@ -403,14 +403,14 @@ class TestMain:
         events: list = []
         _stub_main(monkeypatch, tmp_path, events, witnesses=RED_WITNESSES)
         with pytest.raises(SystemExit, match="certificate does not fire"):
-            run_m1.main([])
+            run_m1_gates.main([])
         assert "oracle" not in events
 
     def test_a_red_walk_under_a_green_chain_and_oracle_is_the_builds_error(self, monkeypatch, tmp_path):
         events: list = []
         _stub_main(monkeypatch, tmp_path, events, emitted=RED_EMITTED)
         with pytest.raises(SystemExit, match="shipped settlement order"):
-            run_m1.main([])
+            run_m1_gates.main([])
         assert "oracle" in events
 
     @pytest.mark.parametrize("cycle_owned", [True, False])
@@ -446,10 +446,10 @@ class TestMain:
             (tmp_path / "manual_pins_summary.json").write_text(json.dumps(summary))
             return summary
 
-        monkeypatch.setattr(run_m1, "run_manual_pin_gate", pin_gate)
+        monkeypatch.setattr(run_m1_gates, "run_manual_pin_gate", pin_gate)
         try:
             with pytest.raises(SystemExit, match="shipped settlement order"):
-                run_m1.main([])
+                run_m1_gates.main([])
         finally:
             oracle_written.set()
         summaries = [
@@ -471,7 +471,7 @@ class TestMain:
         events: list = []
         _stub_main(monkeypatch, tmp_path, events, replay=RED_REPLAY)
         with pytest.raises(SystemExit, match="tables incomplete"):
-            run_m1.main([])
+            run_m1_gates.main([])
         assert "oracle:start" not in events
 
     def test_a_red_replay_beats_a_defect_error(self, monkeypatch, tmp_path):
@@ -480,7 +480,7 @@ class TestMain:
         broken = defects.DefectReport(errors=[defects.Defect("D1", "qsPea", "a contact")])
         monkeypatch.setattr(run_m1, "_run_defect_gates", lambda spec, tables, glyphs: broken)
         with pytest.raises(SystemExit, match="tables incomplete"):
-            run_m1.main([])
+            run_m1_gates.main([])
         assert "oracle:start" not in events
 
 

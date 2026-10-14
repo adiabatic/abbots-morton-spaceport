@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 
-from rebuild.pipeline import conform, defects, fixtures, oracle, oracle_cache, run_m1
+from rebuild.pipeline import conform, defects, fixtures, oracle, oracle_cache, run_m1, run_m1_gates
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
@@ -59,23 +59,23 @@ class FlushRecorder:
 
 def test_hard_exit_flushes_both_streams_before_os_exit(monkeypatch):
     events = []
-    monkeypatch.setattr(run_m1.sys, "stdout", FlushRecorder("stdout", events))
-    monkeypatch.setattr(run_m1.sys, "stderr", FlushRecorder("stderr", events))
+    monkeypatch.setattr(run_m1_gates.sys, "stdout", FlushRecorder("stdout", events))
+    monkeypatch.setattr(run_m1_gates.sys, "stderr", FlushRecorder("stderr", events))
 
     def exit_(status):
         events.append(f"exit {status}")
         raise HardExit
 
-    monkeypatch.setattr(run_m1.os, "_exit", exit_)
+    monkeypatch.setattr(run_m1_gates.os, "_exit", exit_)
     with pytest.raises(HardExit):
-        run_m1._hard_exit(7)
+        run_m1_gates._hard_exit(7)
     assert events == ["flush stdout", "flush stderr", "exit 7"]
 
 
 def test_cli_flushes_output_before_preserving_string_system_exit(monkeypatch):
     events = []
-    monkeypatch.setattr(run_m1.sys, "stdout", FlushRecorder("stdout", events))
-    monkeypatch.setattr(run_m1.sys, "stderr", FlushRecorder("stderr", events))
+    monkeypatch.setattr(run_m1_gates.sys, "stdout", FlushRecorder("stdout", events))
+    monkeypatch.setattr(run_m1_gates.sys, "stderr", FlushRecorder("stderr", events))
 
     def main():
         print("summary")
@@ -85,50 +85,50 @@ def test_cli_flushes_output_before_preserving_string_system_exit(monkeypatch):
         events.append(f"exit {status}")
         raise HardExit(status)
 
-    monkeypatch.setattr(run_m1, "main", main)
-    monkeypatch.setattr(run_m1.os, "_exit", exit_)
+    monkeypatch.setattr(run_m1_gates, "main", main)
+    monkeypatch.setattr(run_m1_gates.os, "_exit", exit_)
     with pytest.raises(HardExit, match="1"):
-        run_m1._run_cli()
+        run_m1_gates._run_cli()
     assert events.index("flush stdout") < events.index("write stderr expected failure")
     assert events[-3:] == ["flush stdout", "flush stderr", "exit 1"]
 
 
 def test_cli_hard_exits_zero_after_a_normal_return(monkeypatch):
-    monkeypatch.setattr(run_m1, "main", lambda: None)
-    monkeypatch.setattr(run_m1, "_hard_exit", lambda status: (_ for _ in ()).throw(HardExit(status)))
+    monkeypatch.setattr(run_m1_gates, "main", lambda: None)
+    monkeypatch.setattr(run_m1_gates, "_hard_exit", lambda status: (_ for _ in ()).throw(HardExit(status)))
     with pytest.raises(HardExit, match="0"):
-        run_m1._run_cli()
+        run_m1_gates._run_cli()
 
 
 def test_cli_leaves_unexpected_exceptions_to_the_interpreter(monkeypatch):
-    monkeypatch.setattr(run_m1, "main", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
-    monkeypatch.setattr(run_m1, "_hard_exit", lambda _status: pytest.fail("must not hard-exit"))
+    monkeypatch.setattr(run_m1_gates, "main", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(run_m1_gates, "_hard_exit", lambda _status: pytest.fail("must not hard-exit"))
     with pytest.raises(RuntimeError, match="boom"):
-        run_m1._run_cli()
+        run_m1_gates._run_cli()
 
 
 def test_records_when_the_key_holds_across_the_run(green_store):
-    run_m1._settle_green(green_store, "fp-1", True, _keys(["fp-1"]), "run_m1")
+    run_m1_gates._settle_green(green_store, "fp-1", True, _keys(["fp-1"]), "run_m1")
     record = ac.read_green_record(green_store)
     assert record is not None
     assert record["fingerprint"] == "fp-1"
 
 
 def test_records_nothing_when_the_inputs_moved_mid_run(green_store, capsys):
-    run_m1._settle_green(green_store, "fp-1", True, _keys(["fp-2"]), "run_m1")
+    run_m1_gates._settle_green(green_store, "fp-1", True, _keys(["fp-2"]), "run_m1")
     assert ac.read_green_record(green_store) is None
     assert "changed while it ran" in capsys.readouterr().out
 
 
 def test_red_deletes_a_contradicted_record(green_store):
     ac.record_green(green_store, "fp-1")
-    run_m1._settle_green(green_store, "fp-1", False, _keys([]), "run_m1")
+    run_m1_gates._settle_green(green_store, "fp-1", False, _keys([]), "run_m1")
     assert ac.read_green_record(green_store) is None
 
 
 def test_red_leaves_a_record_for_other_content_alone(green_store):
     ac.record_green(green_store, "fp-other")
-    run_m1._settle_green(green_store, "fp-1", False, _keys([]), "run_m1")
+    run_m1_gates._settle_green(green_store, "fp-1", False, _keys([]), "run_m1")
     record = ac.read_green_record(green_store)
     assert record is not None
     assert record["fingerprint"] == "fp-other"
@@ -141,7 +141,7 @@ def test_a_cycle_child_leaves_green_finalization_to_its_parent(monkeypatch, gree
     monkeypatch.setattr(
         green_record, "settle_green", lambda *args, **kwargs: pytest.fail("child finalized a green")
     )
-    run_m1._settle_green(green_store, "fp-1", ok, _keys([]), "run_m1")
+    run_m1_gates._settle_green(green_store, "fp-1", ok, _keys([]), "run_m1")
 
 
 class _JoinedGates:
@@ -164,8 +164,8 @@ class _JoinedGates:
 
 
 def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=143, multi_matched=0):
-    monkeypatch.setattr(run_m1.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
-    monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
+    monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
+    monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root: False)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
     monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {})
@@ -178,7 +178,7 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=14
         ),
     )
     monkeypatch.setattr(
-        run_m1,
+        run_m1_gates,
         "run_manual_pin_gate",
         lambda spec: {
             "pass": pins,
@@ -188,7 +188,7 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), pins=True, pins_in_scope=14
         },
     )
     monkeypatch.setattr(
-        run_m1,
+        run_m1_gates,
         "run_oracle",
         lambda spec, jobs, **_cache: {"unmatched": 19837, "multi_matched": multi_matched},
     )
@@ -212,7 +212,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
         events.append("subset")
         return True
 
-    monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", ensure)
+    monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", ensure)
     monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: events.append("outgoing") or {})
     monkeypatch.setattr(
         run_m1,
@@ -223,11 +223,11 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
         or ({"defect_errors": [], "notes": []}, _JoinedGates()),
     )
     monkeypatch.setattr(
-        run_m1,
+        run_m1_gates,
         "run_oracle",
         lambda spec, jobs, **_cache: events.append("oracle") or {"unmatched": 0, "multi_matched": 0},
     )
-    run_m1.main([])
+    run_m1_gates.main([])
     assert events == ["subset", "outgoing", "run", "oracle"]
     opened, closed = _phases(capsys.readouterr().out)
     assert opened == [
@@ -248,16 +248,16 @@ def test_a_diverged_subset_stops_the_run_before_the_alias_check(monkeypatch):
     reached: list[str] = []
 
     def ensure(repo_root):
-        raise run_m1.baseline_subset.SubsetIdentityError("ss06 diverged")
+        raise run_m1_gates.baseline_subset.SubsetIdentityError("ss06 diverged")
 
-    monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", ensure)
+    monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", ensure)
     monkeypatch.setattr(
-        run_m1.oracle,
+        run_m1_gates.oracle,
         "unaliased_subset_names",
         lambda subset_dir, alias_path: reached.append("aliases") or {},
     )
     with pytest.raises(SystemExit, match="ss06 diverged"):
-        run_m1._run_pregate_guards()
+        run_m1_gates._run_pregate_guards()
     assert reached == []
 
 
@@ -266,18 +266,18 @@ def test_a_font_provenance_refusal_stops_the_run_before_the_alias_check(monkeypa
     reached: list[str] = []
 
     def ensure(repo_root):
-        raise run_m1.baseline_subset.BaselineProvenanceError(
+        raise run_m1_gates.baseline_subset.BaselineProvenanceError(
             "baseline-ss03.tsv.gz was extracted from another font"
         )
 
-    monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", ensure)
+    monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", ensure)
     monkeypatch.setattr(
-        run_m1.oracle,
+        run_m1_gates.oracle,
         "unaliased_subset_names",
         lambda subset_dir, alias_path: reached.append("aliases") or {},
     )
     with pytest.raises(SystemExit, match="another font"):
-        run_m1._run_pregate_guards()
+        run_m1_gates._run_pregate_guards()
     assert reached == []
 
 
@@ -287,7 +287,7 @@ def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_pat
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch)
-    run_m1.main([])
+    run_m1_gates.main([])
     record = ac.read_green_record(store)
     assert record is not None
     assert record["fingerprint"] == "fp-live"
@@ -301,7 +301,7 @@ def test_a_multi_matched_oracle_row_fails_the_run_and_clears_the_record(monkeypa
     ac.record_green(store, "fp-live")
     _stub_full_run(monkeypatch, multi_matched=2)
     with pytest.raises(SystemExit) as error:
-        run_m1.main([])
+        run_m1_gates.main([])
     assert "multi_matched = 2" in str(error.value)
     assert ac.read_green_record(store) is None
     assert _checks()[0]["outcome"] == "red"
@@ -311,7 +311,7 @@ def test_an_interactive_run_files_the_gates_result(monkeypatch):
     """The check line records the gate's green despite the unmatched rows. It has no `run` field because no cycle started this run."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch)
-    run_m1.main([])
+    run_m1_gates.main([])
     checks = _checks()
     assert len(checks) == 1
     assert checks[0]["check"] == "run_m1"
@@ -332,9 +332,9 @@ def test_an_interactive_run_files_its_table_builds_phases_and_a_run_that_builds_
         return {"defect_errors": [], "notes": []}, _JoinedGates()
 
     monkeypatch.setattr(run_m1, "run", building_run)
-    run_m1.main([])
+    run_m1_gates.main([])
     _stub_full_run(monkeypatch)
-    run_m1.main([])
+    run_m1_gates.main([])
     built, bare = _checks()
     labels = [phase["label"] for phase in built["inner"]]
     assert "enumerate[default]" in labels and labels[-1] == "kernel_build_tables"
@@ -348,7 +348,7 @@ def test_a_run_that_never_reached_its_evaluator_files_the_message_it_died_with(m
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch, defect_errors=["qsAh: contact"])
     with pytest.raises(SystemExit):
-        run_m1.main([])
+        run_m1_gates.main([])
     checks = _checks()
     assert len(checks) == 1
     assert checks[0]["outcome"] == "red"
@@ -370,9 +370,9 @@ def test_a_cycle_spawned_run_publishes_no_checks_or_greens(monkeypatch, tmp_path
     _stub_full_run(monkeypatch, multi_matched=multi_matched)
     if multi_matched:
         with pytest.raises(SystemExit, match="multi_matched = 2"):
-            run_m1.main([])
+            run_m1_gates.main([])
     else:
-        run_m1.main([])
+        run_m1_gates.main([])
     assert (store.read_bytes() if store.exists() else None) == before
     assert _checks() == []
 
@@ -384,7 +384,7 @@ def test_a_defect_gate_failure_clears_the_record(monkeypatch, tmp_path):
     ac.record_green(store, "fp-live")
     _stub_full_run(monkeypatch, defect_errors=["qsAh: contact"])
     with pytest.raises(SystemExit):
-        run_m1.main([])
+        run_m1_gates.main([])
     assert ac.read_green_record(store) is None
 
 
@@ -395,7 +395,7 @@ def test_a_failed_manual_pin_gate_clears_the_record(monkeypatch, tmp_path):
     ac.record_green(store, "fp-live")
     _stub_full_run(monkeypatch, pins=False)
     with pytest.raises(SystemExit):
-        run_m1.main([])
+        run_m1_gates.main([])
     assert ac.read_green_record(store) is None
 
 
@@ -407,7 +407,7 @@ def test_a_manual_pin_gate_with_nothing_in_scope_clears_the_record(monkeypatch, 
     ac.record_green(store, "fp-live")
     _stub_full_run(monkeypatch, pins_in_scope=0)
     with pytest.raises(SystemExit) as error:
-        run_m1.main([])
+        run_m1_gates.main([])
     assert "no pins in scope" in str(error.value)
     assert ac.read_green_record(store) is None
 
@@ -418,9 +418,9 @@ def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
     monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, max_length=4: {})
     monkeypatch.setattr(
-        run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": True, "divergences": 0}
+        run_m1_gates, "run_font_conformance", lambda max_length, jobs: {"pass": True, "divergences": 0}
     )
-    run_m1.main(["--conform-only"])
+    run_m1_gates.main(["--conform-only"])
     record = ac.read_green_record(store)
     assert record is not None
     assert record["fingerprint"] == "fp-conform"
@@ -433,10 +433,12 @@ def test_conform_only_divergences_fail_and_clear_a_matching_green(monkeypatch, t
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
     ac.record_green(store, "fp-conform")
     monkeypatch.setattr(
-        run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": reported_pass, "divergences": 3}
+        run_m1_gates,
+        "run_font_conformance",
+        lambda max_length, jobs: {"pass": reported_pass, "divergences": 3},
     )
     with pytest.raises(SystemExit):
-        run_m1.main(["--conform-only"])
+        run_m1_gates.main(["--conform-only"])
     assert ac.read_green_record(store) is None
 
 
@@ -452,15 +454,15 @@ def test_a_cycle_conform_child_publishes_no_checks_or_greens(monkeypatch, tmp_pa
     before = store.read_bytes() if store.exists() else None
     monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
     monkeypatch.setattr(
-        run_m1,
+        run_m1_gates,
         "run_font_conformance",
         lambda max_length, jobs: {"pass": passed, "divergences": 0 if passed else 3},
     )
     if passed:
-        run_m1.main(["--conform-only"])
+        run_m1_gates.main(["--conform-only"])
     else:
         with pytest.raises(SystemExit, match="font conformance failed"):
-            run_m1.main(["--conform-only"])
+            run_m1_gates.main(["--conform-only"])
     assert (store.read_bytes() if store.exists() else None) == before
     assert _checks() == []
 
@@ -470,16 +472,16 @@ def test_conform_only_files_its_own_check(monkeypatch):
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=4: "fp-conform")
     monkeypatch.setattr(ac, "conform_skip_files", lambda root=None, max_length=4: {})
     monkeypatch.setattr(
-        run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": True, "divergences": 0}
+        run_m1_gates, "run_font_conformance", lambda max_length, jobs: {"pass": True, "divergences": 0}
     )
-    run_m1.main(["--conform-only"])
+    run_m1_gates.main(["--conform-only"])
     assert [(check["check"], check["status"]) for check in _checks()] == [("conform", "green")]
 
     monkeypatch.setattr(
-        run_m1, "run_font_conformance", lambda max_length, jobs: {"pass": False, "divergences": 3}
+        run_m1_gates, "run_font_conformance", lambda max_length, jobs: {"pass": False, "divergences": 3}
     )
     with pytest.raises(SystemExit):
-        run_m1.main(["--conform-only"])
+        run_m1_gates.main(["--conform-only"])
     assert [(check["check"], check["status"]) for check in _checks()][-1] == ("conform", "FAILED")
 
 
@@ -495,8 +497,8 @@ def test_the_conform_max_length_default_matches_the_cycle_driver(monkeypatch, tm
         swept.append(max_length)
         return {"pass": True, "divergences": 0}
 
-    monkeypatch.setattr(run_m1, "run_font_conformance", fake_sweep)
-    run_m1.main(["--conform-only"])
+    monkeypatch.setattr(run_m1_gates, "run_font_conformance", fake_sweep)
+    run_m1_gates.main(["--conform-only"])
     assert swept == [ac.CONFORM_MAX_LENGTH_DEFAULT]
 
 
@@ -514,10 +516,10 @@ def test_a_hand_conform_only_run_defaults_to_the_conform_sweeps_budget(monkeypat
         handed.append(jobs)
         return {"pass": True, "divergences": 0}
 
-    monkeypatch.setattr(run_m1, "run_font_conformance", fake_sweep)
-    run_m1.main(["--conform-only"])
-    run_m1.main(["--conform-only", "--jobs", "1"])
-    run_m1.main(["--conform-only", "--jobs", "4"])
+    monkeypatch.setattr(run_m1_gates, "run_font_conformance", fake_sweep)
+    run_m1_gates.main(["--conform-only"])
+    run_m1_gates.main(["--conform-only", "--jobs", "1"])
+    run_m1_gates.main(["--conform-only", "--jobs", "4"])
     assert handed == [max(1, conform_jobs), 1, 4]
 
 
@@ -548,14 +550,16 @@ class TestOracleFanIn:
     def _pool(self, monkeypatch, worker, rows=None):
         """Stubs out every process in the fan-out: an inline pool, futures resolved in reverse, the worker, the crate's guard sweep, and the subset stamp's row counts, which are `rows` or, by default, none, giving one range per configuration."""
         monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs, units: _InlinePool())
-        monkeypatch.setattr(run_m1, "as_completed", lambda futures: reversed(list(futures)))
+        monkeypatch.setattr(run_m1_gates, "as_completed", lambda futures: reversed(list(futures)))
         monkeypatch.setattr(oracle, "oracle_config_worker", worker)
         monkeypatch.setattr(run_m1.kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(run_m1.kernel_exec, "guard_sweep", lambda spec: {})
-        monkeypatch.setattr(run_m1.baseline_subset, "subset_row_counts", lambda out_dir: dict(rows or {}))
-        monkeypatch.setattr(run_m1, "load_default_spec", lambda: None)
         monkeypatch.setattr(
-            run_m1,
+            run_m1_gates.baseline_subset, "subset_row_counts", lambda out_dir: dict(rows or {})
+        )
+        monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: None)
+        monkeypatch.setattr(
+            run_m1_gates,
             "oracle_row_cache_keys",
             lambda spec, out_dir: (
                 {},
@@ -604,7 +608,7 @@ class TestOracleFanIn:
 
     def test_the_audit_follows_acceptance_order_however_the_workers_finish(self, monkeypatch, tmp_path):
         self._pool(monkeypatch, self._worker())
-        run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         lines = (tmp_path / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
         assert lines[0] == oracle.ORACLE_AUDIT_HEADER
         assert [line.split("\t")[0] for line in lines[1:]] == list(conform.ACCEPTANCE_CONFIGS)
@@ -617,13 +621,13 @@ class TestOracleFanIn:
             return shard.index + 2
 
         self._pool(monkeypatch, self._worker(multi=per_range))
-        summary = run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        summary = run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         written = json.loads((tmp_path / "oracle_summary.json").read_text())
         assert summary["multi_matched"] == written["multi_matched"] == 2 * len(conform.ACCEPTANCE_CONFIGS)
 
         rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
         self._pool(monkeypatch, self._worker(multi=per_range), rows=rows)
-        summary = run_m1.run_oracle(out_dir=tmp_path, jobs=10)
+        summary = run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         written = json.loads((tmp_path / "oracle_summary.json").read_text())
         planned = oracle.oracle_shard_plan(10, rows)
         assert len(planned) > len(conform.ACCEPTANCE_CONFIGS)
@@ -636,14 +640,14 @@ class TestOracleFanIn:
         standing.write_bytes(b"the audit of the last green run\n")
         self._pool(monkeypatch, self._worker(refuse=conform.ACCEPTANCE_CONFIGS[3]))
         with pytest.raises(RuntimeError):
-            run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+            run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
     def test_the_fan_in_counts_the_ranges_as_they_finish(self, monkeypatch, tmp_path, capsys):
         """The oracle is the longest part of a pass that prints nothing else while it runs, so it prints a progress counter as each row range finishes, over the number of ranges submitted: one per configuration when the stamp counts no rows, more when it does. A count that stops short of the total is a future the fan-in never collected."""
         self._pool(monkeypatch, self._worker())
-        run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         events = [console.parse_line(line) for line in capsys.readouterr().out.splitlines()]
         counters = [event for event in events if isinstance(event, console.Progress)]
         assert [event.text for event in counters] == [
@@ -654,7 +658,7 @@ class TestOracleFanIn:
         seen: list = []
         rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
         self._pool(monkeypatch, self._worker(shards=seen), rows=rows)
-        run_m1.run_oracle(out_dir=tmp_path, jobs=10)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         planned = oracle.oracle_shard_plan(10, rows)
         assert [shard for shard, _memo in seen] == planned and len(planned) > len(conform.ACCEPTANCE_CONFIGS)
         events = [console.parse_line(line) for line in capsys.readouterr().out.splitlines()]
@@ -684,7 +688,7 @@ class TestOracleFanIn:
             "absorb_settle_memo_parts",
             lambda memo, parts, spec: memo.path.name == "settle-memo-default.bin",
         )
-        run_m1.run_oracle(out_dir=tmp_path, jobs=10, memo_inputs=memo_inputs)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10, memo_inputs=memo_inputs)
         printed = capsys.readouterr().out
         assert "settle memo: absorbed the ranges' parts for default\n" in printed
         assert len([line for line in printed.splitlines() if line.startswith("[t] settle_memo_absorb ")]) == 1
@@ -715,7 +719,7 @@ class TestOracleFanIn:
         cut = next(shard for shard in planned if shard.of > 1)
         self._pool(monkeypatch, self._worker(refuse=cut.label), rows=rows)
         with pytest.raises(RuntimeError) as failure:
-            run_m1.run_oracle(out_dir=tmp_path, jobs=10)
+            run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         assert cut.label in str(failure.value)
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
@@ -739,7 +743,7 @@ class TestOracleFanIn:
         return oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="c", data="d")
 
     def test_every_range_files_a_part_and_the_absorbs_wait_for_memo_ready(self, monkeypatch, tmp_path):
-        """No range of the pooled oracle writes a shared settle memo file, cut or not. Each writes the windows it settled to a part, and the parent absorbs every configuration's parts only after every range has finished and `memo_ready` has returned (in `main`, after the witness stage's absorb). So a pool started while the witness stage runs cannot write a file without that stage's windows or have its own windows overwritten by that stage. Nothing is cut here (the stamp counts no rows), so every configuration has one range, the case where a range could otherwise have written the shared file itself."""
+        """No range of the pooled oracle writes a shared settle memo file, cut or not. Each writes the windows it settled to a part, and the parent absorbs every configuration's parts only after every range has finished and `memo_ready` has returned (in `run_m1.full_run`, after the witness stage's absorb). So a pool started while the witness stage runs cannot write a file without that stage's windows or have its own windows overwritten by that stage. Nothing is cut here (the stamp counts no rows), so every configuration has one range, the case where a range could otherwise have written the shared file itself."""
         seen: list = []
         order: list = []
         worker = self._worker(shards=seen)
@@ -750,7 +754,7 @@ class TestOracleFanIn:
 
         self._pool(monkeypatch, recording)
         memo_inputs = self._memos(monkeypatch, order)
-        run_m1.run_oracle(
+        run_m1_gates.run_oracle(
             out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs, memo_ready=lambda: order.append("ready")
         )
         scratch = oracle.oracle_audit_scratch(tmp_path)
@@ -779,9 +783,9 @@ class TestOracleFanIn:
             order.append("compare")
             raise RuntimeError("the serial compare started")
 
-        monkeypatch.setattr(run_m1.oracle, "compare_against_baseline", compare)
+        monkeypatch.setattr(run_m1_gates.oracle, "compare_against_baseline", compare)
         with pytest.raises(RuntimeError, match="the serial compare started"):
-            run_m1.run_oracle(
+            run_m1_gates.run_oracle(
                 out_dir=tmp_path, jobs=1, memo_inputs=memo_inputs, memo_ready=lambda: order.append("ready")
             )
         assert order == ["ready", "compare"]
@@ -798,7 +802,7 @@ class TestOracleFanIn:
             raise conform.WitnessError("1 rule(s) whose certificate does not fire them")
 
         with pytest.raises(conform.WitnessError):
-            run_m1.run_oracle(out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs, memo_ready=red)
+            run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs, memo_ready=red)
         assert order == []
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert self._files_left(tmp_path) == ["divergence-audit.tsv"]
@@ -847,10 +851,10 @@ class TestOracleFanIn:
 
         self._pool(monkeypatch, worker, rows=rows)
         monkeypatch.setattr(
-            run_m1, "oracle_row_cache_keys", lambda _spec, out_dir: (dict(keys), dict(stamps))
+            run_m1_gates, "oracle_row_cache_keys", lambda _spec, out_dir: (dict(keys), dict(stamps))
         )
         assert any(shard.of > 1 for shard in oracle.oracle_shard_plan(10, rows))
-        run_m1.run_oracle(out_dir=tmp_path, jobs=10)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         assert loaded and all(ordinal is None for _label, ordinal in loaded)
         for config in conform.ACCEPTANCE_CONFIGS:
             promoted = oracle_cache.store_path(tmp_path, config)
@@ -864,7 +868,7 @@ class TestOracleFanIn:
             assert store is not None and store.rows == rows[config] and store.pass_ordinal == 0
 
         loaded.clear()
-        run_m1.run_oracle(out_dir=tmp_path, jobs=10)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         assert loaded and all(ordinal == 0 for _label, ordinal in loaded)
         for config in conform.ACCEPTANCE_CONFIGS:
             promoted = oracle_cache.store_path(tmp_path, config)
@@ -895,8 +899,8 @@ class TestOracleFanIn:
         def refuse(spec, out_dir):
             raise ValueError("qsShe.full buckets to 'qsShe', which has no family key")
 
-        monkeypatch.setattr(run_m1, "oracle_row_cache_keys", refuse)
-        run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        monkeypatch.setattr(run_m1_gates, "oracle_row_cache_keys", refuse)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         assert len(seen) == len(conform.ACCEPTANCE_CONFIGS) and set(seen) == {None}
         assert "[warn] oracle row cache: unavailable" in capsys.readouterr().out
         assert (tmp_path / "divergence-audit.tsv").is_file()
@@ -905,12 +909,12 @@ class TestOracleFanIn:
         """The scheduled re-derivation and the verification sample that keep a wrong record from being served forever both advance on the pass ordinal, which advances only when a store is written. `--gates-only` writes no store, so without a rotation it would re-derive the same rows and verify the same sample on every run. A pass that writes no store therefore passes a nonzero `rotation`; a writing pass passes zero."""
         seen: list = []
         self._pool(monkeypatch, self._worker(record=seen))
-        run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         assert {cache.rotation for cache in seen} == {0}
         assert {cache.write_dir is None for cache in seen} == {False}
 
         seen.clear()
-        run_m1.run_oracle(out_dir=tmp_path, jobs=6, write_cache=False)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6, write_cache=False)
         assert {cache.write_dir for cache in seen} == {None}
         assert all(cache.rotation > 0 for cache in seen)
 
@@ -920,7 +924,7 @@ class TestOracleFanIn:
         standing.write_bytes(b"the audit of the last green run\n")
         self._pool(monkeypatch, self._worker(overcount=conform.ACCEPTANCE_CONFIGS[2]))
         with pytest.raises(ValueError, match="7 divergent"):
-            run_m1.run_oracle(out_dir=tmp_path, jobs=6)
+            run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert self._files_left(tmp_path) == ["divergence-audit.tsv"]
 
@@ -977,12 +981,12 @@ class TestConformFanIn:
         monkeypatch.setattr(
             run_m1, "_spawn_pool", lambda jobs, units, max_tasks_per_child=None: _InlinePool()
         )
-        monkeypatch.setattr(run_m1, "as_completed", lambda futures: reversed(list(futures)))
+        monkeypatch.setattr(run_m1_gates, "as_completed", lambda futures: reversed(list(futures)))
         monkeypatch.setattr(run_m1.kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(run_m1.kernel_exec, "guard_sweep", lambda spec: {})
         monkeypatch.setattr(run_m1, "tables_inputs", lambda: None)
         monkeypatch.setattr(run_m1, "settle_memo_inputs", lambda: None)
-        monkeypatch.setattr(run_m1, "load_default_spec", lambda: None)
+        monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: None)
         monkeypatch.setattr(run_m1, "serialized_tables", lambda out_dir, inputs: {})
         monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, decisions: {})
         monkeypatch.setattr(conform, "settle_memo_files", lambda out_dir, spec, inputs: {})
@@ -1048,7 +1052,7 @@ class TestConformFanIn:
         self._pool(monkeypatch)
         assert "conform-sweep" in {name for unit in cb.UNITS for name in unit.pool_units}
         units = run_m1.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH)
-        monkeypatch.setattr(run_m1, "peak_rss_self_bytes", lambda: 10**9)
+        monkeypatch.setattr(run_m1_gates, "peak_rss_self_bytes", lambda: 10**9)
         readings = [0] * len(units)
         for rank, config in enumerate(conform.ACCEPTANCE_CONFIGS, start=1):
             slots = [slot for slot, unit in enumerate(units) if unit.config == config]
@@ -1057,7 +1061,7 @@ class TestConformFanIn:
         for jobs in (6, len(units) + 5):
             monkeypatch.setattr(run_m1, "peak_footprint_bytes", iter(readings).__next__)
             before = len(ct.load_pool_records(ct.JOURNAL))
-            run_m1.run_font_conformance(out_dir=tmp_path, jobs=jobs)
+            run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=jobs)
             records = ct.load_pool_records(ct.JOURNAL)[before:]
             assert len(records) == 1
             (record,) = records
@@ -1071,8 +1075,8 @@ class TestConformFanIn:
     def test_a_serial_or_deep_sweep_files_no_pool_record(self, monkeypatch, tmp_path):
         """The serial conformance sweep starts no pool to measure. A deeper sweep's unit holds its maximum length's windows in memory, a different load from a per-edit unit's, so it must not be recorded as a conformance-sweep unit."""
         self._pool(monkeypatch)
-        run_m1.run_font_conformance(out_dir=tmp_path, jobs=1)
-        run_m1.run_font_conformance(out_dir=tmp_path, max_length=conform.SWEEP_MAX_LENGTH + 1, jobs=6)
+        run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=1)
+        run_m1_gates.run_font_conformance(out_dir=tmp_path, max_length=conform.SWEEP_MAX_LENGTH + 1, jobs=6)
         assert ct.load_pool_records(ct.JOURNAL) == []
 
     def test_the_sweep_writes_the_same_summary_at_every_width(self, monkeypatch, tmp_path):
@@ -1081,7 +1085,7 @@ class TestConformFanIn:
         units = len(run_m1.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH))
         written = {}
         for jobs in (1, 2, 6, units):
-            run_m1.run_font_conformance(out_dir=tmp_path, jobs=jobs)
+            run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=jobs)
             written[jobs] = (tmp_path / "conform_summary.json").read_bytes()
         assert len(set(written.values())) == 1
         summary = json.loads(written[1])
@@ -1098,7 +1102,7 @@ class TestConformFanIn:
             {"ss04": {"a": (0,), "b": (0, 1), "c": (1,)}},
             parts=[("ss03", "b")],
         )
-        run_m1.run_font_conformance(out_dir=tmp_path, jobs=6)
+        run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=6)
         assert set(absorbed) == {"ss03", "ss04"}
         (part,), identity, flags, prune, discard = absorbed["ss03"]
         assert part.name.startswith("ss03.") and identity == (1, 2, 3, 4) and prune and not discard
@@ -1127,7 +1131,7 @@ class TestConformFanIn:
             parts=[("ss03", "c")],
             other=("ss03", "c"),
         )
-        run_m1.run_font_conformance(out_dir=tmp_path, jobs=6)
+        run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=6)
         assert set(absorbed) == {"ss03"}
         (part,), _identity, _flags, prune, discard = absorbed["ss03"]
         assert part.name.startswith("ss03.") and not prune and not discard
@@ -1144,7 +1148,7 @@ class TestConformFanIn:
         """A unit whose probe found the file corrupt retired its store and reached nothing. Its configuration gets an absorb even with no part, and the absorb is told to discard the file's rows rather than carry them into the rewrite."""
         self._pool(monkeypatch)
         absorbed = self._memos(monkeypatch, tmp_path, {}, retired=("ss05", "a"))
-        run_m1.run_font_conformance(out_dir=tmp_path, jobs=6)
+        run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=6)
         assert set(absorbed) == {"ss05"}
         parts, identity, _flags, _prune, discard = absorbed["ss05"]
         assert parts == [] and identity == (1, 2, 3, 4) and discard
@@ -1160,7 +1164,7 @@ class TestConformFanIn:
             "_spawn_pool",
             lambda jobs, units, max_tasks_per_child=None: ThreadPoolExecutor(max_workers=1),
         )
-        monkeypatch.setattr(run_m1, "as_completed", as_completed)
+        monkeypatch.setattr(run_m1_gates, "as_completed", as_completed)
         ran: list[str] = []
 
         def unit(spec, font_path, config, last, max_length, glyphs, guard_verdicts, settle_memo):
@@ -1170,9 +1174,9 @@ class TestConformFanIn:
             time.sleep(0.2)
             return conform.ConformanceConfigResult(config=config), 1
 
-        monkeypatch.setattr(run_m1, "_conformance_unit", unit)
+        monkeypatch.setattr(run_m1_gates, "_conformance_unit", unit)
         with pytest.raises(ValueError, match="the overlay failed"):
-            run_m1.run_font_conformance(out_dir=tmp_path, jobs=2)
+            run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=2)
         assert ran[0] in conform.OVERLAY_CONFIGS
         assert len(ran) <= 2 < len(run_m1.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH))
         assert absorbed == {}
@@ -1187,13 +1191,13 @@ class TestConformFanIn:
             RuntimeError,
             match=rf"conformance sweep\[ss04\]: its units shaped {expected - 1} texts, not the {expected}",
         ):
-            run_m1.run_font_conformance(out_dir=tmp_path, jobs=6)
+            run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=6)
         assert absorbed == {}
         assert not (tmp_path / "conform_summary.json").exists()
 
     def test_the_unit_worker_and_the_absorb_pickle_for_spawn(self):
         """The inline pool never pickles what it runs, but a spawn pool pickles every submission by module and name, so a nested wrapper would pass every other test here and fail only on the first real pooled conformance sweep."""
-        for task in (run_m1._conformance_unit, run_m1._absorb_sweep_memo):
+        for task in (run_m1_gates._conformance_unit, run_m1_gates._absorb_sweep_memo):
             assert pickle.loads(pickle.dumps(task)) is task
 
 
@@ -1261,10 +1265,10 @@ class TestGatesOnly:
         """Stubs the stamp check and the two pre-gate guards that every path runs first. The guards are stubbed because both read the live subset tables under rebuild/out, which a contracts-lane test may not read. Returns the stage log the ordering test reads."""
         ran: list[str] = []
         monkeypatch.setattr(
-            run_m1.baseline_subset, "ensure_fresh", lambda repo_root: ran.append("subset") or False
+            run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root: ran.append("subset") or False
         )
         monkeypatch.setattr(
-            run_m1.oracle,
+            run_m1_gates.oracle,
             "unaliased_subset_names",
             lambda subset_dir, alias_path: ran.append("aliases") or {},
         )
@@ -1282,7 +1286,7 @@ class TestGatesOnly:
         """Stubs the build this pass reuses: the font the stamp covers, the join tables the defect gate reads beside the enumeration, the minting, the defect gate (returning `report`), and the Stage A rewrite."""
         (tmp_path / "M1.otf").write_bytes(b"font")
         monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
-        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
+        monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: object())
         monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
         monkeypatch.setattr(run_m1.table_module, "read_join_tsv", lambda path: f"joins {path.name}")
         monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, tables: {})
@@ -1308,13 +1312,13 @@ class TestGatesOnly:
 
     def _gates(self, monkeypatch, ran, *, replayed=4, multi_matched=0):
         monkeypatch.setattr(
-            run_m1,
+            run_m1_gates,
             "run_manual_pin_gate",
             lambda out_dir, spec: ran.append("pins")
             or {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": replayed},
         )
         monkeypatch.setattr(
-            run_m1,
+            run_m1_gates,
             "run_oracle",
             lambda out_dir, spec, jobs, **_cache: ran.append("oracle")
             or {"unmatched": 19837, "multi_matched": multi_matched},
@@ -1323,13 +1327,13 @@ class TestGatesOnly:
     def test_it_refuses_tables_the_runes_have_outgrown(self, monkeypatch, tmp_path):
         self._reuse(monkeypatch, None)
         with pytest.raises(SystemExit) as error:
-            run_m1.run_gates_only(out_dir=tmp_path)
+            run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert "it does not make one" in str(error.value)
 
     def test_it_refuses_a_missing_font(self, monkeypatch, tmp_path):
         self._reuse(monkeypatch, {})
         with pytest.raises(SystemExit) as error:
-            run_m1.run_gates_only(out_dir=tmp_path)
+            run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert "no compiled font" in str(error.value)
 
     @pytest.mark.parametrize("left_behind", [None, "{ not a summary", "[]"])
@@ -1340,7 +1344,7 @@ class TestGatesOnly:
         if left_behind is not None:
             (tmp_path / "pipeline_summary.json").write_text(left_behind)
         with pytest.raises(SystemExit) as error:
-            run_m1.run_gates_only(out_dir=tmp_path)
+            run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert "no readable" in str(error.value)
         assert _checks() == []
 
@@ -1356,14 +1360,14 @@ class TestGatesOnly:
 
         monkeypatch.setattr(run_m1.table_module, "read_join_tsv", refuse)
         with pytest.raises(SystemExit) as error:
-            run_m1.run_gates_only(out_dir=tmp_path)
+            run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert "joins-ss06.tsv is missing or unreadable" in str(error.value)
 
     @pytest.mark.parametrize("missing", [None, "stamp", "font", "summary", "joins"])
     def test_the_cycle_plans_a_rerun_over_exactly_the_builds_this_pass_accepts(
         self, monkeypatch, tmp_path, missing
     ):
-        """The cycle's plan and this pass share one check over the build on disk (`run_m1.gates_only_base`), so the cycle never plans a rerun this pass refuses over that build and then plans it again on every pass. The build here has no manual_pins_summary.json, oracle_summary.json, audit or Stage A record, because this pass writes those, so a rerun that went red before writing them is planned again instead of a table build."""
+        """The cycle's plan and this pass share one check over the build on disk (`run_m1_gates.gates_only_base`), so the cycle never plans a rerun this pass refuses over that build and then plans it again on every pass. The build here has no manual_pins_summary.json, oracle_summary.json, audit or Stage A record, because this pass writes those, so a rerun that went red before writing them is planned again instead of a table build."""
         ran = self._reuse(monkeypatch, None if missing == "stamp" else {"ss06": "decision"})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1381,10 +1385,10 @@ class TestGatesOnly:
         if missing is None:
             self._green(monkeypatch, tmp_path)
             self._gates(monkeypatch, ran)
-            run_m1.run_gates_only(out_dir=tmp_path)
+            run_m1_gates.run_gates_only(out_dir=tmp_path)
         else:
             with pytest.raises(SystemExit):
-                run_m1.run_gates_only(out_dir=tmp_path)
+                run_m1_gates.run_gates_only(out_dir=tmp_path)
 
     def test_it_runs_the_guards_then_the_defect_gate_then_the_pins_then_the_oracle(
         self, monkeypatch, tmp_path, capsys
@@ -1395,7 +1399,7 @@ class TestGatesOnly:
         self._summary(tmp_path)
         self._green(monkeypatch, tmp_path)
         self._gates(monkeypatch, ran)
-        run_m1.main(["--gates-only", "--jobs", "6"])
+        run_m1_gates.main(["--gates-only", "--jobs", "6"])
         assert ran == ["subset", "aliases", "defects", "stage_a", "pins", "oracle"]
         opened, closed = _phases(capsys.readouterr().out)
         assert opened == [
@@ -1425,7 +1429,7 @@ class TestGatesOnly:
         )
         self._green(monkeypatch, tmp_path)
         self._gates(monkeypatch, ran)
-        run_m1.run_gates_only(out_dir=tmp_path)
+        run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert json.loads((tmp_path / "pipeline_summary.json").read_text()) == {
             "gsub_rule_count": 7,
             "font": "M1.otf",
@@ -1446,12 +1450,12 @@ class TestGatesOnly:
         self._summary(tmp_path)
         store = self._green(monkeypatch, tmp_path, prior={}, prior_key="fp-now")
         monkeypatch.setattr(
-            run_m1,
+            run_m1_gates,
             "run_manual_pin_gate",
             lambda **kwargs: pytest.fail("the pin gate ran behind a defect error"),
         )
         with pytest.raises(SystemExit) as error:
-            run_m1.run_gates_only(out_dir=tmp_path)
+            run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert str(error.value) == "1 defect-gate errors; see pipeline_summary.json"
         assert ac.read_green_record(store) is None
         checks = _checks()
@@ -1475,7 +1479,7 @@ class TestGatesOnly:
             prior={"rebuild/m1-divergences.yaml": "before", "uv.lock": "pinned"},
         )
         self._gates(monkeypatch, ran)
-        run_m1.run_gates_only(out_dir=tmp_path)
+        run_m1_gates.run_gates_only(out_dir=tmp_path)
         record = ac.read_green_record(store)
         assert record is not None
         assert record["fingerprint"] == "fp-now"
@@ -1502,9 +1506,9 @@ class TestGatesOnly:
         monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
         if multi_matched:
             with pytest.raises(SystemExit, match="multi_matched = 2"):
-                run_m1.main(["--gates-only"])
+                run_m1_gates.main(["--gates-only"])
         else:
-            run_m1.main(["--gates-only"])
+            run_m1_gates.main(["--gates-only"])
         assert store.read_bytes() == before
         assert _checks() == []
 
@@ -1515,7 +1519,7 @@ class TestGatesOnly:
         self._summary(tmp_path)
         store = self._green(monkeypatch, tmp_path, files={"uv.lock": "pinned"})
         self._gates(monkeypatch, ran)
-        run_m1.run_gates_only(out_dir=tmp_path)
+        run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert not store.exists()
         assert "there is no prior green M1 build for this pass to stand on" in capsys.readouterr().out
         assert [check["outcome"] for check in _checks()] == ["green"]
@@ -1534,7 +1538,7 @@ class TestGatesOnly:
             prior={"uv.lock": "pinned", "rebuild/m1-aliases.yaml": "before"},
         )
         self._gates(monkeypatch, ran)
-        run_m1.run_gates_only(out_dir=tmp_path)
+        run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert (
             "run_m1: green, but this pass recorded no green — these inputs are build-side, so the artifacts on disk are not the ones they describe: uv.lock"
             in capsys.readouterr().out
@@ -1553,7 +1557,7 @@ class TestGatesOnly:
         standing = {"rebuild/m1-aliases.yaml": "unchanged"}
         store = self._green(monkeypatch, tmp_path, files=standing, prior=standing)
         self._gates(monkeypatch, ran)
-        run_m1.run_gates_only(out_dir=tmp_path)
+        run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert "nothing has moved since the last green M1 build" in capsys.readouterr().out
         record = ac.read_green_record(store)
         assert record is not None
@@ -1566,7 +1570,7 @@ class TestGatesOnly:
         self._summary(tmp_path)
         self._green(monkeypatch, tmp_path)
         self._gates(monkeypatch, ran)
-        run_m1.main(["--gates-only"])
+        run_m1_gates.main(["--gates-only"])
         checks = _checks()
         assert len(checks) == 1
         assert checks[0]["check"] == "run_m1"
@@ -1581,10 +1585,12 @@ class TestGatesOnly:
         store = self._green(monkeypatch, tmp_path, prior={}, prior_key="fp-now")
         self._gates(monkeypatch, ran, replayed=3)
         monkeypatch.setattr(
-            run_m1, "run_oracle", lambda **kwargs: pytest.fail("the oracle ran behind a failed pin gate")
+            run_m1_gates,
+            "run_oracle",
+            lambda **kwargs: pytest.fail("the oracle ran behind a failed pin gate"),
         )
         with pytest.raises(SystemExit):
-            run_m1.main(["--gates-only"])
+            run_m1_gates.main(["--gates-only"])
         assert ac.read_green_record(store) is None
         checks = _checks()
         assert len(checks) == 1
@@ -1595,7 +1601,7 @@ class TestGatesOnly:
         """A stamp that no longer matches the runes stops the pass before any gate runs. Nothing was evaluated, so the pass records no check line."""
         self._reuse(monkeypatch, None)
         with pytest.raises(SystemExit):
-            run_m1.run_gates_only(out_dir=tmp_path)
+            run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert _checks() == []
 
     def test_a_vacuous_pin_gate_stops_it_before_the_oracle(self, monkeypatch, tmp_path):
@@ -1605,8 +1611,10 @@ class TestGatesOnly:
         self._green(monkeypatch, tmp_path)
         self._gates(monkeypatch, ran, replayed=3)
         monkeypatch.setattr(
-            run_m1, "run_oracle", lambda **kwargs: pytest.fail("the oracle ran behind a failed pin gate")
+            run_m1_gates,
+            "run_oracle",
+            lambda **kwargs: pytest.fail("the oracle ran behind a failed pin gate"),
         )
         with pytest.raises(SystemExit) as error:
-            run_m1.run_gates_only(out_dir=tmp_path)
+            run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert "replayed 3 of 4 pins" in str(error.value)

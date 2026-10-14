@@ -2333,7 +2333,7 @@ class TestOracleRowCache:
 
 
 class TestOracleRowRanges:
-    """The oracle's unit of fan-out is a row range of one configuration's table, and cutting a table into ranges must change no count and no byte. `_compare_config` addresses rows by absolute index throughout, so a range is a self-contained segment of the same audit and the same store. Each test runs the real compare over the mini bundle's default rows once whole and once cut, through the worker, folds and joins that `run_m1.run_oracle` uses, and requires the cut run to equal the whole one."""
+    """The oracle's unit of fan-out is a row range of one configuration's table, and cutting a table into ranges must change no count and no byte. `_compare_config` addresses rows by absolute index throughout, so a range is a self-contained segment of the same audit and the same store. Each test runs the real compare over the mini bundle's default rows once whole and once cut, through the worker, folds and joins that `run_m1_gates.run_oracle` uses, and requires the cut run to equal the whole one."""
 
     def _ranged(
         self,

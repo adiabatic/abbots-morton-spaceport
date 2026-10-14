@@ -1046,7 +1046,7 @@ def _signature_pool_init(before_font: Path, after_font: Path) -> None:
 
 
 def _signature_chunk_digests(pairs: Sequence[tuple[str, str]]) -> tuple[list[str], str, int]:
-    """Shape one chunk of the misses through this worker's comparator, in order, and return the digests with the worker's label and its peak RSS so far. The peak is returned with the result because a `multiprocessing.Pool` has no other channel for it (`run_m1.run_oracle` does the same for its shards). The parent keeps the maximum per label, so the record `_record_signature_pool` writes covers each worker's whole life."""
+    """Shape one chunk of the misses through this worker's comparator, in order, and return the digests with the worker's label and its peak RSS so far. The peak is returned with the result because a `multiprocessing.Pool` has no other channel for it (`run_m1_gates.run_oracle` does the same for its shards). The parent keeps the maximum per label, so the record `_record_signature_pool` writes covers each worker's whole life."""
     comparator = _signature_worker_state["comparator"]
     digests = [signature_digest(comparator.signature(text, config)) for text, config in pairs]
     return digests, _signature_worker_state["label"], peak_rss_self_bytes()

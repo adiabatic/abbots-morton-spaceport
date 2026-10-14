@@ -1000,7 +1000,7 @@ class MemoReach:
 def settle_memo_line(
     config: str, seconds: float, loaded: int, stale: int, fresh: int, pruned: int, written: bool
 ) -> str:
-    """The `[t] settle_memo` line a phase prints about one configuration's use of its settle memo file: the serial conformance sweep and the oracle through `_SettledWindowWalk.memo_line`, and the pooled conformance sweep's parent once per configuration over its units (`run_m1.run_font_conformance`). Neither restricts its load, so the line has no `unasked=`; the witness stage reports `unasked_windows` on its own `[t] rule_witnesses[<config>]` line."""
+    """The `[t] settle_memo` line a phase prints about one configuration's use of its settle memo file: the serial conformance sweep and the oracle through `_SettledWindowWalk.memo_line`, and the pooled conformance sweep's parent once per configuration over its units (`run_m1_gates.run_font_conformance`). Neither restricts its load, so the line has no `unasked=`; the witness stage reports `unasked_windows` on its own `[t] rule_witnesses[<config>]` line."""
     return f"[t] settle_memo {config} {seconds:.2f}s loaded={loaded} stale={stale} fresh={fresh} pruned={pruned} written={'yes' if written else 'no'}"
 
 
@@ -1882,7 +1882,7 @@ def run_conformance(
     summary_name: str = "conform_summary.json",
     settle_memos: Mapping[str, SettleMemoFile] | None = None,
 ) -> ConformReport:
-    """Run the conformance sweep serially: one shared Shaper, each configuration in turn through `_conformance_config`, and the results merged by `merge_conformance_results`. The parallel form is `run_m1.run_font_conformance`, which submits `conformance_config_worker` once per unit of each configuration (the ss10 overlay whole, and each settlement configuration once per final symbol) and prunes the memo in the parent. The sweep reads no decision table: it shapes the font and settles the same texts through the kernel, and read-back checks that the font holds the planned rules. `summary_name` is the file written under `out_dir`, so a caller can keep its report apart from the per-edit sweep's. `settle_memos` names each configuration's shared settle memo file, and a configuration without one settles every window itself."""
+    """Run the conformance sweep serially: one shared Shaper, each configuration in turn through `_conformance_config`, and the results merged by `merge_conformance_results`. The parallel form is `run_m1_gates.run_font_conformance`, which submits `conformance_config_worker` once per unit of each configuration (the ss10 overlay whole, and each settlement configuration once per final symbol) and prunes the memo in the parent. The sweep reads no decision table: it shapes the font and settles the same texts through the kernel, and read-back checks that the font holds the planned rules. `summary_name` is the file written under `out_dir`, so a caller can keep its report apart from the per-edit sweep's. `settle_memos` names each configuration's shared settle memo file, and a configuration without one settles every window itself."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)

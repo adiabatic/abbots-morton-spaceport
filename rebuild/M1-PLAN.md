@@ -35,14 +35,14 @@ rebuild/pipeline/
   compile_font.py     mini-font build via build_font(senior_fea=...) and the pack_gsub repack
   readback.py         post-compile read-back: the written font re-parsed and checked against the plan, GSUB offset headroom included
   conform.py          HarfBuzz sweep against settlement, the per-row baseline comparison and its memoized walk
-  oracle.py           baseline-oracle driver, divergence classifier, ledger matching (outside the tables' stamp)
-  oracle_positions.py the position comparison: kern normalization, the mismatch diff, the served-position codec and verifier, the sidecar evaluator, the shaper factory (outside the tables' stamp and the row stamp)
+  oracle.py           baseline-oracle driver, divergence classifier, ledger matching
+  oracle_positions.py the position comparison: kern normalization, the mismatch diff, the served-position codec and verifier, the sidecar evaluator, the shaper factory (outside the row stamp)
   explain.py          the §6.3 item (a) CLI (python -m rebuild.pipeline.explain)
   baseline_subset.py  streaming filter of rebuild/out/baseline-*.tsv.gz to the migrated alphabet; refilters when the alphabet or the sources change
   coretext_smoke.py   CoreText-vs-HarfBuzz comparison over the extended sequence set
 ```
 
-The package holds more modules than this skeleton, among them `kernel_exec.py` (the crate driver), `run_m1.py`, `witness.py`, `pack_gsub.py`, `manual_pins.py`, and `fingerprint.py`. Each module docstring states its role.
+The package holds more modules than this skeleton, among them `kernel_exec.py` (the crate driver), `run_m1.py` and `run_m1_gates.py` (the driver's build and gate halves), `witness.py`, `pack_gsub.py`, `manual_pins.py`, and `fingerprint.py`. Each module docstring states its role. `fingerprint.COMPARISON_CODE_MODULES` names the modules outside the tables' stamp.
 
 Tests are `rebuild/test_<module>.py`. Pytest’s `testpaths` excludes `rebuild/`, so `make test-rebuild` runs them.
 

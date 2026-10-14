@@ -53,7 +53,7 @@ Never single-thread a broad run; `doc/parallelism.md` has the width rules. Run a
 
 ## Rerunning the gates without a build
 
-The comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules, and the baselines) are not part of the tables' stamp, so a change to one of them needs no new enumeration:
+The comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the code `fingerprint.COMPARISON_CODE_MODULES` names, and the baselines) are not part of the tables' stamp, so a change to one of them needs no new enumeration:
 
 ```zsh
 uv run python -m rebuild.pipeline.run_m1 --gates-only

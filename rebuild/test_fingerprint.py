@@ -461,13 +461,14 @@ def test_the_tables_stamp_still_tracks_the_runes_and_the_pipeline_code(tmp_path)
 
 
 def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
-    """Editing oracle.py or oracle_positions.py moves `pipeline_code` and the run_m1 skip key but not `tables_value`, so `--gates-only` can re-run the comparison over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs all of rebuild/pipeline/ and `COMPARISON_CODE_MODULES` is the only subtraction, so each file is checked by name. conform.py produces what the oracle classifies and stays in the tables' stamp."""
+    """Editing oracle.py or oracle_positions.py moves `pipeline_code` and the run_m1 skip key but not `tables_value`, so `--gates-only` can re-run the comparison over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs all of rebuild/pipeline/ and rebuild/validation/, and `COMPARISON_CODE_MODULES` is the only subtraction, so each file is checked by path. conform.py produces what the oracle classifies and stays in the tables' stamp, and rebuild/validation/shaping.py, the shaper the Manual-pin gate replays through, leaves it."""
     root = _fake_repo(tmp_path)
     for name in ("oracle.py", "oracle_positions.py"):
         assert root / "rebuild" / "pipeline" / name not in fingerprint.table_code_paths(root)
         assert root / "rebuild" / "pipeline" / name in fingerprint.pipeline_code_paths(root)
     assert root / "rebuild" / "pipeline" / "conform.py" in fingerprint.table_code_paths(root)
-    assert root / "rebuild" / "validation" / "shaping.py" in fingerprint.table_code_paths(root)
+    assert root / "rebuild" / "validation" / "shaping.py" not in fingerprint.table_code_paths(root)
+    assert root / "rebuild" / "validation" / "shaping.py" in fingerprint.pipeline_code_paths(root)
     assert root / "rebuild" / "kernel-rs" / "src" / "guard.rs" in fingerprint.table_code_paths(root)
     before = (
         fingerprint.compute_all(root)["pipeline_code"],
@@ -488,6 +489,19 @@ def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path
     assert artifact_cycle.run_m1_skip_fingerprint(root) != moved_classifier[1]
     (root / "rebuild" / "pipeline" / "conform.py").write_text("CONFORM = 2\n")
     assert fingerprint.tables_value(root) != before[1]
+
+
+def test_a_manual_pin_gate_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
+    """Editing manual_pins.py, the Manual-pin gate, moves `pipeline_code` and the run_m1 skip key but not `tables_value`, so the cycle re-runs the gates over the enumeration on disk instead of rebuilding it."""
+    root = _fake_repo(tmp_path)
+    pins = root / "rebuild" / "pipeline" / "manual_pins.py"
+    pins.write_text("PINS = 1\n")
+    before = _code_keyed(root)
+    pins.write_text("PINS = 2\n")
+    after = _code_keyed(root)
+    assert after[0] != before[0]
+    assert after[1] == before[1]
+    assert after[2] != before[2]
 
 
 def test_rune_digests_key_by_family_name(tmp_path):
