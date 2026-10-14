@@ -5156,6 +5156,7 @@ def test_oracle_cache_note_speaks_the_labels_a_skip_miss_actually_reports():
 
 
 def test_m1_artifacts_present(tmp_path):
+    """The plain skip's predicate needs every gate summary and every artifact the corpus build reads, so a missing gate summary alone fails it. A gates-only rerun is planned on `m1_gates_only_base_present` instead."""
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
     names = [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + list(ac.M1_ARTIFACT_NAMES)
@@ -5163,6 +5164,9 @@ def test_m1_artifacts_present(tmp_path):
     for name in names:
         (m1 / name).write_text("{}")
     assert ac.m1_artifacts_present(tmp_path)
+    (m1 / "oracle_summary.json").unlink()
+    assert not ac.m1_artifacts_present(tmp_path)
+    (m1 / "oracle_summary.json").write_text("{}")
     (m1 / "M1.otf").unlink()
     assert not ac.m1_artifacts_present(tmp_path)
 
@@ -5910,16 +5914,15 @@ def _full_build_step(out: str):
 
 
 def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-divergences.yaml"):
-    """Set up a repo whose last green M1 build differs from the current inputs only in `moved`, with `m1_artifacts_present` and `m1_tables_stamped` both true. The tests that use it each change one of these three conditions and read the chosen mode from the plan."""
+    """Set up a repo whose last green M1 build differs from the current inputs only in `moved`, with the build a gates-only rerun reads on disk (`m1_gates_only_base_present`). The tests that use it each change one of these conditions and read the chosen mode from the plan."""
     _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(cycle_paths.RUN_M1_GREEN, "green-key", files={moved: "before", "uv.lock": "lock-1"})
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {moved: "after", "uv.lock": "lock-1"})
-    monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
-    monkeypatch.setattr(ac, "m1_tables_stamped", lambda root=None: True)
+    monkeypatch.setattr(ac, "m1_gates_only_base_present", lambda: True)
 
 
 def test_main_reruns_the_gates_when_only_comparison_side_inputs_moved(tmp_path, monkeypatch, capsys):
-    """When only a ledger changed, the pass re-runs the gates instead of rebuilding. The tables' stamp does not cover the changed file, so the enumeration and font on disk still match the runes, and `run_m1 --gates-only` re-runs the gates over them. No `--kernel-threads` or `--replay-threads` is passed, because this mode enumerates and replays nothing."""
+    """When only a ledger changed, the pass re-runs the gates instead of rebuilding. The tables' stamp does not cover the changed file, so the enumeration and font on disk still match the runes, and `run_m1 --gates-only` re-runs the gates over them. The fixture's root has no rebuild/out/m1, so none of the files the rerun only writes is there (manual_pins_summary.json, oracle_summary.json, the audit and the Stage A record), more than a red rerun leaves missing, and the plan rests on what the rerun reads (`m1_gates_only_base_present`). No `--kernel-threads` or `--replay-threads` is passed, because this mode enumerates and replays nothing."""
     _comparison_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -5986,10 +5989,10 @@ def test_m1_stage_a_current_compares_the_record_against_the_live_sources(tmp_pat
     assert ac.m1_stage_a_current(tmp_path) is False
 
 
-def test_main_rebuilds_when_the_tables_on_disk_no_longer_carry_their_stamp(tmp_path, monkeypatch, capsys):
-    """A green record alone does not permit a gates-only rerun. It shows that the artifacts once came from a complete build of every build-side input; only the tables' stamp (`m1_tables_stamped`) shows that none of those inputs has moved since. Without the stamp the pass rebuilds."""
+def test_main_rebuilds_when_run_m1_gates_only_would_refuse_the_build_on_disk(tmp_path, monkeypatch, capsys):
+    """A green record alone does not permit a gates-only rerun. It shows that the artifacts once came from a complete build of every build-side input; only the build on disk shows that none of those inputs has moved since and that the child's check over that build passes (`m1_gates_only_base_present`: the tables' stamp, M1.otf, pipeline_summary.json and the join tables). Without it the pass rebuilds."""
     _comparison_side_drift(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "m1_tables_stamped", lambda root=None: False)
+    monkeypatch.setattr(ac, "m1_gates_only_base_present", lambda: False)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "inputs moved since its last green: rebuild/m1-divergences.yaml (changed)" in _step_lines(

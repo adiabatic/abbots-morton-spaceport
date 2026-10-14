@@ -2075,10 +2075,43 @@ def _run_pregate_guards() -> None:
         )
 
 
-def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = False) -> None:
-    """Re-run everything a full run does after the table build except the stages that produce artifacts: the defect gate, the Manual-pin replay and the oracle, over the tables and the M1.otf already on disk. It rewrites the defect fields of `pipeline_summary.json`, the Stage A record, the gate summaries and `divergence-audit.tsv`, and compiles nothing. The rerun depends on the stamp the build left on its serialized enumerations. The stamp names the sources those tables came from, so a stamp that still matches the runes on disk means the M1.otf beside them is the font those runes describe, and a mismatch stops with an error instead of sweeping a stale binary. Because the stamp names only what the build reads, every comparison-side edit passes it and is re-checked here: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, and the classifier and the position comparison, rebuild/pipeline/oracle.py and rebuild/pipeline/oracle_positions.py, both outside the stamp's code half.
+@dataclass(frozen=True)
+class GatesOnlyBase:
+    """The build a `--gates-only` pass re-runs the gates over: each settlement configuration's decision table paired with its join table, and the build's own pipeline_summary.json, whose defect fields the pass rewrites."""
 
-    It may record run_m1's green under two conditions: a prior green record exists, and every input that changed since it is comparison-side (`artifact_cycle.gates_only_rerun`). The prior green shows that the tables and font on disk came from a completed build over every build-side input, the stamp check shows that none of those inputs has changed since, and this pass re-checks the gates the changed inputs feed. With all three, the recorded green covers the new inputs, so the next cycle skips run_m1. Otherwise the pass still runs, still records its check line, and prints which input kept it from recording a green. A check line reports only how one invocation came out, while a green record lets a later pass skip work.
+    tables: dict[str, tuple]
+    pipeline_summary: dict
+
+
+def gates_only_base(out_dir: Path, inputs: str) -> GatesOnlyBase | str:
+    """Return the build under `out_dir` that a `--gates-only` pass reads, or the reason the pass refuses it. The pass reads four things: the window enumerations stamped with `inputs` (`serialized_tables`), M1.otf, a pipeline_summary.json that parses to an object, and every configuration's join table. `run_gates_only` exits with the returned reason, and the artifact cycle plans a gates-only rerun only when this returns a build (`artifact_cycle.m1_gates_only_base_present`), so the cycle never plans a rerun the pass would refuse over the build on disk, which it would otherwise plan again on every pass until `--fresh`. The pre-gate guards (`_run_pregate_guards`) run before this check and can still stop a planned pass, but they stop a full build the same way, so they are no reason to plan one instead. It leaves out manual_pins_summary.json, oracle_summary.json, divergence-audit.tsv and the Stage A record, because the pass writes them. Nor does it read the table-only branch's results (the string replay, the rule witnesses and the shipped-order walks), which the pass does not rerun: the pass records a green only over a prior green, which shows that branch passed over a build of the same build-side inputs, and the stamp shows those inputs are unchanged, so the deterministic build's tables on disk are the ones that branch passed, even when the full build that wrote them went red in that branch. The cycle deletes pipeline_summary.json before it spawns a full build, and the build writes that file only after the compile and the read-back, so a build the cycle spawned that stopped earlier has no summary and is refused here."""
+    serialized = serialized_tables(out_dir, inputs)
+    if serialized is None:
+        return f"the stamped window enumerations under {out_dir} are missing, unreadable, or were built from other sources than the ones on disk — run `uv run python -m rebuild.pipeline.run_m1` (or a cycle pass) first; --gates-only re-runs the gates over a build, it does not make one"
+    font_path = out_dir / "M1.otf"
+    if not font_path.is_file():
+        return f"no compiled font at {font_path} — run `uv run python -m rebuild.pipeline.run_m1` first"
+    summary_path = out_dir / "pipeline_summary.json"
+    try:
+        pipeline_summary = json.loads(summary_path.read_text())
+    except OSError, ValueError:
+        pipeline_summary = None
+    if not isinstance(pipeline_summary, dict):
+        return f"no readable {summary_path} — the defect fields are rewritten into the build's own summary, and a build that left none is not a build this pass can stand on; run `uv run python -m rebuild.pipeline.run_m1` first"
+    tables: dict[str, tuple] = {}
+    for config, decision in serialized.items():
+        joins_path = out_dir / f"joins-{config}.tsv"
+        try:
+            tables[config] = (decision, table_module.read_join_tsv(joins_path))
+        except (OSError, ValueError) as error:
+            return f"{joins_path} is missing or unreadable ({error}) — the defect gate reads the join tables beside the enumeration, so this pass cannot rerun the gates over this build; run `uv run python -m rebuild.pipeline.run_m1` first"
+    return GatesOnlyBase(tables=tables, pipeline_summary=pipeline_summary)
+
+
+def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = False) -> None:
+    """Re-run everything a full run does after the table build except the stages that produce artifacts: the defect gate, the Manual-pin replay and the oracle, over the tables and the M1.otf already on disk. It rewrites the defect fields of `pipeline_summary.json`, the Stage A record, the gate summaries and `divergence-audit.tsv`, and compiles nothing. The rerun depends on the stamp the build left on its serialized enumerations. The stamp names the sources those tables came from, so a stamp that still matches the runes on disk means the M1.otf beside them is the font those runes describe, and a mismatch stops with an error instead of sweeping a stale binary. That refusal and the others over the build on disk are `gates_only_base`, the same check the artifact cycle makes before it plans a gates-only rerun. Because the stamp names only what the build reads, every comparison-side edit passes it and is re-checked here: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, and the classifier and the position comparison, rebuild/pipeline/oracle.py and rebuild/pipeline/oracle_positions.py, both outside the stamp's code half.
+
+    It may record run_m1's green under two conditions: a prior green record exists, and every input that changed since it is comparison-side (`artifact_cycle.gates_only_rerun`). The prior green shows that a completed build over every build-side input passed, the stamp check shows that none of those inputs has changed since, so the deterministic tables and font on disk match that build's, and this pass re-checks the gates the changed inputs feed. With all three, the recorded green covers the new inputs, so the next cycle skips run_m1. Otherwise the pass still runs, still records its check line, and prints which input kept it from recording a green. A check line reports only how one invocation came out, while a green record lets a later pass skip work.
 
     It opens the oracle row cache read-only (`write_cache=False`). A ledger edit serves every row and position verdict, and an alias edit re-derives only the rows that reach the families it names, so the re-check is fast; a store this pass wrote would be one no build produced. Because no store is written, the store's pass ordinal does not advance, and the scheduled re-derivation and the verification sample, which advance with it, rotate on the clock instead. Otherwise repeated re-checks would re-derive and verify the same rows every time. `--fresh-oracle-cache` here skips reading the stores instead of deleting them, since deleting a build input is also a write.
     """
@@ -2100,45 +2133,21 @@ def run_gates_only(out_dir: Path = OUT_DIR, jobs: int = 1, fresh_cache: bool = F
     _run_pregate_guards()
     inputs = tables_inputs()
     memo_inputs = settle_memo_inputs()
-    font_path = out_dir / "M1.otf"
     summary_path = out_dir / "pipeline_summary.json"
-    serialized = serialized_tables(out_dir, inputs)
-    if serialized is None:
-        raise SystemExit(
-            f"the stamped window enumerations under {out_dir} are missing, unreadable, or were built from other sources than the ones on disk — run `uv run python -m rebuild.pipeline.run_m1` (or a cycle pass) first; --gates-only re-runs the gates over a build, it does not make one"
-        )
-    if not font_path.is_file():
-        raise SystemExit(
-            f"no compiled font at {font_path} — run `uv run python -m rebuild.pipeline.run_m1` first"
-        )
-    try:
-        pipeline_summary = json.loads(summary_path.read_text())
-    except OSError, ValueError:
-        pipeline_summary = None
-    if not isinstance(pipeline_summary, dict):
-        raise SystemExit(
-            f"no readable {summary_path} — the defect fields are rewritten into the build's own summary, and a build that left none is not a build this pass can stand on; run `uv run python -m rebuild.pipeline.run_m1` first"
-        )
+    base = gates_only_base(out_dir, inputs)
+    if isinstance(base, str):
+        raise SystemExit(base)
+    pipeline_summary = base.pipeline_summary
 
     spec = load_default_spec()
     before = run_m1_key()
     record = read_green_record(RUN_M1_GREEN)
     current = run_m1_skip_files(REPO_ROOT)
 
-    tables: dict[str, tuple] = {}
-    for config, decision in serialized.items():
-        joins_path = out_dir / f"joins-{config}.tsv"
-        try:
-            tables[config] = (decision, table_module.read_join_tsv(joins_path))
-        except (OSError, ValueError) as error:
-            raise SystemExit(
-                f"{joins_path} is missing or unreadable ({error}) — the defect gate reads the join tables beside the enumeration, so this pass cannot rerun the gates over this build; run `uv run python -m rebuild.pipeline.run_m1` first"
-            )
-
     console.phase("defect_gates")
     start = time.perf_counter()
-    cell_glyphs = mint_cell_glyphs(spec, tables)
-    defect_fields = _defect_summary_fields(_run_defect_gates(spec, tables, cell_glyphs))
+    cell_glyphs = mint_cell_glyphs(spec, base.tables)
+    defect_fields = _defect_summary_fields(_run_defect_gates(spec, base.tables, cell_glyphs))
     print(f"[t] defect_gates {time.perf_counter() - start:.1f}s", flush=True)
     pipeline_summary.update(defect_fields)
     summary_path.write_text(json.dumps(pipeline_summary, indent=2) + "\n")

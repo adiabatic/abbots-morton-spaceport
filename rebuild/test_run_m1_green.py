@@ -1297,7 +1297,7 @@ class TestGatesOnly:
         )
 
     def _green(self, monkeypatch, tmp_path, *, files=None, prior=None, prior_key="fp-prior"):
-        """Stubs run_m1's green record under tmp_path, the key this pass computes over its inputs, and the per-file map it compares with the one the last green build stored. Every path past the summary check computes that key, so a test that omits this hashes inputs under rebuild/out and fails on the lane guard instead of its own assertion."""
+        """Stubs run_m1's green record under tmp_path, the key this pass computes over its inputs, and the per-file map it compares with the one the last green build stored. Every path past `gates_only_base` computes that key, so a test that omits this hashes inputs under rebuild/out and fails on the lane guard instead of its own assertion."""
         store = tmp_path / "run-m1-green.json"
         monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
         monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-now")
@@ -1358,6 +1358,33 @@ class TestGatesOnly:
         with pytest.raises(SystemExit) as error:
             run_m1.run_gates_only(out_dir=tmp_path)
         assert "joins-ss06.tsv is missing or unreadable" in str(error.value)
+
+    @pytest.mark.parametrize("missing", [None, "stamp", "font", "summary", "joins"])
+    def test_the_cycle_plans_a_rerun_over_exactly_the_builds_this_pass_accepts(
+        self, monkeypatch, tmp_path, missing
+    ):
+        """The cycle's plan and this pass share one check over the build on disk (`run_m1.gates_only_base`), so the cycle never plans a rerun this pass refuses over that build and then plans it again on every pass. The build here has no manual_pins_summary.json, oracle_summary.json, audit or Stage A record, because this pass writes those, so a rerun that went red before writing them is planned again instead of a table build."""
+        ran = self._reuse(monkeypatch, None if missing == "stamp" else {"ss06": "decision"})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        if missing == "font":
+            (tmp_path / "M1.otf").unlink()
+        elif missing == "summary":
+            (tmp_path / "pipeline_summary.json").unlink()
+        elif missing == "joins":
+
+            def refuse(path):
+                raise OSError("truncated")
+
+            monkeypatch.setattr(run_m1.table_module, "read_join_tsv", refuse)
+        assert ac.m1_gates_only_base_present() is (missing is None)
+        if missing is None:
+            self._green(monkeypatch, tmp_path)
+            self._gates(monkeypatch, ran)
+            run_m1.run_gates_only(out_dir=tmp_path)
+        else:
+            with pytest.raises(SystemExit):
+                run_m1.run_gates_only(out_dir=tmp_path)
 
     def test_it_runs_the_guards_then_the_defect_gate_then_the_pins_then_the_oracle(
         self, monkeypatch, tmp_path, capsys

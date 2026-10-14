@@ -46,7 +46,7 @@ Conform's skip is decided after run_m1 finishes, from the key the artifacts it l
 
 Green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
-Between the run_m1 skip and a full rebuild there is a third mode, the gates-only rerun. When the per-file diff against the run_m1 green is confined to comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules, and the baselines and their subsets, all outside the tables' stamp; `comparison_side_label` lists them and argues each), the tables on disk still carry that stamp, and all the artifacts are present, the cycle spawns `run_m1 --gates-only` instead of a build. It re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font on disk, matches the oracle's rows against the ledgers again, and enumerates nothing. The green that pass records covers the new inputs, so the next cycle skips run_m1. `uv.lock` is not comparison-side, because a fontTools or uharfbuzz bump can change the font's bytes and what the shaper does with them, so a toolchain bump rebuilds.
+Between the run_m1 skip and a full rebuild there is a third mode, the gates-only rerun. When the per-file diff against the run_m1 green is confined to comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the oracle's two modules, and the baselines and their subsets, all outside the tables' stamp; `comparison_side_label` lists them and argues each) and rebuild/out/m1 holds the build the rerun reads (`m1_gates_only_base_present`, the check `run_m1.gates_only_base` makes: the tables carrying that stamp, M1.otf, pipeline_summary.json and the join tables), the cycle spawns `run_m1 --gates-only` instead of a build. It re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font on disk, matches the oracle's rows against the ledgers again, and enumerates nothing. The green that pass records covers the new inputs, so the next cycle skips run_m1. `uv.lock` is not comparison-side, because a fontTools or uharfbuzz bump can change the font's bytes and what the shaper does with them, so a toolchain bump rebuilds.
 
 The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites every shard the tab reads by byte range, and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes either in place. A corpus-changing pass seeds rebuild/out/review.next with a copy-on-write clone of the served corpus (`corpus-seed`, `landing.clone_tree`), builds there (`--out`), copies the live store into its scratch directory under the store's lock (`store-snapshot`), and runs the verdict update against that copy (`--autosave`, `--journal`). The land (`rebuild.review.landing`) then swaps the new corpus in and puts the prepared store in place in one short section under the store's lock, laying the saves made during the pass over the prepared store, and runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed inside that section is finished by the next holder of the lock: the review server's next request, the next pass (`recover_land`), or any writer that takes the lock through `landing.locked_store`. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
 
@@ -519,7 +519,7 @@ def comparison_side_label(label: str) -> bool:
 def gates_only_rerun(record: dict | None, current: dict[str, str]) -> list[str] | None:
     """Return the labels that changed since the last green M1 build when every one is comparison-side, and None otherwise. The cycle uses this to plan a gates-only rerun, and the pass uses it to decide whether it may record a green. None means no gates-only rerun in three cases: there is no green record, nothing changed (the plain skip's case), or a build-side input changed and the tables must be rebuilt.
 
-    The rerun is sound only with a second check. The prior green shows the artifacts on disk came from a completed build over every build-side input, and `m1_tables_stamped` shows none of those inputs has changed since. Both are checked before the rerun is planned, and a gates-only pass records its green on the same pair.
+    The rerun is sound only with a second check. The prior green shows a completed build over every build-side input passed, and the tables' stamp shows none of those inputs has changed since, so the deterministic build on disk matches the one that passed. The plan checks the stamp with the rest of what the rerun reads (`m1_gates_only_base_present`). The cycle records a gates-only child's green on the prior green and on the stamp, checked before and after the child (`m1_tables_stamped` in `_do_run_m1`), and a standalone `--gates-only` pass checks the stamp through `run_m1.gates_only_base`.
     """
     moved = moved_input_labels(record, current)
     if moved is None:
@@ -568,17 +568,24 @@ def oracle_cache_note(moved: str | None, root: Path = ROOT) -> str | None:
 
 
 def m1_artifacts_present(root: Path = ROOT) -> bool:
-    """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries and the artifacts the corpus build reads."""
+    """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries the skip re-evaluates the gate from, and the artifacts the corpus build reads. It is the plain skip's predicate only. A gates-only rerun writes two of those summaries, the audit and the Stage A record itself, so it is planned on what it reads instead (`m1_gates_only_base_present`)."""
     m1 = root / "rebuild" / "out" / "m1"
     names = [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + list(M1_ARTIFACT_NAMES)
     return all((m1 / name).exists() for name in names)
 
 
 def m1_tables_stamped() -> bool:
-    """Return whether the serialized window enumerations under rebuild/out/m1 were built from the sources on disk: `run_m1.serialized_tables` against `run_m1.tables_inputs`, the stamp the sweep and a gates-only pass check. It checks the artifacts themselves, not a record of a past run, and shows that the M1.otf beside those tables is the font the runes on disk describe. It is the second condition for a gates-only rerun; `gates_only_rerun` is the first. It takes no root parameter, like `deep_sweep.tables_stamped`, because the stamp is computed over the live repo, and a caller naming another tree would compare that tree's tables against this one's sources."""
+    """Return whether the serialized window enumerations under rebuild/out/m1 were built from the sources on disk: `run_m1.serialized_tables` against `run_m1.tables_inputs`, the stamp the sweep and a gates-only pass check. It checks the artifacts themselves, not a record of a past run, and shows that the M1.otf beside those tables is the font the runes on disk describe. `_do_run_m1` checks it before and after a gates-only child to decide whether that child's green may be recorded, and the plan checks the stamp through `m1_gates_only_base_present`. It takes no root parameter, like `deep_sweep.tables_stamped`, because the stamp is computed over the live repo, and a caller naming another tree would compare that tree's tables against this one's sources."""
     from rebuild.pipeline import run_m1
 
     return run_m1.serialized_tables(run_m1.OUT_DIR, run_m1.tables_inputs()) is not None
+
+
+def m1_gates_only_base_present() -> bool:
+    """Return whether rebuild/out/m1 holds the build a gates-only rerun reads, by the check `run_m1 --gates-only` refuses on (`run_m1.gates_only_base`): the stamped tables, M1.otf, a readable pipeline_summary.json, and the join tables. Sharing that check means a planned rerun is never one the child refuses over the build on disk, which would otherwise be planned again on every pass until `--fresh`. It leaves out what the rerun only writes, so after a rerun that went red at the defect or pin gate, or stopped in the oracle, the next pass re-runs the gates instead of rebuilding the tables. It is the second condition for a gates-only rerun; `gates_only_rerun` is the first. It takes no root parameter, like `m1_tables_stamped`, because the stamp is computed over the live repo."""
+    from rebuild.pipeline import run_m1
+
+    return not isinstance(run_m1.gates_only_base(run_m1.OUT_DIR, run_m1.tables_inputs()), str)
 
 
 def m1_stage_a_current(root: Path = ROOT) -> bool:
@@ -5259,7 +5266,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         elif green is not None:
             current = run_m1_skip_files(ROOT)
             rerunnable = gates_only_rerun(green, current)
-            if rerunnable is not None and m1_artifacts_present(ROOT) and m1_tables_stamped():
+            if rerunnable is not None and m1_gates_only_base_present():
                 rerun_gates_only = True
                 run_m1_note = (
                     f"only comparison-side inputs moved since the last green M1 build ({capped_labels(rerunnable)}); "
