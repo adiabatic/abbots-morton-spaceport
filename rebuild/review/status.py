@@ -15,7 +15,6 @@ from pathlib import Path
 
 from rebuild.pipeline import fingerprint
 from rebuild.review import app_index, store_lock, unit_index
-from rebuild.review.audit import slim_fragment
 from rebuild.review.serve import parse_autosave_payload
 from rebuild.review.verdict_store import orphans_dir_for, summarize_orphans
 
@@ -231,28 +230,15 @@ def resolve_carry_source(repo_root, manifest_stamp, autosave_path) -> dict | Non
 
 
 def load_human_unit_ids(review_dir) -> frozenset[str]:
-    review_dir = Path(review_dir)
-    manifest = json.loads((review_dir / "manifest.json").read_text())
-    if "human_unit_ids" in manifest:
-        persisted = manifest["human_unit_ids"]
-        if not isinstance(persisted, list) or not all(
-            isinstance(unit, str) and unit.startswith("u-") for unit in persisted
-        ):
-            raise TypeError("manifest human_unit_ids must be a list of u- ids")
-        if len(persisted) != len(set(persisted)):
-            raise ValueError("manifest human_unit_ids must be unique")
-        return frozenset(persisted)
-    ids: set[str] = set()
-    for entry in manifest["classes"]:
-        if not (entry.get("shards") or entry.get("shard")):
-            continue
-        for shard in unit_index.class_shards(entry):
-            for unit in json.loads((review_dir / shard).read_text()):
-                # A manifest without `human_unit_ids` is an older one whose fragments may carry `batch` themselves. A set `batch` marks a human unit; without the key, a fragment that is not slim is human.
-                human = unit["batch"] is not None if "batch" in unit else not slim_fragment(unit)
-                if human:
-                    ids.add(unit["id"])
-    return frozenset(ids)
+    manifest = json.loads((Path(review_dir) / "manifest.json").read_text())
+    persisted = manifest["human_unit_ids"]
+    if not isinstance(persisted, list) or not all(
+        isinstance(unit, str) and unit.startswith("u-") for unit in persisted
+    ):
+        raise TypeError("manifest human_unit_ids must be a list of u- ids")
+    if len(persisted) != len(set(persisted)):
+        raise ValueError("manifest human_unit_ids must be unique")
+    return frozenset(persisted)
 
 
 def _load_json_dict(path) -> dict | None:
@@ -306,7 +292,7 @@ def _freshness_check(
     if not isinstance(manifest_fp, dict):
         return {
             "level": "fail",
-            "detail": "This corpus predates input fingerprinting, so its freshness cannot be verified.",
+            "detail": "The corpus manifest records no input fingerprint, so its freshness cannot be verified.",
             "remedy": artifact_cycle_remedy,
             "components": unknown,
         }
@@ -394,14 +380,14 @@ def _freshness_check(
 
 
 def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> dict:
-    """Check the recorded cycle's gates by each gate entry's `skip` field. A "proved" skip means a matching green record showed that this content already passed, so it counts toward readiness. Every other non-green gate blocks a review session: a "forced" skip or a gate that did not run is reported as unverified, and anything else as failing. The status string cannot make this distinction, because every skip kind's status starts with "skipped (", so reading it would let a `--skip-conform` pass report READY. A summary with a non-green entry that has no `skip` key predates the field, and is evaluated by its status strings so that its result does not change: all skipped is a warning, and anything else fails. Older summaries name the corpus block `surface`, and it is read the same way."""
+    """Check the recorded cycle's gates by each gate entry's `skip` field. A "proved" skip means a matching green record showed that this content already passed, so it counts toward readiness. Every other non-green gate blocks a review session: a "forced" skip or a gate that did not run is reported as unverified, and anything else as failing. The status string cannot make this distinction, because every skip kind's status starts with "skipped (", so reading it would let a `--skip-conform` pass report READY."""
     if summary is None:
         return {
             "level": "fail",
             "detail": "There is no recorded artifact cycle for this corpus.",
             "remedy": artifact_cycle_remedy,
         }
-    corpus = summary.get("corpus") or summary.get("surface") or {}
+    corpus = summary.get("corpus") or {}
     if corpus.get("generated_at") != generated_at or corpus.get("inputs_fingerprint") != manifest_fp:
         return {
             "level": "fail",
@@ -425,20 +411,6 @@ def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> d
             "remedy": None,
         }
     entries = {name: (gates[name] or {}) for name in non_green}
-    if any("skip" not in entry for entry in entries.values()):
-        skipped = [name for name in non_green if str(entries[name].get("status", "")).startswith("skipped")]
-        if set(skipped) == set(non_green):
-            return {
-                "level": "warn",
-                "detail": f"The last artifact cycle passed but skipped: {', '.join(skipped)}. It predates the skip-provenance record, so whether those skips were proved cannot be told from here.",
-                "remedy": None,
-            }
-        failing = [name for name in non_green if name not in set(skipped)]
-        return {
-            "level": "fail",
-            "detail": f"The last artifact cycle has failing gates: {', '.join(failing)}.",
-            "remedy": artifact_cycle_remedy,
-        }
     unproved = [name for name in non_green if entries[name].get("skip") != "proved"]
     if not unproved:
         return {
@@ -549,7 +521,7 @@ def _blanks_check(aligned_records, review_dir, human_ids) -> dict:
         except OSError, ValueError, KeyError, TypeError:
             return {
                 "level": "ok",
-                "detail": "The unit shards could not be read, so the blank count is unavailable.",
+                "detail": "The corpus manifest's human unit ids could not be read, so the blank count is unavailable.",
                 "count": None,
             }
     effective_ids = {unit for unit, record in aligned_records.items() if record.get("verdict") != "skip"}

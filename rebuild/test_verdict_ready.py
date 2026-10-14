@@ -1,4 +1,4 @@
-"""Tests for `rebuild.review.status.compute_status` and its helpers, which build the readiness dict that the review server's /status handler and the `verdict_ready` CLI render. Fixtures build a fake repo tree (corpus manifest and small shards, cycle summary, autosave, repo-root verdicts files) and stub the fingerprint recompute, so no real build inputs are read."""
+"""Tests for `rebuild.review.status.compute_status` and its helpers, which build the readiness dict that the review server's /status handler and the `verdict_ready` CLI render. Fixtures build a fake repo tree (corpus manifest and its sidecars, cycle summary, autosave, repo-root verdicts files) and stub the fingerprint recompute, so no real build inputs are read."""
 
 import hashlib
 import json
@@ -38,8 +38,6 @@ DEFAULT_CLASSES = [
     {"id": "class-a", "shards": ["units/class-a.json"], "status": "approved", "section": "spot-check"},
     {"id": "class-b", "shards": ["units/class-b.json"], "status": "per-unit", "section": "open-questions"},
 ]
-CLASS_A_UNITS = [{"id": "u-1", "batch": 1}, {"id": "u-2", "batch": 2}, {"id": "m-1", "batch": None}]
-CLASS_B_UNITS = [{"id": "u-3", "batch": 1}]
 HUMAN_ID_LIST = ["u-1", "u-2", "u-3"]
 HUMAN_IDS = frozenset(HUMAN_ID_LIST)
 AFTER_FONT_BYTES = b"OTTO-after"
@@ -85,8 +83,6 @@ def write_corpus(
     generated_at: str = STAMP,
     repo_head: str = "abc1234",
     inputs_fp: str | Mapping[str, str | None] = "fresh",
-    shards: bool = True,
-    human_ids: list[str] | None = HUMAN_ID_LIST,
     after_font: str = "present",
     sidecars: bool = True,
 ) -> None:
@@ -96,9 +92,8 @@ def write_corpus(
         "generated_at": generated_at,
         "repo_head": repo_head,
         "classes": DEFAULT_CLASSES,
+        "human_unit_ids": HUMAN_ID_LIST,
     }
-    if human_ids is not None:
-        manifest["human_unit_ids"] = human_ids
     if inputs_fp == "fresh":
         manifest["inputs_fingerprint"] = dict(FP)
     elif inputs_fp != "omit":
@@ -114,9 +109,6 @@ def write_corpus(
             }
         }
     _write(review_dir / "manifest.json", manifest)
-    if shards:
-        _write(review_dir / "units" / "class-a.json", CLASS_A_UNITS)
-        _write(review_dir / "units" / "class-b.json", CLASS_B_UNITS)
     if sidecars:
         unit_index.write_index(review_dir, [])
         app_index.write_app_artifacts(review_dir, {}, {})
@@ -188,7 +180,7 @@ def test_manifest_missing(tmp_path):
     assert result["ready"] is False
 
 
-def test_pre_fingerprint_manifest_fails_all_unknown(tmp_path):
+def test_a_manifest_without_an_input_fingerprint_fails_all_unknown(tmp_path):
     write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp="omit")
     write_summary(tmp_path)
     write_autosave(tmp_path)
@@ -290,17 +282,6 @@ def test_gates_summary_missing(tmp_path):
     gates = call(tmp_path)["checks"]["gates"]
     assert gates["level"] == "fail"
     assert "no recorded" in gates["detail"].lower()
-
-
-def test_gates_reads_an_older_summarys_surface_block(tmp_path):
-    """Older cycle summaries name the corpus block `surface`; the gates check reads it as the corpus block."""
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    path = tmp_path / "rebuild" / "out" / "cycle_summary.json"
-    summary = json.loads(path.read_text(encoding="utf-8"))
-    summary["surface"] = summary.pop("corpus")
-    path.write_text(json.dumps(summary), encoding="utf-8")
-    assert call(tmp_path)["checks"]["gates"]["level"] == "ok"
 
 
 def test_gates_stamp_mismatch(tmp_path):
@@ -433,44 +414,6 @@ def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
     assert call(tmp_path)["checks"]["gates"]["level"] == "ok"
 
 
-def test_gates_a_legacy_deferred_skip_reads_as_unverified(tmp_path):
-    """Older cycle summaries can record a gate as `deferred`. A deferred gate did not run, so it reads as unverified like any other skip that is not proved, with `make artifact-cycle` as the remedy."""
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        gates=_gate_map(
-            rebuild={
-                "status": "deferred (rebuild waits for the next pass)",
-                "green": False,
-                "skip": "deferred",
-            },
-            make_test={"status": "skipped (closure unchanged)", "green": False, "skip": "proved"},
-        ),
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "left gates unverified: rebuild" in gates["detail"]
-    assert "failing gates" not in gates["detail"]
-    assert gates["remedy"] == "make artifact-cycle"
-    assert call(tmp_path)["ready"] is False
-
-
-def test_gates_legacy_summary_without_skip_key_keeps_its_old_outcome(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        gates={
-            "js": {"status": "passed", "green": True},
-            "rebuild": {"status": "passed", "green": True},
-            "conform": {"status": "skipped (--skip-conform)", "green": False},
-            "make_test": {"status": "passed", "green": True},
-        },
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "warn"
-    assert "predates" in gates["detail"]
-
-
 def test_gates_all_green_ok(tmp_path):
     setup_green(tmp_path)
     gates = call(tmp_path)["checks"]["gates"]
@@ -557,16 +500,8 @@ def test_blanks_skip_counts_as_blank(tmp_path):
     assert "1 blanks remaining" in blanks["detail"]
 
 
-def test_blanks_aligned_happy_count_reads_manifest_without_shards(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review", shards=False)
-    write_summary(tmp_path)
-    write_autosave(tmp_path, records=[verdict("u-1")])
-    blanks = call(tmp_path)["checks"]["blanks"]
-    assert blanks["count"] == 2
-
-
-def test_blanks_falls_back_to_shards_for_a_legacy_manifest(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review", human_ids=None)
+def test_blanks_aligned_count_reads_the_manifests_human_unit_ids(tmp_path):
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path)
     write_autosave(tmp_path, records=[verdict("u-1")])
     blanks = call(tmp_path)["checks"]["blanks"]
