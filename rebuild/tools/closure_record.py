@@ -1,6 +1,6 @@
 """The helpers `rebuild/conftest.py` uses to record the contracts lane's per-test input closures: classifying a read, judging a spawned child, reading a selection file, and writing the sidecar. `rebuild.tools.contracts_closure` holds the static import walk, the selection, and the merge, and re-exports every name here.
 
-This module imports nothing from the repo so that the conftest's static import closure stays small. `closure_of` adds both conftests' static import closures to every test's closure, and `contracts_closure` imports the cycle driver, and through it the pipeline, inside its selection functions. If the conftest imported `contracts_closure`, the pipeline would be in every test's closure, so any pipeline edit would rerun every test. `rebuild/test_contracts_closure.py` checks the conftests' direct imports and that neither reaches rebuild/pipeline/ or rebuild/review/.
+This module imports nothing from the repo, so that `rebuild/conftest.py`, which imports it, keeps a small static import closure; `rebuild.tools.cycle_paths` says why that closure matters, and `TestTheConftestsStayLeaves` in rebuild/test_contracts_closure.py checks the conftests' imports.
 """
 
 from __future__ import annotations
