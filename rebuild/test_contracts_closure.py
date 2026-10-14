@@ -358,6 +358,26 @@ class TestContractsLifecycle:
         _write(contracts_tree, "extra.txt", "two")
         assert not cc.prepare_run(contracts_tree).skippable
 
+    def test_an_edit_to_a_recorded_file_no_test_reads_skips_the_suite_after_the_next_green(
+        self, contracts_tree
+    ):
+        _save_contracts_record(contracts_tree)
+        _write(contracts_tree, "unread.txt", "one")
+        stored = ac.read_green_record(ac.contracts_green())
+        assert stored is not None
+        files = {**stored["files"], "unread.txt": ac._closure_digest(contracts_tree, "unread.txt")}
+        ac.record_green(ac.contracts_green(), stored["fingerprint"], files=files, closures=stored["closures"])
+        run = cc.prepare_run(contracts_tree, True)
+        cc.start_run(run)
+        tests = stored["closures"]["tests"]
+        cc.write_sidecar(cc.sidecar_path(run.record_path), list(tests), tests)
+        assert cc.finish_run(contracts_tree, run, True).status == "recorded"
+        record = ac.read_green_record(run.record_path)
+        assert record is not None
+        assert "extra.txt" in record["files"] and "unread.txt" not in record["files"]
+        _write(contracts_tree, "unread.txt", "two")
+        assert cc.prepare_run(contracts_tree).skippable
+
     def test_a_key_only_record_can_skip_on_its_roster(self, contracts_tree):
         key = ac.contracts_fingerprint(contracts_tree)
         assert key is not None
@@ -645,6 +665,25 @@ class TestRecordPayload:
         _write(synthetic_tree, "extra.txt", "two")
         later = cc.record_payload(synthetic_tree, widened, roster, {"closures": payload.closures}, sidecar)
         assert later.moved == ("extra.txt",)
+
+    def test_a_label_no_closure_names_is_checked_for_drift_but_not_stored(self, synthetic_tree: Path):
+        _write(synthetic_tree, "extra.txt", "one")
+        _write(synthetic_tree, "unread.txt", "one")
+        _write(synthetic_tree, "rebuild/test_t.py", "")
+        sidecar = synthetic_tree / "sidecar.json"
+        cc.write_sidecar(
+            sidecar,
+            ["rebuild/test_t.py::t"],
+            {"rebuild/test_t.py::t": {"reads": ["extra.txt"], "modules": [], "untraced_inputs": False}},
+        )
+        roster = {"rebuild/test_t.py": "t"}
+        named = cc.record_payload(synthetic_tree, dict(roster), roster, None, sidecar).files
+        before = {**named, "unread.txt": ac._closure_digest(synthetic_tree, "unread.txt")}
+        payload = cc.record_payload(synthetic_tree, before, roster, None, sidecar)
+        assert payload.moved == ()
+        assert payload.files == named
+        _write(synthetic_tree, "unread.txt", "two")
+        assert cc.record_payload(synthetic_tree, before, roster, None, sidecar).moved == ("unread.txt",)
 
 
 class TestTheGateNarrows:

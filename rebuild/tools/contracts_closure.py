@@ -273,7 +273,7 @@ def extra_paths(closures: dict | None, roster: dict[str, str]) -> list[str]:
 
 
 def current_files(root: Path, roster: dict[str, str], record: dict | None) -> dict[str, str]:
-    """Return the roster digests plus each extra path a previous record names, through either its closures or its file projection. Keeping the latter preserves known extra inputs when a passing run left no sidecar."""
+    """Return the roster digests plus each extra path a previous record names, through either its closures or its file projection. Keeping the latter preserves known extra inputs when a passing run left no sidecar. A record written with closures stores only the paths they name beyond its roster (`record_payload`), so for such a record the file projection adds only paths that have left the roster since."""
     from rebuild.tools.artifact_cycle import _closure_digest
 
     closures = record.get("closures") if isinstance(record, dict) else None
@@ -297,18 +297,16 @@ class RecordPayload:
 def record_payload(
     root: Path, before: dict[str, str], after_roster: dict[str, str], previous: dict | None, sidecar: Path
 ) -> RecordPayload:
-    """Return what a green contracts run writes beside its key. `before` is the digest map the selection was taken over, and `after_roster` is the lane's roster now. Every label in `before` must still have the same digest; `moved` names any that changed, because the run tested content no longer on disk and the caller should not record a green. Paths the run read for the first time outside the roster are digested here, since the sidecar is the first place they appear."""
+    """Return what a green contracts run writes beside its key. `before` is the digest map the selection was taken over, and `after_roster` is the lane's roster now. Every label in `before` must still have the same digest; `moved` names any that changed, because the run tested content no longer on disk and the caller should not record a green. Paths the run read for the first time outside the roster are digested here, since the sidecar is the first place they appear. With merged closures, the stored `files` is the roster plus every path the closures name, and a label of `before` outside the roster that no closure names is checked for `moved` but not stored: the closures hold an entry for every test the lane runs and every test its selection skipped (`merge_closures`), so they name every extra input the audit hook saw the lane read, and a path no recorded closure names keys nothing. Without closures, every label of `before` is stored, because nothing else records the extra inputs the previous record knew."""
     from rebuild.tools.artifact_cycle import _closure_digest
 
     closures = merge_closures(
         root, previous.get("closures") if isinstance(previous, dict) else None, read_sidecar(sidecar)
     )
     files = current_files(root, after_roster, {"closures": closures} if closures else None)
-    for rel in before:
-        if rel not in files:
-            files[rel] = _closure_digest(root, rel)
-    moved = tuple(sorted(rel for rel in before if files[rel] != before[rel]))
-    return RecordPayload(files=files, closures=closures, moved=moved)
+    digests = files | {rel: _closure_digest(root, rel) for rel in before if rel not in files}
+    moved = tuple(sorted(rel for rel in before if digests[rel] != before[rel]))
+    return RecordPayload(files=files if closures else digests, closures=closures, moved=moved)
 
 
 @dataclass(frozen=True)

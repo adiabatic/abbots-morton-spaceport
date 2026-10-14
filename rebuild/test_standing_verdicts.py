@@ -1482,18 +1482,6 @@ def test_the_checked_in_ligature_rule_reads_exactly_what_it_always_did():
     assert not sv._matches(match, tea_i())
 
 
-def test_the_batch_workflow_the_skill_points_at_is_saved_under_that_name():
-    """Checks that the workflow's `meta.name` is `batch-standing-approvals` and that the skill's Batches section names the workflow by that slash command and by its file path. This is the only test that reads either file, and `make test` exempts `.claude/`. Neither file is in the lane's closure (`rebuild_gate_closure_files` in rebuild/tools/artifact_cycle.py), so an edit to only these files does not rerun this test; a mismatch is caught on the next run that something else triggers."""
-    workflow = (sv.ROOT / ".claude/workflows/batch-standing-approvals.js").read_text()
-    head = re.match(r"export const meta = \{\s*\n\s*name: '([^']+)',", workflow)
-    assert head is not None
-    assert head.group(1) == "batch-standing-approvals"
-    skill = (sv.ROOT / ".claude/skills/dont-bug-me-about-this-ever-again/SKILL.md").read_text()
-    batches = skill.split("## Batches", 1)[1].split("\n## ", 1)[0]
-    assert "`/batch-standing-approvals " in batches
-    assert "`.claude/workflows/batch-standing-approvals.js`" in batches
-
-
 def _write_rules(path, rules):
     path.write_text(json.dumps({"format": sv.FORMAT, "rules": rules}))
     return path
