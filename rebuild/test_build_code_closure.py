@@ -4,7 +4,7 @@
 
 The reverse also holds: every entry on the list must be a module the driver reaches, so the list names only modules the gates run. The list is also checked against `oracle_cache.ORACLE_ROW_CODE_PATHS`, because a comparison-side module named there would drop the oracle row cache on every classifier edit for no benefit.
 
-`FONT_COMPILE_TOOL_MODULES` lists the tools/ modules the M1 font compile runs. `compile_font` passes the mini font to tools/build_font.py, so those modules can change M1.otf's bytes, and every stamp keyed on `pipeline_code_paths` must hash them. The list must equal the import closure inside tools/: a missing module is a font edit no key notices, and an extra one makes an edit to code the compile never runs trigger a rebuild. The walk follows tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting. It starts from every tools/ module the pipeline's Python imports, not only tools/build_font.py, so a pipeline module that starts importing another tools/ module directly fails this test. rebuild/test_verdict_update_closure.py does not follow imports into tools/ modules and relies on this check for them. rebuild/test_review_code_closure.py does not follow them either, but the corpus build reaches tools/ only through test/test_shaping.py, and the draft-harness line of `unit_cache.environment_stamp` hashes that file and `font_compile_tool_paths`, so a second check follows test_shaping's bare imports through tools/ and test/, both on `sys.path` when the drafter imports it, and holds everything it reaches within that file and this list. This check does not cover the rebuild/tools modules the pipeline imports, which `pipeline_code_paths` does not hash (rebuild/test_verdict_update_closure.py's docstring names some).
+`FONT_COMPILE_TOOL_MODULES` lists the tools/ modules the M1 font compile runs. `compile_font` passes the mini font to tools/build_font.py, so those modules can change M1.otf's bytes, and every stamp keyed on `pipeline_code_paths` must hash them. The list must equal the import closure inside tools/: a missing module is a font edit no key notices, and an extra one makes an edit to code the compile never runs trigger a rebuild. The walk follows tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting. It starts from every tools/ module the pipeline's Python imports, not only tools/build_font.py, so a pipeline module that starts importing another tools/ module directly fails this test. rebuild/test_verdict_update_closure.py does not follow imports into tools/ modules and relies on this check for them. rebuild/test_review_code_closure.py does not follow them either, but the corpus build reaches tools/ only through test/test_shaping.py, and the draft-harness line of `unit_cache.environment_stamp` hashes that file and `font_compile_tool_paths`, so a second check follows the bare imports of test_shaping and of the corpus build's Python (`unit_cache.corpus_code_paths`) through tools/ and test/, both on `sys.path` once the drafter imports test_shaping, and holds everything it reaches within that file and this list. The roster check does not cover the rebuild/tools modules the pipeline imports, which `pipeline_code_paths` does not hash (rebuild/test_verdict_update_closure.py's docstring names some).
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import ast
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint, oracle_cache
+from rebuild.review import unit_cache
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PIPELINE = REPO_ROOT / "rebuild" / "pipeline"
@@ -154,16 +155,23 @@ def test_the_font_compile_roster_is_the_import_closure_of_what_the_pipeline_name
 
 
 def test_the_draft_harness_imports_only_what_the_unit_store_stamp_hashes():
-    """The approval drafter (`drafts._import_test_shaping`) and rebuild/validation/pins.py put test/ on `sys.path` to import test/test_shaping.py, which puts tools/ there too, so the walk resolves its bare imports against both directories. `unit_cache.environment_stamp`'s draft-harness line hashes that file and `fingerprint.font_compile_tool_paths`, not the rest of tools/ and no other test/ module, so everything the walk reaches must be one of those files; `artifact_cycle.REBUILD_GATE_HARNESS_PATHS` relies on the same containment."""
-    reached = _sibling_closure({TEST_SHAPING}, (TOOLS, TEST_DIR))
+    """The approval drafter (`drafts._import_test_shaping`) and rebuild/validation/pins.py put test/ on `sys.path` to import test/test_shaping.py, which puts tools/ there too, so the walk resolves bare imports against both directories. It starts from that file and from every tools/ or test/ module that a Python module in `unit_cache.corpus_code_paths` imports by bare name, because once test_shaping is loaded such an import resolves too, and rebuild/test_review_code_closure.py drops bare names. `unit_cache.environment_stamp`'s draft-harness line hashes that file and `fingerprint.font_compile_tool_paths`, not the rest of tools/ and no other test/ module, so everything the walk reaches must be one of those files; `artifact_cycle.REBUILD_GATE_HARNESS_PATHS` relies on the same containment."""
+    corpus_code = [
+        path for path in unit_cache.corpus_code_paths(REPO_ROOT) if path.suffix == ".py" and path.is_file()
+    ]
+    assert (
+        corpus_code
+    ), "unit_cache.corpus_code_paths names no Python file; the walk has no corpus entry point"
+    entries = {TEST_SHAPING}.union(*(_siblings(path, (TOOLS, TEST_DIR)) for path in corpus_code))
+    reached = _sibling_closure(entries, (TOOLS, TEST_DIR))
     assert reached - {
         TEST_SHAPING
     }, "test/test_shaping.py imports no tools/ or test/ module, so this check would be vacuous"
     hashed = {TEST_SHAPING, *fingerprint.font_compile_tool_paths(REPO_ROOT)}
     outside = sorted(path.relative_to(REPO_ROOT).as_posix() for path in reached - hashed)
     assert outside == [], (
-        f"test/test_shaping.py reaches modules the unit store's draft-harness line does not hash: {', '.join(outside)}. "
-        "An edit to one of them would change a draft without dropping the store. Either the import has to go, or the "
+        f"test/test_shaping.py or the corpus build reaches modules the unit store's draft-harness line does not hash: {', '.join(outside)}. "
+        "An edit to one of them could change a unit's products without dropping the store. Either the import has to go, or the "
         "harness line in rebuild/review/unit_cache.py and artifact_cycle.REBUILD_GATE_HARNESS_PATHS have to name these "
         "modules too."
     )
