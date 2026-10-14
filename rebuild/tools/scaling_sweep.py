@@ -2,15 +2,15 @@
 
 Each alphabet size runs as one kernel child, `build-tables --configs=default --threads=1`, the subcommand a build runs, which enumerates that alphabet and folds it. The series therefore times everything a build spends on one configuration. It also makes a row's `rss_high_water_gb` that size's own peak: the child's peak RSS, read when `peak_rss.reap_peak_rss_bytes` reaps it. `cpu` and `wall` cover the whole child: spec parse, enumeration, fold, and the artifacts it writes. A row recorded by an earlier form of the sweep, such as the Python fixpoint or a crate subcommand that did not fold, covers a different total, so compare it with a current row by exponent, not by constant. The child's `[t]` lines give `spec_parse_s`, `enumerate_s` and `fold_s`. A phase the child did not report is null, not 0.0, because a zero would look like a measurement.
 
-Each size's font is built after its timed child and outside it, so `cpu` and `wall` cover the child alone. The shipped settlement lookup folds every settlement configuration, so the font needs a whole-set table build at that size, not the child's `--configs=default` one; `scratch_build.build_font` runs it, then the glyph chain and read-back, as run_m1 does for the live spec. The row takes three figures from the read-back report (`readback.budget_figures`): `settle_subtables`, the settlement lookup's subtable count N (format 2 plus format 3), which the subtable-offset headroom is spent on; `subtable_offset_headroom`, which read-back holds to `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`; and `largest_group_rule_bytes`, which read-back holds to `readback.GROUP_RULE_BYTES_CEILING`. The largest size is the whole current alphabet, so its figures are the live build's. The series cuts alphabets in `scaling_series.series_order`, not in the order letters migrate, so its N curve models growth, while `make cycle-timings ARGS='--by-commit'` lists N as each real build measured it. The font builds cost several whole-set table builds at the full alphabet, most of it in the largest sizes, and that is most of the sweep's wall time. Under `AMS_SCALING_BINARY` no font is built and the three figures are null, because the font build runs the crate on disk, not the binary being measured.
+`AMS_SCALING_FONTS=1` also builds each size's font, after its timed child and outside it, so `cpu` and `wall` cover the child alone. The shipped settlement lookup folds every settlement configuration, so the font needs a whole-set table build at that size, not the child's `--configs=default` one; `scratch_build.build_font` runs it, then the glyph chain and read-back, as run_m1 does for the live spec. The row takes three figures from the read-back report (`readback.budget_figures`): `settle_subtables`, the settlement lookup's subtable count N (format 2 plus format 3), which the subtable-offset headroom is spent on; `subtable_offset_headroom`, which read-back holds to `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`; and `largest_group_rule_bytes`, which read-back holds to `readback.GROUP_RULE_BYTES_CEILING`. The largest size is the whole current alphabet, so its figures are the live build's. The series cuts alphabets in `scaling_series.series_order`, not in the order letters migrate, so its N curve models growth, while `make cycle-timings ARGS='--by-commit'` lists N as each real build measured it. The font builds cost several whole-set table builds at the full alphabet, most of it in the largest sizes, and that is most of the sweep's wall time when they run, so they are off by default: read-back holds every real build to the floor and the ceiling, and `--by-commit` lists each build's N, headroom and largest group. Without the flag the three figures are null, and the report prints `n/a` for N's pair exponents and fit. The flag is refused beside `AMS_SCALING_BINARY`, because the font build runs the crate on disk, not the binary being measured.
 
 `windows`, `rules` and `cells` are read from the window payload the child wrote: its header gives the rules and the reachable cells, and its body is counted one line at a time. `digest` is the digest the child reports on stdout, at the grain of `table.table_digest`, so a size whose time changed can be told apart from a size whose output changed. Nothing here folds: the counts cost one streamed read of a file the child already wrote, where folding on this side would cost a parsed product and several gigabytes.
 
 The report gives the consecutive-pair exponents against runes, then a least-squares fit of ln count on ln size over the whole series, against runes and against letters, for the windows, the CPU time and N. Quote the whole-series fit and say which size it is against. A single pair varies by a large fraction of the threshold because of ordinary scatter and because of which letters that size added. A rune exponent is the letter exponent times `d ln letters / d ln runes`, and the nested series moves that factor from below 1 to above 1 as it stops adding ligatures and starts adding letters. The threshold, in this fitted form, is about 4.5 against letters; against runes it is 4.5 times that factor, so it moves as the series grows. A fit past it means skipping work (the coverage settings in `doc/rebuild-design.md` §14.1) is due before the next batch, in any language.
 
-Positional arguments are the rune counts to cut alphabets at, which need not be sizes of the series, and default to `scaling_series.series_sizes`. `AMS_SCALING_DUMP=<dir>` keeps each size's spec dump, the artifacts its child wrote, and its font build's out dir (`font-rN`) instead of deleting them with a temporary directory; `kernel_all_configs.py --spec <dir>/spec-rN.json` then times the enumeration at that size, in every settlement configuration or in the ones `--configs` names. `AMS_SCALING_BINARY=<path>` measures that binary as it is instead of building the crate, which is how a build at another revision is measured. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_FOLLOWER_PREFER_SLOTS=0` reach the child through `kernel_exec.mode_flags()`, and each row's `modes` names the flags passed, or `default modes` when none were.
+Positional arguments are the rune counts to cut alphabets at, which need not be sizes of the series, and default to `scaling_series.series_sizes`. `AMS_SCALING_DUMP=<dir>` keeps each size's spec dump, the artifacts its child wrote, and, under `AMS_SCALING_FONTS`, its font build's out dir (`font-rN`) instead of deleting them with a temporary directory; `kernel_all_configs.py --spec <dir>/spec-rN.json` then times the enumeration at that size, in every settlement configuration or in the ones `--configs` names. `AMS_SCALING_BINARY=<path>` measures that binary as it is instead of building the crate, which is how a build at another revision is measured. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_FOLLOWER_PREFER_SLOTS=0` reach the child through `kernel_exec.mode_flags()`, and each row's `modes` names the flags passed, or `default modes` when none were.
 
-Each row prints as its size finishes, and the whole set is written to `rebuild/out/scaling-series.json`. `rebuild/scaling-series.txt` is the checked-in record of the last run, the rows and the report as printed, and the add-a-new-letter checklist refreshes it after every migration batch. Run from the repo root: `uv run python -m rebuild.tools.scaling_sweep [k ...] | tee rebuild/scaling-series.txt`.
+Each row prints as its size finishes. `rebuild/scaling-series.txt` is the checked-in record of the last run, the rows and the report as printed, and the add-a-new-letter checklist refreshes it after every migration batch. Run from the repo root: `uv run python -m rebuild.tools.scaling_sweep [k ...] | tee rebuild/scaling-series.txt`.
 """
 
 from __future__ import annotations
@@ -33,8 +33,6 @@ from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.tools import peak_rss, scaling_series, scratch_build
 from rebuild.tools.console import INNER_LINE
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-ROWS_PATH = REPO_ROOT / "rebuild" / "out" / "scaling-series.json"
 FONT_FIGURES = ("settle_subtables", "subtable_offset_headroom", "largest_group_rule_bytes")
 
 
@@ -176,11 +174,15 @@ def report(rows: list[dict]) -> None:
 
 
 def main() -> int:
+    build_fonts = os.environ.get("AMS_SCALING_FONTS") == "1"
+    if build_fonts and os.environ.get("AMS_SCALING_BINARY"):
+        raise SystemExit(
+            "AMS_SCALING_FONTS builds each size's font from the crate on disk, not the binary AMS_SCALING_BINARY names; set one or the other"
+        )
     spec = load_default_spec()
     order = scaling_series.series_order(spec)
     sizes = [int(argument) for argument in sys.argv[1:]] or scaling_series.series_sizes(order)
     binary = kernel_binary()
-    build_fonts = not os.environ.get("AMS_SCALING_BINARY")
     dump = os.environ.get("AMS_SCALING_DUMP")
     rows: list[dict] = []
     with ExitStack() as stack:
@@ -227,9 +229,6 @@ def main() -> int:
             }
             rows.append(row)
             print(json.dumps(row), flush=True)
-    ROWS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with ROWS_PATH.open("w") as handle:
-        json.dump(rows, handle, indent=1)
     report(rows)
     return 0
 
