@@ -1,6 +1,6 @@
 # The review cycle
 
-This is the operator's guide to the artifact cycle: what a pass does, what it skips, what it writes while the review app is running, and what it leaves on disk. The module docstring of `rebuild/tools/artifact_cycle.py` is the authority on the plan a pass resolves, and the Makefile comments above the targets named here are the authority on each target's flags. To prepare a review session on the corpus, use the `prepare-review-queue` skill. To turn a repeated verdict into a checked-in rule, use `dont-bug-me-about-this-ever-again`. To act on a review session's rejects, use `just-verdicted-now-what`.
+This is the operator's guide to the artifact cycle: what a pass does, what it skips, what it writes while the review app is running, and what it leaves on disk. The module docstring of `rebuild/tools/artifact_cycle.py` is the authority on the plan a pass resolves, the Makefile comment above a target named here, where it has one, describes that target and its Make variables (such as review-cycle's `SERVE`), and the tool behind each target that takes `ARGS` lists its flags under `--help`. To prepare a review session on the corpus, use the `prepare-review-queue` skill. To turn a repeated verdict into a checked-in rule, use `dont-bug-me-about-this-ever-again`. To act on a review session's rejects, use `just-verdicted-now-what`.
 
 ## The commands
 
@@ -11,7 +11,7 @@ make review-cycle SERVE=0        # same pass; prints the serve command instead o
 make review-cycle SERVE=bg       # same pass; starts the server detached if it is not running, and waits for the port
 make verdict-ready               # the readiness checklist; the app's banner shows the same status
 make review-serve                # serve rebuild/out/review/ on http://localhost:7294/
-make cycle-timings               # what each step costs on this machine; ARGS='--by-step', '--by-outcome', '--by-commit', '--inner'
+make cycle-timings               # what each step and check costs on this machine; ARGS=--help lists its flags
 ```
 
 Flags are passed to the cycle through `ARGS`. `--verdicts <file>` names the master to carry, `--fresh` runs every stage, `--force-make-test` forces that one gate, `--skip-gates` and `--no-merge` narrow a pass (a `--no-merge` or `--no-carry` pass that moves the corpus still lands it, with an empty store in place of `verdicts-autosave.json`, which is kept as its stash), `--keep-history` skips retention, and `--stop-server` (which `make review-cycle` passes) permits the pass to stop a review server from before the land protocol, which is the only kind a pass ever stops.
