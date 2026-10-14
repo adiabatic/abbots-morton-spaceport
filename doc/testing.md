@@ -35,7 +35,7 @@ Never single-thread a broad run; `doc/parallelism.md` has the width rules. Run a
 - Bare rebuild collection and mixed font/rebuild collection use the root conftest's worker-sizing hook.
 - The suite usually runs only the tests whose recorded input closure contains a changed file, and prints what it left out, as the artifact cycle's plan does for `gate:rebuild-contracts`; the module docstring of `rebuild/tools/contracts_closure.py` says what a closure holds and which tests always run.
 - A narrowed run still pays the suite's fixed startup cost, because every worker collects the whole suite before the selection deselects anything. Selection saves only the test time above that cost; `make cycle-timings ARGS='--by-step'` shows it.
-- Both conftests import only leaf modules; the module docstring of `rebuild/tools/cycle_paths.py` says why, and `TestTheConftestsStayLeaves` in `rebuild/test_contracts_closure.py` pins their import edges.
+- Neither conftest's import closure reaches `rebuild/pipeline/` or `rebuild/review/`; the module docstring of `rebuild/tools/cycle_paths.py` says why, and `TestTheConftestsStayLeaves` in `rebuild/test_contracts_closure.py` checks that and pins their direct imports (`CONFTEST_EDGES`).
   - Fixtures that need the review tree load it through `announced_import` in `rebuild/conftest.py`.
 - The build checks everything it can about its own artifacts, so the suite does not:
   - The review corpus's per-unit checks, `check_unit` and `check_shards` in `rebuild/review/build.py`. A build runs `check_unit` in the worker that drafts a fragment and again in the process that writes it, each time over the fields settled by then, and runs `check_shards` over the corpus read back from disk.
