@@ -591,9 +591,7 @@ def _copy_font(
 def copy_static(out_dir: Path, static_dir: Path = STATIC_DIR) -> list[str]:
     copied: list[str] = []
     if static_dir.is_dir():
-        for source in sorted(static_dir.rglob("*")):
-            if not source.is_file():
-                continue
+        for source in fingerprint.static_files(static_dir):
             rel = source.relative_to(static_dir)
             _write_into_place(out_dir / rel, partial(shutil.copyfile, source))
             copied.append(str(rel))

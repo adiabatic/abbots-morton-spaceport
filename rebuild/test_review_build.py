@@ -610,25 +610,26 @@ class _HtmlSanity(HTMLParser):
 
 
 def test_index_html_sanity():
-    """Checks the app shell at its source: `copy_static` copies rebuild/review/static/ unchanged, so the page a reviewer loads is this file, and its local references must resolve within this directory."""
+    """Checks the app shell at its source: `copy_static` copies the `fingerprint.static_files` listing of rebuild/review/static/ byte for byte, so the page a reviewer loads is this file, and its local references must resolve within that listing."""
     parser = _HtmlSanity()
     parser.feed((STATIC_DIR / "index.html").read_text(encoding="utf-8"))
     assert parser.errors == []
     assert parser.stack == []
     assert parser.counts["main"] == 1
     assert parser.counts["h1"] == 1
+    served = fingerprint.static_files(STATIC_DIR)
     for reference in parser.references:
         if "//" in reference or reference.startswith(("#", "mailto:", "data:")):
             continue
         target = STATIC_DIR / reference.split("#")[0].split("?")[0]
-        assert target.exists(), f"dangling reference {reference}"
+        assert target in served, f"dangling reference {reference}"
 
 
 def test_node_check_passes_on_every_shipped_script():
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed on this machine")
-    scripts = sorted(STATIC_DIR.rglob("*.js"))
+    scripts = [path for path in fingerprint.static_files(STATIC_DIR) if path.suffix == ".js"]
     assert scripts
     for script in scripts:
         result = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
@@ -738,6 +739,29 @@ def test_the_refresh_assets_verb_copies_the_shipped_app(tmp_path):
         encoding="utf-8"
     )
     assert unit_index.index_is_current(corpus)
+
+
+def test_the_app_copy_and_the_static_component_leave_out_dotfiles(tmp_path):
+    """A `uv run` started in the app directory, or a `.DS_Store`, neither moves the `static` component nor reaches the served corpus, because `static_paths` and `copy_static` share one listing."""
+    root = tmp_path / "repo"
+    static = _fake_static_tree(root)
+    clean = fingerprint.hash_paths(root, fingerprint.static_paths(root))
+    (static / ".DS_Store").write_bytes(b"finder")
+    (static / ".uv-cache" / "sdists-v9").mkdir(parents=True)
+    (static / ".uv-cache" / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n")
+    (static / ".uv-cache" / "sdists-v9" / ".git").write_bytes(b"")
+
+    assert [path.relative_to(static).as_posix() for path in fingerprint.static_paths(root)] == [
+        "app.js",
+        "index.html",
+    ]
+    assert fingerprint.hash_paths(root, fingerprint.static_paths(root)) == clean
+    corpus = tmp_path / "corpus"
+    assert sorted(review_build.copy_static(corpus, static)) == ["app.js", "index.html"]
+    assert sorted(path.relative_to(corpus).as_posix() for path in corpus.rglob("*")) == [
+        "app.js",
+        "index.html",
+    ]
 
 
 def test_the_app_and_font_copies_never_leave_a_truncated_file_in_place(tmp_path, monkeypatch):

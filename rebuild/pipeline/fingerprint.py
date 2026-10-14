@@ -130,10 +130,18 @@ def review_code_paths(repo_root: Path) -> list[Path]:
     )
 
 
-def static_paths(repo_root: Path) -> list[Path]:
+def static_files(static_dir: Path) -> list[Path]:
+    """Return the review app's files under `static_dir`, sorted, leaving out any path with a dot-prefixed part below that directory: the `.uv-cache/` a `uv run` started there leaves behind, or a `.DS_Store`. No tracked app asset is a dotfile. `stage_b` and `rebuild.review.build.refresh_assets` hash this list, through `static_paths`, into the Stage B `static` component, and `rebuild.review.build.copy_static` copies the same list, so the recorded value and the served files name one set. Path parts are judged relative to `static_dir`, so a checkout under a dot directory keeps its files."""
+    static_dir = Path(static_dir)
     return sorted(
-        path for path in (Path(repo_root) / "rebuild" / "review" / "static").rglob("*") if path.is_file()
+        path
+        for path in static_dir.rglob("*")
+        if not any(part.startswith(".") for part in path.relative_to(static_dir).parts) and path.is_file()
     )
+
+
+def static_paths(repo_root: Path) -> list[Path]:
+    return static_files(Path(repo_root) / "rebuild" / "review" / "static")
 
 
 def _label(repo_root: Path, path: Path) -> str:
