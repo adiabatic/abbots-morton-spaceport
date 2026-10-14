@@ -521,7 +521,7 @@ def moved_inputs_note(record: dict | None, current: dict[str, str], limit: int =
 
 
 def m1_artifacts_present(root: Path = ROOT) -> bool:
-    """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries the skip re-evaluates the gate from, and the artifacts the corpus build reads. It is the plain skip's predicate only. A gates-only rerun writes two of those summaries, the audit and the Stage A record itself, so it is planned on what it reads instead (`m1_gates_only_base_present`)."""
+    """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries the skip re-evaluates the gate from, and the artifacts the corpus build reads. It is the plain skip's predicate only. Two of those summaries (manual_pins_summary.json and oracle_summary.json), the audit and the Stage A record are files a gates-only rerun writes without reading, so it is planned on what it reads instead (`m1_gates_only_base_present`)."""
     m1 = root / "rebuild" / "out" / "m1"
     names = [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + list(M1_ARTIFACT_NAMES)
     return all((m1 / name).exists() for name in names)

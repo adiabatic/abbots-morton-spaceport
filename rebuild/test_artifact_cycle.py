@@ -5877,7 +5877,7 @@ def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-divergences.
 
 
 def test_main_reruns_the_gates_when_only_comparison_side_inputs_moved(tmp_path, monkeypatch, capsys):
-    """When only a ledger changed, the pass re-runs the gates instead of rebuilding. The tables' stamp does not cover the changed file, so the enumeration and font on disk still match the runes, and `run_m1 --gates-only` re-runs the gates over them. The fixture's root has no rebuild/out/m1, so none of the files the rerun only writes is there (manual_pins_summary.json, oracle_summary.json, the audit and the Stage A record), more than a red rerun leaves missing, and the plan rests on what the rerun reads (`m1_gates_only_base_present`). No `--kernel-threads` or `--replay-threads` is passed, because this mode enumerates and replays nothing."""
+    """When only a ledger changed, the pass re-runs the gates instead of rebuilding. The tables' stamp does not cover the changed file, so the enumeration and font on disk still match the runes, and `run_m1 --gates-only` re-runs the gates over them. The fixture's root has no rebuild/out/m1, so every file the rerun only writes is missing (manual_pins_summary.json, oracle_summary.json, the audit and the Stage A record), a superset of what a red rerun leaves missing, and the plan rests only on what the rerun reads (`m1_gates_only_base_present`). No `--kernel-threads` or `--replay-threads` is passed, because this mode enumerates and replays nothing."""
     _comparison_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -5945,7 +5945,7 @@ def test_m1_stage_a_current_compares_the_record_against_the_live_sources(tmp_pat
 
 
 def test_main_rebuilds_when_run_m1_gates_only_would_refuse_the_build_on_disk(tmp_path, monkeypatch, capsys):
-    """A green record alone does not permit a gates-only rerun. It shows that the artifacts once came from a complete build of every build-side input; only the build on disk shows that none of those inputs has moved since and that the child's check over that build passes (`m1_gates_only_base_present`: the tables' stamp, M1.otf, pipeline_summary.json and the join tables). Without it the pass rebuilds."""
+    """A green record alone does not permit a gates-only rerun. It shows that a completed build over every build-side input once passed; only the build on disk shows that none of those inputs has moved since and that the child's check over that build passes (`m1_gates_only_base_present`: the tables' stamp, M1.otf, pipeline_summary.json and the join tables). Without it the pass rebuilds."""
     _comparison_side_drift(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "m1_gates_only_base_present", lambda: False)
     assert ac.main(["--dry-run"]) == 0

@@ -1467,7 +1467,7 @@ class TestGatesOnly:
         ]
 
     def test_a_comparison_side_diff_records_the_green_the_next_cycle_skips_on(self, monkeypatch, tmp_path):
-        """The prior green shows the tables and font on disk came from a completed build over every build-side input, the stamp shows none of those has changed since, and this pass re-runs the gates the changed inputs feed. Together these make the recorded green cover the new inputs, so the cycle after a ledger edit skips run_m1."""
+        """The prior green shows that a completed build over every build-side input passed, the stamp shows none of those inputs has changed since, so the deterministic tables and font on disk match that build's, and this pass re-runs the gates the changed inputs feed. Together these make the recorded green cover the new inputs, so the cycle after a ledger edit skips run_m1."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1513,7 +1513,7 @@ class TestGatesOnly:
         assert _checks() == []
 
     def test_no_prior_green_records_nothing_and_says_why(self, monkeypatch, tmp_path, capsys):
-        """A green here is a claim about artifacts this pass did not build, and without a prior green nothing shows those artifacts came from a completed build. The pass still runs and records its check line, which reports only how this invocation came out and does not let a later pass skip work."""
+        """A green here is a claim about artifacts this pass did not build, and without a prior green nothing shows that a completed build over every build-side input passed. The pass still runs and records its check line, which reports only how this invocation came out and does not let a later pass skip work."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
