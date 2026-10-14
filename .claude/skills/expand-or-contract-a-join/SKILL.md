@@ -40,10 +40,10 @@ Do not add `self:` / `then:` / `feature:` guards unless the user scoped the chan
 
 ## 4 — gates and commit
 
-Follow just-verdicted-now-what's steps 6–7. `make test` skips itself (`glyph_data/runes/` is exempt). Don't rebuild the review corpus; the user runs `make review-cycle` after the commit.
+Follow just-verdicted-now-what's steps 6–7, which end with the cycle pass, the commit, and telling the user where the landed corpus is served. `make test` skips itself (`glyph_data/runes/` is exempt). Don't rebuild the review corpus by hand; step 7's pass does.
 
 UNMATCHED rows are expected while the migration is in progress and do not fail the gate; `run_m1` exits with its gate's result. Green means defects 0/0, Manual pins clean, and `multi_matched` 0. New unmatched exemplars for this pair (`+en-con-1`, `+ex-ext-N`, position-mismatch) are the designed divergence. A new `E-CONTACT` / dangle in `defect_errors` needs a signature in `rebuild/m1-contact-allow.yaml` in the pattern of that file's existing signatures. When a cell variant already has one (the `qsGay.sole.en-y0.en-con-1` dangle from ·No), reuse that signature instead of copying it.
 
 Do not author a standing approval unless the user wants the review queue to stop asking. That is dont-bug-me-about-this-ever-again's job.
 
-The commit message names the letters and how the join looks (`Contract ·Key ~b~ ·Gay by a pixel`, `Extend ·Gay ~x~ ·J'ai by another pixel`). After it is committed, the user runs `make review-cycle`.
+The commit message names the letters and how the join looks (`Contract ·Key ~b~ ·Gay by a pixel`, `Extend ·Gay ~x~ ·J'ai by another pixel`).
