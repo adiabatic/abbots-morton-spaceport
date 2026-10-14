@@ -4,7 +4,7 @@ It is not part of the per-edit path because of its cost. On the live alphabet, a
 
 The walk runs in units, as the deep sweep does (`walk_units`): each settlement configuration once per alphabet symbol, over the texts that end in that symbol, each unit one `replay-strings` call of its own on one thread (`kernel_exec.replay_strings` with `last`). A `--families` walk narrows every unit to the texts naming those runes. Every window whose right slots reach a text's end names the unit's symbol, so a unit keeps that reuse within its memo, and only the windows a boundary cuts short before the text's end are settled again in each unit whose texts reach them. The units go to a pool of `replay_threads` at once: the machine's memory over `DEEP_REPLAY_PEAK_BYTES`, capped at its cores, so the walk is not held to one core per configuration, and each crate call walks a fraction of a configuration's texts, far inside its limit (`kernel_exec.replay_timeout`). Each configuration's counts merge over its units, and before anything is recorded its texts and skipped texts must sum to every text of its lengths (`run_m1.config_texts`), so a lost or doubled unit cannot pass as a green. A disagreement in any unit stops the units not yet started; the units already running finish, and every disagreement they found is reported. The check line's peak is the largest unit's crate process (`peak_rss.peak_rss_children_bytes`), not the sum of the units running at once.
 
-The green record (`cycle_paths.DEEP_REPLAY_GREEN`) stores every rune's prose-insensitive digest and one maximum length, the least depth any of its runes was walked to. A family walk deeper than the record therefore leaves it at the depth of the runes the walk carried over, and a shallower walk, or a deep sweep's refresh, over runes whose digests and structure stamp match the record keeps the deeper length; `artifact_cycle.record_deep_replay_green` states the rule, and the green line names the length the record holds when it differs from the walk's. The next walk covers the runes whose digest changed since, closed under `spec_load.rune_closure` (every rune whose records read a changed rune's content), which the window locality rule in `doc/rebuild-design.md` permits. That rule has one exception a narrowed walk must honor, the imported windows (§10): each configuration's table takes in the windows other configurations keep live, so a rune edit can reshape a configuration's rules for texts that name no edited rune. The record therefore stores the tables' imported windows (`artifact_cycle.tables_imports_digest`), and when they differ from the tables on disk, a walk without `--families` walks every text, the status reports it due, and a family walk carries no other rune's claim. A walk without `--families` or `--all` deeper than the record's maximum length (or over a record without one) walks every text instead, whether or not a rune moved, because only a walk over every text raises the record's depth; it says so before it starts. The record also stores the replay structure stamp, but the stamp never widens the walk: a code or structure change is for the deep sweep over every text, and the cycle's deep-sweep line reports it. The stamp only decides whether a walk keeps the record's deeper length for the runes it covers. A walk that finds a disagreement withdraws what the record claims for the runes it walked (`withdraw_walked`). After a family walk the status reports the walked runes due and the next bare walk covers them again; after a walk over every text, whether `--all` or a bare walk past the record's depth, the record is gone and the status reports `never-run`.
+The green record (`cycle_paths.DEEP_REPLAY_GREEN`) stores every rune's prose-insensitive digest and one maximum length, the least depth any of its runes was walked to. A family walk deeper than the record therefore leaves it at the depth of the runes the walk carried over, and a shallower walk, or a deep sweep's refresh, over runes whose digests and structure stamp match the record keeps the deeper length; `artifact_cycle.record_deep_replay_green` states the rule, and the green line names the length the record holds when it differs from the walk's. The next walk covers the runes whose digest changed since, closed under `spec_load.rune_closure` (every rune whose records read a changed rune's content), which the window locality rule in `doc/rebuild-design.md` permits. That rule has one exception a narrowed walk must honor, the imported windows (§10): each configuration's table takes in the windows other configurations keep live, so a rune edit can reshape a configuration's rules for texts that name no edited rune. The record therefore stores the tables' imported windows (`artifact_cycle.tables_imports_digest`), and when they differ from the tables on disk, a walk without `--families` walks every text, the status reports it due, and a family walk carries no other rune's claim. A walk without `--families` or `--all` deeper than the record's maximum length (or over a record without one, or with no record at all) walks every text instead, whether or not a rune moved, because only a walk over every text raises the record's depth, and with no record there is no last walk to cut a delta against; it says so before it starts. The record also stores the replay structure stamp, but the stamp never widens the walk: a code or structure change is for the deep sweep over every text, and the cycle's deep-sweep line reports it. The stamp only decides whether a walk keeps the record's deeper length for the runes it covers. A walk that finds a disagreement withdraws what the record claims for the runes it walked (`withdraw_walked`). After a family walk the status reports the walked runes due and the next bare walk covers them again; after a walk over every text, however it was chosen, the record is gone and the status reports `never-run`.
 
 Run as: uv run python -m rebuild.tools.deep_replay, or through `make replay-deep`. `--families` names the runes to walk instead of reading them from the record, at any depth. `--all` walks every text at any depth, which on the live alphabet takes minutes on the 18-core M5 Pro (`doc/fleet.md`). `--threads` sets how many units walk at once.
 """
@@ -202,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         "--horizon",
         type=int,
         default=DEEP_REPLAY_MAX_LENGTH_DEFAULT,
-        help=f"walk length (default {DEEP_REPLAY_MAX_LENGTH_DEFAULT}); anything at or below the build's own {CONFORM_MAX_LENGTH_DEFAULT} is refused, since every build already walks that depth. Without --families or --all, a length past the record's maximum length walks every text, because only that raises the record's depth",
+        help=f"walk length (default {DEEP_REPLAY_MAX_LENGTH_DEFAULT}); anything at or below the build's own {CONFORM_MAX_LENGTH_DEFAULT} is refused, since every build already walks that depth. Without --families or --all, a walk covers every text when there is no record, since there is no last walk to cut a delta against, or when its length is past the record's maximum length, since only that raises the record's depth",
     )
     parser.add_argument(
         "--families",
@@ -211,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="walk every text rather than the moved runes' texts, at any --max-length (a walk without it does so only past the record's maximum length); a run of minutes on the live alphabet",
+        help="walk every text rather than the moved runes' texts, at any --max-length (a walk without it does so only when there is no record, when the record holds no maximum length or a shorter one than this walk's, or when the tables' imported windows moved); a run of minutes on the live alphabet",
     )
     parser.add_argument(
         "--threads",
@@ -251,11 +251,13 @@ def main(argv: list[str] | None = None) -> int:
         unknown = [name for name in families if name not in spec.runes]
         if unknown:
             raise SystemExit(f"--families names runes this spec does not model: {', '.join(unknown)}")
+    elif record is None:
+        print(
+            "deep replay: there is no record to cut a delta against, so this walk covers every text",
+            flush=True,
+        )
+        families = None
     else:
-        if record is None:
-            raise SystemExit(
-                "no deep replay has been recorded yet, so there is no last walk to cut a delta against: name the runes with --families, or walk everything with --all"
-            )
         recorded = recorded_max_length(record)
         if not isinstance(recorded, int) or recorded < args.max_length:
             held = f"maximum length {recorded}" if isinstance(recorded, int) else "no maximum length"

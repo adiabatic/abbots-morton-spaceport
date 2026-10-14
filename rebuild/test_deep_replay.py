@@ -120,12 +120,29 @@ def test_a_stale_tables_stamp_is_refused(bench, monkeypatch):
         deep_replay.main([])
 
 
-def test_without_a_record_the_walk_needs_families_or_all(bench, monkeypatch):
+def test_without_a_record_a_bare_walk_walks_every_text_and_records_every_rune(bench, monkeypatch, capsys):
+    """With no record there is no last walk to cut a delta against, so the never-run note names the bare walk, and a bare walk says why it covers every text and records every rune at its depth, as `--all` does."""
     walked: list = []
     _stub_walk(monkeypatch, walked)
-    with pytest.raises(SystemExit, match="no deep replay has been recorded"):
-        deep_replay.main([])
-    assert "run `make replay-deep ARGS='--all --max-length 6'` once" in ac.deep_replay_status(bench, 6)[1]
+    status, note = ac.deep_replay_status(bench)
+    assert status == "never-run"
+    assert note.endswith("run `make replay-deep`, which walks every text")
+    assert "ARGS='--max-length 6'" in ac.deep_replay_status(bench, 6)[1]
+    assert deep_replay.main(["--threads", "2"]) == 0
+    assert walked == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, None)]
+    assert (
+        "there is no record to cut a delta against, so this walk covers every text" in capsys.readouterr().out
+    )
+    record = ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json")
+    assert record is not None
+    assert record["files"] == RUNES
+    assert record["max_length"] == ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT
+    assert ac.deep_replay_status(bench) == ("current", f"maximum length {ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT}")
+
+
+def test_without_a_record_a_family_walk_records_only_its_runes(bench, monkeypatch):
+    walked: list = []
+    _stub_walk(monkeypatch, walked)
     assert deep_replay.main(["--families", "qsTea", "--threads", "2"]) == 0
     assert walked == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, ["qsTea"])]
     record = ac.read_green_record(bench / "rebuild" / "out" / "deep-replay-green.json")

@@ -720,18 +720,17 @@ def deep_replay_green_path(root: Path | None = None) -> Path:
     return Path(root) / "rebuild" / "out" / "deep-replay-green.json"
 
 
-def _deep_replay_command(max_length: int, every_text: bool = False) -> str:
-    """Return the `make replay-deep` invocation that brings the deep replay current at `max_length`: with `--all` when `every_text`, and with `--max-length` when `max_length` is past the walk's default."""
-    args = ["--all"] if every_text else []
+def _deep_replay_command(max_length: int) -> str:
+    """Return the bare `make replay-deep` invocation that brings the deep replay current at `max_length`, with `--max-length` when `max_length` is past the walk's default."""
     if max_length > DEEP_REPLAY_MAX_LENGTH_DEFAULT:
-        args.append(f"--max-length {max_length}")
-    return f"`make replay-deep ARGS='{' '.join(args)}'`" if args else "`make replay-deep`"
+        return f"`make replay-deep ARGS='--max-length {max_length}'`"
+    return "`make replay-deep`"
 
 
 def deep_replay_status(
     root: Path | None = None, max_length: int = DEEP_REPLAY_MAX_LENGTH_DEFAULT
 ) -> tuple[str, str]:
-    """Return whether the deep replay is current for the runes and tables on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest, was walked over the tables' current imported windows (`tables_imports_digest`), and reached this depth or deeper. `due` names what moved since the recorded walk: the imported windows, the runes whose content changed, or the shallower depth it reached, and the `make replay-deep` that clears it at this depth. That is the bare walk at this depth, which walks every text when the imported windows moved or the record is shallower than it, since a walk over the moved runes alone carries the rest at the depth the record holds (`record_deep_replay_green`). `never-run` means there is no record, and names a walk over every text, since a bare walk needs a record to cut its delta against. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
+    """Return whether the deep replay is current for the runes and tables on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest, was walked over the tables' current imported windows (`tables_imports_digest`), and reached this depth or deeper. `due` names what moved since the recorded walk: the imported windows, the runes whose content changed, or the shallower depth it reached, and the `make replay-deep` that clears it at this depth. That is the bare walk at this depth, which walks every text when the imported windows moved or the record is shallower than it, since a walk over the moved runes alone carries the rest at the depth the record holds (`record_deep_replay_green`). `never-run` means there is no record `read_green_record` can read, and names the same bare walk at this depth, which walks every text because there is no last walk to cut a delta against. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
     from rebuild.pipeline import fingerprint
 
     root = ROOT if root is None else root
@@ -739,7 +738,7 @@ def deep_replay_status(
     if record is None:
         return (
             "never-run",
-            f"no deep replay has been recorded; run {_deep_replay_command(max_length, every_text=True)} once, overnight",
+            f"no deep replay has been recorded; run {_deep_replay_command(max_length)}, which walks every text",
         )
     moved = deep_replay_moved(record, fingerprint.rune_digests(root))
     recorded = recorded_max_length(record)
