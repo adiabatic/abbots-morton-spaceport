@@ -1,7 +1,7 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsJay E65F, qsYe E660, qsWay E661, qsHe E662, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
-# The driver runs every line under all eight acceptance configurations.
+# Codepoints: doc/glyph-names.md maps each letter to its codepoint; the others are space 0020, namer dot 00B7, and ZWNJ 200C.
+# The driver runs every line under every configuration in `coretext_smoke.FEATURE_CONFIGURATIONS`.
 #
 # The prototype probe rows, carried forward.
 E670                      # It in isolation
