@@ -128,7 +128,7 @@ ROWS = (
     # qsMay's baseline entry extension lists qsTea_qsOy as a trigger, which matches the old font's en-ext-1 in the baseline.
     ("qsTea qsOy qsMay", (), ("qsTea_qsOy.sole.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
     ("qsIt qsTea qsOy", (), ("qsIt.sole", "qsTea_qsOy.sole")),
-    # AUTHORED-DATA FINDING (generalized unaccepted-exit-unjoined): qsMay's declined exit before a following letter renders with the pulled-back unjoined binding, which is part of the cell identity.
+    # AUTHORED-DATA FINDING: an exit the follower does not accept settles unjoined, so qsMay's declined exit before a following letter renders with the pulled-back unjoined binding, which is part of the cell identity.
     ("qsMay qsTea qsOy", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea_qsOy.sole")),
     ("qsTea qsOy qsTea qsOy", (), ("qsTea_qsOy.sole", "qsTea_qsOy.sole")),
     (

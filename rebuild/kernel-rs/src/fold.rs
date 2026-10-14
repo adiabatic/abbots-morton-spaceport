@@ -957,7 +957,7 @@ fn assert_reachable_cells(
     ))
 }
 
-/// The hard build invariant (prototype follow-up 1 in `rebuild/M1-PLAN.md`): replays the reachable rows against the ordered rules under first-match-wins and requires the rules to predict every outcome settlement enumerated.
+/// The outcome-partition invariant, a hard build invariant (gate 7 in `rebuild/M1-PLAN.md`): replays the reachable rows against the ordered rules under first-match-wins and requires the rules to predict every outcome settlement enumerated.
 ///
 /// `lefts` is the reduction the rule fold returns: one representative of every committed left block plus every member of the boundary block. `None` replays every row, which only a small fixture can afford.
 ///
