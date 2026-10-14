@@ -809,8 +809,8 @@ class TableGates:
             self._packing.close()
 
 
-def run_ligature_outgoing(spec: ResolvedSpec, out_dir: Path = OUT_DIR) -> dict:
-    """Verify authored outgoing mappings over the loaded spec and keep the result with this build's tables."""
+def run_ligature_outgoing(spec: ResolvedSpec) -> None:
+    """Verify authored outgoing mappings over the loaded spec, and log the number of mappings and settled windows on the `[t] ligature_outgoing` line, so the build log shows how large a domain the check covered."""
     from rebuild.pipeline.ligature_outgoing_check import validate_ligature_outgoing
     from rebuild.pipeline.spec_load import DEFAULT_RUNES_DIR
 
@@ -820,10 +820,11 @@ def run_ligature_outgoing(spec: ResolvedSpec, out_dir: Path = OUT_DIR) -> dict:
         path.stem: yaml.safe_load(path.read_text()) for path in sorted(DEFAULT_RUNES_DIR.glob("*.yaml"))
     }
     summary = validate_ligature_outgoing(spec, rune_raws)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "ligature_outgoing_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    console.timing("ligature_outgoing", time.perf_counter() - start)
-    return summary
+    console.timing(
+        "ligature_outgoing",
+        time.perf_counter() - start,
+        f"mappings={summary['mappings']} windows={summary['windows']}",
+    )
 
 
 def run(
@@ -933,7 +934,6 @@ def _run_glyph_chain(
     all_glyphs = {**curs_glyphs, **dots}
     font_path = compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
     console.timing("compile_font", time.perf_counter() - start)
-    (out_dir / "M1.generated.fea").write_text(fea)
 
     console.phase("readback")
     start = time.perf_counter()
