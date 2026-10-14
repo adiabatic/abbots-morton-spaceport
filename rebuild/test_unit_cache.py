@@ -999,6 +999,32 @@ def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_corpus_never_rea
         previous = current
 
 
+def test_the_unit_store_survives_an_edit_to_a_tools_script_the_drafts_never_import(tmp_path):
+    """The `draft_harness` line hashes test/test_shaping.py and the tools/ modules it imports (`fingerprint.font_compile_tool_paths`, whose closure rebuild/test_build_code_closure.py checks), not the whole tools/ directory. So an edit to an old-font script no draft imports leaves the unit store valid, and an edit to a font-compile module drops it with a miss note that names `draft_harness`. The root is hand-built so the edits are to real files and the assertions are about the line, not this checkout."""
+    spec = fixtures.mini_spec()
+    root = _stamped_root(tmp_path)
+    for relative in ("tools/serve.py", "tools/glyph_compiler.py"):
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(f"RELATIVE = {relative!r}\n", encoding="utf-8")
+    out = tmp_path / "corpus"
+    out.mkdir()
+
+    def stamp() -> fingerprint.EnvironmentStamp:
+        return unit_cache.environment_stamp(
+            root, spec, MINI, MINI_FONT, MINI_FONT, "after-helpers", identical_classes=()
+        )
+
+    base = stamp()
+    unit_cache.write_store(out, base, [], parts=())
+    _edit(root, "tools/serve.py")
+    assert stamp().value == base.value
+    assert unit_cache.store_miss_note(out, stamp()) is None
+    _edit(root, "tools/glyph_compiler.py")
+    edited = stamp()
+    assert edited.value != base.value
+    assert unit_cache.store_miss_note(out, edited) == "the stamp moved at draft_harness (changed)"
+
+
 def _both_stamps(root: Path, spec) -> tuple[fingerprint.EnvironmentStamp, fingerprint.EnvironmentStamp]:
     return (
         unit_cache.environment_stamp(

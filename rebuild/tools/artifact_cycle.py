@@ -388,27 +388,12 @@ REBUILD_GATE_HARNESS_PATHS = (
     "site/index.html",
     "site/the-manual.html",
     "test/test_shaping.py",
-    "tools/audit_anchor_geometry.py",
-    "tools/build_check_html.py",
     "tools/build_font.py",
-    "tools/build_kerning_context_pairs.py",
     "tools/departure_mono_import.py",
-    "tools/extract_glyph.py",
     "tools/glyph_compiler.py",
-    "tools/inspect_join.py",
-    "tools/leak_classify.py",
-    "tools/leak_neighbor_filter_report.py",
-    "tools/leak_snapshot.py",
-    "tools/leak_static_analysis.py",
-    "tools/leak_verdict_reconcile.py",
     "tools/quikscript_fea.py",
     "tools/quikscript_ir.py",
     "tools/quikscript_join_analysis.py",
-    "tools/reflow_yaml.py",
-    "tools/review_scoped_anchor_selectors.py",
-    "tools/serve.py",
-    "tools/shape_sequences.py",
-    "tools/suggest_scoped_anchor_selectors.py",
 )
 
 
@@ -790,7 +775,7 @@ def deep_sweep_status(root: Path = ROOT, max_length: int = DEEP_SWEEP_MAX_LENGTH
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
     """Return every tracked or untracked-unignored repo file the rebuild pytest suite can read, the base of the suite's input closure. That is rebuild/ and glyph_data/ (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the carried-verdict evidence, the JS-only jstests, the review-facts pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness list REBUILD_GATE_HARNESS_PATHS. The harness list is what the suite reads outside those trees, and it is why the Markdown filter has an exception: the filter drops prose no test opens, but rebuild/test_review_enrich.py checks the corpus's letter table against doc/glyph-names.md.
 
-    The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and imports the tools/ compile modules. rebuild/review/drafts.build_corpus_index reads the same three corpora. The unit-cache environment stamp hashes tools/*.py whole, which is why the list has every tools/*.py file and not only the compile modules. rebuild/test_review_build.py checks the review corpus's feature descriptions against README.md's stylistic-set list.
+    The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and imports the tools/ compile modules. rebuild/review/drafts.build_corpus_index reads the same three corpora. The list's tools/ entries are the font compile's modules (`fingerprint.FONT_COMPILE_TOOL_MODULES`), the only tools/ files the suite opens: it reaches tools/ through the font compile and through test_shaping, whose import closure inside tools/ rebuild/test_build_code_closure.py holds within that list, and the unit-cache environment stamp hashes the same list. rebuild/test_review_build.py checks the review corpus's feature descriptions against README.md's stylistic-set list.
 
     The review-facts pins are exempt because the suite does not read them and the review-facts step rewrites them during the pass; including them would change the key of every pass that refreshes them. The allow-list is exempt because no test reads the live file (only a fake repo writes one), so a bless would re-run the whole suite for nothing. The divergence ledger and the standing approvals stay in, since tests read them, and `_closure_digest` gives them prose-insensitive hashes, so rewording a `why` or a `note` does not change the key while a structural edit does. None when git is unavailable, in which case the caller must run the gate.
     """

@@ -535,7 +535,7 @@ def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_p
 
 
 def test_a_font_compile_tool_edit_moves_the_run_key_and_the_tables_stamp(tmp_path):
-    """compile_font passes the mini font to tools/build_font.py, which runs the glyph compiler, the IR, and the FEA emitter, so an edit to that tools/ closure changes M1.otf. It must move `pipeline_code` (and with it the Stage A record and the corpus's stamp), the run_m1 skip key, and `tables_value` (and with it the conform sweep's check). The review unit cache's stamps use their own code lists (`unit_cache.corpus_code_paths`, `unit_cache.signature_code_paths`), which leave the font compile out because neither the corpus build nor the comparator runs it. The unit store's stamp still sees a tools/ edit through its draft-harness line, which hashes every tools/*.py."""
+    """compile_font passes the mini font to tools/build_font.py, which runs the glyph compiler, the IR, and the FEA emitter, so an edit to that tools/ closure changes M1.otf. It must move `pipeline_code` (and with it the Stage A record and the corpus's stamp), the run_m1 skip key, and `tables_value` (and with it the conform sweep's check). The review unit cache's stamps use their own code lists (`unit_cache.corpus_code_paths`, `unit_cache.signature_code_paths`), which leave the font compile out because neither the corpus build nor the comparator runs it. The unit store's stamp still sees an edit to this closure through its draft-harness line, which hashes `fingerprint.font_compile_tool_paths`."""
     root = _fake_repo(tmp_path)
     for name in ("build_font.py", "glyph_compiler.py"):
         assert root / "tools" / name in fingerprint.pipeline_code_paths(root)

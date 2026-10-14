@@ -4,7 +4,7 @@
 
 The reverse also holds: every entry on the list must be a module the driver reaches, so the list names only modules the gates run. The list is also checked against `oracle_cache.ORACLE_ROW_CODE_PATHS`, because a comparison-side module named there would drop the oracle row cache on every classifier edit for no benefit.
 
-`FONT_COMPILE_TOOL_MODULES` lists the tools/ modules the M1 font compile runs. `compile_font` passes the mini font to tools/build_font.py, so those modules can change M1.otf's bytes, and every stamp keyed on `pipeline_code_paths` must hash them. The list must equal the import closure inside tools/: a missing module is a font edit no key notices, and an extra one makes an edit to code the compile never runs trigger a rebuild. The walk follows tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting. It starts from every tools/ module the pipeline's Python imports, not only tools/build_font.py, so a pipeline module that starts importing another tools/ module directly fails this test. rebuild/test_verdict_update_closure.py does not follow imports into tools/ modules and relies on this check for them. rebuild/test_review_code_closure.py does not follow them either, but the corpus build reaches tools/ only through test/test_shaping.py, and the draft-harness line of `unit_cache.environment_stamp` hashes that file and every tools/*.py file. This check does not cover the rebuild/tools modules the pipeline imports, which `pipeline_code_paths` does not hash (rebuild/test_verdict_update_closure.py's docstring names some).
+`FONT_COMPILE_TOOL_MODULES` lists the tools/ modules the M1 font compile runs. `compile_font` passes the mini font to tools/build_font.py, so those modules can change M1.otf's bytes, and every stamp keyed on `pipeline_code_paths` must hash them. The list must equal the import closure inside tools/: a missing module is a font edit no key notices, and an extra one makes an edit to code the compile never runs trigger a rebuild. The walk follows tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting. It starts from every tools/ module the pipeline's Python imports, not only tools/build_font.py, so a pipeline module that starts importing another tools/ module directly fails this test. rebuild/test_verdict_update_closure.py does not follow imports into tools/ modules and relies on this check for them. rebuild/test_review_code_closure.py does not follow them either, but the corpus build reaches tools/ only through test/test_shaping.py, and the draft-harness line of `unit_cache.environment_stamp` hashes that file and `font_compile_tool_paths`, so a second check follows test_shaping's bare imports through tools/ and test/, both on `sys.path` when the drafter imports it, and holds everything it reaches within that file and this list. This check does not cover the rebuild/tools modules the pipeline imports, which `pipeline_code_paths` does not hash (rebuild/test_verdict_update_closure.py's docstring names some).
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ BUILD_DRIVER = PIPELINE / "run_m1.py"
 BUILD_ENTRY = "run"
 TOOLS = REPO_ROOT / "tools"
 FONT_COMPILE_ENTRY = TOOLS / "build_font.py"
+TEST_DIR = REPO_ROOT / "test"
+TEST_SHAPING = TEST_DIR / "test_shaping.py"
 
 
 def _module_path(module: str) -> Path | None:
@@ -97,32 +99,37 @@ def _tools_imports(tree: ast.AST) -> set[str]:
     return found
 
 
+def _siblings(path: Path, directories: tuple[Path, ...] = (TOOLS,)) -> set[Path]:
+    """Return the modules the file imports by bare name from the given `sys.path` directories. A name resolves only against <directory>/<head>.py, so stdlib, third-party, and `rebuild.*` imports are dropped. A name found in more than one directory yields every match, whatever the `sys.path` order."""
+    found: set[Path] = set()
+    for name in _tools_imports(ast.parse(path.read_text(encoding="utf-8"))):
+        for directory in directories:
+            sibling = directory / f"{name.split('.')[0]}.py"
+            if sibling.is_file():
+                found.add(sibling)
+    return found
+
+
 def _tools_entry_points() -> set[Path]:
     """Return the tools/ modules the pipeline's Python imports, at any nesting and including `if TYPE_CHECKING:` blocks. rebuild/pipeline/compile_font.py puts tools/ on `sys.path`, so a bare name resolves against tools/<head>.py the same way a tools/ sibling's does."""
     entries: set[Path] = set()
     for path in fingerprint.pipeline_code_paths(REPO_ROOT):
         if path.suffix != ".py" or path.parent == TOOLS:
             continue
-        for name in _tools_imports(ast.parse(path.read_text(encoding="utf-8"))):
-            sibling = TOOLS / f"{name.split('.')[0]}.py"
-            if sibling.is_file():
-                entries.add(sibling)
+        entries |= _siblings(path)
     return entries
 
 
-def _font_compile_closure() -> set[Path]:
-    """Return the tools/ modules reachable by import from every tools/ module the pipeline imports. A name resolves only against tools/<head>.py, so stdlib, third-party, and `rebuild.*` imports are dropped. `pipeline_code_paths` hashes rebuild/pipeline and rebuild/validation whole but not rebuild/tools, so a `rebuild.tools` module that tools/build_font.py imports is in no `fingerprint` component."""
+def _sibling_closure(entries: set[Path], directories: tuple[Path, ...] = (TOOLS,)) -> set[Path]:
+    """Return the modules in the given `sys.path` directories reachable by bare import from the given modules, themselves included. `rebuild.*` imports are dropped: `pipeline_code_paths` hashes rebuild/pipeline and rebuild/validation whole but not rebuild/tools, so a `rebuild.tools` module that tools/build_font.py imports is in no `fingerprint` component."""
     seen: set[Path] = set()
-    queue = sorted(_tools_entry_points())
+    queue = sorted(entries)
     while queue:
         path = queue.pop()
         if path in seen:
             continue
         seen.add(path)
-        for name in _tools_imports(ast.parse(path.read_text(encoding="utf-8"))):
-            sibling = TOOLS / f"{name.split('.')[0]}.py"
-            if sibling.is_file():
-                queue.append(sibling)
+        queue.extend(_siblings(path, directories))
     return seen
 
 
@@ -133,7 +140,7 @@ def test_the_font_compile_roster_is_the_import_closure_of_what_the_pipeline_name
     assert (
         FONT_COMPILE_ENTRY in entries
     ), "no pipeline module imports tools/build_font.py; the walk has no entry point"
-    reached = {path.name for path in _font_compile_closure()}
+    reached = {path.name for path in _sibling_closure(entries)}
     assert reached == set(fingerprint.FONT_COMPILE_TOOL_MODULES), (
         "FONT_COMPILE_TOOL_MODULES is no longer the import closure inside tools/ of what the pipeline imports from "
         f"tools/ ({', '.join(sorted(path.name for path in entries))}): the walk reaches {', '.join(sorted(reached))}, "
@@ -144,6 +151,22 @@ def test_the_font_compile_roster_is_the_import_closure_of_what_the_pipeline_name
     assert (
         strays == []
     ), f"FONT_COMPILE_TOOL_MODULES names files that are not under tools/: {', '.join(strays)}"
+
+
+def test_the_draft_harness_imports_only_what_the_unit_store_stamp_hashes():
+    """The approval drafter (`drafts._import_test_shaping`) and rebuild/validation/pins.py put test/ on `sys.path` to import test/test_shaping.py, which puts tools/ there too, so the walk resolves its bare imports against both directories. `unit_cache.environment_stamp`'s draft-harness line hashes that file and `fingerprint.font_compile_tool_paths`, not the rest of tools/ and no other test/ module, so everything the walk reaches must be one of those files; `artifact_cycle.REBUILD_GATE_HARNESS_PATHS` relies on the same containment."""
+    reached = _sibling_closure({TEST_SHAPING}, (TOOLS, TEST_DIR))
+    assert reached - {
+        TEST_SHAPING
+    }, "test/test_shaping.py imports no tools/ or test/ module, so this check would be vacuous"
+    hashed = {TEST_SHAPING, *fingerprint.font_compile_tool_paths(REPO_ROOT)}
+    outside = sorted(path.relative_to(REPO_ROOT).as_posix() for path in reached - hashed)
+    assert outside == [], (
+        f"test/test_shaping.py reaches modules the unit store's draft-harness line does not hash: {', '.join(outside)}. "
+        "An edit to one of them would change a draft without dropping the store. Either the import has to go, or the "
+        "harness line in rebuild/review/unit_cache.py and artifact_cycle.REBUILD_GATE_HARNESS_PATHS have to name these "
+        "modules too."
+    )
 
 
 def test_the_font_compile_roster_is_included_in_both_the_run_record_and_the_tables_stamp():

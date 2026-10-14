@@ -5236,10 +5236,12 @@ def test_every_harness_file_moves_the_contracts_key(tmp_path):
         previous = current
 
 
-def test_the_harness_roster_names_the_whole_tools_tree():
-    """The harness roster names each tools/*.py file instead of using a glob, because the closure is assembled from git pathspecs and a glob would also pick up any other file added under tools/. The roster must still cover every tools/*.py, because `unit_cache.environment_stamp` hashes them and the contracts tests that build a store recompute that stamp. This test fails when a script is added there and not to the roster."""
+def test_the_harness_roster_names_the_font_compile_modules_in_tools():
+    """The harness roster's tools/ entries are exactly the font compile's modules. The suite reaches tools/ only through the font compile and test/test_shaping.py, whose import closure there rebuild/test_build_code_closure.py holds within that list, and `unit_cache.environment_stamp`, which the contracts tests that build a store recompute, hashes the same list. This test fails when the list changes and the roster does not."""
+    from rebuild.pipeline import fingerprint
+
     assert {rel for rel in ac.REBUILD_GATE_HARNESS_PATHS if rel.startswith("tools/")} == {
-        f"tools/{path.name}" for path in (REPO_ROOT / "tools").glob("*.py")
+        f"tools/{name}" for name in fingerprint.FONT_COMPILE_TOOL_MODULES
     }
 
 
