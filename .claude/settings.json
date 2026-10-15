@@ -20,6 +20,16 @@
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -n \"$CLAUDE_ENV_FILE\" ]; then printf \"export UV_CACHE_DIR='%s/.uv-cache'\\n\" \"$CLAUDE_PROJECT_DIR\" >> \"$CLAUDE_ENV_FILE\"; fi"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",

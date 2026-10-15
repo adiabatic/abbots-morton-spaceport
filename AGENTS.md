@@ -79,6 +79,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 ## Python
 
 - IMPORTANT: Always `uv run`, never bare `python`, `python3`, or `pytest`. `[tool.uv] cache-dir` in `pyproject.toml` keeps the cache inside the repo so sandboxes can write it.
+  - uv resolves that `cache-dir` against the working directory, so a `uv run` started in a subdirectory starts a separate cache there. A Claude Code session gets `UV_CACHE_DIR` pinned to the checkout root's `.uv-cache` by the `SessionStart` hook in `.claude/settings.json`; any other agent runs `uv` from the repository root.
 - IMPORTANT: Never single-thread the test suite; the worksteal pool is many times faster than a serial run.
   - Run the whole suite with `make test`. Run any multi-file selection with:
 
