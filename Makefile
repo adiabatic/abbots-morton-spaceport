@@ -78,13 +78,19 @@ artifact-cycle:
 	uv run python rebuild/tools/artifact_cycle.py $(ARGS)
 
 # Runs the artifact cycle, then serves the corpus. The cycle's land puts the carried and filled verdicts into the autosave with the new corpus, so no browser import is needed. A failed cycle starts no server.
-# A review server started from this checkout keeps running through every pass: the pass builds beside the served corpus and lands the corpus and the store together, and the open tabs move onto them by themselves. The cycle restarts a server running older code on the working tree's code. --stop-server matters only for a server from before the land protocol, which the cycle stops once when the pass writes under it. The serve step below binds the port only when nothing already holds it.
+# A review server started from this checkout keeps running through every pass: the pass builds beside the served corpus and lands the corpus and the store together, and the open tabs move onto them by themselves. The cycle restarts a server running older code on the working tree's code. --stop-server matters only for a server from before the land protocol, which the cycle stops once when the pass writes under it. The serve step below binds the port only when nothing already holds it. When a server for another checkout holds it, the recipe names that checkout (`python -m rebuild.tools.review_server`) instead of saying the server kept running, and exits non-zero unless SERVE=0, because this checkout's corpus is not served.
 # SERVE=0 runs the same cycle and prints the start command instead of serving when no server is up, so the target exits. Non-interactive callers need this: served in the foreground, the recipe never exits and the caller never sees the cycle summary as a finished command. A server that was already up is still up. Either way, var/build-logs/latest/ holds the plan, a byte copy of the terminal, and one log per step, so a caller that did not watch the terminal can read the run afterward.
 # SERVE=bg exits and leaves the server running. The server module has no daemon flag, so the recipe detaches it with nohup (log in tmp/review-serve.log), and it outlives the shell that started it, including an agent harness's shell, which is killed after each command. The recipe waits up to 30 s for the port to answer before it returns, so the server row of the readiness checklist, which the cycle leaves to this recipe, is already true when it returns. Stop it the way the cycle does, with pkill -f 'rebuild\.review\.serve'.
 review-cycle:
 	uv run python rebuild/tools/artifact_cycle.py --stop-server $(ARGS)
 	@if lsof -ti tcp:7294 -sTCP:LISTEN >/dev/null 2>&1; then \
-		printf '\nThe review server kept running through this pass, so the open review tab kept working.\n'; \
+		other=$$(uv run python -m rebuild.tools.review_server) || exit 1; \
+		if [ -n "$$other" ]; then \
+			printf '\nA review server for another checkout (%s) holds port 7294, so this checkout'\''s corpus is not served. Stop that server, then:\n    make review-serve\n' "$$other"; \
+			[ "$(SERVE)" = "0" ] || exit 1; \
+		else \
+			printf '\nThe review server kept running through this pass, so the open review tab kept working.\n'; \
+		fi; \
 	elif [ "$(SERVE)" = "0" ]; then \
 		printf '\nThe review server was left stopped (SERVE=0). To look at the letters:\n    make review-serve\n'; \
 	elif [ "$(SERVE)" = "bg" ]; then \

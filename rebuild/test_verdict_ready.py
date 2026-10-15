@@ -1284,6 +1284,7 @@ def test_aligned_empty_autosave_warns_toward_the_fullest_verdicts_file(tmp_path)
 
 
 def _readiness(repo, **kwargs):
+    kwargs.setdefault("other_root", lambda root: None)
     return verdict_ready.readiness(
         repo_root=repo,
         review_dir=repo / "rebuild" / "out" / "review",
@@ -1312,6 +1313,17 @@ def test_readiness_adds_the_server_row_and_gates_ready_on_it(tmp_path):
     lines = verdict_ready.checklist(result, ready)
     assert "  ✓ server: listening on port 7294" in lines
     assert lines[-1] == f"READY - adjudicate at {verdict_ready.QUEUE_URL}"
+
+
+def test_readiness_fails_the_server_row_for_a_server_that_serves_another_checkout(tmp_path):
+    setup_green(tmp_path)
+    result, ready = _readiness(tmp_path, listening=lambda: True, other_root=lambda root: "/elsewhere")
+    assert ready is False
+    assert result["checks"]["server"]["level"] == "fail"
+    lines = verdict_ready.checklist(result, ready)
+    assert "  ✗ server: a review server for another checkout (/elsewhere) holds port 7294" in lines
+    assert "      remedy: stop that checkout's review server, then make review-serve" in lines
+    assert lines[-1] == "NOT READY"
 
 
 def test_readiness_without_the_server_row_answers_for_the_corpus_alone(tmp_path):

@@ -1,4 +1,4 @@
-"""Check whether the review server is listening on its port, ask it what it is (`capabilities`), and ask it to tell its open tabs to reload. The cycle driver checks before a pass and reads /capabilities to decide whether the server can keep running through it, merge_verdicts checks before it writes the store, and verdict-ready reports it in its checklist. The cycle sends the reload (`force_reload`) after it changes what the server serves. The check is a separate module because merge_verdicts runs inside the verdict update, whose green key hashes the verdict update's import closure. Importing the check from the driver would put the driver, the timings journal, and the memory-budget and peak-RSS modules into that closure, so an edit to any of them, which cannot change a verdict, would re-run the whole verdict update. `VERDICT_UPDATE_TOOL_MODULES` in rebuild/tools/artifact_cycle.py lists that closure, and rebuild/test_verdict_update_closure.py checks the list against the import graph."""
+"""Check whether the review server is listening on its port, ask it what it is (`capabilities`), and ask it to tell its open tabs to reload. The cycle driver checks before a pass and reads /capabilities to decide whether the server can keep running through it, merge_verdicts checks before it writes the store, and verdict-ready reports it in its checklist, where a server that serves another checkout (`other_checkout_root`) fails the row. `make review-cycle` asks the same question after its pass (`main`), so it never says such a server kept running through the pass. The cycle sends the reload (`force_reload`) after it changes what the server serves. The check is a separate module because merge_verdicts runs inside the verdict update, whose green key hashes the verdict update's import closure. Importing the check from the driver would put the driver, the timings journal, and the memory-budget and peak-RSS modules into that closure, so an edit to any of them, which cannot change a verdict, would re-run the whole verdict update. `VERDICT_UPDATE_TOOL_MODULES` in rebuild/tools/artifact_cycle.py lists that closure, and rebuild/test_verdict_update_closure.py checks the list against the import graph."""
 
 from __future__ import annotations
 
@@ -8,8 +8,10 @@ import socket
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 from rebuild.review.serve import PORT as REVIEW_PORT
+from rebuild.review.serve import REPO_ROOT
 
 FORCE_RELOAD_TIMEOUT_S = 2.0
 CAPABILITIES_TIMEOUT_S = 2.0
@@ -44,3 +46,23 @@ def capabilities(port: int = REVIEW_PORT) -> dict | str | None:
     except OSError, ValueError, http.client.HTTPException:
         return None
     return answer if isinstance(answer, dict) else None
+
+
+def other_checkout_root(root: Path, port: int = REVIEW_PORT) -> str | None:
+    """Return the repo root the review server on `port` names in its /capabilities answer when that root is not `root`, or None: nothing answers, the server predates /capabilities, or it serves `root`."""
+    answer = capabilities(port)
+    named = answer.get("root") if isinstance(answer, dict) else None
+    if not isinstance(named, str) or Path(named).resolve() == root.resolve():
+        return None
+    return named
+
+
+def main() -> None:
+    """Print the root of the checkout the listening review server serves when it is not this one, and nothing otherwise."""
+    other = other_checkout_root(REPO_ROOT)
+    if other is not None:
+        print(other)
+
+
+if __name__ == "__main__":
+    main()

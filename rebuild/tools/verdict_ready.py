@@ -1,6 +1,6 @@
 """Print whether the review corpus is ready to adjudicate now.
 
-It runs `rebuild.review.status.compute_status` over the production paths, adds a check that the review server is listening on port 7294, and prints a checklist, or the status dict as JSON under `--json`. It exits 0 only when every blocking check passes and the server is up, so it can serve as a Makefile guard. The artifact cycle calls `readiness` and `checklist` to print the same checklist at the end of every green pass that is not a staging pass, so this CLI is for asking the question between passes.
+It runs `rebuild.review.status.compute_status` over the production paths, adds a check that a review server for this checkout is listening on port 7294 (one that names another checkout as its root fails it), and prints a checklist, or the status dict as JSON under `--json`. It exits 0 only when every blocking check passes and this checkout's server is up, so it can serve as a Makefile guard. The artifact cycle calls `readiness` and `checklist` to print the same checklist at the end of every green pass that is not a staging pass, so this CLI is for asking the question between passes.
 """
 
 import argparse
@@ -10,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from rebuild.review import status
-from rebuild.tools.review_server import server_listening
+from rebuild.tools.review_server import other_checkout_root, server_listening
 
 ROOT = Path(__file__).resolve().parents[2]
 REVIEW_DIR = ROOT / "rebuild" / "out" / "review"
@@ -32,6 +32,7 @@ def readiness(
     cycle_summary_path: Path = CYCLE_SUMMARY_PATH,
     recompute: Callable | None = None,
     listening: Callable[[], bool] = server_listening,
+    other_root: Callable[[Path], str | None] = other_checkout_root,
 ) -> tuple[dict, bool]:
     """Return the status dict and whether the whole checklist passes. `with_server=False` leaves out the server row. The artifact cycle passes it at the end of a `make review-cycle` pass, because the recipe restarts the server afterwards, or reports that it left it down, and a row read earlier would report as absent a server that is about to start."""
     result = status.compute_status(
@@ -40,7 +41,14 @@ def readiness(
     if not with_server:
         return result, bool(result["ready"])
     up = listening()
-    if up:
+    other = other_root(repo_root) if up else None
+    if other is not None:
+        server_check = {
+            "level": "fail",
+            "detail": f"a review server for another checkout ({other}) holds port 7294",
+            "remedy": "stop that checkout's review server, then make review-serve",
+        }
+    elif up:
         server_check = {"level": "ok", "detail": "listening on port 7294", "remedy": None}
     else:
         server_check = {
@@ -49,7 +57,7 @@ def readiness(
             "remedy": "make review-serve",
         }
     result["checks"]["server"] = server_check
-    return result, bool(result["ready"]) and up
+    return result, bool(result["ready"]) and up and other is None
 
 
 def checklist(result: dict, overall_ready: bool) -> list[str]:
