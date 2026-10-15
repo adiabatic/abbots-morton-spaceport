@@ -76,7 +76,7 @@ make verdict-ready
 
 ## 6 — commit and hand off
 
-Show the diff, present the sub-agent's commit-message candidates, wait for the go-ahead, and commit everything as the single `Add ·X` commit. Afterward the user runs `make review-cycle` and adjudicates the new units in a review session. `/prepare-review-queue` prepares the session, and `/just-verdicted-now-what` acts on its verdicts. The batch closes when its review session closes, and only then is its progress file deleted.
+Show the diff, present the sub-agent's commit-message candidates, wait for the go-ahead, and commit everything as the single `Add ·X` commit. Step 5's `make artifact-cycle` already landed the corpus with the new units, so no further pass runs. After committing, tell the user where that corpus is served, by what the pass reported about the review server (`doc/review-cycle.md` § The server and the pass): a review server from this checkout keeps running, and its open tabs move onto the corpus by themselves; one for another checkout has to be stopped before `make review-serve` can serve this checkout's corpus; and when none was listening, as the closing checklist's `server` row reports, `make review-serve` serves it. The user then adjudicates the new units in a review session. `/prepare-review-queue` prepares the session, and `/just-verdicted-now-what` acts on its verdicts. The batch closes when its review session closes, and only then is its progress file deleted.
 
 ## The bundled evidence tool
 
