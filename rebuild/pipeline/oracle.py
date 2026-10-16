@@ -163,7 +163,7 @@ class OracleConfigResult:
 
 @dataclass(frozen=True)
 class OracleRowCache:
-    """The row cache settings one oracle run passes to each configuration, so each can read the previous pass's verdicts and stage this pass's. The parent computes the stamps and family keys once, before the first row is compared, and passes them to the workers. A worker that re-read the rune tree could see files edited mid-run, which is the race `run_m1_gates.run_oracle` checks for again at promotion. `position_environment` and `position_keys` are the position store's stamp and keys, computed from the font the same way; without them no position verdict is served. `read_dir` is where a promoted store lives and `write_dir` is where a new one is staged, and either may be None. A pass that may read but not write (`--gates-only`, which recompiles nothing and so may not write a build input) leaves `write_dir` None and sets a nonzero `rotation`: the pass ordinal advances only when a store is written, so the rotation is what moves the scheduled re-derivation and the verification sample on such a pass (see `oracle_cache.RowStore`)."""
+    """The row cache settings one oracle run passes to each configuration, so each can read the previous pass's verdicts and stage this pass's. The parent computes the stamps and family keys once, before the first row is compared, and passes them to the workers. A worker that re-read the rune tree could see files edited mid-run, which is the race `run_m1_gates.run_oracle` checks for again at promotion. `position_environment` and `position_keys` are the position store's stamp and keys, computed from the font the same way; without them no position verdict is served. `read_dir` is where a promoted store lives and `write_dir` is where a new one is staged, and either may be None. A pass that may read but not write (`--gates-only`, which recompiles nothing and so may not write a build input) leaves `write_dir` None, which opens its stores read-only and so skips the scheduled re-derivation (`open_row_cache`), and sets a nonzero `rotation`: the pass ordinal advances only when a store is written, so the rotation is what moves the verification samples on such a pass (see `oracle_cache.RowStore`)."""
 
     environment: Mapping[str, oracle_cache.EnvironmentStamp]
     family_keys: Mapping[str, str]
@@ -183,7 +183,7 @@ def open_row_cache(
     first_row: int = 0,
     stop_row: int | None = None,
 ) -> tuple["oracle_cache.RowStore | None", "oracle_cache.RowWriter | None"]:
-    """Return this configuration's loaded store, holding the records of rows `[first_row, stop_row)`, and the writer for its successor, or Nones without a cache. Both oracle paths call this, so they open the pair the same way. The subset digest is read from the stamp's `subset` line instead of hashing the table again. A range of a cut configuration passes its `segment` and row bounds: it stages a segment writer (records only, with no header or trailer) for `oracle_cache.join_store_segments` to join, and loads only its own rows. Every range reads the same store header, so all ranges agree on the pass ordinal the joined header records."""
+    """Return this configuration's loaded store, holding the records of rows `[first_row, stop_row)`, and the writer for its successor, or Nones without a cache. Both oracle paths call this, so they open the pair the same way. The subset digest is read from the stamp's `subset` line instead of hashing the table again. A range of a cut configuration passes its `segment` and row bounds: it stages a segment writer (records only, with no header or trailer) for `oracle_cache.join_store_segments` to join, and loads only its own rows. Every range reads the same store header, so all ranges agree on the pass ordinal the joined header records. A cache with no `write_dir` keeps nothing it derives, so it loads its store read-only, which skips the scheduled re-derivation (`oracle_cache.RowStore`)."""
     if cache is None:
         return None, None
     stamp = cache.environment[config]
@@ -201,6 +201,7 @@ def open_row_cache(
             cache.position_keys,
             first_row=first_row,
             stop_row=stop_row,
+            read_only=cache.write_dir is None,
         )
     writer = None
     if cache.write_dir is not None:

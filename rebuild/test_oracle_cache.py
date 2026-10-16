@@ -558,7 +558,7 @@ def _store_at(tmp_path: Path, repo: Path, spec, pass_ordinal: int, ages, name: s
 
 
 def test_a_record_older_than_the_age_cap_is_re_derived(repo, tmp_path):
-    """No verdict may stand for `MAX_RECORD_AGE` passes without being recomputed, whatever its families did. This bounds how long a wrong record can survive in a store that otherwise re-writes it unchanged on every pass. Two clauses enforce it. The ordinal clause re-derives one row in `MAX_RECORD_AGE` on every pass, so the whole table is re-derived within that many passes and the scheduled re-derivation is spread out. The age clause catches a record whose pass ordinals skipped."""
+    """No verdict may stand for `MAX_RECORD_AGE` passes without being recomputed, whatever its families did. This bounds how long a wrong record can survive in a store that otherwise re-writes it unchanged on every pass. Two clauses enforce it. The ordinal clause re-derives one row in `MAX_RECORD_AGE` on every pass that writes a store, so the whole table is re-derived within that many passes and the scheduled re-derivation is spread out. The age clause catches a record whose pass ordinals skipped."""
     spec = fixtures.mini_spec()
     rows = 2 * oracle_cache.MAX_RECORD_AGE
     fresh = [1] * rows
@@ -581,46 +581,71 @@ def test_a_record_older_than_the_age_cap_is_re_derived(repo, tmp_path):
     assert not mixed.due(3)
 
 
-def test_a_read_only_pass_rotates_its_scheduled_re_derivation(repo, tmp_path):
-    """A read-only pass does not change the ordinal on disk, so without rotation every such pass would re-derive the same rows and draw the same verification sample. Rotation moves both, and `MAX_RECORD_AGE` rotations still cover the table exactly once. Rotation must not change the age arithmetic: a rotated current ordinal would read every record as past the cap and re-derive the whole table, which would remove the saving the store provides."""
+def test_a_read_only_pass_skips_the_scheduled_re_derivation_and_rotates_only_its_samples(repo, tmp_path):
+    """A read-only pass keeps nothing it re-derives, so it skips the ordinal clause and measures each record's age against the ordinal the store was written at. It still re-derives a row recorded at `UNCOVERED_AGE` and a record already past the cap, but serves the record the next writing pass takes by age (row 8 here), which, once a store has been written `MAX_RECORD_AGE` times, is the one row in `MAX_RECORD_AGE` that pass also re-derives on schedule. What it serves is the same whatever its rotation, so `positions_served` does not move with the clock. The rotation still moves the ordinal the verification samples are drawn against, and never the age arithmetic, where a rotated ordinal would read every record as past the cap."""
     spec = fixtures.mini_spec()
     rows = 2 * oracle_cache.MAX_RECORD_AGE
-    stamp = _stamp(repo, spec)
-    keys = _keys(repo, spec)
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position_keys, position_stamp = _position(repo, spec, MINI_FONT)
+    row_ages = {5: oracle_cache.UNCOVERED_AGE, 6: 10, 8: 11}
+    position_ages = {7: 10, 9: 11}
     path = tmp_path / "read-only.tsv.gz"
-    with oracle_cache.RowWriter(path, stamp, "subset-digest", 3, keys) as writer:
+    with oracle_cache.RowWriter(
+        path, stamp, "subset-digest", 30, keys, position_stamp, position_keys
+    ) as writer:
         for index in range(rows):
-            writer.append((PEA, PEA + index), None, 3)
+            writer.append(
+                (PEA, PEA + index),
+                None,
+                row_ages.get(index, 30),
+                position_at_pass=position_ages.get(index, 30),
+            )
 
-    def opened(rotation: int) -> oracle_cache.RowStore:
-        store = oracle_cache.load_store(path, stamp, "subset-digest", spec, keys, rotation)
+    def answers(store: oracle_cache.RowStore) -> tuple[set[int], set[int], set[int]]:
+        assert store.pass_ordinal == 30
+        due = {index for index in range(rows) if store.due(index)}
+        position_due = {index for index in range(rows) if store.position_due(index)}
+        refused = {
+            index
+            for index in range(rows)
+            if not store.position_servable(index, store.mask.mask_of((PEA, PEA + index)))
+        }
+        return due, position_due, refused
+
+    def opened(rotation: int, read_only: bool) -> oracle_cache.RowStore:
+        store = oracle_cache.load_store(
+            path,
+            stamp,
+            "subset-digest",
+            spec,
+            keys,
+            rotation,
+            position_stamp,
+            position_keys,
+            read_only=read_only,
+        )
         assert store is not None
-        assert store.pass_ordinal == 3
         return store
 
-    covered: set[int] = set()
     ordinals: set[int] = set()
-    for rotation in range(oracle_cache.MAX_RECORD_AGE):
-        store = opened(rotation)
-        due = {index for index in range(rows) if store.due(index)}
-        assert len(due) == rows // oracle_cache.MAX_RECORD_AGE
-        assert due.isdisjoint(covered)
-        covered |= due
+    for rotation in (1, 2, 1_000_003):
+        store = opened(rotation, read_only=True)
+        assert answers(store) == ({5, 6}, {7}, {7})
+        assert store.coverage_ordinal == 31 + rotation
         ordinals.add(store.coverage_ordinal)
-    assert covered == set(range(rows))
-    assert len(ordinals) == oracle_cache.MAX_RECORD_AGE
+    assert len(ordinals) == 3
 
-    distant = opened(1_000_003)
-    due = {index for index in range(rows) if distant.due(index)}
-    assert len(due) == rows // oracle_cache.MAX_RECORD_AGE
+    writing = opened(0, read_only=False)
+    scheduled = _due_rows(rows, 30)
+    assert answers(writing) == ({5, 6, 8} | scheduled, {7, 9} | scheduled, {7, 9} | scheduled)
 
 
 def test_servable_answers_both_staleness_tests_at_once(repo):
-    """The oracle's scan asks `servable` once per row in place of `stale` and `position_stale`, so it must answer what those are defined to: a row is stale where a family it reaches moved or `due` holds, and its position is stale where the row is, where the position stamp or a position key it reaches moved, or where `position_due` holds. The grid takes every rotation, so the ordinal clause lands on every row, beside both age clauses, a moved row key, a moved position key, a moved position stamp, and a row recorded at `UNCOVERED_AGE`, which no pass may serve."""
+    """The oracle's scan asks `servable` once per row in place of `stale` and `position_stale`, so it must answer what those are defined to: a row is stale where a family it reaches moved or `due` holds, and its position is stale where the row is, where the position stamp or a position key it reaches moved, or where `position_due` holds. The grid writes the store at every pass ordinal modulo `MAX_RECORD_AGE`, so the ordinal clause lands on every row, and opens each one both as a writing pass and as a read-only pass, which skips that clause and measures ages against the store's own ordinal. Beside it are both age clauses on either kind of pass, a moved row key, a moved position key, a moved position stamp, and a row recorded at `UNCOVERED_AGE`, which no pass may serve."""
     spec = fixtures.mini_spec()
     stamp, keys = _stamp(repo, spec), _keys(repo, spec)
     position_keys, position_stamp = _position(repo, spec, MINI_FONT)
-    rows = ((PEA,), (TEA,), (OY,), (PEA, TEA), (TEA, OY), (PEA, OY), (PEA,), (TEA,))
+    rows = ((PEA,), (TEA,), (OY,), (PEA, TEA), (TEA, OY), (PEA, OY), (PEA,), (TEA,), (OY, PEA), (TEA, PEA))
     ages = (
         (30, 30),
         (11, 30),
@@ -630,13 +655,9 @@ def test_servable_answers_both_staleness_tests_at_once(repo):
         (25, 29),
         (29, 25),
         (30, 30),
+        (10, 30),
+        (30, 10),
     )
-    path = repo / "store.tsv.gz"
-    with oracle_cache.RowWriter(
-        path, stamp, "subset-digest", 30, keys, position_stamp, position_keys
-    ) as writer:
-        for codepoints, (age, position_age) in zip(rows, ages):
-            writer.append(codepoints, None, age, None, position_age)
     moved_stamp = oracle_cache.EnvironmentStamp(lines=position_stamp.lines[:-1] + ("kern\tanother",))
     variants = (
         (keys, position_stamp, position_keys),
@@ -645,24 +666,42 @@ def test_servable_answers_both_staleness_tests_at_once(repo):
         (keys, moved_stamp, position_keys),
     )
     answers: set[int] = set()
-    for rotation in range(oracle_cache.MAX_RECORD_AGE):
-        for row_keys, environment, current in variants:
-            store = oracle_cache.load_store(
-                path, stamp, "subset-digest", spec, row_keys, rotation, environment, current
-            )
-            assert store is not None
-            for index, codepoints in enumerate(rows):
-                mask = store.mask.mask_of(codepoints)
-                row_stale = store.mask.stale(mask) or store.due(index)
-                position_stale = row_stale or store.position_mask.stale(mask) or store.position_due(index)
-                answer = store.servable(index, mask)
-                assert answer == (
-                    oracle_cache.SERVE_NOTHING
-                    if row_stale
-                    else oracle_cache.SERVE_ROW if position_stale else oracle_cache.SERVE_BOTH
+    for shift in range(oracle_cache.MAX_RECORD_AGE):
+        path = repo / f"store-{shift}.tsv.gz"
+        with oracle_cache.RowWriter(
+            path, stamp, "subset-digest", 30 + shift, keys, position_stamp, position_keys
+        ) as writer:
+            for codepoints, recorded in zip(rows, ages):
+                age, position_age = (
+                    value if value == oracle_cache.UNCOVERED_AGE else value + shift for value in recorded
                 )
-                answers.add(answer)
-            assert store.servable(4, store.mask.mask_of(rows[4])) == oracle_cache.SERVE_NOTHING
+                writer.append(codepoints, None, age, None, position_age)
+        for read_only in (False, True):
+            for row_keys, environment, current in variants:
+                store = oracle_cache.load_store(
+                    path,
+                    stamp,
+                    "subset-digest",
+                    spec,
+                    row_keys,
+                    0,
+                    environment,
+                    current,
+                    read_only=read_only,
+                )
+                assert store is not None
+                for index, codepoints in enumerate(rows):
+                    mask = store.mask.mask_of(codepoints)
+                    row_stale = store.mask.stale(mask) or store.due(index)
+                    position_stale = row_stale or store.position_mask.stale(mask) or store.position_due(index)
+                    answer = store.servable(index, mask)
+                    assert answer == (
+                        oracle_cache.SERVE_NOTHING
+                        if row_stale
+                        else oracle_cache.SERVE_ROW if position_stale else oracle_cache.SERVE_BOTH
+                    )
+                    answers.add(answer)
+                assert store.servable(4, store.mask.mask_of(rows[4])) == oracle_cache.SERVE_NOTHING
     assert answers == {oracle_cache.SERVE_NOTHING, oracle_cache.SERVE_ROW, oracle_cache.SERVE_BOTH}
 
 
@@ -1460,7 +1499,7 @@ def test_a_store_whose_row_stamp_moved_holds_only_each_record_s_position_part(re
 
 
 def _due_rows(rows: int, pass_ordinal: int) -> set[int]:
-    """The rows the ordinal clause of `RowStore.due` takes on the pass after `pass_ordinal`."""
+    """The rows the ordinal clause of `RowStore.due` takes on the writing pass after `pass_ordinal`."""
     after = pass_ordinal + 1
     return {
         index

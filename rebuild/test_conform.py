@@ -1624,7 +1624,7 @@ def _font_edited(source: Path, target: Path, touches) -> Path:
 
 
 def _cache_rederived(rows: int, pass_ordinal: int) -> set[int]:
-    """The rows this pass re-derives regardless of their families: the ordinal clause of `RowStore.due`, which re-derives one row in every `MAX_RECORD_AGE` rows on each pass, so no verdict goes that many passes without being recomputed. This is why no test below expects every row to be served."""
+    """The rows this pass re-derives regardless of their families: the ordinal clause of `RowStore.due`, which re-derives one row in every `MAX_RECORD_AGE` rows on each pass that writes a store, so no verdict goes that many writing passes without being recomputed. This is why no test below of a writing pass expects every row to be served."""
     current = pass_ordinal + 1
     return {
         index
@@ -1722,6 +1722,7 @@ class TestOracleRowCache:
         font: Path | None = None,
         kern: Path | None = None,
         position=None,
+        rotation: int = 0,
     ):
         out = tmp_path / name
         scratch = tmp_path / f"{name}-scratch"
@@ -1733,6 +1734,7 @@ class TestOracleRowCache:
                 keys,
                 read_dir=read_dir,
                 write_dir=scratch if write else None,
+                rotation=rotation,
                 position_environment=position_stamp,
                 position_keys=position_keys,
             )
@@ -1791,6 +1793,43 @@ class TestOracleRowCache:
         } == rederived | excluded
         assert {index for index, age in enumerate(_cache_ages(store)) if age == 1} == rederived
         assert {index for index, tag in enumerate(_cache_position_tags(store)) if tag == "?"} == excluded
+
+    def test_a_pass_that_writes_no_store_serves_every_row_its_keys_allow(self, spec, tmp_path, monkeypatch):
+        """A pass that writes no store (`--gates-only`) keeps nothing it re-derives, so it skips the scheduled re-derivation: it serves every row and every position its keys allow and writes the cold pass's audit. What it serves is the same whatever its clock rotation, so `positions_served` is the same from one such pass to the next."""
+        tables, aliases, ledger, stamps, configs, rows = self._position_bench(spec, tmp_path)
+        keys = self._keys(spec)
+        position = oracle_cache.position_keys(REPO_ROOT, keys, MINI / "M1.otf", None)
+        shared: dict[str, Any] = dict(
+            tables=tables, aliases=aliases, ledger=ledger, stamps=stamps, keys=keys, configs=configs
+        )
+        shared.update(font=MINI / "M1.otf", position=position)
+
+        _cold, cold_audit, cold_stores = self._pass(spec, tmp_path, "cold", **shared)
+        excluded = _excluded_from_the_position_comparison(cold_audit, len(rows))
+        assert _cache_rederived(len(rows), 0) - excluded
+
+        served: set[int] = set()
+        real = oracle_cache.RowStore.serve
+
+        def spy(store, index, codepoints):
+            served.add(index)
+            return real(store, index, codepoints)
+
+        monkeypatch.setattr(oracle_cache.RowStore, "serve", spy)
+        for rotation in (1, 2):
+            served.clear()
+            report, audit, _stores = self._pass(
+                spec,
+                tmp_path,
+                f"read-only-{rotation}",
+                read_dir=cold_stores,
+                write=False,
+                rotation=rotation,
+                **shared,
+            )
+            assert audit.read_bytes() == cold_audit.read_bytes()
+            assert served == set(range(len(rows)))
+            assert report.positions_served == len(rows) - len(excluded)
 
     def test_a_served_position_comparison_that_disagrees_with_harfbuzz_is_a_hard_stop(
         self, spec, tmp_path, monkeypatch

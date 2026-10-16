@@ -28,7 +28,7 @@ Keying by settled window instead of by row was measured and rejected. A settled 
 
 Records are positional and carry no row key: the subset table is the complete product over the M1 alphabet in canonical order, so the ordinal is the key. Each record starts with a row check digest (`row_check_digest`), a digest prefix of its row's codepoints that is checked on every serve, and then the settled digest. A store whose alignment was checked only by a whole-file digest and a row count would serve every row wrong with no error if the table changed under it; the row check digest makes that an abort. `baseline_glyphs`, `baseline_junctions` and `codepoints` are read from the table instead of stored, to keep the store small.
 
-Two mechanisms stop a wrong record from being served indefinitely. They are needed because a served record is written again under the current stamp, so its provenance never ages it out, and `gate:conform` checks the font against a fresh settlement but never compares a cached verdict with a fresh one. First, each record keeps the pass at which each of its two verdicts was derived, not the pass that last wrote it, and `RowStore.due` and `RowStore.position_due` force a re-derivation once that age reaches `MAX_RECORD_AGE`. The scheduled re-derivation is spread by row ordinal, so one row in `MAX_RECORD_AGE` re-derives on every pass instead of the whole table on one pass. Second, `VerificationSample` draws up to `VERIFICATION_SAMPLE_PER_FAMILY` served rows for every family that served any, seeded on the stamp, the family and the pass's coverage ordinal, so the checked rows change from pass to pass. A pass that writes no store, such as `--gates-only`, advances that ordinal by the clock (see `RowStore`). The caller re-derives the sampled rows and compares whole records, and a second sample of the same shape re-shapes the rows whose positions were served. Because every family that served rows is sampled, a family whose records are all wrong is always caught, not with probability equal to the sample size over the rows served. A rune edited during a run produces that kind of error.
+Two mechanisms stop a wrong record from being served indefinitely. They are needed because a served record is written again under the current stamp, so its provenance never ages it out, and `gate:conform` checks the font against a fresh settlement but never compares a cached verdict with a fresh one. First, each record keeps the pass at which each of its two verdicts was derived, not the pass that last wrote it, and `RowStore.due` and `RowStore.position_due` force a re-derivation once that age reaches `MAX_RECORD_AGE`. The scheduled re-derivation is spread by row ordinal, so one row in `MAX_RECORD_AGE` re-derives on every pass that writes a store instead of the whole table on one pass. A pass that writes no store, such as `--gates-only`, keeps nothing it re-derives, so it skips the scheduled re-derivation and still re-derives a row recorded at `UNCOVERED_AGE` or past the cap (`RowStore`). Second, `VerificationSample` draws up to `VERIFICATION_SAMPLE_PER_FAMILY` served rows for every family that served any, seeded on the stamp, the family and the pass's coverage ordinal, so the checked rows change from pass to pass. A pass that writes no store advances that ordinal by the clock. The caller re-derives the sampled rows and compares whole records, and a second sample of the same shape re-shapes the rows whose positions were served. Because every family that served rows is sampled, a family whose records are all wrong is always caught, not with probability equal to the sample size over the rows served. A rune edited during a run produces that kind of error.
 
 The key relies on one assumption that nothing else in the pipeline checks: every old compiled glyph name in a row belongs to a family the row's codepoints reach, so the alias entries a served row used are inside its own key. `unreachable_glyph_heads` checks it. Its answer depends only on the subset row and the registry, which the whole-store stamp covers, so the check runs when a pass that writes a store derives a row, not when a row is served: a row that fails it is recorded at `UNCOVERED_AGE`, which every later pass under the same stamp finds due.
 
@@ -492,7 +492,9 @@ def decode_position(line: str) -> tuple[PositionVerdict, int]:
 class RowStore:
     """One row range's part of a configuration's loaded store: the records of rows `[first_row, first_row + len(ages))`, held as one buffer and three packed arrays (each record's offset into the buffer and its two ages), indexed by `index - first_row`, so a worker holds only its own range's records. Every method takes the row's absolute ordinal in the table, so a cut configuration's ranges are self-contained segments of one store (rebuild/pipeline/oracle.py). An index outside the range raises instead of serving another row's record, since Python's arrays would otherwise read a negative index from the end. `rows` is the table's row count, not the range's. When it is not given it is the range's end, which is the table's count when the range runs to the table's end. The oracle treats an index at or above `rows` as fresh (`oracle._compare_config`), so a range given its own length as the count would re-derive every row above its range and write a store an uncut pass never writes. Only the rows a pass serves are decoded, and the staleness scan reads only the age arrays, never the buffer. A store whose row stamp moved serves no row verdict, so its buffer holds only each record's position part (`_position_part`) and `row_verdicts_held` is False, which makes `serve` raise.
 
-    `rotation` is set by a pass that will not write a store. The scheduled re-derivation and the verification sample both advance with the pass ordinal, and the ordinal advances only when a store is written. A read-only pass run repeatedly, which is how `--gates-only` is used when rerunning the gates after a ledger edit, would otherwise re-derive the same rows and check the same sample every time. A writing pass leaves this at zero and uses its own ordinal. A read-only pass sets it from the clock, so the rows covered change even when nothing on disk does.
+    `read_only` and `rotation` are set by a pass that will not write a store. Such a pass keeps nothing it re-derives, so a scheduled re-derivation would correct only its own audit, and it skips the ordinal clause. Because it records no ordinal of its own it measures each record's age against `pass_ordinal`, the ordinal the store was written at, rather than the one a writing pass records: measured against that one, the age clause would take the rows the next writing pass re-derives on schedule. Its age clause still takes a row recorded at `UNCOVERED_AGE` and a record already past the cap.
+
+    The verification samples advance with the pass ordinal, and the ordinal advances only when a store is written. A read-only pass run repeatedly, which is how `--gates-only` is used when rerunning the gates after a ledger edit, would otherwise check the same samples every time. A writing pass leaves `rotation` at zero and uses its own ordinal. A read-only pass sets it from the clock, so the rows its samples check change even when nothing on disk does.
     """
 
     def __init__(
@@ -512,6 +514,7 @@ class RowStore:
         first_row: int = 0,
         rows: int | None = None,
         row_verdicts_held: bool = True,
+        read_only: bool = False,
     ) -> None:
         self.environment = environment
         self.recorded_lines = recorded_lines
@@ -520,6 +523,8 @@ class RowStore:
         self.pass_ordinal = pass_ordinal
         self.mask = mask
         self.rotation = rotation
+        self.read_only = read_only
+        self._after = pass_ordinal if read_only else pass_ordinal + 1
         self.served = 0
         self.positions_served = 0
         self._blob = blob
@@ -566,16 +571,16 @@ class RowStore:
 
     @property
     def coverage_ordinal(self) -> int:
-        """The ordinal the scheduled re-derivation and the verification sample are drawn against. It equals `pass_ordinal + 1`, the ordinal the writer records, except on a pass that writes nothing (see `rotation`)."""
+        """The ordinal the verification samples are drawn against. It equals `pass_ordinal + 1`, the ordinal the writer records, except on a pass that writes nothing (see `rotation`)."""
         return self.pass_ordinal + 1 + self.rotation
 
     def _due(self, index: int, age: int) -> bool:
-        if self.pass_ordinal + 1 - age >= MAX_RECORD_AGE:
+        if self._after - age >= MAX_RECORD_AGE:
             return True
-        return self.coverage_ordinal % MAX_RECORD_AGE == index % MAX_RECORD_AGE
+        return not self.read_only and self._after % MAX_RECORD_AGE == index % MAX_RECORD_AGE
 
     def due(self, index: int) -> bool:
-        """Whether this row's verdict must be re-derived regardless of its families. The ordinal clause selects one row in `MAX_RECORD_AGE` on every pass, so no verdict stands that many passes and the scheduled re-derivation is spread across passes. The age clause is a second check that catches a store whose pass ordinals skipped, and it holds on every pass for a row recorded at `UNCOVERED_AGE`. Only the ordinal clause uses the rotated ordinal. The age arithmetic uses the true one, because a rotated ordinal would make every record look older than the cap and re-derive the whole table."""
+        """Whether this row's verdict must be re-derived regardless of its families. The ordinal clause selects one row in `MAX_RECORD_AGE` on every pass that writes a store, so no verdict stands that many writing passes and the scheduled re-derivation is spread across them. A read-only pass skips it (see `read_only`). The age clause is a second check that catches a store whose pass ordinals skipped, and it holds on every pass for a row recorded at `UNCOVERED_AGE`. Neither clause reads `rotation`, which moves only the verification samples: a rotated ordinal in the age arithmetic would make every record look older than the cap and re-derive the whole table."""
         return self._due(index, self._ages[self._at(index)])
 
     def position_due(self, index: int) -> bool:
@@ -587,10 +592,9 @@ class RowStore:
         if self.mask.stale(mask):
             return SERVE_NOTHING
         at = self._at(index)
-        after = self.pass_ordinal + 1
-        if (
-            after - self._ages[at] >= MAX_RECORD_AGE
-            or (after + self.rotation) % MAX_RECORD_AGE == index % MAX_RECORD_AGE
+        after = self._after
+        if after - self._ages[at] >= MAX_RECORD_AGE or (
+            not self.read_only and after % MAX_RECORD_AGE == index % MAX_RECORD_AGE
         ):
             return SERVE_NOTHING
         if self.position_mask.stale(mask) or after - self._position_ages[at] >= MAX_RECORD_AGE:
@@ -609,10 +613,10 @@ class RowStore:
         """Whether this row's stored position verdict may be served after its row verdict has been derived again, provided the fresh settled stream has the digest the record holds (`settled`): no family the row reaches moved its position key, the position stamp holds, and `position_due` does not hold. The oracle asks this of the rows `servable` refuses outright, which on a pass whose row stamp moved is every row and on any other pass includes a row due only for its row age or recorded at `UNCOVERED_AGE`, and the module docstring argues why the settled digest stands in for the row key there."""
         if self.position_mask.stale(mask):
             return False
-        after = self.pass_ordinal + 1
+        after = self._after
         return not (
             after - self._position_ages[self._at(index)] >= MAX_RECORD_AGE
-            or (after + self.rotation) % MAX_RECORD_AGE == index % MAX_RECORD_AGE
+            or (not self.read_only and after % MAX_RECORD_AGE == index % MAX_RECORD_AGE)
         )
 
     def settled(self, index: int) -> str:
@@ -698,8 +702,9 @@ def load_store(
     *,
     first_row: int = 0,
     stop_row: int | None = None,
+    read_only: bool = False,
 ) -> RowStore | None:
-    """Return the previous pass's records for rows `[first_row, stop_row)` of one configuration (`stop_row` None means the table's end), or `None` when the store cannot be trusted: absent, unreadable, format-mismatched, stamp-mismatched in a `POSITION_ROW_STAMP_LABELS` line, written against another subset table, or missing its row-count trailer, and when its row stamp moved and `position_stale_mask` makes every position stale, because the position stamp moved, a moved family is one the registry cannot place, or the pass has no position stamp or keys (no font): such a store could serve nothing, and a pass that loads no store walks the same rows without holding its records. A store whose row stamp moved only in other lines loads with every row stale (`StaleMask.everything`), so that only its position verdicts can be served (`RowStore.position_servable`). `None` costs one uncached oracle pass, so every parse failure returns `None`, including `zlib.error`, which a corrupt deflate body raises instead of `OSError`. A range that starts and ends on one segment of a joined store inflates that segment alone (`_indexed_records`), after checking the file's header member against the header line read here, and every segment's bytes and the trailer against the store's member index. Any other range, and every range of a store with no index (an uncut configuration's, or one the index does not describe), reads the file to its end: the trailer is the last line and holds the count the store is checked against, and every record's two ages are parsed in range or out. Both reads load a store only when it is the one its writer wrote, so all ranges of one configuration agree on whether the store loads. Only the range's records are kept, in one buffer with three packed arrays. When the row stamp moved, each record is cut to its position part as it is read (`_position_part`), so the range holds the row check digests, settled digests, position verdicts and ages a walk over every row reads, and none of the row verdicts it derives again. A range whose kept bytes exceed the packed offsets' width returns `None` like any other parse failure. Where the row stamp holds, the position stamp and keys do not affect loading: `position_stale_mask` decides which position verdicts may be served. `rotation` is passed to the store unread; see `RowStore`."""
+    """Return the previous pass's records for rows `[first_row, stop_row)` of one configuration (`stop_row` None means the table's end), or `None` when the store cannot be trusted: absent, unreadable, format-mismatched, stamp-mismatched in a `POSITION_ROW_STAMP_LABELS` line, written against another subset table, or missing its row-count trailer, and when its row stamp moved and `position_stale_mask` makes every position stale, because the position stamp moved, a moved family is one the registry cannot place, or the pass has no position stamp or keys (no font): such a store could serve nothing, and a pass that loads no store walks the same rows without holding its records. A store whose row stamp moved only in other lines loads with every row stale (`StaleMask.everything`), so that only its position verdicts can be served (`RowStore.position_servable`). `None` costs one uncached oracle pass, so every parse failure returns `None`, including `zlib.error`, which a corrupt deflate body raises instead of `OSError`. A range that starts and ends on one segment of a joined store inflates that segment alone (`_indexed_records`), after checking the file's header member against the header line read here, and every segment's bytes and the trailer against the store's member index. Any other range, and every range of a store with no index (an uncut configuration's, or one the index does not describe), reads the file to its end: the trailer is the last line and holds the count the store is checked against, and every record's two ages are parsed in range or out. Both reads load a store only when it is the one its writer wrote, so all ranges of one configuration agree on whether the store loads. Only the range's records are kept, in one buffer with three packed arrays. When the row stamp moved, each record is cut to its position part as it is read (`_position_part`), so the range holds the row check digests, settled digests, position verdicts and ages a walk over every row reads, and none of the row verdicts it derives again. A range whose kept bytes exceed the packed offsets' width returns `None` like any other parse failure. Where the row stamp holds, the position stamp and keys do not affect loading: `position_stale_mask` decides which position verdicts may be served. `rotation` and `read_only` are passed to the store unread; see `RowStore`."""
     store_file = Path(path)
     if not store_file.is_file():
         return None
@@ -780,6 +785,7 @@ def load_store(
         first_row=first_row,
         rows=seen,
         row_verdicts_held=rows_hold,
+        read_only=read_only,
     )
 
 
