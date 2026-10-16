@@ -1531,7 +1531,7 @@ class TestGatesOnly:
         assert _checks() == []
 
     def test_no_prior_green_records_nothing_and_says_why(self, monkeypatch, tmp_path, capsys):
-        """A green here is a claim about artifacts this pass did not build, and without a prior green nothing shows that a completed build over every build-side input passed. The pass still runs and records its check line, which reports only how this invocation came out and does not let a later pass skip work."""
+        """A green here is a claim about artifacts this pass did not build, and without a prior green nothing shows that a completed build over every build-side input passed, and a failed run never vouches for the artifacts it left. The pass still runs and records its check line, which reports only how this invocation came out and does not let a later pass skip work."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1542,23 +1542,25 @@ class TestGatesOnly:
         assert "there is no prior green M1 build for this pass to stand on" in capsys.readouterr().out
         assert [check["outcome"] for check in _checks()] == ["green"]
 
+    @pytest.mark.parametrize("build_side", ["uv.lock", "glyph_data/runes/qsWay.yaml"])
     def test_a_build_side_input_among_the_moved_records_nothing_and_names_it(
-        self, monkeypatch, tmp_path, capsys
+        self, monkeypatch, tmp_path, capsys, build_side
     ):
-        """uv.lock pins fontTools and uharfbuzz, so a bump there can change the compiled font's bytes and how HarfBuzz shapes them, and a font built by another toolchain must not be reused. The printed line names the build-side input, so it is clear without a diff that a full build is needed."""
+        """A build-side input that moved since the last green keeps the pass from recording one. uv.lock is outside the tables' stamp and pins fontTools and uharfbuzz, so a bump there can change the compiled font's bytes and how HarfBuzz shapes them, and a font built by another toolchain must not be reused. A rune is inside the stamp, so tables stamped with the moved rune come from a build over it that left no green, such as one that went red at a comparison gate, and a failed run never vouches for the artifacts it left. The printed line names the input and holds in both cases, so it is clear without a diff that a full build is needed."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
         store = self._green(
             monkeypatch,
             tmp_path,
-            files={"uv.lock": "bumped", "rebuild/m1-aliases.yaml": "after"},
-            prior={"uv.lock": "pinned", "rebuild/m1-aliases.yaml": "before"},
+            files={build_side: "after", "rebuild/m1-aliases.yaml": "after"},
+            prior={build_side: "before", "rebuild/m1-aliases.yaml": "before"},
         )
         self._gates(monkeypatch, ran)
         run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert (
-            "run_m1: green, but this pass recorded no green — these inputs are build-side, so the artifacts on disk are not the ones they describe: uv.lock"
+            "run_m1: green, but this pass recorded no green — these build-side inputs moved since the last green M1 build, and a failed run never vouches for the artifacts it left, so only a full build can record a green over them: "
+            + build_side
             in capsys.readouterr().out
         )
         record = ac.read_green_record(store)

@@ -5992,7 +5992,7 @@ def test_main_rebuilds_when_run_m1_gates_only_would_refuse_the_build_on_disk(tmp
 
 
 def test_main_rebuilds_when_anything_build_side_moved(tmp_path, monkeypatch, capsys):
-    """One moved build-side label forces a rebuild, whatever comparison-side labels moved with it: the artifacts on disk were built from sources that no longer exist, and re-running the gates over them would evaluate a font built from the previous runes."""
+    """One moved build-side label forces a rebuild, whatever comparison-side labels moved with it, even over a build on disk that `m1_gates_only_base_present` accepts. The last green covers no build over the moved sources, so the artifacts on disk come either from the previous sources or from a build over these that left no green, and a failed run never vouches for the artifacts it left."""
     _comparison_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsX.yaml")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -6316,8 +6316,10 @@ def test_do_run_m1_nonzero_exit_overrides_passing_summaries(monkeypatch, tmp_pat
 @pytest.mark.parametrize("mode", ["full", "gates-only", "skip"])
 @pytest.mark.parametrize("key", ["fp-live", "fp-unrelated"])
 def test_do_run_m1_missing_summaries_clear_only_matching_green(monkeypatch, tmp_path, mode, key):
+    """The cycle reads the gate that stopped a run only from a full build's own summaries. A stale pipeline_summary.json carrying defect errors, which a skip and a gates-only child keep, is never read as this run's red, so every mode files the missing-summaries reason, and that red clears only a green its key matches."""
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
+    files["pipeline"].write_text(json.dumps({"defect_errors": ["E-CONTACT stale"]}))
     green = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
     ac.record_green(green, key, files={"rebuild/m1-divergences.yaml": "d1"})
@@ -9522,6 +9524,72 @@ def test_do_run_m1_records_a_red_when_no_summaries_were_written(monkeypatch, tmp
     (line,) = ct.load_checks(timings.path)
     assert (line["check"], line["outcome"], line["status"]) == ("run_m1", "red", "FAILED (no summaries)")
     assert line["failures"] == ac._run_m1_reasons(None)
+
+
+@pytest.mark.parametrize("stopped_at", ["defects", "pins", "after-the-pins", "killed-mid-write"])
+def test_do_run_m1_names_the_gate_that_stopped_a_full_build(monkeypatch, tmp_path, capsys, stopped_at):
+    """A full build exits at the defect gate before the Manual-pin gate writes its summary, and at the pin gate before the oracle writes its own, so the summaries it wrote name the gate that failed, and the cycle files the red under that gate's failure rather than as a run that did not complete. A build that stopped after a passing pin gate names no gate, and one killed while it wrote a summary leaves one that does not parse; both keep the missing-summaries reason."""
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
+    green = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
+    ac.record_green(green, "fp-live")
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: pytest.fail("red recomputed inputs"))
+    timings = CycleTimings(tmp_path / "timings.ndjson")
+
+    def child(name, argv, **kwargs):
+        if stopped_at == "killed-mid-write":
+            files["pipeline"].write_text('{"defect_errors": ["E-CONT')
+            return _step(name, -9)
+        defect_errors = ["E-CONTACT qsAh~qsBay: ink collision"] if stopped_at == "defects" else []
+        files["pipeline"].write_text(json.dumps({"defect_errors": defect_errors}))
+        if stopped_at != "defects":
+            failed = stopped_at == "pins"
+            files["manual_pins"].write_text(
+                json.dumps(
+                    {
+                        "pass": not failed,
+                        "disagreements": ["x"] if failed else [],
+                        "pins_in_scope": 143,
+                        "replayed": 143,
+                    }
+                )
+            )
+        return _step(name, 1)
+
+    gate = ac._do_run_m1(
+        ac.CycleReport(),
+        spawn=child,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        argv=["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"],
+        record=True,
+        fingerprint="fp-live",
+        timings=timings,
+    )
+
+    assert not green.exists()
+    (line,) = ct.load_checks(timings.path)
+    out = capsys.readouterr().out
+    if stopped_at in ("after-the-pins", "killed-mid-write"):
+        assert gate is None
+        assert (line["outcome"], line["status"]) == ("red", "FAILED (no summaries)")
+        assert line["failures"] == ac._run_m1_reasons(None)
+        assert "did not complete" in out
+        return
+    expected = {
+        "defects": ["1 defect-gate error(s): E-CONTACT qsAh~qsBay: ink collision"],
+        "pins": ["Manual-pin gate failed (1 disagreements)"],
+    }[stopped_at]
+    assert gate is not None and not gate.ok
+    assert gate.failures == expected == ac._run_m1_reasons(gate)
+    assert (line["check"], line["outcome"], line["status"], line["failures"]) == (
+        "run_m1",
+        "red",
+        "FAILED",
+        expected,
+    )
+    assert "did not complete" not in out
 
 
 def test_a_cycle_without_timings_still_evaluates_every_gate(monkeypatch):

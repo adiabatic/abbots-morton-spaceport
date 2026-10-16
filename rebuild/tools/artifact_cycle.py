@@ -491,7 +491,7 @@ def comparison_side_label(label: str) -> bool:
 def gates_only_rerun(record: dict | None, current: dict[str, str]) -> list[str] | None:
     """Return the labels that changed since the last green M1 build when every one is comparison-side, and None otherwise. The cycle uses this to plan a gates-only rerun, and the pass uses it to decide whether it may record a green. None means no gates-only rerun in three cases: there is no green record, nothing changed (the plain skip's case), or a build-side input changed and the tables must be rebuilt.
 
-    The rerun is sound only with a second check. The prior green shows a completed build over every build-side input passed, and the tables' stamp shows none of those inputs has changed since, so the deterministic build on disk matches the one that passed. The plan checks the stamp with the rest of what the rerun reads (`m1_gates_only_base_present`). The cycle records a gates-only child's green on the prior green and on the stamp, checked before and after the child (`m1_tables_stamped` in `_do_run_m1`), and a standalone `--gates-only` pass checks the stamp through `run_m1_gates.gates_only_base`.
+    The rerun is sound only with a second check. The prior green shows a completed build over every build-side input passed, and the tables' stamp shows none of those inputs has changed since, so the deterministic build on disk matches the one that passed. Only a green record vouches for a build: a failed run never vouches for the artifacts it left, even one that went red only at a comparison gate over tables stamped with its own inputs. Nothing `run_m1_gates.gates_only_base` reads tells that red apart from a hand build that stamped its tables and then died in the emission, the compile or the read-back, leaving a stale or unverified M1.otf beside the previous build's pipeline_summary.json, and the Stage A record that could tell them apart is one a hand `--gates-only` rewrites before it checks the font. So the build-side inputs a rerun stands on are always the last green's, and when one has moved since, the cycle rebuilds. The plan checks the stamp with the rest of what the rerun reads (`m1_gates_only_base_present`). The cycle records a gates-only child's green on the prior green and on the stamp, checked before and after the child (`m1_tables_stamped` in `_do_run_m1`), and a standalone `--gates-only` pass checks the stamp through `run_m1_gates.gates_only_base`.
     """
     moved = moved_input_labels(record, current)
     if moved is None:
@@ -515,7 +515,7 @@ def m1_artifacts_present(root: Path = ROOT) -> bool:
 
 
 def m1_tables_stamped() -> bool:
-    """Return whether the serialized window enumerations under rebuild/out/m1 were built from the sources on disk: `run_m1.serialized_tables` against `run_m1.tables_inputs`, the stamp the sweep and a gates-only pass check. It checks the artifacts themselves, not a record of a past run, and shows that the M1.otf beside those tables is the font the runes on disk describe. `_do_run_m1` checks it before and after a gates-only child to decide whether that child's green may be recorded, and the plan checks the stamp through `m1_gates_only_base_present`. It takes no root parameter, like `deep_sweep.tables_stamped`, because the stamp is computed over the live repo, and a caller naming another tree would compare that tree's tables against this one's sources."""
+    """Return whether the serialized window enumerations under rebuild/out/m1 were built from the sources on disk: `run_m1.serialized_tables` against `run_m1.tables_inputs`, the stamp the sweep and a gates-only pass check. It checks the artifacts themselves, not a record of a past run. The stamp shows which sources those tables came from, and it shows that the M1.otf beside them is the font the runes on disk describe only when a build over those same build-side inputs passed, which only a green record over them shows (`gates_only_rerun`); the build is deterministic, so the passing build need not be the one that stamped them. `_do_run_m1` checks it before and after a gates-only child to decide whether that child's green may be recorded, and the plan checks the stamp through `m1_gates_only_base_present`. It takes no root parameter, like `deep_sweep.tables_stamped`, because the stamp is computed over the live repo, and a caller naming another tree would compare that tree's tables against this one's sources."""
     from rebuild.pipeline import run_m1
 
     return run_m1.serialized_tables(run_m1.OUT_DIR, run_m1.tables_inputs()) is not None
@@ -1075,15 +1075,23 @@ def verdict_update_skip_fingerprint(
     return _digest_lines(lines)
 
 
+def _defect_gate_failure(pipeline: dict) -> str | None:
+    """Return the defect gate's failure from pipeline_summary.json's contents, or None when it passed."""
+    defect_errors = pipeline.get("defect_errors") or []
+    if not defect_errors:
+        return None
+    return f"{len(defect_errors)} defect-gate error(s): {defect_errors[0]}"
+
+
 def evaluate_run_m1_gate(pipeline: dict, manual_pins: dict, oracle: dict) -> CheckResult:
     """Decide whether the M1 build passed from its three summary JSONs: defect_errors, the Manual-pin gate, and multi_matched. UNMATCHED oracle rows are never a failure; they are expected during the migration and are judged on the review corpus. The result carries no UNMATCHED or multi_matched counts, because both callers already hold the oracle summary. The pin gate is run_m1_gates's own (`manual_pin_gate_failure`), including its scope, so a gate that replayed nothing cannot pass here either."""
     from rebuild.pipeline.run_m1_gates import manual_pin_gate_failure
 
     failures: list[str] = []
 
-    defect_errors = pipeline.get("defect_errors") or []
-    if defect_errors:
-        failures.append(f"{len(defect_errors)} defect-gate error(s): {defect_errors[0]}")
+    defect_failure = _defect_gate_failure(pipeline)
+    if defect_failure is not None:
+        failures.append(defect_failure)
 
     pin_failure = manual_pin_gate_failure(manual_pins)
     if pin_failure is not None:
@@ -3178,12 +3186,39 @@ def classify_rebuild_output(stdout: str, returncode: int, check: str) -> CheckRe
     )
 
 
-# The failure reason for a run_m1 that wrote no summaries. The cycle's failure list and the timings journal's check line both use it, so the two record the same text.
+# The failure reason for a run_m1 that left a summary missing, except a full build whose summaries name the gate that stopped it (`_gate_that_stopped_a_full_build`). The cycle's failure list and the timings journal's check line both use it, so the two record the same text.
 _NO_SUMMARIES_REASONS = ("run_m1 did not write all three summary files",)
 
 RUN_M1_GATES_ONLY_STEP = "run_m1:gates-only"
 
 STEP_ALIASES = {RUN_M1_GATES_ONLY_STEP: "run_m1"}
+
+
+def _summary_object(path: Path) -> dict | None:
+    try:
+        summary = json.loads(path.read_text())
+    except OSError, ValueError:
+        return None
+    return summary if isinstance(summary, dict) else None
+
+
+def _gate_that_stopped_a_full_build(missing: list[str]) -> CheckResult | None:
+    """Return the red of the gate that stopped a full build the cycle spawned, read from the summaries it wrote, or None when they name none or one of them does not parse to an object, as a child killed mid-write leaves it. `missing` lists the summaries the build did not write. A full build writes pipeline_summary.json after the compile and the read-back, exits on defect errors before the Manual-pin gate writes manual_pins_summary.json, and exits on a pin failure before the oracle writes oracle_summary.json, so the last summary it wrote names the gate that failed. The cycle deleted all three before the spawn, so every summary read here is that build's own. A gates-only child keeps the build's pipeline_summary.json, whose defect fields a refusal before its defect gate leaves stale, so its summaries are never read this way. When the table-only branch also failed, the child exits with that branch's failure instead (`run_m1.TableGates.first_red`), which its replayed log shows; this names the gate, as the evaluation over all three summaries does."""
+    from rebuild.pipeline.run_m1_gates import manual_pin_gate_failure
+
+    files = cycle_paths.M1_SUMMARY_FILES
+    pipeline = None if "pipeline" in missing else _summary_object(files["pipeline"])
+    if pipeline is None:
+        return None
+    failure = _defect_gate_failure(pipeline)
+    if failure is None and "manual_pins" not in missing:
+        manual_pins = _summary_object(files["manual_pins"])
+        if manual_pins is None:
+            return None
+        failure = manual_pin_gate_failure(manual_pins)
+    if failure is None:
+        return None
+    return CheckResult(check="run_m1", outcome="red", status="FAILED", failures=[failure], failed_ids=[])
 
 
 def _do_run_m1(
@@ -3202,9 +3237,9 @@ def _do_run_m1(
 ) -> CheckResult | None:
     """Run the M1 build, or reuse it when `skip` is set, and evaluate its gate from the three summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the summaries on disk, which is sound because run_m1's outputs are deterministic and carry no timestamps. A live green is recorded only if the fingerprint still matches after the run, because an input edited mid-run means the tested content is no longer on disk. A live red whose fingerprint matches the green record deletes the record.
 
-    With `gates_only`, the child is `run_m1 --gates-only` over the tables and font on disk. It rewrites the defect fields of `pipeline_summary.json` in place and exits with an error when that file is missing, so it is the one summary not deleted before the spawn. Its green rests on a prior completed build with only comparison-side changes (`gates_only_rerun`) and tables stamped before and after the child runs (`m1_tables_stamped`). The cycle is the sole green-record writer for its children, and a nonzero exit overrides passing summaries. The child spawns as `RUN_M1_GATES_ONLY_STEP`, not `run_m1`, because `make cycle-timings ARGS='--by-step'` groups rows by step name and host, and a gates-only run of a few seconds recorded as `run_m1` would distort the figures for a full M1 build.
+    With `gates_only`, the child is `run_m1 --gates-only` over the tables and font on disk. It rewrites the defect fields of `pipeline_summary.json` in place and exits with an error when that file is missing, so it is the one summary not deleted before the spawn. Its green rests on a prior green build with only comparison-side changes since (`gates_only_rerun`; a failed run never vouches for the artifacts it left) and tables stamped before and after the child runs (`m1_tables_stamped`). The cycle is the sole green-record writer for its children, and a nonzero exit overrides passing summaries. The child spawns as `RUN_M1_GATES_ONLY_STEP`, not `run_m1`, because `make cycle-timings ARGS='--by-step'` groups rows by step name and host, and a gates-only run of a few seconds recorded as `run_m1` would distort the figures for a full M1 build.
 
-    Every path, the skip included, records a check line in the timings journal, because a skip is an evaluation of this build's summaries. The child records none of its own, because it inherits CYCLE_RUN_ENV. A build that wrote no summaries is recorded red with `_NO_SUMMARIES_REASONS`, the reason the cycle's failure list also gets.
+    Every path, the skip included, records a check line in the timings journal, because a skip is an evaluation of this build's summaries. The child records none of its own, because it inherits CYCLE_RUN_ENV. A full build the defect gate or the Manual-pin gate stopped is recorded red with that gate's failure, read from the summaries it wrote (`_gate_that_stopped_a_full_build`), and any other run that left a summary missing is recorded red with `_NO_SUMMARIES_REASONS`. The cycle's failure list gets the same text either way.
     """
     step = RUN_M1_GATES_ONLY_STEP if gates_only else "run_m1"
     result: _StepResult | None = None
@@ -3223,18 +3258,22 @@ def _do_run_m1(
         result = spawn(step, argv, emit=emit, registry=registry, stream=False)
     missing = [name for name, path in cycle_paths.M1_SUMMARY_FILES.items() if not path.exists()]
     if missing:
-        for name in missing:
-            emit.note(
-                "run_m1",
-                f"run_m1 gate failure: missing {name} summary ({cycle_paths.M1_SUMMARY_FILES[name]}) — run_m1 did not complete",
-            )
+        stopped = None if result is None or gates_only else _gate_that_stopped_a_full_build(missing)
+        if stopped is None:
+            for name in missing:
+                emit.note(
+                    "run_m1",
+                    f"run_m1 gate failure: missing {name} summary ({cycle_paths.M1_SUMMARY_FILES[name]}) — run_m1 did not complete",
+                )
         if result is not None:
-            _close_step(emit, report, step, result, "FAILED (no summaries)")
+            _close_step(emit, report, step, result, "FAILED (no summaries)" if stopped is None else "FAILED")
         if record and fingerprint is not None:
             settle_green(cycle_paths.RUN_M1_GREEN, fingerprint, False, lambda: run_m1_skip_fingerprint(ROOT))
         if timings is not None:
             timings.record_check(
-                CheckResult(
+                stopped
+                if stopped is not None
+                else CheckResult(
                     check="run_m1",
                     outcome="red",
                     status="FAILED (no summaries)",
@@ -3242,7 +3281,7 @@ def _do_run_m1(
                     failed_ids=[],
                 )
             )
-        return None
+        return stopped
     summaries = {name: _load_summary(path) for name, path in cycle_paths.M1_SUMMARY_FILES.items()}
     gate = evaluate_run_m1_gate(summaries["pipeline"], summaries["manual_pins"], summaries["oracle"])
     if result is not None and result.returncode != 0 and gate.ok:
