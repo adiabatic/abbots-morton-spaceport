@@ -1,5 +1,3 @@
 # Rebuild evidence
 
 Data files kept in the repository because an open decision or a running tool still needs them. A triage dump from a closed review round does not belong here: once its conclusion is recorded in the runes and ledgers, delete the dump, since git keeps it (see `AGENTS.md`, “Note-taking and the rebuild logs”).
-
-- `verdicts-carried-<short hash>.json` is the carried verdict master. It holds the latest resolution of every recorded human verdict, keyed by `rebuild/tools/carry_verdicts.py` to the review corpus built at commit `<short hash>`. It is checked in because it is the only tracked copy of those verdicts: the verdict store, its journal, and the carried files at the repository root are all gitignored. After each artifact cycle, replace it with the carried master the cycle writes at the repository root, renamed to the new short hash. The exception is when `WHATNEXT.md` records a hold on the current file: an open decision whose only tracked evidence is this carry keeps it until the decision is made, and then the newest carry replaces it.

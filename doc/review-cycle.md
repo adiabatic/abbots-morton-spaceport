@@ -96,7 +96,7 @@ uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply
 
 ## Retention
 
-A green pass ends with a retention pass over the regenerable outputs. `--keep-history` skips it, and the tracked copy under `rebuild/evidence/` is never touched. The carried files, the autosave stashes, and the journal are at the repository root, and the build logs are under `var/`, the gitignored tree for output that outlives a run. `tmp/` holds only scratch and is safe to wipe between change sets.
+A green pass ends with a retention pass over the regenerable outputs. `--keep-history` skips it. The carried files, the autosave stashes, and the journal are at the repository root, and the build logs are under `var/`, the gitignored tree for output that outlives a run. `tmp/` holds only scratch and is safe to wipe between change sets.
 
 - Among the `verdicts-carried-*.json` files at the repository root, only those stamped for the live corpus, the one this pass wrote, and any that cannot be read are kept.
 - `verdicts-autosave-*` stashes that no journal event since the last stamp change or base event refers to are deleted; the journal can replay their state.

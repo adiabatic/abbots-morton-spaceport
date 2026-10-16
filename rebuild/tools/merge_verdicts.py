@@ -155,9 +155,9 @@ def _merge_into_store(
             return 0
         else:
             print(
-                "ERROR: nothing to merge — no stamp-aligned verdicts file at the repo root or under "
-                "rebuild/evidence, and the autosave is not aligned with this corpus. Run make artifact-cycle "
-                "(or rebuild/tools/carry_verdicts.py) to produce a carried file first."
+                "ERROR: nothing to merge — no stamp-aligned verdicts file at the repo root, and the autosave is "
+                "not aligned with this corpus. Run make artifact-cycle (or rebuild/tools/carry_verdicts.py) to "
+                "produce a carried file first."
             )
             return 1
 

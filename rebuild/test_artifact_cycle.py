@@ -5125,16 +5125,14 @@ def test_m1_artifacts_present(tmp_path):
 
 
 def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
-    """The test checks both edges of the closure. The paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES` are files no test reads: the carried-verdict evidence, the JS-only jstests, the review-facts pins the cycle rewrites mid-pass, and the contact allow-list, which only the defect gate reads, so adding a contact signature does not re-run the suite. The other edge is `REBUILD_GATE_HARNESS_PATHS`, the files the suite reads outside rebuild/ and glyph_data/. Only listed paths are included, so `tools/outside.py` stays out, and `doc/glyph-names.md` is included although other Markdown is filtered out."""
+    """The test checks both edges of the closure. The paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES` are files no test reads: the JS-only jstests, the review-facts pins the cycle rewrites mid-pass, and the contact allow-list, which only the defect gate reads, so adding a contact signature does not re-run the suite. The other edge is `REBUILD_GATE_HARNESS_PATHS`, the files the suite reads outside rebuild/ and glyph_data/. Only listed paths are included, so `tools/outside.py` stays out, and `doc/glyph-names.md` is included although other Markdown is filtered out."""
     assert "rebuild/m1-contact-allow.yaml" in cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    (tmp_path / "rebuild" / "evidence").mkdir(parents=True)
     (tmp_path / "rebuild" / "review" / "jstests").mkdir(parents=True)
     (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
     (tmp_path / "tools").mkdir()
     (tmp_path / "rebuild" / "test_x.py").write_text("")
     (tmp_path / "rebuild" / "NOTES.md").write_text("")
-    (tmp_path / "rebuild" / "evidence" / "verdicts-old.json").write_text("{}")
     (tmp_path / "rebuild" / "review" / "jstests" / "x.test.js").write_text("")
     (tmp_path / "rebuild" / "m1-contact-allow.yaml").write_text("- signature: junction-1\n")
     (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text("")
@@ -8073,10 +8071,6 @@ def test_prune_carried_keeps_aligned_and_keep_and_deletes_stale(tmp_path):
     unreadable.write_text("{ not json")
     not_a_dict = tmp_path / "verdicts-carried-list.json"
     not_a_dict.write_text(json.dumps(["a", "b"]))
-    evidence = tmp_path / "rebuild" / "evidence"
-    evidence.mkdir(parents=True)
-    evidence_stale = evidence / "verdicts-carried-evidence.json"
-    evidence_stale.write_text(_carried("2026-07-10T00:00:00Z"))
 
     removed, unread = ac.prune_carried(tmp_path, stamp, keep)
 
@@ -8085,7 +8079,6 @@ def test_prune_carried_keeps_aligned_and_keep_and_deletes_stale(tmp_path):
     assert aligned.exists()
     assert keep.exists()
     assert unreadable.exists()
-    assert evidence_stale.exists()
     assert not stale.exists()
     assert not not_a_dict.exists()
 

@@ -41,12 +41,12 @@ def count_effective(records) -> int:
 
 
 def _verdict_paths(repo_root) -> list[Path]:
-    """Return the verdicts-*.json files at the repo root, which holds the cycle's carried masters and fill files and any exports, and under rebuild/evidence/, which holds the checked-in carried master. The live autosave is excluded; callers that need it read it separately."""
-    root = Path(repo_root)
-    candidates = sorted(root.glob("verdicts-*.json")) + sorted(
-        (root / "rebuild" / "evidence").glob("verdicts-*.json")
-    )
-    return [path for path in candidates if path.name != "verdicts-autosave.json"]
+    """Return the verdicts-*.json files at the repo root, which holds the cycle's carried masters and fill files and any exports. The live autosave is excluded; callers that need it read it separately."""
+    return [
+        path
+        for path in sorted(Path(repo_root).glob("verdicts-*.json"))
+        if path.name != "verdicts-autosave.json"
+    ]
 
 
 def _effective_count(data) -> int | None:
@@ -206,7 +206,7 @@ def pick_fullest_verdicts(repo_root, manifest_stamp) -> tuple[Path, int] | None:
 def resolve_carry_source(repo_root, manifest_stamp, autosave_path) -> dict | None:
     """Return the verdicts file the artifact cycle carries forward when the caller names none, as a dict of `path`, `stamp`, `count`, and `aligned`, or None when no candidate has an effective verdict.
 
-    The candidates are the live autosave and every verdicts-*.json at the repo root and under rebuild/evidence. Among those stamped manifest_stamp, the one with the most effective verdicts wins, and the autosave wins a tie because it is the live store. When none is stamped manifest_stamp, the candidates with the newest stamp compete the same way and `aligned` is False. That happens when the served corpus was restamped outside a recorded cycle, or when a pass stopped between its corpus build and its carry. The cycle uses `aligned` in the line that names the master and to choose between the direct merge and the full carry: an aligned master can be merged straight into the store when the corpus build is skipped, and an unaligned one is always carried by unit id. A verdict names its unit by content id, so a carried verdict reaches the unit with that id on the live corpus or none.
+    The candidates are the live autosave and every verdicts-*.json at the repo root. Among those stamped manifest_stamp, the one with the most effective verdicts wins, and the autosave wins a tie because it is the live store. When none is stamped manifest_stamp, the candidates with the newest stamp compete the same way and `aligned` is False. That happens when the served corpus was restamped outside a recorded cycle, or when a pass stopped between its corpus build and its carry. The cycle uses `aligned` in the line that names the master and to choose between the direct merge and the full carry: an aligned master can be merged straight into the store when the corpus build is skipped, and an unaligned one is always carried by unit id. A verdict names its unit by content id, so a carried verdict reaches the unit with that id on the live corpus or none.
 
     Every export is counted whatever its stamp, through the memo shared with pick_fullest_verdicts, so a file pick_fullest_verdicts read by its head alone is parsed whole here. The autosave is read whole on every call and is not memoized.
     """
@@ -501,7 +501,7 @@ def _fullest_verdicts_check(fullest_hit, fullest_rel) -> dict:
         }
     return {
         "level": "warn",
-        "detail": "There is no stamp-matching verdicts file at the repo root or under rebuild/evidence.",
+        "detail": "There is no stamp-matching verdicts file at the repo root.",
         "remedy": None,
         "path": None,
         "count": None,

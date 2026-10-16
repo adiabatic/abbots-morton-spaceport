@@ -62,7 +62,6 @@ class TestForbiddenPaths:
             "var/review-pre-abc1234/manifest.json",
             "var/build-logs/latest/plan.txt",
             "var/keep/notes.md",
-            "rebuild/evidence/anything.json",
             "rebuild/review-facts-pins.json",
             "verdicts-autosave.json",
             "verdicts-journal.ndjson",

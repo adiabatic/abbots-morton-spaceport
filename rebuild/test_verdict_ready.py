@@ -121,7 +121,7 @@ def write_summary(
     inputs_fp: str | Mapping[str, str | None] = "match",
     exit_: str = "ok",
     gates: str | Mapping[str, Mapping[str, object]] = "green",
-    carry_out: str = "rebuild/evidence/carried.json",
+    carry_out: str = "verdicts-carried-abc1234.json",
 ) -> None:
     fp = dict(FP) if inputs_fp == "match" else inputs_fp
     if gates == "green":
@@ -423,20 +423,20 @@ def test_gates_all_green_ok(tmp_path):
 
 def test_verdict_store_missing_warns_naming_carry_out(tmp_path):
     write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path, carry_out="rebuild/evidence/carried.json")
+    write_summary(tmp_path, carry_out="verdicts-carried-abc1234.json")
     store = call(tmp_path)["checks"]["verdict_store"]
     assert store["level"] == "warn"
     assert "no autosave" in store["detail"].lower()
-    assert "rebuild/evidence/carried.json" in store["remedy"]
+    assert "verdicts-carried-abc1234.json" in store["remedy"]
 
 
 def test_verdict_store_mismatch_fails_naming_carry_out(tmp_path):
     write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path, carry_out="rebuild/evidence/carried.json")
+    write_summary(tmp_path, carry_out="verdicts-carried-abc1234.json")
     write_autosave(tmp_path, stamp=OTHER_STAMP)
     store = call(tmp_path)["checks"]["verdict_store"]
     assert store["level"] == "fail"
-    assert "rebuild/evidence/carried.json" in store["remedy"]
+    assert "verdicts-carried-abc1234.json" in store["remedy"]
 
 
 def test_verdict_store_aligned_ok_reports_count(tmp_path):
@@ -569,16 +569,13 @@ def test_count_effective_ignores_skip():
     assert count_effective(records) == 3
 
 
-def test_pick_fullest_verdicts_includes_evidence_carried_masters(tmp_path):
+def test_a_verdicts_file_below_the_repo_root_is_never_a_candidate(tmp_path):
     _write(
         tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json",
         verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]),
     )
-    _write(tmp_path / "verdicts-duplicate-fill.json", verdicts_doc(STAMP, [verdict("u-3")]))
-    hit = pick_fullest_verdicts(tmp_path, STAMP)
-    assert hit is not None
-    assert hit[0].name == "verdicts-carried-abc1234.json"
-    assert hit[1] == 2
+    assert pick_fullest_verdicts(tmp_path, STAMP) is None
+    assert resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json") is None
 
 
 def test_resolve_carry_source_prefers_aligned_max_count(tmp_path):
@@ -607,13 +604,13 @@ def test_resolve_carry_source_autosave_breaks_aligned_tie(tmp_path):
 def test_resolve_carry_source_falls_back_to_newest_stamp(tmp_path):
     write_autosave(tmp_path, stamp=OTHER_STAMP, records=[verdict("u-1")])
     _write(
-        tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json",
+        tmp_path / "verdicts-export.json",
         verdicts_doc("2026-07-12T00:00:00Z", [verdict("u-1"), verdict("u-2")]),
     )
     hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
     assert hit is not None
     assert hit["aligned"] is False
-    assert hit["path"].name == "verdicts-carried-abc1234.json"
+    assert hit["path"].name == "verdicts-export.json"
     assert hit["stamp"] == "2026-07-12T00:00:00Z"
     assert hit["count"] == 2
 
@@ -758,11 +755,7 @@ def _escaped_value_text(records):
 
 
 def _reference_verdict_files(repo_root):
-    root = Path(repo_root)
-    candidates = sorted(root.glob("verdicts-*.json")) + sorted(
-        (root / "rebuild" / "evidence").glob("verdicts-*.json")
-    )
-    for path in candidates:
+    for path in sorted(Path(repo_root).glob("verdicts-*.json")):
         if path.name == "verdicts-autosave.json":
             continue
         try:
@@ -828,14 +821,11 @@ def _reference_resolve_carry_source(repo_root, manifest_stamp, autosave_path):
 
 
 def _write_verdict_files(root):
-    """Write verdicts files covering the cases the head read must handle, and return every stamp they use. Each edge-case file has a stamp of its own, so wrongly skipping or wrongly keeping it changes the fullest verdicts file for that stamp. The autosave under `rebuild/evidence/` has the newest stamp, so wrongly keeping it would also change `resolve_carry_source`'s fallback."""
-    evidence = root / "rebuild" / "evidence"
+    """Write verdicts files covering the cases the head read must handle, and return every stamp they use. Each edge-case file has a stamp of its own, so wrongly skipping or wrongly keeping it changes the fullest verdicts file for that stamp."""
     write_autosave(root, records=_records(4))
     _write(root / "verdicts-plain-a.json", verdicts_doc(STAMP, _records(2)))
     _write(root / "verdicts-plain-b.json", verdicts_doc(STAMP, _records(2)))
     _write(root / "verdicts-plain-c.json", verdicts_doc(STAMP, _records(1)))
-    _write(evidence / "verdicts-carried-tied.json", verdicts_doc(STAMP, _records(2)))
-    _write(evidence / "verdicts-autosave.json", verdicts_doc("2026-08-31T00:00:00Z", _records(5)))
     truncated = json.dumps(verdicts_doc("2026-07-01T00:00:01Z", _records(3)))
     _write_raw(root / "verdicts-truncated.json", truncated[: len(truncated) - 5])
     _write(
@@ -901,7 +891,6 @@ def _write_verdict_files(root):
     (root / "verdicts-dir.json").mkdir()
     return [
         STAMP,
-        "2026-08-31T00:00:00Z",
         "2026-07-01T00:00:01Z",
         "2026-07-01T00:00:02Z",
         "2026-07-01T00:00:03Z",
@@ -925,10 +914,7 @@ def test_pick_fullest_verdicts_parses_no_candidate_stamped_for_another_corpus(tm
     _write(aligned, verdicts_doc(STAMP, _records(2)))
     _write(stash, verdicts_doc(OTHER_STAMP, _records(200)))
     _write_raw(tmp_path / "verdicts-escaped-key.json", _escaped_key_text(OTHER_STAMP, _records(3)))
-    _write(
-        tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json",
-        verdicts_doc(OTHER_STAMP, _records(3)),
-    )
+    _write(tmp_path / "verdicts-export.json", verdicts_doc(OTHER_STAMP, _records(3)))
     assert stash.stat().st_size > status._HEAD_BYTES
     parsed = _spy_on_parses(monkeypatch)
     reads = _spy_on_reads(monkeypatch)
@@ -1190,16 +1176,16 @@ def test_resolve_carry_source_parses_only_what_pick_fullest_verdicts_read_by_its
     monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
     autosave = tmp_path / "verdicts-autosave.json"
     foreign = tmp_path / "verdicts-c.json"
-    carried = tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json"
+    export = tmp_path / "verdicts-export.json"
     write_autosave(tmp_path, records=_records(1))
     _write(tmp_path / "verdicts-a.json", verdicts_doc(STAMP, _records(2)))
     _write(tmp_path / "verdicts-b.json", verdicts_doc(STAMP, _records(3)))
     _write(foreign, verdicts_doc(OTHER_STAMP, _records(200)))
-    _write(carried, verdicts_doc("2026-07-20T00:00:00Z", _records(4)))
+    _write(export, verdicts_doc("2026-07-20T00:00:00Z", _records(4)))
     assert pick_fullest_verdicts(tmp_path, STAMP) == (tmp_path / "verdicts-b.json", 3)
     parsed = _spy_on_parses(monkeypatch)
     hit = resolve_carry_source(tmp_path, STAMP, autosave)
-    assert parsed == [_digest(autosave), _digest(foreign), _digest(carried)]
+    assert parsed == [_digest(autosave), _digest(foreign), _digest(export)]
     assert hit == _reference_resolve_carry_source(tmp_path, STAMP, autosave)
 
 
@@ -1230,27 +1216,24 @@ def test_the_memo_holds_only_the_last_walks_candidates(tmp_path, monkeypatch):
     monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
     first = tmp_path / "first"
     second = tmp_path / "second"
-    carried = second / "rebuild" / "evidence" / "verdicts-carried-abc1234.json"
+    export = second / "verdicts-export.json"
     _write(first / "verdicts-a.json", verdicts_doc(STAMP, _records(1)))
     _write(second / "verdicts-b.json", verdicts_doc(STAMP, _records(2)))
-    _write(carried, verdicts_doc(OTHER_STAMP, _records(3)))
+    _write(export, verdicts_doc(OTHER_STAMP, _records(3)))
     assert pick_fullest_verdicts(first, STAMP) == (first / "verdicts-a.json", 1)
     assert set(status._MEMO) == {first / "verdicts-a.json"}
     assert pick_fullest_verdicts(second, STAMP) == (second / "verdicts-b.json", 2)
-    assert set(status._MEMO) == {second / "verdicts-b.json", carried}
+    assert set(status._MEMO) == {second / "verdicts-b.json", export}
 
 
 def test_mismatched_empty_autosave_remedy_names_the_fullest_verdicts_file(tmp_path):
     write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path)
     write_autosave(tmp_path, stamp=OTHER_STAMP, records=[])
-    _write(
-        tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json",
-        verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]),
-    )
+    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
     store = call(tmp_path)["checks"]["verdict_store"]
     assert store["level"] == "fail"
-    assert "rebuild/evidence/verdicts-carried-abc1234.json" in store["remedy"]
+    assert "verdicts-export.json" in store["remedy"]
     assert "stashed automatically" in store["remedy"]
 
 
@@ -1271,14 +1254,11 @@ def test_partially_null_fingerprint_says_unverifiable_not_changed(tmp_path):
 def test_aligned_empty_autosave_warns_toward_the_fullest_verdicts_file(tmp_path):
     setup_green(tmp_path)
     write_autosave(tmp_path, records=[])
-    _write(
-        tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json",
-        verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]),
-    )
+    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
     result = call(tmp_path)
     store = result["checks"]["verdict_store"]
     assert store["level"] == "warn"
-    assert "rebuild/evidence/verdicts-carried-abc1234.json" in store["remedy"]
+    assert "verdicts-export.json" in store["remedy"]
     assert result["ready"] is True
     assert result["checks"]["blanks"]["count"] == 3
 

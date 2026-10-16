@@ -62,7 +62,7 @@ Retention holds the store's lock only for the tail of the journal appended since
 
 Every pass holds the pass lock (`pass_lock`, var/cycle/pass.lock) from before it recovers a superseded corpus and resolves its plan until it ends, so a second pass waits for the first instead of planning against a tree the first is still writing. The land inherits the lock, so a driver killed while its land runs still holds the next pass back until the land has finished. A staging pass holds it too, because a live pass's promotion reads the corpus a staging pass writes. A dry run takes it without waiting, and when another pass holds it the dry run skips the recovery, which could rename a tree that pass is landing. Each non-staging pass gets a scratch directory under var/cycle/ named like its build-log run directory and deletes it when it ends; the next pass deletes any that a killed pass left (`sweep_run_dirs`). A staging pass and a dry run get no scratch directory.
 
-A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_fullest_verdicts` reads only files stamped for the live corpus, and the tracked copy under rebuild/evidence/ is never touched. verdicts-autosave-* stashes not referenced by a journal event at or after the last event that moved the stamp or wrote a base are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
+A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_fullest_verdicts` reads only files stamped for the live corpus. verdicts-autosave-* stashes not referenced by a journal event at or after the last event that moved the stamp or wrote a base are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py. The carry source is resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one.
 """
@@ -773,7 +773,7 @@ def deep_sweep_status(root: Path = ROOT, max_length: int = DEEP_SWEEP_MAX_LENGTH
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
-    """Return every tracked or untracked-unignored repo file the rebuild pytest suite can read, the base of the suite's input closure. That is rebuild/ and glyph_data/ (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the carried-verdict evidence, the JS-only jstests, the review-facts pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness list REBUILD_GATE_HARNESS_PATHS. The harness list is what the suite reads outside those trees, and it is why the Markdown filter has an exception: the filter drops prose no test opens, but rebuild/test_review_enrich.py checks the corpus's letter table against doc/glyph-names.md.
+    """Return every tracked or untracked-unignored repo file the rebuild pytest suite can read, the base of the suite's input closure. That is rebuild/ and glyph_data/ (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the JS-only jstests, the review-facts pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness list REBUILD_GATE_HARNESS_PATHS. The harness list is what the suite reads outside those trees, and it is why the Markdown filter has an exception: the filter drops prose no test opens, but rebuild/test_review_enrich.py checks the corpus's letter table against doc/glyph-names.md.
 
     The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and imports the tools/ compile modules. rebuild/review/drafts.build_corpus_index reads the same three corpora. The list's tools/ entries are the font compile's modules (`fingerprint.FONT_COMPILE_TOOL_MODULES`), the only tools/ files the suite opens: it reaches tools/ through the font compile and through test_shaping, whose import closure inside tools/ rebuild/test_build_code_closure.py holds within that list, and the unit-cache environment stamp hashes the same list. rebuild/test_review_build.py checks the review corpus's feature descriptions against README.md's stylistic-set list.
 
@@ -4827,7 +4827,7 @@ def _preflight(
 
 
 def prune_carried(root: Path, stamp: str | None, keep: Path | None) -> tuple[list[Path], list[Path]]:
-    """Delete the repo-root `verdicts-carried-*.json` files whose `manifest_generated_at` is not `stamp`, sparing `keep`. `status.pick_fullest_verdicts` considers only files stamped for the live corpus, and the tracked copy under `rebuild/evidence/` is outside this glob. Returns the deleted paths and the unreadable ones, which are kept. Deletes nothing when `stamp` is None."""
+    """Delete the repo-root `verdicts-carried-*.json` files whose `manifest_generated_at` is not `stamp`, sparing `keep`. `status.pick_fullest_verdicts` considers only files stamped for the live corpus. Returns the deleted paths and the unreadable ones, which are kept. Deletes nothing when `stamp` is None."""
     removed: list[Path] = []
     unreadable: list[Path] = []
     if stamp is None:
@@ -5078,7 +5078,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--verdicts",
         type=Path,
-        help="prior verdicts master to carry forward (default: auto-resolve the best candidate among the autosave and the verdicts-*.json files at the repo root and under rebuild/evidence)",
+        help="prior verdicts master to carry forward (default: auto-resolve the best candidate among the autosave and the verdicts-*.json files at the repo root)",
     )
     parser.add_argument("--no-carry", action="store_true", help="skip the verdict carry-forward step")
     parser.add_argument(
@@ -5268,7 +5268,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         if resolved is None:
             args.no_carry = True
             announce(
-                "No carryable verdicts found (neither the autosave nor any verdicts-*.json at the repo root or under rebuild/evidence holds an effective verdict); proceeding without carry. Pass --verdicts to name a master explicitly."
+                "No carryable verdicts found (neither the autosave nor any verdicts-*.json at the repo root holds an effective verdict); proceeding without carry. Pass --verdicts to name a master explicitly."
             )
         else:
             announce(describe_carry_source(resolved, ROOT, promoting=promote_from is not None))

@@ -44,7 +44,7 @@ When a fact is recorded both in prose and in something executable, the executabl
 
 ## Reconnaissance and evidence
 
-Fact-finding done before a PLAN is written is used once. After the PLAN exists, it belongs in git history, not in a checked-in `recon/` file. The same applies to a triage, an audit, or a search for a record to change: once its conclusion is committed to the runes or a ledger, delete the dump. Evidence stays checked in only while it supports a still-open decision or is an input a tool still reads, such as the carried verdict master in `rebuild/evidence/`.
+Fact-finding done before a PLAN is written is used once. After the PLAN exists, it belongs in git history, not in a checked-in `recon/` file. The same applies to a triage, an audit, or a search for a record to change: once its conclusion is committed to the runes or a ledger, delete the dump. Evidence stays checked in only while it supports a still-open decision or is an input a tool still reads.
 
 Record a rejected experiment’s findings, evidence references, and reproduction commands in a comment on its GitHub issue before deleting its checked-in PLAN. When the result decides against adoption, close the issue as not planned (WONTFIX).
 
