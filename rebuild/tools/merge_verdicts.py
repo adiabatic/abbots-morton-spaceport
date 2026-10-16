@@ -143,21 +143,23 @@ def _merge_into_store(
     aligned = existing if existing is not None and existing["manifest_generated_at"] == stamp else None
     if not inputs:
         hit = status.pick_fullest_verdicts(ROOT, stamp)
-        if hit is not None:
+        base_effective = (
+            _effective(journal.latest_by_unit(aligned["verdicts"])) if aligned is not None else None
+        )
+        if hit is not None and (base_effective is None or hit[1] > base_effective):
             inputs = [hit[0]]
             print(f"auto-picked the fullest verdicts file: {_rel(hit[0])} ({hit[1]} effective verdicts)")
-        elif aligned is not None:
-            base_records = journal.latest_by_unit(aligned["verdicts"])
+        elif base_effective is not None:
             print(
-                f"nothing to merge: no stamp-aligned verdicts file, and the autosave already holds "
-                f"{_effective(base_records)} effective verdicts for this corpus"
+                f"nothing to merge: no stamp-aligned verdicts file at the repo root holds more effective verdicts "
+                f"than the autosave, which holds {base_effective} for this corpus"
             )
             return 0
         else:
             print(
                 "ERROR: nothing to merge — no stamp-aligned verdicts file at the repo root, and the autosave is "
-                "not aligned with this corpus. Run make artifact-cycle (or rebuild/tools/carry_verdicts.py) to "
-                "produce a carried file first."
+                "not aligned with this corpus. Run make artifact-cycle, which carries the store onto this corpus, "
+                "or restore a missing store from the journal with --restore-as-of."
             )
             return 1
 

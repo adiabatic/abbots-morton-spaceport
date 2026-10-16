@@ -236,6 +236,18 @@ def test_no_files_and_no_fullest_verdicts_file_reports_the_aligned_store(repo, t
     assert "nothing to merge" in capsys.readouterr().out
 
 
+def test_no_files_picks_no_root_file_that_holds_no_more_than_the_aligned_store(
+    repo, tmp_path, monkeypatch, capsys
+):
+    """The pick follows the fullest verdicts file `make verdict-ready` names, which is the store when no stamp-aligned root file holds more."""
+    monkeypatch.setattr(mv, "ROOT", tmp_path)
+    write_doc(repo["autosave"], "S2", [v("u-1"), v("u-2")])
+    write_doc(tmp_path / "verdicts-bulk-ss10.json", "S2", [v("u-3")])
+    assert run(repo) == 0
+    assert "nothing to merge" in capsys.readouterr().out
+    assert set(store_records(repo)) == {"u-1", "u-2"}
+
+
 def test_invalid_verdict_kinds_are_skipped(repo, tmp_path, capsys):
     carried = write_doc(
         tmp_path / "carried.json", "S2", [v("u-1"), {"unit": "u-2", "verdict": "maybe", "at": "x"}]

@@ -11,7 +11,7 @@ export function retryAfterMs(header) {
 }
 const WARN_SCAN = ['corpus', 'freshness', 'gates', 'verdict_store', 'fullest_verdicts'];
 
-// A remedy is copyable only when the whole string is a shell command. Every command remedy status.py emits starts with `make` or `uv run`; the prose remedies ("reload the page", "Merge … into the autosave: uv run …") do not.
+// A remedy is copyable only when the whole string is a shell command. Every command remedy status.py emits starts with `make` or `uv run`; the prose remedies ("reload the page", "Merge … into the autosave (uv run …)") do not.
 export function remedyCommand(remedy) {
   return remedy && /^(make|uv run) /u.test(remedy) ? remedy : null;
 }

@@ -684,13 +684,13 @@ def test_a_step_that_spawns_nothing_leaves_no_log_behind(capsys, tmp_path):
         cycle_console.step_start(
             "retention", None, "Prunes the regenerable files a green cycle leaves behind."
         )
-        cycle_console.step_end("retention", None, "ok", "removed 1 carried; journal intact")
+        cycle_console.step_end("retention", None, "ok", "removed 1 stash; journal intact")
         cycle_console.step_start("run_m1", ["true"], "Builds the tables.")
         cycle_console.child_line("run_m1", console.STDOUT, "wrote tables.json")
         cycle_console.step_end("run_m1", _Result(), "ok", "")
     assert sorted(path.name for path in run.iterdir()) == ["02-run_m1.log", "terminal.log"]
     surfaced = _surfaced(capsys.readouterr().out)
-    assert any("removed 1 carried; journal intact" in line for line in surfaced)
+    assert any("removed 1 stash; journal intact" in line for line in surfaced)
 
 
 def test_a_skip_says_the_word_once(capsys, tmp_path):

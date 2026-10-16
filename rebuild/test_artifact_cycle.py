@@ -304,7 +304,8 @@ def test_dry_run_plan_default():
         ncores=1,
         total_bytes=MACHINE_44_GB,
     )
-    assert plan.carry_out == ac.ROOT / "verdicts-carried-abc1234.json"
+    assert plan.scratch_dir is not None
+    assert plan.carry_out == plan.scratch_dir / "verdicts-carried-abc1234.json"
 
     by_name = {step.name: step for step in plan.steps}
     assert by_name["run_m1"].argv == [
@@ -451,7 +452,7 @@ def test_dry_run_plan_skip_conform():
 
 
 def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
-    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and the snapshot of the store, so the store's own verdicts are carried beside another master, and merges and fills into the prepared copy of the store in the pass's scratch directory, journaling there, so it never writes the live store."""
+    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and the snapshot of the store, so the store's own verdicts are carried beside another master, and merges and fills into the prepared copy of the store in the pass's scratch directory, journaling there, so it never writes the live store. The carried file and both fill files go in the scratch directory too, so the pass leaves none of them at the repository root."""
     ac.AUTOSAVE.write_text("{}")
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
@@ -476,11 +477,17 @@ def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
         "--verdicts",
         str(snapshot),
         "--carry-out",
-        str(ac.ROOT / "verdicts-carried-abc1234.json"),
+        str(plan.scratch_dir / "verdicts-carried-abc1234.json"),
         "--autosave",
     ]
     assert argv[14] == str(plan.scratch_dir / ac.landing.PREPARED_NAME)
     assert argv[15:17] == ["--journal", str(plan.scratch_dir / "journal.ndjson")]
+    assert argv[17:21] == [
+        "--duplicate-out",
+        str(plan.scratch_dir / ac.DUPLICATE_FILL_NAME),
+        "--standing-out",
+        str(plan.scratch_dir / ac.STANDING_FILL_NAME),
+    ]
     assert "--no-merge" not in argv
     assert plan.do_merge is True
 
@@ -530,6 +537,19 @@ def test_dry_run_plan_staging_pass_never_touches_the_autosave(tmp_path):
     assert step.argv[step.argv.index("--corpus") + 1] == str(tmp_path / "staged")
     assert "staging" in step.note
     assert plan.do_merge is False
+
+
+def test_a_carry_the_pass_does_not_merge_is_written_where_it_outlives_the_pass(tmp_path):
+    """A --no-merge or staging pass carries but merges nothing, so the carried file is what it produces, and it goes to the repository root, past the pass's end; such a pass runs no fill. A --carry-out path is used as given."""
+    for plan in (_plan(no_merge=True), _plan(review_out=tmp_path / "staged")):
+        argv = _argv({step.name: step for step in plan.steps}["verdict-update"])
+        assert plan.carry_out == ac.ROOT / "verdicts-carried-testid.json"
+        assert argv[argv.index("--carry-out") + 1] == str(plan.carry_out)
+        assert "--duplicate-out" not in argv and "--standing-out" not in argv
+    named = _plan(carry_out=tmp_path / "mine.json")
+    argv = _argv({step.name: step for step in named.steps}["verdict-update"])
+    assert named.carry_out == tmp_path / "mine.json"
+    assert argv[argv.index("--carry-out") + 1] == str(tmp_path / "mine.json")
 
 
 def test_dry_run_plan_complaints_runs_inside_the_verdict_update(tmp_path, monkeypatch):
@@ -645,7 +665,9 @@ def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the
     assert "      wrote tmp/standing.json: 7 standing-approval verdicts" in block
     assert "      wrote tmp/duplicate-fill.json: 4 duplicate-fill verdicts" in block
     assert "      merged 15903 verdicts into verdicts-autosave.json" in block
-    carry = block.index("  carry output     : " + str(report.carry_out))
+    carry = block.index(
+        f"  carry output     : {report.carry_out} (in the pass's scratch directory, which the pass deletes when it ends)"
+    )
     verdict_update = next(index for index, line in enumerate(block) if line.startswith("  verdict update"))
     assert carry < block.index("      human queue: 81 -> 12 still needing fresh verdicts") < verdict_update
 
@@ -3363,6 +3385,20 @@ def test_contracts_summary_tracks_the_runtime_decision(planned_skip, runtime):
         "gate:rebuild-contracts"
     ]
     assert row.outcome == {"green": "ok", "red": "FAILED", "skipped": "skipped"}[runtime]
+
+
+def test_the_summary_names_only_a_carried_file_that_outlives_the_pass():
+    """A merging pass carries into its scratch directory, which it deletes when it ends, so cycle_summary.json names no carried file for it and the summary line says where the file was; the carried file a --no-merge pass leaves at the root is named as written."""
+    for plan, kept in ((_plan(), False), (_plan(no_merge=True), True)):
+        report = _green_report()
+        report.carry_out = plan.carry_out
+        assert ac.cycle_summary_payload(report, [], plan, "ok")["carry_out"] == (
+            str(plan.carry_out) if kept else None
+        )
+        line = next(
+            line for line in ac.summary_cycle_lines(report, plan, []) if line.startswith("  carry output")
+        )
+        assert line.endswith(str(plan.carry_out)) == kept
 
 
 def test_cycle_summary_payload_plan_block_and_argv():
@@ -6596,7 +6632,7 @@ def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
     report.gate_conform = f"skipped ({ac.CONFORM_SKIP_NOTE})"
     report.gate_contracts = "FAILED (3 unexplained)"
     report.gate_contracts_green = False
-    report.retention_detail = "removed 1 carried, 0 build logs, 0 stashes; journal intact"
+    report.retention_detail = "removed 0 build logs, 0 stashes; journal intact"
     report.step_seconds = {"run_m1": 1988.0, "corpus-build": 61.0, "gate:rebuild-contracts": 92.0}
     report.step_returncodes = {"run_m1": 0, "corpus-build": 0, "gate:rebuild-contracts": 1}
 
@@ -7310,48 +7346,6 @@ def test_dry_run_plan_direct_merge_still_honors_no_merge():
     assert not plan.do_merge
 
 
-def test_the_direct_merge_report_still_names_the_fullest_verdicts_file(tmp_path, monkeypatch):
-    carried = tmp_path / "verdicts-carried-abc.json"
-    carried.write_text("{}")
-    monkeypatch.setattr(ac, "fullest_verdicts_carry_out", lambda: carried)
-    plan = _plan(direct_merge=True)
-    report, failures = _run_verdict_update(plan, _verdict_update_stdout(*_FULL_VERDICT_UPDATE[1:]))
-    assert failures == []
-    assert report.carry_out == carried
-
-
-def test_fullest_verdicts_carry_out_derives_the_stamp_aligned_fullest_verdicts_file_from_disk(
-    tmp_path, monkeypatch
-):
-    """The summary names the fullest verdicts file by deriving it from disk the way its readers do, not from the verdict-update green record: a later export with more effective verdicts outranks the file the last recorded pass wrote."""
-    review = tmp_path / "rebuild" / "out" / "review"
-    review.mkdir(parents=True)
-    (review / "manifest.json").write_text(json.dumps({"generated_at": "S1"}))
-
-    def verdicts_file(path, stamp, units):
-        path.write_text(
-            json.dumps(
-                {
-                    "format": "ams-review-verdicts/1",
-                    "manifest_generated_at": stamp,
-                    "verdicts": [
-                        {"unit": unit, "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}
-                        for unit in units
-                    ],
-                }
-            )
-        )
-
-    verdicts_file(tmp_path / "verdicts-old.json", "S0", ["u-1", "u-2", "u-3"])
-    verdicts_file(tmp_path / "verdicts-carried-abc.json", "S1", ["u-1"])
-    verdicts_file(tmp_path / "verdicts-export.json", "S1", ["u-1", "u-2"])
-    monkeypatch.setattr(ac, "ROOT", tmp_path)
-    monkeypatch.setattr(ac, "REVIEW_OUT", review)
-    assert ac.fullest_verdicts_carry_out() == tmp_path / "verdicts-export.json"
-    (review / "manifest.json").write_text("not json")
-    assert ac.fullest_verdicts_carry_out() is None
-
-
 def test_run_cycle_never_spawns_the_verdict_update_when_skipped(monkeypatch, tmp_path):
     def must_not_run(*args, **kwargs):
         raise AssertionError("the verdict-update skip path must spawn nothing")
@@ -7366,9 +7360,6 @@ def test_run_cycle_never_spawns_the_verdict_update_when_skipped(monkeypatch, tmp
     monkeypatch.setattr(ac, "_do_verdict_update", must_not_run)
     monkeypatch.setattr(cycle_paths, "VERDICT_UPDATE_GREEN", tmp_path / "verdict-update-green.json")
 
-    carried = tmp_path / "verdicts-carried-abc.json"
-    carried.write_text("{}")
-    monkeypatch.setattr(ac, "fullest_verdicts_carry_out", lambda: carried)
     plan = _plan(
         skip_verdict_update=True,
         verdict_update_note=ac.VERDICT_UPDATE_SKIP_NOTE,
@@ -7382,7 +7373,7 @@ def test_run_cycle_never_spawns_the_verdict_update_when_skipped(monkeypatch, tmp
     assert report.duplicate_fill_status == note
     assert report.standing_merge_status == note
     assert report.complaints_status == note
-    assert report.carry_out == carried
+    assert report.carry_out is None
     assert not (tmp_path / "verdict-update-green.json").exists()
 
 
@@ -8055,45 +8046,6 @@ def test_a_promoting_pass_stops_a_review_server_from_before_the_land_protocol(tm
     assert "Stopping the review server" in capsys.readouterr().out
 
 
-def _carried(stamp):
-    return json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": []})
-
-
-def test_prune_carried_keeps_aligned_and_keep_and_deletes_stale(tmp_path):
-    stamp = "2026-07-17T20:24:44Z"
-    aligned = tmp_path / "verdicts-carried-aligned.json"
-    aligned.write_text(_carried(stamp))
-    stale = tmp_path / "verdicts-carried-stale.json"
-    stale.write_text(_carried("2026-07-10T00:00:00Z"))
-    keep = tmp_path / "verdicts-carried-keep.json"
-    keep.write_text(_carried("2026-07-10T00:00:00Z"))
-    unreadable = tmp_path / "verdicts-carried-broken.json"
-    unreadable.write_text("{ not json")
-    not_a_dict = tmp_path / "verdicts-carried-list.json"
-    not_a_dict.write_text(json.dumps(["a", "b"]))
-
-    removed, unread = ac.prune_carried(tmp_path, stamp, keep)
-
-    assert set(removed) == {stale, not_a_dict}
-    assert unread == [unreadable]
-    assert aligned.exists()
-    assert keep.exists()
-    assert unreadable.exists()
-    assert not stale.exists()
-    assert not not_a_dict.exists()
-
-
-def test_prune_carried_stamp_none_deletes_nothing(tmp_path):
-    stale = tmp_path / "verdicts-carried-stale.json"
-    stale.write_text(_carried("2026-07-10T00:00:00Z"))
-
-    removed, unread = ac.prune_carried(tmp_path, None, None)
-
-    assert removed == []
-    assert unread == []
-    assert stale.exists()
-
-
 def test_prune_stashes_keeps_from_the_last_base_onward(tmp_path):
     journal_path = tmp_path / "verdicts-journal.ndjson"
     journal.record_transition(
@@ -8269,7 +8221,7 @@ def test_build_plan_retention_off_on_a_staging_pass(tmp_path):
 
 
 def test_retention_never_runs_for_real_during_the_suite(monkeypatch):
-    """Checks the autouse switches that keep retention and readiness from running for real in the suite. Retention resolves its targets from ac.ROOT at call time, which no fixture redirects, so a real run from a test would delete the live repo's carried exports and compact its verdict journal; any test reaching a green finish with record_greens set would trigger it. The readiness checklist reads the served corpus and the root autosave, so it is switched off too."""
+    """Checks the autouse switches that keep retention and readiness from running for real in the suite. Retention resolves its targets from ac.ROOT at call time, which no fixture redirects, so a real run from a test would delete the live repo's autosave stashes and compact its verdict journal; any test reaching a green finish with record_greens set would trigger it. The readiness checklist reads the served corpus and the root autosave, so it is switched off too."""
     assert cycle_paths.RETENTION_ENABLED is False
     assert cycle_paths.READINESS_ENABLED is False
     calls = {"retention": 0, "readiness": 0}
@@ -8346,10 +8298,7 @@ def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
 
 def _retention_repo(tmp_path, monkeypatch):
     monkeypatch.setattr(ac, "ROOT", tmp_path)
-    monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
-    (tmp_path / "review").mkdir()
-    (tmp_path / "review" / "manifest.json").write_text(json.dumps({"generated_at": "2020-02-01T00:00:00Z"}))
     journal_path = tmp_path / journal.JOURNAL_NAME
     for stamp, old_stamp, stashed, at in (
         ("S1", None, "verdicts-autosave-old.json", "2020-01-01T00:00:00Z"),
@@ -8622,6 +8571,40 @@ def test_main_runs_a_live_pass_under_the_pass_lock_with_its_own_scratch_director
     monkeypatch.setattr(ac, "_run_pass", lambda args: dry.append(pass_lock_held()) or real_run_pass(args))
     assert ac.main(["--dry-run"]) == 0
     assert dry == [True]
+
+
+def test_a_unit_cleared_after_a_pass_is_carried_from_the_store_by_the_next_pass(tmp_path, monkeypatch):
+    """A pass writes its carried file and both fill files in its scratch directory, which it deletes when it ends, so none is left at the repository root to outrank the store. A unit the reader clears after the pass then stays cleared: the next pass carries the store, which does not hold it after the clear, and not a leftover file that still does. The test runs from tmp_path because the suite's audit hook resolves the bare names `shutil.rmtree` unlinks against the working directory, where a `verdicts-*` name reads as a live root file."""
+    stamp = "2026-07-17T20:24:44Z"
+    _unsettled_repo(tmp_path, monkeypatch, stamp=stamp)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    plans: list[ac.Plan] = []
+
+    def run_cycle(plan, report, emit, registry, **_):
+        plans.append(plan)
+        argv = _argv({step.name: step for step in plan.steps}["verdict-update"])
+        for flag in ("--carry-out", "--duplicate-out", "--standing-out"):
+            Path(argv[argv.index(flag) + 1]).write_text(json.dumps(_verdicts_doc(stamp, ["u-1", "u-2"])))
+        ac.AUTOSAVE.write_text(json.dumps(_verdicts_doc(stamp, ["u-1", "u-2"])))
+        return 0
+
+    monkeypatch.setattr(ac, "_run_cycle", run_cycle)
+    assert ac.main([]) == 0
+    store = _verdicts_doc(stamp, ["u-1"])
+    store["cleared"] = [{"unit": "u-2", "at": "2026-07-18T09:00:00Z"}]
+    ac.AUTOSAVE.write_text(json.dumps(store))
+
+    assert sorted(path.name for path in tmp_path.glob("verdicts-*.json")) == ["verdicts-autosave.json"]
+    resolved = ac.resolve_carry_source()
+    assert resolved is not None and resolved["path"] == ac.AUTOSAVE and resolved["count"] == 1
+    assert ac.main([]) == 0
+    second = plans[-1]
+    assert second.verdicts == ac.AUTOSAVE and second.scratch_dir is not None
+    argv = _argv({step.name: step for step in second.steps}["verdict-update"])
+    assert [argv[i + 1] for i, arg in enumerate(argv) if arg == "--verdicts"] == [
+        str(second.scratch_dir / ac.landing.SNAPSHOT_NAME)
+    ]
 
 
 def test_main_finishes_a_stopped_land_before_it_sweeps_the_run_directories(tmp_path, monkeypatch, capsys):

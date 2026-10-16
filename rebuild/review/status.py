@@ -19,7 +19,6 @@ from rebuild.review.serve import parse_autosave_payload
 from rebuild.review.verdict_store import orphans_dir_for, summarize_orphans
 
 CORPUS_REMEDY = "uv run python -m rebuild.review.build"
-CARRY_TOOL = "rebuild/tools/carry_verdicts.py"
 MERGE_TOOL = "uv run python -m rebuild.tools.merge_verdicts"
 
 
@@ -41,7 +40,7 @@ def count_effective(records) -> int:
 
 
 def _verdict_paths(repo_root) -> list[Path]:
-    """Return the verdicts-*.json files at the repo root, which holds the cycle's carried masters and fill files and any exports. The live autosave is excluded; callers that need it read it separately."""
+    """Return the verdicts-*.json files at the repo root, which holds exports, autosave stashes, restore previews, and the carried file a --no-merge or staging pass writes. The live autosave is excluded; callers that need it read it separately."""
     return [
         path
         for path in sorted(Path(repo_root).glob("verdicts-*.json"))
@@ -191,7 +190,7 @@ def _survey(repo_root, manifest_stamp, *, counts: bool) -> list[tuple[Path, _Can
 
 
 def pick_fullest_verdicts(repo_root, manifest_stamp) -> tuple[Path, int] | None:
-    """Return the fullest verdicts file: the verdicts file stamped manifest_stamp with the most effective verdicts, with that count, taking the first in glob order on a tie; or None when no file qualifies. The live autosave is not a candidate. A file whose head settles a different stamp costs one bounded read and is not parsed. Any other file is parsed whole before its stamp and count are used. A file unchanged since a memoized read costs one stat."""
+    """Return the stamp-matching verdicts file at the repo root with the most effective verdicts: the verdicts file stamped manifest_stamp with the most, with that count, taking the first in glob order on a tie; or None when no file qualifies. The live autosave is not a candidate. `compute_status` compares this result with the store to name the fullest verdicts file, and merge_verdicts' auto-pick makes the same comparison. A file whose head settles a different stamp costs one bounded read and is not parsed. Any other file is parsed whole before its stamp and count are used. A file unchanged since a memoized read costs one stat."""
     best: tuple[Path, int] | None = None
     for path, candidate in _survey(repo_root, manifest_stamp, counts=False):
         if candidate.stamp is None or candidate.stamp != manifest_stamp:
@@ -254,18 +253,6 @@ def _rel(repo_root, path) -> str:
         return Path(path).resolve().relative_to(Path(repo_root).resolve()).as_posix()
     except ValueError:
         return str(path)
-
-
-def _carry_import_remedy(carry_out) -> str:
-    if carry_out:
-        return f"Merge the carried verdicts into the autosave: {MERGE_TOOL} {carry_out}"
-    return f"Merge the carried verdicts into the autosave with {MERGE_TOOL}."
-
-
-def _carry_forward_remedy(carry_out) -> str:
-    if carry_out:
-        return f"Merge the carried verdicts into the autosave: {MERGE_TOOL} {carry_out}"
-    return f"Carry the autosave forward with {CARRY_TOOL}, then merge it with {MERGE_TOOL}."
 
 
 def _corpus_check(manifest) -> dict:
@@ -439,7 +426,7 @@ def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> d
 
 
 def _verdict_store_check(
-    autosave_path, generated_at, carry_out, fullest_hit, fullest_rel, autosave=None
+    autosave_path, generated_at, artifact_cycle_remedy, fullest_hit, fullest_rel, autosave=None
 ) -> tuple[dict, dict | None]:
     if autosave is None:
         path = Path(autosave_path)
@@ -452,7 +439,7 @@ def _verdict_store_check(
         return {
             "level": "warn",
             "detail": "There is no autosave yet, so no in-progress verdicts are loaded.",
-            "remedy": _carry_import_remedy(carry_out),
+            "remedy": f"If the store was lost, restore it from its journal: {MERGE_TOOL} --list names the recorded times, and {MERGE_TOOL} --restore-as-of <time> --apply restores one.",
         }, None
     if autosave["manifest_generated_at"] != generated_at:
         try:
@@ -462,7 +449,7 @@ def _verdict_store_check(
         if stale_effective == 0 and fullest_hit and fullest_hit[1] > 0:
             remedy = f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}); the stale autosave is empty and will be stashed automatically."
         else:
-            remedy = _carry_forward_remedy(carry_out)
+            remedy = artifact_cycle_remedy
         return {
             "level": "fail",
             "detail": (
@@ -480,7 +467,7 @@ def _verdict_store_check(
         return {
             "level": "warn",
             "detail": "The autosave is aligned with this corpus but empty; the verdicts in the fullest verdicts file are not yet merged in.",
-            "remedy": f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}) — carried verdicts first, then any duplicate fill.",
+            "remedy": f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}).",
         }, records
     return {
         "level": "ok",
@@ -489,7 +476,17 @@ def _verdict_store_check(
     }, records
 
 
-def _fullest_verdicts_check(fullest_hit, fullest_rel) -> dict:
+def _fullest_verdicts_check(fullest_hit, fullest_rel, store_rel, store_records) -> dict:
+    """Name the fullest verdicts file: the store when it is stamped for this corpus and holds at least as many effective verdicts as `fullest_hit`, the stamp-matching root file with the most, which otherwise wins. The store wins a tie, as in `resolve_carry_source`."""
+    store_count = count_effective(store_records) if store_records is not None else None
+    if store_count is not None and (not fullest_hit or store_count >= fullest_hit[1]):
+        return {
+            "level": "ok",
+            "detail": f"The fullest verdicts file is the store, {store_rel} ({store_count:,} effective verdicts); no stamp-matching verdicts file at the repo root holds more.",
+            "remedy": None,
+            "path": store_rel,
+            "count": store_count,
+        }
     if fullest_hit:
         count = fullest_hit[1]
         return {
@@ -501,7 +498,7 @@ def _fullest_verdicts_check(fullest_hit, fullest_rel) -> dict:
         }
     return {
         "level": "warn",
-        "detail": "There is no stamp-matching verdicts file at the repo root.",
+        "detail": "No verdicts file at the repo root is stamped for this corpus, and the store is missing or stamped for another corpus.",
         "remedy": None,
         "path": None,
         "count": None,
@@ -560,10 +557,9 @@ def compute_status(
         artifact_cycle_remedy = f"wait for the running pass (pid {running_pass}) to finish"
 
     summary = _load_json_dict(cycle_summary_path)
-    carry_out = summary.get("carry_out") if summary else None
 
     verdict_store, aligned_records = _verdict_store_check(
-        autosave_path, generated_at, carry_out, fullest_hit, fullest_rel, autosave
+        autosave_path, generated_at, artifact_cycle_remedy, fullest_hit, fullest_rel, autosave
     )
     checks = {
         "corpus": _corpus_check(manifest),
@@ -572,7 +568,9 @@ def compute_status(
         ),
         "gates": _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy),
         "verdict_store": verdict_store,
-        "fullest_verdicts": _fullest_verdicts_check(fullest_hit, fullest_rel),
+        "fullest_verdicts": _fullest_verdicts_check(
+            fullest_hit, fullest_rel, _rel(repo_root, autosave_path), aligned_records
+        ),
         "blanks": _blanks_check(aligned_records, review_dir, human_ids),
     }
     ready = all(checks[name]["level"] != "fail" for name in ("corpus", "freshness", "gates", "verdict_store"))

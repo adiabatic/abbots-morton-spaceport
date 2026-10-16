@@ -48,7 +48,7 @@ Green records are written only when the key still matches after the work ran, an
 
 Between the run_m1 skip and a full rebuild there is a third mode, the gates-only rerun. When the per-file diff against the run_m1 green is confined to comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the code `fingerprint.COMPARISON_CODE_MODULES` names, and the baselines and their subsets, all outside the tables' stamp; `comparison_side_label` lists them and argues each) and rebuild/out/m1 holds the build the rerun reads (`m1_gates_only_base_present`, the check `run_m1_gates.gates_only_base` makes: the tables carrying that stamp, M1.otf, pipeline_summary.json and the join tables), the cycle spawns `run_m1 --gates-only` instead of a build. It re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font on disk, matches the oracle's rows against the ledgers again, and enumerates nothing. The green that pass records covers the new inputs, so the next cycle skips run_m1. `uv.lock` is not comparison-side, because a fontTools or uharfbuzz bump can change the font's bytes and what the shaper does with them, so a toolchain bump rebuilds.
 
-The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites every shard the tab reads by byte range, and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes either in place. A corpus-changing pass seeds rebuild/out/review.next with a copy-on-write clone of the served corpus (`corpus-seed`, `landing.clone_tree`), builds there (`--out`), copies the live store into its scratch directory under the store's lock (`store-snapshot`), and runs the verdict update against that copy (`--autosave`, `--journal`). The land (`rebuild.review.landing`) then swaps the new corpus in and puts the prepared store in place in one short section under the store's lock, laying the saves made during the pass over the prepared store, and runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed inside that section is finished by the next holder of the lock: the review server's next request, the next pass (`recover_land`), or any writer that takes the lock through `landing.locked_store`. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
+The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites every shard the tab reads by byte range, and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes either in place. A corpus-changing pass seeds rebuild/out/review.next with a copy-on-write clone of the served corpus (`corpus-seed`, `landing.clone_tree`), builds there (`--out`), copies the live store into its scratch directory under the store's lock (`store-snapshot`), and runs the verdict update against that copy (`--autosave`, `--journal`), writing its carried file and both fill files beside it (`--carry-out`, `--duplicate-out`, `--standing-out`), so a merging pass leaves none of them at the repository root. The land (`rebuild.review.landing`) then swaps the new corpus in and puts the prepared store in place in one short section under the store's lock, laying the saves made during the pass over the prepared store, and runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed inside that section is finished by the next holder of the lock: the review server's next request, the next pass (`recover_land`), or any writer that takes the lock through `landing.locked_store`. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
 
 The cycle keeps a listening server only when its /capabilities says it serves this checkout with the working tree's land-protocol code (`probe_server`); a server from this checkout running other code is restarted first (`restart_review_server`), and one serving another checkout is left alone and sent no reload. A server from before the land protocol answers no /capabilities, and it takes the old rule: a pass that writes neither the corpus nor the store keeps it running (`server_can_keep_running`), and any other pass stops it once with --stop-server (which `make review-cycle` passes), runs beside it with --yes, or refuses.
 
@@ -62,7 +62,7 @@ Retention holds the store's lock only for the tail of the journal appended since
 
 Every pass holds the pass lock (`pass_lock`, var/cycle/pass.lock) from before it recovers a superseded corpus and resolves its plan until it ends, so a second pass waits for the first instead of planning against a tree the first is still writing. The land inherits the lock, so a driver killed while its land runs still holds the next pass back until the land has finished. A staging pass holds it too, because a live pass's promotion reads the corpus a staging pass writes. A dry run takes it without waiting, and when another pass holds it the dry run skips the recovery, which could rename a tree that pass is landing. Each non-staging pass gets a scratch directory under var/cycle/ named like its build-log run directory and deletes it when it ends; the next pass deletes any that a killed pass left (`sweep_run_dirs`). A staging pass and a dry run get no scratch directory.
 
-A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. Root verdicts-carried-*.json files not stamped for the live corpus are deleted, since `status.pick_fullest_verdicts` reads only files stamped for the live corpus. verdicts-autosave-* stashes not referenced by a journal event at or after the last event that moved the stamp or wrote a base are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
+A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. verdicts-autosave-* stashes not referenced by a journal event at or after the last event that moved the stamp or wrote a base are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py. The carry source is resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one.
 """
@@ -123,8 +123,8 @@ if TYPE_CHECKING:
     from rebuild.tools.cycle_timings import CycleTimings
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
-DUPLICATE_FILL = ROOT / "verdicts-duplicate-fill.json"
-STANDING_FILL = ROOT / "verdicts-standing-fill.json"
+DUPLICATE_FILL_NAME = "verdicts-duplicate-fill.json"
+STANDING_FILL_NAME = "verdicts-standing-fill.json"
 FACTS_PINS = ROOT / "rebuild" / "review-facts-pins.json"
 DIVERGENCE_LEDGER = ROOT / "rebuild" / "m1-divergences.yaml"
 CYCLE_TIMINGS = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
@@ -336,22 +336,8 @@ def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
 
 
 def record_verdict_update_green(fingerprint: str, path: Path | None = None) -> None:
-    """Write the verdict update's green record: the key alone, like every record `read_green_record` parses. A pass that needs the fullest verdicts file derives it from disk (`fullest_verdicts_carry_out`), because a later export could outrank a copy remembered here."""
+    """Write the verdict update's green record: the key alone, like every record `read_green_record` parses."""
     record_green(path if path is not None else cycle_paths.VERDICT_UPDATE_GREEN, fingerprint)
-
-
-def fullest_verdicts_carry_out() -> Path | None:
-    """Return the stamp-aligned fullest verdicts file, for the summary of a pass that wrote no carry of its own. It is derived from disk the way every consumer derives it (`status.pick_fullest_verdicts`), not remembered in a green record a later export could outrank."""
-    from rebuild.review.status import pick_fullest_verdicts
-
-    try:
-        stamp = json.loads((REVIEW_OUT / "manifest.json").read_text()).get("generated_at")
-    except OSError, ValueError:
-        return None
-    if not isinstance(stamp, str):
-        return None
-    hit = pick_fullest_verdicts(ROOT, stamp)
-    return hit[0] if hit else None
 
 
 def read_make_test_green(path: Path | None = None) -> dict | None:
@@ -976,7 +962,7 @@ def recover_superseded_corpus(live: Path | None = None, *, delete: bool = True) 
     return f"Put {superseded} back as the live corpus; the land it stepped aside for did not finish."
 
 
-# The verdict update's code, listed by module instead of all of rebuild/tools/: the import closure of rebuild.tools.verdict_update, which runs every step. rebuild/test_verdict_update_closure.py checks the list against the walked import graph on every contracts run. This driver is not an entry point, because every argument it passes the verdict update names an input the key already hashes (the corpus, the master, the store), a flag that disables the skip, a width (`--standing-fill-jobs`) that cannot change the verdict update's output, or `--allow-orphans`, which decides only whether a carry that orphans many verdicts writes at all, and a refused carry leaves no green record; the verdict update parses its own flags in verdict_update. The walk stops at the modules in `fingerprint.pipeline_code_paths`, because the key includes the pipeline_code component whole through its manifest line. The rebuild/tools/ modules the pipeline imports (memory_budget, peak_rss, lock_digest, site_fonts and others) are outside this list, which keeps fan-out widths and peak-memory measurements out of the verdict key.
+# The verdict update's code, listed by module instead of all of rebuild/tools/: the import closure of rebuild.tools.verdict_update, which runs every step. rebuild/test_verdict_update_closure.py checks the list against the walked import graph on every contracts run. This driver is not an entry point, because every argument it passes the verdict update names an input the key already hashes (the corpus, the master, the store), a path it writes (the carried and fill files and the journal), a flag that disables the skip, a width (`--standing-fill-jobs`) that cannot change the verdict update's output, or `--allow-orphans`, which decides only whether a carry that orphans many verdicts writes at all, and a refused carry leaves no green record; the verdict update parses its own flags in verdict_update. The walk stops at the modules in `fingerprint.pipeline_code_paths`, because the key includes the pipeline_code component whole through its manifest line. The rebuild/tools/ modules the pipeline imports (memory_budget, peak_rss, lock_digest, site_fonts and others) are outside this list, which keeps fan-out widths and peak-memory measurements out of the verdict key.
 VERDICT_UPDATE_ENTRY_POINTS = ("rebuild.tools.verdict_update",)
 VERDICT_UPDATE_TOOL_MODULES = (
     "carry_verdicts",
@@ -1136,7 +1122,7 @@ STEP_DESCRIPTIONS = {
     "gate:rebuild-contracts": "Runs the rebuild suite: every test whose subject is the code, over checked-in fixtures and the hermetic mini bundle. Reads no live build artifact.",
     "gate:make-test": "Runs the main font suite and pyright over the whole tree, the same make test you run by hand. Skips when its input closure is unchanged since its last green run.",
     "job-costs": "Checks the recorded per-worker peaks against the memory-budget constants that size every fan-out. A drift here means a width somewhere is derived from stale numbers.",
-    "retention": f"Prunes the regenerable files a green cycle leaves behind: stale carried files, stashes the journal already replays, the journal past its {RETENTION_WINDOW_DAYS}-day floor, and build logs beyond the last {cycle_paths.BUILD_LOGS_KEEP}.",
+    "retention": f"Prunes the regenerable files a green cycle leaves behind: stashes the journal already replays, the journal past its {RETENTION_WINDOW_DAYS}-day floor, and build logs beyond the last {cycle_paths.BUILD_LOGS_KEEP}.",
 }
 
 
@@ -1272,6 +1258,10 @@ class Plan:
     def conform_undecided(self) -> bool:
         """Return whether gate:conform is decided only after run_m1, the pass `plan_rows` shows as `run?`."""
         return not (self.skip_gates or self.skip_conform or self.skip_run_m1 or self.fresh)
+
+    def in_scratch(self, path: Path) -> bool:
+        """Return whether `path` lies in this pass's scratch directory, which the pass deletes when it ends."""
+        return self.scratch_dir is not None and path.is_relative_to(self.scratch_dir)
 
     def argv(self, name: str) -> list[str]:
         """Return the named step's command line, raising ValueError for a step the plan skipped. `build_plan` is the only writer of step argvs, so the executor runs the command line the plan printed."""
@@ -1977,11 +1967,6 @@ def build_plan(
     allow_orphans: bool = False,
 ) -> Plan:
     do_carry = not no_carry and not first_run and not skip_verdict_update and not direct_merge
-    resolved_carry_out: Path | None = None
-    if do_carry:
-        resolved_carry_out = (
-            carry_out if carry_out is not None else ROOT / f"verdicts-carried-{short_id}.json"
-        )
     if skip_verdict_update:
         verdict_update_step_note = f"SKIPPED ({verdict_update_note})"
     elif first_run:
@@ -2175,6 +2160,16 @@ def build_plan(
         land_dir = scratch_dir if scratch_dir is not None else cycle_paths.CYCLE_VAR / short_id
         scratch_dir = land_dir
     update_corpus = review_out if review_out is not None else (next_corpus or REVIEW_OUT)
+    resolved_carry_out: Path | None = None
+    if do_carry:
+        carried_name = f"verdicts-carried-{short_id}.json"
+        if carry_out is not None:
+            resolved_carry_out = carry_out
+        elif do_merge:
+            assert land_dir is not None
+            resolved_carry_out = land_dir / carried_name
+        else:
+            resolved_carry_out = ROOT / carried_name
 
     plan = Plan(
         short_id=short_id,
@@ -2367,6 +2362,10 @@ def build_plan(
                 str(prepared),
                 "--journal",
                 str(prepared.parent / "journal.ndjson"),
+                "--duplicate-out",
+                str(prepared.parent / DUPLICATE_FILL_NAME),
+                "--standing-out",
+                str(prepared.parent / STANDING_FILL_NAME),
             ]
         if do_merge and update_corpus.parent != REVIEW_OUT.parent:
             from rebuild.tools.standing_verdicts import MEMO_NAME
@@ -2532,7 +2531,7 @@ def build_plan(
             Step(
                 "retention",
                 None,
-                f"on green finish: keep only the stamp-aligned verdicts-carried-*.json, drop verdicts-autosave-* stashes older than the journal's last stamp change or base event, compact the journal to a {RETENTION_WINDOW_DAYS}-day restore floor; --keep-history skips",
+                f"on green finish: drop verdicts-autosave-* stashes older than the journal's last stamp change or base event, compact the journal to a {RETENTION_WINDOW_DAYS}-day restore floor; --keep-history skips",
             )
         )
     elif keep_history:
@@ -3554,7 +3553,7 @@ def _do_verdict_update(
     A failure in the second duplicate pass (`duplicate-fill-2` or `duplicate-merge-2`) comes after the first duplicate pass and the standing fill and merge have run. Those steps keep their done words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-pass failure marks the steps after it as not run.
     """
     result = spawn("verdict-update", plan.argv("verdict-update"), emit=emit, registry=registry, stream=False)
-    report.carry_out = plan.carry_out if plan.carry_out is not None else fullest_verdicts_carry_out()
+    report.carry_out = plan.carry_out
     sections = verdict_update_sections(result.stdout)
     failed = ""
     failed_round = 1
@@ -3757,10 +3756,9 @@ def _do_job_costs(
 
 
 def _skip_verdict_update(report: CycleReport, plan: Plan, emit: console.CycleConsole) -> None:
-    """Report the verdict-update step as skipped, marking each of its steps skipped. The carried file the last recorded pass wrote is still the stamp-aligned fullest verdicts file, because the corpus it was carried onto has not changed, so the report still names it."""
+    """Report the verdict-update step as skipped, marking each of its steps skipped."""
     emit.step_skipped("verdict-update", plan.verdict_update_note)
     note = f"skipped ({plan.verdict_update_note})"
-    report.carry_out = fullest_verdicts_carry_out()
     report.merge_status = note
     report.duplicate_fill_status = note
     report.duplicate_merge_status = note
@@ -4530,8 +4528,11 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
 
     deep_status, deep_note = _deep_sweep_report()
     replay_status, replay_note = _deep_replay_report()
+    carry_out = show(report.carry_out)
+    if report.carry_out is not None and plan.in_scratch(report.carry_out):
+        carry_out += " (in the pass's scratch directory, which the pass deletes when it ends)"
     lines = [
-        f"  carry output     : {show(report.carry_out)}",
+        f"  carry output     : {carry_out}",
         *news(report.carry_lines),
         f"  verdict update   : merge {report.merge_status}; duplicate-fill {report.duplicate_fill_status}; duplicate-merge {report.duplicate_merge_status}; standing-fill {report.standing_fill_status}; standing-merge {report.standing_merge_status}",
         *news(
@@ -4636,7 +4637,9 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "land_status": report.land_status,
         "land": report.land,
         "duplicate_groups": report.duplicate_groups,
-        "carry_out": _as_str(report.carry_out),
+        "carry_out": (
+            None if report.carry_out is None or plan.in_scratch(report.carry_out) else str(report.carry_out)
+        ),
         "carry_lines": list(report.carry_lines),
         "carry": report.carry_counts,
         "merge_status": report.merge_status,
@@ -4826,27 +4829,6 @@ def _preflight(
     return False
 
 
-def prune_carried(root: Path, stamp: str | None, keep: Path | None) -> tuple[list[Path], list[Path]]:
-    """Delete the repo-root `verdicts-carried-*.json` files whose `manifest_generated_at` is not `stamp`, sparing `keep`. `status.pick_fullest_verdicts` considers only files stamped for the live corpus. Returns the deleted paths and the unreadable ones, which are kept. Deletes nothing when `stamp` is None."""
-    removed: list[Path] = []
-    unreadable: list[Path] = []
-    if stamp is None:
-        return removed, unreadable
-    for path in sorted(root.glob("verdicts-carried-*.json")):
-        if keep is not None and path.resolve() == keep.resolve():
-            continue
-        try:
-            data = json.loads(path.read_text())
-        except OSError, ValueError:
-            unreadable.append(path)
-            continue
-        if isinstance(data, dict) and data.get("manifest_generated_at") == stamp:
-            continue
-        path.unlink(missing_ok=True)
-        removed.append(path)
-    return removed, unreadable
-
-
 def prune_stashes(
     root: Path,
     journal_path: Path,
@@ -4922,7 +4904,7 @@ def _retention_detail(removed: list[str], intact: list[str], journal_state: str)
 
 
 def run_retention(plan: Plan) -> RetentionResult:
-    """Prune stale carried files, build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. The stash sweep and the compaction share one scan of the journal, made without the verdict store's lock and resumed from the state the last pass saved (`journal_scan_path`), so a pass parses only what was appended since the last one. They take the lock only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (the review server, a merge, a re-key) waits for at most that long; the server answers a save made in that window with a retryable 503, as it does during a land. Every append holds the lock, so no line can fall between the scan and the replacement. A lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass. A review server from before the land protocol (`Plan.legacy_server`) appends to the journal and moves stashes without the lock, so while one listens the stashes and the journal are left for a later pass."""
+    """Prune build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. The stash sweep and the compaction share one scan of the journal, made without the verdict store's lock and resumed from the state the last pass saved (`journal_scan_path`), so a pass parses only what was appended since the last one. They take the lock only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (the review server, a merge, a re-key) waits for at most that long; the server answers a save made in that window with a retryable 503, as it does during a land. Every append holds the lock, so no line can fall between the scan and the replacement. A lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass. A review server from before the land protocol (`Plan.legacy_server`) appends to the journal and moves stashes without the lock, so while one listens the stashes and the journal are left for a later pass."""
 
     def rel(path: Path) -> str:
         try:
@@ -4936,22 +4918,6 @@ def run_retention(plan: Plan) -> RetentionResult:
     lines = ["Retention (skip with --keep-history):"]
     removed_counts: list[str] = []
     intact: list[str] = []
-
-    try:
-        stamp = json.loads((REVIEW_OUT / "manifest.json").read_text()).get("generated_at")
-    except OSError, ValueError:
-        stamp = None
-    if stamp is None:
-        lines.append("  carried   : left intact (no corpus manifest to align against)")
-        intact.append("carried files")
-    else:
-        removed, unreadable = prune_carried(ROOT, stamp, plan.carry_out)
-        removed_counts.append(swept(len(removed), "carried", "carried"))
-        lines.append(
-            f"  carried   : removed {console.fmt_count(len(removed))} stale verdicts-carried-*.json; kept the stamp-aligned fullest verdicts file"
-        )
-        for path in unreadable:
-            lines.append(f"              kept {rel(path)} (unreadable, not pruning it)")
 
     dropped_logs = prune_build_logs(cycle_paths.BUILD_LOGS_ROOT, cycle_paths.BUILD_LOGS_KEEP)
     removed_counts.append(swept(len(dropped_logs), "build log", "build logs"))
@@ -5089,7 +5055,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--carry-out",
         type=Path,
-        help="carried-forward output path (default: verdicts-carried-<short hash>.json at the repo root)",
+        help="carried-forward output path (default: verdicts-carried-<short hash>.json in the pass's scratch directory, which the pass deletes when it ends, or at the repo root on a --no-merge or staging pass, whose product it is)",
     )
     parser.add_argument(
         "--skip-gates",
@@ -5133,7 +5099,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--keep-history",
         action="store_true",
-        help="skip the green-finish retention pass (stale carried files and stashes, and the journal's pre-window history all stay on disk)",
+        help="skip the green-finish retention pass (stashes and the journal's pre-window history stay on disk)",
     )
     parser.add_argument(
         "--allow-orphans",

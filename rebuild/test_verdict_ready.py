@@ -121,7 +121,6 @@ def write_summary(
     inputs_fp: str | Mapping[str, str | None] = "match",
     exit_: str = "ok",
     gates: str | Mapping[str, Mapping[str, object]] = "green",
-    carry_out: str = "verdicts-carried-abc1234.json",
 ) -> None:
     fp = dict(FP) if inputs_fp == "match" else inputs_fp
     if gates == "green":
@@ -140,7 +139,6 @@ def write_summary(
             "finished_at": "2026-07-17T21:30:00Z",
             "exit": exit_,
             "gates": gate_map,
-            "carry_out": carry_out,
             "corpus": {"dir": "rebuild/out/review", "generated_at": generated_at, "inputs_fingerprint": fp},
         },
     )
@@ -421,22 +419,23 @@ def test_gates_all_green_ok(tmp_path):
     assert "2026-07-17T21:30:00Z" in gates["detail"]
 
 
-def test_verdict_store_missing_warns_naming_carry_out(tmp_path):
+def test_a_missing_store_points_at_the_journal_restore(tmp_path):
     write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path, carry_out="verdicts-carried-abc1234.json")
+    write_summary(tmp_path)
     store = call(tmp_path)["checks"]["verdict_store"]
     assert store["level"] == "warn"
     assert "no autosave" in store["detail"].lower()
-    assert "verdicts-carried-abc1234.json" in store["remedy"]
+    assert "--restore-as-of <time> --apply" in store["remedy"]
 
 
-def test_verdict_store_mismatch_fails_naming_carry_out(tmp_path):
+def test_a_store_stamped_for_another_corpus_points_at_the_cycle(tmp_path):
+    """The cycle carries the store onto the served corpus."""
     write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path, carry_out="verdicts-carried-abc1234.json")
+    write_summary(tmp_path)
     write_autosave(tmp_path, stamp=OTHER_STAMP)
     store = call(tmp_path)["checks"]["verdict_store"]
     assert store["level"] == "fail"
-    assert "verdicts-carried-abc1234.json" in store["remedy"]
+    assert store["remedy"] == "make artifact-cycle"
 
 
 def test_verdict_store_aligned_ok_reports_count(tmp_path):
@@ -448,12 +447,25 @@ def test_verdict_store_aligned_ok_reports_count(tmp_path):
     assert "2 effective" in store["detail"]
 
 
-def test_fullest_verdicts_none_warns(tmp_path):
-    setup_green(tmp_path)
+@pytest.mark.parametrize("store_stamp", [None, OTHER_STAMP], ids=["store-missing", "store-stamped-elsewhere"])
+def test_fullest_verdicts_none_warns(tmp_path, store_stamp):
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
+    write_summary(tmp_path)
+    if store_stamp is not None:
+        write_autosave(tmp_path, stamp=store_stamp)
     fullest = call(tmp_path)["checks"]["fullest_verdicts"]
     assert fullest["level"] == "warn"
     assert fullest["path"] is None
     assert fullest["count"] is None
+
+
+def test_fullest_verdicts_falls_back_to_the_store_when_no_file_competes(tmp_path):
+    setup_green(tmp_path)
+    write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2"), verdict("u-3", "skip")])
+    fullest = call(tmp_path)["checks"]["fullest_verdicts"]
+    assert fullest["level"] == "ok"
+    assert fullest["path"] == "verdicts-autosave.json"
+    assert fullest["count"] == 2
 
 
 def test_fullest_verdicts_most_effective_wins(tmp_path):
@@ -468,26 +480,41 @@ def test_fullest_verdicts_most_effective_wins(tmp_path):
     assert fullest["count"] == 3
 
 
-def test_fullest_verdicts_excludes_the_autosave(tmp_path):
+def test_fullest_verdicts_names_the_store_over_an_export_that_holds_no_more(tmp_path):
+    """A stamp-matching export at the root, such as a bulk proposal file, is not the fullest verdicts file while the store holds at least as many effective verdicts; the store wins a tie."""
     write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path)
     write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2"), verdict("u-3")])
-    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1")]))
+    _write(tmp_path / "verdicts-bulk-ss10.json", verdicts_doc(STAMP, [verdict("u-4")]))
+    _write(
+        tmp_path / "verdicts-export.json",
+        verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2"), verdict("u-3")]),
+    )
+    fullest = call(tmp_path)["checks"]["fullest_verdicts"]
+    assert fullest["path"] == "verdicts-autosave.json"
+    assert fullest["count"] == 3
+
+
+def test_fullest_verdicts_names_an_export_that_holds_more_than_the_store(tmp_path):
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
+    write_summary(tmp_path)
+    write_autosave(tmp_path, records=[verdict("u-1")])
+    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
     fullest = call(tmp_path)["checks"]["fullest_verdicts"]
     assert fullest["path"] == "verdicts-export.json"
-    assert fullest["count"] == 1
+    assert fullest["count"] == 2
 
 
 def test_fullest_verdicts_filters_stale_stamped_file(tmp_path):
     setup_green(tmp_path)
-    _write(tmp_path / "verdicts-cur.json", verdicts_doc(STAMP, [verdict("u-1")]))
+    _write(tmp_path / "verdicts-cur.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
     _write(
         tmp_path / "verdicts-old.json",
         verdicts_doc(OTHER_STAMP, [verdict("u-1"), verdict("u-2"), verdict("u-3")]),
     )
     fullest = call(tmp_path)["checks"]["fullest_verdicts"]
     assert fullest["path"] == "verdicts-cur.json"
-    assert fullest["count"] == 1
+    assert fullest["count"] == 2
 
 
 def test_blanks_skip_counts_as_blank(tmp_path):
