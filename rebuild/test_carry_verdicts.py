@@ -253,6 +253,9 @@ def test_a_carry_that_orphans_more_than_the_limit_refuses_unless_allowed(tmp_pat
     assert str(refused.value).startswith(
         "carry refused: 11 of 100 (11.00%, more than the 10% limit) prior verdicts name no unit on "
     )
-    assert "rekey_verdicts.py" in str(refused.value) and "--allow-orphans" in str(refused.value)
+    assert all(
+        remedy in str(refused.value)
+        for remedy in ("rekey_verdicts.py", "--allow-orphans", "--verdicts", "--no-carry")
+    )
     assert not (tmp_path / "eleven" / "out.json").exists()
     assert len(_carry(tmp_path / "allowed", units[:89], verdicts, allow_orphans=True)["verdicts"]) == 89

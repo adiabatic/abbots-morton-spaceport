@@ -126,8 +126,11 @@ def main(
     if share is not None and not args.allow_orphans:
         raise SystemExit(
             f"carry refused: {share} prior verdicts name no unit on {args.current_corpus}, and nothing was written. "
-            "If a change moved the units' ids, re-key the verdicts onto the new ids first (rebuild/tools/rekey_verdicts.py); "
-            "if the windows themselves changed, pass --allow-orphans."
+            "If a change to the carry projection moved the units' content ids, re-key the verdicts onto the new ids first (rebuild/tools/rekey_verdicts.py); "
+            "if the windows themselves changed, pass --allow-orphans. "
+            "If a verdicts file other than the store (verdicts-autosave.json) is the wrong one, such as one on unit ids from before they were content keys, name the right one with --verdicts, "
+            "or, in a cycle pass whose store holds no verdict, pass --no-carry; "
+            "if the store's own verdicts are on such ids, pass --allow-orphans."
         )
 
     carried.sort(key=lambda r: r["unit"])

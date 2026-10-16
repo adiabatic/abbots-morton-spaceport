@@ -5204,7 +5204,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--allow-orphans",
         action="store_true",
-        help=f"let the carry and the land go ahead when more than {landing.ORPHAN_SHARE_LIMIT:.0%}% of the prior verdicts name no unit on the new corpus, as after an edit that redraws many windows; when unit ids moved wholesale, re-key the verdicts instead (rebuild/tools/rekey_verdicts.py)",
+        help=f"let the carry and the land go ahead when more than {landing.ORPHAN_SHARE_LIMIT:.0%}% of the prior verdicts name no unit on the new corpus, as after an edit that redraws many windows; when a change to the carry projection moved the units' content ids wholesale, re-key the verdicts instead (rebuild/tools/rekey_verdicts.py)",
     )
     parser.add_argument(
         "--yes",
