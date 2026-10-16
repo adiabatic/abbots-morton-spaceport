@@ -22,7 +22,7 @@ CHECKS: list = []
 
 @pytest.fixture
 def bench(tmp_path, monkeypatch):
-    """A stub repo root with a behavior-class sidecar and the compile code files, a tables stamp that counts as current, `AMS_DEEP_SWEEP_JOBS`, `AMS_DEEP_SWEEP_REPORT_SECONDS` and `AMS_DEEP_SWEEP_MEMO_WINDOWS` unset whatever the developer's shell sets, and every green record and journal line redirected so nothing touches rebuild/out. The journal lines land in `CHECKS`."""
+    """A stub repo root with a behavior-class sidecar and the compile code files, a tables stamp that counts as current, the deep replay's structure stamp and the tables' imported windows stubbed, since the stub root holds no spec or windows to read them from, `AMS_DEEP_SWEEP_JOBS`, `AMS_DEEP_SWEEP_REPORT_SECONDS` and `AMS_DEEP_SWEEP_MEMO_WINDOWS` unset whatever the developer's shell sets, and every green record and journal line redirected so nothing touches rebuild/out. The journal lines land in `CHECKS`."""
     from rebuild.pipeline.emit_gsub import BEHAVIOR_CLASSES_FORMAT
 
     m1 = tmp_path / "rebuild" / "out" / "m1"
@@ -40,7 +40,11 @@ def bench(tmp_path, monkeypatch):
     monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: True)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     monkeypatch.setattr(cycle_paths, "TARGETED_SWEEP_GREEN", tmp_path / "targeted-sweep-green.json")
-    monkeypatch.setattr(deep_sweep, "refresh_deep_replay", lambda max_length, runes: max_length)
+    monkeypatch.setattr(
+        deep_sweep, "refresh_deep_replay", lambda max_length, runes, structure, imports: max_length
+    )
+    monkeypatch.setattr(deep_sweep, "deep_replay_structure_stamp", lambda root=None, spec=None: "structure-1")
+    monkeypatch.setattr(deep_sweep, "tables_imports_digest", lambda root=None: "imports-1")
     monkeypatch.delenv(deep_sweep.JOBS_ENV, raising=False)
     monkeypatch.delenv(deep_sweep.REPORT_ENV, raising=False)
     monkeypatch.delenv(deep_sweep.MEMO_WINDOWS_ENV, raising=False)
@@ -99,12 +103,24 @@ def test_a_root_without_a_behavior_class_sidecar_is_refused(bench, monkeypatch):
         deep_sweep.main([])
 
 
-def test_a_stale_tables_stamp_is_refused(bench, monkeypatch):
-    """The sweep requires tables stamped from the sources on disk, not a green record. A --gates-only pass can leave a sweepable font without recording a green, and a failed interactive run deletes the green record without changing the artifacts."""
-    _stub_sweep(monkeypatch, {"pass": True, "divergences": 0})
-    monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: False)
+@pytest.mark.parametrize("answers", [(False,), (True, False)])
+def test_a_stale_tables_stamp_is_refused(bench, monkeypatch, answers):
+    """The sweep requires tables stamped from the sources on disk, not a green record. A --gates-only pass can leave a sweepable font without recording a green, and a failed interactive run deletes the green record without changing the artifacts. It checks the stamp before it loads the spec for the deep replay's structure stamp, so a tree whose runes do not load gets this refusal, and again after it reads that stamp and the imported windows, so the check vouches for them too."""
+    swept: list = []
+    _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)
+    stamped = iter(answers)
+    monkeypatch.setattr(deep_sweep, "tables_stamped", lambda: next(stamped))
+    read: list = []
+
+    def structure(root=None, spec=None):
+        read.append(root)
+        return "structure-1"
+
+    monkeypatch.setattr(deep_sweep, "deep_replay_structure_stamp", structure)
     with pytest.raises(SystemExit, match="stale relative to the runes"):
         deep_sweep.main([])
+    assert len(read) == len(answers) - 1
+    assert swept == []
 
 
 def test_tables_stamped_asks_the_enumerations_own_stamp(monkeypatch):
@@ -172,6 +188,21 @@ def test_a_build_finishing_mid_sweep_records_nothing(bench, monkeypatch, capsys)
 def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep, replay_kept=None, unconfined=None):
     current = {"qsPea": "p1"}
     monkeypatch.setattr("rebuild.pipeline.fingerprint.rune_digests", lambda root: dict(current))
+    replay = {"structure": "structure-1", "imports": "imports-1"}
+    monkeypatch.setattr(
+        deep_sweep, "deep_replay_structure_stamp", lambda root=None, spec=None: replay["structure"]
+    )
+    monkeypatch.setattr(deep_sweep, "tables_imports_digest", lambda root=None: replay["imports"])
+
+    checks: list = []
+
+    def stamped():
+        checks.append(None)
+        if len(checks) == 2:
+            replay.update(structure="structure-2", imports="imports-2")
+        return True
+
+    monkeypatch.setattr(deep_sweep, "tables_stamped", stamped)
 
     def fake(plan, max_length, jobs, report_every):
         if edit_mid_sweep:
@@ -182,20 +213,21 @@ def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep, replay_kept=None, unconfi
     monkeypatch.setattr(deep_sweep, "run_sweep", fake)
     refreshed: list = []
 
-    def refresh(max_length, runes):
-        refreshed.append((max_length, runes))
+    def refresh(max_length, runes, structure, imports):
+        refreshed.append((max_length, runes, structure, imports))
         return replay_kept or max_length
 
     monkeypatch.setattr(deep_sweep, "refresh_deep_replay", refresh)
     return refreshed
 
 
-def test_a_green_sweep_at_the_replay_max_length_refreshes_the_deep_replay_with_the_runes_it_swept(
+def test_a_green_sweep_at_the_replay_max_length_refreshes_the_deep_replay_with_what_it_read_before_the_second_tables_check(
     bench, monkeypatch, capsys
 ):
+    """The refresh records the rune digests, the deep replay's structure stamp and the tables' imported windows read before `main`'s second check that the tables were built from the sources on disk, even when the stamp and the windows move during that check, so the check vouches for all three."""
     refreshed = _stub_runes_and_sweep(monkeypatch, edit_mid_sweep=False)
     assert deep_sweep.main(["--max-length", str(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT)]) == 0
-    assert refreshed == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, {"qsPea": "p1"})]
+    assert refreshed == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, {"qsPea": "p1"}, "structure-1", "imports-1")]
     assert "deep replay: green too" in capsys.readouterr().out
 
 

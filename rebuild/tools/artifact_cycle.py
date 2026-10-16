@@ -120,6 +120,7 @@ from rebuild.tools.review_server import (  # noqa: E402
 )
 
 if TYPE_CHECKING:
+    from rebuild.pipeline.model import ResolvedSpec
     from rebuild.tools.cycle_timings import CycleTimings
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
@@ -618,9 +619,9 @@ def record_deep_replay_green(
     path: Path | None = None,
     imports: str | None = None,
 ) -> int:
-    """Write the deep replay's green record (`rebuild.tools.deep_replay`) and return the maximum length it records. The record holds every rune's prose-insensitive digest as a walk covered it (under `files`, so `moved_inputs_note` can name what changed since), one maximum length for all of them, the replay structure stamp, the walked tables' imported windows (`imports`, `tables_imports_digest`), and a fingerprint over the rune lines so `read_green_record` reads it like every other record. A rune the record does not have counts as changed.
+    """Write the deep replay's green record (`rebuild.tools.deep_replay`) and return the maximum length it records. The record holds every rune's prose-insensitive digest as a walk covered it (under `files`, so `moved_inputs_note` can name what changed since), one maximum length for all of them, the structure stamp (`structure`, `deep_replay_structure_stamp`), the walked tables' imported windows (`imports`, `tables_imports_digest`), and a fingerprint over the rune lines so `read_green_record` reads it like every other record. A rune the record does not have counts as changed.
 
-    `walked` holds the runes whose texts this walk settled at `max_length`, at the digests the walk read. `carry` names runes the walk did not cover whose claims in the record on disk the new record keeps, at the record's digests. A walked rune's depth is `max_length`, raised to the recorded maximum length when its digest, the structure stamp and the imported windows all match the record's; a carried rune's depth is the recorded maximum length. The record stores the least depth over its runes, so it never claims a depth some rune lacks (a length-6 family walk beside runes walked only to 5 records 5), and never drops a depth every rune still has (a length-5 walk or deep sweep over runes the record holds at 6 records 6). The structure stamp enters only here: it never widens a walk (`rebuild.tools.deep_replay` says why), so a structure change keeps the carried runes' claims and makes a walk record its own depth for the runes it covers. The imported windows do widen a walk, because they can reshape a configuration's rules for texts that name no edited rune (`doc/rebuild-design.md` §10, "Imported windows"), so a record whose imported windows differ from `imports` carries no claim. Nothing is carried from a record without a maximum length or a digest map.
+    `walked` holds the runes whose texts this walk settled at `max_length`, at the digests the walk read. `carry` names runes the walk did not cover whose claims in the record on disk the new record keeps, at the record's digests. A walked rune's depth is `max_length`, raised to the recorded maximum length when its digest matches the record's; a carried rune's depth is the recorded maximum length. The record stores the least depth over its runes, so it never claims a depth some rune lacks (a length-6 family walk beside runes walked only to 5 records 5), and never drops a depth every rune still has (a length-5 walk or deep sweep over runes the record holds at 6 records 6). The structure stamp and the imported windows are the record's identity beside the rune digests, so a record under another structure stamp or other imported windows carries no claim and lends no depth: a change to the crate, the semantics tokens, the cross-rune structure or the capability features can change any text's answer, and the imported windows can reshape a configuration's rules for texts that name no edited rune (`doc/rebuild-design.md` §10, "Imported windows"). Nothing is carried from a record without a maximum length or a digest map.
     """
     path = path if path is not None else cycle_paths.DEEP_REPLAY_GREEN
     existing = read_green_record(path)
@@ -628,14 +629,12 @@ def record_deep_replay_green(
     prior = existing.get("files") if existing is not None else None
     if not isinstance(recorded, int) or not isinstance(prior, dict):
         recorded, prior = max_length, {}
-    same_imports = existing is not None and existing.get("imports") == imports
-    if not same_imports:
+    if existing is None or existing.get("imports") != imports or existing.get("structure") != structure:
         prior = {}
-    same_structure = same_imports and existing is not None and existing.get("structure") == structure
     carried = {name: prior[name] for name in carry if name in prior and name not in walked}
     depths = [recorded] if carried else []
     depths += [
-        max(max_length, recorded) if same_structure and prior.get(name) == digest else max_length
+        max(max_length, recorded) if prior.get(name) == digest else max_length
         for name, digest in walked.items()
     ]
     depth = min(depths, default=max_length)
@@ -671,6 +670,29 @@ def tables_imports_digest(root: Path | None = None) -> str | None:
     return run_m1.imports_digest(tables)
 
 
+def deep_replay_structure_stamp(root: Path | None = None, spec: ResolvedSpec | None = None) -> str:
+    """Return the deep replay record's structure stamp: the hash of the crate's manifest, lock and sources (the crate's members of `fingerprint.table_code_paths`, prose-insensitive through `fingerprint.path_lines`), the semantics tokens (`kernel_exec.enumeration_tokens`), the cross-rune structure (`spec_load.spec_structure_digest`) and the capability features (`spec_load.capability_features`). `spec` is loaded from the tree at `root` when not given, and the root defaults at call time, as in `deep_replay_green_path`. It leaves out the build-side Python and the non-rune data files, which `run_m1.locality_lines` hashes for the build's own replay, so an edit there leaves the deep replay current unless it moves a rune digest, the tables' imported windows or something this stamp hashes. A record under another stamp carries no claim (`record_deep_replay_green`), so `deep_replay_status` reports it due and a walk without `--families` covers every text."""
+    from rebuild.pipeline import fingerprint, kernel_exec, spec_load
+
+    root = Path(ROOT if root is None else root)
+    if spec is None:
+        spec = spec_load.load_spec(
+            root / spec_load.DEFAULT_RUNES_DIR.relative_to(spec_load.REPO_ROOT),
+            root / spec_load.DEFAULT_REGISTRY_PATH.relative_to(spec_load.REPO_ROOT),
+            root / spec_load.DEFAULT_SCHEMA_DIR.relative_to(spec_load.REPO_ROOT),
+        )
+    kernel = root / "rebuild" / "kernel-rs"
+    lines = fingerprint.path_lines(
+        root, [path for path in fingerprint.table_code_paths(root) if kernel in path.parents]
+    )
+    lines += [
+        "semantics\t" + "+".join(kernel_exec.enumeration_tokens()),
+        f"structure\t{spec_load.spec_structure_digest(spec)}",
+        "capabilities\t" + ",".join(spec_load.capability_features(spec)),
+    ]
+    return _digest_lines(lines)
+
+
 def recorded_max_length(record: dict) -> object:
     """Return the maximum length a deep sweep or deep replay green record reached: its `max_length` field, or the `horizon` field an older record stores it under."""
     return record.get("max_length", record.get("horizon"))
@@ -701,7 +723,7 @@ def _deep_replay_command(max_length: int) -> str:
 def deep_replay_status(
     root: Path | None = None, max_length: int = DEEP_REPLAY_MAX_LENGTH_DEFAULT
 ) -> tuple[str, str]:
-    """Return whether the deep replay is current for the runes and tables on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest, was walked over the tables' current imported windows (`tables_imports_digest`), and reached this depth or deeper. `due` names what moved since the recorded walk: the imported windows, the runes whose content changed, or the shallower depth it reached, and the `make replay-deep` that clears it at this depth. That is the bare walk at this depth, which walks every text when the imported windows moved or the record is shallower than it, since a walk over the moved runes alone carries the rest at the depth the record holds (`record_deep_replay_green`). `never-run` means there is no record `read_green_record` can read, and names the same bare walk at this depth, which walks every text because there is no last walk to cut a delta against. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
+    """Return whether the deep replay is current for the runes and tables on disk, as (status, note) for the cycle's one-line report beside the deep sweep's. `current` means the record has every rune at its current digest, was walked over the tables' current imported windows (`tables_imports_digest`) under the current structure stamp (`deep_replay_structure_stamp`), and reached this depth or deeper. `due` names what moved since the recorded walk: the imported windows, what the structure stamp hashes, the runes whose content changed, or the shallower depth it reached, and the `make replay-deep` that clears it at this depth. That is the bare walk at this depth, which walks every text when the imported windows or the structure stamp moved, since the record then carries no claim, or when the record is shallower than it, since a walk over the moved runes alone carries the rest at the depth the record holds (`record_deep_replay_green`). `never-run` means there is no record `read_green_record` can read, and names the same bare walk at this depth, which walks every text because there is no last walk to cut a delta against. This only reports: the deep replay is never a cycle gate, for the cost `rebuild/tools/deep_replay.py` states."""
     from rebuild.pipeline import fingerprint
 
     root = ROOT if root is None else root
@@ -719,6 +741,11 @@ def deep_replay_status(
         return (
             "due",
             f"the windows the tables import from one another moved since the last length-{recorded} walk, which can reshape rules for texts that name no edited rune; run {command}, which walks every text",
+        )
+    if record.get("structure") != deep_replay_structure_stamp(root):
+        return (
+            "due",
+            f"the crate, the semantics tokens, the cross-rune structure or the capability features moved since the last length-{recorded} walk; run {command}, which walks every text",
         )
     if moved:
         return (

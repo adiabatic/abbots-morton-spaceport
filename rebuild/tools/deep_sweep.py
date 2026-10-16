@@ -14,7 +14,7 @@ While the units run, the parent prints a progress report every 20 minutes (`REPO
 
 The total is a `[progress] <k>/<n> texts` counter line in `console`'s protocol, and the rest of the report rides on the same line: `console.parse_line` reads the counter's two bare counts and takes everything after them as the unit, which the artifact cycle's console reprints verbatim after the counts, which it formats with `console.fmt_count`. The two counts stay bare because the parser reads only digits there; every other count and duration in the report goes through `fmt_count` and `fmt_duration`. Each configuration gets a `deep sweep[<config>]: ` line after it, which sums its units and counts the ones running and finished. It is not a protocol line, so the cycle's console logs it without surfacing it, as it does the per-configuration peak lines at the end, while `tail -f` shows every line. Making them counter lines too would not show them: the console keeps only the latest counter of a burst and surfaces it a heartbeat later.
 
-A green run also refreshes gate:conform's green record, when the per-edit sweep's key did not change during the run, because a sweep at depth N covers every text the per-edit sweep at depth 4 shapes: it shapes each one in every configuration, or, in a configuration that skips it, in `default`, where the configuration shapes and settles it as `default` does. The next cycle can then skip the per-edit sweep. At or past the deep replay's maximum length it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font, and every text it skips settles as it does in `default`, where it is settled. Both refreshes rest on the plan-time check, so neither runs unless the check passed in every configuration. That record holds the rune digests read before the sweep started, which are the runes the swept font was built from, and the refresh is skipped when a rune changed while the sweep ran. `artifact_cycle.record_deep_replay_green` decides the maximum length the refreshed record holds, and the refresh line names it when it differs from the sweep's.
+A green run also refreshes gate:conform's green record, when the per-edit sweep's key did not change during the run, because a sweep at depth N covers every text the per-edit sweep at depth 4 shapes: it shapes each one in every configuration, or, in a configuration that skips it, in `default`, where the configuration shapes and settles it as `default` does. The next cycle can then skip the per-edit sweep. At or past the deep replay's maximum length it also refreshes the deep replay's record (`rebuild.tools.deep_replay`), because it settles every text it shapes against the tables in the font, and every text it skips settles as it does in `default`, where it is settled. Both refreshes rest on the plan-time check, so neither runs unless the check passed in every configuration. That record holds the rune digests, read before `record_key` checks that the tables on disk were built from the sources on disk, and the deep replay's structure stamp (`artifact_cycle.deep_replay_structure_stamp`) and the tables' imported windows, read after that check and before `main` makes it again, so the second check vouches that all three describe the build the swept font came from, and the refresh is skipped when a rune changed while the sweep ran. `artifact_cycle.record_deep_replay_green` decides the maximum length the refreshed record holds, and the refresh line names it when it differs from the sweep's.
 
 `--targeted` runs the same per-text checks over the texts the `settle:bk1-la4` rules give instead of over every text up to a maximum length. Such a rule reads one glyph before its input and four after it (`targeted_rule`), so it can match only a run of at least six glyphs, and no text at the sweep's default maximum length reaches one. For each such rule in each settlement configuration's table (`targeted_texts`) the mode shapes its certificate, the token stream the crate built to make it fire (`table.DecisionTable.certificates`, which otherwise only the witness stage settles), and every text whose six positions take a family from its backtrack class, its input and its four lookahead classes (`rule_contexts`), alone and after each alphabet symbol, so the backtrack letter's own left varies too. Each configuration's texts are deduplicated and cut into units of at least TARGETED_UNIT_TEXTS texts (`targeted_units`), which run in the same kind of pool as the exhaustive units (`_run_units`, `_texts_worker`), and the run reports per configuration how many of these rules' certificates it shaped. It is targeted, not exhaustive: it misses a fault that appears only where these rules meet other rules in contexts the enumeration does not produce, and it places no ZWNJ where no context class names one. Its green record (`cycle_paths.TARGETED_SWEEP_GREEN`) is keyed on `targeted_lines`, and `--targeted --status` asks whether it is due (`targeted_status`). It runs on demand: the artifact cycle neither runs nor reports it, and a green targeted run refreshes no other record.
 
@@ -59,6 +59,7 @@ from rebuild.tools.artifact_cycle import (
     clear_contradicted_green,
     conform_skip_files,
     conform_skip_fingerprint,
+    deep_replay_structure_stamp,
     deep_sweep_skip_files,
     deep_sweep_skip_fingerprint,
     deep_sweep_skip_lines,
@@ -84,6 +85,8 @@ TARGETED_CHECK = "conform-deep-targeted"
 TARGETED_CLASS = "settle:bk1-la4"
 
 TARGETED_COMMAND = "`make conform-deep ARGS='--targeted'`"
+
+STALE_TABLES = "the M1 artifacts are stale relative to the runes on disk — run `make artifact-cycle` (or `make review-cycle`) first, so the deep sweep never shapes a font the sources have outgrown"
 
 # The fewest texts in a targeted unit, all but each configuration's last (`targeted_units`). A unit's walk shares windows only within itself, and each unit pays for a spawn process, so larger units settle less and start fewer processes, while smaller ones leave fewer slots idle at the end. Measured on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`) on the alphabet with ·Way (44 runes), one run at a time with nothing else running, over 7,826,390 texts: 121 units of this size took 60.5 s, and 62 units of twice the size 61.9 s. Each configuration's highest unit peaked at 0.18 GB against an estimate of 0.36 GB, and the highest at twice the size at 0.21 GB against 0.51 GB, so every fleet machine runs as many units at once as it has cores. The logs are in `var/keep/issue-496/`, and the `conform-deep-targeted` check lines in the cycle-timings journal hold the peaks.
 TARGETED_UNIT_TEXTS = 65_536
@@ -605,9 +608,7 @@ def record_key() -> str:
             "no behavior-class sidecar under rebuild/out/m1 — run `make artifact-cycle` first so a build can leave one to key this sweep on"
         )
     if not tables_stamped():
-        raise SystemExit(
-            "the M1 artifacts are stale relative to the runes on disk — run `make artifact-cycle` (or `make review-cycle`) first, so the deep sweep never shapes a font the sources have outgrown"
-        )
+        raise SystemExit(STALE_TABLES)
     return fingerprint
 
 
@@ -810,16 +811,9 @@ def run_sweep(
     return _summary(report, results), peaks
 
 
-def refresh_deep_replay(max_length: int, runes: dict[str, str]) -> int:
-    """Record the deep replay as green at `max_length` for every rune at the digest in `runes`, the snapshot taken before the sweep started, since a green sweep at that depth settled every text that names any of them, in `default` alone where a configuration that passed the plan-time check settles it as `default` does, over the tables' imported windows on disk (`artifact_cycle.tables_imports_digest`). Return the maximum length the record holds, which `artifact_cycle.record_deep_replay_green` decides."""
-    from rebuild.pipeline.spec_load import load_default_spec
-
-    return record_deep_replay_green(
-        runes,
-        max_length,
-        run_m1.replay_structure_stamp(load_default_spec()),
-        imports=tables_imports_digest(),
-    )
+def refresh_deep_replay(max_length: int, runes: dict[str, str], structure: str, imports: str | None) -> int:
+    """Record the deep replay as green at `max_length` for every rune at the digest in `runes`, under the structure stamp `structure` (`artifact_cycle.deep_replay_structure_stamp`) and the tables' imported windows `imports` (`artifact_cycle.tables_imports_digest`), which `main` reads between `record_key`'s check of the tables' stamp and its own second one, since a green sweep at that depth settled every text that names any of them, in `default` alone where a configuration that passed the plan-time check settles it as `default` does. Return the maximum length the record holds, which `artifact_cycle.record_deep_replay_green` decides."""
+    return record_deep_replay_green(runes, max_length, structure, imports=imports)
 
 
 def targeted_rule(rule: Rule) -> bool:
@@ -1240,6 +1234,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     runes = fingerprint.rune_digests(ROOT)
     deep_key = record_key()
+    replay_structure = deep_replay_structure_stamp(ROOT)
+    replay_imports = tables_imports_digest(ROOT)
+    if not tables_stamped():
+        raise SystemExit(STALE_TABLES)
     conform_key = conform_skip_fingerprint(ROOT, CONFORM_MAX_LENGTH_DEFAULT)
     stated = args.jobs if args.jobs is not None else stated_jobs()
     report_every = report_seconds()
@@ -1339,7 +1337,7 @@ def main(argv: list[str] | None = None) -> int:
                 flush=True,
             )
         else:
-            replay_recorded = refresh_deep_replay(args.max_length, runes)
+            replay_recorded = refresh_deep_replay(args.max_length, runes, replay_structure, replay_imports)
             kept = (
                 f", and {cycle_paths.DEEP_REPLAY_GREEN.name} keeps maximum length {replay_recorded} from an earlier walk over the same runes"
                 if replay_recorded != args.max_length

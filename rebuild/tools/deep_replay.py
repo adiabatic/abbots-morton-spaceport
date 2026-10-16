@@ -4,7 +4,7 @@ It is not part of the per-edit path because of its cost. On the live alphabet, a
 
 The walk runs in units, as the deep sweep does (`walk_units`): each settlement configuration once per alphabet symbol, over the texts that end in that symbol, each unit one `replay-strings` call of its own on one thread (`kernel_exec.replay_strings` with `last`). A `--families` walk narrows every unit to the texts naming those runes. Every window whose right slots reach a text's end names the unit's symbol, so a unit keeps that reuse within its memo, and only the windows a boundary cuts short before the text's end are settled again in each unit whose texts reach them. The units go to a pool of `replay_threads` at once: the machine's memory over `DEEP_REPLAY_PEAK_BYTES`, capped at its cores, so the walk is not held to one core per configuration, and each crate call walks a fraction of a configuration's texts, far inside its limit (`kernel_exec.replay_timeout`). Each configuration's counts merge over its units, and before anything is recorded its texts and skipped texts must sum to every text of its lengths (`run_m1_gates.config_texts`), so a lost or doubled unit cannot pass as a green. A disagreement in any unit stops the units not yet started; the units already running finish, and every disagreement they found is reported. The check line's peak is the largest unit's crate process (`peak_rss.peak_rss_children_bytes`), not the sum of the units running at once.
 
-The green record (`cycle_paths.DEEP_REPLAY_GREEN`) stores every rune's prose-insensitive digest, one maximum length, the replay structure stamp and the tables' imported windows (`artifact_cycle.tables_imports_digest`). `artifact_cycle.record_deep_replay_green` decides the maximum length it holds after a walk or a deep sweep's refresh, and the green line names that length when it differs from the walk's. The next walk covers the runes whose digest changed since, closed under `spec_load.rune_closure` (every rune whose records read a changed rune's content), which the window locality rule in `doc/rebuild-design.md` permits. That rule has one exception a narrowed walk must honor, the imported windows (§10): each configuration's table takes in the windows other configurations keep live, so a rune edit can reshape a configuration's rules for texts that name no edited rune, and a walk without `--families` walks every text when the record's imported windows differ from the tables on disk. A walk without `--families` or `--all` deeper than the record's maximum length (or over a record without one, or with no record at all) walks every text instead, whether or not a rune moved, because only a walk over every text raises the record's depth, and with no record there is no last walk to cut a delta against; it says so before it starts. The structure stamp never widens a walk: a code or structure change is checked over every text at the build's maximum length by the build's own replay (`run_m1.replay_families`), and past that length only by a deep sweep or by a walk over every text, both run by hand. A walk that finds a disagreement withdraws what the record claims for the runes it walked (`withdraw_walked`). After a family walk the status reports the walked runes due and the next bare walk covers them again; after a walk over every text, however it was chosen, the record is gone and the status reports `never-run`.
+The green record (`cycle_paths.DEEP_REPLAY_GREEN`) stores every rune's prose-insensitive digest, one maximum length, the deep replay's structure stamp (`artifact_cycle.deep_replay_structure_stamp`: the crate, the semantics tokens, the cross-rune structure and the capability features) and the tables' imported windows (`artifact_cycle.tables_imports_digest`). The walk reads the digests, the stamp and the windows between two checks that the tables on disk were built from the sources on disk (`deep_sweep.tables_stamped`) and refuses when either fails, so it never records them against tables built from other sources. `artifact_cycle.record_deep_replay_green` decides the maximum length it holds after a walk or a deep sweep's refresh, and the green line names that length when it differs from the walk's. The next walk covers the runes whose digest changed since, closed under `spec_load.rune_closure` (every rune whose records read a changed rune's content), which the window locality rule in `doc/rebuild-design.md` permits while the whole-store half of the rule's key (`run_m1.locality_lines`) holds. The structure stamp hashes part of that half: the crate, the semantics tokens, the capability features, and the cross-rune structure, which covers the rule's class-ranked exception (§10). It leaves out the build-side Python and the non-rune data files, so an edit there leaves the record current unless it moves a rune digest, the imported windows or something the stamp hashes; the build's own replay, keyed by `run_m1.replay_structure_stamp`, checks such an edit at its own maximum length. The rule's imported-windows exception (§10) is the other one a narrowed walk must honor: each configuration's table takes in the windows other configurations keep live, so a rune edit can reshape a configuration's rules for texts that name no edited rune. So a walk without `--families` walks every text when the record's imported windows differ from the tables on disk or its structure stamp differs from the current one, and says which before it starts. A walk without `--families` or `--all` deeper than the record's maximum length (or over a record without one, or with no record at all) walks every text instead, whether or not a rune moved, because only a walk over every text raises the record's depth, and with no record there is no last walk to cut a delta against; it says so before it starts. A walk that finds a disagreement withdraws what the record claims for the runes it walked (`withdraw_walked`). After a family walk the status reports the walked runes due and the next bare walk covers them again; after a walk over every text, however it was chosen, the record is gone and the status reports `never-run`.
 
 Run as: uv run python -m rebuild.tools.deep_replay, or through `make replay-deep`. `--families` names the runes to walk instead of reading them from the record, at any depth. `--all` walks every text at any depth, which on the live alphabet takes minutes on the 18-core M5 Pro (`doc/fleet.md`). `--threads` sets how many units walk at once.
 """
@@ -34,6 +34,7 @@ from rebuild.tools.artifact_cycle import (
     DEEP_REPLAY_MAX_LENGTH_DEFAULT,
     deep_replay_moved,
     deep_replay_status,
+    deep_replay_structure_stamp,
     read_green_record,
     record_deep_replay_green,
     recorded_max_length,
@@ -54,6 +55,8 @@ DEEP_REPLAY_PEAK_BYTES = 3_100_000_000
 CHECK = "replay-deep"
 # The pool unit a walk at the checked-in ceiling records its units' peaks under beside its check line (`record_walk_peaks`), which the deep-replay-walk row of `make job-costs` holds against DEEP_REPLAY_PEAK_BYTES.
 POOL_UNIT = "deep-replay-walk"
+
+STALE_TABLES = "the M1 tables are stale relative to the runes on disk — run `make artifact-cycle` (or a bare M1 build) first, so the walk never holds tables the sources have outgrown"
 
 
 def replay_threads(total_bytes: int | None = None, ncores: int | None = None) -> int:
@@ -211,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--all",
         action="store_true",
-        help="walk every text rather than the moved runes' texts, at any --max-length (a walk without it does so only when there is no record, when the record holds no maximum length or a shorter one than this walk's, or when the tables' imported windows moved); a run of minutes on the live alphabet",
+        help="walk every text rather than the moved runes' texts, at any --max-length (a walk without it does so only when there is no record, when the record holds no maximum length or a shorter one than this walk's, or when the tables' imported windows or the structure stamp moved since the last walk); a run of minutes on the live alphabet",
     )
     parser.add_argument(
         "--threads",
@@ -236,13 +239,13 @@ def main(argv: list[str] | None = None) -> int:
             f"--max-length {args.max_length} is no deeper than the build's own replay at {CONFORM_MAX_LENGTH_DEFAULT}; every build already walks that depth"
         )
     if not tables_stamped():
-        raise SystemExit(
-            "the M1 tables are stale relative to the runes on disk — run `make artifact-cycle` (or a bare M1 build) first, so the walk never holds tables the sources have outgrown"
-        )
+        raise SystemExit(STALE_TABLES)
     spec = load_default_spec()
     runes = fingerprint.rune_digests(ROOT)
-    structure = run_m1.replay_structure_stamp(spec)
+    structure = deep_replay_structure_stamp(ROOT, spec)
     imports = tables_imports_digest(ROOT)
+    if not tables_stamped():
+        raise SystemExit(STALE_TABLES)
     record = read_green_record(cycle_paths.DEEP_REPLAY_GREEN)
     if args.all:
         families = None
@@ -269,6 +272,12 @@ def main(argv: list[str] | None = None) -> int:
         elif record.get("imports") != imports:
             print(
                 "deep replay: the windows the tables import from one another moved since the last walk, so this walk covers every text",
+                flush=True,
+            )
+            families = None
+        elif record.get("structure") != structure:
+            print(
+                "deep replay: the crate, the semantics tokens, the cross-rune structure or the capability features moved since the last walk, so this walk covers every text",
                 flush=True,
             )
             families = None
