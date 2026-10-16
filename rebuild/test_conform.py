@@ -300,10 +300,8 @@ class TestAliasAndLedger:
                 if class_id is not None:
                     if classified != class_id:
                         continue
-                else:
-                    function = oracle.PREDICATES.get(predicate_name)
-                    if function is None or not function(row):
-                        continue
+                elif not oracle.PREDICATES[predicate_name](row):
+                    continue
             else:
                 window = match.get("window")
                 if window is not None and window not in row.codepoints:
@@ -369,7 +367,6 @@ class TestAliasAndLedger:
         {"id": "kern-out-of-scope", "match": {"predicate": "kern_out_of_scope", "configs": "all"}},
         {"id": "kern-on-ss04", "match": {"predicate": "kern_out_of_scope", "configs": ["ss04"]}},
         {"id": "dangling-on-ss04", "match": {"predicate": "dangling_anchor_dropped", "configs": ["ss04"]}},
-        {"id": "nobody-knows-this", "match": {"predicate": "no_such_predicate", "configs": "all"}},
         {"id": "everything", "match": {}},
         {"id": "pre-ligature-window", "match": {"window": "E652:E679"}},
         {"id": "junctions-only", "match": {"junction_change": True}},
@@ -381,7 +378,7 @@ class TestAliasAndLedger:
     ]
 
     def test_the_compiled_ledger_answers_what_a_walk_of_the_raw_ledger_answers(self):
-        """The compiled ledger against the reference walk, over a ledger with one entry of each kind: a class entry open to every configuration, a class entry scoped to one configuration, a function predicate, a predicate in neither map, an empty `match`, a `window` test, a `junction_change` test, and an entry with no `id`. The rows reach each of them. List equality checks both the ids and their order."""
+        """The compiled ledger against the reference walk, over a ledger with one entry of each kind: a class entry open to every configuration, a class entry scoped to one configuration, a function predicate, an empty `match`, a `window` test, a `junction_change` test, and an entry with no `id`. The rows reach each of them. List equality checks both the ids and their order."""
         ledger = self._LEDGER_FOR_EVERY_CASE
         compiled = oracle.compile_ledger(ledger)
         answers = {}
@@ -423,21 +420,22 @@ class TestAliasAndLedger:
             assert oracle._match_compiled(oracle.compile_ledger(ledger), row) == expected
             assert oracle._match_ledger(ledger, row) == expected
 
-    def test_an_empty_match_takes_every_row_and_an_unknown_predicate_takes_none(self):
-        """An empty `match` matches every row, including the unclassified one. An entry whose predicate is in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` matches no row and goes into no bucket, which is also what the reference walk returns for it."""
-        ledger = [
-            {"id": "unknown", "match": {"predicate": "no_such_predicate"}},
-            {"id": "everything", "match": {}},
-        ]
-        compiled = oracle.compile_ledger(ledger)
+    def test_an_empty_match_takes_every_row_and_an_unknown_predicate_is_refused(self):
+        """An empty `match` matches every row, including the unclassified one. An entry whose predicate is in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` could match no row, so the ledger fails to compile and the error names the entry."""
+        everything = {"id": "everything", "match": {}}
+        compiled = oracle.compile_ledger([everything])
         assert compiled.by_class == {}
         assert compiled.functions == ()
-        assert compiled.unconditional == ((1, "everything", None, None, False),)
+        assert compiled.unconditional == ((0, "everything", None, None, False),)
         for row in self._rows_for_every_case():
             assert oracle._match_compiled(compiled, row) == ["everything"], row
         unclassified = self._rows_for_every_case()[3]
         assert oracle.classify_divergence(unclassified) is None
         assert oracle._match_compiled(compiled, unclassified) == ["everything"]
+        with pytest.raises(ValueError, match="'unknown'.*'no_such_predicate'"):
+            oracle.compile_ledger(
+                [{"id": "unknown", "match": {"predicate": "no_such_predicate"}}, everything]
+            )
 
     def test_a_bare_string_configs_keeps_the_raw_walk_s_test_and_a_missing_value_is_refused(self):
         """A bare-string `configs` keeps the reference walk's substring `in` test: the ss05 row matches `ss03+ss05` under it and would not under an exact match. A `configs:` with no value fails when the ledger compiles instead of matching every configuration."""

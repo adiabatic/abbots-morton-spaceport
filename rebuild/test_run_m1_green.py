@@ -233,6 +233,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     assert opened == [
         "baseline_subset",
         "alias_completeness",
+        "divergence_ledger",
         "run_total",
         "run_manual_pin_gate",
         "run_oracle",
@@ -1262,7 +1263,7 @@ class TestGatesOnly:
     """`--gates-only` re-runs the defect gate, the Manual-pin replay, and the oracle over the build already on disk, without the stages that make the artifacts. It exits with an error on a stamp that no longer matches the runes and on a build that left no summary to rewrite the defect fields into. It records a green only when every input that moved since the last green build is comparison-side, so a bless of the contact allow-list or a ledger edit leaves the next cycle nothing to do, while a toolchain bump does not."""
 
     def _reuse(self, monkeypatch, tables):
-        """Stubs the stamp check and the two pre-gate guards that every path runs first. The guards are stubbed because both read the live subset tables under rebuild/out, which a contracts-lane test may not read. Returns the stage log the ordering test reads."""
+        """Stubs the stamp check and the two pre-gate guards that read the live subset tables under rebuild/out, which a contracts-lane test may not read. The ledger guard compiles the checked-in ledger and runs as it is. Returns the stage log the ordering test reads."""
         ran: list[str] = []
         monkeypatch.setattr(
             run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root: ran.append("subset") or False
@@ -1393,7 +1394,7 @@ class TestGatesOnly:
     def test_it_runs_the_guards_then_the_defect_gate_then_the_pins_then_the_oracle(
         self, monkeypatch, tmp_path, capsys
     ):
-        """The two pre-gate guards protect the oracle, not the build (an unaliased subset name makes every oracle number wrong), so a pass that re-runs the oracle over an existing build runs them as a full build does. The defect gate runs first among the three gates because its errors stop the pass before any pin is replayed."""
+        """The pre-gate guards protect the oracle, not the build (an unaliased subset name makes every oracle number wrong), so a pass that re-runs the oracle over an existing build runs them as a full build does. The defect gate runs first among the three gates because its errors stop the pass before any pin is replayed."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1405,11 +1406,28 @@ class TestGatesOnly:
         assert opened == [
             "baseline_subset",
             "alias_completeness",
+            "divergence_ledger",
             "defect_gates",
             "run_manual_pin_gate",
             "run_oracle",
         ]
         assert set(opened) <= set(closed)
+
+    def test_a_ledger_predicate_the_oracle_does_not_define_stops_the_pass_before_the_stage_a_record(
+        self, monkeypatch, tmp_path
+    ):
+        """The ledger guard refuses a `match.predicate` the oracle does not define before the defect gate and the Stage A rewrite, and names the entry and the predicate. Refused inside the oracle instead, the pass would leave its own Stage A record beside the previous pass's divergence-audit.tsv, and a corpus built over them would present that audit as current."""
+        ledger = tmp_path / "m1-divergences.yaml"
+        ledger.write_text("- id: mistyped\n  match:\n    predicate: boundary_windo\n")
+        monkeypatch.setattr(run_m1_gates, "DIVERGENCES_YAML", ledger)
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        self._green(monkeypatch, tmp_path)
+        self._gates(monkeypatch, ran)
+        with pytest.raises(SystemExit, match="'mistyped'.*'boundary_windo'"):
+            run_m1_gates.main(["--gates-only"])
+        assert ran == ["subset", "aliases"]
 
     def test_it_rewrites_only_the_defect_fields_of_the_builds_summary(self, monkeypatch, tmp_path):
         """The defect gate writes its result into the summary the build left, so the evaluator reads this pass's defect result, not the one from before the bless. The rest of the summary belongs to the build and is left as it was, since this pass compiles no font and counts no GSUB rule."""

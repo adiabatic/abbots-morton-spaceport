@@ -704,13 +704,10 @@ def test_a_ledger_entry_carries_its_copy_and_an_optional_note(tmp_path):
         ("  title: The bad title\n", "", "nonempty string title"),
         ("summary: The bad summary.", "summary: ' '", "nonempty string summary"),
         ("why: because", 'note: ""\n  why: because', "nonempty string note"),
-        ("predicate: boundary_window", "predicate: no_such_predicate", "no_such_predicate"),
     ],
 )
-def test_a_ledger_entry_the_review_app_cannot_show_or_the_oracle_cannot_match_is_refused(
-    tmp_path, old, new, message
-):
-    """Every entry needs a status from `LEDGER_STATUSES`, which decides its section, and a nonempty title and summary, which the sidebar shows; a note, when present, must say something. A `match.predicate` the oracle does not define would match no row and leave the class's rows unmatched without failing any gate, so it is refused too."""
+def test_a_ledger_entry_the_review_app_cannot_show_is_refused(tmp_path, old, new, message):
+    """Every entry needs a status from `LEDGER_STATUSES`, which decides its section, and a nonempty title and summary, which the sidebar shows; a note, when present, must say something."""
     text = _entry("bad").replace(old, new)
     assert text != _entry("bad")
     with pytest.raises(ValueError, match=message):

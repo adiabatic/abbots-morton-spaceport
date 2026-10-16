@@ -1,4 +1,4 @@
-"""The M1 driver's gate half, the code the table build and the font compile never run: the gates that check the tables and the M1.otf a build has written under rebuild/out/m1, the guards that check the oracle's baselines and aliases before those gates run, and the command line `uv run python -m rebuild.pipeline.run_m1` hands to `main`.
+"""The M1 driver's gate half, the code the table build and the font compile never run: the gates that check the tables and the M1.otf a build has written under rebuild/out/m1, the guards that check the oracle's baselines, aliases and ledger before those gates run, and the command line `uv run python -m rebuild.pipeline.run_m1` hands to `main`.
 
 It holds the pre-gate guards (`_run_pregate_guards`), the Manual-pin gate (`run_manual_pin_gate`), the baseline oracle and its row-cache helpers (`run_oracle`), the conformance sweep, serial or pooled (`run_font_conformance`), the units the pooled sweep, `make conform-deep` and the deep replay run in (`sweep_units`), the `--gates-only` rerun (`run_gates_only`), and the check line and green record each invocation leaves (`_record_cli_check`, `_settle_green`). `main` parses the command line and runs `--gates-only` and `--conform-only` itself. A bare run goes to `run_m1.full_run`, which builds the tables and the font and then calls these gates.
 
@@ -751,7 +751,7 @@ def _failed_check(check: str, message: str) -> CheckResult:
 
 
 def _run_pregate_guards() -> None:
-    """Run the three checks that come before any gate, on both the build path and the `--gates-only` path. They check that every source baseline table was shaped by the site font on disk (`baseline_subset.ensure_fresh` compares each header's font_sha256 with the font that header names on every call, because `make all` rewrites that font without changing the stamp key), refilter the subset baselines when they no longer match the sources on disk, and check that every old glyph name in those subsets has an alias. All three protect the oracle, not the build: rows shaped by another font, or an unaliased name, make every oracle number wrong without any error. So a pass that re-runs the oracle over a build it did not make runs them as the building pass does. The ss06, ss07 and ss06+ss07 identity check runs inside the refilter, since only a refilter can change its result. A configuration that fails it is never stamped fresh, so its error is raised here on every run until it is fixed."""
+    """Run the checks that come before any gate, on both the build path and the `--gates-only` path, before either builds a table or writes the Stage A record. They check that every source baseline table was shaped by the site font on disk (`baseline_subset.ensure_fresh` compares each header's font_sha256 with the font that header names on every call, because `make all` rewrites that font without changing the stamp key), refilter the subset baselines when they no longer match the sources on disk, check that every old glyph name in those subsets has an alias, and compile the divergence ledger (`oracle.compile_ledger`), which refuses an entry whose `configs` or `predicate` the oracle cannot use. Each protects the oracle, not the build: rows shaped by another font, or an unaliased name, make every oracle number wrong without any error, and a ledger refused inside the oracle would leave this pass's Stage A record beside the previous pass's divergence-audit.tsv, which a corpus build would then present as current. So a pass that re-runs the oracle over a build it did not make runs them as the building pass does. The ss06, ss07 and ss06+ss07 identity check runs inside the refilter, since only a refilter can change its result. A configuration that fails it is never stamped fresh, so its error is raised here on every run until it is fixed."""
     console.phase("baseline_subset")
     start = time.perf_counter()
     try:
@@ -771,6 +771,13 @@ def _run_pregate_guards() -> None:
         raise SystemExit(
             f"rebuild/m1-aliases.yaml is missing {len(missing_aliases)} old glyph names that appear in subset baseline rows — every oracle number would be quietly wrong, so author each entry (or map it to the literal `pending` to run anyway with those rows unaliased):\n{listing}"
         )
+    console.phase("divergence_ledger")
+    start = time.perf_counter()
+    try:
+        oracle.compile_ledger(yaml.safe_load(DIVERGENCES_YAML.read_text()) or [])
+    except (TypeError, ValueError) as error:
+        raise SystemExit(f"{DIVERGENCES_YAML}: {error}") from error
+    print(f"[t] divergence_ledger {time.perf_counter() - start:.1f}s", flush=True)
 
 
 @dataclass(frozen=True)

@@ -520,7 +520,7 @@ class CompiledLedger:
 
 
 def compile_ledger(entries: Sequence[Mapping]) -> CompiledLedger:
-    """Compile the raw ledger (`yaml.safe_load` of rebuild/m1-divergences.yaml) into a `CompiledLedger`. An entry without an `id` is named `<unnamed>`. `configs: all` compiles to None and a list to a frozenset. A bare string is kept as a string, so it gets the same substring `in` test as the reference walk in rebuild/test_conform.py. Any other value, such as a `configs:` with no value, raises TypeError instead of silently matching every configuration. An entry whose predicate is in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` is dropped, because it can match no row."""
+    """Compile the raw ledger (`yaml.safe_load` of rebuild/m1-divergences.yaml) into a `CompiledLedger`. An entry without an `id` is named `<unnamed>`. `configs: all` compiles to None and a list to a frozenset. A bare string is kept as a string, so it gets the same substring `in` test as the reference walk in rebuild/test_conform.py. Any other value, such as a `configs:` with no value, raises TypeError instead of silently matching every configuration. An entry whose predicate is in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` raises ValueError naming the entry, because it would match no row and leave the rows it was meant for unmatched without failing any gate."""
     by_class: dict[str, list[tuple[int, str, Container[str] | None]]] = {}
     functions: list[tuple[int, str, Container[str] | None, Callable[[DivergentRow], bool]]] = []
     unconditional: list[tuple[int, str, Container[str] | None, str | None, bool]] = []
@@ -550,8 +550,11 @@ def compile_ledger(entries: Sequence[Mapping]) -> CompiledLedger:
             by_class.setdefault(class_id, []).append((index, entry_id, configs))
             continue
         function = PREDICATES.get(predicate_name)
-        if function is not None:
-            functions.append((index, entry_id, configs, function))
+        if function is None:
+            raise ValueError(
+                f"ledger entry {entry_id!r}: `predicate` {predicate_name!r} is not one the oracle defines, so it would match no row"
+            )
+        functions.append((index, entry_id, configs, function))
     return CompiledLedger(
         by_class={class_id: tuple(filed) for class_id, filed in by_class.items()},
         functions=tuple(functions),

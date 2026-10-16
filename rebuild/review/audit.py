@@ -39,38 +39,6 @@ SPOT_CHECK = "spot-check"
 NO_REVIEW_NEEDED = "no-review-needed"
 SECTIONS = (OPEN_QUESTIONS, SPOT_CHECK, NO_REVIEW_NEEDED)
 
-# Every predicate name the oracle resolves (`oracle.PREDICATES`: the `CLASS_PREDICATE_IDS` class predicates and the two function predicates). The review build cannot import the oracle, whose import closure is outside the per-unit store's stamp (`unit_cache.PIPELINE_NON_CORPUS_MODULES`), so `load_ledger` checks a ledger's predicates against this copy, and rebuild/test_ledger_predicates.py checks the copy against the oracle.
-LEDGER_PREDICATES = frozenset(
-    {
-        "boundary_window",
-        "ss03_out_tea_ligature_kept",
-        "post_marker_ligature_formation",
-        "regrouped_chain",
-        "zwnj_word_initial_junction_moved",
-        "zwnj_follower_exit_restored",
-        "pre_ligature_cleanup_regularized",
-        "ss03_chain_join_gains",
-        "entered_it_baseline_join_gain",
-        "pea_chain_regularized",
-        "halves_entry_extension_restored",
-        "same_junction_extension_non_summing",
-        "may_baseline_entry_extension_dropped",
-        "no_xheight_entry_extension_dropped",
-        "day_baseline_entry_extension_dropped",
-        "vie_baseline_entry_extension_dropped",
-        "zwnj_word_initial_unification",
-        "dangling_anchor_dropped",
-        "bare_name_live_join",
-        "see_out_fusion_renamed",
-        "may_jai_extension_consolidated",
-        "jai_entry_contraction_renamed",
-        "zoo_entry_contraction_renamed",
-        "roe_shortened_top_renamed",
-        "kern_out_of_scope",
-        "may_ligature_junction_loosened",
-    }
-)
-
 AUDIT_HEADER = ("config", "codepoints", "kinds", "matched_entry", "baseline", "new")
 
 
@@ -253,7 +221,7 @@ def _prose_field(path: Path, identifier: str, entry: Mapping, key: str, *, requi
 
 
 def load_ledger(path: Path) -> list[LedgerClass]:
-    """Load the divergence ledger's entries as classes, in file order. An entry is refused unless it has a nonempty string id that no other entry and no class the build synthesizes (`RESERVED_CLASS_IDS`) uses, a status from `LEDGER_STATUSES`, a nonempty `title` and `summary`, and a `match.predicate`, when it names one, that the oracle resolves (`LEDGER_PREDICATES`): the oracle drops an entry whose predicate it cannot resolve, so a mistyped one would match no row and leave its rows unmatched without failing any gate."""
+    """Load the divergence ledger's entries as classes, in file order. An entry is refused unless it has a nonempty string id that no other entry and no class the build synthesizes (`RESERVED_CLASS_IDS`) uses, a status from `LEDGER_STATUSES`, and a nonempty `title` and `summary`. Its `match` is not read here: run_m1's pre-gate guards compile the ledger (`oracle.compile_ledger`) and refuse a predicate the oracle does not define before the pass writes its Stage A record, so a corpus built over a refused pass carries the previous pass's Stage A values and the readiness checker flags it."""
     entries = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or []
     classes: list[LedgerClass] = []
     seen: set[str] = set()
@@ -270,11 +238,6 @@ def load_ledger(path: Path) -> list[LedgerClass]:
         if status not in LEDGER_STATUSES:
             raise ValueError(
                 f"{path}: {identifier} has status {status!r}, not one of {', '.join(LEDGER_STATUSES)}"
-            )
-        predicate = (entry.get("match") or {}).get("predicate")
-        if predicate is not None and predicate not in LEDGER_PREDICATES:
-            raise ValueError(
-                f"{path}: {identifier} names predicate {predicate!r}, which the oracle does not define"
             )
         classes.append(
             LedgerClass(
