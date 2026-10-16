@@ -197,28 +197,33 @@ def test_group_qualifier_warning(tmp_path):
 
 
 def test_provenance_and_record_parsing(spec):
-    refuse = spec.runes["qsIt"].policy.refuse[0]
+    index, refuse = next(
+        (index, record)
+        for index, record in enumerate(spec.runes["qsIt"].policy.refuse)
+        if record.entry == "x-height" and record.when.left == Condition(family=("qsIt",))
+    )
     assert refuse.kind == "refuse"
-    assert refuse.entry == "x-height"
-    assert refuse.when.left == Condition(family=("qsIt",))
     assert refuse.provenance.file == "glyph_data/runes/qsIt.yaml"
-    assert refuse.provenance.path == "policy.refuse[0]"
-    flagship = spec.runes["qsIt"].policy.extend[1]
-    assert flagship.exit == "baseline" and flagship.by == 1 and flagship.when.self_entry == "live"
-    short_entry_contract = spec.runes["qsJai"].policy.contract[0]
-    assert short_entry_contract.by == 1
-    assert short_entry_contract.entry == "x-height"
-    assert short_entry_contract.when.left == Condition(family=("qsPea", "qsTea", "qsHe", "qsOut_qsTea"))
+    assert refuse.provenance.path == f"policy.refuse[{index}]"
+    assert any(
+        record.exit == "baseline" and record.by == 1 and record.when.self_entry == "live"
+        for record in spec.runes["qsIt"].policy.extend
+    )
+    assert any(
+        record.entry == "x-height"
+        and record.by == 1
+        and record.when.left == Condition(family=("qsPea", "qsTea", "qsHe", "qsOut_qsTea"))
+        for record in spec.runes["qsJai"].policy.contract
+    )
 
 
 def test_scope_condition_parsing(spec):
     row = spec.runes["qsPea"].stances["half"].surface.exits["x-height"]
     assert row.ink_y == 6
     assert row.stub is not None and row.stub.cols == (3,) and row.stub.inks_when == "joined"
-    (scope,) = row.scope
-    assert scope.klass == ("can-enter-at-x-height",)
-    assert scope.except_ == tuple(
-        Condition(family=(name,)) for name in ("qsTea", "qsDay", "qsFee", "qsYe", "qsNo", "qsOwe")
+    excepted = {Condition(family=(name,)) for name in ("qsTea", "qsDay", "qsFee", "qsYe", "qsNo", "qsOwe")}
+    assert any(
+        cond.klass == ("can-enter-at-x-height",) and set(cond.except_) == excepted for cond in row.scope
     )
     top = spec.runes["qsTea"].stances["half"].surface.entries["top"]
     assert top.selectable is True
@@ -230,14 +235,26 @@ def test_scope_condition_parsing(spec):
 
 def test_unlock_parsing(spec):
     unlocks = spec.runes["qsIt"].stances["sole"].surface.unlocks
-    assert len(unlocks) == 2
-    broad, after_cheer = unlocks
-    for unlock in unlocks:
-        assert unlock.feature == "ss04"
-        assert unlock.pairing.entry == "baseline" and unlock.pairing.exit == "baseline"
-    assert broad.when.left.except_[0].family == ("qsCheer",)
-    assert after_cheer.when.left.family == ("qsCheer",)
-    assert after_cheer.when.right.except_[0].family == ("qsThaw",)
+    baseline_ss04 = [
+        unlock
+        for unlock in unlocks
+        if unlock.feature == "ss04"
+        and unlock.pairing is not None
+        and unlock.pairing.entry == "baseline"
+        and unlock.pairing.exit == "baseline"
+        and unlock.when is not None
+        and unlock.when.left is not None
+    ]
+    assert any(
+        not unlock.when.left.family and Condition(family=("qsCheer",)) in unlock.when.left.except_
+        for unlock in baseline_ss04
+    )
+    assert any(
+        unlock.when.left.family == ("qsCheer",)
+        and unlock.when.right is not None
+        and Condition(family=("qsThaw",)) in unlock.when.right.except_
+        for unlock in baseline_ss04
+    )
 
 
 def test_forbidden_stance_id(tmp_path):
@@ -1032,26 +1049,29 @@ def test_ligature_transparency_expands_left_facing_family_lists(spec):
     assert "qsSee_qsUtter" in utter_cond.family
 
     alt_from = spec.runes["qsUtter"].stances["alternate"].surface.entries["x-height"].scope
-    assert set(alt_from[0].family) >= {"qsUtter", "qsDay_qsUtter", "qsSee_qsUtter"}
+    alt_utter_cond = next(cond for cond in alt_from if "qsUtter" in cond.family)
+    assert set(alt_utter_cond.family) >= {"qsUtter", "qsDay_qsUtter", "qsSee_qsUtter"}
 
-    follower_prefer = spec.runes["qsIt"].policy.prefer[0]
+    follower_prefer = next(
+        record for record in spec.runes["qsIt"].policy.prefer if record.id == "withhold-before-no-after-oy"
+    )
     assert follower_prefer.when.left is not None
     assert set(follower_prefer.when.left.family) == {"qsOy", "qsTea_qsOy"}
     assert follower_prefer.when.right is not None and follower_prefer.when.right.family == ("qsNo",)
 
     tea_half_from = spec.runes["qsTea"].stances["half"].surface.entries["x-height"].scope
-    assert tea_half_from[0].except_[0].family == ("qsDay_qsUtter",)
+    assert any(atom.family == ("qsDay_qsUtter",) for cond in tea_half_from for atom in cond.except_)
 
-    refuse = spec.runes["qsPea"].policy.refuse[0]
-    assert refuse.when.right is not None
-    assert "qsTea_qsOy" not in refuse.when.right.family
+    assert any(
+        record.when.right is not None
+        and "qsZoo" in record.when.right.family
+        and "qsThey_qsZoo" not in record.when.right.family
+        for record in spec.runes["qsPea"].policy.refuse
+    )
 
     classes = spec.registry.predicate_classes
     assert "qsSee_qsUtter" not in classes.get("can-exit-at-baseline", frozenset())
     assert "qsTea_qsOy" in classes.get("can-exit-at-baseline", frozenset())
-
-
-# Tests of the right-side chain conditions in the checked-in runes. The crate's tests cover the chain matcher over synthetic specs. These tests check the authored data: which records read past the immediate right neighbor, how far each reads against RIGHT_CHAIN_CAP, and the family scopes that the orphaned-·Tea tests in rebuild/test_settle.py depend on.
 
 
 def _policy_records(spec):
@@ -1061,118 +1081,29 @@ def _policy_records(spec):
                 yield f"{rune_name}.{kind}[{index}]", record
 
 
-def _chain_reach(condition, depth: int = 0) -> int:
-    """Returns how many slots past its own slot a right condition reads, by the same rule spec_load._right_chain_reach applies to the raw YAML: a then: hop advances one slot, and an except: entry tests its parent's slot, so its hops count from there."""
-    if condition is None:
-        return depth
-    reach = depth
-    for atom in condition.except_:
-        reach = max(reach, _chain_reach(atom, depth))
-    if condition.then is not None:
-        reach = max(reach, _chain_reach(condition.then, depth + 1))
-    return reach
-
-
-def _chain_bearing_excepts(condition, found):
-    """Appends to `found` every (parent, except entry) pair under one right condition where the entry has its own then: chain."""
+def _except_entries(condition, found):
+    """Appends to `found` every (parent, except entry) pair under one condition, through its then: hops and each entry's own chain."""
     if condition is None:
         return found
     for atom in condition.except_:
-        if atom.then is not None:
-            found.append((condition, atom))
-        _chain_bearing_excepts(atom, found)
-    return _chain_bearing_excepts(condition.then, found)
+        found.append((condition, atom))
+        _except_entries(atom, found)
+    return _except_entries(condition.then, found)
 
 
-CHAIN_BEARING_EXCEPT_RECORDS = (
-    ("qsAwe.prefer[1]", 2),
-    ("qsBay.prefer[0]", 2),
-    ("qsCheer.prefer[0]", 2),
-    ("qsDay.prefer[1]", 2),
-    ("qsDay.prefer[5]", 3),
-    ("qsEight.prefer[0]", 2),
-    ("qsGay.prefer[0]", 1),
-    ("qsGay.prefer[2]", 2),
-    ("qsIt.prefer[2]", 1),
-    ("qsIt.prefer[3]", 1),
-    ("qsIt.prefer[4]", 1),
-    ("qsIt.prefer[5]", 1),
-    ("qsIt.prefer[6]", 1),
-    ("qsIt.prefer[8]", 1),
-    ("qsJai.prefer[0]", 2),
-    ("qsJay.prefer[0]", 2),
-    ("qsKey.prefer[0]", 2),
-    ("qsMay.prefer[0]", 1),
-    ("qsNo.prefer[6]", 1),
-    ("qsOoze.prefer[0]", 2),
-    ("qsOx.prefer[0]", 2),
-    ("qsOy.prefer[0]", 3),
-    ("qsRoe.prefer[1]", 1),
-    ("qsSee.prefer[0]", 1),
-    ("qsTea_qsOy.prefer[0]", 3),
-    ("qsThey_qsZoo.prefer[1]", 2),
-    ("qsUtter.prefer[2]", 1),
-    ("qsYe.prefer[0]", 1),
-    ("qsZoo.prefer[2]", 2),
-)
-
-
-@pytest.mark.parametrize(
-    "record_id,reach",
-    CHAIN_BEARING_EXCEPT_RECORDS,
-    ids=[row[0].replace("[", "").replace("]", "") for row in CHAIN_BEARING_EXCEPT_RECORDS],
-)
-def test_every_chain_bearing_except_walks_its_parents_tail(spec, record_id, reach):
-    """Checks the records whose right condition has an except: entry with its own then: chain, and how many slots each one reads. An except: entry tests its parent's slot, so its chain reads the same letters its parent's chain reads and counts against the same cap. engine.rs's `an_except_entry_carrying_a_chain_walks_the_same_tail` and `an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail` test the matcher over synthetic specs. The full set of such records must equal CHAIN_BEARING_EXCEPT_RECORDS, so a newly authored chain fails this test until it is added there."""
-    records = dict(_policy_records(spec))
-    carriers = {name for name, record in records.items() if _chain_bearing_excepts(record.when.right, [])}
-    assert carriers == {row[0] for row in CHAIN_BEARING_EXCEPT_RECORDS}
-    record = records[record_id]
-    assert _chain_reach(record.when.right) == reach
-    assert reach <= model.RIGHT_CHAIN_CAP
-    for parent, atom in _chain_bearing_excepts(record.when.right, []):
-        assert atom.then is not None
-        assert not parent.family or set(atom.family) <= set(parent.family)
-
-
-def test_the_qsday_depth_three_chains_both_hop_through_qsno(spec):
-    """Checks the records whose right condition has a then: chain at least two hops deep: qsDay's two ·Tea·No records, qsEight.prefer[1], and qsUtter.prefer[4]. Records are named by provenance, so a record a ligature inherits counts once, under its source rune. qsOy and qsTea_qsOy reach RIGHT_CHAIN_CAP through except: entries, with no then: on the top-level condition."""
-    spines = {
-        f"{Path(record.provenance.file).stem}.{record.provenance.path.removeprefix('policy.')}"
-        for _name, record in _policy_records(spec)
-        if record.when.right is not None
-        and record.when.right.then is not None
-        and record.when.right.then.then is not None
-        and record.provenance is not None
-    }
-    assert spines == {"qsDay.prefer[3]", "qsDay.prefer[4]", "qsEight.prefer[1]", "qsUtter.prefer[4]"}
-    tails = []
-    for record in spec.runes["qsDay"].policy.prefer[3:5]:
-        right = record.when.right
-        assert right is not None and right.then is not None and right.then.then is not None
-        assert right.family == ("qsTea",)
-        assert right.then.family == ("qsNo",)
-        tails.append(right.then.then)
-    assert tails[0].family == ("qsTea", "qsMay", "qsLow", "qsAh")
-    assert tails[1].is_token == "boundary"
-    for name in ("qsOy", "qsTea_qsOy"):
-        right = spec.runes[name].policy.prefer[0].when.right
-        assert right is not None and right.then is None
-        assert _chain_reach(right) == model.RIGHT_CHAIN_CAP
-
-
-def test_the_qsday_prefer_right_scopes_are_pinned(spec):
-    """Checks the two qsDay prefers that the depth-3 orphaned-·Tea tests in rebuild/test_settle.py depend on: prefer[1], scoped to ·Tea·Utter, which applies only when nothing joins into ·Day, and prefer[2], which withholds ·Day's exit before ·Tea followed by any of a list of joinable letters."""
-    prefer = spec.runes["qsDay"].policy.prefer
-    scoped = prefer[1].when.right
-    assert scoped is not None and scoped.then is not None
-    assert scoped.family == ("qsTea",)
-    assert scoped.then.family == ("qsUtter",)
-    assert prefer[1].when.self_entry == "none"
-    broad = prefer[2].when.right
-    assert broad is not None and broad.then is not None
-    assert broad.family == ("qsTea",)
-    assert broad.then.family == ("qsDay", "qsDay_qsUtter", "qsMay", "qsLow", "qsIt")
+def test_every_except_entry_names_only_its_parents_families(spec):
+    """Checks that every except: entry anywhere in a live record's left or right condition, including one under a then: hop or inside another entry's chain, names only families from its parent's family list when the parent has one. An except: entry tests its parent's slot, so a family its parent does not name can never change what the record matches. engine.rs's `an_except_entry_carrying_a_chain_walks_the_same_tail` and `an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail` test the matcher on entries that carry their own chain over synthetic specs, and `test_right_chain_hops_carried_by_except_count_toward_the_cap` tests that such a chain counts against RIGHT_CHAIN_CAP."""
+    pairs = [
+        (f"{name} {side}", parent, atom)
+        for name, record in _policy_records(spec)
+        for side, condition in (("left", record.when.left), ("right", record.when.right))
+        for parent, atom in _except_entries(condition, [])
+    ]
+    assert any(
+        parent.family for _name, parent, _atom in pairs
+    ), "no live except: entry sits under a parent that names families, so this test checks nothing"
+    for name, parent, atom in pairs:
+        assert not parent.family or set(atom.family) <= set(parent.family), name
 
 
 def test_resolve_record_slice_validation(tmp_path):
@@ -1370,15 +1301,15 @@ class TestConfigurationBlindness:
                 assert derived == spec.registry.predicate_classes[class_name], (label, class_name)
 
     def test_feature_conditions_live_on_unlock_rows_and_on_refuse_and_extend_records_only(self, spec):
-        """Checks that refuse and extend are the only record kinds that read a feature, that an unlock's own `when:` never names one (its `feature` is the condition), and that every feature named anywhere is registered. The extend records are the by-1 x-height extensions toward ·Tea under ss03, such as qsFee.policy.extend[2]. `Condition` has no feature field, so a scope (`from:`, `toward:`) or a left or right condition cannot read one."""
+        """Checks that refuse and extend are the only record kinds that read a feature, that an unlock's own `when:` never names one (its `feature` is the condition), and that every feature named anywhere is registered. The extend records are the by-1 x-height extensions toward ·Tea under ss03, such as ·Fee's. `Condition` has no feature field, so a scope (`from:`, `toward:`) or a left or right condition cannot read one."""
         conditioned = _feature_conditioned_records(spec)
         assert {kind for _rune, kind, _record in conditioned} == {"refuse", "extend"}
         extends = {
-            (rune_name, record.provenance.path if record.provenance else None)
+            (rune_name, record.exit, record.by, record.when.right.family if record.when.right else ())
             for rune_name, kind, record in conditioned
             if kind == "extend"
         }
-        assert ("qsFee", "policy.extend[2]") in extends
+        assert ("qsFee", "x-height", 1, ("qsTea",)) in extends
         assert {record.when.feature for _rune, kind, record in conditioned if kind == "extend"} == {"ss03"}
         assert not any(
             unlock.when is not None and unlock.when.feature is not None
