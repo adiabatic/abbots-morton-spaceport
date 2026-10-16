@@ -26,7 +26,7 @@ The rebuild migrates the cursive-join engine rune by rune and checks each batch 
 
 ## The review app's kinds of change
 
-The items below move unit ids or counts on purpose, so each is a pass of its own, with its expected deltas written down before it runs.
+The items below that move unit ids or counts do so on purpose, so each of them is a pass of its own, with its expected deltas written down before it runs.
 
 **Lift `no_verdict` on `halves-closer-to-no` for one look.** The ruling behind it saw only the half-·Pea and half-·Tea windows, and the half-·He windows, most of the class, came with the ·He migration; the class note says so. Lifting the flag gives the class's units full fragments and new ids and puts them in Spot-check, and orphans no verdict, because no-verdict units carry none. `ss03-tea-oy-ligature-kept` and `may-closer-at-baseline-join` take `no_verdict` only after their stray blanks, which their notes name, are judged.
 

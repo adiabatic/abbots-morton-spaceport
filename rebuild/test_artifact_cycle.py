@@ -8575,8 +8575,8 @@ def test_main_runs_a_live_pass_under_the_pass_lock_with_its_own_scratch_director
     assert dry == [True]
 
 
-def test_a_unit_cleared_after_a_pass_is_carried_from_the_store_by_the_next_pass(tmp_path, monkeypatch):
-    """A pass writes its carried file and both fill files in its scratch directory, which it deletes when it ends, so none is left at the repository root to outrank the store. A unit the reader clears after the pass then stays cleared: the next pass carries the store, which does not hold it after the clear, and not a leftover file that still does. The test runs from tmp_path because the suite's audit hook resolves the bare names `shutil.rmtree` unlinks against the working directory, where a `verdicts-*` name reads as a live root file."""
+def test_a_merging_pass_leaves_only_the_store_at_the_root_for_the_next_pass_to_carry(tmp_path, monkeypatch):
+    """A merging pass writes its carried file and both fill files in its scratch directory, which it deletes when it ends, so the repository root holds only the store afterwards. The carry source then resolves to the store, and the next pass carries only the store's snapshot, so a unit the reader clears between the passes has no leftover file to bring it back. The test runs from tmp_path because the suite's audit hook resolves the bare names `shutil.rmtree` unlinks against the working directory, where a `verdicts-*` name reads as a live root file."""
     stamp = "2026-07-17T20:24:44Z"
     _unsettled_repo(tmp_path, monkeypatch, stamp=stamp)
     monkeypatch.chdir(tmp_path)
