@@ -1485,7 +1485,7 @@ class TestGatesOnly:
         ]
 
     def test_a_comparison_side_diff_records_the_green_the_next_cycle_skips_on(self, monkeypatch, tmp_path):
-        """The prior green shows that a completed build over every build-side input passed, the stamp shows the tables on disk were stamped from the current sources, and this pass re-runs the gates the changed inputs feed. Together these let the pass record a green over the new inputs, so the cycle after a ledger edit skips run_m1. The two checks are necessary conditions for the tables and M1.otf on disk to be the green build's, not sufficient ones (`run_m1_gates.run_gates_only` names the gaps). The pass rests on the prior green alone: a failed run never vouches for the artifacts it left."""
+        """The prior green shows that a completed build over every build-side input its key names passed, the stamp shows the tables on disk were stamped from the current sources, and this pass re-runs the gates the changed inputs feed. Together these let the pass record a green over the new inputs, so the cycle after a ledger edit skips run_m1. The two checks are necessary conditions for the tables and M1.otf on disk to be the green build's, not sufficient ones (`run_m1_gates.run_gates_only` names the gaps). Of the runs behind the pass, only the prior green vouches for the build it stands on: a failed run never vouches for the artifacts it left."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
