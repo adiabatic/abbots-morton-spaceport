@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 from collections import OrderedDict
-from dataclasses import replace
+from dataclasses import fields, replace
 
 import pytest
 
@@ -28,7 +28,7 @@ from rebuild.pipeline import (
     spec_load,
 )
 from rebuild.pipeline import table as table_module
-from rebuild.pipeline.model import CellId, Settled
+from rebuild.pipeline.model import CellId, ResolvedSpec, Settled
 from rebuild.pipeline.settle import (
     EDGE,
     NAMER_DOT,
@@ -657,7 +657,7 @@ def test_the_enumeration_tokens_name_every_flag_that_is_on(
 
 
 def test_the_tables_stamp_appends_exactly_the_enumeration_tokens(monkeypatch):
-    """`run_m1.tables_inputs` appends exactly the tokens `kernel_exec.enumeration_tokens` returns. `run_m1.previous_memos` (the memo head's mode set) and `run_m1.locality_lines` read the same function, so a new engine flag reaches all three."""
+    """`run_m1.tables_inputs` appends exactly the tokens `kernel_exec.enumeration_tokens` returns. `run_m1.previous_memos` (the memo head's mode set), `run_m1.memo_structure_stamp` and `run_m1.locality_lines` read the same function, so a new engine flag reaches every stamp."""
     monkeypatch.setattr(run_m1.fingerprint, "tables_value", lambda repo_root: "sources")
     assert run_m1.tables_inputs() == "+".join(["sources", *kernel_exec.enumeration_tokens()])
 
@@ -920,9 +920,6 @@ class TestTheKernelInvocation:
         assert first["code"] == fingerprint.hash_paths(
             run_m1.REPO_ROOT, run_m1.table_build_code_paths(run_m1.REPO_ROOT)
         )
-        assert {
-            path.name for path in run_m1.table_build_code_paths(run_m1.REPO_ROOT) if path.suffix == ".py"
-        } == run_m1.TABLE_BUILD_CODE_MODULES
         assert (first["memos_read"], first["edited"], first["classes"]) == (0, [], [])
         assert (first["width"], first["runes"]) == (run_m1._table_build_threads(2), len(SPEC.runes))
         assert "rss_gb" in first and ("footprint_gb" in first or sys.platform != "darwin")
@@ -1143,6 +1140,63 @@ class TestTheMemoStamp:
         assert run_m1.memo_structure_stamp(joined) == run_m1.memo_structure_stamp(SPEC)
         assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(joined)) == run_m1.MemoDelta(
             runes=(), classes=(name,)
+        )
+
+    def test_the_structure_keeps_through_an_edit_the_crate_never_reads_and_moves_with_the_code_that_runs_it(
+        self, tmp_path
+    ):
+        """An emitter, read-back, run_m1.py and the spec loader are none of the memo structure stamp's code lines, so an edit there moves the stamp only where it changes the dump or what run_m1.py's stamp code and `spec_load.capability_features` compute from it (`run_m1.memo_structure_stamp`), and these edits change neither. The same edits move the string replay's stamp, so the replay walks every text. An edit to the crate or to any module `run_m1.TABLE_BUILD_CODE_MODULES` names moves the memo structure stamp."""
+        main = tmp_path / "rebuild" / "kernel-rs" / "src" / "main.rs"
+        roster = [tmp_path / relative for relative in sorted(run_m1.TABLE_BUILD_CODE_MODULES)]
+        unread = [
+            tmp_path / "rebuild" / "pipeline" / f"{name}.py"
+            for name in ("emit_gsub", "readback", "run_m1", "spec_load")
+        ]
+        for path in (*roster, *unread):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("VALUE = 1\n", encoding="utf-8")
+        main.parent.mkdir(parents=True)
+        main.write_text("fn main() {}\n", encoding="utf-8")
+        base = run_m1.memo_structure_stamp(SPEC, tmp_path)
+        replay = run_m1.replay_structure_stamp(SPEC, tmp_path)
+        for path in unread:
+            path.write_text("VALUE = 2\n", encoding="utf-8")
+        assert run_m1.memo_structure_stamp(SPEC, tmp_path) == base
+        assert run_m1.replay_structure_stamp(SPEC, tmp_path) != replay
+        for path in (*roster, main):
+            before = run_m1.memo_structure_stamp(SPEC, tmp_path)
+            added = "fn other() {}\n" if path.suffix == ".rs" else "OTHER = 1\n"
+            path.write_text(path.read_text(encoding="utf-8") + added, encoding="utf-8")
+            assert run_m1.memo_structure_stamp(SPEC, tmp_path) != before, path.relative_to(tmp_path)
+
+    def test_the_structure_moves_with_the_dumped_registry_the_rune_order_and_the_semantics(self, monkeypatch):
+        """The registry and the order of the runes reach the crate through the dump, and the mode set through its command line, so each moves the structure stamp, and a changed dump makes `memo_edited` refuse the memo."""
+        assert [entry.name for entry in fields(ResolvedSpec)] == ["runes", "registry"], (
+            "the memo stamp hashes the spec dump as its runes and its registry, so a new top-level ResolvedSpec field "
+            "reaches the crate unhashed until run_m1.memo_structure_stamp hashes it"
+        )
+        base = run_m1.memo_structure_stamp(SPEC)
+        heights = SPEC.registry.heights
+        height = next(iter(heights))
+        raised = replace(
+            SPEC, registry=replace(SPEC.registry, heights={**heights, height: heights[height] + 1})
+        )
+        reordered = replace(SPEC, runes=dict(reversed(list(SPEC.runes.items()))))
+        for changed in (raised, reordered):
+            assert run_m1.memo_structure_stamp(changed) != base
+            assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(changed)) is None
+        monkeypatch.setattr(kernel_exec, "enumeration_tokens", lambda: ["other-mode-set"])
+        assert run_m1.memo_structure_stamp(SPEC) != base
+
+    def test_a_rune_whose_stances_are_reordered_counts_as_edited(self):
+        """The crate reads a rune's stances in declaration order, which ranks the stances `policy.order` omits, so reordering them moves that rune's digest and only that rune counts as edited."""
+        tea = SPEC.runes["qsTea"]
+        swapped = replace(
+            SPEC,
+            runes={**SPEC.runes, "qsTea": replace(tea, stances=dict(reversed(list(tea.stances.items()))))},
+        )
+        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(swapped)) == run_m1.MemoDelta(
+            runes=("qsTea",), classes=()
         )
 
     def test_previous_memos_reads_only_memos_whose_head_and_stamp_hold(self, tmp_path):

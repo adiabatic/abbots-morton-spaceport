@@ -449,7 +449,7 @@ def class_grain() -> bool:
 
 
 def enumeration_tokens() -> list[str]:
-    """The semantics tokens a stamp over this process's enumeration must include, in stamp order: the simulated prospect, the shifted follower prefer slots and the class-grain deep slots, each present only while it is on. Each changes settlement semantics or enumeration grain without changing a hashed source, so a key over the sources alone would treat an enumeration made with a flag on as current in a process with it off, and the reverse. `run_m1.tables_inputs` appends these to the tables' stamp, `run_m1.previous_memos` joins them into the memo head's mode set, and `run_m1.locality_lines` includes them in the memo stamp, so the three agree."""
+    """The semantics tokens a stamp over this process's enumeration must include, in stamp order: the simulated prospect, the shifted follower prefer slots and the class-grain deep slots, each present only while it is on. Each changes settlement semantics or enumeration grain without changing a hashed source, so a key over the sources alone would treat an enumeration made with a flag on as current in a process with it off, and the reverse. `run_m1.tables_inputs` appends these to the tables' stamp, `run_m1.previous_memos` joins them into the memo head's mode set, `run_m1.memo_structure_stamp` includes them in the memo stamp, and `run_m1.locality_lines` in the string replay's stamp, so all four agree."""
     tokens: list[str] = []
     if SIMULATED_PROSPECT_DEFAULT:
         tokens.append("simulated-prospect")

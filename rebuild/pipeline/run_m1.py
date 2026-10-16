@@ -94,7 +94,7 @@ def _spawn_pool(jobs: int, units: int, *, max_tasks_per_child: int | None = None
     )
 
 
-MEMO_STAMP_FORMAT = "ams-m1-memo-stamp/1"
+MEMO_STAMP_FORMAT = "ams-m1-memo-stamp/2"
 # The keys of a rune's dump that are prose the engine never reads: a record's or an unlock's `why`, and the rune's notes and ductus. `rune_content_digests` drops them so rewording a rationale invalidates no memo, as every other digest in this tree ignores prose.
 PROSE_KEYS = frozenset({"why", "notes", "ductus"})
 
@@ -108,24 +108,35 @@ def _without_prose(payload):
 
 
 def rune_content_digests(spec: ResolvedSpec) -> dict[str, str]:
-    """Return each modeled rune's SHA-256 over its resolved content: the rune's part of the spec dump the crate reads (`kernel_io.rune_payload`), without `PROSE_KEYS`. It hashes the resolved rune instead of the file because the engine reads the resolved rune: a ligature carries the outgoing stroke it inherits from its trailing component, and a ligature registration rewrites every left condition its trailing component reaches. So the digest changes when what the engine reads of the rune changes. A cross-file `against:` holds only its target rune's name and an optional record id, and the engine consults it only where a prefer of that rune collides with one of the resolving rune's, in a window that names both, so the target's own digest covers it. The memo therefore needs no `spec_load.rune_closure` pass over the digests. It works for any spec, a fixture's included, so the memo stamp is one function of the spec in hand."""
+    """Return each modeled rune's SHA-256 over its resolved content: the rune's part of the spec dump the crate reads (`kernel_io.rune_payload`), without `PROSE_KEYS`. It hashes the resolved rune instead of the file because the engine reads the resolved rune: a ligature carries the outgoing stroke it inherits from its trailing component, and a ligature registration rewrites every left condition its trailing component reaches. So the digest changes when what the engine reads of the rune changes. A cross-file `against:` holds only its target rune's name and an optional record id, and the engine consults it only where a prefer of that rune collides with one of the resolving rune's, in a window that names both, so the target's own digest covers it. The memo therefore needs no `spec_load.rune_closure` pass over the digests. It works for any spec, a fixture's included, so the memo stamp is one function of the spec in hand. The payload is hashed in the dump's own key order, never sorted, because the crate reads a rune's mappings in that order: stance declaration order ranks the stances `policy.order` omits, and exit declaration order is the final tiebreak's last key (kernel_io's module docstring)."""
     return {
         name: hashlib.sha256(
-            json.dumps(
-                _without_prose(kernel_io.rune_payload(rune)), sort_keys=True, separators=(",", ":")
-            ).encode()
+            json.dumps(_without_prose(kernel_io.rune_payload(rune)), separators=(",", ":")).encode()
         ).hexdigest()
         for name, rune in spec.runes.items()
     }
 
 
 def memo_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
-    """Return the whole-store half of the memo stamp: `locality_lines` hashed, with the predicate classes' membership left out of the structure line. The memo invalidates entries by class through the crate's read journal instead of discarding the whole store, so classes are recorded separately (`class_memberships`). The alphabet and its ligature sequences, the resolved rune-local groups, the registry, the code and the crate, and the semantics tokens stay in."""
+    """Return the whole-store half of the memo stamp: what a memo entry depends on apart from each rune's content and each predicate class's membership, which the stamp records per rune and per class (`rune_content_digests`, `class_memberships`) so that an edit to one invalidates only the windows that read it. The crate reads nothing but the spec dump and its command line (`kernel_exec.build_table_files`). The lines are the code `table_build_code_paths` names (the crate, and the module-grain import closure of `kernel_exec` and `kernel_io`), the dumped registry with each class reduced to its name (`_registry_digest`), the rune order, the semantics tokens, the alphabet with its ligature sequences and the resolved rune-local groups, and the capability features. The rest of `fingerprint.table_code_paths` and the data files reach the crate, if at all, only through the dump, which these lines and the per-rune and per-class records hash as data, or through command-line values that cannot make a memo entry wrong: the configuration and mode set each memo head records, which the crate checks the file against; the previous memo files and the edited runes and moved classes, which `previous_memos` and `memo_edited` choose from the stamps themselves; the width and the schedule flags, which the identity tests in rebuild/kernel-rs/tests/cli.rs and rebuild/test_kernel_exec.py show change no table; and `--inputs`, `--memo-stamp` and `--timings`, which only label or time what the crate writes. So an edit to the spec loader, to an emitter, to read-back or to run_m1.py moves none of these code lines, and it moves the stamp only where it changes the dump or what the stamp's own code in run_m1.py and `spec_load.capability_features` compute from it; `replay_structure_stamp` hashes that code instead."""
+    from rebuild.pipeline import spec_load
+
     lines = [
-        (f"structure\t{_classless_structure_digest(spec)}" if line.startswith("structure\t") else line)
-        for line in locality_lines(spec, root)
+        *fingerprint.path_lines(root, table_build_code_paths(root)),
+        f"registry\t{_registry_digest(spec)}",
+        "rune_order\t" + ",".join(spec.runes),
+        "semantics\t" + "+".join(kernel_exec.enumeration_tokens()),
+        f"structure\t{_classless_structure_digest(spec)}",
+        "capabilities\t" + ",".join(spec_load.capability_features(spec)),
     ]
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def _registry_digest(spec: ResolvedSpec) -> str:
+    """The SHA-256 of the registry's part of the spec dump (`kernel_io.registry_payload`) with each predicate class reduced to its name, in dump order. Membership stays out because `class_memberships` records it, so a rune joining a class moves only that class. The keys keep the dump's order, because the crate stores every mapping in that order (rebuild/kernel-rs/src/model.rs)."""
+    registry = kernel_io.registry_payload(spec.registry)
+    payload = {**registry, "predicate_classes": list(registry["predicate_classes"])}
+    return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 
 def _classless_structure_digest(spec: ResolvedSpec) -> str:
@@ -169,7 +180,7 @@ class MemoDelta:
 
 
 def memo_edited(previous: str, current: str) -> MemoDelta | None:
-    """Return what a memo written under stamp `previous` cannot be trusted for under `current`, or None when it cannot be read at all. None means a different stamp format, a changed structure (the crate, the build-side code, the registry, the alphabet and its ligatures, the groups, the semantics tokens), or a recorded rune this spec no longer models. A rune new to the spec counts as edited, although a new rune also changes the structure stamp, which rejects the memo first. A class present in only one stamp counts as changed. An empty delta means every window in the memo is still valid."""
+    """Return what a memo written under stamp `previous` cannot be trusted for under `current`, or None when it cannot be read at all. None means a different stamp format, a changed structure (the crate and the modules `TABLE_BUILD_CODE_MODULES` names, the dumped registry with each class reduced to its name, the rune order, the alphabet and its ligatures, the groups, the semantics tokens, the capability features), or a recorded rune this spec no longer models. A rune new to the spec counts as edited, although a new rune also changes the structure stamp, which rejects the memo first. A class present in only one stamp counts as changed. An empty delta means every window in the memo is still valid."""
     try:
         before = json.loads(previous)
         after = json.loads(current)
@@ -246,23 +257,29 @@ def previous_memos(
     )
 
 
-TABLE_BUILD_CODE_MODULES = frozenset({"kernel_exec.py", "kernel_io.py", "model.py"})
+TABLE_BUILD_CODE_MODULES = frozenset(
+    {
+        "rebuild/pipeline/kernel_exec.py",
+        "rebuild/pipeline/kernel_io.py",
+        "rebuild/pipeline/labels.py",
+        "rebuild/pipeline/model.py",
+        "rebuild/pipeline/settle.py",
+        "rebuild/pipeline/table.py",
+        "rebuild/validation/rowmodel.py",
+    }
+)
 
 
 def table_build_code_paths(root: Path = REPO_ROOT) -> list[Path]:
-    """Return the code a `TableBuildRecord`'s `code` digest covers: the members of `fingerprint.table_code_paths` that decide what the timed `kernel_build_tables` span does. They are the crate's manifest, lock and sources, and the pipeline modules `TABLE_BUILD_CODE_MODULES` names: `kernel_exec`, whose `build_table_files` is the whole span and runs the crate, and `kernel_io` and `model`, which write the spec the crate reads. The rest of `table_code_paths` is left out because a letter batch can edit it, touching a gate such as `conform` or `defects`. Hashing those would give every build after a batch a digest no build before it has. An edit to them still moves `memo_structure_stamp`, so the next build is fresh under an unchanged `code`."""
+    """Return the code that `memo_structure_stamp` and a `TableBuildRecord`'s `code` digest both hash: the crate's manifest, lock and sources, and the modules `TABLE_BUILD_CODE_MODULES` names, as repo-relative paths. That roster is the module-grain import closure of the crate driver (`kernel_exec`, whose `build_table_files` runs the crate and is the whole timed `kernel_build_tables` span) and of the spec dump's writer (`kernel_io`), outside rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`. Being an import closure, it also holds modules the two import for work other than running the crate and writing the dump, and hashing those only drops memos more often. rebuild/test_build_code_closure.py checks the roster against that closure in both directions. The rest of `fingerprint.table_code_paths` reaches the crate, if at all, only through the dump, which the memo stamp hashes as data, or through command-line values that cannot make a memo entry wrong (`memo_structure_stamp` names them). So an edit there moves the memo stamp only where it changes the dump or the code that computes the stamp: the stamp's own code in run_m1.py, `spec_load.capability_features`, and the file digests `fingerprint.path_lines` takes. A letter batch's `baseline_subset.M1_ALPHABET` edit and a gate edit such as one to `conform` keep `code`, so a build before a batch can be paired with the first build after it."""
     kernel = root / "rebuild" / "kernel-rs"
-    pipeline = root / "rebuild" / "pipeline"
-    return [
-        path
-        for path in fingerprint.table_code_paths(root)
-        if kernel in path.parents or (path.parent == pipeline and path.name in TABLE_BUILD_CODE_MODULES)
-    ]
+    named = {root / relative for relative in TABLE_BUILD_CODE_MODULES}
+    return [path for path in fingerprint.table_code_paths(root) if kernel in path.parents or path in named]
 
 
 @dataclass(frozen=True)
 class TableBuildRecord:
-    """What the timings journal records of a table build into an `out_dir`, so that two builds with the same code and a different alphabet can be paired across a letter batch: the memo structure stamp the build's memos carry (`memo_structure_stamp`), the digest of the code the table build runs (`table_build_code_paths`, prose-insensitive through `fingerprint.code_file_digest`), how many configurations read a previous build's memo, the runes and predicate classes those memos were not trusted for, the table build's width, and the number of runes in the alphabet. A build that read no memo is a fresh build, as the first build after a new rune always is, since the rune moves the structure stamp and `memo_edited` then rejects every memo. `tokens` writes the record as the `key=value` tail of the `[t] kernel_build_tables` line, and `cycle_timings.parse_inner_timings` reads each token back under its key."""
+    """What the timings journal records of a table build into an `out_dir`, so that two builds with the same code and a different alphabet can be paired across a letter batch: the memo structure stamp the build's memos carry (`memo_structure_stamp`, which hashes the code `code` covers beside the dumped registry, the rune order, the semantics tokens, the alphabet and the capability features, so under one `code` it moves with the spec, with the mode set, or with an edit to its own code in run_m1.py or to `spec_load.capability_features`, which `code` does not cover), the digest of the code the table build runs (`table_build_code_paths`, prose-insensitive through `fingerprint.code_file_digest`), how many configurations read a previous build's memo, the runes and predicate classes those memos were not trusted for, the table build's width, and the number of runes in the alphabet. A build that read no memo is a fresh build, as the first build after a new rune always is, since the rune moves the structure stamp and `memo_edited` then rejects every memo. `tokens` writes the record as the `key=value` tail of the `[t] kernel_build_tables` line, and `cycle_timings.parse_inner_timings` reads each token back under its key."""
 
     structure: str
     code: str
@@ -974,7 +991,7 @@ RUNE_LABEL_PREFIX = "glyph_data/runes/"
 
 
 def locality_lines(spec: ResolvedSpec, root: Path = REPO_ROOT) -> list[str]:
-    """Return the whole-store half of the window-locality key (`doc/rebuild-design.md` §10) as lines: the non-rune data the tables' stamp covers (the script registry, the schemas, the punctuation), the build side of the pipeline code and the crate, the engine's semantics tokens, the cross-rune structure `spec_load.spec_structure_digest` covers (the alphabet and its ligature sequences, the predicate classes' membership, the resolved rune-local groups), and the capability features. While these are unchanged, a window's result depends only on the runes it names. The string replay's stamp and the memo stamp are both built from these lines."""
+    """Return the whole-store half of the window-locality key (`doc/rebuild-design.md` §10) as lines: the non-rune data the tables' stamp covers (the script registry, the schemas, the punctuation), the build side of the pipeline code and the crate, the engine's semantics tokens, the cross-rune structure `spec_load.spec_structure_digest` covers (the alphabet and its ligature sequences, the predicate classes' membership, the resolved rune-local groups), and the capability features. While these are unchanged, a window's result depends only on the runes it names. The string replay's stamp is built from these lines. The memo stamp hashes its own key: the crate and the import closure of its driver and of the dump's writer, beside what reaches the crate through the dump and the mode set (`memo_structure_stamp`)."""
     from rebuild.pipeline import spec_load
 
     lines = [line for line in fingerprint.table_data_lines(root) if not line.startswith(RUNE_LABEL_PREFIX)]
@@ -983,11 +1000,6 @@ def locality_lines(spec: ResolvedSpec, root: Path = REPO_ROOT) -> list[str]:
     lines.append(f"structure\t{spec_load.spec_structure_digest(spec)}")
     lines.append("capabilities\t" + ",".join(spec_load.capability_features(spec)))
     return lines
-
-
-def locality_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
-    """Return the hash of `locality_lines`."""
-    return hashlib.sha256("\n".join(locality_lines(spec, root)).encode()).hexdigest()
 
 
 def replay_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:

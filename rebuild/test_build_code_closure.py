@@ -1,10 +1,12 @@
-"""Checks that `fingerprint.COMPARISON_CODE_MODULES` and `fingerprint.FONT_COMPILE_TOOL_MODULES` match the import graph.
+"""Checks that `fingerprint.COMPARISON_CODE_MODULES`, `fingerprint.FONT_COMPILE_TOOL_MODULES` and `run_m1.TABLE_BUILD_CODE_MODULES` match the import graph.
 
 `COMPARISON_CODE_MODULES` lists, as repo-relative paths, the modules of `pipeline_code_paths` left out of a serialized window enumeration's stamp (`fingerprint.table_code_paths`, the code half of `tables_value`). Reusing the tables and M1.otf on disk, as `run_m1 --gates-only` and `--conform-only` do, is safe only if no module on that list can change a table or the font. The first check walks the import graph from every build-side module and requires it to reach nothing on the list. Like `rebuild/test_oracle_code_closure.py`, it works at module grain and follows `if TYPE_CHECKING:` imports, which errs toward including too much. The driver, `rebuild/pipeline/run_m1.py`, reaches the comparison side through rebuild/pipeline/run_m1_gates.py from `full_run` and its `python -m` entry, because a full run also runs the gates, so it is checked at function grain instead: no expression in `run_m1.run`, or in any module-level function it calls transitively, may name a comparison-side module or anything imported from one.
 
 The reverse also holds: every entry on the list must be a module the driver reaches, so the list names only modules the gates run. The list is also checked against `oracle_cache.ORACLE_ROW_CODE_PATHS`, because a comparison-side module named there would drop the oracle row cache on every classifier edit for no benefit.
 
 `FONT_COMPILE_TOOL_MODULES` lists the tools/ modules the M1 font compile runs. `compile_font` passes the mini font to tools/build_font.py, so those modules can change M1.otf's bytes, and every stamp keyed on `pipeline_code_paths` must hash them. The list must equal the import closure inside tools/: a missing module is a font edit no key notices, and an extra one makes an edit to code the compile never runs trigger a rebuild. The walk follows tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting. It starts from every tools/ module the pipeline's Python imports, not only tools/build_font.py, so a pipeline module that starts importing another tools/ module directly fails this test. rebuild/test_verdict_update_closure.py does not follow imports into tools/ modules and relies on this check for them. rebuild/test_review_code_closure.py does not follow them either, but the corpus build reaches tools/ only through test/test_shaping.py, and the draft-harness line of `unit_cache.environment_stamp` hashes that file and `font_compile_tool_paths`, so a second check follows the bare imports of test_shaping and of the corpus build's Python (`unit_cache.corpus_code_paths`) through tools/ and test/, both on `sys.path` once the drafter imports test_shaping, and holds everything it reaches within that file and this list. The roster check does not cover the rebuild/tools modules the pipeline imports, which `pipeline_code_paths` does not hash (rebuild/test_verdict_update_closure.py's docstring names some).
+
+`TABLE_BUILD_CODE_MODULES` is the Python half of `run_m1.table_build_code_paths`, the code that the memo stamp's structure (`run_m1.memo_structure_stamp`) and a table build record's `code` hash. The crate reads nothing but the spec dump and its command line, so the roster is the module-grain import closure of the crate driver and the dump's writer (`kernel_exec`, `kernel_io`), stopping at rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES` as rebuild/test_oracle_code_closure.py does, with the same check that every module the walk stops at imports only other members. A module the walk reaches that the roster misses could change what the crate reads while the memo stamp holds, so a build would read memos settled under other inputs; a roster entry the walk never reaches drops every memo on an edit the crate cannot see. A second check holds the paths to the whole crate plus the roster, every one on disk, because `fingerprint.hash_paths` skips a missing file.
 """
 
 from __future__ import annotations
@@ -12,8 +14,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from rebuild.pipeline import fingerprint, oracle_cache
+from rebuild.pipeline import fingerprint, oracle_cache, run_m1
 from rebuild.review import unit_cache
+from rebuild.test_review_code_closure import WIDTH_AND_TELEMETRY_MODULES
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PIPELINE = REPO_ROOT / "rebuild" / "pipeline"
@@ -23,6 +26,7 @@ TOOLS = REPO_ROOT / "tools"
 FONT_COMPILE_ENTRY = TOOLS / "build_font.py"
 TEST_DIR = REPO_ROOT / "test"
 TEST_SHAPING = TEST_DIR / "test_shaping.py"
+TABLE_BUILD_ENTRY_MODULES = ("rebuild.pipeline.kernel_exec", "rebuild.pipeline.kernel_io")
 
 
 def _module_path(module: str) -> Path | None:
@@ -312,3 +316,75 @@ def test_the_comparison_side_is_outside_the_oracle_row_cache_stamp():
         "these comparison-side modules ride ORACLE_ROW_CODE_PATHS, so every classifier edit drops the whole store for "
         f"nothing — the classifier re-runs over served rows regardless: {', '.join(inside)}"
     )
+
+
+def _table_build_reach() -> tuple[set[Path], set[str]]:
+    """Return the files `TABLE_BUILD_ENTRY_MODULES` import transitively, without packages' empty `__init__.py`, and the members of `WIDTH_AND_TELEMETRY_MODULES` the walk reached and stopped at."""
+    seen: dict[str, Path] = {}
+    stopped: set[str] = set()
+    queue: list[str] = list(TABLE_BUILD_ENTRY_MODULES)
+    while queue:
+        module = queue.pop()
+        if module in WIDTH_AND_TELEMETRY_MODULES:
+            stopped.add(module)
+            continue
+        if module in seen:
+            continue
+        path = _module_path(module)
+        if path is None:
+            continue
+        seen[module] = path
+        queue.extend(_imports(path))
+    return {path for path in seen.values() if path.name != "__init__.py"}, stopped
+
+
+def test_the_table_build_roster_is_the_import_closure_of_the_crate_driver_and_the_dump_writer():
+    """The modules `run_m1.TABLE_BUILD_CODE_MODULES` names are exactly the ones the crate driver and the spec dump's writer reach, outside the stop-set, and every module the walk stops at imports only other members of it."""
+    reached, stopped = _table_build_reach()
+    assert (
+        PIPELINE / "kernel_io.py" in reached
+    ), "the walk found nothing; the crate driver or the dump writer moved"
+    named = {REPO_ROOT / relative for relative in run_m1.TABLE_BUILD_CODE_MODULES}
+    missing = sorted(path.relative_to(REPO_ROOT).as_posix() for path in reached - named)
+    assert missing == [], (
+        f"the crate driver or the spec dump's writer reaches modules TABLE_BUILD_CODE_MODULES does not name: {', '.join(missing)}. "
+        "An edit to one could change what the crate reads while the memo stamp holds, so a build would read memos settled "
+        "under other inputs. Add each to TABLE_BUILD_CODE_MODULES in rebuild/pipeline/run_m1.py, or move the code out of reach."
+    )
+    strays = sorted(
+        relative for relative in run_m1.TABLE_BUILD_CODE_MODULES if REPO_ROOT / relative not in reached
+    )
+    assert strays == [], (
+        f"named in TABLE_BUILD_CODE_MODULES but unreachable from {', '.join(TABLE_BUILD_ENTRY_MODULES)}, so an edit to "
+        f"one drops every memo although the crate cannot see it: {', '.join(strays)}"
+    )
+    queue = sorted(stopped)
+    checked: set[str] = set()
+    while queue:
+        module = queue.pop()
+        if module in checked:
+            continue
+        checked.add(module)
+        path = _module_path(module)
+        assert path is not None, f"{module} is in WIDTH_AND_TELEMETRY_MODULES but is not on disk"
+        onward = {name for name in _imports(path) if _module_path(name) is not None}
+        outside = sorted(onward - WIDTH_AND_TELEMETRY_MODULES)
+        assert outside == [], (
+            f"the walk from {', '.join(TABLE_BUILD_ENTRY_MODULES)} stops at {module}, which imports {', '.join(outside)} "
+            "outside WIDTH_AND_TELEMETRY_MODULES, so the memo stamp does not hash that code although the table build runs it."
+        )
+        queue.extend(onward)
+
+
+def test_the_table_build_code_is_the_whole_crate_and_the_roster_on_disk():
+    """`run_m1.table_build_code_paths` is the crate's manifest, lock and every Rust source, plus the modules the roster names, and every one of them is on disk, because `fingerprint.hash_paths` skips a missing file and a renamed module would drop out of the memo stamp and the record's `code` without a failure."""
+    kernel = REPO_ROOT / "rebuild" / "kernel-rs"
+    paths = run_m1.table_build_code_paths(REPO_ROOT)
+    assert set(paths) == {
+        kernel / "Cargo.toml",
+        kernel / "Cargo.lock",
+        *(kernel / "src").rglob("*.rs"),
+        *(REPO_ROOT / relative for relative in run_m1.TABLE_BUILD_CODE_MODULES),
+    }
+    missing = sorted(path.relative_to(REPO_ROOT).as_posix() for path in paths if not path.is_file())
+    assert missing == [], f"the table build's code names files that are not there: {', '.join(missing)}"

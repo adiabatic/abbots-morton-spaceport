@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import IO, Any
 
-from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Rune, Settled
+from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Rune, ScriptRegistry, Settled
 from rebuild.pipeline.table import FixpointProduct, PartitionError, Transition, _cell_key
 
 SPEC_FORMAT = "ams-m1-spec/1"
@@ -167,6 +167,11 @@ def _decode(hint: Any, value: Any) -> Any:
 def rune_payload(rune: Rune) -> Any:
     """Returns one rune in the dump's form, for hashing a rune's resolved content instead of its file. The resolved rune already has cross-file `against:` targets and ligature-transparent lefts resolved in, as the crate reads it. The payload includes the prose fields, so `run_m1.rune_content_digests` removes `run_m1.PROSE_KEYS` before hashing it."""
     return _encode(Rune, rune)
+
+
+def registry_payload(registry: ScriptRegistry) -> Any:
+    """Returns the script registry in the dump's form, for hashing what the crate reads of it (`run_m1.memo_structure_stamp`)."""
+    return _encode(ScriptRegistry, registry)
 
 
 def spec_json(spec: ResolvedSpec) -> str:
