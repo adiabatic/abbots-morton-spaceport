@@ -30,7 +30,7 @@ The items below move unit ids or counts on purpose, so each is a pass of its own
 
 **Lift `no_verdict` on `halves-closer-to-no` for one look.** The ruling behind it saw only the half-·Pea and half-·Tea windows, and the half-·He windows, most of the class, came with the ·He migration; the class note says so. Lifting the flag gives the class's units full fragments and new ids and puts them in Spot-check, and orphans no verdict, because no-verdict units carry none. `ss03-tea-oy-ligature-kept` and `may-closer-at-baseline-join` take `no_verdict` only after their stray blanks, which their notes name, are judged.
 
-**Retire the classes that reach no unit and fold the ones the change groups cover.** `joins-next-letter-after-zwnj` and `join-height-after-zwnj` reach no unit and stay only as records of the rulings `split-by-space-or-zwnj` relies on; they can retire into its `why`. `spacing-at-kerned-pairs` and `new-joins-near-tea-oy` can fold into the change groups, whose clusters hold the same pixel changes. Each needs the oracle and the allow-list in `rebuild/test_retired_class_ids.py` to change together.
+**Retire the classes that reach no unit and fold the ones the change groups cover.** `joins-next-letter-after-zwnj` and `join-height-after-zwnj` reach no unit and stay only as records of the rulings `split-by-space-or-zwnj` relies on; they can retire into its `why`. `spacing-at-kerned-pairs` and `new-joins-near-tea-oy` can fold into the change groups, whose clusters hold the same pixel changes. Each needs the oracle to change with it.
 
 **Rename the oracle's class strings and narrow its predicates.** The oracle and `rebuild/test_conform.py` still name the classes by their engine ids, which the ledger's `match.predicate` values map to the reviewer-facing ids. The rename goes with a `compile_ledger` that raises on an unresolved predicate, and with narrowing the predicates that reach further than their rulings: `half-day-closer-at-baseline-join` takes half-·Day after any letter, `ss03-tea-oy-ligature-kept` keeps a dormant namer-dot ·Day·Utter branch, and `identical-unjoined-from-left` takes any no-entry rename. Until then, a new row one of them takes is listed under a ruled class, which the Queue never shows.
 
@@ -38,7 +38,7 @@ The items below move unit ids or counts on purpose, so each is a pass of its own
 
 **Fix the per-unit summaries.** Some units fall back to the false “only the boundary marker's glyph changed”, some say “settles as a different cell”, and some quote rune record indexes such as `policy.refuse[4]`, which go stale when a record is inserted. `summary` is outside the unit id, so these fixes re-key nothing.
 
-**The author rewords the `why:` in `glyph_data/runes/qsTea_qsOy.yaml`.** It names a group by an id no corpus has. Agents never write a rune `why:`; once it is reworded, its entry leaves the allow-list in `rebuild/test_retired_class_ids.py`, which fails until it does.
+**The author rewords the `why:` in `glyph_data/runes/qsTea_qsOy.yaml`.** It names a group by an id no corpus has. Agents never write a rune `why:`.
 
 ## Open questions from the requirements
 
