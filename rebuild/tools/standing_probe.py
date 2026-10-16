@@ -81,7 +81,7 @@ def _cell_glyph_name(cell):
 
 
 class Blankness(NamedTuple):
-    """What the verdicts file says about this corpus: the latest record per unit, and whether the file is stamped for another manifest. A file stamped for another manifest says nothing about this corpus, so every verdict reads as `UNKNOWN_VERDICT` instead of BLANK."""
+    """What the verdicts file says about this corpus: the latest record per unit, and whether the file is stamped for another manifest. A file stamped for another manifest has not been carried onto this corpus: the carry drops its skips and the cycle's fills can fill units it leaves blank, so every verdict reads as `UNKNOWN_VERDICT` instead of BLANK."""
 
     records: dict
     stale: bool
@@ -630,8 +630,10 @@ def main(argv=None, *, units=None, context=None):
         else:
             stale = True
             print(
-                f"{verdicts.name} is stamped for another manifest, so it can answer nothing about this "
-                f"corpus: every verdict below reads {UNKNOWN_VERDICT} rather than BLANK"
+                f"{verdicts.name} is stamped for another manifest, so it has not been carried onto this "
+                "corpus: the carry drops its skips and the cycle's fills can fill units it leaves blank, so "
+                f"every verdict below reads {UNKNOWN_VERDICT} rather than BLANK; a cycle pass "
+                "(make artifact-cycle) leaves the store carried onto the live corpus"
             )
     blankness = Blankness(records, stale)
     rules = sv.load_rules(pathlib.Path(args.rules))

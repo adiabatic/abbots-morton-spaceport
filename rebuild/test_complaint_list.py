@@ -301,7 +301,7 @@ def test_refuses_a_verdicts_file_from_another_manifest(repo, capsys):
     write_corpus(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject")], stamp="2026-07-01T00:00:00Z")
     assert run(repo) == 1
-    assert "carry it forward first" in capsys.readouterr().err
+    assert "has not been carried onto this corpus" in capsys.readouterr().err
     assert not repo["data_out"].exists()
 
 

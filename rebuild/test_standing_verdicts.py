@@ -3114,7 +3114,7 @@ def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
             str(tmp_path / "out.json"),
         ],
     )
-    with pytest.raises(SystemExit, match="never be joined across manifests"):
+    with pytest.raises(SystemExit, match="has not been carried onto this corpus"):
         sv.main()
 
 

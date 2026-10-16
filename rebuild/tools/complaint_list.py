@@ -302,7 +302,10 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
     if data.get("manifest_generated_at") != stamp:
         print(
             f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the corpus is "
-            f"{stamp}; unit ids must never be joined across manifests — carry it forward first",
+            f"{stamp}, so it has not been carried onto this corpus: it can hold skips, "
+            "which the carry drops, and verdicts on units the corpus does not have, and it is missing the "
+            "fills a cycle runs on this corpus; a cycle pass (make artifact-cycle) leaves the store carried "
+            "onto the live corpus",
             file=sys.stderr,
         )
         return 1

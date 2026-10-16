@@ -320,7 +320,7 @@ def test_the_retarget_survey_orders_its_cells_the_same_way(tmp_path, capsys):
 
 
 def test_a_stale_verdicts_stamp_labels_every_verdict_it_invalidates(tmp_path, capsys):
-    """A verdicts file stamped for another manifest says nothing about this corpus, so every verdict prints as UNKNOWN_VERDICT, and BLANK appears only in the warning."""
+    """A verdicts file stamped for another manifest has not been carried onto this corpus, so every verdict prints as UNKNOWN_VERDICT, and BLANK appears only in the warning."""
     units = [
         tea_window("u-1", "qsVie", "qsVie/normal/baseline/None/", deltas={"default": DELTA}),
         tea_window("u-2", "qsMay", "qsMay/loop/baseline/None/", deltas={"default": DELTA}),

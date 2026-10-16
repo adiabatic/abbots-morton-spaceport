@@ -202,7 +202,7 @@ def test_main_limit_zero_emits_the_whole_queue(repo, monkeypatch, capsys):
 def test_main_refuses_a_verdicts_file_for_another_manifest(repo, monkeypatch, capsys):
     write_corpus(repo, [unit("u-0001")])
     write_verdicts(repo, [], stamp="2026-07-01T00:00:00Z")
-    with pytest.raises(SystemExit, match="never be joined across manifests"):
+    with pytest.raises(SystemExit, match="has not been carried onto this corpus"):
         run_main(repo, monkeypatch, capsys)
 
 
