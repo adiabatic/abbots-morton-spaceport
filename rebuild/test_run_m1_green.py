@@ -1284,7 +1284,7 @@ class TestGatesOnly:
         )
 
     def _build(self, monkeypatch, tmp_path, ran, *, report=None):
-        """Stubs the build this pass reuses: the font the stamp covers, the join tables the defect gate reads beside the enumeration, the minting, the defect gate (returning `report`), and the Stage A rewrite."""
+        """Stubs the build this pass reuses: the font beside the stamped tables, the join tables the defect gate reads beside the enumeration, the minting, the defect gate (returning `report`), and the Stage A rewrite."""
         (tmp_path / "M1.otf").write_bytes(b"font")
         monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
         monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: object())
@@ -1485,7 +1485,7 @@ class TestGatesOnly:
         ]
 
     def test_a_comparison_side_diff_records_the_green_the_next_cycle_skips_on(self, monkeypatch, tmp_path):
-        """The prior green shows that a completed build over every build-side input passed, the stamp shows none of those inputs has changed since, so the deterministic tables and font on disk match that build's, and this pass re-runs the gates the changed inputs feed. Together these make the recorded green cover the new inputs, so the cycle after a ledger edit skips run_m1."""
+        """The prior green shows that a completed build over every build-side input passed, the stamp shows the tables on disk were stamped from the current sources, and this pass re-runs the gates the changed inputs feed. Together these let the pass record a green over the new inputs, so the cycle after a ledger edit skips run_m1. The two checks are necessary conditions for the tables and M1.otf on disk to be the green build's, not sufficient ones (`run_m1_gates.run_gates_only` names the gaps). The pass rests on the prior green alone: a failed run never vouches for the artifacts it left."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)

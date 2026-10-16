@@ -105,7 +105,7 @@ def test_a_root_without_a_behavior_class_sidecar_is_refused(bench, monkeypatch):
 
 @pytest.mark.parametrize("answers", [(False,), (True, False)])
 def test_a_stale_tables_stamp_is_refused(bench, monkeypatch, answers):
-    """The sweep requires tables stamped from the sources on disk, not a green record. A --gates-only pass can leave a sweepable font without recording a green, and a failed interactive run deletes the green record without changing the artifacts. It checks the stamp before it loads the spec for the deep replay's structure stamp, so a tree whose runes do not load gets this refusal, and again after it reads that stamp and the imported windows, so the check vouches for them too."""
+    """The sweep requires tables stamped from the sources on disk, not a green record. A --gates-only pass can leave a sweepable font without recording a green, and a failed interactive run deletes the green record without changing the artifacts. It checks the stamp before it loads the spec for the deep replay's structure stamp, so a tree whose runes do not load gets this refusal, and again after it reads that stamp and the imported windows, so it records them only when the checks on both sides of that read pass."""
     swept: list = []
     _stub_sweep(monkeypatch, {"pass": True, "divergences": 0}, swept)
     stamped = iter(answers)
@@ -224,7 +224,7 @@ def _stub_runes_and_sweep(monkeypatch, edit_mid_sweep, replay_kept=None, unconfi
 def test_a_green_sweep_at_the_replay_max_length_refreshes_the_deep_replay_with_what_it_read_before_the_second_tables_check(
     bench, monkeypatch, capsys
 ):
-    """The refresh records the rune digests, the deep replay's structure stamp and the tables' imported windows read before `main`'s second check that the tables were built from the sources on disk, even when the stamp and the windows move during that check, so the check vouches for all three."""
+    """The refresh records the rune digests, the deep replay's structure stamp and the tables' imported windows read before `main`'s second check that the tables were built from the sources on disk, even when the stamp and the windows move during that check, so the stamp and the windows it records are the ones read between two passing checks."""
     refreshed = _stub_runes_and_sweep(monkeypatch, edit_mid_sweep=False)
     assert deep_sweep.main(["--max-length", str(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT)]) == 0
     assert refreshed == [(ac.DEEP_REPLAY_MAX_LENGTH_DEFAULT, {"qsPea": "p1"}, "structure-1", "imports-1")]
