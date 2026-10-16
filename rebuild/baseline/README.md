@@ -4,13 +4,7 @@ This package is the baseline extractor that `doc/rebuild-design.md` §13 (item 1
 
 The validation suite in `rebuild/validation/` is a separate implementation with its own row model, shaper, and junction classifier, plus the corpus-pin replay and the table readers the M1 pipeline uses (`rowmodel.open_table`, `read_header`, and `iter_rows`). Both implement the table format below, so the TSV format is the interface between them, not any one Python class.
 
-Each table's header records its provenance, and `baseline_subset.check_font_provenance` checks the header's font against the font on disk on every `ensure_fresh`. The headers record the values below, except that the `ss03+ss05` table, extracted later, records repo SHA `0cd71c4`:
-
-| Fact         | Value                                                              |
-| ------------ | ------------------------------------------------------------------ |
-| Repo SHA     | `ae9d08d`                                                          |
-| Font         | `site/AbbotsMortonSpaceportSansSenior-Regular.otf`                 |
-| Font SHA-256 | `3211a7a76be0e3c032c06eead1dace2d5cbf4f05c63a9a742c23c3117625cf35` |
+Each table's header records its provenance, and `baseline_subset.check_font_provenance` checks the header's font against the font on disk on every `ensure_fresh`.
 
 ## The basis
 
