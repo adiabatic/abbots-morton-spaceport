@@ -6,6 +6,7 @@ import pickle
 import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import pytest
 
@@ -480,6 +481,28 @@ def test_a_full_run_writes_the_stage_a_record_only_once_its_gates_pass(monkeypat
             run_m1_gates.main([])
     assert during_oracle == ([] if stop is SystemExit else [None])
     assert fingerprint.read_stage_a(tmp_path) == (STAGE_A if stop is None else None)
+
+
+@pytest.mark.parametrize("raised", [KeyboardInterrupt, run_m1.readback.ReadbackError])
+def test_a_full_run_stopped_inside_the_build_leaves_no_stage_a_record(monkeypatch, tmp_path, raised):
+    """The build rewrites the tables and M1.otf before `run` returns, so a Ctrl-C, or an error the run's handlers catch (here a read-back divergence), can stop it over half-rewritten artifacts. The Stage A record is already gone when the build starts, so neither stop leaves one to vouch for what the build left."""
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", tmp_path / "run-m1-green.json")
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    _stub_full_run(monkeypatch, tmp_path)
+    (tmp_path / fingerprint.STAGE_A_FILENAME).write_text(
+        json.dumps({"format": fingerprint.FORMAT, **{name: "before" for name in STAGE_A}})
+    )
+    during_run = []
+
+    def run(spec, inputs, **rest):
+        during_run.append(fingerprint.read_stage_a(tmp_path))
+        raise raised("the build stopped")
+
+    monkeypatch.setattr(run_m1, "run", run)
+    with pytest.raises(KeyboardInterrupt if raised is KeyboardInterrupt else SystemExit):
+        run_m1_gates.main([])
+    assert during_run == [None]
+    assert fingerprint.read_stage_a(tmp_path) is None
 
 
 @pytest.mark.parametrize(
@@ -1968,6 +1991,29 @@ class TestGatesOnly:
             run_m1_gates.run_gates_only(out_dir=out)
         assert fingerprint.read_stage_a(out) is None
         assert store.read_bytes() == green
+
+    def test_the_stage_a_record_is_gone_when_the_pass_first_writes_its_summary(self, monkeypatch, tmp_path):
+        """Over fresh subset tables, the pass's first write under rebuild/out/m1 is the defect fields of pipeline_summary.json, so the Stage A record is already gone when that write starts, and a pass stopped in it or just after it (a Ctrl-C, a full disk) leaves no record to vouch for what it rewrote."""
+        ran = self._reuse(monkeypatch, {})
+        self._build(monkeypatch, tmp_path, ran)
+        self._summary(tmp_path)
+        self._green(monkeypatch, tmp_path)
+        self._gates(monkeypatch, ran)
+        (tmp_path / fingerprint.STAGE_A_FILENAME).write_text(
+            json.dumps({"format": fingerprint.FORMAT, **{name: "before" for name in STAGE_A}})
+        )
+        summary = tmp_path / "pipeline_summary.json"
+        write_text = Path.write_text
+        at_summary_write = []
+
+        def watched(path, *args, **kwargs):
+            if path == summary:
+                at_summary_write.append(fingerprint.read_stage_a(tmp_path))
+            return write_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "write_text", watched)
+        run_m1_gates.run_gates_only(out_dir=tmp_path)
+        assert at_summary_write == [None]
 
     def test_a_stage_a_input_edited_while_the_pass_ran_leaves_no_stage_a_record(
         self, monkeypatch, tmp_path, capsys
