@@ -221,7 +221,7 @@ def _prose_field(path: Path, identifier: str, entry: Mapping, key: str, *, requi
 
 
 def load_ledger(path: Path) -> list[LedgerClass]:
-    """Load the divergence ledger's entries as classes, in file order. An entry is refused unless it has a nonempty string id that no other entry and no class the build synthesizes (`RESERVED_CLASS_IDS`) uses, a status from `LEDGER_STATUSES`, and a nonempty `title` and `summary`. Its `match` is not read here: run_m1's pre-gate guards compile the ledger (`oracle.compile_ledger`) and refuse a predicate the oracle does not define before the pass writes its Stage A record, so a corpus built over a refused pass carries the previous pass's Stage A values and the readiness checker flags it."""
+    """Load the divergence ledger's entries as classes, in file order. An entry is refused unless it has a nonempty string id that no other entry and no class the build synthesizes (`RESERVED_CLASS_IDS`) uses, a status from `LEDGER_STATUSES`, and a nonempty `title` and `summary`. Its `match` is not read here: run_m1's pre-gate guards compile the ledger (`oracle.compile_ledger`) and refuse a predicate the oracle does not define, after the pass has deleted its Stage A record and before any gate runs, and a refused pass never writes the record back, so a corpus built over it carries null Stage A values and the readiness checker flags it."""
     entries = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or []
     classes: list[LedgerClass] = []
     seen: set[str] = set()

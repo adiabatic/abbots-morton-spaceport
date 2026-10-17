@@ -5943,7 +5943,7 @@ def test_a_plan_that_skips_run_m1_never_also_reruns_its_gates():
 def test_main_skips_the_corpus_on_a_gates_only_rerun_only_when_stage_a_already_stands(
     tmp_path, monkeypatch, capsys
 ):
-    """On a gates-only rerun the corpus build is skipped only when `m1_stage_a_current` says the Stage A record on disk matches the live sources. A contact allow-list edit is outside every Stage A component, so the record the gates-only pass rewrites is the one already on disk and the corpus cannot change. A divergence-ledger edit moves Stage A's data component, so the record on disk is stale until the pass rewrites it. The skip can trust the record because nothing moved at all."""
+    """On a gates-only rerun the corpus build is skipped only when `m1_stage_a_current` says the Stage A record on disk matches the live sources. A contact allow-list edit is outside every Stage A component, so the record the gates-only pass writes back is the one already on disk and the corpus cannot change. A divergence-ledger edit moves Stage A's data component, so the record on disk is stale until the pass writes it back. The skip can trust the record because a run writes it only once its gates pass, after deleting the old one before it rewrites anything."""
     _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-contact-allow.yaml")
     monkeypatch.setattr(ac, "corpus_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: True)
@@ -5956,6 +5956,39 @@ def test_main_skips_the_corpus_on_a_gates_only_rerun_only_when_stage_a_already_s
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "--gates-only" in _step_lines(out, "run_m1")
+    assert "uv run python -m rebuild.review.build" in _step_lines(out, "corpus-build")
+
+
+@pytest.mark.parametrize("record", ["retracted", "outgrown"])
+def test_main_rebuilds_m1_and_the_corpus_when_the_stage_a_record_does_not_stand(
+    tmp_path, monkeypatch, capsys, record
+):
+    """The plain run_m1 skip needs a Stage A record that matches the sources on disk, as well as a green whose key matches. A run that stopped leaves no record (`retracted`, which `m1_artifacts_present` refuses on its own). A run whose gates passed but that left no green, such as a gates-only child whose green the cycle declined, leaves a record for the sources it read, and putting those sources back makes the green match again (`outgrown`). Either way the pass rebuilds M1, which writes a record for these sources, and rebuilds the corpus over it. Skipping both would serve a corpus whose copied record `make verdict-ready` reports stale, which no later pass would rebuild."""
+    from rebuild.pipeline import fingerprint
+
+    _unsettled_repo(tmp_path, monkeypatch)
+    ac.record_green(cycle_paths.RUN_M1_GREEN, "key")
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {})
+    monkeypatch.setattr(ac, "corpus_build_skippable", lambda root=None: True)
+    monkeypatch.setattr(
+        fingerprint, "stage_a", lambda root: {"data": "d", "baselines": "b", "pipeline_code": "p"}
+    )
+    m1 = tmp_path / "rebuild" / "out" / "m1"
+    m1.mkdir(parents=True, exist_ok=True)
+    for name in [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + [
+        "M1.otf",
+        "divergence-audit.tsv",
+    ]:
+        (m1 / name).write_text("{}")
+    if record == "outgrown":
+        (m1 / fingerprint.STAGE_A_FILENAME).write_text(
+            json.dumps(
+                {"format": fingerprint.FORMAT, "data": "edited", "baselines": "b", "pipeline_code": "p"}
+            )
+        )
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert _full_build_step(out) is not None
     assert "uv run python -m rebuild.review.build" in _step_lines(out, "corpus-build")
 
 
@@ -7543,6 +7576,7 @@ def _settled_repo(tmp_path, monkeypatch):
     _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(cycle_paths.RUN_M1_GREEN, "key")
     monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
+    monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: True)
     monkeypatch.setattr(ac, "corpus_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "no-match")
     monkeypatch.setattr(

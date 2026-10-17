@@ -720,7 +720,7 @@ def _run_table_gates(
 ) -> None:
     """Run the table-only branch on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, or the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage runs after it, in one spawned process this thread waits on (`_spawn_rule_witnesses`). The order matters: a full replay writes each configuration's settle memo file whole (`conform.absorb_replay_memo`), and the witness stage then loads the rows of that file its certificates can ask for, writes the windows it settled fresh as a part, and merges the part into the file before its process returns. `state.replay_ready` is set once the replay has returned, and the oracle starts after it. `state.memo_ready` is set once the witness stage's process has returned with its files on disk, and the oracle's own memo writes wait for it. Both are set as soon as that sequence fails, and `TableGates` also sets them when this thread ends any other way, so a wait on either never hangs.
 
-    The witness stage's walk is CPU-bound Python, so it gets a process of its own. On a thread of run_m1's process it would hold the interpreter lock that the main thread needs for the glyph chain and the oracle's setup, and slow both, the work that reads and hashes files most (`[t] stage_a`, and the cache keys within `[t] oracle_setup`). The process runs one serial walk over the configurations. A process per configuration would need a memory-derived width of its own (`doc/parallelism.md`) and would take cores from the oracle's pool, which takes every core. The process gets the spec, each configuration's decision table, the output directory and the memo inputs, and runs the formation-guard sweep itself. It writes `witness_summary.json` and merges its parts into the settle memo files before it returns, so `TableGates.wait_for_memo` orders its writes before any oracle write. Its `[t] rule_witnesses[<config>]` lines go to the stdout it inherits, and the `[t] rule_witnesses` line this thread prints carries its peak memory (`rss_token`).
+    The witness stage's walk is CPU-bound Python, so it gets a process of its own. On a thread of run_m1's process it would hold the interpreter lock that the main thread needs for the glyph chain and the oracle's setup, and slow both, the work that reads and hashes files most (the cache keys within `[t] oracle_setup`). The process runs one serial walk over the configurations. A process per configuration would need a memory-derived width of its own (`doc/parallelism.md`) and would take cores from the oracle's pool, which takes every core. The process gets the spec, each configuration's decision table, the output directory and the memo inputs, and runs the formation-guard sweep itself. It writes `witness_summary.json` and merges its parts into the settle memo files before it returns, so `TableGates.wait_for_memo` orders its writes before any oracle write. Its `[t] rule_witnesses[<config>]` lines go to the stdout it inherits, and the `[t] rule_witnesses` line this thread prints carries its peak memory (`rss_token`).
 
     When `inputs` is given, the shipped-order walks run on a thread of their own beside that sequence, one walk per configuration up to the cores (`_core_bound_threads`, from the configuration count and the cores, not from the build's or the oracle's width), each waiting for its own configuration's pack (`Packing.wait`). They are not narrowed to the cores the oracle's pool leaves: that pool uses the whole machine, so the walks would run one at a time on the critical path. What remains of them shares the machine with the pool's first seconds, the overlap `doc/parallelism.md` describes. The packing is closed here after the last walk. Nothing is raised from this thread: each stage's exception is stored in `state`, and `TableGates` raises the first one in serial order.
     """
@@ -853,7 +853,7 @@ def run(
     overlap_memo_writes: bool | None = None,
     scratch_beside_default: int | None = None,
 ) -> tuple[dict, TableGates]:
-    """Build the tables, then run two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage (in a spawned process of its own) and the shipped-order walks. The glyph chain (minting, the defect gates, the emission, the compile and read-back) runs on the calling thread, writes `pipeline_summary.json` and the Stage A record, and returns its summary with the branch's `TableGates` handle without joining the branch. The caller joins it: `full_run` calls `wait_for_replay` before the oracle, passes `wait_for_memo` for the oracle to call before its memo writes, calls `join` after the oracle so the gate covers both branches, and calls `close` in a `finally`. When the glyph chain raises, the branch's first failure is raised in its place if there is one, so a failed replay is reported as incomplete tables and not as whatever the glyph chain made of them.
+    """Build the tables, then run two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage (in a spawned process of its own) and the shipped-order walks. The glyph chain (minting, the defect gates, the emission, the compile and read-back) runs on the calling thread, writes `pipeline_summary.json`, and returns its summary with the branch's `TableGates` handle without joining the branch. The caller joins it: `full_run` calls `wait_for_replay` before the oracle, passes `wait_for_memo` for the oracle to call before its memo writes, calls `join` after the oracle so the gate covers both branches, and calls `close` in a `finally`. When the glyph chain raises, the branch's first failure is raised in its place if there is one, so a failed replay is reported as incomplete tables and not as whatever the glyph chain made of them.
 
     `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memo files the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from, and so do `overlap_memo_writes` and `scratch_beside_default` (`build_tables`). `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
     """
@@ -916,7 +916,7 @@ def run(
 def _run_glyph_chain(
     spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: Path, commit: str | None
 ) -> dict:
-    """Run the glyph chain over one build's tables: minting, the defect gates, the feature emission, the compile and read-back, then write `pipeline_summary.json` and the Stage A record. It reads the spec and the tables and writes nothing the table-only branch reads. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
+    """Run the glyph chain over one build's tables: minting, the defect gates, the feature emission, the compile and read-back, then write `pipeline_summary.json`. It reads the spec and the tables and writes nothing the table-only branch reads. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
     console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
@@ -975,9 +975,6 @@ def _run_glyph_chain(
         "font": str(font_path),
     }
     (out_dir / "pipeline_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
-    start = time.perf_counter()
-    fingerprint.write_stage_a(REPO_ROOT, out_dir)
-    console.timing("stage_a", time.perf_counter() - start)
     return summary
 
 
@@ -1366,7 +1363,7 @@ def full_run(
     scratch_beside_default: int | None = None,
     fresh_oracle_cache: bool = False,
 ) -> None:
-    """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the pre-gate guards, `run_ligature_outgoing`, the build (`run`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the run_m1 gate, its check line (timed from `started`) and its green record. The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
+    """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the Stage A capture and the deletion of its record (`run_m1_gates._retract_stage_a`), the pre-gate guards, `run_ligature_outgoing`, the build (`run`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the run_m1 gate, the Stage A record once that gate passes (`run_m1_gates._settle_stage_a`), the green record and the check line (timed from `started`). The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
     from rebuild.pipeline import run_m1_gates
     from rebuild.tools.artifact_cycle import (
         evaluate_run_m1_gate,
@@ -1378,6 +1375,7 @@ def full_run(
     def run_m1_key() -> str:
         return run_m1_skip_fingerprint(REPO_ROOT)
 
+    stage = run_m1_gates._retract_stage_a(OUT_DIR)
     run_m1_gates._run_pregate_guards()
     inputs = tables_inputs()
     memo_inputs = settle_memo_inputs()
@@ -1440,6 +1438,8 @@ def full_run(
         if gates is not None:
             gates.close()
     gate = evaluate_run_m1_gate(summary, pin_gate, oracle_summary)
+    if gate.ok:
+        run_m1_gates._settle_stage_a(OUT_DIR, stage)
     run_m1_gates._settle_green(
         RUN_M1_GREEN, before, gate.ok, run_m1_key, "run_m1", files_of=lambda: run_m1_skip_files(REPO_ROOT)
     )

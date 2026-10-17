@@ -2,7 +2,7 @@
 
 Each component is a SHA-256 over sorted lines that hold no mtimes, so two builds of the same inputs produce the same value. Most lines are `label\\tdigest` pairs over file contents. The baseline TSVs are the exception: they are large, and `rebuild/out/digests.tsv` already holds their content digests, so `baselines_value` hashes their sizes and that file. The corpus manifest's `generated_at` is mtime-based and identifies a corpus build, so that exported verdicts and sidecars can be matched to it. It cannot tell whether the corpus matches the sources on disk; these fingerprints can.
 
-run_m1 writes the Stage A components (`data`, `baselines`, `pipeline_code`) to `rebuild/out/m1/inputs_fingerprint.json` when it builds. The review build copies those recorded values into the manifest instead of recomputing them, so a corpus rebuilt over stale `rebuild/out/m1` artifacts carries the stale values and the checker flags it. The review build computes the Stage B components (`review_code`, `static`, `fonts`, `explain_prose`) itself.
+run_m1 records the Stage A components (`data`, `baselines`, `pipeline_code`) in `rebuild/out/m1/inputs_fingerprint.json`. A build or a `--gates-only` pass deletes that record before it rewrites anything there, and writes back the values it captured before reading its inputs only once its gates pass (`run_m1_gates._settle_stage_a`). The review build copies those recorded values into the manifest instead of recomputing them, so a corpus rebuilt over stale `rebuild/out/m1` artifacts carries the stale values, one rebuilt after a run that stopped or failed carries none, and the checker flags either. The review build computes the Stage B components (`review_code`, `static`, `fonts`, `explain_prose`) itself.
 
 `tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar). Its code half, `table_code_paths`, leaves out the comparison-side code `COMPARISON_CODE_MODULES` names. Those inputs are read or run only by the gates that check the tables and font a build has written and by the guards that run before them, so editing one re-runs them over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never reaches the comparison modules.
 
@@ -770,8 +770,9 @@ def compute_all(repo_root: Path) -> dict:
     return {**stage_a(root), **stage_b(root, before_font, junior_font)}
 
 
-def write_stage_a(repo_root: Path, out_dir: Path) -> dict:
-    record = {"format": FORMAT, **stage_a(repo_root)}
+def write_stage_a(out_dir: Path, values: Mapping[str, str]) -> dict:
+    """Write `values`, which `stage_a` returned, as the Stage A record under `out_dir`, and return the record. It takes the values instead of computing them, so a run writes the ones it captured before it read its inputs; `run_m1_gates._settle_stage_a` says when a run writes them."""
+    record = {"format": FORMAT, **values}
     (Path(out_dir) / STAGE_A_FILENAME).write_text(json.dumps(record, indent=2) + "\n")
     return record
 

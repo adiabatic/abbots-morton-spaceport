@@ -207,7 +207,7 @@ def test_stage_a_round_trip(tmp_path):
     root = _fake_repo(tmp_path)
     out_dir = root / "rebuild" / "out" / "m1"
     out_dir.mkdir(parents=True)
-    record = fingerprint.write_stage_a(root, out_dir)
+    record = fingerprint.write_stage_a(out_dir, fingerprint.stage_a(root))
     assert record["format"] == fingerprint.FORMAT
     values = fingerprint.read_stage_a(out_dir)
     assert values == {key: record[key] for key in fingerprint.STAGE_A_COMPONENTS}

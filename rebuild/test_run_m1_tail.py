@@ -41,7 +41,6 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
     monkeypatch.setattr(run_m1.emit_gsub, "behavior_classes", lambda plan: [])
     monkeypatch.setattr(run_m1.emit_gpos, "emit_gpos", lambda glyphs, spec: "")
     monkeypatch.setattr(run_m1.emit_gpos, "cursive_registrations", lambda glyphs, spec: {})
-    monkeypatch.setattr(run_m1.fingerprint, "write_stage_a", lambda root, out_dir: None)
 
     def build_mini_font(glyphs, fea, path):
         events.append("compile")
@@ -328,8 +327,12 @@ class TestTheFirstRed:
 
 
 def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None, **gates):
-    """Stubs what `run_m1.full_run` calls around `run` (the pre-gate guards that read the subset tables, the keys, the spec, the pin gate, and the oracle) and leaves `run` real, writing under `tmp_path`, and the ledger guard real, compiling the checked-in ledger. The oracle stub records its start, calls `on_oracle`, then the `memo_ready` it was passed (where the real oracle waits before its first memo write), then `after_memo`, and records its end."""
+    """Stubs what `run_m1.full_run` calls around `run` (the Stage A capture and the pre-gate guards, which read files under rebuild/out, the keys, the spec, the pin gate, and the oracle), points `run_m1.OUT_DIR`, where the Stage A record is deleted and written, at `tmp_path`, and leaves `run` real, writing under `tmp_path`, and the ledger guard real, compiling the checked-in ledger. The oracle stub records its start, calls `on_oracle`, then the `memo_ready` it was passed (where the real oracle waits before its first memo write), then `after_memo`, and records its end."""
     real_run = run_m1.run
+    monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(
+        run_m1.fingerprint, "stage_a", lambda root: {"data": "d", "baselines": "b", "pipeline_code": "p"}
+    )
     monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root: False)
     monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)

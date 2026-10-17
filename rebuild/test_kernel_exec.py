@@ -1064,7 +1064,7 @@ class TestTheKernelInvocation:
             (["--kernel-threads", "5", "--replay-threads", "3"], 5, 3),
         ],
     )
-    def test_the_cli_carries_the_thread_width_into_run(self, monkeypatch, argv, kernel, replay):
+    def test_the_cli_carries_the_thread_width_into_run(self, monkeypatch, tmp_path, argv, kernel, replay):
         """`--kernel-threads` and `--replay-threads` reach `run` as separate keywords. If one arrived as the other, every later test would still pass while the cycle sized the wrong stage."""
         from rebuild.tools import artifact_cycle
 
@@ -1075,6 +1075,8 @@ class TestTheKernelInvocation:
             raise Reached
 
         monkeypatch.setattr(artifact_cycle, "run_m1_skip_fingerprint", lambda root: "pinned-key")
+        monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
+        monkeypatch.setattr(run_m1.fingerprint, "stage_a", lambda root: {})
         monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
         monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", lambda root: False)
         monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)

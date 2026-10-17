@@ -87,7 +87,12 @@ def main() -> int:
             print(line, file=sys.stderr)
         return 1
     recorded = fingerprint.read_stage_a(LIVE)
-    if recorded is None or recorded["data"] != fingerprint.data_value(REPO_ROOT):
+    if recorded is None:
+        print(
+            "no passing run_m1 has recorded the inputs of rebuild/out/m1; run run_m1 first", file=sys.stderr
+        )
+        return 1
+    if recorded["data"] != fingerprint.data_value(REPO_ROOT):
         print(
             "rebuild/out/m1 was not built from the spec as it stands on disk; run run_m1 first",
             file=sys.stderr,
