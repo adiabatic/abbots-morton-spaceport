@@ -116,10 +116,11 @@ def _write_corpus(root, stamp, units, machine=()):
     (root / "units" / "units.json").write_text(json.dumps([*units, *machine]))
 
 
-def _write_verdicts(path, stamp, verdicts):
-    path.write_text(
-        json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": verdicts})
-    )
+def _write_verdicts(path, stamp, verdicts, cleared=()):
+    payload = {"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": verdicts}
+    if cleared:
+        payload["cleared"] = [{"unit": unit["id"], "at": at} for unit, at in cleared]
+    path.write_text(json.dumps(payload))
 
 
 def _content_unit(codepoints: str, **fields) -> dict:
@@ -202,6 +203,35 @@ def test_the_newest_verdict_per_unit_wins_across_files_and_skips_never_carry(tmp
     assert [(record["unit"], record["verdict"]) for record in payload["verdicts"]] == [
         (unit["id"], "approve")
     ]
+
+
+def test_only_the_stores_clear_at_or_after_the_newest_verdict_keeps_a_unit_from_carrying(tmp_path, capsys):
+    """The store is the `--verdicts` file named verdicts-autosave.json. Its tombstone keeps a unit from carrying when the newest verdict across the files is not after the clear, a tie included, and yields to a newer verdict. Its tombstone on a unit it holds a record for is passed over, and so is another file's tombstone. A tombstone adds no verdict, so one on a unit no file holds and the corpus lacks is no orphan."""
+    tied, newer, own, foreign, gone = (
+        _content_unit(codepoints)
+        for codepoints in ("E650:E652", "E652:E653", "E653:E654", "E654:E655", "E655:E656")
+    )
+    clear, later = "2026-07-02T01:00:00Z", "2026-07-03T01:00:00Z"
+    store, master = tmp_path / "verdicts-autosave.json", tmp_path / "verdicts-carried-forward.json"
+    _write_verdicts(
+        store,
+        "S0",
+        [_record(own, "approve"), _record(foreign, "approve")],
+        cleared=[(tied, clear), (newer, clear), (own, later), (gone, clear)],
+    )
+    _write_verdicts(
+        master,
+        "S0",
+        [_record(tied, "reject", at=clear), _record(newer, "reject", at=later)],
+        cleared=[(foreign, later)],
+    )
+    payload = _carry(tmp_path, [tied, newer, own, foreign], master, store)
+    assert {record["unit"]: record["verdict"] for record in payload["verdicts"]} == {
+        newer["id"]: "reject",
+        own["id"]: "approve",
+        foreign["id"]: "approve",
+    }
+    assert "carry counts: human=4 matched=3 unmatched=1 orphaned=0" in capsys.readouterr().out.splitlines()
 
 
 def test_the_carry_prints_its_four_counts_whatever_it_matched(tmp_path, capsys):

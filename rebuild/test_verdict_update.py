@@ -1,10 +1,12 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds."""
+"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone."""
 
 import json
 import pathlib
 
 import pytest
 
+from rebuild.review import landing, status
+from rebuild.review.verdict_store import parse_cleared
 from rebuild.tools import console, verdict_update as vu
 
 STAMP = "S1"
@@ -705,3 +707,42 @@ def test_the_real_no_complaints_form_completes_the_fills(tmp_path, monkeypatch, 
     assert (
         capsys.readouterr().out.splitlines()[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
     )
+
+
+def test_a_pass_that_moves_the_stamp_neither_carries_back_nor_duplicate_fills_a_unit_cleared_after_a_root_files_verdict(
+    tmp_path, monkeypatch
+):
+    """A carried file stamped for the served corpus sits at the repository root, holding verdicts for `u-open` and for `u-cleared-newer`, a member of an agreeing duplicate group, which the reader then clears in the store. The file holds more effective verdicts than the store, so the next pass carries it as the master, beside the store's snapshot. The snapshot's tombstones are newer than the file's verdicts, so the carry passes both units over; the merge onto the moved corpus keeps the store's tombstones, so it refuses the duplicate fill's older proposal for the group member; and the land keeps both tombstones."""
+    paths = _integration_fixture(tmp_path / "current", monkeypatch)
+    store = json.loads(paths["autosave"].read_text())
+    store["manifest_generated_at"] = OLDER
+    stale = paths["autosave"].with_name("verdicts-carried-forward.json")
+    held = [*store["verdicts"], _record("u-open"), _record("u-cleared-newer")]
+    stale.write_text(json.dumps(_fixture_payload(held, stamp=OLDER)))
+    store["cleared"].append({"unit": "u-open", "at": NEWER})
+    paths["autosave"].write_text(json.dumps(store))
+    resolved = status.resolve_carry_source(stale.parent, OLDER, paths["autosave"])
+    assert resolved is not None and resolved["path"] == stale
+
+    run_dir = stale.parent / "pass"
+    assert landing.snapshot(paths["autosave"], run_dir) == OLDER
+    prepared = run_dir / landing.PREPARED_NAME
+    argv = ["--corpus", str(paths["corpus"]), "--verdicts", str(stale)]
+    argv += ["--verdicts", str(run_dir / landing.SNAPSHOT_NAME), "--carry-out", str(paths["carry"])]
+    argv += ["--autosave", str(prepared), "--journal", str(run_dir / "journal.ndjson")]
+    argv += ["--duplicate-out", str(paths["duplicate"]), "--standing-out", str(paths["standing"])]
+    argv += ["--rules", str(paths["rules"]), "--standing-memo", str(paths["memo"]), "--no-complaints"]
+    assert vu.main(argv) == 0
+    landed = landing.land(
+        autosave=paths["autosave"],
+        journal_path=paths["journal"],
+        run_dir=run_dir,
+        corpus=paths["corpus"],
+        prepared=prepared,
+    )
+    assert landed.landed and (landed.old_stamp, landed.new_stamp) == (OLDER, CORPUS_STAMP)
+    assert not {"u-open", "u-cleared-newer"} & set(_records(paths["carry"]))
+    assert "u-cleared-newer" in _records(paths["duplicate"])
+    assert not {"u-open", "u-cleared-newer"} & set(_records(paths["autosave"]))
+    cleared = parse_cleared(json.loads(paths["autosave"].read_text()))
+    assert (cleared["u-open"], cleared["u-cleared-newer"]) == (NEWER, NEWER)

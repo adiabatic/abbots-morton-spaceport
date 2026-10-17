@@ -1,6 +1,6 @@
 """Carry prior verdicts onto the live review corpus by unit id.
 
-A unit's id is derived from its content key (`rebuild.review.unit_cache.unit_id_for`; `rebuild/REVIEW-PLAN.md` §2.1 gives the shape), so a verdict names the same unit on every corpus where that unit's content is unchanged. The carry is a join on that id. A verdict whose unit is a human unit on the new corpus is carried, and one whose unit is not on the corpus at all is orphaned. Skip verdicts are neither carried nor counted as orphaned. A carried record keeps the prior record's verdict, note and `at`, except that the note loses the `[carried …]` markers in its leading marker run (`verdict_notes.drop_carried_markers`), which older notes hold and tabs and imports can bring back. No prior corpus is opened, and a verdicts file's stamp is only printed, so a file recorded against any older corpus carries the same way the autosave does. `artifact_cycle.carry_counts` parses the `carry counts:` line, and the cycle records those counts on its run line in the timings journal.
+A unit's id is derived from its content key (`rebuild.review.unit_cache.unit_id_for`; `rebuild/REVIEW-PLAN.md` §2.1 gives the shape), so a verdict names the same unit on every corpus where that unit's content is unchanged. The carry is a join on that id. A unit takes its newest verdict across the `--verdicts` files unless the store among them cleared it at or after that verdict (`resolve_prior` gives the rule and how it tells the store), so a verdict the reader cleared in the store after another file recorded it is not carried back; another file's tombstones are passed over, as a merge passes over an input's. A verdict whose unit is a human unit on the new corpus is carried, and one whose unit is not on the corpus at all is orphaned. Skip verdicts and clears are neither carried nor counted as orphaned. A carried record keeps the prior record's verdict, note and `at`, except that the note loses the `[carried …]` markers in its leading marker run (`verdict_notes.drop_carried_markers`), which older notes hold and tabs and imports can bring back. No prior corpus is opened, and a verdicts file's stamp is only printed, so a file recorded against any older corpus carries the same way the autosave does. `artifact_cycle.carry_counts` parses the `carry counts:` line, and the cycle records those counts on its run line in the timings journal.
 
 Unless `--allow-orphans` is passed, the carry refuses when more than `landing.ORPHAN_SHARE_LIMIT` of the prior verdicts other than skips are orphaned (`landing.orphan_share` says why). It refuses after printing its counts and before writing anything, because a carried file stamped for the new corpus can outrank the store in a later pass's choice of carry source.
 """
@@ -17,7 +17,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.review import unit_index  # noqa: E402
-from rebuild.review.landing import ORPHAN_SHARE_LIMIT, orphan_share  # noqa: E402
+from rebuild.review.landing import ORPHAN_SHARE_LIMIT, SNAPSHOT_NAME, orphan_share  # noqa: E402
+from rebuild.review.verdict_store import parse_cleared  # noqa: E402
 from rebuild.tools.verdict_notes import drop_carried_markers  # noqa: E402
 
 OUT = ROOT / "verdicts-carried-forward.json"
@@ -34,18 +35,27 @@ def latest_verdicts(payload):
 
 
 def resolve_prior(verdict_files):
-    """Return each unit id's newest verdict across all the files, by `at`."""
+    """Return each unit id's newest verdict across all the files, by `at`, leaving out a unit the store cleared at or after that verdict. The store is a file named `SNAPSHOT_NAME`, the live store's name, which the cycle's snapshot of it keeps. Its tombstones (`verdict_store.parse_cleared`) are the clears, and a tombstone wins over a record whose `at` is not after the clear, as the store's tombstones win in a merge (`merge_verdicts.merge_into`). The store's tombstone on a unit it holds a record for is passed over, as the verdict store passes it over, and so is every other file's tombstone, as a merge passes over an input's: a clear that no store records would leave no tombstone for the land to keep."""
     prior = {}
+    cleared = {}
     for verdict_file in verdict_files:
         payload = json.loads(verdict_file.read_text())
         verdicts = latest_verdicts(payload)
         for unit_id, record in verdicts.items():
             if unit_id not in prior or record["at"] > prior[unit_id]["at"]:
                 prior[unit_id] = record
+        if verdict_file.name == SNAPSHOT_NAME:
+            for unit_id, at in parse_cleared(payload).items():
+                if unit_id not in verdicts:
+                    cleared[unit_id] = max(at, cleared.get(unit_id, at))
         print(
             f"{verdict_file.name}: {len(verdicts)} verdicts, stamped {payload.get('manifest_generated_at')}"
         )
-    return prior
+    return {
+        unit_id: record
+        for unit_id, record in prior.items()
+        if unit_id not in cleared or record["at"] > cleared[unit_id]
+    }
 
 
 def main(
@@ -67,7 +77,7 @@ def main(
         action="append",
         required=True,
         metavar="VERDICTS_JSON",
-        help="a prior verdicts file; repeatable, the newest `at` per unit winning across files",
+        help=f"a prior verdicts file; repeatable, the newest `at` per unit winning across files unless the store (the file named {SNAPSHOT_NAME}) cleared the unit at or after it",
     )
     parser.add_argument("--out", default=str(OUT), help="output verdicts file (default: %(default)s)")
     parser.add_argument(

@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through an aligned merge, the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears."""
 
 import json
 import threading
@@ -142,6 +142,36 @@ def test_stashes_a_stale_autosave_and_starts_from_the_carried_file(repo, tmp_pat
     events = list(journal.iter_events(repo["journal"]))
     assert events[-1]["base"] is True
     assert events[-1]["stashed"] == "verdicts-autosave-S1.json"
+
+
+def test_a_merge_onto_a_stale_store_keeps_its_tombstones_on_the_corpus_human_units(repo, tmp_path):
+    """The stale store is stashed and none of its verdicts is kept, but its tombstones on the corpus's human units are, so one refuses an incoming record whose `at` is not after the clear and yields to a newer one. A tombstone on a unit the corpus lacks is dropped, and so is one on a unit the stale store holds a record for."""
+    (repo["corpus"] / "manifest.json").write_text(
+        json.dumps({"generated_at": "S2", "human_unit_ids": ["u-1", "u-2", "u-3"]})
+    )
+    repo["autosave"].write_text(
+        json.dumps(
+            {
+                **doc("S1", [v("u-old"), v("u-3")]),
+                "cleared": [
+                    {"unit": "u-1", "at": "2026-07-10T05:00:00Z"},
+                    {"unit": "u-2", "at": "2026-07-10T05:00:00Z"},
+                    {"unit": "u-3", "at": "2026-07-10T05:00:00Z"},
+                    {"unit": "u-gone", "at": "2026-07-10T05:00:00Z"},
+                ],
+            }
+        )
+    )
+    carried = write_doc(
+        tmp_path / "verdicts-carried-x.json",
+        "S2",
+        [v("u-1", at="2026-07-10T04:00:00Z"), v("u-2", at="2026-07-10T06:00:00Z"), v("u-3")],
+    )
+    assert run(repo, str(carried)) == 0
+    assert set(store_records(repo)) == {"u-2", "u-3"}
+    assert json.loads(repo["autosave"].read_text())["cleared"] == [
+        {"unit": "u-1", "at": "2026-07-10T05:00:00Z"}
+    ]
 
 
 def test_refuses_to_merge_onto_an_outdated_corpus(repo, tmp_path, capsys):
