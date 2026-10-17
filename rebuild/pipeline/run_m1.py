@@ -1363,7 +1363,7 @@ def full_run(
     scratch_beside_default: int | None = None,
     fresh_oracle_cache: bool = False,
 ) -> None:
-    """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the Stage A capture and the deletion of its record (`run_m1_gates._retract_stage_a`), the pre-gate guards, `run_ligature_outgoing`, the build (`run`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the run_m1 gate, the Stage A record once that gate passes (`run_m1_gates._settle_stage_a`), the green record and the check line (timed from `started`). The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
+    """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the Stage A capture, the pre-gate guards, `run_ligature_outgoing`, the deletion of the Stage A record immediately before the run's first write (`run_m1_gates._retract_stage_a`; that write is the guards' refilter when the subset tables are stale, and the build otherwise), the build (`run`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the run_m1 gate, the Stage A record once that gate passes (`run_m1_gates._settle_stage_a`), the green record and the check line (timed from `started`). The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
     from rebuild.pipeline import run_m1_gates
     from rebuild.tools.artifact_cycle import (
         _defect_gate_failure,
@@ -1376,8 +1376,8 @@ def full_run(
     def run_m1_key() -> str:
         return run_m1_skip_fingerprint(REPO_ROOT)
 
-    stage = run_m1_gates._retract_stage_a(OUT_DIR)
-    run_m1_gates._run_pregate_guards()
+    stage = fingerprint.stage_a(REPO_ROOT)
+    run_m1_gates._run_pregate_guards(OUT_DIR)
     inputs = tables_inputs()
     memo_inputs = settle_memo_inputs()
     spec = load_default_spec()
@@ -1386,6 +1386,7 @@ def full_run(
     defect_failure: str | None = None
     try:
         run_ligature_outgoing(spec)
+        run_m1_gates._retract_stage_a(OUT_DIR)
         console.phase("run_total")
         start = time.perf_counter()
         summary, gates = run(

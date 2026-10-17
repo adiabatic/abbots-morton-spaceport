@@ -1078,7 +1078,7 @@ class TestTheKernelInvocation:
         monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
         monkeypatch.setattr(run_m1.fingerprint, "stage_a", lambda root: {})
         monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
-        monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", lambda root: False)
+        monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", lambda root, before_refilter: False)
         monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)
         monkeypatch.setattr(run_m1, "load_default_spec", lambda: SPEC)
         monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})

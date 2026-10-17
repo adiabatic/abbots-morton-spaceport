@@ -19,7 +19,7 @@ import io
 import itertools
 import json
 import os
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -386,11 +386,13 @@ def check_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
     return checked
 
 
-def ensure_fresh(repo_root: Path = REPO_ROOT) -> bool:
-    """Check the source tables' font provenance, then refilter if the subset tables are stale, and return whether a refilter ran. Raises `BaselineProvenanceError` from the provenance check and `SubsetIdentityError` from the refilter. The provenance check runs on every call because the site font is `make all` output and not a stamp input, so it can change while the stamp key stays the same."""
+def ensure_fresh(repo_root: Path = REPO_ROOT, before_refilter: Callable[[], None] | None = None) -> bool:
+    """Check the source tables' font provenance, then refilter if the subset tables are stale, and return whether a refilter ran. `before_refilter` runs once the tables are found stale and before the refilter writes anything, so a caller can delete a record that vouches for the subset tables on disk only when they are about to be rewritten (`run_m1_gates._run_pregate_guards`). Raises `BaselineProvenanceError` from the provenance check and `SubsetIdentityError` from the refilter. The provenance check runs on every call because the site font is `make all` output and not a stamp input, so it can change while the stamp key stays the same."""
     check_font_provenance(repo_root)
     if is_fresh(repo_root):
         return False
+    if before_refilter is not None:
+        before_refilter()
     refresh(repo_root)
     return True
 

@@ -5997,7 +5997,7 @@ def test_main_skips_the_corpus_on_a_gates_only_rerun_only_when_stage_a_already_s
 def test_main_rebuilds_m1_and_the_corpus_when_the_stage_a_record_does_not_stand(
     tmp_path, monkeypatch, capsys, record
 ):
-    """The plain run_m1 skip needs a Stage A record that matches the sources on disk, as well as a green whose key matches. A run that stopped leaves no record (`retracted`, which `m1_artifacts_present` refuses on its own). A run whose gates passed but that left no green, such as a gates-only child whose green the cycle declined, leaves a record for the sources it read, and putting those sources back makes the green match again (`outgrown`). Either way the pass rebuilds M1, which writes a record for these sources, and rebuilds the corpus over it. Skipping both would serve a corpus whose copied record `make verdict-ready` reports stale, which no later pass would rebuild."""
+    """The plain run_m1 skip needs a Stage A record that matches the sources on disk, as well as a green whose key matches. A run that wrote under rebuild/out/m1 and then stopped leaves no record (`retracted`, which `m1_artifacts_present` refuses on its own). A run whose gates passed but that left no green, such as a gates-only child whose green the cycle declined, leaves a record for the sources it read, and putting those sources back makes the green match again (`outgrown`). Either way the pass rebuilds M1, which writes a record for these sources, and rebuilds the corpus over it. Skipping both would serve a corpus whose copied record `make verdict-ready` reports stale, which no later pass would rebuild."""
     from rebuild.pipeline import fingerprint
 
     _unsettled_repo(tmp_path, monkeypatch)

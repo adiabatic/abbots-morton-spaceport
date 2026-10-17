@@ -179,7 +179,9 @@ def _stub_full_run(monkeypatch, out_dir, *, defect_errors=(), pins=True, pins_in
     monkeypatch.setattr(run_m1, "OUT_DIR", out_dir)
     monkeypatch.setattr(run_m1.fingerprint, "stage_a", lambda root: dict(STAGE_A))
     monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
-    monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root: False)
+    monkeypatch.setattr(
+        run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root, before_refilter: False
+    )
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
     monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {})
@@ -221,7 +223,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     _stub_full_run(monkeypatch, tmp_path)
     events = []
 
-    def ensure(repo_root):
+    def ensure(repo_root, before_refilter):
         state["ensured"] = True
         events.append("subset")
         return True
@@ -263,7 +265,7 @@ def test_a_diverged_subset_stops_the_run_before_the_alias_check(monkeypatch):
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     reached: list[str] = []
 
-    def ensure(repo_root):
+    def ensure(repo_root, before_refilter):
         raise run_m1_gates.baseline_subset.SubsetIdentityError("ss06 diverged")
 
     monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", ensure)
@@ -282,7 +284,7 @@ def test_a_font_provenance_refusal_stops_the_run_before_the_alias_check(monkeypa
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     reached: list[str] = []
 
-    def ensure(repo_root):
+    def ensure(repo_root, before_refilter):
         raise run_m1_gates.baseline_subset.BaselineProvenanceError(
             "baseline-ss03.tsv.gz was extracted from another font"
         )
@@ -455,7 +457,7 @@ def test_a_bare_run_that_raises_before_its_handlers_files_the_exception_and_clea
 
 @pytest.mark.parametrize("stop", [None, SystemExit, ValueError])
 def test_a_full_run_writes_the_stage_a_record_only_once_its_gates_pass(monkeypatch, tmp_path, stop):
-    """A full run deletes the Stage A record before its pre-gate guards write anything under rebuild/out/m1, and writes it back after the oracle, once the run_m1 gate passes. A run that stops at a red gate (here the Manual-pin gate) or on an exception from the oracle may already have rewritten the tables and M1.otf, so it leaves no record: a record from before it would match the sources again once an edit is reverted, and a corpus built by hand or the next cycle's skip would take that run's font for the one the record describes."""
+    """A full run deletes the Stage A record immediately before its first write under rebuild/out/m1, and writes it back after the oracle, once the run_m1 gate passes. A run that stops at a red gate (here the Manual-pin gate) or on an exception from the oracle may already have rewritten the tables and M1.otf, so it leaves no record: a record from before it would match the sources again once an edit is reverted, and a corpus built by hand or the next cycle's skip would take that run's font for the one the record describes."""
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", tmp_path / "run-m1-green.json")
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch, tmp_path, pins=stop is not SystemExit)
@@ -478,6 +480,74 @@ def test_a_full_run_writes_the_stage_a_record_only_once_its_gates_pass(monkeypat
             run_m1_gates.main([])
     assert during_oracle == ([] if stop is SystemExit else [None])
     assert fingerprint.read_stage_a(tmp_path) == (STAGE_A if stop is None else None)
+
+
+@pytest.mark.parametrize(
+    ("argv", "refusal"),
+    [
+        ([], "ledger predicate"),
+        ([], "missing alias"),
+        ([], "rune that does not load"),
+        (["--gates-only"], "ledger predicate"),
+        (["--gates-only"], "missing alias"),
+        (["--gates-only"], "stale stamp"),
+    ],
+)
+def test_a_refusal_before_any_write_leaves_the_stage_a_record_byte_identical(
+    monkeypatch, tmp_path, argv, refusal
+):
+    """A full run or a `--gates-only` pass that a check refuses, or that fails, before its first write (a ledger predicate the oracle does not define, an old glyph name with no alias, tables the runes have outgrown, a rune that does not load) leaves every artifact the Stage A record vouches for as it found them, so it leaves the record as it found it too. Deleting it would make the next cycle rebuild M1 and the corpus once the edit is fixed or reverted, though no artifact changed."""
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", tmp_path / "run-m1-green.json")
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    _stub_full_run(monkeypatch, tmp_path)
+    if refusal == "ledger predicate":
+        ledger = tmp_path / "m1-divergences.yaml"
+        ledger.write_text("- id: mistyped\n  match:\n    predicate: boundary_windo\n")
+        monkeypatch.setattr(run_m1_gates, "DIVERGENCES_YAML", ledger)
+    elif refusal == "missing alias":
+        monkeypatch.setattr(
+            run_m1_gates.oracle,
+            "unaliased_subset_names",
+            lambda subset_dir, alias_path: {"qsPea.alt": ["default"]},
+        )
+    elif refusal == "rune that does not load":
+
+        def load_default_spec():
+            raise KeyError("stance")
+
+        monkeypatch.setattr(run_m1, "load_default_spec", load_default_spec)
+    else:
+        monkeypatch.setattr(run_m1, "tables_inputs", lambda: "fp")
+        monkeypatch.setattr(run_m1, "serialized_tables", lambda out_dir, inputs: None)
+    record = tmp_path / fingerprint.STAGE_A_FILENAME
+    record.write_text(json.dumps({"format": fingerprint.FORMAT, **{name: "before" for name in STAGE_A}}))
+    before = record.read_bytes()
+    with pytest.raises(KeyError if refusal == "rune that does not load" else SystemExit):
+        run_m1_gates.main(argv)
+    assert record.read_bytes() == before
+
+
+@pytest.mark.parametrize("argv", [[], ["--gates-only"]])
+def test_a_refusal_after_the_refilter_leaves_no_stage_a_record(monkeypatch, tmp_path, argv):
+    """The pre-gate guards hand `ensure_fresh` the deletion of the Stage A record under the run's out_dir, which it runs before a refilter rewrites the subset tables. So a full run or a `--gates-only` pass that a later guard refuses after a refilter (here an old glyph name with no alias) leaves no record to vouch for the rewritten tables."""
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", tmp_path / "run-m1-green.json")
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    _stub_full_run(monkeypatch, tmp_path)
+
+    def ensure(repo_root, before_refilter):
+        before_refilter()
+        return True
+
+    monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", ensure)
+    monkeypatch.setattr(
+        run_m1_gates.oracle,
+        "unaliased_subset_names",
+        lambda subset_dir, alias_path: {"qsPea.alt": ["default"]},
+    )
+    fingerprint.write_stage_a(tmp_path, STAGE_A)
+    with pytest.raises(SystemExit):
+        run_m1_gates.main(argv)
+    assert not (tmp_path / fingerprint.STAGE_A_FILENAME).exists()
 
 
 def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
@@ -1375,7 +1445,9 @@ class TestGatesOnly:
             run_m1.fingerprint, "stage_a", lambda repo_root: ran.append("stage_a") or dict(STAGE_A)
         )
         monkeypatch.setattr(
-            run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root: ran.append("subset") or False
+            run_m1_gates.baseline_subset,
+            "ensure_fresh",
+            lambda repo_root, before_refilter: ran.append("subset") or False,
         )
         monkeypatch.setattr(
             run_m1_gates.oracle,

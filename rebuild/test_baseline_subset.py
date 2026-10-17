@@ -107,6 +107,24 @@ class TestEnsureFresh:
         ) as fh:
             assert "E672\t" in fh.read()
 
+    def test_the_hook_runs_before_a_stale_refilter_writes_and_never_over_fresh_tables(self, tmp_path):
+        """`before_refilter` runs once the tables read as stale and before `refresh` writes an output or the stamp, so run_m1 deletes the Stage A record before the refilter rewrites what it vouches for. Over fresh tables it never runs, so a pass a later guard refuses leaves that record."""
+        root = _seed_repo(tmp_path)
+        baseline_subset.ensure_fresh(root)
+        m1 = root / "rebuild" / "out" / "m1"
+
+        def snapshot():
+            return {path.name: path.read_bytes() for path in m1.iterdir()}
+
+        seen = []
+        assert baseline_subset.ensure_fresh(root, before_refilter=lambda: seen.append(snapshot())) is False
+        assert seen == []
+        before = snapshot()
+        _write_sources(root / "rebuild" / "out", SEED_ROWS + ["E672\tqsEt\t0\t\t0,0,200"])
+        assert baseline_subset.ensure_fresh(root, before_refilter=lambda: seen.append(snapshot())) is True
+        assert seen == [before]
+        assert snapshot() != before
+
     def test_an_alphabet_change_moves_the_key(self, tmp_path, monkeypatch):
         root = _seed_repo(tmp_path)
         before = baseline_subset.stamp_key(root)
