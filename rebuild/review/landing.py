@@ -49,6 +49,12 @@ PROTOCOL_MODULES = (
     "store_lock.py",
     "landing.py",
 )
+FRESHNESS_MODULES = (
+    "pipeline/fingerprint.py",
+    "tools/site_fonts.py",
+    "review/unit_index.py",
+    "review/app_index.py",
+)
 SNAPSHOT_NAME = "verdicts-autosave.json"
 PREPARED_NAME = "prepared.json"
 LANDING_NAME = "landing.json"
@@ -63,10 +69,12 @@ ORPHAN_SHARE_LIMIT = 0.10
 
 
 def code_digest(review_dir: Path) -> str:
-    """Return the digest of the modules whose behavior the land protocol depends on (`PROTOCOL_MODULES` under `review_dir`). The server takes it at boot from the files it loaded, and the cycle from the working tree, so a server whose code differs from the tree's is never trusted to run through a pass."""
+    """Return the digest of the modules whose behavior the land protocol depends on (`PROTOCOL_MODULES` under `review_dir`) and of the ones the server's /status judges the served corpus's freshness with (`FRESHNESS_MODULES`, under `review_dir`'s parent): the fingerprint components, the site font paths the `fonts` component hashes, and the per-unit index and app sidecar stamps. The server takes it at boot from the files it loaded, and the cycle from the working tree, so a server whose code differs from the tree's is never trusted to run through a pass. A server started before a change to the freshness modules would go on judging the corpus by the components it loaded and could call a stale corpus ready, so the next pass that writes under it restarts it."""
+    review_dir = Path(review_dir)
+    paths = [(name, review_dir / name) for name in PROTOCOL_MODULES]
+    paths += [(name, review_dir.parent / name) for name in FRESHNESS_MODULES]
     digest = hashlib.sha256()
-    for name in PROTOCOL_MODULES:
-        path = Path(review_dir) / name
+    for name, path in paths:
         try:
             data = path.read_bytes()
         except OSError:

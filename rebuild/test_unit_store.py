@@ -17,6 +17,7 @@ from rebuild.review import build as review_build
 from rebuild.review import unit_cache, unit_store
 from rebuild.review.audit import load_workload, sort_for_triage, triage_key
 from rebuild.review.build import _junction_records
+from rebuild.review.drafts import build_corpus_index
 from rebuild.review.enrich import LETTERS, PrimaryUnitProjection
 from rebuild.review.unit_store import UnitStore
 from rebuild.tools import memory_tally
@@ -620,6 +621,7 @@ def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle, tmp_
         out_dir=tmp_path,
         subset_pack=mini_bundle.subset_pack,
         identical_classes=frozenset(entry.id for entry in workload.ledger if entry.ink_identical),
+        corpus_index=build_corpus_index(REPO_ROOT),
     )
     try:
         runner.phase1(store)

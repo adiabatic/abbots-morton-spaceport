@@ -74,7 +74,7 @@ from rebuild.review.change_groups import (
     load_change_group_prose,
     reroutes,
 )
-from rebuild.review.drafts import Drafter, _import_test_shaping
+from rebuild.review.drafts import Drafter, _import_test_shaping, corpus_index_from_pages
 from rebuild.review.ink import (
     IDENTITY_DIFF,
     JUNIOR_VERIFICATION_METHOD,
@@ -151,11 +151,20 @@ def _alphabet_meta() -> dict:
 
 
 def _inputs_fingerprint(
-    repo_root: Path, m1_dir: Path, before_font: Path, junior_font: Path, spec_root: Path | None = None
+    repo_root: Path,
+    m1_dir: Path,
+    before_font: Path,
+    junior_font: Path,
+    spec_root: Path | None = None,
+    *,
+    draft_lines: Sequence[str],
 ) -> dict:
-    """Return the manifest's `inputs_fingerprint`. The Stage A values are copied from run_m1's recorded inputs_fingerprint.json instead of being recomputed, so a corpus built over stale out/m1 artifacts carries the stale hashes and the readiness checker can flag it. The Stage A values are null when that record is missing, unreadable, or incomplete."""
+    """Return the manifest's `inputs_fingerprint`. The Stage A values are copied from run_m1's recorded inputs_fingerprint.json instead of being recomputed, so a corpus built over stale out/m1 artifacts carries the stale hashes and the readiness checker can flag it. The Stage A values are null when that record is missing, unreadable, or incomplete. `draft_lines` is the `fingerprint.draft_input_lines` that `build_m1` took from the pages its drafters' index was built from, before any drafter ran, and `fingerprint.stage_b` takes `draft_inputs` from them instead of reading the pages again, so a page edited during the build leaves the manifest describing the pages the drafts saw."""
     stage_a = fingerprint.read_stage_a(m1_dir) or {key: None for key in fingerprint.STAGE_A_COMPONENTS}
-    return {**stage_a, **fingerprint.stage_b(repo_root, before_font, junior_font, spec_root)}
+    return {
+        **stage_a,
+        **fingerprint.stage_b(repo_root, before_font, junior_font, spec_root, draft_lines=draft_lines),
+    }
 
 
 def _upem(path: Path) -> int:
@@ -1184,7 +1193,12 @@ def _corpus_worker(conn, init: dict) -> None:
             shaper_factory=shaper_for,
             subset_pack=init["subset_pack"],
         )
-        drafter = Drafter(init["after_font"], repo_root=init["repo_root"], shaper_factory=shaper_for)
+        drafter = Drafter(
+            init["after_font"],
+            corpus_index=init["corpus_index"],
+            repo_root=init["repo_root"],
+            shaper_factory=shaper_for,
+        )
         tally = memory_tally.from_environment()
         if tally:
             tally.hold_reading("worker.subset_pack", enricher.subset_pack_sizes)
@@ -1332,6 +1346,7 @@ class _RecomputeRunner:
         out_dir: Path,
         subset_pack: Path,
         identical_classes: frozenset[str],
+        corpus_index: dict,
     ) -> None:
         self._recomputed = recomputed
         self._table = table
@@ -1343,6 +1358,7 @@ class _RecomputeRunner:
         self._subset_dir = subset_dir
         self._subset_pack = Path(subset_pack)
         self._repo_root = repo_root
+        self._corpus_index = corpus_index
         self._spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
         self._out_dir = Path(out_dir)
         # Delete a spool a killed build left behind, so the directory holds only what this build writes.
@@ -1366,6 +1382,7 @@ class _RecomputeRunner:
                 "spec_root": self._spec_root,
                 "out_dir": self._out_dir,
                 "identical_classes": identical_classes,
+                "corpus_index": corpus_index,
             }
             ctx = multiprocessing.get_context("spawn")
             for index in range(nworkers):
@@ -1466,7 +1483,12 @@ class _RecomputeRunner:
                 shaper_factory=shaper_for,
                 subset_pack=self._subset_pack,
             )
-            drafter = Drafter(self._after_font, repo_root=self._repo_root, shaper_factory=shaper_for)
+            drafter = Drafter(
+                self._after_font,
+                corpus_index=self._corpus_index,
+                repo_root=self._repo_root,
+                shaper_factory=shaper_for,
+            )
             self._local = (comparator, oracle, enricher, drafter)
         return self._local
 
@@ -2189,6 +2211,7 @@ def _write_corpus(
     unit_errors: Sequence[str],
     font_digests: Mapping[str, str],
     *,
+    draft_lines: Sequence[str],
     sections: Mapping[str, str],
     ledger: Sequence[LedgerClass],
     spool_dir: Path,
@@ -2308,7 +2331,7 @@ def _write_corpus(
             "generated_at": _generated_at(audit_path, ledger_path, before_font, after_font),
             "repo_head": _repo_head(repo_root),
             "inputs_fingerprint": _inputs_fingerprint(
-                repo_root, subset_dir, before_font, junior_font, spec_root
+                repo_root, subset_dir, before_font, junior_font, spec_root, draft_lines=draft_lines
             ),
             "source": {
                 "audit": _relative(audit_path, repo_root),
@@ -2532,6 +2555,10 @@ def build_m1(
     # The incremental plan (the `rebuild/review/unit_cache.py` module docstring is the authority): key every unit by its inputs, reuse what the previous corpus already computed, and pass only the rest to the runner. The whole-corpus passes below always run over every unit, so every order- or ledger-derived field comes from this build. The table is compacted, so the set of units is final here. The unit store (`unit_store.UnitStore`) holds every per-unit product of phase 1 from here to the cache write. It is allocated over the table's count and shares the table's string table, and the keyer writes each unit's input key into it before any record is loaded. The store's records are parsed and loaded one at a time in store order (`unit_cache.stream_store`), matched to units through the map from input key to ordinal. Load order changes no output byte: ids are read through the string table, every side column is read by `(start, count)`, and the mismatches are keyed by ordinal (the `unit_store` module docstring). A store that fails partway is restarted with the same input keys and nothing loaded. The ids the discarded store added to the shared string table stay there, which is harmless because every read goes by id.
     console.phase("review.build plan", file=sys.stderr)
     phase = time.perf_counter()
+    site_pages = fingerprint.read_site_corpus(repo_root)
+    draft_lines = fingerprint.draft_input_lines(repo_root, site_pages)
+    corpus_index = corpus_index_from_pages(site_pages)
+    del site_pages
     environment = unit_cache.environment_stamp(
         repo_root,
         spec,
@@ -2541,6 +2568,7 @@ def build_m1(
         helpers_digest,
         subset_digests=subset_digests,
         identical_classes=identical_classes,
+        draft_lines=draft_lines,
     )
     store = UnitStore(table.n, strings=table.strings)
     for ordinal in range(table.n):
@@ -2646,6 +2674,7 @@ def build_m1(
         out_dir=out_dir,
         subset_pack=subset_pack,
         identical_classes=identical_classes,
+        corpus_index=corpus_index,
     )
     try:
         if runner.pooled:
@@ -2782,6 +2811,7 @@ def build_m1(
             mismatches,
             runner.contract_errors,
             font_digests,
+            draft_lines=draft_lines,
             sections=sections,
             ledger=workload.ledger,
             spool_dir=runner.spool_dir,

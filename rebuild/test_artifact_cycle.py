@@ -5625,6 +5625,40 @@ def test_a_refuse_why_edit_restamps_the_corpus_and_nothing_upstream(tmp_path):
     assert _upstream_keys(root) == upstream
 
 
+def test_a_site_pin_edit_makes_the_corpus_stale_for_the_skip_and_verdict_ready(tmp_path):
+    """The approval drafter sets a pin draft's `attribute` and `duplicate_of` from the pins on the site corpus pages, so pinning a word there must stop the cycle skipping the corpus build and must fail `make verdict-ready`'s freshness check, naming `draft_inputs` as the one component that moved."""
+    from rebuild.review import drafts, status
+
+    root = _fake_run_m1_root(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    (root / ".gitignore").write_text("rebuild/out/\n")
+    page = root / "site" / "index.html"
+    page.parent.mkdir()
+    word = "\ue652\ue653"
+    page.write_text(f"<table><tr><td>{word}</td></tr></table>\n")
+    corpus = _stamped_corpus(root)
+
+    def freshness() -> dict:
+        return status.compute_status(
+            root,
+            corpus,
+            root / "rebuild" / "out" / "m1",
+            root / "verdicts-autosave.json",
+            root / "rebuild" / "out" / "cycle_summary.json",
+        )["checks"]["freshness"]
+
+    assert ac.corpus_build_skippable(root, corpus)
+    assert freshness()["level"] == "ok"
+    unpinned = drafts.build_corpus_index(root)
+
+    page.write_text(f'<table><tr><td data-expect="·Tea ~b~ ·Day">{word}</td></tr></table>\n')
+    assert drafts.build_corpus_index(root) != unpinned
+    assert not ac.corpus_build_skippable(root, corpus)
+    stale = freshness()
+    assert stale["level"] == "fail"
+    assert [name for name, state in stale["components"].items() if state != "fresh"] == ["draft_inputs"]
+
+
 def test_a_ledger_why_edit_restamps_the_corpus_and_nothing_upstream(tmp_path):
     """The review build copies each divergence class's `why`, `title` and `summary` into the manifest, so the corpus must notice a rewording. The oracle reads none of them, so the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key stay unchanged. Reclassifying the class must change the run_m1 key, the Stage A record and the lane key."""
     from rebuild.pipeline import fingerprint

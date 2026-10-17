@@ -6,10 +6,11 @@ import sys
 from dataclasses import dataclass, replace
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import yaml
 
+from rebuild.pipeline import fingerprint
 from rebuild.pipeline.labels import load_alias_map
 from rebuild.pipeline.model import SS10_COPY_SUFFIX, CellId
 from rebuild.pipeline.settle import is_boundary_settled
@@ -29,7 +30,7 @@ from rebuild.validation.rowmodel import config_token_for_features
 from rebuild.validation.shaping import Shaper, row_for
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-CORPUS_FILES = ("site/index.html", "site/the-manual.html", "site/extra-senior-words.html")
+CORPUS_FILES = fingerprint.SITE_CORPUS_FILES
 SUGGESTED_HOME = "site/the-manual.html"
 
 CONNECTORS = {"break": " | ", "y0": " ~b~ ", "y5": " ~x~ ", "y6": " ~6~ ", "y8": " ~t~ "}
@@ -192,20 +193,24 @@ class _PinCollector(HTMLParser):
             self._text.append(data)
 
 
-def build_corpus_index(repo_root: Path = REPO_ROOT, files: tuple[str, ...] = CORPUS_FILES) -> dict:
-    """(text, config token) → {"source": "file:line", "attribute": ...} for every pinned corpus cell, keeping the first cell for each key."""
+def corpus_index_from_pages(pages: Mapping[str, bytes | None]) -> dict:
+    """(text, config token) → {"source": "file:line", "attribute": ...} for every pinned cell of `pages`, the bytes `fingerprint.read_site_corpus` read, keeping the first cell for each key in the mapping's order. A page that does not exist (None) contributes nothing."""
     index: dict[tuple[str, str], dict] = {}
-    for rel in files:
-        path = repo_root / rel
-        if not path.exists():
+    for rel, page in pages.items():
+        if page is None:
             continue
         collector = _PinCollector()
-        collector.feed(path.read_text(encoding="utf-8"))
+        collector.feed(page.decode("utf-8"))
         for text, attribute, stylistic_set, line in collector.cells:
             features = {f"ss{ss.zfill(2)}": True for ss in stylistic_set.split()} if stylistic_set else {}
             token = config_token_for_features(features) or "non-covered"
             index.setdefault((text, token), {"source": f"{rel}:{line}", "attribute": attribute})
     return index
+
+
+def build_corpus_index(repo_root: Path = REPO_ROOT, files: tuple[str, ...] = CORPUS_FILES) -> dict:
+    """`corpus_index_from_pages` over `files` as they are under `repo_root` now."""
+    return corpus_index_from_pages(fingerprint.read_site_corpus(repo_root, files))
 
 
 class Drafter:

@@ -2,7 +2,9 @@
 
 Each component is a SHA-256 over sorted lines that hold no mtimes, so two builds of the same inputs produce the same value. Most lines are `label\\tdigest` pairs over file contents. The baseline TSVs are the exception: they are large, and `rebuild/out/digests.tsv` already holds their content digests, so `baselines_value` hashes their sizes and that file. The corpus manifest's `generated_at` is mtime-based and identifies a corpus build, so that exported verdicts and sidecars can be matched to it. It cannot tell whether the corpus matches the sources on disk; these fingerprints can.
 
-run_m1 records the Stage A components (`data`, `baselines`, `pipeline_code`) in `rebuild/out/m1/inputs_fingerprint.json`. A build or a `--gates-only` pass deletes that record before it rewrites anything there, and writes back the values it captured before reading its inputs only once its gates pass (`run_m1_gates._settle_stage_a`). The review build copies those recorded values into the manifest instead of recomputing them, so a corpus rebuilt over stale `rebuild/out/m1` artifacts carries the stale values, one rebuilt after a run that stopped or failed carries none, and the checker flags either. The review build computes the Stage B components (`review_code`, `static`, `fonts`, `explain_prose`) itself.
+run_m1 records the Stage A components (`data`, `baselines`, `pipeline_code`) in `rebuild/out/m1/inputs_fingerprint.json`. A build or a `--gates-only` pass deletes that record before it rewrites anything there, and writes back the values it captured before reading its inputs only once its gates pass (`run_m1_gates._settle_stage_a`). The review build copies those recorded values into the manifest instead of recomputing them, so a corpus rebuilt over stale `rebuild/out/m1` artifacts carries the stale values, one rebuilt after a run that stopped or failed carries none, and the checker flags either. The review build computes the Stage B components (`review_code`, `static`, `fonts`, `explain_prose`, `draft_inputs`) itself.
+
+`draft_inputs` covers the approval drafter's site pages and harness: the `SITE_CORPUS_FILES` pages by raw bytes (their pins set a pin draft's `attribute` and `duplicate_of`), and the draft harness (`draft_harness_paths`) through `hash_paths`. `data`, `pipeline_code`, and `review_code` hold the drafter's other file and code inputs (the alias map, the rune schema, the validation code, and its own module). The after font the drafter shapes and classifies with is in no component; `artifact_cycle.corpus_build_skippable` and `status._freshness_check` compare the manifest's after-font sha256 with rebuild/out/m1/M1.otf instead. The shaping packages `uv.lock` pins are in no corpus component. The component's value is the digest of `draft_input_lines`, the two lines the review unit store's stamp (`unit_cache.environment_stamp`) also carries. The review build reads the pages once, before any drafter runs, and takes the drafters' index of pinned cells, the store's two lines, and the manifest's `draft_inputs` (through `stage_b`'s `draft_lines`) from that one read, so all three see the same page bytes. It hashes the harness at that point too, while each drafting process imports the harness when it drafts its first pin. Every other caller streams the pages through `file_sha256`.
 
 `tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar). Its code half, `table_code_paths`, leaves out the comparison-side code `COMPARISON_CODE_MODULES` names. Those inputs are read or run only by the gates that check the tables and font a build has written and by the guards that run before them, so editing one re-runs them over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never reaches the comparison modules.
 
@@ -48,7 +50,7 @@ from rebuild.tools.site_fonts import font_paths
 FORMAT = "ams-inputs-fingerprint/2"
 _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 STAGE_A_COMPONENTS = ("data", "baselines", "pipeline_code")
-STAGE_B_COMPONENTS = ("review_code", "static", "fonts", "explain_prose")
+STAGE_B_COMPONENTS = ("review_code", "static", "fonts", "explain_prose", "draft_inputs")
 COMPONENTS = STAGE_A_COMPONENTS + STAGE_B_COMPONENTS
 STAGE_A_FILENAME = "inputs_fingerprint.json"
 
@@ -107,6 +109,52 @@ FONT_COMPILE_TOOL_MODULES = frozenset(
 def font_compile_tool_paths(repo_root: Path) -> list[Path]:
     """Return the tools/ modules the M1 font compile runs. rebuild/pipeline/compile_font.py calls tools/build_font.py to build the mini font and puts tools/ on sys.path, so these modules import each other by bare name. Most of tools/ is authoring and audit scripts that no build runs, so this is a fixed list instead of the whole directory. rebuild/test_build_code_closure.py checks that it equals the import closure within tools/ of every tools/ module the pipeline imports, tools/build_font.py among them. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
     return sorted(Path(repo_root) / "tools" / name for name in FONT_COMPILE_TOOL_MODULES)
+
+
+SITE_CORPUS_FILES = ("site/index.html", "site/the-manual.html", "site/extra-senior-words.html")
+
+
+def draft_harness_paths(repo_root: Path) -> list[Path]:
+    """Return the draft harness the approval drafter runs: test/test_shaping.py, whose `parse_expect` and `_expand_maybe_ligatures` check every pin draft, postscript_glyph_names.yaml, which test_shaping reads when it is imported, and the tools/ modules it imports (`font_compile_tool_paths`, which rebuild/test_build_code_closure.py checks covers them)."""
+    root = Path(repo_root)
+    return [
+        root / "test" / "test_shaping.py",
+        root / "postscript_glyph_names.yaml",
+        *font_compile_tool_paths(root),
+    ]
+
+
+def read_site_corpus(repo_root: Path, files: Iterable[str] = SITE_CORPUS_FILES) -> dict[str, bytes | None]:
+    """Return each page's bytes by its repo-relative name, in `files` order, or None for a page that does not exist. A page is read whole because the drafter parses it, and the review build hashes those same bytes for its stamps (`draft_input_lines`); the pages are tens to hundreds of kilobytes."""
+    pages: dict[str, bytes | None] = {}
+    for name in files:
+        try:
+            pages[name] = (Path(repo_root) / name).read_bytes()
+        except FileNotFoundError:
+            pages[name] = None
+    return pages
+
+
+def _page_digest(root: Path, name: str, pages: Mapping[str, bytes | None] | None) -> str:
+    if pages is not None:
+        page = pages[name]
+        return "missing" if page is None else hashlib.sha256(page).hexdigest()
+    try:
+        return file_sha256(root / name)
+    except FileNotFoundError:
+        return "missing"
+
+
+def draft_input_lines(repo_root: Path, pages: Mapping[str, bytes | None] | None = None) -> list[str]:
+    """Return the `site_corpus` and `draft_harness` lines: the digest of each `SITE_CORPUS_FILES` page, or `missing`, and `hash_paths` over `draft_harness_paths`. `pages` is what `read_site_corpus` returned when the caller has already read the pages to parse them, and their digests are taken from those bytes; when it is None, each page is streamed through `file_sha256`."""
+    root = Path(repo_root)
+    site = " ".join(f"{name}={_page_digest(root, name, pages)}" for name in SITE_CORPUS_FILES)
+    return [f"site_corpus\t{site}", f"draft_harness\t{hash_paths(root, draft_harness_paths(root))}"]
+
+
+def draft_inputs_value(lines: Iterable[str]) -> str:
+    """Return the `draft_inputs` component from `draft_input_lines`, sorted so the value does not depend on their order."""
+    return digest_lines(sorted(lines))
 
 
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
@@ -753,14 +801,22 @@ def stage_a(repo_root: Path) -> dict:
     }
 
 
-def stage_b(repo_root: Path, before_font: Path, junior_font: Path, spec_root: Path | None = None) -> dict:
-    """Return the review-side components. `explain_prose` takes its rune and ledger prose from `spec_root` when the build names one, because a workload bundled with its own frozen spec serves that spec's rationales, and from the checkout otherwise; the change groups' prose comes from the checkout either way. `fonts` is `fonts_value` over the two site fonts, so the `make all` of a version bump leaves it unchanged."""
+def stage_b(
+    repo_root: Path,
+    before_font: Path,
+    junior_font: Path,
+    spec_root: Path | None = None,
+    *,
+    draft_lines: Iterable[str] | None = None,
+) -> dict:
+    """Return the review-side components. `explain_prose` takes its rune and ledger prose from `spec_root` when the build names one, because a workload bundled with its own frozen spec serves that spec's rationales, and from the checkout otherwise; the change groups' prose comes from the checkout either way, and so do `draft_inputs`' pages and harness, which the drafter reads beside the build's own code. `draft_lines` is `draft_input_lines` when the caller has already taken them, as the review build does from the pages its drafters' index comes from; when it is None, they are taken here. `fonts` is `fonts_value` over the two site fonts, so the `make all` of a version bump leaves it unchanged."""
     root = Path(repo_root)
     return {
         "review_code": hash_paths(root, review_code_paths(root)),
         "static": hash_paths(root, static_paths(root)),
         "fonts": fonts_value(root, [Path(before_font), Path(junior_font)]),
         "explain_prose": explain_prose_value(root, spec_root),
+        "draft_inputs": draft_inputs_value(draft_input_lines(root) if draft_lines is None else draft_lines),
     }
 
 

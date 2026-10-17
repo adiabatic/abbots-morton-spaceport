@@ -32,6 +32,7 @@ FP = {
     "static": "s",
     "fonts": "f",
     "explain_prose": "e",
+    "draft_inputs": "i",
 }
 
 DEFAULT_CLASSES = [

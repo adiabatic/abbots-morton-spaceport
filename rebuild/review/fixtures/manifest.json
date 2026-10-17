@@ -10,7 +10,8 @@
   "review_code": "fixture-review-code",
   "static": "fixture-static",
   "fonts": "fixture-fonts",
-  "explain_prose": "fixture-explain-prose"
+  "explain_prose": "fixture-explain-prose",
+  "draft_inputs": "fixture-draft-inputs"
  },
  "source": {
   "audit": "rebuild/review/fixtures/fixture-audit.tsv",

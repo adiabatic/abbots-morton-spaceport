@@ -4,7 +4,7 @@ A unit's products are its ink diffs and machine-approval flags, its enrichment (
 
 The key has two levels. The per-unit key (`UnitKeyer.key`) covers the unit's audit rows, which fix the window, its configs, the kinds, the matched ledger class, and both fonts' rendered names, plus one digest per window family (`family_content_keys`). A family digest combines the family's explain-aware rune digest, the rune digests of its static `resolve.against` closure, and a digest of the after font's compiled glyphs for the family (outlines, advances, and cursive anchors), so a drawing or anchor change invalidates a unit even when no name in its rows changes. A ligature family is included when all of its components are in the window.
 
-The whole-store stamp (`environment_stamp`) covers everything that can change a unit's products without changing a family digest: the code the corpus build runs (`corpus_code_paths`), the non-rune data files, the kernel's settlement mode flags, the resolved spec structure and capability-feature set (cross-rune routes: predicate-class and group memberships, ligature sequences, and the formation guard's feature combinations), the before and Junior fonts outside their `head` and `name` tables (`_font_digest`), the acceptance configs' subset tables, the draft harness (test/test_shaping.py, postscript_glyph_names.yaml, and `fingerprint.font_compile_tool_paths`, which covers every tools/ module test_shaping imports, as rebuild/test_build_code_closure.py checks) and the site corpus files it validates pins against (`drafts.CORPUS_FILES`), and the after font's non-family glyphs, cmap, and GPOS wiring. `corpus_code_paths` is the review modules the build imports, the pipeline and validation modules they reach, and the crate modules the `settle-cases` and `guard-sweep` subcommands run. rebuild/test_review_code_closure.py checks these lists against the import graph. So an edit to the pipeline driver, a gate, the oracle or its row cache, the conformance sweep, the GSUB emitter, the pixel geometry, the pipeline's font-compile driver (rebuild/pipeline/compile_font.py), or the crate's enumeration and fold leaves the store valid.
+The whole-store stamp (`environment_stamp`) covers everything that can change a unit's products without changing a family digest: the code the corpus build runs (`corpus_code_paths`), the non-rune data files, the kernel's settlement mode flags, the resolved spec structure and capability-feature set (cross-rune routes: predicate-class and group memberships, ligature sequences, and the formation guard's feature combinations), the before and Junior fonts outside their `head` and `name` tables (`_font_digest`), the acceptance configs' subset tables, the site corpus pages whose pins set a pin draft's `attribute` and `duplicate_of` and the draft harness that checks every pin draft (`fingerprint.draft_input_lines`, which the corpus manifest's Stage B `draft_inputs` component hashes too), and the after font's non-family glyphs, cmap, and GPOS wiring. `corpus_code_paths` is the review modules the build imports, the pipeline and validation modules they reach, and the crate modules the `settle-cases` and `guard-sweep` subcommands run. rebuild/test_review_code_closure.py checks these lists against the import graph. So an edit to the pipeline driver, a gate, the oracle or its row cache, the conformance sweep, the GSUB emitter, the pixel geometry, the pipeline's font-compile driver (rebuild/pipeline/compile_font.py), or the crate's enumeration and fold leaves the store valid.
 
 Four inputs are outside the whole-store stamp. The after font's GSUB wiring is outside every stamp; `fingerprint.after_font_glyph_digests` explains why a window's glyph selection is covered without it. The divergence ledger reaches the shards through the audit's `matched_entry` column, which is in the rows, through its `ink_identical` ids, which decide which units take a change group instead of their class (`change_groups.reroutes`) and are a stamp line of their own, and through fields the build recomputes and patches on every pass (`no_verdict`, `exemplar`, class promotion), so a ledger edit that leaves those ids alone invalidates only the units whose rows it changed. The refuse `why` text the explain panel quotes is in the family keys instead, so rewording one re-enriches only the windows that contain that family. The change groups' copy (rebuild/review/change-groups.yaml) reaches only the manifest, which every build writes afresh, so rewording a group re-enriches no unit.
 
@@ -33,13 +33,12 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Container, Iterable, Iterator, Mapping, Protocol
+from typing import Container, Iterable, Iterator, Mapping, Protocol, Sequence
 
 from rebuild.pipeline import fingerprint, kernel_exec, spec_load
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, RowColumns, UnitTable, parse_codepoints
-from rebuild.review.drafts import CORPUS_FILES
 
 STORE_FORMAT = "ams-review-unit-cache/9"
 STORE_NAME = "unit-cache.ndjson.gz"
@@ -239,8 +238,9 @@ def environment_stamp(
     subset_digests: Mapping[str, str] | None = None,
     *,
     identical_classes: Iterable[str],
+    draft_lines: Sequence[str] | None = None,
 ) -> fingerprint.EnvironmentStamp:
-    """Return the unit store's whole-store stamp. A change to any of its lines invalidates the whole store, and over-invalidation is the safe direction. The code line is `corpus_code_paths`, so a pipeline or crate edit outside the code the build runs leaves the store valid. The two site fonts are hashed through `_font_digest`, which ignores `head` and `name`, so the fonts a version bump rebuilds leave it valid too. The rune files are left out because the family keys cover them per unit, and the divergence ledger is left out for the reason the module docstring gives, except its `ink_identical` ids (`identical_classes`), sorted, which decide a re-routed unit's class, cluster and fragment. The other data inputs are hashed by `fingerprint.data_path_lines`, so a schema hover or a comment in one of them leaves the store valid. The stamp carries the code closure's per-file lines as its `corpus_code` detail, from the same `path_lines` read the code digest is computed from, so the file a miss note names is the file the digest saw. `subset_digests` is each acceptance configuration's subset table, already hashed by the caller; the build hashes them once for this line and for the subset pack's header. When it is None, the tables are hashed here."""
+    """Return the unit store's whole-store stamp. A change to any of its lines invalidates the whole store, and over-invalidation is the safe direction. The code line is `corpus_code_paths`, so a pipeline or crate edit outside the code the build runs leaves the store valid. The two site fonts are hashed through `_font_digest`, which ignores `head` and `name`, so the fonts a version bump rebuilds leave it valid too. The rune files are left out because the family keys cover them per unit, and the divergence ledger is left out for the reason the module docstring gives, except its `ink_identical` ids (`identical_classes`), sorted, which decide a re-routed unit's class, cluster and fragment. The other data inputs are hashed by `fingerprint.data_path_lines`, so a schema hover or a comment in one of them leaves the store valid. The stamp carries the code closure's per-file lines as its `corpus_code` detail, from the same `path_lines` read the code digest is computed from, so the file a miss note names is the file the digest saw. `subset_digests` is each acceptance configuration's subset table, already hashed by the caller; the build hashes them once for this line and for the subset pack's header. When it is None, the tables are hashed here. The `site_corpus` and `draft_harness` lines are `fingerprint.draft_input_lines`, the lines the manifest's `draft_inputs` component is the digest of. `draft_lines` is those lines when the caller has already taken them, as the build does from the one read of the pages its drafters' index comes from; when it is None, they are taken here."""
     root = Path(repo_root)
     code_lines = fingerprint.path_lines(root, corpus_code_paths(root))
     runes = set(fingerprint.rune_paths(root))
@@ -248,8 +248,6 @@ def environment_stamp(
     data_lines = fingerprint.data_path_lines(
         root, [path for path in fingerprint.data_paths(root) if path not in runes and path != ledger]
     )
-    harness_paths = [root / "test" / "test_shaping.py", root / "postscript_glyph_names.yaml"]
-    harness_paths += fingerprint.font_compile_tool_paths(root)
     if subset_digests is None:
         subset_digests = {
             config: _sha256_file(Path(subset_dir) / f"baseline-{config}.subset.tsv.gz")
@@ -265,8 +263,7 @@ def environment_stamp(
         f"before_font\t{_font_digest(Path(before_font))}",
         f"junior_font\t{_font_digest(Path(junior_font))}",
         "subsets\t" + " ".join(f"{config}={subset_digests[config]}" for config in ACCEPTANCE_CONFIGS),
-        "site_corpus\t" + " ".join(f"{name}={_sha256_file(root / name)}" for name in CORPUS_FILES),
-        f"draft_harness\t{fingerprint.hash_paths(root, harness_paths)}",
+        *(fingerprint.draft_input_lines(root) if draft_lines is None else draft_lines),
         f"after_helpers\t{after_helpers_digest}",
         "identical_classes\t" + json.dumps(sorted(identical_classes)),
     ]

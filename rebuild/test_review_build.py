@@ -61,7 +61,7 @@ from rebuild.review.change_groups import (
     load_change_group_prose,
     reroutes,
 )
-from rebuild.review.drafts import features_dict, stylistic_set_value
+from rebuild.review.drafts import build_corpus_index, features_dict, stylistic_set_value
 from rebuild.review.enrich import LETTERS, EnrichedUnit
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
 from rebuild.review.ink import shape_memo_sizes
@@ -942,6 +942,7 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         out_dir=tmp_path,
         subset_pack=mini_bundle.subset_pack,
         identical_classes=frozenset(entry.id for entry in workload.ledger if entry.ink_identical),
+        corpus_index=build_corpus_index(REPO_ROOT),
     )
     try:
         assert runner.phase1(store) is None
@@ -1619,6 +1620,7 @@ def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeyp
         out_dir=tmp_path,
         subset_pack=tmp_path / "subsets.pack",
         identical_classes=frozenset(),
+        corpus_index={},
     )
     parent, child = multiprocessing.Pipe()
     child.send(("batch", ["projection-a", "projection-b"], {}))
@@ -1680,6 +1682,7 @@ def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> l
         "identical_classes": frozenset(
             entry.id for entry in load_ledger(mini_bundle.ledger) if entry.ink_identical
         ),
+        "corpus_index": build_corpus_index(REPO_ROOT),
     }
     parent, child = multiprocessing.Pipe()
     worker = threading.Thread(target=review_build._corpus_worker, args=(child, init), daemon=True)

@@ -171,12 +171,12 @@ def test_the_draft_harness_imports_only_what_the_unit_store_stamp_hashes():
     assert reached - {
         TEST_SHAPING
     }, "test/test_shaping.py imports no tools/ or test/ module, so this check would be vacuous"
-    hashed = {TEST_SHAPING, *fingerprint.font_compile_tool_paths(REPO_ROOT)}
+    hashed = set(fingerprint.draft_harness_paths(REPO_ROOT))
     outside = sorted(path.relative_to(REPO_ROOT).as_posix() for path in reached - hashed)
     assert outside == [], (
         f"test/test_shaping.py or the corpus build reaches modules the unit store's draft-harness line does not hash: {', '.join(outside)}. "
-        "An edit to one of them could change a unit's products without dropping the store. Either the import has to go, or the "
-        "harness line in rebuild/review/unit_cache.py and artifact_cycle.REBUILD_GATE_HARNESS_PATHS have to name these "
+        "An edit to one of them could change a unit's products without dropping the store or restamping the corpus. Either the import "
+        "has to go, or `fingerprint.draft_harness_paths` and artifact_cycle.REBUILD_GATE_HARNESS_PATHS have to name these "
         "modules too."
     )
 

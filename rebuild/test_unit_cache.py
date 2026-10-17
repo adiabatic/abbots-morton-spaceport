@@ -820,13 +820,18 @@ def test_corrupt_signature_store_reshapes_and_degrades_to_the_same_bytes(
     assert _tree(corpus) == _tree(mini_corpus)
 
 
-def test_a_bundled_build_stamps_the_explain_prose_of_its_own_spec(mini_corpus, mini_bundle):
-    """The manifest's `explain_prose` takes the rune and ledger prose from the bundle's spec, not the checkout's, and the change groups' prose from the checkout, since the materialized spec has no `rebuild/review/`. The rationales the mini corpus quotes come from the spec root the fixture materializes, and hashing the live runes instead would misdescribe the corpus and add every live rune to the contracts closure of every module that uses conftest's `mini_corpus`."""
+def test_a_bundled_build_stamps_the_explain_prose_of_its_own_spec_and_the_checkouts_draft_inputs(
+    mini_corpus, mini_bundle
+):
+    """The manifest's `explain_prose` takes the rune and ledger prose from the bundle's spec, not the checkout's, and the change groups' prose from the checkout, since the materialized spec has no `rebuild/review/`. The rationales the mini corpus quotes come from the spec root the fixture materializes, and hashing the live runes instead would misdescribe the corpus and add every live rune to the contracts closure of every module that uses conftest's `mini_corpus`. `draft_inputs` also comes from the checkout's pages and harness, as the change groups' prose does, through the lines the build took in its plan step."""
     from rebuild.pipeline import fingerprint
 
     manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["inputs_fingerprint"]["explain_prose"] == fingerprint.explain_prose_value(
         REPO_ROOT, mini_bundle.spec_root
+    )
+    assert manifest["inputs_fingerprint"]["draft_inputs"] == fingerprint.draft_inputs_value(
+        fingerprint.draft_input_lines(REPO_ROOT)
     )
 
 
