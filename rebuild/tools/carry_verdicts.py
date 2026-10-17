@@ -34,12 +34,43 @@ def latest_verdicts(payload):
     return best
 
 
+def _well_formed(record):
+    return (
+        isinstance(record, dict)
+        and all(isinstance(record.get(key), str) for key in ("unit", "verdict", "at"))
+        and isinstance(record.get("note") or "", str)
+    )
+
+
+def _read_verdicts_file(verdict_file):
+    try:
+        payload = json.loads(verdict_file.read_text())
+    except OSError as error:
+        problem = f"cannot be read ({error.strerror or error})"
+    except ValueError as error:
+        problem = f"is not JSON ({error})"
+    else:
+        if not isinstance(payload, dict) or not isinstance(payload.get("verdicts"), list):
+            problem = "holds no `verdicts` list"
+        else:
+            malformed = [record for record in payload["verdicts"] if not _well_formed(record)]
+            if not malformed:
+                return payload
+            problem = f"holds a verdict record that is not an object with a string `unit`, `verdict` and `at` and a string `note` if any ({json.dumps(malformed[0])})"
+    raise SystemExit(
+        f"carry refused: {verdict_file} {problem}, and nothing was written. "
+        "If it is the verdict store or the cycle's snapshot of it, restore a readable store from the journal with "
+        "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`; "
+        "otherwise name another verdicts file with --verdicts."
+    )
+
+
 def resolve_prior(verdict_files):
-    """Return each unit id's newest verdict across all the files, by `at`, leaving out a unit the store cleared at or after that verdict. The store is a file named `SNAPSHOT_NAME`, the live store's name, which the cycle's snapshot of it keeps. Its tombstones (`verdict_store.parse_cleared`) are the clears, and a tombstone wins over a record whose `at` is not after the clear, as the store's tombstones win in a merge (`merge_verdicts.merge_into`). The store's tombstone on a unit it holds a record for is passed over, as the verdict store passes it over, and so is every other file's tombstone, as a merge passes over an input's: a clear that no store records would leave no tombstone for the land to keep."""
+    """Return each unit id's newest verdict across all the files, by `at`, leaving out a unit the store cleared at or after that verdict. The store is a file named `SNAPSHOT_NAME`, the live store's name, which the cycle's snapshot of it keeps. Its tombstones (`verdict_store.parse_cleared`) are the clears, and a tombstone wins over a record whose `at` is not after the clear, as the store's tombstones win in a merge (`merge_verdicts.merge_into`). The store's tombstone on a unit it holds a record for is passed over, as the verdict store passes it over, and so is every other file's tombstone, as a merge passes over an input's: a clear that no store records would leave no tombstone for the land to keep. A file that cannot be read, is not JSON, holds no `verdicts` list, or holds a record that is not an object with a string `unit`, `verdict` and `at` stops the carry with a refusal that names it, before anything is written; a record's `note` may be absent, as every reader of the store takes it."""
     prior = {}
     cleared = {}
     for verdict_file in verdict_files:
-        payload = json.loads(verdict_file.read_text())
+        payload = _read_verdicts_file(verdict_file)
         verdicts = latest_verdicts(payload)
         for unit_id, record in verdicts.items():
             if unit_id not in prior or record["at"] > prior[unit_id]["at"]:
@@ -120,7 +151,7 @@ def main(
             {
                 "unit": unit["id"],
                 "verdict": record["verdict"],
-                "note": drop_carried_markers(record["note"]),
+                "note": drop_carried_markers(record.get("note") or ""),
                 "at": record["at"],
             }
         )

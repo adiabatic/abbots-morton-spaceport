@@ -29,8 +29,18 @@ from rebuild.tools import console
 from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
 from rebuild.tools import make_test_gate as mtg
+from rebuild.tools import verdict_update
 from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings
+from rebuild.test_verdict_update import (
+    CORPUS_STAMP,
+    NEWER,
+    OLDER,
+    _fixture_payload,
+    _integration_fixture,
+    _record,
+    _records,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 2.6 GB, five parked fold products at PARKED_FOLD_BYTES (1.3 GB), DELTA_SLOT_BYTES at 4.7 GB and FOLD_PREPARATION_BYTES at 1.1 GB, the whole wave is booked at 29.0 GB, so 38 GB, which leaves 30.0 GB after `memory_budget`'s reserve, fits the whole wave alone and four deltas beside an eight-core machine's pytest pool, and leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
@@ -673,7 +683,7 @@ def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the
 
 
 def test_the_verdict_update_row_falls_back_to_the_merge_when_no_carry_ran(tmp_path, monkeypatch):
-    """A direct merge runs no carry, because the corpus did not change, so there is no carry count. The row reports the merge instead of staying blank."""
+    """A direct merge whose store is absent or stamped for the served corpus runs no carry, because the corpus did not change, so there is no carry count. The row reports the merge instead of staying blank."""
     autosave = tmp_path / "verdicts-autosave.json"
     autosave.write_text("{}")
     monkeypatch.setattr(ac, "AUTOSAVE", autosave)
@@ -7722,6 +7732,170 @@ def test_main_carries_a_master_stamped_for_another_corpus_instead_of_merging_it(
     assert stamped_for_corpus(autosave, corpus)
     assert not stamped_for_corpus(export, corpus)
     assert not stamped_for_corpus(tmp_path / "absent.json", corpus)
+
+
+def _fixture_repo_with_export(tmp_path, monkeypatch, records) -> tuple[dict, Path]:
+    """Return the verdict-update integration fixture's paths, set up as a settled repo whose served corpus is the fixture's, and a root `verdicts-export.json` stamped for that corpus holding `records`."""
+    paths = _integration_fixture(tmp_path / "repo", monkeypatch)
+    repo = paths["autosave"].parent
+    _settled_repo(repo, monkeypatch)
+    monkeypatch.setattr(ac, "REVIEW_OUT", paths["corpus"])
+    export = repo / "verdicts-export.json"
+    export.write_text(json.dumps(_fixture_payload(records)))
+    return paths, export
+
+
+def _planned_verdict_update(plan: ac.Plan, rules: Path) -> int:
+    """Take the plan's store snapshot through `landing.snapshot` and run its verdict-update argv in process through `verdict_update.main`, with the fixture's standing rules and no complaint list, and return its exit code."""
+    assert plan.scratch_dir is not None
+    landing.snapshot(ac.AUTOSAVE, plan.scratch_dir)
+    update = plan.argv("verdict-update")
+    update = update[update.index("rebuild.tools.verdict_update") + 1 :]
+    return verdict_update.main([*update, "--rules", str(rules), "--no-complaints"])
+
+
+def _land_the_planned_verdict_update(plan: ac.Plan, rules: Path) -> None:
+    """Run the plan's store snapshot and verdict update (`_planned_verdict_update`), then its land argv in process through `landing.main`."""
+    assert _planned_verdict_update(plan, rules) == 0
+    land = plan.argv("land")
+    assert landing.main(land[land.index("rebuild.review.landing") + 1 :]) == 0
+
+
+def _planned_carry_inputs(plan: ac.Plan) -> list[str]:
+    update = plan.argv("verdict-update")
+    return [update[i + 1] for i, arg in enumerate(update) if arg == "--verdicts"]
+
+
+@pytest.mark.parametrize("named", [False, True])
+@pytest.mark.parametrize("store_stamp", [OLDER, CORPUS_STAMP])
+def test_a_pass_that_skips_the_corpus_build_keeps_the_stores_newer_verdict_over_a_root_master(
+    tmp_path, monkeypatch, capsys, store_stamp, named
+):
+    """A root export stamped for the served corpus can outrank the store as the master, and a pass that skips the corpus build merges it straight in. The merge keeps the verdicts of a store stamped for the served corpus, so the pass merges the export into that store. It would set aside a store stamped for an older corpus, such as one `merge_verdicts --restore-as-of` put back from before the served stamp, so over that store the pass says so, carries the store's snapshot alone onto the served corpus, hands `--allow-orphans` to that carry, and merges the export into the result. Either way, whether the pass resolved the export or was given it by --verdicts, the store's verdict for a unit, newer than the export's, survives the real verdict update and land the pass plans."""
+    paths, export = _fixture_repo_with_export(tmp_path, monkeypatch, [_record("u-human"), _record("u-open")])
+    kept = _record("u-human", "reject", at=NEWER, note="human rejects the standing rule")
+    paths["autosave"].write_text(json.dumps(_fixture_payload([kept], stamp=store_stamp)))
+
+    argv = ["--verdicts", str(export)] if named else []
+    plan = _planned(argv)
+    carried = store_stamp != CORPUS_STAMP
+    assert (ac.DIRECT_MERGE_STORE_CARRIED_NOTE in capsys.readouterr().out) == carried
+    assert plan.scratch_dir is not None
+    snapshot = str(plan.scratch_dir / landing.SNAPSHOT_NAME)
+    assert _planned_carry_inputs(plan) == ([snapshot] if carried else [])
+    update = plan.argv("verdict-update")
+    assert update[update.index("--merge-master") + 1] == str(export)
+    assert ("--allow-orphans" in _planned([*argv, "--allow-orphans"]).argv("verdict-update")) == carried
+    _land_the_planned_verdict_update(plan, paths["rules"])
+    assert _records(paths["autosave"])["u-human"] == kept
+
+
+def test_a_pass_that_skips_the_corpus_build_lands_a_root_masters_skip_over_a_store_stamped_for_an_older_corpus(
+    tmp_path, monkeypatch, capsys
+):
+    """A skip in a root export stamped for the served corpus is a deferral the reviewer made on that corpus. A carry drops every skip, so the pass carries only the store, stamped for an older corpus, and merges the export into the result: the skip lands, and neither the duplicate fill from the store's verdict for a sibling nor the standing fill decides the unit."""
+    skipped = _record("u-skip", "skip", at=NEWER, note="deferred by human")
+    paths, export = _fixture_repo_with_export(tmp_path, monkeypatch, [skipped, _record("u-open")])
+    paths["autosave"].write_text(json.dumps(_fixture_payload([_record("u-skip-source")], stamp=OLDER)))
+
+    plan = _planned([])
+    assert ac.DIRECT_MERGE_STORE_CARRIED_NOTE in capsys.readouterr().out
+    _land_the_planned_verdict_update(plan, paths["rules"])
+    assert _records(paths["autosave"])["u-skip"] == skipped
+
+
+def test_a_pass_that_skips_the_corpus_build_keeps_the_stores_record_on_a_tie_with_a_root_master(
+    tmp_path, monkeypatch, capsys
+):
+    """When the store, stamped for an older corpus, and a root export stamped for the served corpus hold records for a unit with the same `at`, the pass keeps the store's record, as a direct merge onto a store stamped for the served corpus does: the export is merged into the carried store, and the merge takes only a strictly newer `at`."""
+    exported = _record("u-human", "reject", at=NEWER, note="export note")
+    paths, export = _fixture_repo_with_export(tmp_path, monkeypatch, [exported, _record("u-open")])
+    kept = _record("u-human", "reject", at=NEWER, note="store note")
+    paths["autosave"].write_text(json.dumps(_fixture_payload([kept], stamp=OLDER)))
+
+    plan = _planned([])
+    assert ac.DIRECT_MERGE_STORE_CARRIED_NOTE in capsys.readouterr().out
+    _land_the_planned_verdict_update(plan, paths["rules"])
+    assert _records(paths["autosave"])["u-human"] == kept
+
+
+def test_a_pass_that_skips_the_corpus_build_with_no_store_merges_a_root_master_straight_in(
+    tmp_path, monkeypatch, capsys
+):
+    """With no store there is nothing to carry, so a pass that skips the corpus build merges a root export stamped for the served corpus straight in, and the export's skip survives the real verdict update and land."""
+    skipped = _record("u-skip", "skip", at=NEWER, note="deferred by human")
+    paths, export = _fixture_repo_with_export(tmp_path, monkeypatch, [skipped, _record("u-open")])
+    paths["autosave"].unlink()
+
+    plan = _planned([])
+    assert ac.DIRECT_MERGE_STORE_CARRIED_NOTE not in capsys.readouterr().out
+    assert _planned_carry_inputs(plan) == []
+    update = plan.argv("verdict-update")
+    assert update[update.index("--merge-master") + 1] == str(export)
+    _land_the_planned_verdict_update(plan, paths["rules"])
+    assert _records(paths["autosave"])["u-skip"] == skipped
+
+
+@pytest.mark.parametrize(
+    "store",
+    [
+        "{not json",
+        json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": OLDER}),
+        json.dumps(_fixture_payload([], stamp=OLDER) | {"verdicts": ["u-human"]}),
+    ],
+)
+def test_a_pass_that_skips_the_corpus_build_refuses_an_unreadable_store_by_name(
+    tmp_path, monkeypatch, capsys, store
+):
+    """A store that is not JSON holding a `verdicts` list of verdict records is one the merge would set aside, so a pass that skips the corpus build carries its snapshot before it merges a root export. The carry refuses the snapshot, naming it and the journal restore, rather than failing on a parse error or a malformed record that names no file, and the live store is left as it was."""
+    paths, _export = _fixture_repo_with_export(tmp_path, monkeypatch, [_record("u-human"), _record("u-open")])
+    paths["autosave"].write_text(store)
+
+    plan = _planned([])
+    assert ac.DIRECT_MERGE_STORE_CARRIED_NOTE in capsys.readouterr().out
+    assert _planned_verdict_update(plan, paths["rules"]) == 1
+    assert plan.scratch_dir is not None
+    err = capsys.readouterr().err
+    assert f"carry refused: {plan.scratch_dir / landing.SNAPSHOT_NAME} " in err
+    assert "merge_verdicts --restore-as-of" in err
+    assert paths["autosave"].read_text() == store
+
+
+def test_a_pass_that_skips_the_corpus_build_refuses_by_name_a_store_gone_before_its_snapshot(
+    tmp_path, monkeypatch, capsys
+):
+    """A store stamped for an older corpus at plan time is carried from its snapshot. When the store is gone before the snapshot step, no snapshot is taken, and the carry refuses the missing snapshot by name instead of dying on a traceback with no `[verdict-update] failed:` line."""
+    paths, _export = _fixture_repo_with_export(tmp_path, monkeypatch, [_record("u-human"), _record("u-open")])
+    paths["autosave"].write_text(json.dumps(_fixture_payload([_record("u-human", at=NEWER)], stamp=OLDER)))
+
+    plan = _planned([])
+    assert ac.DIRECT_MERGE_STORE_CARRIED_NOTE in capsys.readouterr().out
+    paths["autosave"].unlink()
+    assert _planned_verdict_update(plan, paths["rules"]) == 1
+    assert plan.scratch_dir is not None
+    captured = capsys.readouterr()
+    assert f"carry refused: {plan.scratch_dir / landing.SNAPSHOT_NAME} cannot be read " in captured.err
+    assert "[verdict-update] failed: carry" in captured.out
+
+
+def test_a_pass_that_skips_the_corpus_build_leaves_a_store_stamped_for_a_newer_corpus_to_the_merges_refusal(
+    tmp_path, monkeypatch, capsys
+):
+    """The merge refuses a store stamped for a newer corpus rather than setting it aside, so a pass that skips the corpus build does not carry that store: it plans the plain direct merge of a root export, whose refusal names the newer stamp, and the live store is left as it was."""
+    paths, export = _fixture_repo_with_export(tmp_path, monkeypatch, [_record("u-human"), _record("u-open")])
+    store = json.dumps(_fixture_payload([_record("u-human", "reject", at=NEWER)], stamp=NEWER))
+    paths["autosave"].write_text(store)
+
+    plan = _planned([])
+    assert ac.DIRECT_MERGE_STORE_CARRIED_NOTE not in capsys.readouterr().out
+    assert _planned_carry_inputs(plan) == []
+    update = plan.argv("verdict-update")
+    assert update[update.index("--merge-master") + 1] == str(export)
+    assert _planned_verdict_update(plan, paths["rules"]) == 1
+    out = capsys.readouterr().out
+    assert f"ERROR: the autosave is stamped {NEWER}, newer than the corpus" in out
+    assert "[verdict-update] failed: merge" in out
+    assert paths["autosave"].read_text() == store
 
 
 def _assets_only_repo(tmp_path, monkeypatch):

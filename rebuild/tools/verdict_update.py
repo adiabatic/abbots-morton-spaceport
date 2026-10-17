@@ -63,13 +63,13 @@ def _write_fills(path: pathlib.Path, stamp: str, fills: list[dict]) -> None:
 
 
 def _merge(
-    name: str, path: pathlib.Path, *, autosave: pathlib.Path, corpus: pathlib.Path, journal: pathlib.Path
+    name: str, *paths: pathlib.Path, autosave: pathlib.Path, corpus: pathlib.Path, journal: pathlib.Path
 ) -> int:
     return _run(
         name,
         lambda: merge_verdicts.main(
             [
-                str(path),
+                *map(str, paths),
                 "--autosave",
                 str(autosave),
                 "--corpus",
@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--merge-master",
         type=pathlib.Path,
-        help="merge this verdicts master directly instead of carrying: the form for a pass whose corpus did not move, where the carry is provably the identity and the master is the one input the autosave's hash cannot see",
+        help="merge this verdicts master directly instead of carrying it: the form for a pass whose corpus did not move, where the carry is provably the identity and the master is the one input the autosave's hash cannot see. With --verdicts, the merge takes the carried file first and this master after it, so a carried record keeps a tie, as the store's record does in a plain direct merge",
     )
     parser.add_argument("--autosave", type=pathlib.Path, default=AUTOSAVE)
     parser.add_argument("--journal", type=pathlib.Path, default=merge_verdicts.JOURNAL)
@@ -170,9 +170,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.no_merge:
         return 0
 
-    to_merge = args.carry_out if args.verdicts else args.merge_master
-    if to_merge is not None:
-        code = _merge("merge", to_merge, autosave=args.autosave, corpus=corpus, journal=args.journal)
+    to_merge = [
+        path for path in (args.carry_out if args.verdicts else None, args.merge_master) if path is not None
+    ]
+    if to_merge:
+        code = _merge("merge", *to_merge, autosave=args.autosave, corpus=corpus, journal=args.journal)
         if code:
             return code
 

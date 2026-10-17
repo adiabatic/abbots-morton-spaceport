@@ -52,7 +52,7 @@ The review server keeps running through every pass. Two things a cycle writes be
 
 The cycle keeps a listening server only when its /capabilities says it serves this checkout with the working tree's land-protocol and freshness code (`probe_server`, `landing.code_digest`); a server from this checkout running other code is restarted first (`restart_review_server`), and one serving another checkout is left alone and sent no reload. A server from before the land protocol answers no /capabilities, and it takes the old rule: a pass that writes neither the corpus nor the store keeps it running (`server_can_keep_running`), and any other pass stops it once with --stop-server (which `make review-cycle` passes), runs beside it with --yes, or refuses.
 
-A pass whose corpus did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass lands the store alone. The direct merge needs the master stamped for the served corpus, as the merge requires of every input. A master stamped for another corpus, which a pass stopped between the corpus build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_corpus` says it for a --verdicts one. When the master resolved to the live store, the verdict update carries or merges the snapshot in its place. A full carry on a pass that lands carries any other master beside the snapshot, so the store's own verdicts are carried too; a staging pass, and a --no-merge pass that skips the corpus build, take no snapshot and carry the master alone. A direct merge merges any other master into the prepared store, whose verdicts the merge keeps only when the store is stamped for the served corpus, so a direct merge onto a store stamped for an older corpus (one `merge_verdicts --restore-as-of` put back from before the served stamp, or one copied from a checkout on an older corpus) keeps none of that store's verdicts, and the land leaves them only in its stash, and in the journal when this checkout's journal recorded them. The merge refuses a store stamped for a newer corpus, and the verdict update fails.
+A pass whose corpus did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass lands the store alone. The direct merge needs the master stamped for the served corpus, as the merge requires of every input. A master stamped for another corpus, which a pass stopped between the corpus build and the carry leaves behind, takes the full carry instead. The carry source's resolution says which of the two an auto-resolved master is, and `master_stamped_for_corpus` says it for a --verdicts one. When the master resolved to the live store, the verdict update carries or merges the snapshot in its place. A full carry on a pass that lands carries any other master beside the snapshot, so the store's own verdicts are carried too; a staging pass, and a --no-merge pass that skips the corpus build, take no snapshot and carry the master alone. A direct merge merges any other master into the prepared store, and the merge keeps a store's verdicts only when the store is stamped for the served corpus. So when the merge would set the live store aside (`merge_sets_store_aside`), because it is stamped for an older corpus (one `merge_verdicts --restore-as-of` put back from before the served stamp, or one copied from a checkout on an older corpus) or is unreadable, the verdict update carries the snapshot alone onto the served corpus by unit id and then merges the master into the result as a direct merge does: a strictly newer `at` wins a unit, so the store's record keeps a tie, the master's skips land, and the store's tombstones keep out a master record no newer than the clear. Like every carry, that carry drops the store's skips and its verdicts on units the corpus does not have, and it refuses a snapshot it cannot read, naming it (`carry_verdicts.resolve_prior`). A store stamped for a newer corpus is not carried: the direct merge refuses it, and the verdict update fails.
 
 An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`), each file renamed into place. Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes. Once the files are in place the pass sends `ams:assets/<static hash>`, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`rebuild.review.serve.register_dormant_watch`).
 
@@ -136,6 +136,7 @@ POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "overlap"
 VERDICT_UPDATE_SKIP_NOTE = "corpus, verdicts master, live store, and standing approvals unchanged since the last complete verdict-update pass; --fresh overrides"
 DIRECT_MERGE_DECLINED_NOTE = "The corpus build is skipped, but the verdicts master is not stamped for the served corpus and the merge would refuse it, so the verdict update carries it onto the served corpus by unit id rather than merging it straight in."
+DIRECT_MERGE_STORE_CARRIED_NOTE = "The corpus build is skipped and the verdicts master is stamped for the served corpus, but the verdict store is stamped for an older corpus or is unreadable, and the merge would set it aside and keep none of its verdicts, so the verdict update carries the store's snapshot onto the served corpus by unit id and then merges the master into it."
 CONFORM_SKIP_NOTE = "no new rule shape, compile code or shaper since its last green sweep; --fresh overrides"
 CONFORM_MAYBE_NOTE = "runs unless run_m1 leaves the emitted lookup's behavior classes, the compile code and the shaper under the key of its last green sweep, in which case it is re-skipped after run_m1"
 UNDECIDED_UNTIL_RUN_M1 = {
@@ -1997,6 +1998,7 @@ def build_plan(
     skip_verdict_update: bool = False,
     verdict_update_note: str = "",
     direct_merge: bool = False,
+    store_set_aside: bool = False,
     record_greens: bool = False,
     keep_history: bool = False,
     recipe_serves: bool = False,
@@ -2014,6 +2016,7 @@ def build_plan(
     else:
         verdict_update_step_note = ""
     verdict_update_runs = not verdict_update_step_note
+    carry_store = verdict_update_runs and direct_merge and store_set_aside
 
     no_make_test = skip_gates or skip_make_test
     build_lane_runs = not (skip_run_m1 and skip_corpus)
@@ -2199,7 +2202,7 @@ def build_plan(
         scratch_dir = land_dir
     update_corpus = review_out if review_out is not None else (next_corpus or REVIEW_OUT)
     resolved_carry_out: Path | None = None
-    if do_carry:
+    if do_carry or carry_store:
         carried_name = f"verdicts-carried-{short_id}.json"
         if carry_out is not None:
             resolved_carry_out = carry_out
@@ -2393,6 +2396,9 @@ def build_plan(
                 verdict_update_argv += ["--verdicts", str(snapshot)]
             verdict_update_argv += ["--carry-out", str(resolved_carry_out)]
         else:
+            if carry_store:
+                assert snapshot is not None and resolved_carry_out is not None
+                verdict_update_argv += ["--verdicts", str(snapshot), "--carry-out", str(resolved_carry_out)]
             verdict_update_argv += ["--merge-master", str(master_input)]
         if prepared is not None:
             verdict_update_argv += [
@@ -2416,13 +2422,18 @@ def build_plan(
         if fresh:
             verdict_update_argv += ["--fresh-standing-memo"]
         verdict_update_argv += ["--standing-fill-jobs", str(fill_jobs)]
-        if allow_orphans and do_carry:
+        if allow_orphans and (do_carry or carry_store):
             verdict_update_argv += ["--allow-orphans"]
         if do_carry and not do_merge:
             note = (
                 "carry only (staging: the live autosave is never written)"
                 if review_out is not None
                 else "carry only (--no-merge)"
+            )
+        elif carry_store:
+            note = (
+                "the corpus did not move, but the store is stamped for an older corpus or is unreadable — carrying the store's snapshot onto the served corpus by unit id "
+                "and merging the master into the result, then duplicate fill, standing fill, duplicate fill, with each fill merged, and the complaint list"
             )
         elif direct_merge:
             note = (
@@ -2625,16 +2636,29 @@ def describe_carry_source(resolved: dict, root: Path, *, promoting: bool = False
     return f"Auto-resolved carry source: {shown} ({resolved['count']} effective verdicts, {stamped}). Pass --verdicts to override."
 
 
-def master_stamped_for_corpus(master: Path, corpus: Path) -> bool:
-    """Return whether the verdicts master carries the corpus's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the direct merge's precondition, because the direct merge passes the master to the merge unchanged and the merge refuses any input stamped for another corpus. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the corpus build writes a new corpus and before the verdict update carries the store onto it, the store stays stamped for the previous corpus and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it."""
+def _verdicts_stamp(path: Path) -> str | None:
     from rebuild.review.serve import parse_autosave_payload
 
-    stamp = _manifest_stamp_at(corpus)
     try:
-        payload = parse_autosave_payload(Path(master).read_bytes())
+        payload = parse_autosave_payload(Path(path).read_bytes())
     except OSError:
+        return None
+    return payload["manifest_generated_at"] if payload is not None else None
+
+
+def master_stamped_for_corpus(master: Path, corpus: Path) -> bool:
+    """Return whether the verdicts master carries the corpus's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the direct merge's precondition, because the direct merge passes the master to the merge unchanged and the merge refuses any input stamped for another corpus. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the corpus build writes a new corpus and before the verdict update carries the store onto it, the store stays stamped for the previous corpus and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it. Whether the direct merge carries the live store first is `merge_sets_store_aside`'s question."""
+    stamp = _manifest_stamp_at(corpus)
+    return stamp is not None and _verdicts_stamp(master) == stamp
+
+
+def merge_sets_store_aside(store: Path, corpus: Path) -> bool:
+    """Return whether merge_verdicts, merging into `store` for `corpus`, would set the store aside and keep none of its verdicts: the store exists and is stamped for an older corpus, or is not an ams-review-verdicts/1 document, read as the merge reads it. The merge keeps the verdicts of a store stamped for the corpus and refuses a store stamped for a newer one. `main` asks it of the live store when a direct merge's master is another file, such as an export or a --no-merge pass's carried file, and for a store this returns True for, the verdict update carries the store's snapshot onto the served corpus by unit id and then merges the master into the result. The carry refuses a snapshot it cannot read, naming it (`carry_verdicts.resolve_prior`)."""
+    stamp = _manifest_stamp_at(corpus)
+    if stamp is None or not Path(store).exists():
         return False
-    return stamp is not None and payload is not None and payload["manifest_generated_at"] == stamp
+    held = _verdicts_stamp(store)
+    return held is None or held < stamp
 
 
 def resolve_short_id() -> str:
@@ -4487,7 +4511,7 @@ _CARRY_COUNTS = re.compile(r"^carry counts: human=(\d+) matched=(\d+) unmatched=
 
 
 def carry_counts(lines: list[str]) -> dict[str, int] | None:
-    """Parse the carry's `carry counts:` line: the human units on the new corpus, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The counts are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (a direct merge, a staging pass, or a verdict update that failed before the carry)."""
+    """Parse the carry's `carry counts:` line: the human units on the new corpus, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The counts are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (a direct merge that carries no snapshot of the store, or a verdict update that failed before the carry)."""
     for line in lines:
         match = _CARRY_COUNTS.match(line)
         if match is not None:
@@ -4496,7 +4520,7 @@ def carry_counts(lines: list[str]) -> dict[str, int] | None:
 
 
 def carry_detail(lines: list[str]) -> str:
-    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new corpus, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (a direct merge, a staging pass, or a verdict update that failed before the carry)."""
+    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new corpus, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (a direct merge that carries no snapshot of the store, or a verdict update that failed before the carry)."""
     carried = ""
     queue = ""
     for line in lines:
@@ -5400,6 +5424,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
 
     skip_verdict_update = False
     direct_merge = False
+    store_set_aside = False
     verdict_update_note = ""
     if (
         skip_corpus
@@ -5425,8 +5450,15 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
                 master_aligned = master_stamped_for_corpus(args.verdicts, REVIEW_OUT)
                 if not master_aligned:
                     announce(DIRECT_MERGE_DECLINED_NOTE)
-            # A master stamped for the served corpus needs no carry: every unit id maps to itself, and the carry keeps each record's `at`, so the merge (which takes only a strictly newer `at`) would drop any note the carry changes. Merging the master directly into the store gives the same result.
+            # A master stamped for the served corpus needs no carry: every unit id maps to itself, and the carry keeps each record's `at`, so the merge (which takes only a strictly newer `at`) would drop any note the carry changes. Merging the master directly into the store gives the same result. A store the merge would set aside is the exception: its snapshot is carried first, so its verdicts are kept.
             direct_merge = master_aligned
+            store_set_aside = (
+                direct_merge
+                and Path(args.verdicts).resolve() != AUTOSAVE.resolve()
+                and merge_sets_store_aside(AUTOSAVE, REVIEW_OUT)
+            )
+            if store_set_aside:
+                announce(DIRECT_MERGE_STORE_CARRIED_NOTE)
 
     short_id = resolve_short_id()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -5463,6 +5495,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         skip_verdict_update=skip_verdict_update,
         verdict_update_note=verdict_update_note,
         direct_merge=direct_merge,
+        store_set_aside=store_set_aside,
         record_greens=not args.dry_run,
         keep_history=args.keep_history,
         recipe_serves=args.stop_server,
