@@ -58,7 +58,7 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
         yield from (dict(unit) for unit in index)
 
     monkeypatch.setattr(vu.unit_index, "iter_human_units", stream)
-    monkeypatch.setattr(vu.merge_verdicts, "main", lambda _argv: 0)
+    monkeypatch.setattr(vu.merge_verdicts, "main", lambda _argv, clears=None: 0)
 
     def duplicate_fill(argv, units=None):
         duplicate_calls.append(units)
@@ -186,7 +186,7 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
         lambda argv, current_units=None, current_ids=None: carries.append((argv, current_units, current_ids))
         or 0,
     )
-    monkeypatch.setattr(vu.merge_verdicts, "main", lambda argv: merges.append(argv) or 0)
+    monkeypatch.setattr(vu.merge_verdicts, "main", lambda argv, clears=None: merges.append(argv) or 0)
     monkeypatch.setattr(vu.duplicate_verdicts, "main", lambda argv, units=None: _write_out(argv))
     monkeypatch.setattr(vu.standing_verdicts, "main", lambda argv, unit_source=None: _write_out(argv))
     code = vu.main(
