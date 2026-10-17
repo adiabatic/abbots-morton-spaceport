@@ -1366,6 +1366,7 @@ def full_run(
     """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the Stage A capture and the deletion of its record (`run_m1_gates._retract_stage_a`), the pre-gate guards, `run_ligature_outgoing`, the build (`run`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the run_m1 gate, the Stage A record once that gate passes (`run_m1_gates._settle_stage_a`), the green record and the check line (timed from `started`). The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
     from rebuild.pipeline import run_m1_gates
     from rebuild.tools.artifact_cycle import (
+        _defect_gate_failure,
         evaluate_run_m1_gate,
         run_m1_skip_files,
         run_m1_skip_fingerprint,
@@ -1382,6 +1383,7 @@ def full_run(
     spec = load_default_spec()
     before = run_m1_key()
     gates: TableGates | None = None
+    defect_failure: str | None = None
     try:
         run_ligature_outgoing(spec)
         console.phase("run_total")
@@ -1397,8 +1399,9 @@ def full_run(
         )
         console.timing("run_total", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
         console.say(json.dumps(summary, indent=2))
-        if summary["defect_errors"]:
-            raise SystemExit(f"{len(summary['defect_errors'])} defect-gate errors; see pipeline_summary.json")
+        defect_failure = _defect_gate_failure(summary)
+        if defect_failure is not None:
+            raise SystemExit(defect_failure)
         console.phase("run_manual_pin_gate")
         start = time.perf_counter()
         pin_gate = run_m1_gates.run_manual_pin_gate(spec=spec)
@@ -1431,6 +1434,8 @@ def full_run(
         failure: BaseException = error if red is None else red
         run_m1_gates._settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
         run_m1_gates._record_cli_check(run_m1_gates._failed_check("run_m1", str(failure)), started)
+        if red is None and defect_failure is not None:
+            raise SystemExit(f"{defect_failure}; see pipeline_summary.json")
         if isinstance(failure, SystemExit):
             raise failure
         raise SystemExit(str(failure))

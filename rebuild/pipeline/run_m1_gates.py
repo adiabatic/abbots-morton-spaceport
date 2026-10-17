@@ -1,6 +1,6 @@
 """The M1 driver's gate half, the code the table build and the font compile never run: the gates that check the tables and the M1.otf a build has written under rebuild/out/m1, the guards that check the oracle's baselines, aliases and ledger before those gates run, and the command line `uv run python -m rebuild.pipeline.run_m1` hands to `main`.
 
-It holds the pre-gate guards (`_run_pregate_guards`), the Manual-pin gate (`run_manual_pin_gate`), the baseline oracle and its row-cache helpers (`run_oracle`), the conformance sweep, serial or pooled (`run_font_conformance`), the units the pooled sweep, `make conform-deep` and the deep replay run in (`sweep_units`), the `--gates-only` rerun (`run_gates_only`), the check line and green record each invocation leaves (`_record_cli_check`, `_settle_green`), and the Stage A record a build or a `--gates-only` pass deletes first and writes back only once its gates pass (`_retract_stage_a`, `_settle_stage_a`). `main` parses the command line and runs `--gates-only` and `--conform-only` itself. A bare run goes to `run_m1.full_run`, which builds the tables and the font and then calls these gates.
+It holds the pre-gate guards (`_run_pregate_guards`), the Manual-pin gate (`run_manual_pin_gate`), the baseline oracle and its row-cache helpers (`run_oracle`), the conformance sweep, serial or pooled (`run_font_conformance`), the units the pooled sweep, `make conform-deep` and the deep replay run in (`sweep_units`), the `--gates-only` rerun (`run_gates_only`), the check line and green settlement each invocation leaves when it finishes, stops at a gate, refuses or, as a bare run or a `--gates-only` pass, raises (`_record_cli_check`, `_settle_green`, `_exit_red` for a refusal or a stop before the run_m1 gate is evaluated, and `_recording_failure` for an exception raised past the run's own handlers; a child of the artifact cycle prints its check line for the cycle instead), and the Stage A record a build or a `--gates-only` pass deletes first and writes back only once its gates pass (`_retract_stage_a`, `_settle_stage_a`). `main` parses the command line and runs `--gates-only` and `--conform-only` itself. A bare run goes to `run_m1.full_run`, which builds the tables and the font and then calls these gates.
 
 `fingerprint.COMPARISON_CODE_MODULES` names this module, so it is in `pipeline_code_paths` and the run_m1 skip key but not in the tables' stamp (`fingerprint.table_code_paths`): an edit here re-runs the gates over the tables and font on disk instead of forcing a full build, and rebuild/test_build_code_closure.py checks that the build never reaches it. It reaches the build's own helpers through the `run_m1` module object at call time rather than importing their names, so a test that patches one on `run_m1` patches what this module calls. The `out_dir` defaults, the three YAML paths (`ALIAS_YAML`, `DIVERGENCES_YAML`, `KERN_SIDECAR_YAML`) and `load_default_spec` are bound when this module is imported, so a test patches those on this module or passes `out_dir`. `run_m1.full_run` loads the spec through `run_m1.load_default_spec`, so a test that drives the full run patches that binding instead.
 """
@@ -15,9 +15,10 @@ import tempfile
 import time
 import zlib
 from concurrent.futures import as_completed
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Mapping, NoReturn, Sequence
+from typing import Callable, Iterator, Mapping, NoReturn, Sequence
 
 import yaml
 
@@ -40,6 +41,7 @@ from rebuild.pipeline.table import DecisionTable
 from rebuild.tools import console
 from rebuild.tools.cycle_timings import (
     CYCLE_RUN_ENV,
+    REFUSED_STATUS,
     CheckResult,
     parse_inner_timings,
     record_check,
@@ -733,8 +735,15 @@ def run_oracle(
 
 
 def _record_cli_check(result: CheckResult, started: float) -> None:
-    """Record this invocation's check result in the timings journal, unless the artifact cycle is recording it. The result is recorded before the final `SystemExit`, so the exit cannot change it. `CYCLE_RUN_ENV` in the environment means the artifact cycle started this run and records the same result under its own run id, so this function records nothing, keeping one line per invocation. When this invocation built tables, the line carries the build's phase lines (`run_m1._build_phase_lines`) as `inner`, parsed as the cycle parses a run_m1 step's output, so a build run by hand can be paired with another as a cycle's can."""
+    """Record this invocation's check result in the timings journal, unless the artifact cycle is recording it. The result is recorded before the final `SystemExit`, so the exit cannot change it. `CYCLE_RUN_ENV` in the environment means the artifact cycle started this run and records its result under its own run id, so this function prints the result on one `console.CHECK` line instead, which the cycle files when the summaries the child left do not say why it stopped (`artifact_cycle._reported_red`), keeping one journal line per invocation. When this invocation built tables, the line carries the build's phase lines (`run_m1._build_phase_lines`) as `inner`, parsed as the cycle parses a run_m1 step's output, so a build run by hand can be paired with another as a cycle's can."""
     if CYCLE_RUN_ENV in os.environ:
+        reported = {
+            "check": result.check,
+            "outcome": result.outcome,
+            "status": result.status,
+            "failures": list(result.failures),
+        }
+        console.say(console.CHECK + json.dumps(reported))
         return
     record_check(
         result,
@@ -745,38 +754,74 @@ def _record_cli_check(result: CheckResult, started: float) -> None:
     )
 
 
-def _failed_check(check: str, message: str) -> CheckResult:
-    """Return the check result for a run that failed before its gate was evaluated: a defect gate that stopped the build, a pin gate failure, a read-back or emit error. The error message is all that is known, so it is the only failure text, and there are no failed ids because nothing enumerated cases."""
-    return CheckResult(check=check, outcome="red", status="FAILED", failures=[message], failed_ids=[])
+def _failed_check(check: str, message: str, status: str = "FAILED") -> CheckResult:
+    """Return the check result for a run that failed before its gate was evaluated: a defect gate that stopped the build, a pin gate failure, a read-back or emit error, or, with `REFUSED_STATUS`, a refusal before any gate ran. The error message is all that is known, so it is the only failure text, and there are no failed ids because nothing enumerated cases."""
+    return CheckResult(check=check, outcome="red", status=status, failures=[message], failed_ids=[])
+
+
+def _record_red(message: str, started: float, *, status: str, key: str | None = None) -> None:
+    """Settle run_m1's green red over `key`, the key the run took before its gates, or over the key of the sources on disk when it stopped before taking one, then record the red check line (`_failed_check` with `message` and `status`), timed from `started`. A red clears only a green over the same content (`_settle_green`). So a hand run settles its red as the cycle settles a red run_m1 child (`artifact_cycle._do_run_m1`), and no later `--gates-only` pass can stand on a green over the content this run refused or failed on. Under `CYCLE_RUN_ENV` the cycle settles the green, so the key is not computed, and the check line goes to the cycle (`_record_cli_check`)."""
+    from rebuild.tools.artifact_cycle import run_m1_skip_fingerprint
+    from rebuild.tools.cycle_paths import RUN_M1_GREEN
+
+    def run_m1_key() -> str:
+        return run_m1_skip_fingerprint(run_m1.REPO_ROOT)
+
+    if CYCLE_RUN_ENV not in os.environ:
+        _settle_green(RUN_M1_GREEN, run_m1_key() if key is None else key, False, run_m1_key, "run_m1")
+    _record_cli_check(_failed_check("run_m1", message, status), started)
+
+
+def _exit_red(
+    message: str, started: float, *, status: str = REFUSED_STATUS, key: str | None = None
+) -> NoReturn:
+    """Stop a run_m1 invocation that refused, or stopped before its run_m1 gate was evaluated, with `message`, once `_record_red` has settled the red and recorded its check line under `status`."""
+    _record_red(message, started, status=status, key=key)
+    raise SystemExit(message)
+
+
+@contextmanager
+def _recording_failure(started: float) -> Iterator[None]:
+    """Record an exception a bare run or a `--gates-only` pass raises past its own handlers as a FAILED red naming the exception's type and message (`_record_red`), then let it propagate with its traceback, which names where it was raised. `main` runs both under it, so such a run that fails leaves a check line unless it is interrupted or killed, whatever it failed on: a contact allow-list or a rune that does not load, or a ledger or alias map the pre-gate guards accept and the oracle cannot use. A SystemExit passes through untouched, because the run records its line before each exit it takes."""
+    try:
+        yield
+    except Exception as error:
+        _record_red(f"{type(error).__name__}: {error}", started, status="FAILED")
+        raise
 
 
 def _run_pregate_guards() -> None:
-    """Run the checks that come before any gate, on both the build path and the `--gates-only` path, after each has deleted the Stage A record (`_retract_stage_a`) and before either builds a table. They check that every source baseline table was shaped by the site font on disk (`baseline_subset.ensure_fresh` compares each header's font_sha256 with the font that header names on every call, because `make all` rewrites that font without changing the stamp key), refilter the subset baselines when they no longer match the sources on disk, check that every old glyph name in those subsets has an alias, and compile the divergence ledger (`oracle.compile_ledger`), which refuses an entry whose `configs` or `predicate` the oracle cannot use. Each protects the oracle, not the build: rows shaped by another font, or an unaliased name, make every oracle number wrong without any error, and a ledger the oracle cannot compile would otherwise stop the pass only when the oracle compiles it, after the build or the defect and Manual-pin gates have run, and with a traceback instead of an exit that names the ledger file. So a pass that re-runs the oracle over a build it did not make runs them as the building pass does. The ss06, ss07 and ss06+ss07 identity check runs inside the refilter, since only a refilter can change its result. A configuration that fails it is never stamped fresh, so its error is raised here on every run until it is fixed."""
+    """Run the checks that come before any gate, on both the build path and the `--gates-only` path, after each has deleted the Stage A record (`_retract_stage_a`) and before either builds a table. They check that every source baseline table was shaped by the site font on disk (`baseline_subset.ensure_fresh` compares each header's font_sha256 with the font that header names on every call, because `make all` rewrites that font without changing the stamp key), refilter the subset baselines when they no longer match the sources on disk, check that every old glyph name in those subsets has an alias in an alias map that loads (`oracle.load_aliases`, which refuses a file that does not parse and an entry `labels.load_alias_map` cannot read), and load the divergence ledger (`oracle.load_ledger`), which refuses a file that does not parse, a document that is not a list, and the entries `oracle.compile_ledger` refuses. Each protects the oracle, not the build: rows shaped by another font, or an unaliased name, make every oracle number wrong without any error, and a ledger the oracle cannot compile would otherwise stop the pass only when the oracle loads it, after the build or the defect and Manual-pin gates have run. So a pass that re-runs the oracle over a build it did not make runs them as the building pass does. The ss06, ss07 and ss06+ss07 identity check runs inside the refilter, since only a refilter can change its result. A configuration that fails it is never stamped fresh, so its error is raised here on every run until it is fixed. A refusal here settles run_m1's green red and records its check line before it exits (`_exit_red`, timed from the guards' start; a cycle's child prints the line for the cycle instead). A ledger or alias map these checks accept can still hold a shape the oracle cannot use, which stops the oracle with an exception that `main` records red (`_recording_failure`)."""
+    began = time.perf_counter()
     console.phase("baseline_subset")
     start = time.perf_counter()
     try:
         refiltered = baseline_subset.ensure_fresh(run_m1.REPO_ROOT)
     except (baseline_subset.SubsetIdentityError, baseline_subset.BaselineProvenanceError) as error:
-        raise SystemExit(str(error)) from error
+        _exit_red(str(error), began)
     print(
         f"[t] baseline_subset {time.perf_counter() - start:.1f}s ({'refiltered' if refiltered else 'fresh'})",
         flush=True,
     )
     console.phase("alias_completeness")
     start = time.perf_counter()
-    missing_aliases = oracle.unaliased_subset_names(run_m1.OUT_DIR, ALIAS_YAML)
+    try:
+        missing_aliases = oracle.unaliased_subset_names(run_m1.OUT_DIR, ALIAS_YAML)
+    except SystemExit as refusal:
+        _exit_red(str(refusal), began)
     print(f"[t] alias_completeness {time.perf_counter() - start:.1f}s", flush=True)
     if missing_aliases:
         listing = "\n".join(f"  {name} ({', '.join(configs)})" for name, configs in missing_aliases.items())
-        raise SystemExit(
-            f"rebuild/m1-aliases.yaml is missing {len(missing_aliases)} old glyph names that appear in subset baseline rows — every oracle number would be quietly wrong, so author each entry (or map it to the literal `pending` to run anyway with those rows unaliased):\n{listing}"
+        _exit_red(
+            f"rebuild/m1-aliases.yaml is missing {len(missing_aliases)} old glyph names that appear in subset baseline rows — every oracle number would be quietly wrong, so author each entry (or map it to the literal `pending` to run anyway with those rows unaliased):\n{listing}",
+            began,
         )
     console.phase("divergence_ledger")
     start = time.perf_counter()
     try:
-        oracle.compile_ledger(yaml.safe_load(DIVERGENCES_YAML.read_text()) or [])
-    except (TypeError, ValueError) as error:
-        raise SystemExit(f"{DIVERGENCES_YAML}: {error}") from error
+        oracle.load_ledger(DIVERGENCES_YAML)
+    except SystemExit as refusal:
+        _exit_red(str(refusal), began)
     print(f"[t] divergence_ledger {time.perf_counter() - start:.1f}s", flush=True)
 
 
@@ -814,15 +859,16 @@ def gates_only_base(out_dir: Path, inputs: str) -> GatesOnlyBase | str:
 
 
 def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: bool = False) -> None:
-    """Re-run everything a full run does after the table build except the stages that produce artifacts: the defect gate, the Manual-pin replay and the oracle, over the tables and the M1.otf already on disk. It deletes the Stage A record before anything else (`_retract_stage_a`), rewrites the defect fields of `pipeline_summary.json`, the gate summaries and `divergence-audit.tsv`, writes the record back only once its gates pass over a prior green it stands on (`_settle_stage_a`; a later paragraph says when), and compiles nothing. The rerun depends on the stamp the build left on its serialized enumerations. The stamp names the sources those tables came from, not the build that wrote the M1.otf beside them. A stamp that matches the runes on disk is a necessary condition for the green this pass may record; that green also needs a prior green over the same build-side inputs (`artifact_cycle.gates_only_rerun`), because a failed run never vouches for the artifacts it left, and the build is deterministic, so the passing build need not be the one that stamped the tables. Even both together do not show that the tables or M1.otf on disk are a passing build's (the next paragraph names the gaps). A mismatch stops with an error instead of sweeping a stale binary. That refusal and the others over the build on disk are `gates_only_base`, the same check the artifact cycle makes before it plans a gates-only rerun. Because the stamp names only what the build reads, every comparison-side edit passes it and is re-checked here: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, and the code `fingerprint.COMPARISON_CODE_MODULES` names, which is outside the stamp's code half.
+    """Re-run everything a full run does after the table build except the stages that produce artifacts: the defect gate, the Manual-pin replay and the oracle, over the tables and the M1.otf already on disk. It deletes the Stage A record before anything else (`_retract_stage_a`), rewrites the defect fields of `pipeline_summary.json`, the gate summaries and `divergence-audit.tsv`, writes the record back only once its gates pass over a prior green it stands on (`_settle_stage_a`; a later paragraph says when), and compiles nothing. The rerun depends on the stamp the build left on its serialized enumerations. The stamp names the sources those tables came from, not the build that wrote the M1.otf beside them. A stamp that matches the runes on disk is a necessary condition for the green this pass may record; that green also needs a prior green over the same build-side inputs (`artifact_cycle.gates_only_rerun`), because a failed run never vouches for the artifacts it left, and the build is deterministic, so the passing build need not be the one that stamped the tables. Even both together do not show that the tables or M1.otf on disk are a passing build's (the next paragraph names the gaps). A mismatch stops with an error instead of sweeping a stale binary. That refusal and the others over the build on disk are `gates_only_base`, the same check the artifact cycle makes before it plans a gates-only rerun. Each refusal, and a stop inside the oracle, records a red check line and clears a green over the same content (`_exit_red`), as a red gate does. Because the stamp names only what the build reads, every comparison-side edit passes it and is re-checked here: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, and the code `fingerprint.COMPARISON_CODE_MODULES` names, which is outside the stamp's code half.
 
-    It may record run_m1's green under two conditions: a prior green record exists, and every input that changed since it is comparison-side (`artifact_cycle.gates_only_rerun`). The prior green shows that a completed build over every build-side input its key names passed, the stamp check shows that each enumeration's head carries the stamp of the current sources and semantics tokens, and this pass re-checks the gates the changed inputs feed. With all three it records a green over the new inputs, so the next cycle skips run_m1. The two checks are necessary conditions for the tables and M1.otf on disk to be the green build's, not sufficient ones: a build that stops without settling the green (an interrupt, a kill, or an exception `run_m1.full_run` does not catch) can leave artifacts that pass both. The green's key (`artifact_cycle.run_m1_skip_lines`) leaves out the semantics tokens the stamp includes, so a pass run under other semantics than the green build's accepts tables a hand build stamped under those semantics. The stamp check reads only each enumeration's head, and `run_m1._pack_windows` writes in place, so an enumeration whose packing a killed build cut short after its head passes it. Neither the stamp nor the Stage A record covers the font's bytes, nothing else this pass or the cycle checks ties them to a passing build, and a hand build stamps its tables before `compile_font` writes the font, so a hand build interrupted between the two leaves whatever M1.otf an earlier build wrote, which can be one a red build over other build-side inputs left. In each case a green this pass records vouches for artifacts no passing build wrote. Of the runs behind the pass, only the prior green vouches for the build it stands on: a failed run never vouches for the artifacts it left, even one that went red only at a comparison gate over current tables (`artifact_cycle.gates_only_rerun` says why). Otherwise the pass still runs, still records its check line, and prints which input kept it from recording a green. A check line reports only how one invocation came out, while a green record lets a later pass skip work.
+    It may record run_m1's green under two conditions: a prior green record exists, and every input that changed since it is comparison-side (`artifact_cycle.gates_only_rerun`). The prior green shows that a completed build over every build-side input its key names passed, the stamp check shows that each enumeration's head carries the stamp of the current sources and semantics tokens, and this pass re-checks the gates the changed inputs feed. With all three it records a green over the new inputs, so the next cycle skips run_m1. The two checks are necessary conditions for the tables and M1.otf on disk to be the green build's, not sufficient ones: a build that stops without settling the green (an interrupt or a kill) can leave artifacts that pass both. The green's key (`artifact_cycle.run_m1_skip_lines`) leaves out the semantics tokens the stamp includes, so a pass run under other semantics than the green build's accepts tables a hand build stamped under those semantics. The stamp check reads only each enumeration's head, and `run_m1._pack_windows` writes in place, so an enumeration whose packing a killed build cut short after its head passes it. Neither the stamp nor the Stage A record covers the font's bytes, nothing else this pass or the cycle checks ties them to a passing build, and a hand build stamps its tables before `compile_font` writes the font, so a hand build interrupted between the two leaves whatever M1.otf an earlier build wrote, which can be one a red build over other build-side inputs left. In each case a green this pass records vouches for artifacts no passing build wrote. Of the runs behind the pass, only the prior green vouches for the build it stands on: a failed run never vouches for the artifacts it left, even one that went red only at a comparison gate over current tables (`artifact_cycle.gates_only_rerun` says why). Otherwise the pass still runs, still records its check line, and prints which input kept it from recording a green. A check line reports only how one invocation came out, while a green record lets a later pass skip work.
 
     It writes the Stage A record back (through `_settle_stage_a`, which declines when a Stage A input has moved since the pass began) only when its gates pass, the prior green has per-file lines, and no build-side input has moved since that green, whether or not this pass records a green. Otherwise it leaves no record, which would vouch for tables and a font that no green build over these build-side inputs passed (`artifact_cycle.m1_stage_a_current` says what the cycle trusts the record for).
 
     It opens the oracle row cache read-only (`write_cache=False`). A ledger edit serves every row and position verdict, and an alias edit re-derives only the rows that reach the families it names, so the re-check is fast; a store this pass wrote would be one no build produced. Because no store is written, nothing this pass re-derives is kept, so it skips the scheduled re-derivation and serves every row its keys allow except those a writing pass recorded at `UNCOVERED_AGE` (`oracle_cache.RowStore`); writing passes keep the scheduled re-derivation, so no verdict stands `oracle_cache.MAX_RECORD_AGE` of them. The store's pass ordinal does not advance either, so the verification sample, which is drawn against it, rotates on the clock instead. Otherwise repeated re-checks would verify the same rows every time. `--fresh-oracle-cache` here skips reading the stores instead of deleting them, since deleting a build input is also a write.
     """
     from rebuild.tools.artifact_cycle import (
+        _defect_gate_failure,
         comparison_side_label,
         evaluate_run_m1_gate,
         gates_only_rerun,
@@ -844,7 +890,7 @@ def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: b
     summary_path = out_dir / "pipeline_summary.json"
     base = gates_only_base(out_dir, inputs)
     if isinstance(base, str):
-        raise SystemExit(base)
+        _exit_red(base, started)
     pipeline_summary = base.pipeline_summary
 
     spec = load_default_spec()
@@ -859,11 +905,11 @@ def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: b
     print(f"[t] defect_gates {time.perf_counter() - start:.1f}s", flush=True)
     pipeline_summary.update(defect_fields)
     summary_path.write_text(json.dumps(pipeline_summary, indent=2) + "\n")
-    if defect_fields["defect_errors"]:
-        message = f"{len(defect_fields['defect_errors'])} defect-gate errors; see pipeline_summary.json"
+    defect_failure = _defect_gate_failure(pipeline_summary)
+    if defect_failure is not None:
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
-        _record_cli_check(_failed_check("run_m1", message), started)
-        raise SystemExit(message)
+        _record_cli_check(_failed_check("run_m1", defect_failure), started)
+        raise SystemExit(f"{defect_failure}; see pipeline_summary.json")
 
     console.phase("run_manual_pin_gate")
     start = time.perf_counter()
@@ -878,14 +924,17 @@ def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: b
 
     console.phase("run_oracle")
     start = time.perf_counter()
-    oracle_summary = run_oracle(
-        out_dir=out_dir,
-        spec=spec,
-        jobs=jobs,
-        write_cache=False,
-        fresh_cache=fresh_cache,
-        memo_inputs=memo_inputs,
-    )
+    try:
+        oracle_summary = run_oracle(
+            out_dir=out_dir,
+            spec=spec,
+            jobs=jobs,
+            write_cache=False,
+            fresh_cache=fresh_cache,
+            memo_inputs=memo_inputs,
+        )
+    except SystemExit as stop:
+        _exit_red(str(stop), started, status="FAILED", key=before)
     print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(oracle_summary, indent=2))
     gate = evaluate_run_m1_gate(pipeline_summary, pin_gate, oracle_summary)
@@ -1040,7 +1089,8 @@ def main(argv: list[str] | None = None) -> None:
     run_m1._build_phase_lines.clear()
 
     if args.gates_only:
-        run_gates_only(out_dir=run_m1.OUT_DIR, jobs=jobs, fresh_cache=args.fresh_oracle_cache)
+        with _recording_failure(started):
+            run_gates_only(out_dir=run_m1.OUT_DIR, jobs=jobs, fresh_cache=args.fresh_oracle_cache)
         return
 
     if args.conform_only:
@@ -1057,7 +1107,12 @@ def main(argv: list[str] | None = None) -> None:
         before = conform_key()
         console.phase("run_font_conformance")
         start = time.perf_counter()
-        conformance = run_font_conformance(max_length=args.conform_max_length, jobs=jobs)
+        try:
+            conformance = run_font_conformance(max_length=args.conform_max_length, jobs=jobs)
+        except SystemExit as refusal:
+            _settle_green(CONFORM_GREEN, before, False, conform_key, "gate:conform")
+            _record_cli_check(_failed_check("conform", str(refusal), REFUSED_STATUS), started)
+            raise
         print(
             f"[t] run_font_conformance {time.perf_counter() - start:.1f}s {rss_token(process_peak_rss_bytes())}",
             flush=True,
@@ -1077,15 +1132,16 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit("font conformance failed; see conform_summary.json")
         return
 
-    run_m1.full_run(
-        jobs=jobs,
-        started=started,
-        kernel_threads=args.kernel_threads,
-        replay_threads=args.replay_threads,
-        overlap_memo_writes=args.overlap_memo_writes,
-        scratch_beside_default=args.scratch_beside_default,
-        fresh_oracle_cache=args.fresh_oracle_cache,
-    )
+    with _recording_failure(started):
+        run_m1.full_run(
+            jobs=jobs,
+            started=started,
+            kernel_threads=args.kernel_threads,
+            replay_threads=args.replay_threads,
+            overlap_memo_writes=args.overlap_memo_writes,
+            scratch_beside_default=args.scratch_beside_default,
+            fresh_oracle_cache=args.fresh_oracle_cache,
+        )
 
 
 def _hard_exit(status: int) -> NoReturn:

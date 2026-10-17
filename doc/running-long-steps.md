@@ -21,7 +21,7 @@ A Python wrapper that calls M1 guards its entry point with `if __name__ == "__ma
 - The redirect log under `tmp/` is scratch. It holds the same terminal output, plus an `rc=` line when the launch command echoes one (the skills' `sh -c` chains run `echo "rc=$?"`), and the next run overwrites it. The run directory is the lasting record.
 - Every cycle creates a run directory under `var/build-logs/`, and `var/build-logs/latest` points at the newest one. It holds `plan.txt`, `terminal.log` (a byte copy of what the terminal showed), and one `<nn>-<step>.log` per spawned step, with stdout and stderr merged in arrival order and stderr lines prefixed with `stderr|` and a space.
 - Watch `terminal.log` for the closing block: the summary table, then `Cycle complete.` on a passing run or a `CYCLE FAILED:` block of reasons on a failing one. When a step fails or stops printing, open its own log in the same directory.
-- A child reports to the cycle through four line prefixes: `[t]`, `[phase]`, `[progress]`, and `[warn]`. `rebuild/tools/console.py` defines them and `CycleConsole`, the terminal renderer that shows them.
+- A child reports to the cycle through four line prefixes: `[t]`, `[phase]`, `[progress]`, and `[warn]`. `rebuild/tools/console.py` defines them and `CycleConsole`, the terminal renderer that shows them. A run_m1 child also prints its check result on one `[check]` line, and the cycle files the red it carries when the child's summaries do not say why it stopped.
 
 ## Judging whether a run is hung
 

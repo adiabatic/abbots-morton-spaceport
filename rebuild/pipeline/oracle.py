@@ -48,7 +48,7 @@ from rebuild.pipeline.conform import (
     _verify_served_sample,
 )
 from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, load_alias_map
-from rebuild.pipeline.model import ResolvedSpec, isolated_overlay_active
+from rebuild.pipeline.model import CellId, ResolvedSpec, isolated_overlay_active
 from rebuild.pipeline.shapers import IsolatedOverlayShaper, Shaper
 from rebuild.tools.peak_rss import peak_rss_self_bytes
 from rebuild.validation.rowmodel import Row, iter_rows
@@ -220,7 +220,7 @@ def open_row_cache(
 
 def unaliased_subset_names(subset_dir: Path, alias_path: Path) -> dict[str, list[str]]:
     """Map every old glyph name in the subset baseline rows that neither the alias map nor `BOUNDARY_GLYPH_NAMES` resolves to the sorted configurations it appears in. A missing alias does not always fail loudly: a ligation row never reaches the per-glyph alias check in `_compare_row`, so it is counted under a ledger class as if the name were understood. run_m1 therefore stops before building while this is non-empty. A `pending` alias passes this check but still counts as unaliased in the comparison. The names come from the sidecar the refilter writes (`baseline_subset.read_subset_names`), which changes only when the tables are refiltered, so this check is cheap enough to run on the `--gates-only` path too."""
-    known = set(load_alias_map(alias_path)) | BOUNDARY_GLYPH_NAMES
+    known = set(load_aliases(alias_path)) | BOUNDARY_GLYPH_NAMES
     missing: dict[str, set[str]] = {}
     for config, names in baseline_subset.read_subset_names(subset_dir).items():
         for name in names:
@@ -521,13 +521,17 @@ class CompiledLedger:
 
 
 def compile_ledger(entries: Sequence[Mapping]) -> CompiledLedger:
-    """Compile the raw ledger (`yaml.safe_load` of rebuild/m1-divergences.yaml) into a `CompiledLedger`. An entry without an `id` is named `<unnamed>`. `configs: all` compiles to None and a list to a frozenset. A bare string is kept as a string, so it gets the same substring `in` test as the reference walk in rebuild/test_conform.py. Any other value, such as a `configs:` with no value, raises TypeError instead of silently matching every configuration. An entry whose predicate is in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` raises ValueError naming the entry, because it would match no row and leave the rows it was meant for unmatched without failing any gate."""
+    """Compile the raw ledger (`yaml.safe_load` of rebuild/m1-divergences.yaml) into a `CompiledLedger`. An entry without an `id` is named `<unnamed>`. `configs: all` compiles to None and a list to a frozenset. A bare string is kept as a string, so it gets the same substring `in` test as the reference walk in rebuild/test_conform.py. Any other value, such as a `configs:` with no value, raises TypeError instead of silently matching every configuration. So does an entry or a `match` that is not a mapping, such as a `match:` with no value, and a `predicate` that is not a name, each naming the entry. An entry whose predicate is in neither `CLASS_PREDICATE_IDS` nor `PREDICATES` raises ValueError naming the entry, because it would match no row and leave the rows it was meant for unmatched without failing any gate. `load_ledger` turns all of these into a SystemExit that names the file."""
     by_class: dict[str, list[tuple[int, str, Container[str] | None]]] = {}
     functions: list[tuple[int, str, Container[str] | None, Callable[[DivergentRow], bool]]] = []
     unconditional: list[tuple[int, str, Container[str] | None, str | None, bool]] = []
     for index, entry in enumerate(entries):
-        match = entry.get("match", {})
+        if not isinstance(entry, Mapping):
+            raise TypeError(f"ledger entry {index + 1} must be a mapping, not {entry!r}")
         entry_id = entry.get("id", "<unnamed>")
+        match = entry.get("match", {})
+        if not isinstance(match, Mapping):
+            raise TypeError(f"ledger entry {entry_id!r}: `match` must be a mapping, not {match!r}")
         raw_configs = match.get("configs", "all")
         configs: Container[str] | None
         if raw_configs == "all":
@@ -546,6 +550,10 @@ def compile_ledger(entries: Sequence[Mapping]) -> CompiledLedger:
                 (index, entry_id, configs, match.get("window"), match.get("junction_change") is not None)
             )
             continue
+        if not isinstance(predicate_name, str):
+            raise TypeError(
+                f"ledger entry {entry_id!r}: `predicate` must be the name of a predicate, not {predicate_name!r}"
+            )
         class_id = CLASS_PREDICATE_IDS.get(predicate_name)
         if class_id is not None:
             by_class.setdefault(class_id, []).append((index, entry_id, configs))
@@ -561,6 +569,36 @@ def compile_ledger(entries: Sequence[Mapping]) -> CompiledLedger:
         functions=tuple(functions),
         unconditional=tuple(unconditional),
     )
+
+
+def load_ledger(path: Path) -> tuple[list, CompiledLedger]:
+    """Read the divergence ledger at `path` and return its entries as parsed with the ledger `compile_ledger` makes of them. An empty file is an empty ledger. A file that cannot be read, decoded or parsed, a document that is not a list of entries, and an entry `compile_ledger` refuses each raise SystemExit naming the file and the problem, so run_m1 records a red check line that names them instead of ending in a traceback. run_m1's pre-gate guards load the ledger before any gate runs (`run_m1_gates._run_pregate_guards`) and record a stop there as a refusal (`REFUSED_STATUS`). The oracle loads it again from disk on the serial path and in every worker, so a ledger edited while a run is going stops the run there, and that stop is recorded as FAILED."""
+    try:
+        entries = yaml.safe_load(Path(path).read_text())
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
+        raise SystemExit(f"{path}: {error}") from error
+    if entries is None:
+        entries = []
+    if not isinstance(entries, list):
+        raise SystemExit(
+            f"{path}: the ledger must be a list of entries, not a value of type {type(entries).__name__}"
+        )
+    try:
+        return entries, compile_ledger(entries)
+    except (TypeError, ValueError) as error:
+        raise SystemExit(f"{path}: {error}") from error
+
+
+def load_aliases(path: Path) -> dict[str, CellId | str]:
+    """Read the alias map at `path` (`labels.load_alias_map`). A file that cannot be read, decoded or parsed, and a document or entry that makes that function raise AttributeError, KeyError or TypeError (an entry that is neither a string nor a mapping with `rune` and `stance`), raise SystemExit naming the file and the problem, as `load_ledger` does for the ledger. run_m1's pre-gate guards load it before any gate runs (`unaliased_subset_names`) and the oracle loads it again from disk on the serial path and in every worker, so such a stop is recorded as a red check line, a refusal in the guards and FAILED in the oracle, not a traceback. A map that function reads can still stop the oracle with an exception elsewhere, such as keys of mixed types in `oracle_cache.alias_family_digests`, which run_m1 records red before the exception propagates with its traceback (`run_m1_gates._recording_failure`)."""
+    try:
+        return load_alias_map(path)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as error:
+        raise SystemExit(f"{path}: {error}") from error
+    except (AttributeError, KeyError, TypeError) as error:
+        raise SystemExit(
+            f"{path}: the alias map must map each old glyph name to a string or to a mapping with `rune` and `stance` ({type(error).__name__}: {error})"
+        ) from error
 
 
 def _match_compiled(compiled: CompiledLedger, row: DivergentRow) -> list[str]:
@@ -952,10 +990,9 @@ def oracle_config_worker(
 ) -> OracleConfigResult:
     """Run `_compare_config` for one configuration, or one row range when `shard` is given, in a pool worker. Audit rows go to the range's segment under `audit_dir`, so the result carries only counts. When the caller passes no `guard_verdicts`, the worker runs the section 5.7 guard sweep itself, as the conformance sweep's worker does; the overlay configuration's worker forms nothing and skips it. A caller that fans out several ranges runs the sweep once and passes it to every range. The worker opens the row cache itself, through the same `open_row_cache` call the serial path makes, and reads and writes `settle_memo` itself, because a spawned worker inherits no open files. For a range of the pooled oracle, `settle_memo.write_path` is the range's own part, which the parent absorbs into the shared file after every range has finished and the witness stage has returned."""
     shard = OracleShard(config) if shard is None else shard
-    aliases = load_alias_map(alias_path)
-    entries = yaml.safe_load(Path(ledger_path).read_text()) or []
+    aliases = load_aliases(alias_path)
+    entries, ledger = load_ledger(ledger_path)
     ink_identical_ids = {entry.get("id") for entry in entries if entry.get("ink_identical")}
-    ledger = compile_ledger(entries)
     features = features_for_config(config)
     overlay = isolated_overlay_active(spec, features)
     shaper = oracle_positions._shaper_for(spec, font_path, overlay)
@@ -1055,10 +1092,9 @@ def compare_against_baseline(
     row_cache: "OracleRowCache | None" = None,
     settle_memos: Mapping[str, SettleMemoFile] | None = None,
 ) -> BaselineReport:
-    aliases = load_alias_map(alias_path)
-    entries = yaml.safe_load(Path(ledger_path).read_text()) or []
+    aliases = load_aliases(alias_path)
+    entries, ledger = load_ledger(ledger_path)
     ink_identical_ids = {entry.get("id") for entry in entries if entry.get("ink_identical")}
-    ledger = compile_ledger(entries)
     shapers: dict[bool, "Shaper | IsolatedOverlayShaper | None"] = {}
     kern = oracle_positions.KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
     guard_verdicts: settle.FormationGuard | None = None

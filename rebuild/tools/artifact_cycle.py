@@ -10,7 +10,7 @@ The verdict update is one step run by one child process, rebuild.tools.verdict_u
 
 run_m1's exit status is its own gate's result, but this driver evaluates the three summary JSONs it writes, so a build that died before its evaluator is reported by what it left behind. The gates are defect_errors, the Manual-pin gate (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
-This process, not its children, records each check's result in the timings journal. Every evaluated check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the evaluator's outcome, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. Each check invocation gets one line.
+This process, not its children, records each check's result in the timings journal. Every evaluated check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the evaluator's outcome, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. run_m1's CLI prints the result on a `[check]` line instead (`console.CHECK`), which this driver files when the summaries a run_m1 or gate:conform child left do not say why it stopped (`_reported_red`). Each check invocation gets one line.
 
 gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes, beside make-test under the default overlap policy, and behind it under the queue policy and on a pass with no build lane (`gates_queue`). Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs at `contracts_pool_width`, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS: the cores less the build's parent and its `corpus_job_budget` workers, and, under the overlap policy on a pass that runs gate:make-test beside the build lane, less that gate's pool. It starts beside the corpus build, except on a pass that runs the corpus build and neither gate:make-test nor gate:conform (`Plan.contracts_after_units`), where it waits until the build's units pool has finished, so that pool finds the gate lane idle, and then runs beside the rest of the build lane. The conformance sweep's core cap (`_conform_core_cap`) makes the same subtraction, floored at the acceptance-configuration count, and neither width subtracts the other, so under the overlap policy the sweep and the suite share the cores those processes leave while both run. The suite reads nothing the build lane writes, the review-facts pins included, so it waits for no build output. A suite that is neither held nor queued starts at t=0 on a pass where every upstream stage skips; the held suite waits for the units pool only so that the pool finds the gate lane idle, and starts as that pool finishes even when run_m1 skips.
 
@@ -2962,10 +2962,6 @@ class CycleReport:
     step_returncodes: dict[str, int] = field(default_factory=dict)
 
 
-def _load_summary(path: Path) -> dict:
-    return json.loads(path.read_text())
-
-
 _Emitter = console.CycleConsole
 
 
@@ -3189,7 +3185,7 @@ def classify_rebuild_output(stdout: str, returncode: int, check: str) -> CheckRe
     )
 
 
-# The failure reason for a run_m1 that left a summary missing, except a full build whose records name the gate that stopped it (`_gate_that_stopped_a_full_build`). The cycle's failure list and the timings journal's check line both use it, so the two record the same text.
+# The failure reason for a run_m1 that left a summary missing, except a full build whose records name the gate that stopped it (`_gate_that_stopped_a_full_build`) and a child that reported its red (`_reported_red`). The cycle's failure list and the timings journal's check line both use it, so the two record the same text.
 _NO_SUMMARIES_REASONS = ("run_m1 did not write all three summary files",)
 
 RUN_M1_GATES_ONLY_STEP = "run_m1:gates-only"
@@ -3205,6 +3201,37 @@ def _summary_object(path: Path) -> dict | None:
     return summary if isinstance(summary, dict) else None
 
 
+def _unreadable_summary_red(check: str, paths: list[Path]) -> CheckResult:
+    """Return the red of a `check` whose summaries at `paths` exist but do not parse to an object (`_summary_object`), as a child killed while it wrote one or a full disk leaves them, naming each file."""
+    return CheckResult(
+        check=check,
+        outcome="red",
+        status="FAILED (unreadable summary)",
+        failures=[f"{check} gate: {path} is unreadable or not a JSON object" for path in paths],
+        failed_ids=[],
+    )
+
+
+def _reported_red(stdout: str, check: str) -> CheckResult | None:
+    """Return the red a `check` child reported on the last `console.CHECK` line of `stdout` (`run_m1_gates._record_cli_check` prints one under `CYCLE_RUN_ENV`), or None when it printed none, as a child killed before it reported does, or when that line is not a red of `check` with its status and at least one failure."""
+    lines = [line for line in stdout.splitlines() if line.startswith(console.CHECK)]
+    if not lines:
+        return None
+    try:
+        reported = json.loads(lines[-1][len(console.CHECK) :])
+    except ValueError:
+        return None
+    if not isinstance(reported, dict) or reported.get("check") != check or reported.get("outcome") != "red":
+        return None
+    status = reported.get("status")
+    failures = reported.get("failures")
+    if not isinstance(status, str) or not isinstance(failures, list) or not failures:
+        return None
+    if not all(isinstance(failure, str) for failure in failures):
+        return None
+    return CheckResult(check=check, outcome="red", status=status, failures=list(failures), failed_ids=[])
+
+
 def _replay_record_mtime() -> int | None:
     """Return the modification time of the string replay's record, which run_m1 writes beside its summaries (`run_m1.REPLAY_SUMMARY`), or None when there is none."""
     from rebuild.pipeline import run_m1
@@ -3218,9 +3245,9 @@ def _replay_record_mtime() -> int | None:
 def _gate_that_stopped_a_full_build(missing: list[str], replay_before: int | None) -> CheckResult | None:
     """Return the red of the gate that stopped a full build the cycle spawned, read from the records it wrote, or None when they do not say what stopped it: the string replay's record did not move during the spawn or does not parse with a boolean `pass` (the next paragraph says why either returns None even when the summaries name a gate), the summaries name no gate, or a summary it reads does not parse to an object, as a child killed mid-write leaves it. `missing` lists the summaries the build did not write, and `replay_before` is `_replay_record_mtime` from before the spawn.
 
-    A string replay that found the tables incomplete stops the build before the oracle writes oracle_summary.json, because the oracle waits for the replay (`run_m1.TableGates.wait_for_replay`), and the child reports it in place of any glyph-chain failure (`run_m1.run`) and any defect or pin failure (`run_m1.full_run`). The replay writes its record whether it passed or failed, and the record outlives the build, since the next build narrows its walk against it, so a record is this build's own only when its modification time moved during the spawn. One that moved and carries `pass` false is filed under the child's message for it. A replay that returns always writes its record, because a full build passes it the tables' stamp (`run_m1.run_replay_strings`), and a child that exits on its own after starting the table-only branch has waited for that branch to end (`run_m1.run`, `run_m1.full_run`). So a record that did not move, or one that moved but does not parse with a boolean `pass`, tells nothing about this build's replay: the child stopped before its tables were built, which leaves no pipeline summary; or its replay raised before or during the record's write, and the child exited with that error, or with the packing's failure ahead of it, which no record holds; or the child was killed before that write finished. Either way, however the child exited, this returns None, so the cycle keeps the missing-summaries reason rather than name a gate the child did not report.
+    A string replay that found the tables incomplete stops the build before the oracle writes oracle_summary.json, because the oracle waits for the replay (`run_m1.TableGates.wait_for_replay`), and the child reports it in place of any glyph-chain failure (`run_m1.run`) and any defect or pin failure (`run_m1.full_run`). The replay writes its record whether it passed or failed, and the record outlives the build, since the next build narrows its walk against it, so a record is this build's own only when its modification time moved during the spawn. One that moved and carries `pass` false is filed under the child's message for it. A replay that returns always writes its record, because a full build passes it the tables' stamp (`run_m1.run_replay_strings`), and a child that exits on its own after starting the table-only branch has waited for that branch to end (`run_m1.run`, `run_m1.full_run`). So a record that did not move, or one that moved but does not parse with a boolean `pass`, tells nothing about this build's replay: the child stopped before its tables were built, which leaves no pipeline summary; or its replay raised before or during the record's write, and the child exited with that error, or with the packing's failure ahead of it, which no record holds; or the child was killed before that write finished. Either way, however the child exited, this returns None, so the cycle files the red the child reported, if it reported one (`_reported_red`), rather than name a gate the child did not report.
 
-    Otherwise a full build writes pipeline_summary.json after the compile and the read-back, exits on defect errors before the Manual-pin gate writes manual_pins_summary.json, and exits on a pin failure before the oracle writes oracle_summary.json, so the last summary it wrote names the gate that failed. The cycle deleted all three before the spawn, so every summary read here is that build's own. A gates-only child keeps the build's pipeline_summary.json, whose defect fields a refusal before its defect gate leaves stale, so its summaries are never read this way. The table-only branch's other failures (the packing, the witnesses, the shipped order) leave no record this reads; when one comes ahead of a red this names in serial order (`run_m1.TableGates.first_red`: the packing ahead of the replay, any of them ahead of a defect or pin red), the child exits with that failure instead, which its replayed log shows.
+    Otherwise a full build writes pipeline_summary.json after the compile and the read-back, exits on defect errors before the Manual-pin gate writes manual_pins_summary.json, and exits on a pin failure before the oracle writes oracle_summary.json, so the last summary it wrote names the gate that failed. The cycle deleted all three before the spawn, so every summary read here is that build's own. A gates-only child keeps the build's pipeline_summary.json, whose defect fields a refusal before its defect gate leaves stale, so its summaries are never read this way, and the cycle files the red the child reported instead. The table-only branch's other failures (the packing, the witnesses, the shipped order) leave no record this reads; when one comes ahead of a red this names in serial order (`run_m1.TableGates.first_red`: the packing ahead of the replay, any of them ahead of a defect or pin red), the child exits with that failure instead, which its replayed log shows.
     """
     from rebuild.pipeline import run_m1
     from rebuild.pipeline.run_m1_gates import manual_pin_gate_failure
@@ -3269,9 +3296,9 @@ def _do_run_m1(
 ) -> CheckResult | None:
     """Run the M1 build, or reuse it when `skip` is set, and evaluate its gate from the three summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the summaries on disk, which is sound because run_m1's outputs are deterministic and carry no timestamps. A live green is recorded only if the fingerprint still matches after the run, because an input edited mid-run means the tested content is no longer on disk. A live red whose fingerprint matches the green record deletes the record.
 
-    With `gates_only`, the child is `run_m1 --gates-only` over the tables and font on disk. It rewrites the defect fields of `pipeline_summary.json` in place and exits with an error when that file is missing, so it is the one summary not deleted before the spawn. Its green rests on a prior green build with only comparison-side changes since (`gates_only_rerun`; a failed run never vouches for the artifacts it left) and tables stamped before and after the child runs (`m1_tables_stamped`). The cycle is the sole green-record writer for its children, and a nonzero exit overrides passing summaries. The child spawns as `RUN_M1_GATES_ONLY_STEP`, not `run_m1`, because `make cycle-timings ARGS='--by-step'` groups rows by step name and host, and a gates-only run of a few seconds recorded as `run_m1` would distort the figures for a full M1 build.
+    With `gates_only`, the child is `run_m1 --gates-only` over the tables and font on disk. It rewrites the defect fields of `pipeline_summary.json` in place and exits with an error when that file is missing, so it is the one summary not deleted before the spawn. Its green rests on a prior green build with only comparison-side changes since (`gates_only_rerun`; a failed run never vouches for the artifacts it left) and tables stamped before and after the child runs (`m1_tables_stamped`). Its stop is filed from the red it reported (`_reported_red`), never from that summary, which a refusal before the defect gate leaves as the build wrote it. The cycle is the sole green-record writer for its children, and a nonzero exit overrides passing summaries. The child spawns as `RUN_M1_GATES_ONLY_STEP`, not `run_m1`, because `make cycle-timings ARGS='--by-step'` groups rows by step name and host, and a gates-only run of a few seconds recorded as `run_m1` would distort the figures for a full M1 build.
 
-    Every path, the skip included, records a check line in the timings journal, because a skip is an evaluation of this build's summaries. The child records none of its own, because it inherits CYCLE_RUN_ENV. A full build whose records name what stopped it (a string replay that found the tables incomplete, the defect gate or the Manual-pin gate; `_gate_that_stopped_a_full_build` says when they do) is recorded red with that failure, and any other run that left a summary missing is recorded red with `_NO_SUMMARIES_REASONS`. The cycle's failure list gets the same text either way.
+    Every path, the skip included, records a check line in the timings journal, because a skip is an evaluation of this build's summaries. The child records none of its own, because it inherits CYCLE_RUN_ENV; it prints the result it would have recorded on a `console.CHECK` line instead. A full build whose records name what stopped it (a string replay that found the tables incomplete, the defect gate or the Manual-pin gate; `_gate_that_stopped_a_full_build` says when they do) is recorded red with that failure. Any other child that left a summary missing, or exited nonzero despite passing summaries, is recorded with the red it reported (`_reported_red`), a refusal before any gate included, and one that reported none with `_NO_SUMMARIES_REASONS` or its exit code. When every summary is present, one that does not parse to an object is recorded red naming the file (`_unreadable_summary_red`), on the skip path too. A run that left a summary missing is filed as above even when another summary does not parse, so a gates-only child killed while it rewrote pipeline_summary.json keeps `_NO_SUMMARIES_REASONS`. The cycle's failure list gets the same text in every case.
     """
     step = RUN_M1_GATES_ONLY_STEP if gates_only else "run_m1"
     result: _StepResult | None = None
@@ -3292,10 +3319,23 @@ def _do_run_m1(
             path.unlink(missing_ok=True)
         result = spawn(step, argv, emit=emit, registry=registry, stream=False)
     missing = [name for name, path in cycle_paths.M1_SUMMARY_FILES.items() if not path.exists()]
-    if missing:
-        stopped = (
-            None if result is None or gates_only else _gate_that_stopped_a_full_build(missing, replay_before)
-        )
+    summaries = (
+        {}
+        if missing
+        else {name: _summary_object(path) for name, path in cycle_paths.M1_SUMMARY_FILES.items()}
+    )
+    unreadable = [
+        cycle_paths.M1_SUMMARY_FILES[name] for name, summary in summaries.items() if summary is None
+    ]
+    if missing or unreadable:
+        stopped: CheckResult | None = None
+        if unreadable:
+            stopped = _unreadable_summary_red("run_m1", unreadable)
+        elif result is not None:
+            if not gates_only:
+                stopped = _gate_that_stopped_a_full_build(missing, replay_before)
+            if stopped is None:
+                stopped = _reported_red(result.stdout, "run_m1")
         if stopped is None:
             for name in missing:
                 emit.note(
@@ -3319,10 +3359,10 @@ def _do_run_m1(
                 )
             )
         return stopped
-    summaries = {name: _load_summary(path) for name, path in cycle_paths.M1_SUMMARY_FILES.items()}
-    gate = evaluate_run_m1_gate(summaries["pipeline"], summaries["manual_pins"], summaries["oracle"])
+    loaded = {name: summary for name, summary in summaries.items() if summary is not None}
+    gate = evaluate_run_m1_gate(loaded["pipeline"], loaded["manual_pins"], loaded["oracle"])
     if result is not None and result.returncode != 0 and gate.ok:
-        gate = CheckResult(
+        gate = _reported_red(result.stdout, "run_m1") or CheckResult(
             check="run_m1",
             outcome="red",
             status=f"FAILED (exit {result.returncode})",
@@ -3331,9 +3371,9 @@ def _do_run_m1(
         )
     if timings is not None:
         timings.record_check(gate)
-    report.unmatched = summaries["oracle"].get("unmatched")
-    report.multi_matched = summaries["oracle"].get("multi_matched")
-    report.pins_pass = bool(summaries["manual_pins"].get("pass"))
+    report.unmatched = loaded["oracle"].get("unmatched")
+    report.multi_matched = loaded["oracle"].get("multi_matched")
+    report.pins_pass = bool(loaded["manual_pins"].get("pass"))
     if result is not None:
         _close_step(emit, report, step, result, "ok" if gate.ok else "FAILED")
     if record and fingerprint is not None:
@@ -3923,18 +3963,20 @@ def _gate_conform_task(
     registry: _ChildRegistry,
     argv: list[str],
 ) -> CheckResult:
-    """Run gate:conform, the exhaustive font-versus-settlement sweep over the fresh M1.otf (`run_m1 --conform-only`), and return its result. Under the default overlap policy it starts as soon as it is submitted, once the run_m1 gate has passed, and runs beside whichever of gate:make-test and the rebuild suite the pass runs. When the heavy gates queue (`queue`: the queue policy, or a pass that runs gate:make-test with no build lane, `gates_queue`), it waits for gate:make-test, and the rebuild suite waits for it, so only one heavy pool runs at a time. The module docstring gives the reason the overlap policy is the default. The previous conform_summary.json is deleted just before the sweep starts, so the result can only come from this pass's sweep. A skipped gate never runs this task and leaves the file alone."""
+    """Run gate:conform, the exhaustive font-versus-settlement sweep over the fresh M1.otf (`run_m1 --conform-only`), and return its result. Under the default overlap policy it starts as soon as it is submitted, once the run_m1 gate has passed, and runs beside whichever of gate:make-test and the rebuild suite the pass runs. When the heavy gates queue (`queue`: the queue policy, or a pass that runs gate:make-test with no build lane, `gates_queue`), it waits for gate:make-test, and the rebuild suite waits for it, so only one heavy pool runs at a time. The module docstring gives the reason the overlap policy is the default. The previous conform_summary.json is deleted just before the sweep starts, so the result can only come from this pass's sweep. A child that left no summary that parses to an object is filed under the red it reported (`_reported_red`), such as its refusal of tables stamped from other sources. One that reported none is filed red naming the file when it left one that does not parse (`_unreadable_summary_red`), and under `evaluate_conform_gate`'s missing-summary red when it left none. A skipped gate never runs this task and leaves the file alone."""
     cycle_paths.CONFORM_SUMMARY.unlink(missing_ok=True)
     if queue:
         _await_gate_futures(make_fut)
     result = spawn("gate:conform", argv, emit=emit, registry=registry, stream=False)
-    summary = None
-    if cycle_paths.CONFORM_SUMMARY.exists():
-        try:
-            summary = json.loads(cycle_paths.CONFORM_SUMMARY.read_text())
-        except ValueError:
-            summary = None
-    gate = evaluate_conform_gate(summary)
+    summary = _summary_object(cycle_paths.CONFORM_SUMMARY)
+    if summary is not None:
+        gate = evaluate_conform_gate(summary)
+    else:
+        gate = _reported_red(result.stdout, "conform") or (
+            _unreadable_summary_red("conform", [cycle_paths.CONFORM_SUMMARY])
+            if cycle_paths.CONFORM_SUMMARY.exists()
+            else evaluate_conform_gate(None)
+        )
     if result.returncode != 0 and not gate.failures:
         # A sweep whose summary passed but whose process exited nonzero stopped somewhere the summary does not describe, so the exit code overrides the summary's outcome.
         gate = CheckResult(

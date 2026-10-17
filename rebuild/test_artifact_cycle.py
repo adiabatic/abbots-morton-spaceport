@@ -9562,7 +9562,7 @@ def test_do_run_m1_records_a_red_when_no_summaries_were_written(monkeypatch, tmp
 
 @pytest.mark.parametrize("stopped_at", ["defects", "pins", "after-the-pins", "killed-mid-write"])
 def test_do_run_m1_names_the_gate_that_stopped_a_full_build(monkeypatch, tmp_path, capsys, stopped_at):
-    """A full build exits at the defect gate before the Manual-pin gate writes its summary, and at the pin gate before the oracle writes its own, so the summaries it wrote name the gate that failed, and the cycle files the red under that gate's failure rather than as a run that did not complete. Every child first rewrites a passing string replay record, as a real build whose replay returned before it stopped does. A build that stopped after a passing pin gate and a passing replay names no gate, and one killed while it wrote a summary leaves one that does not parse; both keep the missing-summaries reason."""
+    """A full build exits at the defect gate before the Manual-pin gate writes its summary, and at the pin gate before the oracle writes its own, so the summaries it wrote name the gate that failed, and the cycle files the red under that gate's failure rather than as a run that did not complete. Every child first rewrites a passing string replay record, as a real build whose replay returned before it stopped does. A build that stopped after a passing pin gate and a passing replay names no gate, and one killed while it wrote a summary leaves one that does not parse; neither child prints a `[check]` line here, so both keep the missing-summaries reason."""
     from rebuild.pipeline import run_m1
 
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
@@ -9631,7 +9631,7 @@ def test_do_run_m1_names_the_gate_that_stopped_a_full_build(monkeypatch, tmp_pat
 
 @pytest.mark.parametrize("replay", ["failed", "passed", "raised", "truncated"])
 def test_do_run_m1_files_a_failed_string_replay_as_the_child_reports_it(monkeypatch, tmp_path, replay):
-    """A string replay that found the tables incomplete stops a full build before the oracle writes its summary, and the child reports it in place of the defect gate's failure, so the cycle files the red under the child's message from the replay's record, not under the defect gate, while a record whose walk passed leaves the defect gate the summaries name. A replay that returns always rewrites its record, so a record left unmoved means the replay raised or the child was killed before it returned, and one a failed or interrupted write left empty does not parse. Neither says what the child reported, so the cycle keeps the missing-summaries reason rather than blame the defect gate."""
+    """A string replay that found the tables incomplete stops a full build before the oracle writes its summary, and the child reports it in place of the defect gate's failure, so the cycle files the red under the child's message from the replay's record, not under the defect gate, while a record whose walk passed leaves the defect gate the summaries name. A replay that returns always rewrites its record, so a record left unmoved means the replay raised or the child was killed before it returned, and one a failed or interrupted write left empty does not parse. Neither says what the child reported, and this child prints no `[check]` line, as one killed before it reported prints none, so the cycle keeps the missing-summaries reason rather than blame the defect gate."""
     from rebuild.pipeline import run_m1
 
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
@@ -9672,6 +9672,123 @@ def test_do_run_m1_files_a_failed_string_replay_as_the_child_reports_it(monkeypa
     assert ac._run_m1_reasons(gate) == expected
     (line,) = ct.load_checks(timings.path)
     assert (line["outcome"], line["status"], line["failures"]) == ("red", status, expected)
+
+
+@pytest.mark.parametrize("stopped_at", ["defects", "pins", "refused", "killed"])
+def test_do_run_m1_files_the_red_a_gates_only_child_reported(monkeypatch, tmp_path, capsys, stopped_at):
+    """A gates-only child keeps the build's pipeline_summary.json, whose defect fields stay stale until its defect gate rewrites them, so the cycle files its stop from the red the child printed on its `[check]` line (`_reported_red`), never from that file. A child that went red at its defect gate or its Manual-pin gate is filed under that gate with the failure a full build is filed under, and one refused before either gate under its refusal, though the stale summary beside it names a defect. A child killed before it reported keeps the missing-summaries reason."""
+    from rebuild.pipeline import run_m1_gates
+
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
+    files["pipeline"].write_text(
+        json.dumps({"defect_errors": ["E-CONTACT qsAh~qsBay: an earlier build's collision"]})
+    )
+    timings = CycleTimings(tmp_path / "timings.ndjson")
+    status, failure = {
+        "defects": ("FAILED", "1 defect-gate error(s): E-CONTACT qsAh~qsBay: ink collision"),
+        "pins": ("FAILED", "Manual-pin gate failed (1 disagreements)"),
+        "refused": (ct.REFUSED_STATUS, "the stamped window enumerations are missing"),
+        "killed": ("FAILED (no summaries)", ac._NO_SUMMARIES_REASONS[0]),
+    }[stopped_at]
+
+    def child(name, argv, **kwargs):
+        assert name == ac.RUN_M1_GATES_ONLY_STEP
+        if stopped_at == "killed":
+            return _step(name, -9)
+        if stopped_at == "defects":
+            files["pipeline"].write_text(
+                json.dumps({"defect_errors": ["E-CONTACT qsAh~qsBay: ink collision"]})
+            )
+        elif stopped_at == "pins":
+            files["pipeline"].write_text(json.dumps({"defect_errors": []}))
+            files["manual_pins"].write_text(
+                json.dumps({"pass": False, "disagreements": ["x"], "pins_in_scope": 143, "replayed": 143})
+            )
+        monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
+        run_m1_gates._record_cli_check(run_m1_gates._failed_check("run_m1", failure, status), 0.0)
+        return _step(name, 1, stdout=capsys.readouterr().out)
+
+    gate = ac._do_run_m1(
+        ac.CycleReport(),
+        spawn=child,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        argv=["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--gates-only"],
+        gates_only=True,
+        timings=timings,
+    )
+
+    assert (gate is None) == (stopped_at == "killed")
+    assert ac._run_m1_reasons(gate) == [failure]
+    (line,) = ct.load_checks(timings.path)
+    assert (line["outcome"], line["status"], line["failures"]) == ("red", status, [failure])
+    assert ("did not complete" in capsys.readouterr().out) == (stopped_at == "killed")
+
+
+@pytest.mark.parametrize("skip", [True, False])
+def test_do_run_m1_files_an_unreadable_summary_as_a_red_that_names_it(monkeypatch, tmp_path, skip):
+    """When every summary is present, one cut short, as a full build killed while it wrote the last of them or a full disk leaves it, is filed red under the file's name, on the skip path as after a spawn, and clears the green over that content. Without that the driver would stop on the parse before it records the check line or settles the green."""
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
+    green = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
+    ac.record_green(green, "fp-live")
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: pytest.fail("red recomputed inputs"))
+    timings = CycleTimings(tmp_path / "timings.ndjson")
+
+    def leave_summaries():
+        _write_pass_summaries(files)
+        files["oracle"].write_text('{"unmatched": 7, "multi')
+
+    leave_summaries()
+
+    def child(name, argv, **kwargs):
+        assert not skip
+        leave_summaries()
+        return _step(name, -9)
+
+    gate = ac._do_run_m1(
+        ac.CycleReport(),
+        spawn=child,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        argv=["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"],
+        skip=skip,
+        skip_note="test skip",
+        record=True,
+        fingerprint="fp-live",
+        timings=timings,
+    )
+
+    expected = [f"run_m1 gate: {files['oracle']} is unreadable or not a JSON object"]
+    assert gate is not None and gate.failures == expected == ac._run_m1_reasons(gate)
+    (line,) = ct.load_checks(timings.path)
+    assert (line["outcome"], line["status"], line["failures"]) == (
+        "red",
+        "FAILED (unreadable summary)",
+        expected,
+    )
+    assert not green.exists()
+
+
+@pytest.mark.parametrize("left", ['{"divergences": 0, "pass": tr', "[]"])
+def test_gate_conform_files_an_unreadable_summary_as_a_red_that_names_it(monkeypatch, tmp_path, left):
+    """A gate:conform child that left a conform_summary.json cut short, or one that is not an object, and printed no `[check]` line, as one killed while it wrote the file does, is filed red under the file's name, not as a sweep that wrote no summary."""
+    summary = tmp_path / "conform_summary.json"
+    monkeypatch.setattr(cycle_paths, "CONFORM_SUMMARY", summary)
+
+    def child(name, argv, **kwargs):
+        summary.write_text(left)
+        return _step(name, -9)
+
+    gate = ac._gate_conform_task(False, None, child, ac._Emitter(), ac._ChildRegistry(), [])
+
+    assert (gate.outcome, gate.status, gate.failures) == (
+        "red",
+        "FAILED (unreadable summary)",
+        [f"conform gate: {summary} is unreadable or not a JSON object"],
+    )
 
 
 def test_a_cycle_without_timings_still_evaluates_every_gate(monkeypatch):
