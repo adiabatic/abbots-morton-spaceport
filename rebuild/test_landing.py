@@ -131,7 +131,7 @@ def test_the_overlay_keeps_every_set_and_clear_made_after_the_snapshot_over_the_
 
 
 def test_a_stamp_change_orphans_vanished_units_drops_skips_and_carries_surviving_tombstones(repo):
-    """On a stamp change a post-snapshot set on a unit the new corpus lacks goes to the orphan document of the old stamp, a post-snapshot skip is dropped so the unit is asked again, a post-snapshot clear on a surviving unit is kept as a tombstone, and of the live store's other tombstones only those on surviving units and newer than the cutoff are kept."""
+    """On a stamp change a post-snapshot set on a unit the new corpus lacks goes to the orphan document of the old stamp, a post-snapshot skip is dropped so the unit is asked again, a post-snapshot clear on a surviving unit is kept as a tombstone, and of the live store's other tombstones those on surviving units are kept."""
     corpus(repo["next"], "B", ["u-1", "u-2", "u-4", "u-5", "u-7"])
     landing.snapshot(repo["autosave"], repo["run"])
     write(repo["run"] / landing.PREPARED_NAME, document("B", [record("u-1")]))
@@ -152,7 +152,7 @@ def test_a_stamp_change_orphans_vanished_units_drops_skips_and_carries_surviving
             },
         ),
     )
-    result = land(repo, tombstone_cutoff="2026-08-15T00:00:00Z")
+    result = land(repo)
     assert result.landed and (result.overlaid, result.orphaned, result.skips_dropped) == (1, 1, 1)
     landed = json.loads(repo["autosave"].read_text())
     assert landed["manifest_generated_at"] == "B"
@@ -160,6 +160,7 @@ def test_a_stamp_change_orphans_vanished_units_drops_skips_and_carries_surviving
     assert landed["cleared"] == [
         {"unit": "u-2", "at": "2026-09-03T00:00:00Z"},
         {"unit": "u-4", "at": "2026-09-03T00:00:00Z"},
+        {"unit": "u-5", "at": "2026-08-01T00:00:00Z"},
         {"unit": "u-7", "at": "2026-09-04T00:00:00Z"},
     ]
     kept = json.loads(orphan_path(orphans_dir_for(repo["autosave"]), "A").read_text())

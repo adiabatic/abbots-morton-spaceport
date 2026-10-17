@@ -8052,6 +8052,29 @@ def test_a_direct_merge_lands_the_store_alone_and_a_no_carry_rebuild_lands_an_em
     assert "--out" not in _argv({step.name: step for step in first.steps}["corpus-build"])
 
 
+@pytest.mark.parametrize("moved", [False, True])
+def test_the_planned_land_keeps_a_tombstone_of_any_age(moved):
+    """A clear has no age limit: the land the cycle plans, run with its own arguments, keeps a tombstone decades older than the pass on a unit the landed corpus has, on a direct merge that keeps the stamp and on a rebuild that moves it, so an older verdicts file cannot carry or merge the cleared verdict back."""
+    plan = _plan() if moved else _plan(skip_corpus=True, direct_merge=True, corpus_note="same")
+    argv = plan.argv("land")
+    argv = argv[argv.index("rebuild.review.landing") + 1 :]
+    stamp = "B" if moved else "A"
+    for corpus_dir, corpus_stamp in [(ac.REVIEW_OUT, "A")] + [(ac.next_corpus_dir(), "B")] * moved:
+        corpus_dir.mkdir(parents=True)
+        (corpus_dir / "manifest.json").write_text(
+            json.dumps({"generated_at": corpus_stamp, "human_unit_ids": ["u-1", "u-2"]})
+        )
+    cleared = [{"unit": "u-2", "at": "2001-01-01T00:00:00Z"}]
+    ac.AUTOSAVE.write_text(json.dumps({**_verdicts_doc("A", ["u-1"]), "cleared": cleared}))
+    ac.landing.snapshot(ac.AUTOSAVE, Path(argv[argv.index("--run-dir") + 1]))
+    Path(argv[argv.index("--prepared") + 1]).write_text(json.dumps(_verdicts_doc(stamp, ["u-1"])))
+
+    assert ac.landing.main(argv) == 0
+    landed = json.loads(ac.AUTOSAVE.read_text())
+    assert landed["manifest_generated_at"] == stamp
+    assert landed["cleared"] == cleared
+
+
 def _staged_repo(tmp_path, monkeypatch):
     """A settled repo whose live corpus fails both the byte-identity check and the assets-exempt check, while a staged corpus passes the byte-identity check. This is the third check `main` makes, and the condition for the promotion step."""
     _settled_repo(tmp_path, monkeypatch)
@@ -8246,18 +8269,18 @@ def test_prune_stashes_returns_none_without_a_base_event(tmp_path):
     assert orphan.exists()
 
 
-def test_retention_cutoff_is_the_window_before_now():
+def test_journal_history_cutoff_is_the_window_before_now():
     from datetime import datetime, timedelta, timezone
 
     now = datetime(2026, 7, 21, 12, 0, 0, tzinfo=timezone.utc)
     expected = (
-        (now - timedelta(days=ac.RETENTION_WINDOW_DAYS))
+        (now - timedelta(days=ac.JOURNAL_HISTORY_DAYS))
         .replace(microsecond=0)
         .isoformat()
         .replace("+00:00", "Z")
     )
-    assert ac.retention_cutoff(now) == expected
-    assert ac.retention_cutoff(now) == "2026-07-14T12:00:00Z"
+    assert ac.journal_history_cutoff(now) == expected
+    assert ac.journal_history_cutoff(now) == "2026-04-22T12:00:00Z"
 
 
 def test_build_plan_retention_default_on():
@@ -8266,7 +8289,7 @@ def test_build_plan_retention_default_on():
     by_name = {step.name: step for step in plan.steps}
     note = by_name["retention"].note
     assert "green finish" in note
-    assert str(ac.RETENTION_WINDOW_DAYS) in note
+    assert str(ac.JOURNAL_HISTORY_DAYS) in note
 
 
 def test_build_plan_retention_skipped_with_keep_history():
@@ -8406,6 +8429,37 @@ def test_retention_compacts_the_journal_and_sweeps_stashes_under_the_store_lock(
     assert (tmp_path / "verdicts-autosave-S1.json").exists()
     assert "restore floor now 2020-02-01T00:00:00Z" in out
     assert [event["stamp"] for event in journal.iter_events(journal_path)] == ["S2"]
+
+
+def test_retention_keeps_ninety_days_of_journal_history(tmp_path, monkeypatch):
+    """The compaction starts the journal at the newest base event at least ninety days old, so a base from 89 days ago, and every moment from the floor on, stays restorable."""
+    from datetime import datetime, timedelta, timezone
+
+    plan = _plan()
+    monkeypatch.setattr(ac, "ROOT", tmp_path)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    journal_path = tmp_path / journal.JOURNAL_NAME
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    ats = {}
+    old_stamp = None
+    for days, stamp in ((92, "S1"), (91, "S2"), (89, "S3"), (1, "S4")):
+        ats[stamp] = (now - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+        journal.record_transition(
+            journal_path,
+            source="merge",
+            stamp=stamp,
+            old_stamp=old_stamp,
+            old_verdicts=[],
+            new_verdicts=[{"unit": "u-1", "verdict": "approve", "note": "", "at": ats[stamp]}],
+            at=ats[stamp],
+        )
+        old_stamp = stamp
+
+    out = "\n".join(ac.run_retention(plan).lines)
+
+    assert f"restore floor now {ats['S2']}" in out
+    assert [event["stamp"] for event in journal.iter_events(journal_path)] == ["S2", "S3", "S4"]
+    assert journal.replay(journal_path, as_of=ats["S3"])[0] == "S3"
 
 
 def test_retention_leaves_the_journal_and_stashes_alone_beside_a_server_from_before_the_land_protocol(

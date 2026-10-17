@@ -62,7 +62,7 @@ Retention holds the store's lock only for the tail of the journal appended since
 
 Every pass holds the pass lock (`pass_lock`, var/cycle/pass.lock) from before it recovers a superseded corpus and resolves its plan until it ends, so a second pass waits for the first instead of planning against a tree the first is still writing. The land inherits the lock, so a driver killed while its land runs still holds the next pass back until the land has finished. A staging pass holds it too, because a live pass's promotion reads the corpus a staging pass writes. A dry run takes it without waiting, and when another pass holds it the dry run skips the recovery, which could rename a tree that pass is landing. Each non-staging pass gets a scratch directory under var/cycle/ named like its build-log run directory and deletes it when it ends; the next pass deletes any that a killed pass left (`sweep_run_dirs`). A staging pass and a dry run get no scratch directory.
 
-A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. verdicts-autosave-* stashes not referenced by a journal event at or after the last event that moved the stamp or wrote a base are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
+A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. verdicts-autosave-* stashes not referenced by a journal event at or after the last event that moved the stamp or wrote a base are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest base event older than JOURNAL_HISTORY_DAYS, keeping at least that many days of --restore-as-of history, and build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py. The carry source is resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one.
 """
@@ -195,7 +195,7 @@ COMPILE_CODE_FILES = (
     "rebuild/pipeline/pack_gsub.py",
     "rebuild/pipeline/compile_font.py",
 )
-RETENTION_WINDOW_DAYS = 7
+JOURNAL_HISTORY_DAYS = 90
 # How long retention waits for the verdict store's lock before it leaves the stashes or the journal for a later pass. A merge of the whole store holds the lock for seconds, and a server POST for milliseconds.
 RETENTION_LOCK_TIMEOUT_S = 60.0
 
@@ -1160,7 +1160,7 @@ STEP_DESCRIPTIONS = {
     "gate:rebuild-contracts": "Runs the rebuild suite: every test whose subject is the code, over checked-in fixtures and the hermetic mini bundle. Reads no live build artifact.",
     "gate:make-test": "Runs the main font suite and pyright over the whole tree, the same make test you run by hand. Skips when its input closure is unchanged since its last green run.",
     "job-costs": "Checks the recorded per-worker peaks against the memory-budget constants that size every fan-out. A drift here means a width somewhere is derived from stale numbers.",
-    "retention": f"Prunes the regenerable files a green cycle leaves behind: stashes the journal already replays, the journal past its {RETENTION_WINDOW_DAYS}-day floor, and build logs beyond the last {cycle_paths.BUILD_LOGS_KEEP}.",
+    "retention": f"Prunes the regenerable files a green cycle leaves behind: stashes the journal already replays, the journal past its {JOURNAL_HISTORY_DAYS}-day floor, and build logs beyond the last {cycle_paths.BUILD_LOGS_KEEP}.",
 }
 
 
@@ -2455,7 +2455,7 @@ def build_plan(
             land_argv += ["--prepared", str(prepared)]
         if next_corpus is not None:
             land_argv += ["--staged", str(next_corpus), "--live", str(REVIEW_OUT), "--keep-discard"]
-        land_argv += ["--tombstone-cutoff", retention_cutoff(), "--scan-state", str(journal_scan_path())]
+        land_argv += ["--scan-state", str(journal_scan_path())]
         if allow_orphans:
             land_argv += ["--allow-orphans"]
         if next_corpus is None:
@@ -2569,7 +2569,7 @@ def build_plan(
             Step(
                 "retention",
                 None,
-                f"on green finish: drop verdicts-autosave-* stashes older than the journal's last stamp change or base event, compact the journal to a {RETENTION_WINDOW_DAYS}-day restore floor; --keep-history skips",
+                f"on green finish: drop verdicts-autosave-* stashes older than the journal's last stamp change or base event, compact the journal to a {JOURNAL_HISTORY_DAYS}-day restore floor; --keep-history skips",
             )
         )
     elif keep_history:
@@ -5011,8 +5011,8 @@ def journal_scan_path() -> Path:
     return cycle_paths.CYCLE_VAR / "journal-scan.json"
 
 
-def retention_cutoff(now: datetime | None = None) -> str:
-    moment = (now or datetime.now(timezone.utc)) - timedelta(days=RETENTION_WINDOW_DAYS)
+def journal_history_cutoff(now: datetime | None = None) -> str:
+    moment = (now or datetime.now(timezone.utc)) - timedelta(days=JOURNAL_HISTORY_DAYS)
     return moment.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
@@ -5105,7 +5105,7 @@ def run_retention(plan: Plan) -> RetentionResult:
                 f"  stashes   : removed {console.fmt_count(len(removed_stashes))} verdicts-autosave-* stashes older than the journal's last stamp change or base"
             )
 
-    prepared = journal.compact_prepare(journal_path, cutoff=retention_cutoff(), resume=scan.state)
+    prepared = journal.compact_prepare(journal_path, cutoff=journal_history_cutoff(), resume=scan.state)
     try:
         result = journal.compact_finish(prepared, lock=locked())
     except store_lock.LockBusy:
@@ -5123,7 +5123,7 @@ def run_retention(plan: Plan) -> RetentionResult:
         lines.append("  journal   : left intact (another writer replaced it while it was being compacted)")
         journal_state = "journal intact"
     else:
-        lines.append(f"  journal   : left intact (no base event older than {RETENTION_WINDOW_DAYS} days)")
+        lines.append(f"  journal   : left intact (no base event older than {JOURNAL_HISTORY_DAYS} days)")
         journal_state = "journal intact"
     return RetentionResult(lines, _retention_detail(removed_counts, intact, journal_state))
 
