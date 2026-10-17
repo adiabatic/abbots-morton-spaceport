@@ -625,17 +625,22 @@ class PreparedCompaction:
 
 
 def compact_prepare(journal_path, *, cutoff: str, resume: ScanState | None = None) -> PreparedCompaction:
-    """Stage a rewrite of the journal to begin at the newest complete base event whose `at` is lexicographically at or before `cutoff` (an ISO-Z stamp), dropping every earlier line. A base event carries the full store, so replay and --restore-as-of stay exact for every moment from that base on, and every earlier moment becomes unrecoverable; that is why the caller chooses the cutoff. The scan counts each base's set lines as `replay` does, so a torn base is never chosen and a complete base after it can be, and it stops choosing where `_iter_entries` stops, at the first line that does not decode or parse. A journal with no complete base at or before the cutoff, or one that already starts at that base, stages nothing. Given `resume`, an earlier scan's state, it reads only what was appended since (`_scan_handle`).
+    """Stage a rewrite of the journal to begin at the newest complete base event whose `at` is lexicographically at or before `cutoff` (an ISO-Z stamp), dropping every earlier line. A base event carries the full store, so replay and --restore-as-of stay exact for every moment from that base on, and every earlier moment becomes unrecoverable; that is why the caller chooses the cutoff. The scan counts each base's set lines as `replay` does, so a torn base is never chosen and a complete base after it can be, and it stops choosing where `_iter_entries` stops, at the first line that does not decode or parse. A journal with no complete base at or before the cutoff, or one that already starts at that base, stages nothing, and its result (`untouched`) gives that base's `at` as `floor_at` in the second case and None in the first. Given `resume`, an earlier scan's state, it reads only what was appended since (`_scan_handle`).
 
     It runs without the store's lock. It copies the kept lines byte for byte into a temporary file beside the journal, up to the end of the file's last newline-terminated line: every byte before that offset is final unless a writer cuts the journal shorter, because appends only add lines and the tail repair (`_end_on_a_newline`) only touches a final line with no newline. `compact_finish` checks for such a cut. The scan and the copy read one handle in fixed-size blocks, so memory use stays at one line plus one block, and the events' marks.
     """
     journal_path = Path(journal_path)
 
     def nothing(
-        inode: int | None = None, kept_lines: int = 0, read: ScanState | None = None
+        inode: int | None = None,
+        kept_lines: int = 0,
+        read: ScanState | None = None,
+        floor_at: str | None = None,
     ) -> PreparedCompaction:
-        untouched = {"compacted": False, "floor_at": None, "dropped_lines": 0, "kept_lines": kept_lines}
-        return PreparedCompaction(journal_path, None, inode, 0, _digest_of(b""), None, 0, 0, untouched, read)
+        untouched = {"compacted": False, "floor_at": floor_at, "dropped_lines": 0, "kept_lines": kept_lines}
+        return PreparedCompaction(
+            journal_path, None, inode, 0, _digest_of(b""), floor_at, 0, 0, untouched, read
+        )
 
     try:
         handle = journal_path.open("rb")
@@ -649,7 +654,7 @@ def compact_prepare(journal_path, *, cutoff: str, resume: ScanState | None = Non
             if mark.base and mark.counted >= mark.sets and (mark.at or "") <= cutoff:
                 floor = mark
         if floor is None or not floor.line:
-            return nothing(inode, scanned.total_lines, scanned.state)
+            return nothing(inode, scanned.total_lines, scanned.state, floor.at if floor is not None else None)
         floor_at, floor_offset, complete_end = floor.at, floor.offset, scanned.complete_end
         rebased = _rebased(scanned.state, floor, handle)
         tmp = journal_path.with_name(journal_path.name + ".tmp")

@@ -825,7 +825,7 @@ def test_a_stale_clear_follows_the_same_tests_and_a_bare_clear_is_orphaned(tmp_p
 
 
 def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_it(tmp_path):
-    """A first pass over a deleted corpus builds it in place and lands no store, and a restore under --yes can put back a store stamped for an earlier corpus, so the store can sit on another stamp than the served corpus. The first save from a tab on the served corpus carries the store onto it by unit id, keeping its verdicts and tombstones on the units the served corpus has, less its skips, keeps the old file as the stash, and then applies the save, so the tab keeps saving and no verdict is left behind in the stash."""
+    """A first pass over a deleted corpus builds it in place and lands no store, and a restore under --yes can put back a store stamped for an earlier corpus, so the store can sit on another stamp than the served corpus. The first save from a tab on the served corpus carries the store onto it by unit id, keeping its verdicts and tombstones on the served corpus's human units, less its skips, keeps the old file as the stash, and then applies the save, so the tab keeps saving and no verdict is left behind in the stash."""
     journal_path = tmp_path / "verdicts-journal.ndjson"
     path = tmp_path / "verdicts-autosave.json"
     path.write_bytes(

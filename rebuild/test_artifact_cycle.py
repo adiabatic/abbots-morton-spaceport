@@ -8054,7 +8054,7 @@ def test_a_direct_merge_lands_the_store_alone_and_a_no_carry_rebuild_lands_an_em
 
 @pytest.mark.parametrize("moved", [False, True])
 def test_the_planned_land_keeps_a_tombstone_of_any_age(moved):
-    """A clear has no age limit: the land the cycle plans, run with its own arguments, keeps a tombstone decades older than the pass on a unit the landed corpus has, on a direct merge that keeps the stamp and on a rebuild that moves it, so an older verdicts file cannot carry or merge the cleared verdict back."""
+    """A clear has no age limit: the land the cycle plans, run with its own arguments, keeps a tombstone decades older than the pass on one of the landed corpus's human units, on a direct merge that keeps the stamp and on a rebuild that moves it, so an older verdicts file cannot carry or merge the cleared verdict back."""
     plan = _plan() if moved else _plan(skip_corpus=True, direct_merge=True, corpus_note="same")
     argv = plan.argv("land")
     argv = argv[argv.index("rebuild.review.landing") + 1 :]
@@ -8460,6 +8460,26 @@ def test_retention_keeps_ninety_days_of_journal_history(tmp_path, monkeypatch):
     assert f"restore floor now {ats['S2']}" in out
     assert [event["stamp"] for event in journal.iter_events(journal_path)] == ["S2", "S3", "S4"]
     assert journal.replay(journal_path, as_of=ats["S3"])[0] == "S3"
+
+
+@pytest.mark.parametrize("floored", [True, False])
+def test_retention_says_why_it_left_the_journal_intact(tmp_path, monkeypatch, floored):
+    """Every pass after a compaction, until a newer base ages past the window, finds the journal already starting at the newest complete base event older than the window; a journal whose bases are all inside the window has none that old. Retention leaves either journal as it is and says which, naming the floor in the first case, so the first is never reported as having no base event that old."""
+    plan = _plan()
+    journal_path = _retention_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    if floored:
+        ac.run_retention(plan)
+        said = f"it already starts at the newest complete base event older than {ac.JOURNAL_HISTORY_DAYS} days; restore floor 2020-02-01T00:00:00Z"
+    else:
+        monkeypatch.setattr(ac, "journal_history_cutoff", lambda now=None: "2019-12-31T00:00:00Z")
+        said = f"no complete base event older than {ac.JOURNAL_HISTORY_DAYS} days"
+    before = journal_path.read_bytes()
+
+    out = "\n".join(ac.run_retention(plan).lines)
+
+    assert f"journal   : left intact ({said})" in out
+    assert journal_path.read_bytes() == before
 
 
 def test_retention_leaves_the_journal_and_stashes_alone_beside_a_server_from_before_the_land_protocol(

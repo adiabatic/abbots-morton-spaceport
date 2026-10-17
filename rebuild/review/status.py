@@ -447,7 +447,7 @@ def _verdict_store_check(
         except KeyError, TypeError:
             stale_effective = 0
         if stale_effective == 0 and fullest_hit and fullest_hit[1] > 0:
-            remedy = f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}); the stale autosave is empty and will be stashed automatically."
+            remedy = f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}); the stale autosave is empty and is stashed automatically when it is stamped for an older corpus, and the merge refuses one stamped for a newer corpus."
         else:
             remedy = artifact_cycle_remedy
         return {
