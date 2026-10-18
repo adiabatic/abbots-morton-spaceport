@@ -14,7 +14,7 @@ import argparse
 import json
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Container, Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -274,22 +274,29 @@ def _merge_into_store(
     return 0
 
 
+def rekey_cleared(
+    cleared: Mapping[str, str], id_map: Mapping[str, str], held: Container[str]
+) -> dict[str, str]:
+    """Return the tombstones `cleared` (unit → the clear's `at`) with each unit id in `id_map` replaced by its target. Two that land on one unit keep the later clear, and one that lands on a unit in `held`, the units that hold a record after the re-key, is dropped, as the verdict store drops a tombstone on a unit it holds a record for. A journal restore's re-key (`rekey_store`) and `rebuild.tools.rekey_verdicts` both move a store's tombstones through it."""
+    tombstones: dict[str, str] = {}
+    for unit, at in cleared.items():
+        target = id_map.get(unit, unit)
+        if target not in held and at > tombstones.get(target, ""):
+            tombstones[target] = at
+    return tombstones
+
+
 def rekey_store(
     records: dict[str, dict], cleared: dict[str, str], id_map: dict[str, str]
 ) -> tuple[dict[str, dict], dict[str, str]]:
-    """Return the records and the tombstones with each unit id in `id_map` replaced by its target. When two records land on one unit, the newer `at` wins, as in a merge. The tombstones move as `rebuild.tools.rekey_verdicts` moves a store's: two that land on one unit keep the later clear, and one whose unit holds a record after the re-key is dropped."""
+    """Return the records and the tombstones with each unit id in `id_map` replaced by its target. When two records land on one unit, the newer `at` wins, as in a merge, and the tombstones move by `rekey_cleared`."""
     moved: dict[str, dict] = {}
     for unit, record in records.items():
         target = id_map.get(unit, unit)
         current = moved.get(target)
         if current is None or (record.get("at") or "") > (current.get("at") or ""):
             moved[target] = {**record, "unit": target}
-    tombstones: dict[str, str] = {}
-    for unit, at in cleared.items():
-        target = id_map.get(unit, unit)
-        if target not in moved and at > tombstones.get(target, ""):
-            tombstones[target] = at
-    return moved, tombstones
+    return moved, rekey_cleared(cleared, id_map, moved)
 
 
 def run_restore(

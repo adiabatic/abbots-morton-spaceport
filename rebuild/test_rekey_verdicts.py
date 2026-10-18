@@ -6,7 +6,7 @@ from pathlib import Path
 
 from rebuild.review import journal, unit_index
 from rebuild.review.unit_cache import carry_content_hash, unit_id_for
-from rebuild.tools import merge_verdicts, rekey_verdicts
+from rebuild.tools import carry_verdicts, merge_verdicts, rekey_verdicts
 
 FIXTURE_CORPUS = Path(__file__).resolve().parent / "review" / "fixtures"
 OLD_STAMP = "2026-10-01T00:00:00Z"
@@ -338,8 +338,127 @@ def test_a_rekey_journals_the_stores_tombstones_and_a_restore_and_the_undo_put_t
     assert journal.replay_store(journal_path) == before
 
 
+def test_a_store_whose_only_moved_id_is_a_tombstone_is_rewritten_so_the_carry_keeps_the_unit_cleared(
+    tmp_path, capsys
+):
+    """A store holding no record and one tombstone on an id the map moves is rewritten and journaled with the tombstone on the new id, and the counts say so; a second run finds the tombstone current and writes nothing. The carry onto the new corpus then keeps out the older verdict a root carried file holds on that unit, which the same re-key moved, and the undo puts the tombstone back on the old id."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    keep = tmp_path / rekey_verdicts.KEEP
+    map_path = keep / rekey_verdicts.MAP_NAME
+    assert (
+        rekey_verdicts.main(
+            ["--root", str(tmp_path), "--from-corpus", str(old_corpus), "--map-out", str(map_path)]
+        )
+        == 0
+    )
+    old_id, new_id, clear_at = olds[0]["id"], news[0]["id"], "2026-09-02T00:00:00Z"
+    autosave, journal_path = tmp_path / "verdicts-autosave.json", tmp_path / journal.JOURNAL_NAME
+    carried = tmp_path / "verdicts-carried-abc1234.json"
+    _verdicts(carried, OLD_STAMP, [old_id])
+    _verdicts(autosave, OLD_STAMP, [])
+    store = json.loads(autosave.read_text(encoding="utf-8"))
+    store["cleared"] = [{"unit": old_id, "at": clear_at}]
+    autosave.write_text(json.dumps(store), encoding="utf-8")
+    journal.record_transition(
+        journal_path,
+        source="merge",
+        stamp=OLD_STAMP,
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[],
+        new_cleared={old_id: clear_at},
+        at="2000-01-01T00:00:00Z",
+    )
+    before = {path.name: path.read_bytes() for path in (autosave, carried, journal_path)}
+    capsys.readouterr()
+
+    argv = ["--root", str(tmp_path), "--map", str(map_path), "--corpus", str(new_corpus)]
+    assert rekey_verdicts.main(argv) == 0
+    out = capsys.readouterr().out
+    assert (
+        f"verdicts-autosave.json (stamped {OLD_STAMP}): 0 verdicts, 0 re-keyed, 0 already current, 0 unmatched, "
+        "0 collided, 1 tombstones re-keyed\n" in out
+    )
+    assert "rewrote verdicts-autosave.json" in out
+    assert "rekey counts: seen=1 rekeyed=1 current=0 unmatched=0 collided=0 tombstones_rekeyed=1" in out
+    assert journal.parse_cleared(json.loads(autosave.read_text(encoding="utf-8"))) == {new_id: clear_at}
+    assert journal.replay_store(journal_path) == (OLD_STAMP, {}, {new_id: clear_at})
+    assert _units(carried) == [new_id]
+
+    rekeyed = {path.name: path.read_bytes() for path in (autosave, carried, journal_path)}
+    assert rekey_verdicts.main(argv) == 0
+    out = capsys.readouterr().out
+    assert "rekey counts: seen=1 rekeyed=0 current=1 unmatched=0 collided=0 tombstones_rekeyed=0" in out
+    assert "rewrote verdicts-autosave.json" not in out
+    assert {path.name: path.read_bytes() for path in (autosave, carried, journal_path)} == rekeyed
+
+    onto_new = tmp_path / "carried-onto-new.json"
+    carry_argv = [
+        "--verdicts",
+        str(autosave),
+        "--verdicts",
+        str(carried),
+        "--current-corpus",
+        str(new_corpus),
+    ]
+    ids = {fragment["id"] for fragment in news}
+    assert (
+        carry_verdicts.main(
+            [*carry_argv, "--out", str(onto_new)],
+            current_units=[{"id": unit} for unit in sorted(ids)],
+            current_ids=ids,
+        )
+        == 0
+    )
+    assert _units(onto_new) == []
+
+    (backup,) = [path for path in keep.iterdir() if path.is_dir()]
+    assert rekey_verdicts.main(["--root", str(tmp_path), "--undo", str(backup)]) == 0
+    assert {path.name: path.read_bytes() for path in (autosave, carried, journal_path)} == before
+    assert journal.replay_store(journal_path) == (OLD_STAMP, {}, {old_id: clear_at})
+
+
+def test_a_store_whose_moved_tombstone_lands_on_a_unit_it_holds_a_record_for_is_rewritten_without_it(
+    tmp_path, capsys
+):
+    """A tombstone the map moves onto a unit the store holds a record for is dropped, so the store is rewritten without it and the counts say no tombstone was re-keyed."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    map_path = tmp_path / rekey_verdicts.KEEP / rekey_verdicts.MAP_NAME
+    assert (
+        rekey_verdicts.main(
+            ["--root", str(tmp_path), "--from-corpus", str(old_corpus), "--map-out", str(map_path)]
+        )
+        == 0
+    )
+    autosave = tmp_path / "verdicts-autosave.json"
+    _verdicts(autosave, OLD_STAMP, [news[0]["id"]])
+    store = json.loads(autosave.read_text(encoding="utf-8"))
+    store["cleared"] = [{"unit": olds[0]["id"], "at": "2026-09-03T00:00:00Z"}]
+    autosave.write_text(json.dumps(store), encoding="utf-8")
+    capsys.readouterr()
+
+    argv = ["--root", str(tmp_path), "--map", str(map_path), "--corpus", str(new_corpus)]
+    assert rekey_verdicts.main(argv) == 0
+    out = capsys.readouterr().out
+    assert (
+        f"verdicts-autosave.json (stamped {OLD_STAMP}): 1 verdicts, 0 re-keyed, 1 already current, 0 unmatched, "
+        "0 collided, 0 tombstones re-keyed\n" in out
+    )
+    assert "rewrote verdicts-autosave.json" in out
+    assert _units(autosave) == [news[0]["id"]]
+    assert "cleared" not in json.loads(autosave.read_text(encoding="utf-8"))
+
+
 def test_rekey_moves_the_stores_tombstones_through_the_pairs():
-    """A re-key and a journal restore's re-key (`merge_verdicts.rekey_store`) move a store's tombstones alike: two that land on one id keep the later clear, whichever the store lists first, and one whose id holds a record after the re-key is dropped."""
+    """A re-key and a journal restore's re-key (`merge_verdicts.rekey_store`) move a store's tombstones alike: two that land on one id keep the later clear, whichever the store lists first, and one whose id holds a record after the re-key is dropped. The re-key counts only the tombstones that land."""
     renamed = {
         "u-old1": "u-new1",
         "u-old2": "u-new2",
@@ -360,12 +479,13 @@ def test_rekey_moves_the_stores_tombstones_through_the_pairs():
             {"unit": "u-kept", "at": "t2"},
         ],
     }
-    rekeyed, _, _ = rekey_verdicts.rekey_payload(payload, renamed, set())
+    rekeyed, counts, _ = rekey_verdicts.rekey_payload(payload, renamed, set())
     assert rekeyed["cleared"] == [
         {"unit": "u-kept", "at": "t2"},
         {"unit": "u-new1", "at": "t5"},
         {"unit": "u-new3", "at": "t6"},
     ]
+    assert counts["tombstones_rekeyed"] == 2
     records, cleared = merge_verdicts.rekey_store(
         {"u-old2": payload["verdicts"][0]}, journal.parse_cleared(payload), renamed
     )
