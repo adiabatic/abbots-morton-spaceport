@@ -262,7 +262,7 @@ def test_a_merge_waits_on_the_store_lock_and_keeps_the_holders_write(repo, tmp_p
 
 
 def test_merge_refuses_while_the_server_is_up_without_taking_the_lock(repo, tmp_path, monkeypatch, capsys):
-    """While the server listens, a merge that would write the live store refuses. It decides that without the store's lock, as a dry run and a merge with nothing to change do, so none of them makes the server refuse a save."""
+    """While the server listens, a merge that would write the live store refuses and names the command line's --yes. It decides that without the store's lock, as a dry run and a merge with nothing to change do, so none of them makes the server refuse a save."""
     carried = write_doc(tmp_path / "carried.json", "S2", [v("u-1")])
     monkeypatch.setattr(mv, "AUTOSAVE", repo["autosave"])
     monkeypatch.setattr(mv, "_server_listening", lambda: True)
@@ -273,7 +273,12 @@ def test_merge_refuses_while_the_server_is_up_without_taking_the_lock(repo, tmp_
     monkeypatch.setattr(store_lock_module, "announce_wait", no_waiting)
     with store_lock(repo["autosave"]):
         assert run(repo, str(carried)) == 1
-        assert "listening on port 7294" in capsys.readouterr().out
+        refusal = capsys.readouterr().out
+        assert "listening on port 7294" in refusal
+        assert (
+            "Stop the server first, or pass --yes when the listening server serves another checkout."
+            in refusal
+        )
         assert not repo["autosave"].exists()
         assert not repo["journal"].exists()
         assert run(repo, "--dry-run", str(carried)) == 0

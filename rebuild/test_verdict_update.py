@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes."""
+"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped."""
 
 import json
 import pathlib
@@ -804,3 +804,29 @@ def test_a_hand_run_with_nothing_to_merge_and_no_store_starts_from_an_empty_stor
     assert lines[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
     assert json.loads(paths["autosave"].read_text())["manifest_generated_at"] == CORPUS_STAMP
     assert {"u-standing", "u-standing-sibling"} <= set(_records(paths["autosave"]))
+
+
+def test_a_hand_run_whose_merge_refuses_while_a_server_listens_is_told_to_stop_the_server_and_completes_once_it_is_stopped(
+    tmp_path, monkeypatch, capsys
+):
+    """A hand run against the live store whose master would change it reaches the merge's refusal while the review server listens. The verdict update has no --yes, so the refusal tells it only to stop the server, the run fails at its merge with the store and the journal as they were, and the same run completes once the server is stopped."""
+    paths = _integration_fixture(tmp_path / "current", monkeypatch)
+    paths["master"].write_text(json.dumps(_fixture_payload([_record("u-open", at=NEWER)])))
+    monkeypatch.setattr(vu.merge_verdicts, "AUTOSAVE", paths["autosave"])
+    monkeypatch.setattr(vu.merge_verdicts, "_server_listening", lambda: True)
+    before = paths["autosave"].read_bytes()
+    assert _actual_update(paths) == 1
+    lines = capsys.readouterr().out.splitlines()
+    refusal = next(line for line in lines if line.startswith("ERROR: the review server is listening"))
+    assert refusal.endswith("Stop the server first.")
+    assert not any("--yes" in line for line in lines)
+    assert lines[-1] == f"{console.FAILED_LINE}merge (exit 1)"
+    assert paths["autosave"].read_bytes() == before
+    assert not paths["journal"].exists()
+
+    monkeypatch.setattr(vu.merge_verdicts, "_server_listening", lambda: False)
+    assert _actual_update(paths) == 0
+    assert (
+        capsys.readouterr().out.splitlines()[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
+    )
+    assert _records(paths["autosave"])["u-open"]["at"] == NEWER
