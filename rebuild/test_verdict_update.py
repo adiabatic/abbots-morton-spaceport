@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus."""
+"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes."""
 
 import json
 import pathlib
@@ -58,7 +58,7 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
         yield from (dict(unit) for unit in index)
 
     monkeypatch.setattr(vu.unit_index, "iter_human_units", stream)
-    monkeypatch.setattr(vu.merge_verdicts, "main", lambda _argv, clears=None: 0)
+    monkeypatch.setattr(vu.merge_verdicts, "run_merge", lambda _files, **_options: 0)
 
     def duplicate_fill(argv, units=None):
         duplicate_calls.append(units)
@@ -186,7 +186,7 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
         lambda argv, current_units=None, current_ids=None: carries.append((argv, current_units, current_ids))
         or 0,
     )
-    monkeypatch.setattr(vu.merge_verdicts, "main", lambda argv, clears=None: merges.append(argv) or 0)
+    monkeypatch.setattr(vu.merge_verdicts, "run_merge", lambda files, **_options: merges.append(files) or 0)
     monkeypatch.setattr(vu.duplicate_verdicts, "main", lambda argv, units=None: _write_out(argv))
     monkeypatch.setattr(vu.standing_verdicts, "main", lambda argv, unit_source=None: _write_out(argv))
     code = vu.main(
@@ -224,7 +224,7 @@ def test_the_carry_step_hands_the_verdicts_file_and_the_loaded_index_to_the_carr
     assert argv[argv.index("--current-corpus") + 1] == str(tmp_path / "review")
     assert units == [vu.duplicate_verdicts.duplicate_record(unit) for unit in index]
     assert unit_ids == IDS
-    assert merges[0][0] == str(tmp_path / "carried.json")
+    assert merges[0][0] == tmp_path / "carried.json"
 
 
 @pytest.mark.parametrize("allowed", (False, True))
@@ -783,3 +783,24 @@ def test_a_pass_with_no_store_whose_master_holds_only_skips_completes_and_lands_
     assert json.loads(paths["autosave"].read_text())["manifest_generated_at"] == CORPUS_STAMP
     assert _records(paths["autosave"]) == _records(prepared)
     assert not {"u-open", "u-mix-a"} & set(_records(paths["autosave"]))
+
+
+def test_a_hand_run_with_nothing_to_merge_and_no_store_starts_from_an_empty_store_stamped_for_the_corpus(
+    tmp_path, monkeypatch, capsys
+):
+    """A hand run that names neither a carry nor a master has nothing to merge, and with no store at `--autosave` the merge merges nothing into it, which writes an empty store stamped for the corpus, so the fills start from an empty store and the verdict update completes with the store the fills leave."""
+    paths = _integration_fixture(tmp_path / "current", monkeypatch)
+    paths["autosave"].unlink()
+    argv = ["--corpus", str(paths["corpus"]), "--autosave", str(paths["autosave"])]
+    argv += ["--journal", str(paths["journal"]), "--duplicate-out", str(paths["duplicate"])]
+    argv += ["--standing-out", str(paths["standing"]), "--rules", str(paths["rules"])]
+    argv += ["--standing-memo", str(paths["memo"]), "--no-complaints"]
+    assert vu.main(argv) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert (
+        f"merged 0 file(s) into {paths['autosave'].name}: 0 added, 0 replaced, 0 kept newer; store holds 0 "
+        f"verdicts (0 effective) on manifest {CORPUS_STAMP}"
+    ) in lines
+    assert lines[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
+    assert json.loads(paths["autosave"].read_text())["manifest_generated_at"] == CORPUS_STAMP
+    assert {"u-standing", "u-standing-sibling"} <= set(_records(paths["autosave"]))
