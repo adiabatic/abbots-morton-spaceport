@@ -2,11 +2,11 @@
 
 `--from-corpus OLD --map-out PATH` computes the map. It reads OLD's shard parts one at a time and walks each part one fragment at a time (`iter_fragments`), releasing the part before it reads the next, because a part reaches `build.SHARD_PART_BYTES` and parsing one whole takes several times that. Every fragment, machine-approved and verdict-exempt ones included, gives one entry under its old id (`map_entry`): its codepoints and configs and digests of its before side, after side and highlight, with `unit_id_for(carry_content_hash(fragment))` as its new id. Two fragments that share an old id or a new id stop it, because the map must be one-to-one. The map (`MAP_FORMAT`) holds `units` (old id → entry), `renamed` (old id → new id, for each id that changes), `from_corpora` (OLD's stamp), `corpora` (the corpora a run applied it onto) and `presentation_keys` (the key set it was computed under), one entry per line. It is never written over, and it depends on nothing but OLD, so it can be computed and kept before anything replaces OLD.
 
-`--map PATH --corpus NEW` verifies the map and applies it. It refuses a map computed under another key set, one that pairs two old ids with one new id, and a NEW the map was computed from, whose ids are the old ones. It reads the verdict files and references below, then reads NEW once the same way, and lands every old id of the map they name. An id lands on its new id when NEW holds a unit with that id and the entry's codepoints, configs, before and after. When NEW lacks that id, as when a stale cached field in the projection changes it, the id lands on the one unit of NEW with the entry's codepoints and configs (a window's units cover disjoint config sets, so the pair is unique within a corpus), provided that unit's before, after and highlight digests equal the entry's and it is neither the old id itself (NEW was then built under the old key set), another entry's new id, nor already landed on. A verdicted or quoted id that lands nowhere blocks every write, dry run included, and so does a content id in a verdicts file stamped for a corpus the map was computed from that names no unit of the map or of NEW; `--allow-unmatched` accepts both when those verdicts are meant to be orphaned. Two ids of one file that land on one unit block the write with no override.
+`--map PATH --corpus NEW` verifies the map and applies it. It refuses a map computed under another key set, one that pairs two old ids with one new id, and a NEW the map was computed from, whose ids are the old ones. It reads the verdict files and references below, then reads NEW once the same way, and lands every old id of the map they name. An id lands on its new id when NEW holds a unit with that id and the entry's codepoints, configs, before and after. When NEW lacks that id, as when a stale cached field in the projection changes it, the id lands on the one unit of NEW with the entry's codepoints and configs (a window's units cover disjoint config sets, so the pair is unique within a corpus), provided that unit's before, after and highlight digests equal the entry's and it is neither the old id itself (NEW was then built under the old key set), another entry's new id, nor already landed on. A verdicted or quoted id that lands nowhere blocks every write, dry run included, and so does a content id in a verdicts file stamped for a corpus the map was computed from that names no unit of the map or of NEW; `--allow-unmatched` accepts both when those verdicts are meant to be orphaned. Two records of one file that name different ids and land on one unit block the write with no override, and so does a record that lands on the unit a clear lands on when the rule below cannot weigh the two because the record's `at` is not a string (`merge_verdicts.UntimedRecord` says which `at`).
 
-The files it rewrites are the live autosave, every verdicts-*.json at the repository root stamped for a corpus the map was computed from (exports, stashes, and the carried file of a --no-merge or staging pass among them), and any file passed with `--verdicts`, such as a stash or an orphan document still on old ids. Each record naming a landed old id moves to the unit it lands on; a record already naming a unit of NEW is left alone, and one naming neither is left alone and counted as unmatched. The store's tombstones (its `cleared` list) land the same way, by the rule a journal restore's re-key follows (`merge_verdicts.rekey_cleared`): two that land on one unit keep the later clear, and one whose unit holds a record after the re-key is dropped, as the verdict store drops it. A file is rewritten when it holds a record or a tombstone on an id the re-key moves, a tombstone the rule drops included, so a store in which only tombstones move is rewritten too. Stamps, notes and `at` times are kept, the tombstones' included, so the carry that follows moves the verdicts onto NEW as it does any other store, and a unit the store cleared at or after another file's verdict on it stays cleared. Verdict records carry no duplicate-group or cluster id, and notes are kept as written, so a `[carried u-…@file]` marker in an older note keeps the id it was written with until the carry drops it. `--references` rewrites old unit ids in text files too, such as the unit ids rebuild/standing-approvals.yaml quotes in its notes.
+The files it rewrites are the live autosave, every verdicts-*.json at the repository root stamped for a corpus the map was computed from (exports, stashes, and the carried file of a --no-merge or staging pass among them), and any file passed with `--verdicts`, such as a stash or an orphan document still on old ids. Each record naming a landed old id moves to the unit it lands on, a record already naming a unit of NEW keeps its id, and either is dropped when a clear at or after the newest record on its unit lands there (below); one naming neither keeps its id and is counted as unmatched. The store's tombstones (its `cleared` list) land the same way, by the rule a journal restore's re-key follows (`merge_verdicts.rekey_cleared`): two that land on one unit keep the later clear, and where a tombstone and a record land on one unit the newer stays, as in a merge, so a clear at or after the record's `at` drops the record and a record strictly newer than the clear drops the tombstone. A tombstone on an id one of the file's records names is passed over, as the verdict store passes it over. A file is rewritten when it holds a record or a tombstone on an id the re-key moves, a tombstone the rule drops included, so a store in which only tombstones move is rewritten too, and so is every file in which the rule drops a record, since a record and a tombstone meet on one unit only where the re-key moves one of them. Stamps, notes and `at` times are kept, the tombstones' included, so the carry that follows moves the verdicts onto NEW as it does any other store, and a unit the store cleared at or after another file's verdict on it stays cleared. Verdict records carry no duplicate-group or cluster id, and notes are kept as written, so a `[carried u-…@file]` marker in an older note keeps the id it was written with until the carry drops it. `--references` rewrites old unit ids in text files too, such as the unit ids rebuild/standing-approvals.yaml quotes in its notes.
 
-Every file is copied to a new directory under var/keep/class-rejig-rekey/ before it is rewritten, with the journal's length and whether the re-key appends to the journal (a re-key that appends first ends the journal on a newline, `journal.repair_tail`, so the length marks where its base event begins), and `--undo DIR` puts those copies back and, when it appended, truncates the journal to that length and leaves the marker that makes the next land that moves the stamp journal a base (`journal.mark_unjournaled`), as it does when it refuses and asks for the copies to be put back by hand. The rewritten autosave is appended to verdicts-journal.ndjson as a base event holding its records and its tombstones (`journal.record_transition` with no previous stamp), because journal lines before it name old ids. The applied map, with each pair the codepoints-and-configs join landed in place of its computed one, is merged into var/keep/class-rejig-rekey/unit-id-map.json (`merge_id_maps`), which may be PATH itself: a run adds its entries to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run applied, `--map` takes it again for a file still on old ids, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one old id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run writes nothing, because every verdict and tombstone the map lands is already on its new id; a tombstone whose unit lands nowhere blocks no write and keeps its old id. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N collided=N tombstones_rekeyed=N` over all the files, where `tombstones_rekeyed` counts the tombstones (a unit with its clear's `at`) the re-key puts in a file that the file did not hold, so not one the rule drops, and the others count the records. From reading the verdict files through the journal append, and for all of `--undo`, it holds the verdict store's lock (`rebuild.review.store_lock`, through `landing.locked_store`, which first finishes a land whose holder died), which every writer of the store and the journal holds. It refuses to rewrite the autosave while a review server that may write it is listening (its /capabilities answer names that store, or names none), unless --yes is passed, because the re-keyed ids would replace the ones the open tabs hold; such a run, and a dry run, reads without the lock, so a run that ends up writing nothing never makes the server refuse a save.
+Every file is copied to a new directory under var/keep/class-rejig-rekey/ before it is rewritten, with the journal's length and whether the re-key appends to the journal (a re-key that appends first ends the journal on a newline, `journal.repair_tail`, so the length marks where its base event begins), and `--undo DIR` puts those copies back and, when it appended, truncates the journal to that length and leaves the marker that makes the next land that moves the stamp journal a base (`journal.mark_unjournaled`), as it does when it refuses and asks for the copies to be put back by hand. The rewritten autosave is appended to verdicts-journal.ndjson as a base event holding its records and its tombstones (`journal.record_transition` with no previous stamp), because journal lines before it name old ids. The applied map, with each pair the codepoints-and-configs join landed in place of its computed one, is merged into var/keep/class-rejig-rekey/unit-id-map.json (`merge_id_maps`), which may be PATH itself: a run adds its entries to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run applied, `--map` takes it again for a file still on old ids, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one old id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run writes nothing, because every verdict and tombstone the map lands is already on its new id; a tombstone whose unit lands nowhere blocks no write and keeps its old id. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N collided=N tombstones_rekeyed=N records_cleared=N` over all the files, where `tombstones_rekeyed` counts the tombstones (a unit with its clear's `at`) the re-key puts in a file that the file did not hold, so not one the rule drops, `records_cleared` the records the rule drops for a clear at or after them, which the file's copy and, for the autosave, the journal before the re-key's base event still hold, and the others count the records the files hold. From reading the verdict files through the journal append, and for all of `--undo`, it holds the verdict store's lock (`rebuild.review.store_lock`, through `landing.locked_store`, which first finishes a land whose holder died), which every writer of the store and the journal holds. It refuses to rewrite the autosave while a review server that may write it is listening (its /capabilities answer names that store, or names none), unless --yes is passed, because the re-keyed ids would replace the ones the open tabs hold; such a run, and a dry run, reads without the lock, so a run that ends up writing nothing never makes the server refuse a save.
 
 Usage:
   uv run python -m rebuild.tools.rekey_verdicts --from-corpus rebuild/out/review --map-out var/keep/class-rejig-rekey/unit-id-map.json
@@ -45,7 +45,7 @@ from rebuild.review.unit_cache import (  # noqa: E402
     unit_id_for,
 )
 from rebuild.review.verdict_store import parse_cleared  # noqa: E402
-from rebuild.tools.merge_verdicts import rekey_cleared  # noqa: E402
+from rebuild.tools.merge_verdicts import UntimedRecord, rekey_cleared  # noqa: E402
 from rebuild.tools.review_server import capabilities, server_listening  # noqa: E402
 
 MAP_FORMAT = "ams-review-unit-id-map/2"
@@ -318,11 +318,19 @@ def verdict_files(root: Path, stamps: set[str], autosave: Path, extra: Iterable[
 def rekey_payload(
     payload: dict, renamed: Mapping[str, str], current: Container[str]
 ) -> tuple[dict, dict[str, int], list[str]]:
-    """Return the payload with every unit id in `renamed` replaced, records sorted by unit as the writers sort them, its counts, and the unmatched records' content ids. The store's tombstones (its `cleared` list) move through the same pairs by the rule a journal restore's re-key follows (`merge_verdicts.rekey_cleared`). `collided` counts the records that land on a unit a record naming another id lands on too, `tombstones_rekeyed` the tombstones (a unit with its clear's `at`) the returned payload holds and `payload` does not, so not one the rule drops, and the others count the records."""
-    counts = {"seen": 0, "rekeyed": 0, "current": 0, "unmatched": 0, "collided": 0, "tombstones_rekeyed": 0}
+    """Return the payload with every unit id in `renamed` replaced, records sorted by unit as the writers sort them, its counts, and the unmatched records' content ids. The store's tombstones (its `cleared` list) move through the same pairs by the rule a journal restore's re-key follows (`merge_verdicts.rekey_cleared`), which also drops the records on a unit a clear at or after the newest of them lands on and raises `UntimedRecord` for a record it cannot weigh against a clear. `collided` counts every record that lands on a unit a record naming another id lands on too, whichever order `payload` lists them in, `records_cleared` the records the rule drops, `tombstones_rekeyed` the tombstones (a unit with its clear's `at`) the returned payload holds and `payload` does not, so not one the rule drops, and the others count the records `payload` holds."""
+    counts = {
+        "seen": 0,
+        "rekeyed": 0,
+        "current": 0,
+        "unmatched": 0,
+        "collided": 0,
+        "tombstones_rekeyed": 0,
+        "records_cleared": 0,
+    }
     unmatched_content: list[str] = []
     records = []
-    sources: dict[str, str] = {}
+    sources: dict[str, set[str]] = {}
     for record in payload["verdicts"]:
         counts["seen"] += 1
         unit = record.get("unit") if isinstance(record, dict) else None
@@ -335,15 +343,26 @@ def rekey_payload(
             counts["unmatched"] += 1
             if isinstance(unit, str) and is_content_id(unit):
                 unmatched_content.append(unit)
-        if isinstance(unit, str) and sources.setdefault(record["unit"], unit) != unit:
-            counts["collided"] += 1
+        if isinstance(unit, str):
+            sources.setdefault(record["unit"], set()).add(unit)
         records.append(record)
+    counts["collided"] = sum(
+        1
+        for record in records
+        if isinstance(record, dict)
+        and isinstance(record.get("unit"), str)
+        and len(sources[record["unit"]]) > 1
+    )
     records.sort(key=lambda record: str(record.get("unit") or "") if isinstance(record, dict) else "")
     result = {**payload, "verdicts": records}
     if "cleared" in payload:
         tombstones = parse_cleared(payload)
-        held = {record.get("unit") for record in records if isinstance(record, dict)}
-        cleared = rekey_cleared(tombstones, renamed, held)
+        cleared, dropped = rekey_cleared(tombstones, renamed, payload["verdicts"])
+        kept = [
+            record for record in records if not isinstance(record, dict) or record.get("unit") not in dropped
+        ]
+        counts["records_cleared"] = len(records) - len(kept)
+        result["verdicts"] = kept
         counts["tombstones_rekeyed"] = len(cleared.items() - tombstones.items())
         result["cleared"] = [{"unit": unit, "at": at} for unit, at in sorted(cleared.items())]
         if not cleared:
@@ -629,12 +648,24 @@ def _rekey_files(
     )
 
     moves = {old: new for old, new in landing.landed.items() if new != old}
-    totals = {"seen": 0, "rekeyed": 0, "current": 0, "unmatched": 0, "collided": 0, "tombstones_rekeyed": 0}
+    totals = {
+        "seen": 0,
+        "rekeyed": 0,
+        "current": 0,
+        "unmatched": 0,
+        "collided": 0,
+        "tombstones_rekeyed": 0,
+        "records_cleared": 0,
+    }
     payloads: list[tuple[Path, dict, dict]] = []
     stray: list[tuple[Path, list[str]]] = []
     collided: list[Path] = []
     for path, payload in read:
-        rekeyed, counts, unmatched_content = rekey_payload(payload, moves, landing.present)
+        try:
+            rekeyed, counts, unmatched_content = rekey_payload(payload, moves, landing.present)
+        except UntimedRecord as untimed:
+            print(f"ERROR: in {_rel(path, root)}, {untimed}. Nothing was written.")
+            return 1
         strays = [unit for unit in unmatched_content if unit not in id_map["units"]]
         if strays and _stamp(payload) in from_stamps:
             stray.append((path, strays))
@@ -645,7 +676,7 @@ def _rekey_files(
         print(
             f"{_rel(path, root)} (stamped {_stamp(payload)}): {counts['seen']} verdicts, {counts['rekeyed']} re-keyed, "
             f"{counts['current']} already current, {counts['unmatched']} unmatched, {counts['collided']} collided, "
-            f"{counts['tombstones_rekeyed']} tombstones re-keyed"
+            f"{counts['tombstones_rekeyed']} tombstones re-keyed, {counts['records_cleared']} cleared by a tombstone"
         )
         if counts["rekeyed"] or moves.keys() & parse_cleared(payload).keys():
             payloads.append((path, payload, rekeyed))
@@ -658,7 +689,7 @@ def _rekey_files(
     print(
         f"rekey counts: seen={totals['seen']} rekeyed={totals['rekeyed']} current={totals['current']} "
         f"unmatched={totals['unmatched']} collided={totals['collided']} "
-        f"tombstones_rekeyed={totals['tombstones_rekeyed']}"
+        f"tombstones_rekeyed={totals['tombstones_rekeyed']} records_cleared={totals['records_cleared']}"
     )
 
     unlanded = sorted(unit for unit in verdicted if unit in landing.unlanded)

@@ -14,7 +14,7 @@ import argparse
 import json
 import os
 import sys
-from collections.abc import Container, Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -274,29 +274,61 @@ def _merge_into_store(
     return 0
 
 
+class UntimedRecord(ValueError):
+    """Raised by `rekey_cleared` when a record and a clear land on one unit and the record's `at`, read as every reader of the store reads it (`record.get("at") or ""`, so a missing or empty one is the oldest), is not a string, so nothing says which of the two is newer. `unit` is the record's unit before the re-key and `at` its `at` as the record holds it."""
+
+    def __init__(self, unit: str, at: object) -> None:
+        self.unit = unit
+        self.at = at
+        super().__init__(
+            f"a verdict record on {unit} whose `at` is not a string ({json.dumps(at)}) lands on the unit a clear "
+            "lands on, so the re-key cannot weigh the two"
+        )
+
+
 def rekey_cleared(
-    cleared: Mapping[str, str], id_map: Mapping[str, str], held: Container[str]
-) -> dict[str, str]:
-    """Return the tombstones `cleared` (unit → the clear's `at`) with each unit id in `id_map` replaced by its target. Two that land on one unit keep the later clear, and one that lands on a unit in `held`, the units that hold a record after the re-key, is dropped, as the verdict store drops a tombstone on a unit it holds a record for. A journal restore's re-key (`rekey_store`) and `rebuild.tools.rekey_verdicts` both move a store's tombstones through it."""
+    cleared: Mapping[str, str], id_map: Mapping[str, str], records: Iterable[object]
+) -> tuple[dict[str, str], set[str]]:
+    """Return the tombstones `cleared` (unit → the clear's `at`) with each unit id in `id_map` replaced by its target, and the targets whose records the rule drops. `records` are the records before the re-key, each naming its unit under `unit`; a tombstone on a unit one of them names is passed over, as the verdict store passes it over. Two tombstones that land on one unit keep the later clear. A tombstone that lands on a unit records land on meets the newest of them as a merge meets a record (`merge_into`): a clear at or after the record's `at` wins, so the tombstone stays and the unit's records are dropped, and a record strictly newer than the clear wins, so the tombstone is dropped. Each unit's outcome depends only on the newest clear and the newest record that land on it, so the order of `cleared` and `records` does not change it. A record that meets a clear and whose `at` is not a string raises `UntimedRecord`, whose docstring says how the rule reads an `at`; the rule reads no other record's `at`. A journal restore's re-key (`rekey_store`) and `rebuild.tools.rekey_verdicts` both move a store's tombstones through it."""
+    timed = [
+        (record["unit"], record.get("at") or "")
+        for record in records
+        if isinstance(record, dict) and isinstance(record.get("unit"), str)
+    ]
+    named = {unit for unit, _ in timed}
     tombstones: dict[str, str] = {}
     for unit, at in cleared.items():
         target = id_map.get(unit, unit)
-        if target not in held and at > tombstones.get(target, ""):
+        if unit not in named and at > tombstones.get(target, ""):
             tombstones[target] = at
-    return tombstones
+    held: dict[str, str] = {}
+    for unit, at in timed:
+        target = id_map.get(unit, unit)
+        if target not in tombstones:
+            continue
+        if not isinstance(at, str):
+            raise UntimedRecord(unit, at)
+        held[target] = max(at, held.get(target, at))
+    dropped = {unit for unit, at in held.items() if tombstones[unit] >= at}
+    return {unit: at for unit, at in tombstones.items() if unit not in held or unit in dropped}, dropped
 
 
 def rekey_store(
     records: dict[str, dict], cleared: dict[str, str], id_map: dict[str, str]
 ) -> tuple[dict[str, dict], dict[str, str]]:
-    """Return the records and the tombstones with each unit id in `id_map` replaced by its target. When two records land on one unit, the newer `at` wins, as in a merge, and the tombstones move by `rekey_cleared`."""
+    """Return the records and the tombstones with each unit id in `id_map` replaced by its target. The tombstones move by `rekey_cleared`, which also drops the records on a unit a clear at or after the newest of them lands on and raises `UntimedRecord` for a record it cannot weigh against a clear. When two records land on one unit, the newer `at` wins, as in a merge, and a tie goes to the record whose own id sorts first, so the order the records arrive in does not change the winner."""
+    tombstones, dropped = rekey_cleared(
+        cleared, id_map, ({**record, "unit": unit} for unit, record in records.items())
+    )
     moved: dict[str, dict] = {}
-    for unit, record in records.items():
+    for unit, record in sorted(records.items()):
         target = id_map.get(unit, unit)
+        if target in dropped:
+            continue
         current = moved.get(target)
         if current is None or (record.get("at") or "") > (current.get("at") or ""):
             moved[target] = {**record, "unit": target}
-    return moved, rekey_cleared(cleared, id_map, moved)
+    return moved, tombstones
 
 
 def run_restore(
@@ -322,9 +354,20 @@ def run_restore(
         return 1
     if rekey_map is not None:
         id_map = json.loads(rekey_map.read_text(encoding="utf-8"))["renamed"]
-        moved = sum(1 for unit in records if unit in id_map)
-        records, cleared = rekey_store(records, cleared, id_map)
-        print(f"re-keyed {moved} of {len(records)} restored verdicts through {_rel(rekey_map)}")
+        restored = records
+        try:
+            records, cleared = rekey_store(restored, cleared, id_map)
+        except UntimedRecord as untimed:
+            print(
+                f"ERROR: in the store that {_rel(journal_path)} replays as of {as_of}, {untimed}. Nothing was written."
+            )
+            return 1
+        moved = sum(1 for unit in restored if unit in id_map)
+        dropped = sum(1 for unit in restored if id_map.get(unit, unit) in cleared)
+        print(
+            f"re-keyed {moved} of {len(restored)} restored verdicts through {_rel(rekey_map)}; dropped {dropped} "
+            "that a clear at or after them landed on"
+        )
     payload = journal.payload_for(stamp, records, cleared)
     if not apply:
         target = out if out is not None else ROOT / f"verdicts-restored-{_sanitize(as_of)}.json"

@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from rebuild.review import journal, unit_index
 from rebuild.review.unit_cache import carry_content_hash, unit_id_for
 from rebuild.tools import carry_verdicts, merge_verdicts, rekey_verdicts
@@ -41,10 +43,8 @@ def _corpus(path: Path, stamp: str, fragments: list[dict]) -> Path:
     return path
 
 
-def _verdicts(path: Path, stamp: str, units: list[str]) -> None:
-    records = [
-        {"unit": unit, "verdict": "approve", "note": "", "at": "2026-09-01T00:00:00Z"} for unit in units
-    ]
+def _verdicts(path: Path, stamp: str, units: list[str], at: str = "2026-09-01T00:00:00Z") -> None:
+    records = [{"unit": unit, "verdict": "approve", "note": "", "at": at} for unit in units]
     payload = {
         "format": "ams-review-verdicts/1",
         "manifest_generated_at": stamp,
@@ -212,8 +212,10 @@ def test_an_id_that_lands_nowhere_blocks_and_a_map_must_be_one_to_one(tmp_path, 
     assert "computed under another carry projection" in capsys.readouterr().out
 
 
-def test_two_records_on_one_unit_block_and_a_join_never_takes_another_entrys_unit(tmp_path, capsys):
-    """A file with a record on an old id and one on that id's new unit would hold two verdicts on one unit, so the run writes nothing and no flag overrides it. An id whose new id is missing from the new corpus never lands, by its codepoints and configs, on a unit that is another entry's new id."""
+def test_two_records_on_one_unit_or_a_non_string_at_block_and_a_join_never_takes_another_entrys_unit(
+    tmp_path, capsys
+):
+    """A file with a record on an old id and one on that id's new unit would hold two verdicts on one unit, so the run writes nothing, no flag overrides it, and both records count as collided. A record whose `at` is not a string blocks nothing while no clear lands on its unit, but a clear the map moves onto its unit stops the run the same way, since the re-key cannot weigh the two, and stops a journal restore's re-key through the same map. An id whose new id is missing from the new corpus never lands, by its codepoints and configs, on a unit that is another entry's new id."""
     fragments = _fragments()
     twin = {**fragments[0], "id": "twin", "kinds": [*fragments[0]["kinds"], "twin"]}
     olds = [_old(fragment) for fragment in [*fragments, twin]]
@@ -230,8 +232,44 @@ def test_two_records_on_one_unit_block_and_a_join_never_takes_another_entrys_uni
 
     assert rekey_verdicts.main([*argv, "--allow-unmatched"]) == 1
     out = capsys.readouterr().out
-    assert "collided=1" in out and "records naming different ids land on one unit" in out
+    assert "collided=2" in out and "records naming different ids land on one unit" in out
     assert autosave.read_bytes() == stored and not keep.exists()
+
+    _verdicts(autosave, OLD_STAMP, [news[2]["id"]])
+    store = json.loads(autosave.read_text(encoding="utf-8"))
+    store["verdicts"][0]["at"] = 5
+    store["cleared"] = [{"unit": olds[3]["id"], "at": "2026-09-03T00:00:00Z"}]
+    autosave.write_text(json.dumps(store), encoding="utf-8")
+    assert rekey_verdicts.main([*argv, "--dry-run"]) == 0
+    capsys.readouterr()
+    store["cleared"] = [{"unit": olds[2]["id"], "at": "2026-09-03T00:00:00Z"}]
+    autosave.write_text(json.dumps(store), encoding="utf-8")
+    stored = autosave.read_bytes()
+    untimed = f"a verdict record on {news[2]['id']} whose `at` is not a string (5) lands on the unit a clear lands on"
+    assert rekey_verdicts.main(argv) == 1
+    assert f"ERROR: in verdicts-autosave.json, {untimed}" in capsys.readouterr().out
+    assert autosave.read_bytes() == stored and not keep.exists()
+    journal_path, restored = tmp_path / journal.JOURNAL_NAME, tmp_path / "restored.json"
+    journal.record_transition(
+        journal_path,
+        source="merge",
+        stamp=OLD_STAMP,
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=store["verdicts"],
+        new_cleared=journal.parse_cleared(store),
+        at="2000-01-01T00:00:00Z",
+    )
+    restore_argv = [
+        "--restore-as-of",
+        "2000-01-02",
+        "--journal",
+        str(journal_path),
+        "--autosave",
+        str(autosave),
+    ]
+    assert merge_verdicts.main([*restore_argv, "--out", str(restored), "--rekey-map", str(map_path)]) == 1
+    assert untimed in capsys.readouterr().out and not restored.exists()
 
     _verdicts(autosave, OLD_STAMP, [olds[0]["id"]])
     assert rekey_verdicts.main([*argv, "--dry-run"]) == 1
@@ -381,7 +419,7 @@ def test_a_store_whose_only_moved_id_is_a_tombstone_is_rewritten_so_the_carry_ke
     out = capsys.readouterr().out
     assert (
         f"verdicts-autosave.json (stamped {OLD_STAMP}): 0 verdicts, 0 re-keyed, 0 already current, 0 unmatched, "
-        "0 collided, 1 tombstones re-keyed\n" in out
+        "0 collided, 1 tombstones re-keyed, 0 cleared by a tombstone\n" in out
     )
     assert "rewrote verdicts-autosave.json" in out
     assert "rekey counts: seen=1 rekeyed=1 current=0 unmatched=0 collided=0 tombstones_rekeyed=1" in out
@@ -422,27 +460,42 @@ def test_a_store_whose_only_moved_id_is_a_tombstone_is_rewritten_so_the_carry_ke
     assert journal.replay_store(journal_path) == (OLD_STAMP, {}, {old_id: clear_at})
 
 
-def test_a_store_whose_moved_tombstone_lands_on_a_unit_it_holds_a_record_for_is_rewritten_without_it(
+def test_a_clear_the_map_moves_onto_an_older_record_clears_its_unit_through_the_carry_and_the_undo_puts_it_back(
     tmp_path, capsys
 ):
-    """A tombstone the map moves onto a unit the store holds a record for is dropped, so the store is rewritten without it and the counts say no tombstone was re-keyed."""
+    """A store holds an approval on a unit's new id and a later clear on its old id, and a root carried file holds an approval on the old id made between the two. The re-key moves the clear onto the approved unit, where it wins, as a clear wins in a merge: the store is rewritten and journaled with the unit cleared and no record, and the counts say one record was cleared. The carry onto the new corpus then keeps out the carried file's re-keyed approval, a journal restore from before the re-key moves the replayed store through the kept map by the same rule, and the undo puts the approval back."""
     fragments = _fragments()
     olds = [_old(fragment) for fragment in fragments]
     news = [_new(fragment) for fragment in fragments]
     old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
     new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
-    map_path = tmp_path / rekey_verdicts.KEEP / rekey_verdicts.MAP_NAME
+    keep = tmp_path / rekey_verdicts.KEEP
+    map_path = keep / rekey_verdicts.MAP_NAME
     assert (
         rekey_verdicts.main(
             ["--root", str(tmp_path), "--from-corpus", str(old_corpus), "--map-out", str(map_path)]
         )
         == 0
     )
-    autosave = tmp_path / "verdicts-autosave.json"
-    _verdicts(autosave, OLD_STAMP, [news[0]["id"]])
+    old_id, new_id, clear_at = olds[0]["id"], news[0]["id"], "2026-09-03T00:00:00Z"
+    autosave, journal_path = tmp_path / "verdicts-autosave.json", tmp_path / journal.JOURNAL_NAME
+    carried = tmp_path / "verdicts-carried-abc1234.json"
+    _verdicts(carried, OLD_STAMP, [old_id], at="2026-09-02T00:00:00Z")
+    _verdicts(autosave, OLD_STAMP, [new_id])
     store = json.loads(autosave.read_text(encoding="utf-8"))
-    store["cleared"] = [{"unit": olds[0]["id"], "at": "2026-09-03T00:00:00Z"}]
+    store["cleared"] = [{"unit": old_id, "at": clear_at}]
     autosave.write_text(json.dumps(store), encoding="utf-8")
+    journal.record_transition(
+        journal_path,
+        source="merge",
+        stamp=OLD_STAMP,
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=store["verdicts"],
+        new_cleared={old_id: clear_at},
+        at="2000-01-01T00:00:00Z",
+    )
+    before = {path.name: path.read_bytes() for path in (autosave, carried, journal_path)}
     capsys.readouterr()
 
     argv = ["--root", str(tmp_path), "--map", str(map_path), "--corpus", str(new_corpus)]
@@ -450,15 +503,99 @@ def test_a_store_whose_moved_tombstone_lands_on_a_unit_it_holds_a_record_for_is_
     out = capsys.readouterr().out
     assert (
         f"verdicts-autosave.json (stamped {OLD_STAMP}): 1 verdicts, 0 re-keyed, 1 already current, 0 unmatched, "
-        "0 collided, 0 tombstones re-keyed\n" in out
+        "0 collided, 1 tombstones re-keyed, 1 cleared by a tombstone\n" in out
     )
-    assert "rewrote verdicts-autosave.json" in out
-    assert _units(autosave) == [news[0]["id"]]
-    assert "cleared" not in json.loads(autosave.read_text(encoding="utf-8"))
+    assert (
+        "rekey counts: seen=2 rekeyed=1 current=1 unmatched=0 collided=0 tombstones_rekeyed=1 records_cleared=1"
+        in out
+    )
+    assert _units(autosave) == []
+    assert journal.parse_cleared(json.loads(autosave.read_text(encoding="utf-8"))) == {new_id: clear_at}
+    assert journal.replay_store(journal_path) == (OLD_STAMP, {}, {new_id: clear_at})
+    assert _units(carried) == [new_id]
+
+    onto_new = tmp_path / "carried-onto-new.json"
+    ids = {fragment["id"] for fragment in news}
+    carry_argv = [
+        "--verdicts",
+        str(autosave),
+        "--verdicts",
+        str(carried),
+        "--current-corpus",
+        str(new_corpus),
+    ]
+    assert (
+        carry_verdicts.main(
+            [*carry_argv, "--out", str(onto_new)],
+            current_units=[{"id": unit} for unit in sorted(ids)],
+            current_ids=ids,
+        )
+        == 0
+    )
+    assert _units(onto_new) == []
+
+    capsys.readouterr()
+    assert _restore(tmp_path, map_path) == []
+    out = capsys.readouterr().out
+    assert (
+        "re-keyed 0 of 1 restored verdicts" in out
+        and "dropped 1 that a clear at or after them landed on" in out
+    )
+
+    (backup,) = [path for path in keep.iterdir() if path.is_dir()]
+    assert rekey_verdicts.main(["--root", str(tmp_path), "--undo", str(backup)]) == 0
+    assert {path.name: path.read_bytes() for path in (autosave, carried, journal_path)} == before
+
+
+@pytest.mark.parametrize(
+    ("record_at", "record_wins"),
+    [("2026-09-01T00:00:00Z", False), ("2026-09-04T00:00:00Z", True), ("2026-09-03T00:00:00Z", False)],
+    ids=["older-record", "newer-record", "tie"],
+)
+def test_a_clear_and_a_record_that_land_on_one_unit_keep_the_newer_and_a_tie_goes_to_the_clear(
+    record_at, record_wins
+):
+    """A re-key and a journal restore's re-key (`merge_verdicts.rekey_store`) settle a tombstone the map moves onto a unit holding a record alike, as a merge settles a clear and a record: a clear at or after the record's `at` keeps the unit cleared and drops the record, which the re-key counts, and a record strictly newer than the clear keeps the unit and drops the tombstone."""
+    renamed = {"u-A": "u-B"}
+    clear_at = "2026-09-03T00:00:00Z"
+    record = {"unit": "u-B", "verdict": "approve", "note": "", "at": record_at}
+    payload = {
+        "format": "ams-review-verdicts/1",
+        "manifest_generated_at": OLD_STAMP,
+        "verdicts": [record],
+        "cleared": [{"unit": "u-A", "at": clear_at}],
+    }
+    records = {"u-B": record} if record_wins else {}
+    tombstones = {} if record_wins else {"u-B": clear_at}
+
+    rekeyed, counts, _ = rekey_verdicts.rekey_payload(payload, renamed, {"u-B"})
+    assert rekeyed["verdicts"] == list(records.values())
+    assert journal.parse_cleared(rekeyed) == tombstones
+    assert counts["records_cleared"] == (0 if record_wins else 1)
+    assert merge_verdicts.rekey_store({"u-B": record}, {"u-A": clear_at}, renamed) == (records, tombstones)
+
+
+def test_records_that_land_on_one_unit_are_settled_and_counted_alike_whichever_order_they_arrive_in():
+    """When two restored records with one `at` land on one unit, the journal restore's re-key keeps the same one whichever the replay lists first. When a clear lands there too, it meets the newest of them whichever comes first: a record newer than the clear keeps the unit and drops the tombstone, and a clear newer than both drops both. The re-key counts every record on a unit that records naming two ids land on as collided whichever the file lists first."""
+    renamed = {"u-A": "u-B"}
+    moved = {"unit": "u-A", "verdict": "approve", "note": "", "at": "t1"}
+    current = {"unit": "u-B", "verdict": "reject", "note": "", "at": "t1"}
+    forward = merge_verdicts.rekey_store({"u-A": moved, "u-B": current}, {}, renamed)
+    backward = merge_verdicts.rekey_store({"u-B": current, "u-A": moved}, {}, renamed)
+    assert forward == backward == ({"u-B": {**moved, "unit": "u-B"}}, {})
+    onto = {"u-A": "u-B", "u-C": "u-B"}
+    older = {**moved, "at": "t1"}
+    for newest_at, expected in (("t5", ({"u-B": {**current, "at": "t5"}}, {})), ("t2", ({}, {"u-B": "t3"}))):
+        newest = {**current, "at": newest_at}
+        for listed in ({"u-A": older, "u-B": newest}, {"u-B": newest, "u-A": older}):
+            assert merge_verdicts.rekey_store(listed, {"u-C": "t3"}, onto) == expected
+    for listed in ([current, moved, moved], [moved, moved, current]):
+        payload = {"format": "ams-review-verdicts/1", "manifest_generated_at": OLD_STAMP, "verdicts": listed}
+        assert rekey_verdicts.rekey_payload(payload, renamed, {"u-B"})[1]["collided"] == 3
 
 
 def test_rekey_moves_the_stores_tombstones_through_the_pairs():
-    """A re-key and a journal restore's re-key (`merge_verdicts.rekey_store`) move a store's tombstones alike: two that land on one id keep the later clear, whichever the store lists first, and one whose id holds a record after the re-key is dropped. The re-key counts only the tombstones that land."""
+    """A re-key and a journal restore's re-key (`merge_verdicts.rekey_store`) move a store's tombstones alike: two that land on one id keep the later clear, whichever the store lists first, and one on an id a record names is passed over, though its clear is newer than the record, as the verdict store passes it over. The re-key counts only the tombstones that land."""
     renamed = {
         "u-old1": "u-new1",
         "u-old2": "u-new2",
@@ -469,7 +606,7 @@ def test_rekey_moves_the_stores_tombstones_through_the_pairs():
     payload = {
         "format": "ams-review-verdicts/1",
         "manifest_generated_at": OLD_STAMP,
-        "verdicts": [{"unit": "u-old2", "verdict": "approve", "note": "", "at": "t9"}],
+        "verdicts": [{"unit": "u-old2", "verdict": "approve", "note": "", "at": "t0"}],
         "cleared": [
             {"unit": "u-old1", "at": "t3"},
             {"unit": "u-old3", "at": "t5"},
