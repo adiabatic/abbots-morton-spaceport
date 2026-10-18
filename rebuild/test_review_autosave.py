@@ -679,6 +679,20 @@ def test_parse_delta_payload_accepts_both_clear_shapes():
     assert parsed["replay"] is False
 
 
+@pytest.mark.parametrize("verdict_field", [{}, {"verdict": 5}], ids=["no-verdict", "numeric-verdict"])
+def test_a_set_whose_record_the_carry_refuses_is_refused_before_any_write(tmp_path, verdict_field):
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    path, store = new_store(tmp_path, [verdict("u-0")], journal_path)
+    before = path.read_bytes(), journal_path.read_bytes(), sorted(tmp_path.rglob("*"))
+    status, body = store.receive(delta(NEW, [{"unit": "u-1", "at": "2026-07-10T00:00:00Z", **verdict_field}]))
+    assert status == 400 and body["ok"] is False
+    assert (path.read_bytes(), journal_path.read_bytes(), sorted(tmp_path.rglob("*"))) == before
+    assert set(store.records) == {"u-0"}
+    assert store.receive(delta(NEW, [verdict("u-1", at="2026-07-10T00:00:00Z")]))[0] == 200
+    assert on_disk(path)["verdicts"] == [verdict("u-0"), verdict("u-1", at="2026-07-10T00:00:00Z")]
+    assert set(journal.replay(journal_path)[1]) == {"u-0", "u-1"}
+
+
 def test_a_stale_stamp_delta_on_a_served_unit_is_carried_and_journaled_as_carried(tmp_path):
     journal_path = tmp_path / "verdicts-journal.ndjson"
     path, store = new_store(tmp_path, [verdict("u-1", at="t1")], journal_path)

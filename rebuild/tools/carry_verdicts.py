@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.review import unit_index  # noqa: E402
 from rebuild.review.landing import ORPHAN_SHARE_LIMIT, SNAPSHOT_NAME, orphan_share  # noqa: E402
-from rebuild.review.verdict_store import parse_cleared  # noqa: E402
+from rebuild.review.verdict_store import parse_cleared, well_formed  # noqa: E402
 from rebuild.tools.verdict_notes import drop_carried_markers  # noqa: E402
 
 OUT = ROOT / "verdicts-carried-forward.json"
@@ -32,15 +32,6 @@ def latest_verdicts(payload):
         if unit not in best or record["at"] > best[unit]["at"]:
             best[unit] = record
     return best
-
-
-def well_formed(record):
-    """Return whether `record` is a verdict record the carry reads: an object with a string `unit`, `verdict` and `at`, and a `note` that is a string or false-valued, since every reader of the store takes it as `note or ""`. The carry refuses a verdicts file that holds any other record (`resolve_prior`), and the merge refuses an input file that holds one (`merge_verdicts`), so the merge takes no file the carry would refuse."""
-    return (
-        isinstance(record, dict)
-        and all(isinstance(record.get(key), str) for key in ("unit", "verdict", "at"))
-        and isinstance(record.get("note") or "", str)
-    )
 
 
 def _read_verdicts_file(verdict_file):
