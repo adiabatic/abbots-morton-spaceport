@@ -488,6 +488,8 @@ def _land_locked(
         old_stamp=old_stamp,
         old_verdicts=list(now.records.values()),
         new_verdicts=list(ready.records.values()),
+        old_cleared=now.cleared,
+        new_cleared=ready.cleared,
         stashed=stash.name if stash is not None else None,
         at=at,
         base=base,
@@ -586,6 +588,7 @@ def recover_interrupted_land(store: Path) -> Recovery | None:
             old_stamp=None,
             old_verdicts=[],
             new_verdicts=list(landed.records.values()),
+            new_cleared=landed.cleared,
             stashed=intent.get("stash"),
         )
         journal.unjournaled_marker_for(store).unlink(missing_ok=True)

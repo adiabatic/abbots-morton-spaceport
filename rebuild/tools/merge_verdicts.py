@@ -1,4 +1,4 @@
-"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for an older corpus (a `manifest_generated_at` that sorts before the corpus's `generated_at`) is moved aside first (`stash_path_for`), and one stamped for a newer corpus is refused, since the merge would move the store back onto an outdated corpus. An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. A merge keeps the store's tombstones (the units the app cleared, each with the time of the clear), and a tombstone wins over an incoming record whose `at` is not after the clear. A merge onto a store stamped for an older corpus keeps none of that store's verdicts but keeps its tombstones on the corpus's human units, as the review server's move of a store onto the served corpus (rule 3 in `rebuild.review.verdict_store`) and the land (`landing.overlay`) keep them, so the fills a pass that moves the stamp merges after the carry meet the same tombstones as on a pass that keeps it. A caller in the same process can add tombstones with `main`'s `clears`, which the merge keeps as the store's own on units the kept store holds no record for: the verdict update passes the skips of a store it carries onto the corpus before a direct merge (`verdict_update.skip_clears`). A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`, taken through `landing.locked_store`, which first finishes a land whose holder died), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app retries the save a closing tab sends only when it is next opened, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed (for a server that serves another checkout); a dry run and a refused merge take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time. `--rekey-map` moves a replayed store's unit ids through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
+"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. An autosave stamped for an older corpus (a `manifest_generated_at` that sorts before the corpus's `generated_at`) is moved aside first (`stash_path_for`), and one stamped for a newer corpus is refused, since the merge would move the store back onto an outdated corpus. An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. A merge keeps the store's tombstones (the units the app cleared, each with the time of the clear), and a tombstone wins over an incoming record whose `at` is not after the clear. A merge onto a store stamped for an older corpus keeps none of that store's verdicts but keeps its tombstones on the corpus's human units, as the review server's move of a store onto the served corpus (rule 3 in `rebuild.review.verdict_store`) and the land (`landing.overlay`) keep them, so the fills a pass that moves the stamp merges after the carry meet the same tombstones as on a pass that keeps it. A caller in the same process can add tombstones with `main`'s `clears`, which the merge keeps as the store's own on units the kept store holds no record for: the verdict update passes the skips of a store it carries onto the corpus before a direct merge (`verdict_update.skip_clears`). A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`, taken through `landing.locked_store`, which first finishes a land whose holder died), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app retries the save a closing tab sends only when it is next opened, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed (for a server that serves another checkout); a dry run and a refused merge take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to verdicts-journal.ndjson (`rebuild.review.journal`), and `--restore-as-of` replays that journal to recover the store as of any recorded time, its records and its tombstones (`journal.replay_store`), so a unit cleared by then stays cleared through a later merge of a file that still holds its older verdict, unless the replay starts from a base event written after the clear with no `cleared` list (the `rebuild.review.journal` docstring says where a replay of lines without the tombstone fields differs from the store). `--rekey-map` moves a replayed store's unit ids, its tombstones' among them, through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
 
 Usage:
   uv run python -m rebuild.tools.merge_verdicts [FILES ...]     # no FILES: merge the fullest verdicts file verdict-ready names
@@ -251,9 +251,7 @@ def _merge_into_store(
         stashed = stash.name
         print(f"stashed the previous autosave as {stashed}")
 
-    payload = journal.payload_for(stamp, result)
-    if cleared:
-        payload["cleared"] = [{"unit": unit, "at": at} for unit, at in sorted(cleared.items())]
+    payload = journal.payload_for(stamp, result, cleared)
     _write_store(autosave, payload)
     journal.record_transition(
         journal_path,
@@ -262,6 +260,8 @@ def _merge_into_store(
         old_stamp=aligned["manifest_generated_at"] if aligned is not None else None,
         old_verdicts=aligned["verdicts"] if aligned is not None else [],
         new_verdicts=payload["verdicts"],
+        old_cleared=parse_cleared(aligned),
+        new_cleared=cleared,
         stashed=stashed,
     )
     print(
@@ -274,15 +274,22 @@ def _merge_into_store(
     return 0
 
 
-def rekey_records(records: dict[str, dict], id_map: dict[str, str]) -> dict[str, dict]:
-    """Return the records with each unit id in `id_map` replaced by its target. When two records land on one unit, the newer `at` wins, as in a merge."""
+def rekey_store(
+    records: dict[str, dict], cleared: dict[str, str], id_map: dict[str, str]
+) -> tuple[dict[str, dict], dict[str, str]]:
+    """Return the records and the tombstones with each unit id in `id_map` replaced by its target. When two records land on one unit, the newer `at` wins, as in a merge. The tombstones move as `rebuild.tools.rekey_verdicts` moves a store's: two that land on one unit keep the later clear, and one whose unit holds a record after the re-key is dropped."""
     moved: dict[str, dict] = {}
     for unit, record in records.items():
         target = id_map.get(unit, unit)
         current = moved.get(target)
         if current is None or (record.get("at") or "") > (current.get("at") or ""):
             moved[target] = {**record, "unit": target}
-    return moved
+    tombstones: dict[str, str] = {}
+    for unit, at in cleared.items():
+        target = id_map.get(unit, unit)
+        if target not in moved and at > tombstones.get(target, ""):
+            tombstones[target] = at
+    return moved, tombstones
 
 
 def run_restore(
@@ -296,7 +303,7 @@ def run_restore(
     rekey_map: Path | None = None,
 ) -> int:
     try:
-        stamp, records = journal.replay(journal_path, as_of=as_of)
+        stamp, records, cleared = journal.replay_store(journal_path, as_of=as_of)
     except journal.JournalGap as gap:
         print(
             f"ERROR: {_rel(journal_path)} cannot reconstruct the store as of {as_of}: {gap}. Pick a moment before "
@@ -309,9 +316,9 @@ def run_restore(
     if rekey_map is not None:
         id_map = json.loads(rekey_map.read_text(encoding="utf-8"))["renamed"]
         moved = sum(1 for unit in records if unit in id_map)
-        records = rekey_records(records, id_map)
+        records, cleared = rekey_store(records, cleared, id_map)
         print(f"re-keyed {moved} of {len(records)} restored verdicts through {_rel(rekey_map)}")
-    payload = journal.payload_for(stamp, records)
+    payload = journal.payload_for(stamp, records, cleared)
     if not apply:
         target = out if out is not None else ROOT / f"verdicts-restored-{_sanitize(as_of)}.json"
         _write_store(target, payload)
@@ -349,6 +356,8 @@ def _apply_restore(
         old_stamp=existing["manifest_generated_at"] if existing is not None else None,
         old_verdicts=existing["verdicts"] if existing is not None else [],
         new_verdicts=payload["verdicts"],
+        old_cleared=parse_cleared(existing),
+        new_cleared=parse_cleared(payload),
         stashed=stashed,
     )
     print(

@@ -455,6 +455,18 @@ def test_a_delta_seeds_a_journal_that_does_not_exist_yet(tmp_path):
     assert set(records) == {"u-1", "u-3"}
 
 
+def test_a_delta_seeds_a_journal_with_the_tombstones_of_a_store_that_holds_no_records(tmp_path):
+    path = tmp_path / "verdicts-autosave.json"
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    stamp = "2026-07-03T23:31:04Z"
+    document = json.loads(payload(stamp))
+    document["cleared"] = [{"unit": "u-2", "at": "t5"}]
+    path.write_text(json.dumps(document))
+    VerdictStore(path, journal_path).receive(delta(stamp, [verdict("u-1")]))
+    assert [event["source"] for event in journal.iter_events(journal_path)] == ["seed", "autosave"]
+    assert journal.replay_store(journal_path) == (stamp, {"u-1": verdict("u-1")}, {"u-2": "t5"})
+
+
 def test_changes_since_hands_back_only_what_moved_after_the_token(tmp_path):
     path = tmp_path / "verdicts-autosave.json"
     stamp = "2026-07-03T23:31:04Z"
@@ -825,7 +837,7 @@ def test_a_stale_clear_follows_the_same_tests_and_a_bare_clear_is_orphaned(tmp_p
 
 
 def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_it(tmp_path):
-    """A first pass over a deleted corpus builds it in place and lands no store, and a restore under --yes can put back a store stamped for an earlier corpus, so the store can sit on another stamp than the served corpus. The first save from a tab on the served corpus carries the store onto it by unit id, keeping its verdicts and tombstones on the served corpus's human units, less its skips, keeps the old file as the stash, and then applies the save, so the tab keeps saving and no verdict is left behind in the stash."""
+    """A first pass over a deleted corpus builds it in place and lands no store, and a restore under --yes can put back a store stamped for an earlier corpus, so the store can sit on another stamp than the served corpus. The first save from a tab on the served corpus carries the store onto it by unit id, keeping its verdicts and tombstones on the served corpus's human units, less its skips, keeps the old file as the stash, and then applies the save and journals the move, the kept tombstones included, so the tab keeps saving and no verdict is left behind in the stash."""
     journal_path = tmp_path / "verdicts-journal.ndjson"
     path = tmp_path / "verdicts-autosave.json"
     path.write_bytes(
@@ -859,7 +871,8 @@ def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_
     assert written["cleared"] == [{"unit": "u-4", "at": "t2"}]
     event = list(journal.iter_events(journal_path))[-1]
     assert event["stamp"] == newer and event["stashed"] == stash_path_for(path, NEW).name
-    assert set(journal.replay(journal_path)[1]) == {"u-1", "u-9"}
+    _, records, cleared = journal.replay_store(journal_path)
+    assert set(records) == {"u-1", "u-9"} and cleared == {"u-4": "t2"}
     status, body = store.receive(
         delta(OLD, [verdict("u-9", at="t95")]), served("u-1", "u-3", "u-4", "u-9", stamp=newer)
     )

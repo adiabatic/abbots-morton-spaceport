@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rebuild.review import journal
+from rebuild.review.journal import parse_cleared
 
 EXPORT_FORMAT = "ams-review-verdicts/1"
 DELTA_FORMAT = "ams-review-verdicts-delta/1"
@@ -224,18 +225,6 @@ def _normalize(record: dict) -> dict:
 
 def _signature(record: dict) -> tuple:
     return (record.get("verdict"), record.get("note") or "", record.get("at") or "")
-
-
-def parse_cleared(data: dict | None) -> dict[str, str]:
-    """Return a verdicts document's tombstones (its top-level `cleared` list) as unit → the clear's `at`, skipping malformed entries."""
-    cleared = data.get("cleared") if data else None
-    if not isinstance(cleared, list):
-        return {}
-    return {
-        entry["unit"]: entry["at"]
-        for entry in cleared
-        if isinstance(entry, dict) and isinstance(entry.get("unit"), str) and isinstance(entry.get("at"), str)
-    }
 
 
 def _stat_signature(stat: os.stat_result) -> tuple[int, int, int]:
@@ -544,6 +533,9 @@ class VerdictStore:
             ],
         }
         if self.journal_path is not None and changed:
+            seed_records, seed_cleared = (
+                (None, None) if self.journal_path.exists() else self._store_before(sets, clears)
+            )
             self._journal(
                 body,
                 marked,
@@ -551,8 +543,9 @@ class VerdictStore:
                 source=source,
                 stamp=target,
                 sets=[self.records[record["unit"]] for record in sets],
-                clears=clears,
-                seed_records=None if self.journal_path.exists() else self._records_before(sets, clears),
+                clears={unit: self.cleared[unit] for unit in clears},
+                seed_records=seed_records,
+                seed_cleared=seed_cleared,
             )
         return 200, body
 
@@ -568,6 +561,7 @@ class VerdictStore:
         stamp = delta["manifest_generated_at"]
         old_stamp = self.stamp
         old_verdicts = list(self.records.values())
+        old_cleared = dict(self.cleared)
         stash = stash_path_for(self.path, old_stamp) if old_stamp is not None else None
         if stash is not None and self.path.exists():
             _link_or_copy(self.path, stash)
@@ -608,14 +602,18 @@ class VerdictStore:
                 old_stamp=old_stamp,
                 old_verdicts=old_verdicts,
                 new_verdicts=list(self.records.values()),
+                old_cleared=old_cleared,
+                new_cleared=dict(self.cleared),
                 stashed=stash.name if stash is not None else None,
             )
         return 200, body
 
-    def _records_before(self, sets, clears) -> dict[str, dict]:
-        """Return the store's records minus the units this delta touched, to seed a journal that does not exist yet. The touched units are left out, not reverted, because the delta's own journal lines record them."""
+    def _store_before(self, sets, clears) -> tuple[dict[str, dict], dict[str, str]]:
+        """Return the store's records and tombstones minus the units this delta touched, to seed a journal that does not exist yet. The touched units are left out, not reverted, because the delta's own journal lines record them."""
         touched = {record["unit"] for record in sets} | set(clears)
-        return {unit: record for unit, record in self.records.items() if unit not in touched}
+        records = {unit: record for unit, record in self.records.items() if unit not in touched}
+        cleared = {unit: at for unit, at in self.cleared.items() if unit not in touched}
+        return records, cleared
 
     def _mark_unjournaled(self) -> bool:
         """Before a store write the journal will record, write the marker that says the journal may lack it (`journal.mark_unjournaled`), and return whether this write left it. A store with no journal writes none."""

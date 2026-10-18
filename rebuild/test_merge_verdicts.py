@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
 
 import json
 import threading
@@ -8,6 +8,8 @@ import pytest
 from rebuild.review import journal
 from rebuild.review import store_lock as store_lock_module
 from rebuild.review.store_lock import store_lock
+from rebuild.review.verdict_store import DELTA_FORMAT, VerdictStore
+from rebuild.tools import carry_verdicts
 from rebuild.tools import merge_verdicts as mv
 
 
@@ -431,6 +433,100 @@ def test_restore_apply_replaces_and_stashes_the_autosave(repo, monkeypatch):
     }
     stamp, records = journal.replay(repo["journal"])
     assert set(records) == {"u-1"}
+
+
+def test_a_restore_keeps_the_stores_clears_so_neither_a_carry_nor_a_merge_brings_a_cleared_verdict_back(
+    repo, tmp_path, monkeypatch
+):
+    """The reviewer clears u-X in the app after a root verdicts file recorded its approval, an unrelated merge goes wrong, and `--restore-as-of --apply` undoes that merge as of a moment after the clear. The restored store keeps the tombstone at the clear's own `at`, so the root file neither carries u-X's approval back (`carry_verdicts.resolve_prior`) nor merges it back."""
+    clock = {"now": "2026-07-10T01:00:00Z"}
+    monkeypatch.setattr(journal, "now_stamp", lambda: clock["now"])
+    cleared_at = "2026-07-10T02:00:00Z"
+    root_file = write_doc(tmp_path / "verdicts-carried-x.json", "S2", [v("u-X"), v("u-Y")])
+    assert run(repo, str(root_file)) == 0
+    clock["now"] = "2026-07-10T02:00:30Z"
+    clear = {"unit": "u-X", "base_at": v("u-X")["at"], "at": cleared_at}
+    status, _ = VerdictStore(repo["autosave"], repo["journal"]).receive(
+        json.dumps({"format": DELTA_FORMAT, "manifest_generated_at": "S2", "clears": [clear]}).encode()
+    )
+    assert status == 200
+    clock["now"] = "2026-07-10T03:00:00Z"
+    assert run(repo, str(write_doc(tmp_path / "bad.json", "S2", [v("u-Z")]))) == 0
+    assert run(repo, "--restore-as-of", "2026-07-10T02:30", "--apply") == 0
+    assert set(store_records(repo)) == {"u-Y"}
+    assert json.loads(repo["autosave"].read_text())["cleared"] == [{"unit": "u-X", "at": cleared_at}]
+    assert set(carry_verdicts.resolve_prior([root_file, repo["autosave"]])) == {"u-Y"}
+    assert run(repo, str(root_file)) == 0
+    assert set(store_records(repo)) == {"u-Y"}
+    assert json.loads(repo["autosave"].read_text())["cleared"] == [{"unit": "u-X", "at": cleared_at}]
+    assert journal.replay_store(repo["journal"]) == ("S2", store_records(repo), {"u-X": cleared_at})
+
+
+def test_a_journal_with_no_at_on_its_clear_lines_and_no_cleared_list_on_its_bases_still_restores(repo):
+    """A clear line with no `at` field takes its event's `at` as the tombstone, and a base event with no `cleared` list holds no tombstones, so a journal in that form restores the records it records and a tombstone for each clear, and the restore journals the store it writes, its tombstones included."""
+    lines = [
+        {
+            "kind": "event",
+            "source": "merge",
+            "at": "2026-07-10T01:00:00Z",
+            "stamp": "S2",
+            "base": True,
+            "stashed": None,
+            "sets": 2,
+            "clears": 0,
+        },
+        {"kind": "set", **v("u-1")},
+        {"kind": "set", **v("u-2")},
+        {
+            "kind": "event",
+            "source": "autosave",
+            "at": "2026-07-10T02:00:00Z",
+            "stamp": "S2",
+            "base": False,
+            "stashed": None,
+            "sets": 0,
+            "clears": 1,
+        },
+        {"kind": "clear", "unit": "u-1"},
+    ]
+    repo["journal"].write_text("".join(json.dumps(line) + "\n" for line in lines))
+    out = repo["root"] / "restored.json"
+    assert run(repo, "--restore-as-of", "2026-07-10T01:30", "--out", str(out)) == 0
+    before = json.loads(out.read_text())
+    assert [record["unit"] for record in before["verdicts"]] == ["u-1", "u-2"] and "cleared" not in before
+    assert run(repo, "--restore-as-of", "2026-07-10T02:30", "--apply") == 0
+    restored = json.loads(repo["autosave"].read_text())
+    assert set(store_records(repo)) == {"u-2"}
+    assert restored["cleared"] == [{"unit": "u-1", "at": "2026-07-10T02:00:00Z"}]
+    assert journal.replay_store(repo["journal"]) == ("S2", {"u-2": v("u-2")}, {"u-1": "2026-07-10T02:00:00Z"})
+
+
+def test_a_tombstone_a_base_event_holds_survives_a_restore(repo):
+    """A base event holds the store's tombstones beside its records, so a restore to any moment from that base on puts a tombstone back that no clear line records, through a later diff that leaves its unit alone and after a compaction that starts the journal at that base."""
+    tombstone = {"u-2": "2026-07-10T01:30:00Z"}
+    for source, stamp, old_stamp, old, new, hour in (
+        ("merge", "S1", None, [], [v("u-1")], 1),
+        ("land", "S2", "S1", [v("u-1")], [v("u-1")], 2),
+        ("autosave", "S2", "S2", [v("u-1")], [v("u-1"), v("u-3")], 3),
+    ):
+        journal.record_transition(
+            repo["journal"],
+            source=source,
+            stamp=stamp,
+            old_stamp=old_stamp,
+            old_verdicts=old,
+            new_verdicts=new,
+            old_cleared=tombstone if old_stamp == "S2" else None,
+            new_cleared=tombstone if stamp == "S2" else None,
+            at=f"2026-07-10T0{hour}:00:00Z",
+        )
+    assert journal.compact(repo["journal"], cutoff="2026-07-10T02:30:00Z")["compacted"] is True
+    for moment, units in (("2026-07-10T02:30", ["u-1"]), ("2026-07-10T03:30", ["u-1", "u-3"])):
+        out = repo["root"] / "restored.json"
+        assert run(repo, "--restore-as-of", moment, "--out", str(out)) == 0
+        restored = json.loads(out.read_text())
+        assert [record["unit"] for record in restored["verdicts"]] == units
+        assert restored["cleared"] == [{"unit": "u-2", "at": "2026-07-10T01:30:00Z"}]
 
 
 def test_restore_apply_refuses_while_the_server_is_up(repo, monkeypatch, capsys):

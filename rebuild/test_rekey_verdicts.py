@@ -289,8 +289,64 @@ def test_a_later_rekey_merges_into_the_id_map_and_copies_the_previous_one(tmp_pa
     assert len(list(keep.glob(f"{map_path.stem}-*.json"))) == 1
 
 
+def test_a_rekey_journals_the_stores_tombstones_and_a_restore_and_the_undo_put_them_back(tmp_path):
+    """The store's tombstones on ids the map moves move with its records, and the re-key's base event holds them under their new ids. A journal restore from before the re-key moves the replayed tombstones through the kept map, and the undo cuts the journal back to the store that holds them under their old ids."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    keep = tmp_path / rekey_verdicts.KEEP
+    map_path = keep / rekey_verdicts.MAP_NAME
+    assert (
+        rekey_verdicts.main(
+            ["--root", str(tmp_path), "--from-corpus", str(old_corpus), "--map-out", str(map_path)]
+        )
+        == 0
+    )
+    autosave, journal_path = tmp_path / "verdicts-autosave.json", tmp_path / journal.JOURNAL_NAME
+    _verdicts(autosave, OLD_STAMP, [olds[0]["id"]])
+    cleared = {olds[1]["id"]: "2026-09-02T00:00:00Z", olds[2]["id"]: "2026-09-03T00:00:00Z"}
+    store = json.loads(autosave.read_text(encoding="utf-8"))
+    store["cleared"] = [{"unit": unit, "at": at} for unit, at in sorted(cleared.items())]
+    autosave.write_text(json.dumps(store), encoding="utf-8")
+    journal.record_transition(
+        journal_path,
+        source="merge",
+        stamp=OLD_STAMP,
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=store["verdicts"],
+        new_cleared=cleared,
+        at="2000-01-01T00:00:00Z",
+    )
+    before = journal.replay_store(journal_path)
+    assert before[2] == cleared
+    argv = ["--root", str(tmp_path), "--map", str(map_path), "--corpus", str(new_corpus)]
+
+    assert rekey_verdicts.main(argv) == 0
+    rekeyed = {news[1]["id"]: cleared[olds[1]["id"]], news[2]["id"]: cleared[olds[2]["id"]]}
+    assert journal.parse_cleared(json.loads(autosave.read_text(encoding="utf-8"))) == rekeyed
+    assert journal.replay_store(journal_path)[2] == rekeyed
+    assert _restore(tmp_path, map_path) == [news[0]["id"]]
+    assert (
+        journal.parse_cleared(json.loads((tmp_path / "restored.json").read_text(encoding="utf-8"))) == rekeyed
+    )
+
+    (backup,) = [path for path in keep.iterdir() if path.is_dir()]
+    assert rekey_verdicts.main(["--root", str(tmp_path), "--undo", str(backup)]) == 0
+    assert journal.replay_store(journal_path) == before
+
+
 def test_rekey_moves_the_stores_tombstones_through_the_pairs():
-    renamed = {"u-old1": "u-new1", "u-old2": "u-new2", "u-old3": "u-new1"}
+    """A re-key and a journal restore's re-key (`merge_verdicts.rekey_store`) move a store's tombstones alike: two that land on one id keep the later clear, whichever the store lists first, and one whose id holds a record after the re-key is dropped."""
+    renamed = {
+        "u-old1": "u-new1",
+        "u-old2": "u-new2",
+        "u-old3": "u-new1",
+        "u-old4": "u-new3",
+        "u-old5": "u-new3",
+    }
     payload = {
         "format": "ams-review-verdicts/1",
         "manifest_generated_at": OLD_STAMP,
@@ -298,9 +354,20 @@ def test_rekey_moves_the_stores_tombstones_through_the_pairs():
         "cleared": [
             {"unit": "u-old1", "at": "t3"},
             {"unit": "u-old3", "at": "t5"},
+            {"unit": "u-old4", "at": "t6"},
+            {"unit": "u-old5", "at": "t4"},
             {"unit": "u-old2", "at": "t1"},
             {"unit": "u-kept", "at": "t2"},
         ],
     }
     rekeyed, _, _ = rekey_verdicts.rekey_payload(payload, renamed, set())
-    assert rekeyed["cleared"] == [{"unit": "u-kept", "at": "t2"}, {"unit": "u-new1", "at": "t5"}]
+    assert rekeyed["cleared"] == [
+        {"unit": "u-kept", "at": "t2"},
+        {"unit": "u-new1", "at": "t5"},
+        {"unit": "u-new3", "at": "t6"},
+    ]
+    records, cleared = merge_verdicts.rekey_store(
+        {"u-old2": payload["verdicts"][0]}, journal.parse_cleared(payload), renamed
+    )
+    assert records == {"u-new2": {**payload["verdicts"][0], "unit": "u-new2"}}
+    assert cleared == {"u-kept": "t2", "u-new1": "t5", "u-new3": "t6"}

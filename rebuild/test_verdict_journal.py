@@ -1,4 +1,4 @@
-"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`, which a marker that the journal may lack a store write also makes due), the diff would be no shorter than a base, or there is no previous store or journal, the seed event that opens a journal over an existing store, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, and the cut back to the length a dead land recorded, made only while the journal is the same file."""
+"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`, which a marker that the journal may lack a store write also makes due), the diff would be no shorter than a base, or there is no previous store or journal, the seed event that opens a journal over an existing store, its tombstones included, the clear lines that record a change to the tombstones alone, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, and the cut back to the length a dead land recorded, made only while the journal is the same file."""
 
 import json
 import os
@@ -110,6 +110,37 @@ def test_seed_event_opens_a_journal_over_an_existing_store(tmp_path):
     stamp, records = journal.replay(path)
     assert stamp == "S1"
     assert set(records) == {"u-1", "u-2", "u-3"}
+
+
+def test_a_seed_event_holds_the_tombstones_of_a_store_with_no_records(tmp_path):
+    """A journal opened over a store that holds tombstones and no records starts with a seed base event holding them, whether a whole-store transition or a server save's delta opens it, so replay gives them from the journal's first line."""
+    cleared = {"u-2": "2026-07-10T00:30:00Z"}
+    transition, delta = tmp_path / "transition.ndjson", tmp_path / "delta.ndjson"
+    journal.record_transition(
+        transition,
+        source="merge",
+        stamp="S1",
+        old_stamp="S1",
+        old_verdicts=[],
+        new_verdicts=[v("u-1")],
+        old_cleared=cleared,
+        new_cleared=cleared,
+        at="2026-07-10T01:00:00Z",
+    )
+    journal.record_delta(
+        delta,
+        source="autosave",
+        stamp="S1",
+        sets=[v("u-1")],
+        clears={},
+        seed_records={},
+        seed_cleared=cleared,
+        at="2026-07-10T01:00:00Z",
+    )
+    for path in (transition, delta):
+        seed = next(journal.iter_events(path))
+        assert seed["source"] == "seed" and seed["cleared"] == [{"unit": "u-2", "at": cleared["u-2"]}]
+        assert journal.replay_store(path) == ("S1", {"u-1": v("u-1")}, cleared)
 
 
 def test_no_op_transition_appends_nothing(tmp_path):
@@ -920,7 +951,7 @@ def test_a_stamp_change_given_no_base_journals_sets_and_clears_against_the_previ
         },
         {"kind": "set", **reject},
         {"kind": "set", **v("u-4")},
-        {"kind": "clear", "unit": "u-3"},
+        {"kind": "clear", "unit": "u-3", "at": None},
     ]
     assert journal.replay(path, as_of="2026-07-10T01:30:00Z") == (
         "S1",
@@ -930,6 +961,67 @@ def test_a_stamp_change_given_no_base_journals_sets_and_clears_against_the_previ
         "S2",
         {"u-1": v("u-1"), "u-2": reject, "u-4": v("u-4"), "u-5": v("u-5")},
     )
+
+
+def test_a_change_to_the_tombstones_alone_replays_to_the_stores_tombstones(tmp_path):
+    """A clear line records each tombstone that appears, changes or goes on a unit the store holds no record for, as a same-stamp restore or merge changes them and as a land that moves the stamp drops one off the new corpus, and a set line removes its unit's tombstone, so replay gives the store's tombstones before and after each change."""
+    path = tmp_path / "journal.ndjson"
+    records = [v("u-1"), v("u-2"), v("u-3")]
+    first = {"u-4": "2026-07-10T00:30:00Z", "u-5": "2026-07-10T00:30:00Z"}
+    second = {"u-5": "2026-07-10T01:30:00Z", "u-6": "2026-07-10T01:30:00Z"}
+    third = {"u-5": "2026-07-10T01:30:00Z"}
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=records,
+        new_cleared=first,
+        at="2026-07-10T01:00:00Z",
+    )
+    restored = journal.record_transition(
+        path,
+        source="restore",
+        stamp="S1",
+        old_stamp="S1",
+        old_verdicts=records,
+        new_verdicts=records,
+        old_cleared=first,
+        new_cleared=second,
+        at="2026-07-10T02:00:00Z",
+    )
+    landed = journal.record_transition(
+        path,
+        source="land",
+        stamp="S2",
+        old_stamp="S1",
+        old_verdicts=records,
+        new_verdicts=records,
+        old_cleared=second,
+        new_cleared=third,
+        at="2026-07-10T03:00:00Z",
+        base=False,
+    )
+    saved = journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S2",
+        old_stamp="S2",
+        old_verdicts=records,
+        new_verdicts=[*records, v("u-5", at="2026-07-10T04:00:00Z")],
+        old_cleared=third,
+        new_cleared={},
+        at="2026-07-10T04:00:00Z",
+    )
+    assert restored == {"base": False, "sets": 0, "clears": 3, "recorded": True}
+    assert landed == {"base": False, "sets": 0, "clears": 1, "recorded": True}
+    assert saved == {"base": False, "sets": 1, "clears": 0, "recorded": True}
+    store = {record["unit"]: record for record in records}
+    assert journal.replay_store(path, as_of="2026-07-10T01:30") == ("S1", store, first)
+    assert journal.replay_store(path, as_of="2026-07-10T02:30") == ("S1", store, second)
+    assert journal.replay_store(path, as_of="2026-07-10T03:30") == ("S2", store, third)
+    assert journal.replay_store(path) == ("S2", {**store, "u-5": v("u-5", at="2026-07-10T04:00:00Z")}, {})
 
 
 def test_a_stamp_change_whose_sets_and_clears_reach_the_new_stores_size_is_a_base(tmp_path):

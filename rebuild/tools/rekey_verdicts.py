@@ -716,6 +716,7 @@ def _rekey_files(
                     old_stamp=None,
                     old_verdicts=before["verdicts"],
                     new_verdicts=after["verdicts"],
+                    new_cleared=parse_cleared(after),
                 )
             print(f"rewrote {_rel(path, root)}")
         for path, text in texts:
