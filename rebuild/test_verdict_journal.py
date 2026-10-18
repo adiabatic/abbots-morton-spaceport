@@ -1,4 +1,4 @@
-"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`, which a marker that the journal may lack a store write also makes due), the diff would be no shorter than a base, or there is no previous store or journal, the seed event that opens a journal over an existing store, its tombstones included, the clear lines that record a change to the tombstones alone, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, and the cut back to the length a dead land recorded, made only while the journal is the same file."""
+"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`, which a marker that the journal may lack a store write and a last base with no `cleared` list also make due), the diff would be no shorter than a base, or there is no previous store or journal, the seed event that opens a journal over an existing store, its tombstones included, the clear lines that record a change to the tombstones alone, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, and the cut back to the length a dead land recorded, made only while the journal is the same file."""
 
 import json
 import os
@@ -1109,7 +1109,7 @@ def test_a_stamp_change_from_no_store_or_onto_no_journal_is_a_base_even_when_non
 
 
 def test_a_base_is_due_once_the_last_one_is_a_day_old_or_torn_or_while_a_marker_exists(tmp_path):
-    """A land that moves the stamp writes a base when the journal has none, when the journal's last base is torn, when its last base is at least `BASE_INTERVAL` older than the land, or while the marker that says the journal may lack a store write exists, and a diff otherwise. A diff after the last base does not restart the interval, and a complete base after a torn one does. A writer that finds the marker already there does not write it again, so it never removes a marker an earlier write left."""
+    """A land that moves the stamp writes a base when the journal has none, when the journal's last base is torn, when its last base holds no `cleared` list, when its last base is at least `BASE_INTERVAL` older than the land, or while the marker that says the journal may lack a store write exists, and a diff otherwise. A diff after the last base does not restart the interval, and a complete base after a torn one does. A writer that finds the marker already there does not write it again, so it never removes a marker an earlier write left."""
     path = tmp_path / "journal.ndjson"
     assert journal.base_due(journal.scan(path).events, "2026-07-10T01:00:00Z") is True
     _append_base(path, "S1", None, [], ["u-1", "u-2"], "2026-07-10T01:00:00Z")
@@ -1139,6 +1139,36 @@ def test_a_base_is_due_once_the_last_one_is_a_day_old_or_torn_or_while_a_marker_
     assert journal.base_due(journal.scan(path).events, "2026-07-11T02:30:00Z") is True
     _append_base(path, "S4", "S3", ["u-3"], ["u-5"], "2026-07-11T03:00:00Z")
     assert journal.base_due(journal.scan(path).events, "2026-07-11T03:30:00Z") is False
+
+
+def test_a_base_is_due_while_the_last_base_holds_no_cleared_list(tmp_path):
+    """A base event with no `cleared` list holds no tombstones, so while the journal's last base is one, a land that moves the stamp writes a base however recent that base is. A last base with a `cleared` list, an empty one included, follows the interval. A scan resumed from a saved state reads the same as a full one."""
+    path = tmp_path / "journal.ndjson"
+    state_path = tmp_path / "journal-scan.json"
+
+    def due(at):
+        full = journal.scan(path)
+        journal.save_scan_state(state_path, full.state)
+        resumed = journal.scan(path, resume=journal.load_scan_state(state_path))
+        assert resumed.start == full.state.end and resumed.events == full.events
+        return journal.base_due(full.events, at)
+
+    event = {
+        "kind": "event",
+        "source": "land",
+        "at": "2026-07-10T01:00:00Z",
+        "stamp": "S1",
+        "base": True,
+        "stashed": None,
+        "sets": 1,
+        "clears": 0,
+    }
+    path.write_text(json.dumps(event) + "\n" + json.dumps({"kind": "set", **v("u-1")}) + "\n")
+    assert due("2026-07-10T01:00:01Z") is True
+    _append_base(path, "S2", "S1", ["u-1"], ["u-1"], "2026-07-10T02:00:00Z")
+    assert read_lines(path)[-2]["cleared"] == []
+    assert due("2026-07-11T01:59:59Z") is False
+    assert due("2026-07-11T02:00:00Z") is True
 
 
 def test_compaction_floors_at_a_base_and_replays_the_stamp_changes_journaled_after_it(tmp_path):

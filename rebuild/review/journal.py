@@ -1,6 +1,6 @@
 """Append-only log of changes to the review app's verdict store.
 
-After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed unit. A set line holds the unit's new record, which removes any tombstone the store kept for it. A clear line names a unit the store holds no record for after the change, either because the record went or because the unit's tombstone changed, and its `at` is the tombstone the store keeps for the unit (the time of the clear, the store's `cleared` list), or null when it keeps none. A base event carries the full store instead of a diff: its set lines hold the records, and the event line's `cleared` list holds the tombstones. One seeds a new journal when the store it starts from is not empty, and every writer but the land writes one at each corpus-stamp change. The land (`rebuild.review.landing`) writes one only when the journal is due a new one (`base_due`) or a diff would be at least as long (`record_transition`), and otherwise journals a stamp change as the sets and clears against the store it replaces, because a unit's id is its content key and names the same unit on either stamp. So `replay_store(as_of=...)` can reconstruct the store, its records and its tombstones, at any recorded moment from the journal alone. Journal lines without those fields record the tombstones only in part, and their replay can differ from the store. A clear line with no `at` field takes its event's `at` as the tombstone, which is when the writer journaled the change, not when the unit was cleared: for a clear a closed tab's outbox sent when the app next opened, it can be days after the store's own tombstone, so its replay keeps out a record dated between the two that the store's own would let in, and for a line from a land or a restore that names a record the writer dropped without a clear (a unit a land that moved the stamp dropped off the new corpus, a skip its carry dropped, or a record a restore left out), its replay lays a tombstone the store never held. A base event with no `cleared` list holds no tombstones, so a replay from it on lacks the tombstones of the clears made before it. Lines in that form record a tombstone only where a record went, so their replay lacks one the store gained on a unit holding no record (as a merge's `clears` add them) and keeps one the store dropped (as a land drops those off its corpus). `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
+After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed unit. A set line holds the unit's new record, which removes any tombstone the store kept for it. A clear line names a unit the store holds no record for after the change, either because the record went or because the unit's tombstone changed, and its `at` is the tombstone the store keeps for the unit (the time of the clear, the store's `cleared` list), or null when it keeps none. A base event carries the full store instead of a diff: its set lines hold the records, and the event line's `cleared` list holds the tombstones. One seeds a new journal when the store it starts from is not empty, and every writer but the land writes one at each corpus-stamp change. The land (`rebuild.review.landing`) writes one only when the journal is due a new one (`base_due`) or a diff would be at least as long (`record_transition`), and otherwise journals a stamp change as the sets and clears against the store it replaces, because a unit's id is its content key and names the same unit on either stamp. So `replay_store(as_of=...)` can reconstruct the store, its records and its tombstones, at any recorded moment from the journal alone. Journal lines without those fields record the tombstones only in part, and their replay can differ from the store. A clear line with no `at` field takes its event's `at` as the tombstone, which is when the writer journaled the change, not when the unit was cleared: for a clear a closed tab's outbox sent when the app next opened, it can be days after the store's own tombstone, so its replay keeps out a record dated between the two that the store's own would let in, and for a line from a land or a restore that names a record the writer dropped without a clear (a unit a land that moved the stamp dropped off the new corpus, a skip its carry dropped, or a record a restore left out), its replay lays a tombstone the store never held. A base event with no `cleared` list holds no tombstones, so a replay from it on lacks the tombstones of the clears made before it, and while the journal's last base is one, the land is due a base (`base_due`). Lines in that form record a tombstone only where a record went, so their replay lacks one the store gained on a unit holding no record (as a merge's `clears` add them) and keeps one the store dropped (as a land drops those off its corpus). `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
 
 Those sets and clears replay to the landed store only while the journal replays to the store the land replaces, so a marker beside the store (`unjournaled_marker_for`) says when the journal may lack a store write. The review server writes it before each save's store write and removes it once that save's append succeeds unless it was already there, so a save whose append fails, is cut short, or never runs leaves it, and `rebuild.tools.rekey_verdicts --undo` leaves one for the store it puts back or asks to have put back by hand. While it exists `base_due` says a base is due, and the land removes it once it has journaled a base.
 
@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 EXPORT_FORMAT = "ams-review-verdicts/1"
-SCAN_STATE_FORMAT = "ams-journal-scan/2"
+SCAN_STATE_FORMAT = "ams-journal-scan/3"
 JOURNAL_NAME = "verdicts-journal.ndjson"
 UNJOURNALED_NAME = "unjournaled.json"
 _TAIL_BLOCK = 1 << 16
@@ -462,7 +462,7 @@ def replay_store(
 
 @dataclass(frozen=True)
 class EventMark:
-    """One event line as a scan records it: the byte `offset` and the line index `line` at which it begins, its `at`, `stamp`, `base` and `stashed` (`at`, `stamp` and `stashed` are None where the line holds no string), the set lines it names (`sets`, as `_expected_sets` reads them), `counted`, the set lines that follow it before the next event or where parsing stops, and `digest`, the digest of the line's bytes with its newline, which a scan resuming from a state that holds the mark compares (`_holds`). A base event whose `counted` falls short of its `sets` is torn. The pending line's mark (`JournalScan.events`) has an empty `digest`, since no state holds it."""
+    """One event line as a scan records it: the byte `offset` and the line index `line` at which it begins, its `at`, `stamp`, `base` and `stashed` (`at`, `stamp` and `stashed` are None where the line holds no string), `holds_cleared`, whether it holds a `cleared` list, as every base event `record_transition` writes does, the set lines it names (`sets`, as `_expected_sets` reads them), `counted`, the set lines that follow it before the next event or where parsing stops, and `digest`, the digest of the line's bytes with its newline, which a scan resuming from a state that holds the mark compares (`_holds`). A base event whose `counted` falls short of its `sets` is torn. The pending line's mark (`JournalScan.events`) has an empty `digest`, since no state holds it."""
 
     offset: int
     line: int
@@ -470,6 +470,7 @@ class EventMark:
     stamp: str | None
     base: bool
     stashed: str | None
+    holds_cleared: bool
     sets: int
     counted: int
     digest: str
@@ -486,6 +487,7 @@ def _mark(entry: dict, offset: int, line: int, digest: str) -> EventMark:
         stamp if isinstance(stamp, str) else None,
         bool(entry.get("base")),
         stashed if isinstance(stashed, str) and stashed else None,
+        isinstance(entry.get("cleared"), list),
         _expected_sets(entry),
         0,
         digest,
@@ -612,14 +614,14 @@ def mark_unjournaled(store, writer: str) -> bool:
 
 
 def base_due(events, at: str, *, marker: Path | None = None) -> bool:
-    """Return whether a land at `at` that moves the stamp writes its store as a base event, given the journal's `events` (`scan`): while `marker` (`unjournaled_marker_for`) exists, because the journal may then lack a store write and not replay to the store a diff would be taken against; when the journal holds no base event; when its last base event is torn, so a diff after it would replay only from the next complete base on (`replay`); or when its last base is at least `BASE_INTERVAL` older than `at`. Otherwise the land journals the move as sets and clears. Compaction starts the journal at the newest complete base at or before its cutoff (`compact_prepare`), so the history a compacted journal keeps before the cutoff is at most the span between two bases. A base at most once per `BASE_INTERVAL` bounds that span to the interval plus the wait for the next land that moves the stamp, and leaves about one base per interval in the retention window rather than one per land. Measuring the interval from the last base, not from the start of a calendar day, never puts two bases minutes apart on either side of midnight."""
+    """Return whether a land at `at` that moves the stamp writes its store as a base event, given the journal's `events` (`scan`): while `marker` (`unjournaled_marker_for`) exists, because the journal may then lack a store write and not replay to the store a diff would be taken against; when the journal holds no base event; when its last base event is torn, so a diff after it would replay only from the next complete base on (`replay`); when its last base event holds no `cleared` list, not even an empty one, so a replay from it on lacks the tombstones of the clears made before it until a base that holds them (`replay_store`); or when its last base is at least `BASE_INTERVAL` older than `at`. Otherwise the land journals the move as sets and clears. Compaction starts the journal at the newest complete base at or before its cutoff (`compact_prepare`), so the history a compacted journal keeps before the cutoff is at most the span between two bases. A base at most once per `BASE_INTERVAL` bounds that span to the interval plus the wait for the next land that moves the stamp, and leaves about one base per interval in the retention window rather than one per land. Measuring the interval from the last base, not from the start of a calendar day, never puts two bases minutes apart on either side of midnight."""
     if marker is not None and marker.exists():
         return True
     last = None
     for mark in events:
         if mark.base:
             last = mark
-    if last is None or last.counted < last.sets:
+    if last is None or last.counted < last.sets or not last.holds_cleared:
         return True
     threshold = datetime.fromisoformat(at.replace("Z", "+00:00")) - BASE_INTERVAL
     return (last.at or "") <= threshold.isoformat().replace("+00:00", "Z")
@@ -645,6 +647,7 @@ def save_scan_state(path, state: ScanState | None) -> None:
                 mark.stamp,
                 mark.base,
                 mark.stashed,
+                mark.holds_cleared,
                 mark.sets,
                 mark.counted,
                 mark.digest,
@@ -677,11 +680,14 @@ def load_scan_state(path) -> ScanState | None:
                     stamp if isinstance(stamp, str) else None,
                     bool(base),
                     stashed if isinstance(stashed, str) and stashed else None,
+                    bool(holds_cleared),
                     int(sets),
                     int(counted),
                     str(digest),
                 )
-                for offset, line, at, stamp, base, stashed, sets, counted, digest in payload["marks"]
+                for offset, line, at, stamp, base, stashed, holds_cleared, sets, counted, digest in payload[
+                    "marks"
+                ]
             ),
         )
     except OSError, ValueError, TypeError, KeyError, AttributeError:
