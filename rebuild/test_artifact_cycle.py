@@ -464,7 +464,6 @@ def test_dry_run_plan_skip_conform():
 
 def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
     """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and is handed the snapshot of the store, which it carries beside another master when the snapshot step found a store, and merges and fills into the prepared copy of the store in the pass's scratch directory, journaling there, so it never writes the live store. The carried file and both fill files go in the scratch directory too, so the pass leaves none of them at the repository root."""
-    ac.AUTOSAVE.write_text("{}")
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
     assert names.index("store-snapshot") == names.index("corpus-build") + 1
@@ -591,10 +590,7 @@ def test_the_verdict_update_is_told_to_skip_the_complaint_list_on_a_staging_pass
     assert "first run" in first.complaints_note
 
 
-def test_the_complaint_list_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monkeypatch):
-    autosave = tmp_path / "verdicts-autosave.json"
-    autosave.write_text("{}")
-    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
+def test_the_complaint_list_headline_is_scraped_and_never_fails_the_cycle():
     plan = _plan()
 
     report, failures = _run_verdict_update(
@@ -627,13 +623,8 @@ def test_the_complaint_list_headline_is_scraped_and_never_fails_the_cycle(tmp_pa
     assert failures == []
 
 
-def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the_fills_wrote(
-    tmp_path, monkeypatch
-):
+def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the_fills_wrote():
     """The verdict update runs as one child, so its steps reach this process only through the lines they print. The carry count and the human queue before and after become the row's detail. The other lines are quoted in the summary under the line they belong to, instead of appearing only in `cycle_summary.json` and the step's log."""
-    autosave = tmp_path / "verdicts-autosave.json"
-    autosave.write_text("{}")
-    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
     plan = _plan()
 
     report, failures = _run_verdict_update(
@@ -673,11 +664,8 @@ def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the
     assert carry < block.index("      human queue: 81 -> 12 still needing fresh verdicts") < verdict_update
 
 
-def test_the_verdict_update_row_falls_back_to_the_merge_when_no_carry_ran(tmp_path, monkeypatch):
-    """A direct merge whose store's snapshot is absent or stamped for the served corpus runs no carry, because the corpus did not change, so there is no carry count and no carried file. The row reports the merge instead of staying blank."""
-    autosave = tmp_path / "verdicts-autosave.json"
-    autosave.write_text("{}")
-    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
+def test_the_verdict_update_row_falls_back_to_the_merge_when_no_carry_ran():
+    """A direct merge whose store's snapshot is absent or is an ams-review-verdicts/1 document stamped for the served corpus runs no carry, because the corpus did not change, so there is no carry count and no carried file. The row reports the merge instead of staying blank."""
     plan = _plan(direct_merge=True)
     report, failures = _run_verdict_update(
         plan,
@@ -694,13 +682,8 @@ def test_the_verdict_update_row_falls_back_to_the_merge_when_no_carry_ran(tmp_pa
     assert ac.step_detail(report, "verdict-update") == "merge merged; no open complaints"
 
 
-def test_the_verdict_update_row_adds_what_the_store_holds_after_the_merge_when_the_store_was_carried(
-    tmp_path, monkeypatch
-):
+def test_the_verdict_update_row_adds_what_the_store_holds_after_the_merge_when_the_store_was_carried():
     """A direct merge whose store's snapshot the merge would set aside carries that snapshot alone and then merges the carried file and any other master, so the carry's count and queue cover the snapshot only. The row adds what the store holds after that merge, and says how the merge ended when it printed no holding."""
-    autosave = tmp_path / "verdicts-autosave.json"
-    autosave.write_text("{}")
-    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
     plan = _plan(direct_merge=True)
     carry = (
         "carry",
@@ -7840,7 +7823,7 @@ def _store_carried(plan: ac.Plan, out: str) -> bool:
 def test_a_pass_that_skips_the_corpus_build_keeps_the_stores_newer_verdict_over_a_root_master(
     tmp_path, monkeypatch, capsys, store_stamp, named
 ):
-    """A root export stamped for the served corpus can outrank the store as the master, and a pass that skips the corpus build merges it straight in. The merge keeps the verdicts of a store stamped for the served corpus, so the verdict update merges the export into that store. It would set aside a store stamped for an older corpus, such as one `merge_verdicts --restore-as-of` put back from before the served stamp, so over that store's snapshot the verdict update says so, carries the snapshot alone onto the served corpus, with `--allow-orphans` when the pass has it, and merges the export into the result. Either way, whether the pass resolved the export or was given it by --verdicts, the store's verdict for a unit, newer than the export's, survives the real verdict update and land the pass plans."""
+    """A root export stamped for the served corpus can outrank the store as the master, and a pass that skips the corpus build merges it straight in. The merge keeps the verdicts of a store that is an ams-review-verdicts/1 document stamped for the served corpus, so the verdict update merges the export into that store. It would set aside a store stamped for an older corpus, such as one `merge_verdicts --restore-as-of` put back from before the served stamp, so over that store's snapshot the verdict update says so, carries the snapshot alone onto the served corpus, with `--allow-orphans` when the pass has it, and merges the export into the result. Either way, whether the pass resolved the export or was given it by --verdicts, the store's verdict for a unit, newer than the export's, survives the real verdict update and land the pass plans."""
     paths, export = _fixture_repo_with_export(tmp_path, monkeypatch, [_record("u-human"), _record("u-open")])
     kept = _record("u-human", "reject", at=NEWER, note="human rejects the standing rule")
     paths["autosave"].write_text(json.dumps(_fixture_payload([kept], stamp=store_stamp)))
@@ -8011,7 +7994,7 @@ def test_a_pass_that_skips_the_corpus_build_keeps_a_root_master_behind_the_store
 def test_a_pass_that_skips_the_corpus_build_carries_a_master_that_is_the_store_by_the_stamp_of_its_snapshot(
     tmp_path, monkeypatch, capsys, snapshot
 ):
-    """When the master resolved to the store itself, the verdict update merges the store's snapshot when it is stamped for the served corpus. A store replaced before the snapshot step by one stamped for an older corpus is carried onto the served corpus in the master's place, rather than refused by the merge as stamped for another corpus, so its verdict lands. A store gone before the snapshot step leaves no master, and the merge refuses the missing snapshot by name."""
+    """When the master resolved to the store itself, the verdict update merges the store's snapshot when it is an ams-review-verdicts/1 document stamped for the served corpus. A store replaced before the snapshot step by one stamped for an older corpus is carried onto the served corpus in the master's place, rather than refused by the merge as stamped for another corpus, so its verdict lands. A store gone before the snapshot step leaves no master, and the merge refuses the missing snapshot by name."""
     paths, _export = _fixture_repo_with_export(tmp_path, monkeypatch, [])
     kept = _record("u-human", "reject", at=NEWER, note="human rejects the standing rule")
     paths["autosave"].write_text(json.dumps(_fixture_payload([kept])))
