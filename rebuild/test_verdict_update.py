@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone."""
+"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus."""
 
 import json
 import pathlib
@@ -746,3 +746,40 @@ def test_a_pass_that_moves_the_stamp_neither_carries_back_nor_duplicate_fills_a_
     assert not {"u-open", "u-cleared-newer"} & set(_records(paths["autosave"]))
     cleared = parse_cleared(json.loads(paths["autosave"].read_text()))
     assert (cleared["u-open"], cleared["u-cleared-newer"]) == (NEWER, NEWER)
+
+
+def test_a_pass_with_no_store_whose_master_holds_only_skips_completes_and_lands_the_store_its_fills_leave(
+    tmp_path, monkeypatch, capsys
+):
+    """With no store the snapshot step leaves no prepared store, and the carry drops every skip, so the merge's result holds no verdict. The merge writes that result as the prepared store, stamped for the corpus, so the first duplicate fill and the standing fill start from an empty store, the verdict update completes, and the land puts the store the fills leave in place, holding neither skip."""
+    paths = _integration_fixture(tmp_path / "current", monkeypatch)
+    paths["autosave"].unlink()
+    skips = [_record("u-open", "skip"), _record("u-mix-a", "skip")]
+    paths["master"].write_text(json.dumps(_fixture_payload(skips, stamp=OLDER)))
+    run_dir = tmp_path / "pass"
+    assert landing.snapshot(paths["autosave"], run_dir) is None
+    prepared = run_dir / landing.PREPARED_NAME
+    assert not prepared.exists()
+    argv = ["--corpus", str(paths["corpus"]), "--verdicts", str(paths["master"])]
+    argv += ["--store-snapshot", str(run_dir / landing.SNAPSHOT_NAME), "--carry-out", str(paths["carry"])]
+    argv += ["--autosave", str(prepared), "--journal", str(run_dir / "journal.ndjson")]
+    argv += ["--duplicate-out", str(paths["duplicate"]), "--standing-out", str(paths["standing"])]
+    argv += ["--rules", str(paths["rules"]), "--standing-memo", str(paths["memo"]), "--no-complaints"]
+    assert vu.main(argv) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert (
+        f"merged 1 file(s) into {prepared.name}: 0 added, 0 replaced, 0 kept newer; store holds 0 verdicts "
+        f"(0 effective) on manifest {CORPUS_STAMP}"
+    ) in lines
+    assert lines[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
+    landed = landing.land(
+        autosave=paths["autosave"],
+        journal_path=paths["journal"],
+        run_dir=run_dir,
+        corpus=paths["corpus"],
+        prepared=prepared,
+    )
+    assert landed.landed and landed.new_stamp == CORPUS_STAMP
+    assert json.loads(paths["autosave"].read_text())["manifest_generated_at"] == CORPUS_STAMP
+    assert _records(paths["autosave"]) == _records(prepared)
+    assert not {"u-open", "u-mix-a"} & set(_records(paths["autosave"]))
