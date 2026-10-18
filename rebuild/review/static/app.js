@@ -2639,7 +2639,7 @@ function handleSaveOutcome(reply, sentRecords, changedSince) {
   }
   if (orphaned.length > 0) {
     lines.push(
-      `${formatCount(orphaned.length)} verdict${orphaned.length === 1 ? ' is' : 's are'} on units this corpus no longer has; kept in var/verdict-orphans/`,
+      `${formatCount(orphaned.length)} verdict${orphaned.length === 1 ? ' is on a unit' : 's are on units'} outside the served corpus's human units; kept in var/verdict-orphans/`,
     );
   }
   if (lines.length > 0) toast(lines.join(' · '));

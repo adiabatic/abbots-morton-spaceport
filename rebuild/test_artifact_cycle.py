@@ -707,6 +707,53 @@ def test_the_verdict_update_row_falls_back_to_the_merge_when_no_carry_ran(tmp_pa
     assert ac.step_detail(report, "verdict-update") == "merge merged; no open complaints"
 
 
+def test_the_verdict_update_row_adds_what_the_store_holds_after_the_merge_when_the_store_was_carried(
+    tmp_path, monkeypatch
+):
+    """A direct merge whose store's snapshot the merge would set aside carries that snapshot alone and then merges the carried file and any other master, so the carry's count and queue cover the snapshot only. The row adds what the store holds after that merge, and says how the merge ended when it printed no holding."""
+    autosave = tmp_path / "verdicts-autosave.json"
+    autosave.write_text("{}")
+    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
+    plan = _plan(direct_merge=True)
+    carry = (
+        "carry",
+        [
+            "carry counts: human=19 matched=1 unmatched=18 orphaned=0",
+            "wrote verdicts-carried-testid.json: 1 carried onto manifest S1",
+            "human queue: 19 -> 18 still needing fresh verdicts",
+        ],
+    )
+    report, failures = _run_verdict_update(
+        plan,
+        _verdict_update_stdout(
+            carry,
+            (
+                "merge",
+                [
+                    "stashed the previous autosave as prepared-S0.json",
+                    "merged 2 file(s) into prepared.json: 2 added, 0 replaced, 1 kept newer; "
+                    "store holds 2 verdicts (2 effective) on manifest S1",
+                ],
+            ),
+            ("complaints", ["no open complaints"]),
+        ),
+    )
+    assert failures == [] and report.store_carried
+    assert report.carry_counts == {"human": 19, "matched": 1, "unmatched": 18, "orphaned": 0}
+    assert (
+        ac.step_detail(report, "verdict-update")
+        == "1 carried, queue 19 -> 18; store holds 2 verdicts after the merge; no open complaints"
+    )
+
+    report, _failures = _run_verdict_update(
+        plan, _verdict_update_stdout(carry, ("merge", ["boom"]), failed="merge"), returncode=1
+    )
+    assert (
+        ac.step_detail(report, "verdict-update")
+        == "1 carried, queue 19 -> 18; merge FAILED (exit 1); not run"
+    )
+
+
 def test_dry_run_plan_skips_the_verdict_update_without_a_carry():
     no_carry = ac.build_plan(
         verdicts=None,
@@ -7878,7 +7925,7 @@ def test_a_pass_that_skips_the_corpus_build_with_no_store_merges_a_root_master_s
 def test_a_pass_that_skips_the_corpus_build_refuses_an_unreadable_store_by_name(
     tmp_path, monkeypatch, capsys, store
 ):
-    """A store that is not JSON holding a `verdicts` list of verdict records is one the merge would set aside, so in a pass that skips the corpus build the verdict update carries its snapshot before it merges a root export. The carry refuses the snapshot, naming it and the journal restore, rather than failing on a parse error or a malformed record that names no file, and the live store is left as it was."""
+    """In a pass that skips the corpus build, the verdict update carries the store's snapshot before it merges a root export when the merge would set the store aside (`verdict_update.merge_sets_store_aside`). A snapshot that is not JSON, and one with no `verdicts` list, are set aside because `parse_autosave_payload` reads neither as an ams-review-verdicts/1 document; one whose `verdicts` list holds a unit id instead of a verdict record passes that parse and is set aside because it is stamped for an older corpus. The carry refuses each, naming the snapshot and the journal restore, rather than failing on a parse error or a malformed record that names no file, and the cycle reads that refusal as a failed verdict update, which `_run_cycle` never follows with the land."""
     paths, _export = _fixture_repo_with_export(tmp_path, monkeypatch, [_record("u-human"), _record("u-open")])
     paths["autosave"].write_text(store)
 
@@ -7890,7 +7937,7 @@ def test_a_pass_that_skips_the_corpus_build_refuses_an_unreadable_store_by_name(
     assert _store_carried(plan, captured.out)
     assert f"carry refused: {plan.scratch_dir / landing.SNAPSHOT_NAME} " in captured.err
     assert "merge_verdicts --restore-as-of" in captured.err
-    assert paths["autosave"].read_text() == store
+    assert _run_verdict_update(plan, captured.out, returncode=1)[1] == ["carry_verdicts failed"]
 
 
 @pytest.mark.parametrize("planned_stamp, snapshot_stamp", [(CORPUS_STAMP, OLDER), (OLDER, CORPUS_STAMP)])
@@ -7928,10 +7975,11 @@ def test_a_pass_that_skips_the_corpus_build_merges_a_root_master_straight_in_whe
 def test_a_pass_that_skips_the_corpus_build_leaves_a_store_stamped_for_a_newer_corpus_to_the_merges_refusal(
     tmp_path, monkeypatch, capsys
 ):
-    """The merge refuses a store stamped for a newer corpus rather than setting it aside, so in a pass that skips the corpus build the verdict update does not carry that store's snapshot: it runs the plain direct merge of a root export, whose refusal names the newer stamp, and the live store is left as it was."""
+    """The merge refuses a store stamped for a newer corpus rather than setting it aside, so in a pass that skips the corpus build the verdict update does not carry that store's snapshot: it runs the plain direct merge of a root export, whose refusal names the newer stamp, and the cycle reads that refusal as a failed verdict update, which `_run_cycle` never follows with the land."""
     paths, export = _fixture_repo_with_export(tmp_path, monkeypatch, [_record("u-human"), _record("u-open")])
-    store = json.dumps(_fixture_payload([_record("u-human", "reject", at=NEWER)], stamp=NEWER))
-    paths["autosave"].write_text(store)
+    paths["autosave"].write_text(
+        json.dumps(_fixture_payload([_record("u-human", "reject", at=NEWER)], stamp=NEWER))
+    )
 
     plan = _planned([])
     _assert_plans_a_direct_merge_beside_the_snapshot(plan, export)
@@ -7941,7 +7989,7 @@ def test_a_pass_that_skips_the_corpus_build_leaves_a_store_stamped_for_a_newer_c
     assert not _store_carried(plan, out)
     assert f"ERROR: the autosave is stamped {NEWER}, newer than the corpus" in out
     assert "[verdict-update] failed: merge" in out
-    assert paths["autosave"].read_text() == store
+    assert _run_verdict_update(plan, out, returncode=1)[1] == ["verdict merge failed"]
 
 
 @pytest.mark.parametrize("skip_at, master_at", [(NEWER, PREVIOUS), (NEWER, NEWER), (PREVIOUS, NEWER)])

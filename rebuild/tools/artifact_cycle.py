@@ -2950,6 +2950,7 @@ class CycleReport:
     carry_out: Path | None = None
     carry_lines: list[str] = field(default_factory=list)
     carry_counts: dict[str, int] | None = None
+    store_carried: bool = False
     merge_status: str = "not run"
     merge_lines: list[str] = field(default_factory=list)
     duplicate_fill_status: str = "not run"
@@ -3722,6 +3723,7 @@ def _do_verdict_update(
     """
     result = spawn("verdict-update", plan.argv("verdict-update"), emit=emit, registry=registry, stream=False)
     sections = verdict_update_sections(result.stdout)
+    report.store_carried = plan.verdict_update_direct_merge and "carry" in sections
     report.carry_out = (
         None if plan.verdict_update_direct_merge and "carry" not in sections else plan.carry_out
     )
@@ -4511,10 +4513,11 @@ INFORMATIONAL_STEPS = ("review-facts", "job-costs")
 _CARRY_WROTE = re.compile(r"^wrote \S+: (\d+) carried onto manifest")
 _CARRY_QUEUE = re.compile(r"^human queue: (\d+) -> (\d+)")
 _CARRY_COUNTS = re.compile(r"^carry counts: human=(\d+) matched=(\d+) unmatched=(\d+) orphaned=(\d+)$")
+_MERGE_HOLDS = re.compile(r"\bholds (?:all )?(\d+) verdicts\b")
 
 
 def carry_counts(lines: list[str]) -> dict[str, int] | None:
-    """Parse the carry's `carry counts:` line: the human units on the new corpus, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The counts are written to the cycle summary and to the run line in the timings journal. Returns None when the carry printed no such line (a direct merge that carries no snapshot of the store, or a verdict update that failed before the carry)."""
+    """Parse the carry's `carry counts:` line: the human units on the new corpus, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The counts are written to the cycle summary and to the run line in the timings journal. On a pass that carries the store's snapshot before a direct merge (`CycleReport.store_carried`), they count that carry alone, not any master the verdict update merges into its result afterward. Returns None when the carry printed no such line (a direct merge that carries no snapshot of the store, a verdict update that failed before the carry, or a carry that refused one of its verdicts files, which `carry_verdicts.resolve_prior` does before counting)."""
     for line in lines:
         match = _CARRY_COUNTS.match(line)
         if match is not None:
@@ -4523,7 +4526,7 @@ def carry_counts(lines: list[str]) -> dict[str, int] | None:
 
 
 def carry_detail(lines: list[str]) -> str:
-    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new corpus, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. Returns the empty string when the carry printed neither line (a direct merge that carries no snapshot of the store, or a verdict update that failed before the carry)."""
+    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new corpus, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. On a pass that carries the store's snapshot before a direct merge (`CycleReport.store_carried`), they cover that carry alone, so the verdict-update row adds what the store holds after the merge (`step_detail`). Returns the empty string when the carry printed neither line (a direct merge that carries no snapshot of the store, a verdict update that failed before the carry, or a carry that refused its input, including one refused past the orphan limit, which prints its counts first)."""
     carried = ""
     queue = ""
     for line in lines:
@@ -4537,6 +4540,19 @@ def carry_detail(lines: list[str]) -> str:
                 f"{console.fmt_count(int(pending.group(2)))}"
             )
     return ", ".join(part for part in (carried, queue) if part)
+
+
+def _merge_holding(lines: list[str]) -> str:
+    """Return how many verdicts the store holds after the verdict update's first merge, from that merge's `merged` or `nothing changed` line, or the empty string when it printed neither."""
+    holding = ""
+    for line in lines:
+        held = _MERGE_HOLDS.search(line)
+        if held is not None:
+            count = int(held.group(1))
+            holding = (
+                f"store holds {console.fmt_count(count)} verdict{'' if count == 1 else 's'} after the merge"
+            )
+    return holding
 
 
 _GATE_STATUS_FIELDS = {
@@ -4580,10 +4596,12 @@ def step_detail(report: CycleReport, name: str) -> str:
     if name == "land":
         return prose(report.land_status)
     if name == "verdict-update":
+        merged = prose(report.merge_status)
+        merge = f"merge {merged}" if merged else ""
         head = carry_detail(report.carry_lines)
-        if not head:
-            merged = prose(report.merge_status)
-            head = f"merge {merged}" if merged else ""
+        if head and report.store_carried:
+            head = "; ".join(part for part in (head, _merge_holding(report.merge_lines) or merge) if part)
+        head = head or merge
         return f"{head}; {report.complaints_status}" if head else ""
     if name == "review-facts":
         return prose(report.facts_status)
