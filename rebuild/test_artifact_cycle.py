@@ -516,7 +516,7 @@ def test_with_no_live_store_the_plan_still_hands_over_the_snapshot():
 
 
 def test_a_master_that_is_the_live_store_is_carried_from_its_snapshot():
-    """When the master resolved to the live store, the carry reads the snapshot in its place and not the store beside it, and a direct merge merges the snapshot and is handed it as the store's snapshot too, with a carried file in the scratch directory, so the verdict update can carry it instead when it finds it stamped for an older corpus; the live store is never read or written by the verdict update."""
+    """When the master resolved to the live store, the carry reads the snapshot in its place and not the store beside it, and a direct merge merges the snapshot and is handed it as the store's snapshot too, with a carried file in the scratch directory, so the verdict update can carry it instead when it finds it stamped for an older corpus or not an ams-review-verdicts/1 document (`verdict_update.merge_sets_store_aside`); the live store is never read or written by the verdict update."""
     plan = _plan(verdicts=ac.AUTOSAVE)
     assert plan.scratch_dir is not None
     snapshot = str(plan.scratch_dir / ac.landing.SNAPSHOT_NAME)
@@ -7459,7 +7459,10 @@ def test_dry_run_plan_direct_merge_merges_the_master():
     assert plan.do_merge
     note = by_name["verdict-update"].note
     assert "the carry is the identity" in note
-    assert "when the store's snapshot, which the verdict update reads, is stamped for an older corpus" in note
+    assert (
+        "when the store's snapshot, which the verdict update reads, is stamped for an older corpus or is not an "
+        "ams-review-verdicts/1 document" in note
+    )
     assert (
         f"  carry output : {plan.carry_out} (written only if the verdict update carries the store's snapshot)"
         in ac.render_plan(plan)
