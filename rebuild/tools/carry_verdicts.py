@@ -34,7 +34,8 @@ def latest_verdicts(payload):
     return best
 
 
-def _well_formed(record):
+def well_formed(record):
+    """Return whether `record` is a verdict record the carry reads: an object with a string `unit`, `verdict` and `at`, and a `note` that is a string or false-valued, since every reader of the store takes it as `note or ""`. The carry refuses a verdicts file that holds any other record (`resolve_prior`), and the merge refuses an input file that holds one (`merge_verdicts`), so the merge takes no file the carry would refuse."""
     return (
         isinstance(record, dict)
         and all(isinstance(record.get(key), str) for key in ("unit", "verdict", "at"))
@@ -53,7 +54,7 @@ def _read_verdicts_file(verdict_file):
         if not isinstance(payload, dict) or not isinstance(payload.get("verdicts"), list):
             problem = "holds no `verdicts` list"
         else:
-            malformed = [record for record in payload["verdicts"] if not _well_formed(record)]
+            malformed = [record for record in payload["verdicts"] if not well_formed(record)]
             if not malformed:
                 return payload
             problem = f"holds a verdict record that is not an object with a string `unit`, `verdict` and `at` and a string `note` if any ({json.dumps(malformed[0])})"

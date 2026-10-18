@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input holding a record the carry refuses, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
 
 import json
 import threading
@@ -131,6 +131,48 @@ def test_refuses_a_cross_stamp_input(repo, tmp_path, capsys):
     assert repo["autosave"].read_text() == before
     assert not repo["journal"].exists()
     assert "carry_verdicts.py" in capsys.readouterr().out
+
+
+def test_refuses_an_export_whose_at_is_not_a_string_and_leaves_the_store_and_journal_alone(
+    repo, tmp_path, capsys
+):
+    """The carry refuses a store holding a record whose `at` is not a string, so the merge refuses an input holding one before it writes the store or the journal."""
+    assert run(repo, str(write_doc(tmp_path / "first.json", "S2", [v("u-A")]))) == 0
+    store, journaled = repo["autosave"].read_bytes(), repo["journal"].read_bytes()
+    export = write_doc(
+        tmp_path / "export.json", "S2", [v("u-C"), {"unit": "u-B", "verdict": "approve", "at": 5}]
+    )
+    assert run(repo, str(export)) == 1
+    out = capsys.readouterr().out
+    assert "export.json holds a verdict record on u-B" in out
+    assert repo["autosave"].read_bytes() == store
+    assert repo["journal"].read_bytes() == journaled
+
+
+@pytest.mark.parametrize(
+    ("record", "named"),
+    [
+        ({"unit": "u-B", "verdict": "approve"}, "on u-B"),
+        ({"verdict": "approve"}, "at index 1 of its `verdicts` list"),
+    ],
+)
+def test_refuses_an_export_holding_a_record_with_no_at(repo, tmp_path, capsys, record, named):
+    export = write_doc(tmp_path / "export.json", "S2", [v("u-A"), record])
+    assert run(repo, str(export)) == 1
+    assert f"export.json holds a verdict record {named}" in capsys.readouterr().out
+    assert not repo["autosave"].exists()
+    assert not repo["journal"].exists()
+
+
+def test_a_well_formed_export_merges_with_or_without_notes(repo, tmp_path):
+    export = write_doc(
+        tmp_path / "export.json",
+        "S2",
+        [v("u-A", note="looks right"), {"unit": "u-B", "verdict": "reject", "at": "2026-07-10T00:00:00Z"}],
+    )
+    assert run(repo, str(export)) == 0
+    assert store_records(repo) == {"u-A": v("u-A", note="looks right"), "u-B": v("u-B", "reject")}
+    assert carry_verdicts.resolve_prior([repo["autosave"]]).keys() == {"u-A", "u-B"}
 
 
 def test_stashes_a_stale_autosave_and_starts_from_the_carried_file(repo, tmp_path):
