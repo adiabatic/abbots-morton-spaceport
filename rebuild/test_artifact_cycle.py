@@ -7447,6 +7447,10 @@ def test_dry_run_plan_direct_merge_merges_the_master():
         "ams-review-verdicts/1 document" in note
     )
     assert (
+        "the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the "
+        "verdict update" in note
+    )
+    assert (
         f"  carry output : {plan.carry_out} (written only if the verdict update carries the store's snapshot)"
         in ac.render_plan(plan)
     )

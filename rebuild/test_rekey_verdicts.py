@@ -212,7 +212,7 @@ def test_an_id_that_lands_nowhere_blocks_and_a_map_must_be_one_to_one(tmp_path, 
     assert "computed under another carry projection" in capsys.readouterr().out
 
 
-def test_two_records_on_one_unit_or_a_non_string_at_block_and_a_join_never_takes_another_entrys_unit(
+def test_two_records_on_one_unit_or_a_non_string_at_on_a_unit_a_clear_lands_on_block_and_a_join_never_takes_another_entrys_unit(
     tmp_path, capsys
 ):
     """A file with a record on an old id and one on that id's new unit would hold two verdicts on one unit, so the run writes nothing, no flag overrides it, and both records count as collided. A record whose `at` is not a string blocks nothing while no clear lands on its unit, but a clear the map moves onto its unit stops the run the same way, since the re-key cannot weigh the two, and stops a journal restore's re-key through the same map. An id whose new id is missing from the new corpus never lands, by its codepoints and configs, on a unit that is another entry's new id."""
