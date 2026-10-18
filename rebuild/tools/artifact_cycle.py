@@ -2359,8 +2359,6 @@ def build_plan(
         plan.complaints_note = "first run: no verdicts to cluster"
     elif skip_verdict_update:
         plan.complaints_note = verdict_update_note
-    elif not AUTOSAVE.exists():
-        plan.complaints_note = "no verdicts store"
 
     snapshot = land_dir / landing.SNAPSHOT_NAME if land_dir is not None else None
     prepared = land_dir / landing.PREPARED_NAME if land_dir is not None and do_merge else None

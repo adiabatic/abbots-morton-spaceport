@@ -504,14 +504,15 @@ def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
 
 
 def test_with_no_live_store_the_plan_still_hands_over_the_snapshot():
-    """With no verdicts-autosave.json when the pass is planned (a fresh checkout or worktree whose tabs have saved nothing), a tab can still save a store before the snapshot step, so the plan hands the verdict update the snapshot's path beside the master, which it names by --verdicts; whether the snapshot is carried is the verdict update's choice, from the file the snapshot step leaves."""
+    """With no verdicts-autosave.json when the pass is planned (a fresh checkout or worktree whose tabs have saved nothing), a tab can still save a store before the snapshot step, so the plan hands the verdict update the snapshot's path beside the master, which it names by --verdicts; whether the snapshot is carried is the verdict update's choice, from the file the snapshot step leaves. The plan keeps the complaint list too, because the merge leaves the master's verdicts in the prepared store the list reads."""
     assert not ac.AUTOSAVE.exists()
     plan = _plan()
     assert plan.scratch_dir is not None
     argv = _argv({step.name: step for step in plan.steps}["verdict-update"])
     assert [argv[i + 1] for i, arg in enumerate(argv) if arg == "--verdicts"] == ["v.json"]
     assert argv[argv.index("--store-snapshot") + 1] == str(plan.scratch_dir / ac.landing.SNAPSHOT_NAME)
-    assert "--no-complaints" in argv
+    assert "--no-complaints" not in argv
+    assert plan.complaints_note == ""
 
 
 def test_a_master_that_is_the_live_store_is_carried_from_its_snapshot():
@@ -566,10 +567,7 @@ def test_a_carry_the_pass_does_not_merge_is_written_where_it_outlives_the_pass(t
     assert argv[argv.index("--carry-out") + 1] == str(tmp_path / "mine.json")
 
 
-def test_dry_run_plan_complaints_runs_inside_the_verdict_update(tmp_path, monkeypatch):
-    autosave = tmp_path / "verdicts-autosave.json"
-    autosave.write_text("{}")
-    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
+def test_dry_run_plan_complaints_runs_inside_the_verdict_update():
     plan = _plan()
     names = [step.name for step in plan.steps]
     assert "complaints" not in names
@@ -580,12 +578,7 @@ def test_dry_run_plan_complaints_runs_inside_the_verdict_update(tmp_path, monkey
     assert plan.complaints_note == ""
 
 
-def test_the_verdict_update_is_told_to_skip_the_complaint_list_on_a_staging_pass_first_run_and_a_missing_store(
-    tmp_path, monkeypatch
-):
-    autosave = tmp_path / "verdicts-autosave.json"
-    autosave.write_text("{}")
-    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
+def test_the_verdict_update_is_told_to_skip_the_complaint_list_on_a_staging_pass_and_a_first_run(tmp_path):
     staging = _plan(review_out=tmp_path / "staged")
     step = {step.name: step for step in staging.steps}["verdict-update"]
     assert step.argv is not None and "--no-complaints" in step.argv
@@ -596,12 +589,6 @@ def test_the_verdict_update_is_told_to_skip_the_complaint_list_on_a_staging_pass
     assert by_name["verdict-update"].argv is None
     assert "first run" in by_name["verdict-update"].note
     assert "first run" in first.complaints_note
-
-    monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "missing.json")
-    absent = _plan()
-    step = {step.name: step for step in absent.steps}["verdict-update"]
-    assert step.argv is not None and "--no-complaints" in step.argv
-    assert "no verdicts store" in absent.complaints_note
 
 
 def test_the_complaint_list_headline_is_scraped_and_never_fails_the_cycle(tmp_path, monkeypatch):
@@ -7667,10 +7654,8 @@ def test_verdict_update_completion_line_stays_out_of_the_complaints_section():
     assert sections["complaints"] == ["no open complaints", "[t] complaints 0.1s"]
 
 
-def test_verdict_update_without_complaints_can_complete():
-    plan = _plan()
-    assert "--no-complaints" in plan.argv("verdict-update")
-    report, failures = _run_verdict_update(plan, _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:-1]))
+def test_verdict_update_output_without_a_complaints_section_completes():
+    report, failures = _run_verdict_update(_plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:-1]))
     assert failures == []
     assert ac._verdict_update_completed(report) is True
     assert report.complaints_ok is None
@@ -7806,18 +7791,19 @@ def _fixture_repo_with_export(tmp_path, monkeypatch, records) -> tuple[dict, Pat
     return paths, export
 
 
-def _planned_verdict_update(plan: ac.Plan, rules: Path) -> int:
-    """Take the plan's store snapshot through `landing.snapshot` and run its verdict-update argv in process through `verdict_update.main`, with the fixture's standing rules and no complaint list, and return its exit code."""
+def _planned_verdict_update(plan: ac.Plan, rules: Path, complaints: Path | None = None) -> int:
+    """Take the plan's store snapshot through `landing.snapshot` and run its verdict-update argv in process through `verdict_update.main`, with the fixture's standing rules, and return its exit code. The complaint list writes its data to `complaints`, and does not run when that is None."""
     assert plan.scratch_dir is not None
     landing.snapshot(ac.AUTOSAVE, plan.scratch_dir)
     update = plan.argv("verdict-update")
     update = update[update.index("rebuild.tools.verdict_update") + 1 :]
-    return verdict_update.main([*update, "--rules", str(rules), "--no-complaints"])
+    listing = ["--no-complaints"] if complaints is None else ["--complaints-out", str(complaints)]
+    return verdict_update.main([*update, "--rules", str(rules), *listing])
 
 
-def _land_the_planned_verdict_update(plan: ac.Plan, rules: Path) -> None:
+def _land_the_planned_verdict_update(plan: ac.Plan, rules: Path, complaints: Path | None = None) -> None:
     """Run the plan's store snapshot and verdict update (`_planned_verdict_update`), then its land argv in process through `landing.main`."""
-    assert _planned_verdict_update(plan, rules) == 0
+    assert _planned_verdict_update(plan, rules, complaints) == 0
     land = plan.argv("land")
     assert landing.main(land[land.index("rebuild.review.landing") + 1 :]) == 0
 
@@ -8089,6 +8075,36 @@ def test_a_pass_that_builds_the_corpus_carries_the_store_beside_a_root_master_by
     landed = _records(paths["autosave"])
     assert landed["u-human"] == _record("u-human")
     assert landed.get("u-mix-a") == (None if planned_store else saved)
+
+
+def test_a_pass_that_builds_the_corpus_with_no_store_lists_the_complaints_its_prepared_store_holds(
+    tmp_path, monkeypatch, capsys
+):
+    """On a fresh checkout, with no store when the pass is planned, a root export stamped for the served corpus is the master. The merge leaves its verdicts in the prepared store, so the plan keeps the complaint list, and the real verdict update lists the export's reject, and the reject the duplicate fill gives its blank sibling, as the open complaints, which the cycle reports, before the land puts the store in place."""
+    rejected = _record("u-reject", "reject", at=NEWER, note="[reviewed] shared complaint")
+    paths, export = _fixture_repo_with_export(tmp_path, monkeypatch, [rejected, _record("u-open")])
+    monkeypatch.setattr(ac, "corpus_build_skippable", lambda *args, **kwargs: False)
+    paths["autosave"].unlink()
+
+    plan = _planned([])
+    assert plan.verdicts is not None and Path(plan.verdicts) == export
+    assert "--no-complaints" not in plan.argv("verdict-update")
+    assert plan.complaints_note == ""
+    _build_the_planned_corpus(paths["corpus"])
+    capsys.readouterr()
+    _land_the_planned_verdict_update(plan, paths["rules"], paths["complaints"])
+    report, failures = _run_verdict_update(plan, capsys.readouterr().out)
+    assert failures == []
+    assert report.complaints_ok is True
+    assert report.complaints_status.startswith("2 open complaints")
+    complained = {
+        entry["unit"]
+        for group in json.loads(paths["complaints"].read_text())["groups"]
+        for part in group["rejects"].values()
+        for entry in part
+    }
+    assert complained == {"u-reject", "u-reject-blank"}
+    assert _records(paths["autosave"])["u-reject"] == rejected
 
 
 def _assets_only_repo(tmp_path, monkeypatch):
