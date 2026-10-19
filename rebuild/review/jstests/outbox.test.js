@@ -19,6 +19,7 @@ import {
   loadConflicts,
   CONFLICTS_KEY,
 } from '../static/outbox.js';
+import { createStore, importVerdicts, replayDelta, unsavedFiles } from '../static/verdicts.js';
 
 function memoryStorage() {
   const items = new Map();
@@ -99,6 +100,43 @@ test('a reload drops what the server holds, replays recent entries by stamp, and
   assert.deepEqual(plan.replay.get('s0').map((item) => item.unit), ['u-new']);
   assert.deepEqual(plan.replay.get('s1').map((item) => item.unit), ['u-clear']);
   assert.deepEqual(plan.stale.map((item) => item.unit), ['u-old']);
+});
+
+test('a reload leaves an entry whose set the server refuses for the download, and replays a body holding only the good entry', () => {
+  const now = Date.parse('2026-09-30T12:00:00.000Z');
+  const recent = '2026-09-30T11:00:00.000Z';
+  const outbox = {
+    'u-1': entry({ unit: 'u-1', verdict: 'approve', at: 5 }, { written_at: recent }),
+    'u-2': entry({ unit: 'u-2', verdict: 'reject', note: '', at: 't2' }, { written_at: recent }),
+  };
+  const plan = planOutboxReplay(outbox, new Map(), { now });
+  assert.deepEqual(plan.stale, [{ unit: 'u-1', ...outbox['u-1'] }]);
+  const delta = replayDelta('s1', plan.replay.get('s1'));
+  assert.deepEqual(delta.sets, [{ unit: 'u-2', verdict: 'reject', note: '', at: 't2', base_at: null }]);
+  assert.deepEqual(delta.clears, []);
+});
+
+test('the unsaved download puts each record a strict Import refuses in a file of its own, whatever its age, and the rest of its corpus imports', () => {
+  const now = Date.parse('2026-09-30T12:00:00.000Z');
+  const recent = '2026-09-30T11:00:00.000Z';
+  const old = new Date(now - REPLAY_MAX_AGE_MS - 1000).toISOString();
+  const outbox = {
+    'u-1': entry({ unit: 'u-1', verdict: 'approve', at: 5 }, { written_at: recent }),
+    'u-2': entry({ unit: 'u-2', verdict: 'approve', at: 6 }, { written_at: old }),
+    'u-3': entry({ unit: 'u-3', verdict: 'reject', note: '', at: 't3' }, { written_at: old }),
+    'u-4': entry(null, { written_at: old }),
+  };
+  const files = unsavedFiles(planOutboxReplay(outbox, new Map([['u-4', approve]]), { now }).stale, 'x');
+  assert.deepEqual(
+    files.map(({ name, payload }) => [name, payload.verdicts.map((verdict) => verdict.unit), payload.cleared]),
+    [
+      ['verdicts-unsaved-malformed-s1.json', ['u-1', 'u-2'], undefined],
+      ['verdicts-unsaved-s1.json', ['u-3'], [{ unit: 'u-4', at: old }]],
+    ],
+  );
+  const [malformed, rest] = files.map(({ payload }) => importVerdicts(createStore(), payload, 's1', { strict: true }));
+  assert.equal(malformed.ok, false);
+  assert.deepEqual(rest.units, ['u-3']);
 });
 
 test('a storage that throws is read as an empty outbox and reports a failed write', () => {

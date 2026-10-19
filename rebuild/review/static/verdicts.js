@@ -134,12 +134,32 @@ export function assembleDelta(store, manifestGeneratedAt, unitIds) {
   return { format: DELTA_FORMAT, manifest_generated_at: manifestGeneratedAt, sets, clears };
 }
 
+// Mirrors the rule `rebuild.review.verdict_store.parse_delta_payload` applies to each set, which refuses a whole delta holding one set that fails it: an object with a string `unit` and `verdict` whose `base_at`, `at` and `note` are each, when present, a string or null. It is not `wellFormed`'s record rule: a set may leave out `at` or give it as null, and its note is a string or null, where the record rule also takes a note of false, 0, [] or {}.
+export function wellFormedSet(set) {
+  if (set === null || typeof set !== 'object' || Array.isArray(set)) return false;
+  if (typeof set.unit !== 'string' || typeof set.verdict !== 'string') return false;
+  for (const key of ['base_at', 'at', 'note']) {
+    const value = set[key];
+    if (value !== undefined && value !== null && typeof value !== 'string') return false;
+  }
+  return true;
+}
+
+function replaySet(entry) {
+  return { ...entry.record, unit: entry.unit, base_at: entry.base_at ?? null };
+}
+
+// Whether `wellFormedSet` takes the set `replayDelta` sends for an outbox entry (`outbox.js`, with its `unit`); true for an entry holding a clear, which it does not test.
+export function replayable(entry) {
+  return !entry.record || wellFormedSet(replaySet(entry));
+}
+
 // The body that sends outbox entries (`outbox.js`) again: each entry's record under `sets`, or a clear dated when the entry was written, with the `base_at` the entry recorded. `replay: true` makes the server test each unit instead of taking the last write.
 export function replayDelta(stamp, entries) {
   const sets = [];
   const clears = [];
   for (const entry of entries) {
-    if (entry.record) sets.push({ ...entry.record, unit: entry.unit, base_at: entry.base_at ?? null });
+    if (entry.record) sets.push(replaySet(entry));
     else clears.push({ unit: entry.unit, base_at: entry.base_at ?? null, at: entry.written_at });
   }
   return { format: DELTA_FORMAT, manifest_generated_at: stamp, replay: true, sets, clears };
@@ -180,6 +200,26 @@ function wellFormed(entry) {
   if (typeof note === 'string' || !note) return true;
   if (Array.isArray(note)) return note.length === 0;
   return typeof note === 'object' && Object.keys(note).length === 0;
+}
+
+// The files that hold outbox entries (`outbox.js`, each with its `unit`) a page could not send, as `{ name, payload }`: one `ams-review-verdicts/1` document per corpus the entries were made on, with the clears as a `cleared` list of { unit, at }, and each record a strict Import refuses (`wellFormed`, the merge's rule too) in a verdicts-unsaved-malformed-<stamp>.json of its own, so it cannot make an Import or merge_verdicts refuse the file holding the rest.
+export function unsavedFiles(entries, exportedAt = new Date().toISOString()) {
+  const files = new Map();
+  for (const entry of entries) {
+    const verdict = entry.record ? { ...entry.record, unit: entry.unit } : null;
+    const kind = verdict && !wellFormed(verdict) ? 'malformed-' : '';
+    const key = `${kind} ${entry.stamp}`;
+    if (!files.has(key)) {
+      files.set(key, {
+        name: `verdicts-unsaved-${kind}${entry.stamp.replace(/[^0-9A-Za-z.-]/gu, '.')}.json`,
+        payload: { format: EXPORT_FORMAT, manifest_generated_at: entry.stamp, exported_at: exportedAt, verdicts: [] },
+      });
+    }
+    const { payload } = files.get(key);
+    if (verdict) payload.verdicts.push(verdict);
+    else (payload.cleared ??= []).push({ unit: entry.unit, at: entry.written_at });
+  }
+  return [...files.values()];
 }
 
 // `pendingAt(unit)` returns when this page made a change to the unit that the server has not yet acknowledged, or undefined when it has none: an incoming record replaces such a unit only when it is newer than that change, so a sync never reverts a clear or an undo waiting to be sent. With `strict`, which the Import dialog passes, a document holding a record `wellFormed` refuses is refused whole, as the merge refuses an input file holding a record the carry refuses (`verdict_store.well_formed`); without it, as for a restore or a sync of the server's records, a record is skipped and counted in `invalid` only when it has no string unit or its verdict is not a known kind.

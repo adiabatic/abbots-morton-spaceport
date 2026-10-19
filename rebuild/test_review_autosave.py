@@ -34,6 +34,7 @@ from rebuild.review.serve import (
 from rebuild.tools.review_server import force_reload
 from rebuild.review.store_lock import store_lock
 from rebuild.review.verdict_store import (
+    MalformedSet,
     ServedCorpus,
     VerdictStore,
     orphan_path,
@@ -45,6 +46,7 @@ from rebuild.review.verdict_store import (
 VERDICT_RECORD_SAMPLES = (
     Path(__file__).resolve().parent / "review" / "fixtures" / "verdict-record-samples.json"
 )
+DELTA_SET_SAMPLES = Path(__file__).resolve().parent / "review" / "fixtures" / "delta-set-samples.json"
 
 
 def payload(stamp, verdicts=(), fmt=EXPORT_FORMAT):
@@ -690,6 +692,20 @@ def test_well_formed_gives_each_shared_sample_its_recorded_answer():
     assert {sample["well_formed"] for sample in samples} == {True, False}
     for sample in samples:
         assert well_formed(sample["record"]) is sample["well_formed"], sample["record"]
+
+
+def test_parse_delta_payload_gives_each_shared_set_sample_its_recorded_answer():
+    """`verdicts.test.js` checks the review app's `wellFormedSet`, by which the outbox replay leaves a set this rule refuses out of its body, against the same samples, so the app's JavaScript mirror of the rule cannot drift from it."""
+    samples = json.loads(DELTA_SET_SAMPLES.read_text(encoding="utf-8"))
+    assert {sample["well_formed"] for sample in samples} == {True, False}
+    for sample in samples:
+        raw = delta(NEW, [sample["set"]])
+        if sample["well_formed"]:
+            parsed = parse_delta_payload(raw)
+            assert parsed is not None and parsed["sets"] == [sample["set"]], sample["set"]
+        else:
+            with pytest.raises(MalformedSet):
+                parse_delta_payload(raw)
 
 
 @pytest.mark.parametrize("verdict_field", [{}, {"verdict": 5}], ids=["no-verdict", "numeric-verdict"])

@@ -43,3 +43,7 @@ Editing an existing unit outside `unit_cache.CARRY_PRESENTATION_KEYS` changes it
 ## `verdict-record-samples.json` — the verdict record rule
 
 A third fixture, unrelated to the corpus: verdict records, each with the answer `rebuild.review.verdict_store.well_formed` gives it. `rebuild/test_review_autosave.py` checks each answer against that function, and `rebuild/review/jstests/verdicts.test.js` against the review app's strict Import (`importVerdicts` with `strict`), which mirrors the rule in JavaScript, so the two cannot drift apart. A change to the rule adds the samples that show it.
+
+## `delta-set-samples.json` — the delta set rule
+
+Also unrelated to the corpus: autosave delta sets, each with whether `rebuild.review.verdict_store.parse_delta_payload` takes a delta holding it, a rule that is not the record rule above. `rebuild/test_review_autosave.py` checks each answer against that function, and `rebuild/review/jstests/verdicts.test.js` against the review app's `wellFormedSet`, which mirrors the rule in JavaScript for the outbox replay (`planOutboxReplay`), so the two cannot drift apart. A change to the rule adds the samples that show it.

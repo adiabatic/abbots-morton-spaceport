@@ -15,6 +15,7 @@ import {
   verdictCounts,
   assembleDelta,
   replayDelta,
+  wellFormedSet,
   acknowledgeDelta,
   noteServerRecords,
   adoptServerRecord,
@@ -24,6 +25,9 @@ import {
 
 const verdictRecordSamples = JSON.parse(
   await readFile(new URL('../fixtures/verdict-record-samples.json', import.meta.url), 'utf8'),
+);
+const deltaSetSamples = JSON.parse(
+  await readFile(new URL('../fixtures/delta-set-samples.json', import.meta.url), 'utf8'),
 );
 
 test('recordVerdict stores the whole-unit record shape', () => {
@@ -604,6 +608,12 @@ test('replayDelta sends outbox entries with their own base_at, dating a clear by
     sets: [{ unit: 'u-1', verdict: 'approve', note: 'x', at: 't5', base_at: 't1' }],
     clears: [{ unit: 'u-2', base_at: 't2', at: 'w2' }],
   });
+});
+
+test('wellFormedSet takes or refuses each shared sample as verdict_store.parse_delta_payload does', () => {
+  for (const { set, well_formed: wellFormed } of deltaSetSamples) {
+    assert.equal(wellFormedSet(set), wellFormed, JSON.stringify(set));
+  }
 });
 
 test('adoptServerRecord takes the server record after a conflict and forgets the local change', () => {

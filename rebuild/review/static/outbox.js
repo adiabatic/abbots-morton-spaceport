@@ -2,6 +2,8 @@
 // The outbox is kept per checkout: every checkout's review server listens on the same port, so the browser gives them one origin and one localStorage, and a change made on one checkout's corpus must not be sent to another's store. `scopeOutbox` keys the outbox by the repo root the server names on /capabilities.
 // Each open tab also records when it was last seen under TABS_KEY, every TAB_HEARTBEAT_MS, and removes itself on pagehide, so a page that boots replays only the entries of tabs that are gone: an entry a tab still open has pending (in its debounce or its retry backoff) is that tab's to send. A tab not seen for TAB_FRESH_MS counts as gone, which is longer than a browser's throttling of a background tab's timers.
 
+import { replayable } from './verdicts.js';
+
 export const OUTBOX_KEY = 'ams-review-outbox';
 export const TABS_KEY = 'ams-review-tabs';
 export const CONFLICTS_KEY = 'ams-review-conflicts';
@@ -143,7 +145,7 @@ export function currentEntries(storage, entries) {
   return entries.filter((entry) => outbox[entry.unit]?.tab === entry.tab && outbox[entry.unit]?.seq === entry.seq);
 }
 
-// Sorts the outbox against the server's records at boot. The entries of the tabs in `live` are left alone, because those tabs are still open to send them. An entry whose record the server already holds (a clear the server has no record for included, and a record whose note differs from the entry's only by leading `[carried …]` markers) was saved, so it is dropped. The rest are replayed when written within `maxAgeMs`, grouped by the stamp they were made on, and the older ones are left for the reader to download.
+// Sorts the outbox against the server's records at boot. The entries of the tabs in `live` are left alone, because those tabs are still open to send them. An entry whose record the server already holds (a clear the server has no record for included, and a record whose note differs from the entry's only by leading `[carried …]` markers) was saved, so it is dropped. The rest are replayed when written within `maxAgeMs` and the server would take their set (`replayable` in `verdicts.js`), grouped by the stamp they were made on, and the others are left for the reader to download, since the server refuses a whole replay holding one set it refuses.
 export function planOutboxReplay(
   outbox,
   serverRecords,
@@ -163,7 +165,7 @@ export function planOutboxReplay(
       continue;
     }
     const writtenAt = Date.parse(entry.written_at ?? '');
-    if (!(now - writtenAt <= maxAgeMs)) {
+    if (!(now - writtenAt <= maxAgeMs) || !replayable({ unit, ...entry })) {
       stale.push({ unit, ...entry });
       continue;
     }

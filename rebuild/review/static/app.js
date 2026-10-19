@@ -12,6 +12,7 @@ import {
   assembleExport,
   assembleDelta,
   replayDelta,
+  unsavedFiles,
   acknowledgeDelta,
   noteServerRecords,
   adoptServerRecord,
@@ -2778,28 +2779,14 @@ function reapplyConflicts() {
   toast(`Reapplied ${formatCount(count)} verdict${count === 1 ? '' : 's'}`);
 }
 
-// Downloads the outbox entries this page could not send, one file per corpus they were made on, with the clears as a `cleared` list of { unit, at }. The entries stay in the outbox until the reader says the files are saved (forgetStaleOutbox), so a blocked or cancelled download loses nothing.
+// Downloads the outbox entries this page could not send, in the files `unsavedFiles` lays out. The entries stay in the outbox until the reader says the files are saved (forgetStaleOutbox), so a blocked or cancelled download loses nothing.
 function downloadStaleOutbox() {
-  const byStamp = new Map();
-  for (const entry of staleOutbox) {
-    if (!byStamp.has(entry.stamp)) byStamp.set(entry.stamp, []);
-    byStamp.get(entry.stamp).push(entry);
-  }
-  const exportedAt = new Date().toISOString();
-  for (const [stamp, entries] of byStamp) {
-    const verdicts = [];
-    const cleared = [];
-    for (const entry of entries) {
-      if (entry.record) verdicts.push({ ...entry.record, unit: entry.unit });
-      else cleared.push({ unit: entry.unit, at: entry.written_at });
-    }
-    const payload = { format: EXPORT_FORMAT, manifest_generated_at: stamp, exported_at: exportedAt, verdicts };
-    if (cleared.length > 0) payload.cleared = cleared;
+  for (const { name, payload } of unsavedFiles(staleOutbox)) {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `verdicts-unsaved-${stamp.replace(/[^0-9A-Za-z.-]/gu, '.')}.json`;
+    anchor.download = name;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -2814,7 +2801,7 @@ function forgetStaleOutbox() {
   updateProgress();
 }
 
-// The status bar's outbox line: saves waiting for a retry, conflicts to reapply, and outbox entries too old to replay.
+// The status bar's outbox line: saves waiting for a retry, conflicts to reapply, and outbox entries this page could not send (too old to replay, refused by the server, or left out of a replay because the server would refuse them).
 function renderOutboxStatus() {
   const node = document.getElementById('outbox-status');
   if (!node) return;
@@ -2835,7 +2822,7 @@ function renderOutboxStatus() {
     const button = el('button', 'outbox-download', `Download ${formatCount(staleOutbox.length)} unsaved`);
     button.type = 'button';
     button.title =
-      'This browser kept these changes from a session that closed before they were saved, and they are too old to send on their own or the server refused them';
+      'This browser kept these changes from a session that closed before they were saved, and they are too old to send on their own, or the server refused them or would refuse them';
     button.addEventListener('click', downloadStaleOutbox);
     parts.push(button);
     if (staleDownloaded) {
