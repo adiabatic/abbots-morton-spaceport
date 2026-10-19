@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input holding a record the carry refuses, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, the refusal of a store under any other name without one, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, or of a store stamped for the corpus, holding a record the carry refuses, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, the refusal of a store under any other name without one, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
 
 import json
 import threading
@@ -162,6 +162,30 @@ def test_refuses_an_export_holding_a_record_with_no_at(repo, tmp_path, capsys, r
     assert f"export.json holds a verdict record {named}" in capsys.readouterr().out
     assert not repo["autosave"].exists()
     assert not repo["journal"].exists()
+
+
+@pytest.mark.parametrize(
+    ("record", "named"),
+    [
+        ({"unit": "u-B", "verdict": "approve", "at": 5}, "on u-B"),
+        ({"verdict": "approve", "at": "2026-07-10T00:00:00Z"}, "at index 2 of its `verdicts` list"),
+    ],
+)
+def test_refuses_a_store_stamped_for_the_corpus_holding_a_record_the_carry_refuses_and_leaves_the_store_and_journal_alone(
+    repo, tmp_path, capsys, record, named
+):
+    """Only a hand edit, or a restore of a journal line written before the merge and the server refused such a record, leaves one in a store stamped for the corpus, whose records the merge keeps and weighs against its inputs', so the merge refuses the store before it writes the store or the journal, naming the store and the record by its unit, or by its index when it names none."""
+    assert run(repo, str(write_doc(tmp_path / "first.json", "S2", [v("u-A"), v("u-B")]))) == 0
+    payload = json.loads(repo["autosave"].read_text())
+    kept = [held for held in payload["verdicts"] if held["unit"] != record.get("unit")]
+    repo["autosave"].write_text(json.dumps({**payload, "verdicts": [*kept, record]}))
+    store, journaled = repo["autosave"].read_bytes(), repo["journal"].read_bytes()
+    export = write_doc(tmp_path / "export.json", "S2", [v("u-B", "reject", at="2026-07-11T00:00:00Z")])
+    assert run(repo, str(export)) == 1
+    out = capsys.readouterr().out
+    assert f"ERROR: the store {mv._rel(repo['autosave'])} holds a verdict record {named}" in out
+    assert repo["autosave"].read_bytes() == store
+    assert repo["journal"].read_bytes() == journaled
 
 
 def test_a_well_formed_export_merges_with_or_without_notes(repo, tmp_path):

@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped. With no `--journal`, every merge appends to the journal beside the store."""
+"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped. A direct merge into a store stamped for the corpus that holds a record the carry refuses fails the update at its merge, naming the store, with the store and the journal as they were. With no `--journal`, every merge appends to the journal beside the store."""
 
 import json
 import pathlib
@@ -850,6 +850,46 @@ def test_a_hand_run_with_nothing_to_merge_over_a_readable_store_stamped_for_the_
     assert next(line for line in lines if line.startswith(console.PHASE)) == f"{console.PHASE}store"
     assert lines[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
     assert kept | {"u-standing", "u-standing-sibling"} <= set(_records(paths["autosave"]))
+
+
+@pytest.mark.parametrize("defect", ["an `at` that is not a string", "no `at`"])
+def test_a_direct_merge_over_a_store_holding_a_record_the_carry_refuses_fails_at_the_merge_naming_the_store_and_writes_nothing(
+    tmp_path, monkeypatch, capsys, defect
+):
+    """The store is stamped for the corpus, so the direct merge merges the master straight into it. With an `at` that is not a string on u-cleared-source, the master's record for that unit would be weighed against it; with no `at` and the unit out of the master, the merge would change nothing and the first fill would read the record. Either way the merge refuses the store before anything is written, naming it and the unit, so the update fails at its merge with the store and the journal as they were."""
+    paths = _integration_fixture(tmp_path / "current", monkeypatch)
+    store = json.loads(paths["autosave"].read_text())
+    journal.record_transition(
+        paths["journal"],
+        source="merge",
+        stamp=CORPUS_STAMP,
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=store["verdicts"],
+        new_cleared=parse_cleared(store),
+    )
+    for record in store["verdicts"]:
+        if record["unit"] == "u-cleared-source":
+            if defect == "no `at`":
+                del record["at"]
+            else:
+                record["at"] = 5
+    paths["autosave"].write_text(json.dumps(store))
+    if defect == "no `at`":
+        master = json.loads(paths["master"].read_text())
+        master["verdicts"] = [record for record in master["verdicts"] if record["unit"] != "u-cleared-source"]
+        paths["master"].write_text(json.dumps(master))
+    before, journaled = paths["autosave"].read_bytes(), paths["journal"].read_bytes()
+    assert _actual_update(paths) == 1
+    captured = capsys.readouterr()
+    assert (
+        f"ERROR: the store {vu.merge_verdicts._rel(paths['autosave'])} holds a verdict record on u-cleared-source"
+        in captured.out
+    )
+    assert "Traceback" not in captured.out + captured.err
+    assert captured.out.splitlines()[-1] == f"{console.FAILED_LINE}merge (exit 1)"
+    assert paths["autosave"].read_bytes() == before
+    assert paths["journal"].read_bytes() == journaled
 
 
 def test_a_hand_run_whose_merge_refuses_while_a_server_listens_is_told_to_stop_the_server_and_completes_once_it_is_stopped(
