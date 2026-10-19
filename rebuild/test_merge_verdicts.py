@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input holding a record the carry refuses, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input holding a record the carry refuses, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, the refusal of a store under any other name without one, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
 
 import json
 import threading
@@ -297,6 +297,65 @@ def test_merge_to_a_scratch_store_proceeds_while_the_server_is_up(repo, tmp_path
     monkeypatch.setattr(mv, "_server_listening", lambda: True)
     assert run(repo, str(carried)) == 0
     assert set(store_records(repo)) == {"u-1"}
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_a_merge_journals_beside_its_autosave_unless_journal_names_another(
+    repo, tmp_path, monkeypatch, named
+):
+    """With no `--journal`, a merge into a copy of the store, a verdicts-autosave.json in another directory, appends to the verdicts-journal.ndjson beside the copy (`journal.journal_path_for`), not to the live pair, which `repo` stands in for and `mv.JOURNAL` is pointed at, so a default that went back to the live journal would write there. A `--journal` names another journal, and the merge appends there instead."""
+    monkeypatch.setattr(mv, "JOURNAL", repo["journal"])
+    assert run(repo, str(write_doc(tmp_path / "live-input.json", "S2", [v("u-0")]))) == 0
+    live = {path: path.read_bytes() for path in (repo["autosave"], repo["journal"])}
+    copy = tmp_path / "copy" / "verdicts-autosave.json"
+    copy.parent.mkdir()
+    named_journal = tmp_path / "named.ndjson"
+    carried = write_doc(tmp_path / "carried.json", "S2", [v("u-1")])
+    argv = [str(carried), "--autosave", str(copy), "--corpus", str(repo["corpus"])]
+    assert mv.main([*argv, *(["--journal", str(named_journal)] if named else [])]) == 0
+    beside = copy.with_name(journal.JOURNAL_NAME)
+    written, unwritten = (named_journal, beside) if named else (beside, named_journal)
+    assert journal.replay(written) == ("S2", {"u-1": v("u-1")})
+    assert not unwritten.exists()
+    assert {path: path.read_bytes() for path in live} == live
+
+
+@pytest.mark.parametrize("name", ["verdicts-scratch.json", "Verdicts-Autosave.json"])
+def test_a_store_under_another_name_needs_journal(repo, tmp_path, monkeypatch, capsys, name):
+    """A store not named exactly verdicts-autosave.json has no default journal (`journal.journal_path_for`), so a merge into a copy beside the live pair under another name, or into the live store under another spelling of its name, which a case-insensitive filesystem resolves to the live store itself, refuses before it writes anything and asks for `--journal`."""
+    monkeypatch.setattr(mv, "JOURNAL", repo["journal"])
+    assert run(repo, str(write_doc(tmp_path / "live-input.json", "S2", [v("u-0")]))) == 0
+    carried = write_doc(tmp_path / "carried.json", "S2", [v("u-1")])
+    before = {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()}
+    with pytest.raises(SystemExit) as refused:
+        mv.main([str(carried), "--autosave", str(tmp_path / name), "--corpus", str(repo["corpus"])])
+    assert refused.value.code == 2
+    assert "pass --journal" in capsys.readouterr().err
+    assert {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.is_file()} == before
+
+
+def test_a_restore_and_a_list_of_a_copy_read_the_journal_beside_it(repo, tmp_path, monkeypatch, capsys):
+    """With no `--journal`, `--restore-as-of --apply` into a copy of the store replays the verdicts-journal.ndjson beside the copy and appends the restore there, so that journal replays to the restored store, and `--list` lists that journal's events. Neither reads nor writes the live pair, which `repo` stands in for and `mv.JOURNAL` is pointed at, whose own event a restore of the live journal would put back."""
+    monkeypatch.setattr(mv, "JOURNAL", repo["journal"])
+    clock = {"now": "2026-07-10T01:00:00Z"}
+    monkeypatch.setattr(journal, "now_stamp", lambda: clock["now"])
+    assert run(repo, str(write_doc(tmp_path / "live-input.json", "S2", [v("u-0")]))) == 0
+    live = {path: path.read_bytes() for path in (repo["autosave"], repo["journal"])}
+    copy = tmp_path / "copy" / "verdicts-autosave.json"
+    copy.parent.mkdir()
+    argv = ["--autosave", str(copy), "--corpus", str(repo["corpus"])]
+    assert mv.main([str(write_doc(tmp_path / "first.json", "S2", [v("u-1")])), *argv]) == 0
+    clock["now"] = "2026-07-10T02:00:00Z"
+    assert mv.main([str(write_doc(tmp_path / "second.json", "S2", [v("u-2")])), *argv]) == 0
+    clock["now"] = "2026-07-10T03:00:00Z"
+    assert mv.main(["--restore-as-of", "2026-07-10T01:30", "--apply", *argv]) == 0
+    restored = journal.latest_by_unit(json.loads(copy.read_text())["verdicts"])
+    assert restored == {"u-1": v("u-1")}
+    assert journal.replay(copy.with_name(journal.JOURNAL_NAME)) == ("S2", restored)
+    assert {path: path.read_bytes() for path in live} == live
+    capsys.readouterr()
+    assert mv.main(["--list", *argv]) == 0
+    assert [line.split()[1] for line in capsys.readouterr().out.splitlines()] == ["merge", "merge", "restore"]
 
 
 def test_no_files_auto_picks_the_fullest_verdicts_file(repo, tmp_path, monkeypatch, capsys):

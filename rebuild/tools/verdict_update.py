@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebuild.review import unit_index  # noqa: E402
+from rebuild.review.journal import AUTOSAVE_NAME, JOURNAL_NAME, journal_path_for  # noqa: E402
 from rebuild.review.verdict_store import parse_autosave_payload  # noqa: E402
 from rebuild.tools import (  # noqa: E402
     carry_verdicts,
@@ -153,7 +154,11 @@ def main(argv: list[str] | None = None) -> int:
         help="with --carry-out, and --verdicts or --merge-master: the snapshot of the store that --autosave copies, as the snapshot step left it, so it may be missing. With --verdicts alone it is carried beside them when it exists. With --merge-master it is carried only when the merge would set that store aside, because the snapshot is stamped for an older corpus or is not an ams-review-verdicts/1 document: a snapshot stamped for an older corpus, or one that is not such a document but holds a readable `verdicts` list, is carried onto the corpus by unit id, its skips kept as tombstones, and the master merged into the result, so the store's verdicts are kept, and one the carry cannot read is refused by the carry, which names it (`carry_verdicts.resolve_prior`). A missing snapshot, or an ams-review-verdicts/1 document stamped for the corpus or a newer one, is not carried",
     )
     parser.add_argument("--autosave", type=pathlib.Path, default=AUTOSAVE)
-    parser.add_argument("--journal", type=pathlib.Path, default=merge_verdicts.JOURNAL)
+    parser.add_argument(
+        "--journal",
+        type=pathlib.Path,
+        help=f"the journal every merge appends to (default: the {JOURNAL_NAME} beside --autosave; a store not named {AUTOSAVE_NAME} needs --journal)",
+    )
     parser.add_argument("--duplicate-out", type=pathlib.Path, default=DUPLICATE_FILL)
     parser.add_argument("--standing-out", type=pathlib.Path, default=STANDING_FILL)
     parser.add_argument("--rules", type=pathlib.Path, default=standing_verdicts.RULES)
@@ -191,6 +196,10 @@ def main(argv: list[str] | None = None) -> int:
     ):
         parser.error("--store-snapshot needs --carry-out, and --verdicts or --merge-master")
 
+    try:
+        journal = args.journal or journal_path_for(args.autosave)
+    except ValueError as error:
+        parser.error(str(error))
     corpus = args.corpus
     started = time.perf_counter()
     unit_ids: set[str] = set()
@@ -243,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     to_merge = [path for path in (args.carry_out if carried else None, master) if path is not None]
     if to_merge or not args.autosave.exists():
         code = _merge(
-            "merge", *to_merge, autosave=args.autosave, corpus=corpus, journal=args.journal, clears=clears
+            "merge", *to_merge, autosave=args.autosave, corpus=corpus, journal=journal, clears=clears
         )
     else:
         code = _run("store", lambda: refuse_unreadable_store(args.autosave))
@@ -256,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
         return code
     fills = json.loads(args.duplicate_out.read_text())["verdicts"]
     code = _merge(
-        "duplicate-merge", args.duplicate_out, autosave=args.autosave, corpus=corpus, journal=args.journal
+        "duplicate-merge", args.duplicate_out, autosave=args.autosave, corpus=corpus, journal=journal
     )
     if code:
         return code
@@ -286,9 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if code:
         return code
-    code = _merge(
-        "standing-merge", args.standing_out, autosave=args.autosave, corpus=corpus, journal=args.journal
-    )
+    code = _merge("standing-merge", args.standing_out, autosave=args.autosave, corpus=corpus, journal=journal)
     if code:
         return code
 
@@ -303,7 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     ]
     _write_fills(args.duplicate_out, stamp, fills)
     code = _merge(
-        "duplicate-merge-2", args.duplicate_out, autosave=args.autosave, corpus=corpus, journal=args.journal
+        "duplicate-merge-2", args.duplicate_out, autosave=args.autosave, corpus=corpus, journal=journal
     )
     if code:
         return code

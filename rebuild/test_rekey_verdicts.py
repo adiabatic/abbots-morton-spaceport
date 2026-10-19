@@ -327,6 +327,110 @@ def test_a_later_rekey_merges_into_the_id_map_and_copies_the_previous_one(tmp_pa
     assert len(list(keep.glob(f"{map_path.stem}-*.json"))) == 1
 
 
+@pytest.mark.parametrize("named", [False, True])
+def test_a_rekey_of_a_store_outside_the_root_journals_beside_it_unless_journal_names_another(
+    tmp_path, capsys, named
+):
+    """With no `--journal`, the re-key appends its base event to the verdicts-journal.ndjson beside `--autosave` (`journal.journal_path_for`), not to the one at `--root`, so a re-key of a copy of the store leaves the checkout's journal alone. A `--journal` names another journal, and the re-key appends there instead."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    root, copy = tmp_path / "root", tmp_path / "copy" / "verdicts-autosave.json"
+    root.mkdir()
+    copy.parent.mkdir()
+    map_path = tmp_path / "map.json"
+    map_argv = ["--root", str(root), "--from-corpus", str(old_corpus), "--map-out", str(map_path)]
+    assert rekey_verdicts.main(map_argv) == 0
+    _verdicts(copy, OLD_STAMP, [olds[0]["id"]])
+    named_journal = tmp_path / "named.ndjson"
+    argv = ["--root", str(root), "--map", str(map_path), "--corpus", str(new_corpus), "--autosave", str(copy)]
+    assert rekey_verdicts.main([*argv, *(["--journal", str(named_journal)] if named else [])]) == 0
+    capsys.readouterr()
+    assert _units(copy) == [news[0]["id"]]
+    beside = copy.with_name(journal.JOURNAL_NAME)
+    written, unwritten = (named_journal, beside) if named else (beside, named_journal)
+    stamp, records = journal.replay(written)
+    assert (stamp, list(records)) == (OLD_STAMP, [news[0]["id"]])
+    assert not unwritten.exists()
+    assert not (root / journal.JOURNAL_NAME).exists()
+
+
+def test_a_rekey_of_a_copy_leaves_the_roots_files_alone_and_its_undo_marks_the_copy(tmp_path, capsys):
+    """A re-key whose `--root` holds a store, its journal and a stash stamped for the corpus the map was computed from, and whose `--autosave` names a copy in another directory, leaves the root's files out (`rekey_verdicts.verdict_files`), so they keep their bytes and the copy's journal, beside it, replays to the re-keyed copy. Its `--undo` puts the copy and its journal back and leaves the unjournaled marker beside the copy, not beside the root's store."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    root, copy = tmp_path / "root", tmp_path / "copy" / "verdicts-autosave.json"
+    root.mkdir()
+    copy.parent.mkdir()
+    map_path = tmp_path / "map.json"
+    map_argv = ["--root", str(root), "--from-corpus", str(old_corpus), "--map-out", str(map_path)]
+    assert rekey_verdicts.main(map_argv) == 0
+    live, live_journal = root / "verdicts-autosave.json", root / journal.JOURNAL_NAME
+    copy_journal = copy.with_name(journal.JOURNAL_NAME)
+    for store, store_journal, old in ((live, live_journal, olds[0]), (copy, copy_journal, olds[1])):
+        _verdicts(store, OLD_STAMP, [old["id"]])
+        _seed_journal(store_journal, [old["id"]])
+    stash = root / "verdicts-autosave-old.json"
+    _verdicts(stash, OLD_STAMP, [olds[2]["id"]])
+    root_files = {path: path.read_bytes() for path in (live, live_journal, stash)}
+    copied = {path: path.read_bytes() for path in (copy, copy_journal)}
+    argv = ["--root", str(root), "--map", str(map_path), "--corpus", str(new_corpus), "--autosave", str(copy)]
+    assert rekey_verdicts.main(argv) == 0
+    capsys.readouterr()
+    assert _units(copy) == [news[1]["id"]]
+    rekeyed = journal.latest_by_unit(json.loads(copy.read_text(encoding="utf-8"))["verdicts"])
+    assert journal.replay(copy_journal) == (OLD_STAMP, rekeyed)
+    assert {path: path.read_bytes() for path in root_files} == root_files
+
+    (backup,) = [path for path in (root / rekey_verdicts.KEEP).iterdir() if path.is_dir()]
+    assert rekey_verdicts.main(["--root", str(root), "--undo", str(backup)]) == 0
+    assert {path: path.read_bytes() for path in copied} == copied
+    assert journal.unjournaled_marker_for(copy).exists()
+    assert not journal.unjournaled_marker_for(live).exists()
+    assert {path: path.read_bytes() for path in root_files} == root_files
+
+
+@pytest.mark.parametrize(
+    ("flag", "name"),
+    [
+        ("--verdicts", "verdicts-autosave.json"),
+        ("--verdicts", "Verdicts-Autosave.json"),
+        ("--references", "verdicts-autosave.json"),
+    ],
+)
+def test_a_rekey_of_a_copy_refuses_the_roots_store_passed_by_name(tmp_path, capsys, flag, name):
+    """A file named verdicts-autosave.json, in any letter case, that `--autosave` does not name is a journaled store the re-key would rewrite without journaling it (`rekey_verdicts.another_store`), so passing the root's store with `--verdicts` or `--references` beside a copy's `--autosave` is a usage error that writes nothing: the root pair and the copy's pair keep their bytes."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    root, copy = tmp_path / "root", tmp_path / "copy" / "verdicts-autosave.json"
+    root.mkdir()
+    copy.parent.mkdir()
+    map_path = tmp_path / "map.json"
+    map_argv = ["--root", str(root), "--from-corpus", str(old_corpus), "--map-out", str(map_path)]
+    assert rekey_verdicts.main(map_argv) == 0
+    live = root / "verdicts-autosave.json"
+    for store, old in ((live, olds[0]), (copy, olds[1])):
+        _verdicts(store, OLD_STAMP, [old["id"]])
+        _seed_journal(store.with_name(journal.JOURNAL_NAME), [old["id"]])
+    pairs = [live, live.with_name(journal.JOURNAL_NAME), copy, copy.with_name(journal.JOURNAL_NAME)]
+    before = {path: path.read_bytes() for path in pairs}
+    argv = ["--root", str(root), "--map", str(map_path), "--corpus", str(new_corpus), "--autosave", str(copy)]
+    with pytest.raises(SystemExit) as refused:
+        rekey_verdicts.main([*argv, flag, str(root / name)])
+    assert refused.value.code == 2
+    assert f"re-key it with --autosave {root / name}" in capsys.readouterr().err
+    assert {path: path.read_bytes() for path in pairs} == before
+    assert not (root / rekey_verdicts.KEEP).exists()
+
+
 def test_a_rekey_journals_the_stores_tombstones_and_a_restore_and_the_undo_put_them_back(tmp_path):
     """The store's tombstones on ids the map moves move with its records, and the re-key's base event holds them under their new ids. A journal restore from before the re-key moves the replayed tombstones through the kept map, and the undo cuts the journal back to the store that holds them under their old ids."""
     fragments = _fragments()

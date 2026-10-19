@@ -1,11 +1,11 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped."""
+"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped. With no `--journal`, every merge appends to the journal beside the store."""
 
 import json
 import pathlib
 
 import pytest
 
-from rebuild.review import landing, status
+from rebuild.review import journal, landing, status
 from rebuild.review.verdict_store import parse_cleared
 from rebuild.tools import console, verdict_update as vu
 
@@ -876,3 +876,21 @@ def test_a_hand_run_whose_merge_refuses_while_a_server_listens_is_told_to_stop_t
         capsys.readouterr().out.splitlines()[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
     )
     assert _records(paths["autosave"])["u-open"]["at"] == NEWER
+
+
+@pytest.mark.parametrize("named", [False, True])
+def test_the_merges_journal_beside_the_autosave_unless_journal_names_another(tmp_path, monkeypatch, named):
+    """With no `--journal`, every merge of a run on a copy of the store appends to the verdicts-journal.ndjson beside the copy (`journal.journal_path_for`), so the journal replays to the store the run leaves and the live journal, which `merge_verdicts.JOURNAL` names and this test points at a scratch path, is never written. A `--journal` names another journal, and every merge appends there instead."""
+    paths = _integration_fixture(tmp_path / "copy", monkeypatch)
+    live = tmp_path / "live" / journal.JOURNAL_NAME
+    monkeypatch.setattr(vu.merge_verdicts, "JOURNAL", live)
+    argv = ["--corpus", str(paths["corpus"]), "--merge-master", str(paths["master"])]
+    argv += ["--autosave", str(paths["autosave"]), "--duplicate-out", str(paths["duplicate"])]
+    argv += ["--standing-out", str(paths["standing"]), "--rules", str(paths["rules"])]
+    argv += ["--standing-memo", str(paths["memo"]), "--no-complaints"]
+    assert vu.main([*argv, *(["--journal", str(paths["journal"])] if named else [])]) == 0
+    beside = paths["autosave"].with_name(journal.JOURNAL_NAME)
+    written, unwritten = (paths["journal"], beside) if named else (beside, paths["journal"])
+    assert journal.replay(written)[1] == _records(paths["autosave"])
+    assert not unwritten.exists()
+    assert not live.exists()

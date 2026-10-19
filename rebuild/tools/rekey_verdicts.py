@@ -4,9 +4,9 @@
 
 `--map PATH --corpus NEW` verifies the map and applies it. It refuses a map computed under another key set, one that pairs two old ids with one new id, and a NEW the map was computed from, whose ids are the old ones. It reads the verdict files and references below, then reads NEW once the same way, and lands every old id of the map they name. An id lands on its new id when NEW holds a unit with that id and the entry's codepoints, configs, before and after. When NEW lacks that id, as when a stale cached field in the projection changes it, the id lands on the one unit of NEW with the entry's codepoints and configs (a window's units cover disjoint config sets, so the pair is unique within a corpus), provided that unit's before, after and highlight digests equal the entry's and it is neither the old id itself (NEW was then built under the old key set), another entry's new id, nor already landed on. A verdicted or quoted id that lands nowhere blocks every write, dry run included, and so does a content id in a verdicts file stamped for a corpus the map was computed from that names no unit of the map or of NEW; `--allow-unmatched` accepts both when those verdicts are meant to be orphaned. Two records of one file that name different ids and land on one unit block the write with no override, and so does a record that lands on the unit a clear lands on when the rule below cannot weigh the two because the record's `at` is not a string (`merge_verdicts.UntimedRecord` says which `at`).
 
-The files it rewrites are the live autosave, every verdicts-*.json at the repository root stamped for a corpus the map was computed from (exports, stashes, and the carried file of a --no-merge or staging pass among them), and any file passed with `--verdicts`, such as a stash or an orphan document still on old ids. Each record naming a landed old id moves to the unit it lands on, a record already naming a unit of NEW keeps its id, and either is dropped when a clear at or after the newest record on its unit lands there (below); one naming neither keeps its id and is counted as unmatched. The store's tombstones (its `cleared` list) land the same way, by the rule a journal restore's re-key follows (`merge_verdicts.rekey_cleared`): two that land on one unit keep the later clear, and where a tombstone and a record land on one unit the newer stays, as in a merge, so a clear at or after the record's `at` drops the record and a record strictly newer than the clear drops the tombstone. A tombstone on an id one of the file's records names is passed over, as the verdict store passes it over. A file is rewritten when it holds a record or a tombstone on an id the re-key moves, a tombstone the rule drops included, so a store in which only tombstones move is rewritten too, and so is every file in which the rule drops a record, since a record and a tombstone meet on one unit only where the re-key moves one of them. Stamps, notes and `at` times are kept, the tombstones' included, so the carry that follows moves the verdicts onto NEW as it does any other store, and a unit the store cleared at or after another file's verdict on it, and at or after every record of the store's own that lands on it, stays cleared. Verdict records carry no duplicate-group or cluster id, and notes are kept as written, so a `[carried u-…@file]` marker in an older note keeps the id it was written with until the carry drops it. `--references` rewrites old unit ids in text files too, such as the unit ids rebuild/standing-approvals.yaml quotes in its notes.
+The files it rewrites are the store `--autosave` names (the live autosave by default), every other verdicts-*.json at the repository root stamped for a corpus the map was computed from (exports, stashes, and the carried file of a --no-merge or staging pass among them) when that store is the root's verdicts-autosave.json, and any file passed with `--verdicts`, such as a stash or an orphan document still on old ids. A re-key of any other store leaves the root's files out (`verdict_files`), because it holds only that store's lock and the root's files are written under the root store's, which retention holds while it deletes the root's stashes. A file named verdicts-autosave.json, in any letter case, that `--autosave` does not name is a journaled store, not an export or a stash, and the re-key journals only the `--autosave` store (`another_store`), so one passed with `--verdicts` or `--references` is a usage error, refused before anything is written; a re-key of a copy of the store in another directory therefore touches neither the live store nor its journal. Each record naming a landed old id moves to the unit it lands on, a record already naming a unit of NEW keeps its id, and either is dropped when a clear at or after the newest record on its unit lands there (below); one naming neither keeps its id and is counted as unmatched. The store's tombstones (its `cleared` list) land the same way, by the rule a journal restore's re-key follows (`merge_verdicts.rekey_cleared`): two that land on one unit keep the later clear, and where a tombstone and a record land on one unit the newer stays, as in a merge, so a clear at or after the record's `at` drops the record and a record strictly newer than the clear drops the tombstone. A tombstone on an id one of the file's records names is passed over, as the verdict store passes it over. A file is rewritten when it holds a record or a tombstone on an id the re-key moves, a tombstone the rule drops included, so a store in which only tombstones move is rewritten too, and so is every file in which the rule drops a record, since a record and a tombstone meet on one unit only where the re-key moves one of them. Stamps, notes and `at` times are kept, the tombstones' included, so the carry that follows moves the verdicts onto NEW as it does any other store, and a unit the store cleared at or after another file's verdict on it, and at or after every record of the store's own that lands on it, stays cleared. Verdict records carry no duplicate-group or cluster id, and notes are kept as written, so a `[carried u-…@file]` marker in an older note keeps the id it was written with until the carry drops it. `--references` rewrites old unit ids in text files too, such as the unit ids rebuild/standing-approvals.yaml quotes in its notes.
 
-Every file is copied to a new directory under var/keep/class-rejig-rekey/ before it is rewritten, with the journal's length and whether the re-key appends to the journal (a re-key that appends first ends the journal on a newline, `journal.repair_tail`, so the length marks where its base event begins), and `--undo DIR` puts those copies back and, when it appended, truncates the journal to that length and leaves the marker that makes the next land that moves the stamp journal a base (`journal.mark_unjournaled`), as it does when it refuses and asks for the copies to be put back by hand. The rewritten autosave is appended to verdicts-journal.ndjson as a base event holding its records and its tombstones (`journal.record_transition` with no previous stamp), because journal lines before it name old ids. The applied map, with each pair the codepoints-and-configs join landed in place of its computed one, is merged into var/keep/class-rejig-rekey/unit-id-map.json (`merge_id_maps`), which may be PATH itself: a run adds its entries to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run applied, `--map` takes it again for a file still on old ids, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one old id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run writes nothing, because every verdict and tombstone the map lands is already on its new id; a tombstone whose unit lands nowhere blocks no write and keeps its old id. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N collided=N tombstones_rekeyed=N records_cleared=N` over all the files, where `tombstones_rekeyed` counts the tombstones (a unit with its clear's `at`) the re-key puts in a file that the file did not hold, so not one the rule drops, `records_cleared` the records the rule drops for a clear at or after them, which the file's copy and, for the autosave, the journal before the re-key's base event still hold, and the others count the records the files hold. From reading the verdict files through the journal append, and for all of `--undo`, it holds the verdict store's lock (`rebuild.review.store_lock`, through `landing.locked_store`, which first finishes a land whose holder died), which every writer of the store and the journal holds. It refuses to rewrite the autosave while a review server that may write it is listening (its /capabilities answer names that store, or names none), unless --yes is passed, because the re-keyed ids would replace the ones the open tabs hold; such a run, and a dry run, reads without the lock, so a run that ends up writing nothing never makes the server refuse a save.
+Every file is copied to a new directory under var/keep/class-rejig-rekey/ before it is rewritten, with the `--autosave` store's path, the journal's length and whether the re-key appends to the journal (a re-key that appends first ends the journal on a newline, `journal.repair_tail`, so the length marks where its base event begins), and `--undo DIR` puts those copies back under that store's lock and, when it appended, truncates the journal to that length and leaves the marker beside that store that makes the next land that moves the stamp journal a base (`journal.mark_unjournaled`), as it does when it refuses and asks for the copies to be put back by hand. The rewritten autosave is appended to the journal --journal names, or else to the verdicts-journal.ndjson beside it, which only a store named verdicts-autosave.json takes by default (`journal.journal_path_for`), as a base event holding its records and its tombstones (`journal.record_transition` with no previous stamp), because journal lines before it name old ids. The applied map, with each pair the codepoints-and-configs join landed in place of its computed one, is merged into var/keep/class-rejig-rekey/unit-id-map.json (`merge_id_maps`), which may be PATH itself: a run adds its entries to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run applied, `--map` takes it again for a file still on old ids, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one old id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run writes nothing, because every verdict and tombstone the map lands is already on its new id; a tombstone whose unit lands nowhere blocks no write and keeps its old id. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N collided=N tombstones_rekeyed=N records_cleared=N` over all the files, where `tombstones_rekeyed` counts the tombstones (a unit with its clear's `at`) the re-key puts in a file that the file did not hold, so not one the rule drops, `records_cleared` the records the rule drops for a clear at or after them, which the file's copy and, for the autosave, the journal before the re-key's base event still hold, and the others count the records the files hold. From reading the verdict files through the journal append it holds the `--autosave` store's lock (`rebuild.review.store_lock`, through `landing.locked_store`, which first finishes a land whose holder died), which every writer of the store and its journal holds, and `--undo` holds, from just after it reads backup.json, the lock of the store backup.json names (the root's verdicts-autosave.json when it names none). It refuses to rewrite the autosave while a review server that may write it is listening (its /capabilities answer names that store, or names none), unless --yes is passed, because the re-keyed ids would replace the ones the open tabs hold; such a run, and a dry run, reads without the lock, so a run that ends up writing nothing never makes the server refuse a save.
 
 Usage:
   uv run python -m rebuild.tools.rekey_verdicts --from-corpus rebuild/out/review --map-out var/keep/class-rejig-rekey/unit-id-map.json
@@ -302,12 +302,18 @@ def _read(path: Path) -> dict | None:
     return payload
 
 
+def another_store(path: Path, autosave: Path) -> bool:
+    """Return whether `path` is named verdicts-autosave.json, in any letter case, and is not `autosave`: a journaled store, not an export or a stash, which the re-key would rewrite without journaling it, because it journals only `autosave`."""
+    return path.name.casefold() == journal.AUTOSAVE_NAME.casefold() and path.resolve() != autosave.resolve()
+
+
 def verdict_files(root: Path, stamps: set[str], autosave: Path, extra: Iterable[Path]) -> list[Path]:
-    """Return the files to re-key: the autosave, the repository-root verdicts files stamped for a corpus in `stamps`, and `extra`, each once."""
+    """Return the files to re-key: the autosave, the repository-root verdicts files stamped for a corpus in `stamps` when the autosave is the root's verdicts-autosave.json, and `extra`, each once. A re-key of any other store leaves the root's files out, because it holds only that store's lock and the root's files are written under the root store's (retention deletes the root's stashes under it); `main` refuses a file in `extra` that is `another_store`."""
     found = [autosave] if autosave.exists() else []
-    for path in sorted(root.glob("verdicts-*.json")):
-        if path.resolve() != autosave.resolve() and _stamp(_read(path)) in stamps:
-            found.append(path)
+    if autosave.resolve() == (root / journal.AUTOSAVE_NAME).resolve():
+        for path in sorted(root.glob("verdicts-*.json")):
+            if path.resolve() != autosave.resolve() and _stamp(_read(path)) in stamps:
+                found.append(path)
     found.extend(extra)
     unique: dict[Path, Path] = {}
     for path in found:
@@ -400,7 +406,7 @@ def _rel(path: Path, root: Path) -> str:
     try:
         return str(path.resolve().relative_to(root.resolve()))
     except ValueError:
-        return str(path)
+        return str(path.resolve())
 
 
 def _journal_tail(path: Path, size: int) -> str:
@@ -465,7 +471,9 @@ def _save_previous_map(map_path: Path, keep: Path) -> Path:
     return target
 
 
-def _backup(root: Path, keep: Path, paths: list[Path], journal_path: Path, *, journaled: bool) -> Path:
+def _backup(
+    root: Path, keep: Path, paths: list[Path], autosave: Path, journal_path: Path, *, journaled: bool
+) -> Path:
     target = keep / _time_name()
     target.mkdir(parents=True, exist_ok=False)
     files = []
@@ -478,6 +486,7 @@ def _backup(root: Path, keep: Path, paths: list[Path], journal_path: Path, *, jo
     size = journal_path.stat().st_size if journal_path.exists() else None
     record = {
         "files": files,
+        "autosave": _rel(autosave, root),
         "journal": {
             "path": _rel(journal_path, root),
             "appended": journaled,
@@ -490,17 +499,17 @@ def _backup(root: Path, keep: Path, paths: list[Path], journal_path: Path, *, jo
 
 
 def undo(root: Path, backup_dir: Path) -> int:
-    """Put back every file a re-key rewrote from its copy in `backup_dir`. When the re-key appended its base event to the journal (it rewrote the live autosave), also truncate the journal to the length it had before the re-key, which drops every event appended after it, or remove the journal when the re-key created it. A journal compacted since the re-key is left alone, because the recorded length no longer marks the re-key in it, and nothing is put back; the person copies the files back by hand. When the re-key did not append to the journal, the journal is left as it is, because every event after the recorded length belongs to a store the undo does not put back. When the re-key rewrote the live autosave, the undo first leaves the marker that says the journal may lack a store write (`journal.mark_unjournaled`), whether it puts the store back or asks for it to be copied back by hand, so the next land that moves the stamp journals its store as a base (`journal.base_due`)."""
-    with locked_store(root / "verdicts-autosave.json"):
-        return _undo_locked(root, backup_dir)
-
-
-def _undo_locked(root: Path, backup_dir: Path) -> int:
+    """Put back every file a re-key rewrote from its copy in `backup_dir`, under the lock of the store the re-key took as `--autosave`, which backup.json names as `autosave`, or the root's verdicts-autosave.json when it names none. When the re-key appended its base event to the journal (it rewrote that store), also truncate the journal to the length it had before the re-key, which drops every event appended after it, or remove the journal when the re-key created it. A journal compacted since the re-key is left alone, because the recorded length no longer marks the re-key in it, and nothing is put back; the person copies the files back by hand. When the re-key did not append to the journal, the journal is left as it is, because every event after the recorded length belongs to a store the undo does not put back. When the re-key rewrote that store, the undo first leaves the marker beside it that says the journal may lack a store write (`journal.mark_unjournaled`), whether it puts the store back or asks for it to be copied back by hand, so the next land that moves the stamp journals its store as a base (`journal.base_due`)."""
     record = json.loads((backup_dir / BACKUP_RECORD).read_text(encoding="utf-8"))
+    autosave = root / record.get("autosave", journal.AUTOSAVE_NAME)
+    with locked_store(autosave):
+        return _undo_locked(root, backup_dir, record, autosave)
+
+
+def _undo_locked(root: Path, backup_dir: Path, record: dict, autosave: Path) -> int:
     journal_path = root / record["journal"]["path"]
     size = record["journal"]["size"]
     appended = record["journal"]["appended"]
-    autosave = root / "verdicts-autosave.json"
     if appended:
         journal.mark_unjournaled(autosave, "rekey_verdicts --undo")
     if (
@@ -736,7 +745,7 @@ def _rekey_files(
         return 0
     journaled = any(path.resolve() == autosave.resolve() for path, _, _ in payloads)
     with write_lock() if journaled else contextlib.nullcontext():
-        backup_dir = _backup(root, keep, targets, journal_path, journaled=journaled)
+        backup_dir = _backup(root, keep, targets, autosave, journal_path, journaled=journaled)
         print(f"backed up {len(targets)} file(s) to {_rel(backup_dir, root)}")
         for path, before, after in payloads:
             _write_json(path, after)
@@ -794,7 +803,7 @@ def main(argv: list[str] | None = None) -> int:
         "--root",
         type=Path,
         default=ROOT,
-        help="the checkout whose verdict files to re-key (default: %(default)s)",
+        help=f"the checkout whose root-level verdicts-*.json files stamped for a corpus the map was computed from are re-keyed along with --autosave when --autosave is its {journal.AUTOSAVE_NAME} (default: %(default)s)",
     )
     parser.add_argument(
         "--from-corpus",
@@ -820,9 +829,15 @@ def main(argv: list[str] | None = None) -> int:
         metavar="NEW",
         help="the corpus built under the current carry projection that --map lands the ids on; required with --map",
     )
-    parser.add_argument("--autosave", type=Path, help="the live store (default: ROOT/verdicts-autosave.json)")
     parser.add_argument(
-        "--journal", type=Path, help="the verdict journal (default: ROOT/verdicts-journal.ndjson)"
+        "--autosave",
+        type=Path,
+        help="the store to re-key and journal, whose lock the re-key holds (default: ROOT/verdicts-autosave.json)",
+    )
+    parser.add_argument(
+        "--journal",
+        type=Path,
+        help=f"the verdict journal (default: the {journal.JOURNAL_NAME} beside --autosave; a store not named {journal.AUTOSAVE_NAME} needs --journal)",
     )
     parser.add_argument(
         "--keep", type=Path, help=f"where the merged id map and the backups go (default: ROOT/{KEEP})"
@@ -833,7 +848,7 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="FILE",
-        help="another verdicts file to re-key; repeatable",
+        help=f"another verdicts file to re-key, not a {journal.AUTOSAVE_NAME} that --autosave does not name; repeatable",
     )
     parser.add_argument(
         "--references",
@@ -841,7 +856,7 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="FILE",
-        help="a text file whose old unit ids to rewrite; repeatable",
+        help=f"a text file whose old unit ids to rewrite, not a {journal.AUTOSAVE_NAME} that --autosave does not name; repeatable",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="report what would change without writing anything"
@@ -876,12 +891,23 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("pass --from-corpus OLD --map-out PATH, --map PATH --corpus NEW, or --undo BACKUP_DIR")
     if args.corpus is None:
         parser.error("--map needs --corpus NEW, the corpus built under the current carry projection")
+    autosave = args.autosave or root / "verdicts-autosave.json"
+    stores = [path for path in [*args.verdicts, *args.references] if another_store(path, autosave)]
+    if stores:
+        parser.error(
+            f"{stores[0]} is a {journal.AUTOSAVE_NAME}, a journaled store, and not --autosave, so the re-key would rewrite "
+            f"it without journaling it; re-key it with --autosave {stores[0]}"
+        )
+    try:
+        journal_path = args.journal or journal.journal_path_for(autosave)
+    except ValueError as error:
+        parser.error(str(error))
     return run(
         root=root,
         map_path=args.map,
         corpus=args.corpus,
-        autosave=args.autosave or root / "verdicts-autosave.json",
-        journal_path=args.journal or root / journal.JOURNAL_NAME,
+        autosave=autosave,
+        journal_path=journal_path,
         keep=args.keep or root / KEEP,
         extra=args.verdicts,
         references=args.references,
