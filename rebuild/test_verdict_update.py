@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped."""
+"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped."""
 
 import json
 import pathlib
@@ -804,6 +804,52 @@ def test_a_hand_run_with_nothing_to_merge_and_no_store_starts_from_an_empty_stor
     assert lines[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
     assert json.loads(paths["autosave"].read_text())["manifest_generated_at"] == CORPUS_STAMP
     assert {"u-standing", "u-standing-sibling"} <= set(_records(paths["autosave"]))
+
+
+@pytest.mark.parametrize("store", ["not JSON", "not an ams-review-verdicts/1 document"])
+def test_a_hand_run_with_nothing_to_merge_refuses_a_store_the_carry_cannot_read_or_the_merges_would_set_aside_and_writes_nothing(
+    tmp_path, monkeypatch, capsys, store
+):
+    """A hand run that names neither a carry nor a master runs its fills over the store at `--autosave` as it stands. The first fill would crash on a store that is not JSON, and would read one that is not an ams-review-verdicts/1 document as the store, which its merge would then set aside, keeping none of its verdicts. The update refuses either before the first fill, naming the store and why, and writes nothing."""
+    paths = _integration_fixture(tmp_path / "current", monkeypatch)
+    if store == "not JSON":
+        paths["autosave"].write_text("{not json")
+    else:
+        payload = json.loads(paths["autosave"].read_text())
+        del payload["format"]
+        paths["autosave"].write_text(json.dumps(payload))
+    before = paths["autosave"].read_bytes()
+    listing = sorted(paths["autosave"].parent.iterdir())
+    argv = ["--corpus", str(paths["corpus"]), "--autosave", str(paths["autosave"])]
+    argv += ["--journal", str(paths["journal"]), "--duplicate-out", str(paths["duplicate"])]
+    argv += ["--standing-out", str(paths["standing"]), "--rules", str(paths["rules"])]
+    argv += ["--standing-memo", str(paths["memo"]), "--no-complaints"]
+    assert vu.main(argv) == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith(f"verdict update refused: the store {paths['autosave']} is {store}")
+    assert "Traceback" not in captured.out + captured.err
+    lines = captured.out.splitlines()
+    assert lines[-1] == f"{console.FAILED_LINE}store (exit 1)"
+    assert "[phase] duplicate-fill" not in lines
+    assert paths["autosave"].read_bytes() == before
+    assert sorted(paths["autosave"].parent.iterdir()) == listing
+
+
+def test_a_hand_run_with_nothing_to_merge_over_a_readable_store_stamped_for_the_corpus_runs_its_fills_over_it_and_completes(
+    tmp_path, monkeypatch, capsys
+):
+    """A hand run that names neither a carry nor a master over the fixture's store, an ams-review-verdicts/1 document stamped for the corpus that every fill can read, passes the store check before the first fill, runs its fills over the store as it stands, and completes, keeping the store's verdicts."""
+    paths = _integration_fixture(tmp_path / "current", monkeypatch)
+    kept = set(_records(paths["autosave"]))
+    argv = ["--corpus", str(paths["corpus"]), "--autosave", str(paths["autosave"])]
+    argv += ["--journal", str(paths["journal"]), "--duplicate-out", str(paths["duplicate"])]
+    argv += ["--standing-out", str(paths["standing"]), "--rules", str(paths["rules"])]
+    argv += ["--standing-memo", str(paths["memo"]), "--no-complaints"]
+    assert vu.main(argv) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert next(line for line in lines if line.startswith(console.PHASE)) == f"{console.PHASE}store"
+    assert lines[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
+    assert kept | {"u-standing", "u-standing-sibling"} <= set(_records(paths["autosave"]))
 
 
 def test_a_hand_run_whose_merge_refuses_while_a_server_listens_is_told_to_stop_the_server_and_completes_once_it_is_stopped(

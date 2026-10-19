@@ -34,7 +34,12 @@ def latest_verdicts(payload):
     return best
 
 
-def _read_verdicts_file(verdict_file):
+class UnreadableVerdicts(ValueError):
+    """Raised by `read_verdicts_file` for a verdicts file the carry cannot read; the message is the file's path followed by why."""
+
+
+def read_verdicts_file(verdict_file: pathlib.Path) -> dict[str, Any]:
+    """Return the payload of `verdict_file`, or raise `UnreadableVerdicts` when it cannot be read, is not JSON, holds no `verdicts` list, or holds a record `verdict_store.well_formed` refuses. The carry refuses such a file (`resolve_prior`), and so does a hand-run verdict update with nothing to merge for the store its fills would start from (`verdict_update.refuse_unreadable_store`)."""
     try:
         payload = json.loads(verdict_file.read_text())
     except OSError as error:
@@ -49,12 +54,19 @@ def _read_verdicts_file(verdict_file):
             if not malformed:
                 return payload
             problem = f"holds a verdict record that is not an object with a string `unit`, `verdict` and `at` and a string `note` if any ({json.dumps(malformed[0])})"
-    raise SystemExit(
-        f"carry refused: {verdict_file} {problem}, and nothing was written. "
-        "If it is the verdict store or the cycle's snapshot of it, restore a readable store from the journal with "
-        "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`; "
-        "otherwise name another verdicts file with --verdicts."
-    )
+    raise UnreadableVerdicts(f"{verdict_file} {problem}")
+
+
+def _read_verdicts_file(verdict_file):
+    try:
+        return read_verdicts_file(verdict_file)
+    except UnreadableVerdicts as unreadable:
+        raise SystemExit(
+            f"carry refused: {unreadable}, and nothing was written. "
+            "If it is the verdict store or the cycle's snapshot of it, restore a readable store from the journal with "
+            "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`; "
+            "otherwise name another verdicts file with --verdicts."
+        ) from None
 
 
 def resolve_prior(verdict_files):

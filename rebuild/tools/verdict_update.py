@@ -2,7 +2,7 @@
 
 The first index walk keeps every corpus id and, for human units, only the `duplicate_record` projection (id, duplicate group, notation). The carry reads that projection, and both duplicate fills reuse it. The standing fill and the complaint list each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
 
-On a pass that lands, the only kind that takes a snapshot of the store, the cycle hands that snapshot over with `--store-snapshot` beside a carry's master that is another file, and on every direct merge (`--merge-master`, the form for a pass whose corpus did not move, which always lands). The store can be replaced or removed between the plan and the snapshot, so what becomes of the snapshot is decided here, from the file the snapshot step left. A carry carries it beside the master when it exists. A direct merge merges the master straight in unless the merge would set the store aside because the snapshot is stamped for an older corpus or is not an ams-review-verdicts/1 document (`merge_sets_store_aside`). Such a snapshot is then carried onto the corpus by unit id, its skips handed to the merge as tombstones (`skip_clears`), and the master, unless it is that snapshot, merged into the result. The carry refuses a snapshot it cannot read, naming it, and the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update. A missing snapshot, which the snapshot step leaves when there is no store, is not carried: a carry takes the master alone, a direct merge merges a master that is another file straight in, and the merge refuses a master that is the missing snapshot, naming it. With neither --verdicts nor --merge-master there is nothing to carry or merge, and the fills run over the store at --autosave. When there is no store there, the merge runs with no file: under the store's lock, which first finishes any land a dead holder left (`landing.locked_store`), it merges no file into the store that land leaves, or, when there is still no store, writes an empty store stamped for the corpus (`merge_verdicts`), so the fills start from an empty store, as they do on a pass with no store whose master holds no verdict. Against the live store while a review server listens, that merge, like any of the update's merges that would write the store, refuses and the run fails at it, since the update has no --yes (`merge_verdicts`).
+On a pass that lands, the only kind that takes a snapshot of the store, the cycle hands that snapshot over with `--store-snapshot` beside a carry's master that is another file, and on every direct merge (`--merge-master`, the form for a pass whose corpus did not move, which always lands). The store can be replaced or removed between the plan and the snapshot, so what becomes of the snapshot is decided here, from the file the snapshot step left. A carry carries it beside the master when it exists. A direct merge merges the master straight in unless the merge would set the store aside because the snapshot is stamped for an older corpus or is not an ams-review-verdicts/1 document (`merge_sets_store_aside`). Such a snapshot is then carried onto the corpus by unit id, its skips handed to the merge as tombstones (`skip_clears`), and the master, unless it is that snapshot, merged into the result. The carry refuses a snapshot it cannot read, naming it, and the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update. A missing snapshot, which the snapshot step leaves when there is no store, is not carried: a carry takes the master alone, a direct merge merges a master that is another file straight in, and the merge refuses a master that is the missing snapshot, naming it. With neither --verdicts nor --merge-master there is nothing to carry or merge, and the fills run over the store at --autosave. When there is no store there, the merge runs with no file: under the store's lock, which first finishes any land a dead holder left (`landing.locked_store`), it merges no file into the store that land leaves, or, when there is still no store, writes an empty store stamped for the corpus (`merge_verdicts`), so the fills start from an empty store, as they do on a pass with no store whose master holds no verdict. Against the live store while a review server listens, that merge, like any of the update's merges that would write the store, refuses and the run fails at it, since the update has no --yes (`merge_verdicts`). With nothing to merge, when the store at --autosave is one the carry cannot read, or is not an ams-review-verdicts/1 document, which the merges after the fills would set aside, keeping none of its verdicts, the update refuses before the first fill, naming the store and why, and writes nothing (`refuse_unreadable_store`).
 
 The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and completion lines use the `[verdict-update]` prefix. A duplicate fill proposes every blank member of an agreeing group at once, so the initial fill and the final fill after standing seeds groups are sufficient. Completion names this schedule, not acceptance of every proposal: a newer clear in the store can refuse a fill. The duplicate-fill output file holds the union of both passes' proposals, retaining the first proposal for each unit.
 """
@@ -57,6 +57,26 @@ def skip_clears(snapshot: pathlib.Path, human_ids: set[str]) -> dict[str, str]:
         for unit, record in records.items()
         if record["verdict"] == "skip" and unit in human_ids
     }
+
+
+def refuse_unreadable_store(store: pathlib.Path) -> None:
+    """Raise a `SystemExit` naming `store` and why when the carry cannot read it (`carry_verdicts.read_verdicts_file`) or it is not an ams-review-verdicts/1 document (`parse_autosave_payload`), which the merges after the fills would set aside, keeping none of its verdicts. A hand run with nothing to merge calls it before the first fill, which reads the store as it stands."""
+    try:
+        carry_verdicts.read_verdicts_file(store)
+    except carry_verdicts.UnreadableVerdicts as unreadable:
+        raise SystemExit(
+            f"verdict update refused: the store {unreadable}, and nothing was written. "
+            "If it is the verdict store, restore a readable store from the journal with "
+            "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`."
+        ) from None
+    if parse_autosave_payload(store.read_bytes()) is None:
+        raise SystemExit(
+            f"verdict update refused: the store {store} is not an ams-review-verdicts/1 document, so the merges after "
+            "the fills would set it aside and keep none of its verdicts, and nothing was written. If it is the "
+            "verdict store, a cycle pass that names it as the master "
+            "(`make artifact-cycle ARGS='--verdicts verdicts-autosave.json'`) carries it onto the corpus by unit id "
+            "before its fills."
+        )
 
 
 def _run(name: str, call: Callable[[], int | None]) -> int:
@@ -225,8 +245,10 @@ def main(argv: list[str] | None = None) -> int:
         code = _merge(
             "merge", *to_merge, autosave=args.autosave, corpus=corpus, journal=args.journal, clears=clears
         )
-        if code:
-            return code
+    else:
+        code = _run("store", lambda: refuse_unreadable_store(args.autosave))
+    if code:
+        return code
 
     duplicate_argv = [str(args.autosave), "--corpus", str(corpus), "--out", str(args.duplicate_out)]
     code = _run("duplicate-fill", lambda: duplicate_verdicts.main(duplicate_argv, units=units))
