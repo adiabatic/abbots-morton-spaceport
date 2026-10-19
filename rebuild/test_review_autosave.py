@@ -737,6 +737,20 @@ def test_a_delta_holding_a_malformed_set_is_refused_naming_the_first_such_set(tm
     assert not (tmp_path / "verdicts-autosave.json").exists()
 
 
+@pytest.mark.parametrize(
+    ("malformed", "named"),
+    [({"at": "t"}, "at index 1 of its `clears` list"), ({"unit": "u-1", "at": 5}, "on u-1")],
+    ids=["no-unit", "numeric-at"],
+)
+def test_a_delta_holding_a_malformed_clear_is_refused_naming_the_first_such_clear(tmp_path, malformed, named):
+    """The 400 names the first malformed clear by its unit, or by its index when it names no unit, as it names a malformed set."""
+    store = VerdictStore(tmp_path / "verdicts-autosave.json")
+    status, body = store.receive(delta(NEW, [verdict("u-0")], ["u-0", malformed, {"unit": "u-2", "at": 6}]))
+    assert status == 400 and body["ok"] is False
+    assert body["error"].startswith(f"the {DELTA_FORMAT} document holds a malformed clear {named}:")
+    assert not (tmp_path / "verdicts-autosave.json").exists()
+
+
 def test_a_stale_stamp_delta_on_a_served_unit_is_carried_and_journaled_as_carried(tmp_path):
     journal_path = tmp_path / "verdicts-journal.ndjson"
     path, store = new_store(tmp_path, [verdict("u-1", at="t1")], journal_path)

@@ -630,7 +630,7 @@ def _rekey_files(
     refuse_live_store: bool,
     write_lock: Callable[[], contextlib.AbstractContextManager],
 ) -> int:
-    """Land the ids the verdict files and references name, and re-key them. `run` calls it under the store's lock, from the reads through the writes and the journal append, unless the run is a dry run or a review server is listening without --yes. It then reads without the lock, `refuse_live_store` stops it before it rewrites the live autosave, and `write_lock` takes the lock for the writes that include the store and its journal."""
+    """Land the ids the verdict files and references name, and re-key them. `run` calls it under the store's lock, from the reads through the writes and the journal append, unless the run is a dry run or a review server that may write the store (`_served`) is listening without --yes. It then reads without the lock, `refuse_live_store` stops it before it rewrites the `--autosave` store, and `write_lock` takes the lock for the writes that include the store and its journal."""
     from_stamps = {stamp for stamp in id_map["from_corpora"] if isinstance(stamp, str)}
     read: list[tuple[Path, dict]] = []
     for path in verdict_files(root, from_stamps, autosave, extra):
@@ -733,10 +733,13 @@ def _rekey_files(
         return 0
     rewrites_live_store = any(path.resolve() == autosave.resolve() for path in targets)
     if rewrites_live_store and refuse_live_store:
+        store = _rel(autosave, root)
         print(
-            f"ERROR: the review server listening on port 7294 may write {_rel(autosave, root)}, and an open tab would write "
-            "its own store back over the re-keyed autosave. Stop the server and close the review tabs, or pass --yes when "
-            "the listening server serves another checkout. Nothing was written."
+            f"ERROR: the review server listening on port 7294 may write {store}: its /capabilities answer names that "
+            "store, or names none, as a server that predates /capabilities or does not answer it does. An open tab would "
+            "write its own store back over the re-keyed autosave. Stop the server and close the review tabs, or pass --yes "
+            f"when the server names no store and {store} is not the verdicts-autosave.json at the root of the checkout it "
+            "serves. Nothing was written."
         )
         return 1
     _merge_map(root, keep, id_map, map_path, landing, corpus_stamp)
@@ -871,7 +874,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--yes",
         action="store_true",
-        help="rewrite the autosave even while a review server is listening on its port",
+        help="rewrite the autosave even while a review server that may write it is listening on its port (its /capabilities answer names that store, or names none)",
     )
     parser.add_argument(
         "--undo",
