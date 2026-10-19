@@ -39,6 +39,11 @@ from rebuild.review.verdict_store import (
     orphan_path,
     orphans_dir_for,
     parse_delta_payload,
+    well_formed,
+)
+
+VERDICT_RECORD_SAMPLES = (
+    Path(__file__).resolve().parent / "review" / "fixtures" / "verdict-record-samples.json"
 )
 
 
@@ -677,6 +682,14 @@ def test_parse_delta_payload_accepts_both_clear_shapes():
         {"unit": "u-2", "base_at": "t1", "at": "t2"},
     ]
     assert parsed["replay"] is False
+
+
+def test_well_formed_gives_each_shared_sample_its_recorded_answer():
+    """`verdicts.test.js` checks the review app's strict Import against the same samples, so the app's JavaScript mirror of `well_formed` cannot drift from it."""
+    samples = json.loads(VERDICT_RECORD_SAMPLES.read_text(encoding="utf-8"))
+    assert {sample["well_formed"] for sample in samples} == {True, False}
+    for sample in samples:
+        assert well_formed(sample["record"]) is sample["well_formed"], sample["record"]
 
 
 @pytest.mark.parametrize("verdict_field", [{}, {"verdict": 5}], ids=["no-verdict", "numeric-verdict"])

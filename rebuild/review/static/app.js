@@ -3188,13 +3188,13 @@ function runImport(text) {
     toast('Import failed: not valid JSON');
     return;
   }
-  let result = importVerdicts(store, data, manifest.generated_at);
+  let result = importVerdicts(store, data, manifest.generated_at, { strict: true });
   if (!result.ok && result.mismatch) {
     const proceed = window.confirm(
       'This verdicts file was exported against a different manifest generation. Merge anyway?',
     );
     if (!proceed) return;
-    result = importVerdicts(store, data, manifest.generated_at, { force: true });
+    result = importVerdicts(store, data, manifest.generated_at, { strict: true, force: true });
   }
   if (!result.ok) {
     toast(`Import failed: ${result.error}`);

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   createStore,
   recordVerdict,
@@ -20,6 +21,10 @@ import {
   DELTA_FORMAT,
   EXPORT_FORMAT,
 } from '../static/verdicts.js';
+
+const verdictRecordSamples = JSON.parse(
+  await readFile(new URL('../fixtures/verdict-record-samples.json', import.meta.url), 'utf8'),
+);
 
 test('recordVerdict stores the whole-unit record shape', () => {
   const store = createStore();
@@ -222,6 +227,90 @@ test('import rejects non-export documents', () => {
   const store = createStore();
   assert.equal(importVerdicts(store, { format: 'something-else' }, 'gen-1').ok, false);
   assert.equal(importVerdicts(store, null, 'gen-1').ok, false);
+});
+
+test('a strict import refuses a file holding a record the carry and the merge refuse, naming it, and imports nothing from it, forced or not', () => {
+  const good = { unit: 'u-1', verdict: 'approve', note: '', at: 't1' };
+  const cases = [
+    [{ unit: 'u-2', verdict: 'approve', at: 5 }, 'on u-2'],
+    [{ unit: 'u-2', note: '', at: 't2' }, 'on u-2'],
+    [{ unit: 'u-2', verdict: 'reject', note: 7, at: 't2' }, 'on u-2'],
+    [{ unit: 'u-2', verdict: 'approve', note: ['x'], at: 't2' }, 'on u-2'],
+    [{ unit: 'u-2', verdict: 'approve', note: { k: 1 }, at: 't2' }, 'on u-2'],
+    [{ unit: 42, verdict: 'approve', note: '', at: 't2' }, 'at index 1 of its verdicts list'],
+  ];
+  for (const [bad, where] of cases) {
+    for (const [stamp, force] of [
+      ['gen-1', false],
+      ['gen-0', true],
+    ]) {
+      const store = createStore();
+      const doc = { format: EXPORT_FORMAT, manifest_generated_at: stamp, verdicts: [good, bad] };
+      const result = importVerdicts(store, doc, 'gen-1', { strict: true, force });
+      assert.equal(result.ok, false);
+      assert.ok(result.error.includes(`verdict record ${where} `), result.error);
+      assert.equal(store.records.size, 0);
+      assert.equal(store.dirty.size, 0);
+    }
+  }
+});
+
+test('a strict import takes a record whose note is missing or false-valued, as the carry and the merge do, writes the note as empty so a save takes it, and skips one whose verdict is not a known kind', () => {
+  const store = createStore();
+  const doc = {
+    format: EXPORT_FORMAT,
+    manifest_generated_at: 'gen-1',
+    verdicts: [
+      { unit: 'u-1', verdict: 'approve', at: 't1' },
+      { unit: 'u-2', verdict: 'reject', note: null, at: 't2' },
+      { unit: 'u-3', verdict: 'either', note: [], at: 't3' },
+      { unit: 'u-4', verdict: 'neither', note: 'both joins look wrong', at: 't4' },
+      { unit: 'u-5', verdict: 'approve', note: false, at: 't5' },
+      { unit: 'u-6', verdict: 'reject', note: 0, at: 't6' },
+      { unit: 'u-7', verdict: 'skip', note: {}, at: 't7' },
+      { unit: 'u-8', verdict: 'banana', note: '', at: 't8' },
+    ],
+  };
+  const result = importVerdicts(store, doc, 'gen-1', { strict: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.added, 7);
+  assert.equal(result.invalid, 1);
+  const units = ['u-1', 'u-2', 'u-3', 'u-4', 'u-5', 'u-6', 'u-7'];
+  const notes = assembleDelta(store, 'gen-1', units).sets.map((set) => set.note);
+  assert.deepEqual(notes, ['', '', '', 'both joins look wrong', '', '', '']);
+});
+
+test('a strict import takes or refuses each shared sample as verdict_store.well_formed does', () => {
+  for (const { record, well_formed: wellFormed } of verdictRecordSamples) {
+    const store = createStore();
+    const doc = { format: EXPORT_FORMAT, manifest_generated_at: 'gen-1', verdicts: [record] };
+    const result = importVerdicts(store, doc, 'gen-1', { strict: true });
+    assert.equal(result.ok, wellFormed, JSON.stringify(record));
+  }
+});
+
+test('a restore of the server store takes a record the carry refuses but whose verdict is a known kind, so a duplicate fill passes over it', () => {
+  const store = createStore();
+  const payload = {
+    format: EXPORT_FORMAT,
+    manifest_generated_at: 'gen-1',
+    token: 'boot:1',
+    verdicts: [
+      { unit: 'u-b', verdict: 'reject', note: { k: 1 }, at: 't1' },
+      { unit: 'u-c', verdict: 'neither', note: '', at: 't1' },
+      { unit: 'u-y', verdict: 'skip', note: '', at: 5 },
+      { unit: 'u-z', verdict: null, note: '', at: 't1' },
+    ],
+  };
+  const result = importVerdicts(store, payload, 'gen-1');
+  assert.equal(result.ok, true);
+  assert.equal(result.added, 3);
+  assert.equal(result.invalid, 1);
+  assert.deepEqual([...store.records.keys()], ['u-b', 'u-c', 'u-y']);
+  const group = ['u-a', 'u-b', 'u-c', 'u-y'];
+  assert.deepEqual(recordVerdictWithDuplicates(store, 'u-a', 'approve', group, { at: 't2' }), ['u-a']);
+  assert.equal(store.records.get('u-b').verdict, 'reject');
+  assert.equal(store.records.get('u-y').verdict, 'skip');
 });
 
 test('markExported clears the dirty set and counts stay accurate', () => {

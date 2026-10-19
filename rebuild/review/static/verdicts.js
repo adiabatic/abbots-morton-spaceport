@@ -170,19 +170,49 @@ export function adoptServerRecord(store, unitId, record) {
   store.unexported.delete(unitId);
 }
 
-// `pendingAt(unit)` returns when this page made a change to the unit that the server has not yet acknowledged, or undefined when it has none: an incoming record replaces such a unit only when it is newer than that change, so a sync never reverts a clear or an undo waiting to be sent.
-export function importVerdicts(store, data, manifestGeneratedAt, { force = false, pendingAt = null } = {}) {
+// Mirrors `rebuild.review.verdict_store.well_formed`, the record shape the carry and the merge take, down to Python's truthiness: a note Python reads as false (missing, null, false, 0, or an empty list or object) passes, and a strict import writes it as '', as the carry and the merge do, since a save takes only a string or null note.
+function wellFormed(entry) {
+  if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return false;
+  for (const key of ['unit', 'verdict', 'at']) {
+    if (typeof entry[key] !== 'string') return false;
+  }
+  const { note } = entry;
+  if (typeof note === 'string' || !note) return true;
+  if (Array.isArray(note)) return note.length === 0;
+  return typeof note === 'object' && Object.keys(note).length === 0;
+}
+
+// `pendingAt(unit)` returns when this page made a change to the unit that the server has not yet acknowledged, or undefined when it has none: an incoming record replaces such a unit only when it is newer than that change, so a sync never reverts a clear or an undo waiting to be sent. With `strict`, which the Import dialog passes, a document holding a record `wellFormed` refuses is refused whole, as the merge refuses an input file holding a record the carry refuses (`verdict_store.well_formed`); without it, as for a restore or a sync of the server's records, a record is skipped and counted in `invalid` only when it has no string unit or its verdict is not a known kind.
+export function importVerdicts(
+  store,
+  data,
+  manifestGeneratedAt,
+  { force = false, strict = false, pendingAt = null } = {},
+) {
   if (!data || data.format !== EXPORT_FORMAT || !Array.isArray(data.verdicts)) {
     return { ok: false, error: `not an ${EXPORT_FORMAT} document` };
   }
   const mismatch = data.manifest_generated_at !== manifestGeneratedAt;
   if (mismatch && !force) return { ok: false, mismatch };
+  let entries = data.verdicts;
+  if (strict) {
+    const malformed = entries.findIndex((entry) => !wellFormed(entry));
+    if (malformed !== -1) {
+      const unit = entries[malformed]?.unit;
+      const where = typeof unit === 'string' ? `on ${unit}` : `at index ${malformed} of its verdicts list`;
+      return {
+        ok: false,
+        error: `the file holds a verdict record ${where} that is not an object with a string unit, verdict and at and a note, if any, that is a string or false-valued`,
+      };
+    }
+    entries = entries.map((entry) => ({ ...entry, note: typeof entry.note === 'string' ? entry.note : '' }));
+  }
   let added = 0;
   let replaced = 0;
   let keptNewer = 0;
   let invalid = 0;
   const units = [];
-  for (const entry of data.verdicts) {
+  for (const entry of entries) {
     if (!entry || typeof entry.unit !== 'string' || !VERDICT_KINDS.includes(entry.verdict)) {
       invalid += 1;
       continue;
