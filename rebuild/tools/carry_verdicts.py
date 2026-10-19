@@ -53,7 +53,7 @@ def read_verdicts_file(verdict_file: pathlib.Path) -> dict[str, Any]:
             malformed = [record for record in payload["verdicts"] if not well_formed(record)]
             if not malformed:
                 return payload
-            problem = f"holds a verdict record that is not an object with a string `unit`, `verdict` and `at` and a string `note` if any ({json.dumps(malformed[0])})"
+            problem = f"holds a verdict record that is not an object with a string `unit`, `verdict` and `at` and a `note`, if any, that is a string or false-valued, as `verdict_store.well_formed` requires ({json.dumps(malformed[0])})"
     raise UnreadableVerdicts(f"{verdict_file} {problem}")
 
 

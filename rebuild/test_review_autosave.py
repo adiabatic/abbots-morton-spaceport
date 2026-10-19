@@ -686,11 +686,26 @@ def test_a_set_whose_record_the_carry_refuses_is_refused_before_any_write(tmp_pa
     before = path.read_bytes(), journal_path.read_bytes(), sorted(tmp_path.rglob("*"))
     status, body = store.receive(delta(NEW, [{"unit": "u-1", "at": "2026-07-10T00:00:00Z", **verdict_field}]))
     assert status == 400 and body["ok"] is False
+    assert body["error"].startswith(f"the {DELTA_FORMAT} document holds a malformed set on u-1:")
     assert (path.read_bytes(), journal_path.read_bytes(), sorted(tmp_path.rglob("*"))) == before
     assert set(store.records) == {"u-0"}
     assert store.receive(delta(NEW, [verdict("u-1", at="2026-07-10T00:00:00Z")]))[0] == 200
     assert on_disk(path)["verdicts"] == [verdict("u-0"), verdict("u-1", at="2026-07-10T00:00:00Z")]
     assert set(journal.replay(journal_path)[1]) == {"u-0", "u-1"}
+
+
+@pytest.mark.parametrize(
+    ("malformed", "named"),
+    [({"verdict": "approve"}, "at index 1 of its `sets` list"), ({**verdict("u-1"), "base_at": 1}, "on u-1")],
+    ids=["no-unit", "numeric-base-at"],
+)
+def test_a_delta_holding_a_malformed_set_is_refused_naming_the_first_such_set(tmp_path, malformed, named):
+    """The 400 names the first malformed set by its unit, or by its index when it names no unit, rather than calling the delta something other than an ams-review-verdicts-delta/1 document."""
+    store = VerdictStore(tmp_path / "verdicts-autosave.json")
+    status, body = store.receive(delta(NEW, [verdict("u-0"), malformed, {"unit": "u-2"}]))
+    assert status == 400 and body["ok"] is False
+    assert body["error"].startswith(f"the {DELTA_FORMAT} document holds a malformed set {named}:")
+    assert not (tmp_path / "verdicts-autosave.json").exists()
 
 
 def test_a_stale_stamp_delta_on_a_served_unit_is_carried_and_journaled_as_carried(tmp_path):

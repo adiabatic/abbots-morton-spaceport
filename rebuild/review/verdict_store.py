@@ -1,6 +1,6 @@
 """The review server's in-memory copy of verdicts-autosave.json, its delta POST protocol, and its full-store and delta GET formats.
 
-The file is one ams-review-verdicts/1 document holding every verdict on the corpus. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST must be a delta (`sets` of whole records and `clears`, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines. A body `parse_delta_payload` refuses, a delta holding a set whose record the carry would refuse (`well_formed`) among them, gets a 400 and writes nothing, so no save adds a record the next pass cannot carry. A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart or a reload of the file onto another stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
+The file is one ams-review-verdicts/1 document holding every verdict on the corpus. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST must be a delta (`sets` of whole records and `clears`, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines. A body `parse_delta_payload` refuses, a delta holding a set whose record the carry would refuse (`well_formed`) among them, gets a 400 and writes nothing, so no save adds a record the next pass cannot carry; the 400 for a delta holding a malformed set names the first such set (`MalformedSet`). A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart or a reload of the file onto another stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
 
 A set may carry `base_at`, the `at` of the record the tab last saw the server hold for that unit (null when it saw none). A clear is a unit id (the form older tabs send) or `{unit, base_at, at}`, where `at` is when the tab cleared it. The store keeps a tombstone for each cleared unit (unit → the clear's `at`), in memory and as a top-level `cleared` list in the file, which readers that use only `verdicts` ignore; a set removes its unit's tombstone.
 
@@ -88,8 +88,18 @@ def well_formed(record) -> bool:
     )
 
 
+class MalformedSet(ValueError):
+    """Raised by `parse_delta_payload` for an ams-review-verdicts-delta/1 document holding a set it refuses; `where` names the first such set by its unit, or by its index when it names no unit."""
+
+    def __init__(self, where: str) -> None:
+        super().__init__(
+            f"the {DELTA_FORMAT} document holds a malformed set {where}: a set must be an object with a string "
+            "`unit` and `verdict` and a `base_at`, `at` and `note` that are each, when present, a string or null"
+        )
+
+
 def parse_delta_payload(raw: bytes) -> dict | None:
-    """Return the delta with its clears normalized to `{unit, base_at, at}` (a bare unit id has null `base_at` and `at`) and `replay` as a bool, or None when the body is not an ams-review-verdicts-delta/1 document. A set must be an object with a string `unit` whose `base_at`, `at` and `note` are each a string or null, and whose record as the store keeps it (`_normalize`, which reads a missing `at` or `note` as empty) passes `well_formed`, so a set with no string `verdict` makes the whole body malformed. `receive` answers a malformed body with a 400 before it writes the store or the journal."""
+    """Return the delta with its clears normalized to `{unit, base_at, at}` (a bare unit id has null `base_at` and `at`) and `replay` as a bool, or None when the body is not an ams-review-verdicts-delta/1 document. A set must be an object with a string `unit` whose `base_at`, `at` and `note` are each a string or null, and whose record as the store keeps it (`_normalize`, which reads a missing `at` or `note` as empty) passes `well_formed`, so a set with no string `verdict` is malformed, and a delta holding a malformed set raises `MalformedSet`. `receive` answers a body that is not a delta, and a delta holding a malformed set, with a 400 before it writes the store or the journal."""
     try:
         data = json.loads(raw)
     except ValueError, UnicodeDecodeError:
@@ -103,13 +113,13 @@ def parse_delta_payload(raw: bytes) -> dict | None:
     replay = data.get("replay", False)
     if not isinstance(sets, list) or not isinstance(clears, list) or not isinstance(replay, bool):
         return None
-    for record in sets:
+    for index, record in enumerate(sets):
         if not isinstance(record, dict) or not isinstance(record.get("unit"), str):
-            return None
+            raise MalformedSet(f"at index {index} of its `sets` list")
         if not all(_optional_str(record.get(key)) for key in ("base_at", "at", "note")):
-            return None
+            raise MalformedSet(f"on {record['unit']}")
         if not well_formed(_normalize(record)):
-            return None
+            raise MalformedSet(f"on {record['unit']}")
     parsed_clears = [_parse_clear(clear) for clear in clears]
     if any(clear is None for clear in parsed_clears):
         return None
@@ -417,7 +427,10 @@ class VerdictStore:
     def receive(self, raw: bytes, served: ServedCorpus | None = None) -> tuple[int, dict]:
         """Apply a delta POST body, or refuse a full store with recovery instructions, and return the HTTP status and response body. `served` is the corpus the server serves, which decides what a delta on another stamp does; None means it is unknown."""
         self.refresh_if_changed()
-        delta = parse_delta_payload(raw)
+        try:
+            delta = parse_delta_payload(raw)
+        except MalformedSet as malformed:
+            return 400, {"ok": False, "error": str(malformed)}
         if delta is not None:
             return self._receive_delta(delta, served)
         if parse_autosave_payload(raw) is not None:
