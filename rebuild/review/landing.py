@@ -34,6 +34,7 @@ from rebuild.review.store_lock import LockBusy, store_lock
 from rebuild.review.verdict_store import (
     EXPORT_FORMAT,
     append_orphans,
+    note_of,
     orphans_dir_for,
     parse_autosave_payload,
     parse_cleared,
@@ -108,7 +109,7 @@ def _normalize(record: dict) -> dict:
     return {
         "unit": record["unit"],
         "verdict": record.get("verdict"),
-        "note": record.get("note") or "",
+        "note": note_of(record),
         "at": record.get("at") or "",
     }
 
@@ -116,7 +117,7 @@ def _normalize(record: dict) -> dict:
 def _signature(record: dict | None) -> tuple | None:
     if record is None:
         return None
-    return (record.get("verdict"), record.get("note") or "", record.get("at") or "")
+    return (record.get("verdict"), note_of(record), record.get("at") or "")
 
 
 def read_store(path: Path) -> Store | None:

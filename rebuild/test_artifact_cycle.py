@@ -1043,12 +1043,14 @@ def _corpus_ok(report, *, spawn, emit, registry, review_out, **_):
     return True
 
 
-def _verdict_update_stdout(*sections, complete=True, failed=None):
-    """Return a synthetic verdict_update stdout: for each step, the `[phase] <step>` line, the step's own lines and the closing `[t] <step>` line, then the completion or failure line. Those last two keep the verdict update's `[verdict-update] ` prefix, which `verdict_update_sections` uses to keep result lines out of the complaints section."""
+def _verdict_update_stdout(*sections, complete=True, failed=None, died=None):
+    """Return a synthetic verdict_update stdout: for each step, the `[phase] <step>` line, the step's own lines and the closing `[t] <step>` line, then the completion or failure line. Those last two keep the verdict update's `[verdict-update] ` prefix, which `verdict_update_sections` uses to keep result lines out of the complaints section. The step named `died` prints its own lines and nothing after them, as a step that raises past `verdict_update._run` or is stopped by a signal does."""
     lines = []
     for name, body in sections:
         lines.append(console.PHASE + name)
         lines.extend(body)
+        if died == name:
+            return "\n".join(lines) + "\n"
         lines.append(f"[t] {name} 0.1s")
         if failed == name:
             lines.append(f"{console.FAILED_LINE}{name} (exit 1)")
@@ -1291,10 +1293,85 @@ def test_a_later_duplicate_fill_round_failure_leaves_the_first_round_reported_as
         "duplicate_fill_status": "filled",
         "duplicate_merge_status": "merged",
         "standing_fill_status": "filled",
-        "standing_merge_status": "merged",
+        "standing_merge_status": "unchanged",
     }
     statuses[status] += ", round 2 FAILED (exit 1)"
     assert {name: getattr(report, name) for name in statuses} == statuses
+
+
+@pytest.mark.parametrize(
+    ("steps", "statuses"),
+    [
+        (
+            (_FULL_VERDICT_UPDATE[0], ("merge", [])),
+            {
+                "merge_status": "FAILED (exit 1)",
+                "duplicate_fill_status": "not run (merge failed)",
+                "standing_merge_status": "not run (merge failed)",
+            },
+        ),
+        (
+            (*_FULL_VERDICT_UPDATE[:2], ("duplicate-fill", [])),
+            {
+                "merge_status": "merged",
+                "duplicate_fill_status": "FAILED (exit 1)",
+                "duplicate_merge_status": "not run (duplicate-fill failed)",
+                "standing_merge_status": "not run (duplicate-fill failed)",
+            },
+        ),
+        (
+            (*_FULL_VERDICT_UPDATE[:6], ("duplicate-fill-2", [])),
+            {
+                "duplicate_fill_status": "filled, round 2 FAILED (exit 1)",
+                "duplicate_merge_status": "merged",
+                "standing_merge_status": "unchanged",
+            },
+        ),
+    ],
+    ids=["merge", "duplicate-fill", "duplicate-fill-round-2"],
+)
+def test_a_step_that_died_without_a_failure_line_reports_as_failed(steps, statuses):
+    """A step that raises past `verdict_update._run`'s `SystemExit` catch, or that a signal stops, prints no `[t]` line and no failure line. Its status says it failed, in its round, instead of the word its lines give, and the failure list names the verdict update's exit."""
+    report, failures = _run_verdict_update(
+        _plan(), _verdict_update_stdout(*steps, died=steps[-1][0]), returncode=1
+    )
+    assert failures == ["the verdict update failed (exit 1)"]
+    assert {name: getattr(report, name) for name in statuses} == statuses
+
+
+@pytest.mark.parametrize("second_round", [False, True], ids=["quiet", "second-duplicate-round-fills"])
+def test_a_step_that_changed_nothing_says_so(second_round):
+    """A merge that found nothing to change reports `unchanged`, and a fill whose `wrote` line counts no verdict reports `filled nothing`, in the summary line, and the verdict-update row shows the merge's `unchanged`. The duplicate steps read both rounds, so a second round that fills and merges reports `filled` and `merged`."""
+    unchanged = "nothing changed: the autosave already holds all 9 verdicts (9 effective)."
+    duplicate_fill = "wrote verdicts-duplicate-fill.json: {} duplicate-fill verdicts onto manifest S1"
+    merged = "merged 1 file(s) into verdicts-autosave.json: 2 added, 0 replaced, 0 kept newer; store holds 11 verdicts (11 effective) on manifest S1"
+    report, failures = _run_verdict_update(
+        _plan(direct_merge=True),
+        _verdict_update_stdout(
+            ("merge", [unchanged]),
+            ("duplicate-fill", [duplicate_fill.format(0)]),
+            ("duplicate-merge", [unchanged]),
+            (
+                "standing-fill",
+                ["wrote verdicts-standing-fill.json: 0 standing-approval verdicts onto manifest S1"],
+            ),
+            ("standing-merge", [unchanged]),
+            ("duplicate-fill-2", [duplicate_fill.format(2 if second_round else 0)]),
+            ("duplicate-merge-2", [merged if second_round else unchanged]),
+            ("complaints", ["no open complaints"]),
+        ),
+    )
+    assert failures == []
+    duplicate = (
+        "duplicate-fill filled; duplicate-merge merged"
+        if second_round
+        else "duplicate-fill filled nothing; duplicate-merge unchanged"
+    )
+    assert (
+        f"  verdict update   : merge unchanged; {duplicate}; standing-fill filled nothing; standing-merge unchanged"
+        in ac.summary_cycle_lines(report, _plan(direct_merge=True), [])
+    )
+    assert ac.step_detail(report, "verdict-update") == "merge unchanged; no open complaints"
 
 
 def test_a_carry_only_verdict_update_reports_the_fills_as_never_run():
@@ -1336,7 +1413,7 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
         line.endswith("blocked by except_left, left for review") for line in report.standing_fill_lines
     )
     assert any(line.startswith("WARNING:") for line in report.standing_fill_lines)
-    assert report.standing_merge_status == "merged"
+    assert report.standing_merge_status == "unchanged"
     assert any(line.startswith("nothing changed") for line in report.standing_merge_lines)
     assert any("carried onto manifest" in line for line in report.carry_lines)
     assert report.carry_counts == {"human": 60000, "matched": 51946, "unmatched": 8054, "orphaned": 12}

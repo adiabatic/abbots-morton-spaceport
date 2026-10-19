@@ -124,7 +124,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
         judged = evidence_by_id.get(cluster_id, [])
         counts = collections.Counter(record["verdict"] for _unit, record in judged)
         samples = [
-            {"unit": unit["id"], "verdict": record["verdict"], "note": record["note"]}
+            {"unit": unit["id"], "verdict": record["verdict"], "note": record.get("note") or ""}
             for unit, record in judged[:3]
         ]
         exemplar = members[0]

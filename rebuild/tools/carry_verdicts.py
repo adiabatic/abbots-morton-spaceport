@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.review import unit_index  # noqa: E402
 from rebuild.review.landing import ORPHAN_SHARE_LIMIT, SNAPSHOT_NAME, orphan_share  # noqa: E402
-from rebuild.review.verdict_store import parse_cleared, well_formed  # noqa: E402
+from rebuild.review.verdict_store import note_of, parse_cleared, well_formed  # noqa: E402
 from rebuild.tools.verdict_notes import drop_carried_markers  # noqa: E402
 
 OUT = ROOT / "verdicts-carried-forward.json"
@@ -155,7 +155,7 @@ def main(
             {
                 "unit": unit["id"],
                 "verdict": record["verdict"],
-                "note": drop_carried_markers(record.get("note") or ""),
+                "note": drop_carried_markers(note_of(record)),
                 "at": record["at"],
             }
         )

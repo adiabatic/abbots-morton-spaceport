@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 from rebuild.tools import console  # noqa: E402
 from rebuild.review import unit_index  # noqa: E402
+from rebuild.review.verdict_store import note_of  # noqa: E402
 from rebuild.tools.review_queue import verdicts_agree  # noqa: E402
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
@@ -78,7 +79,7 @@ def main(argv=None, *, units=None):
             continue
         if kinds and blanks:
             source_unit, source = max(judged, key=lambda pair: pair[1]["at"])
-            note = cap_markers(f"[duplicate-fill from {source_unit['id']}] {source['note']}".strip())
+            note = cap_markers(f"[duplicate-fill from {source_unit['id']}] {note_of(source)}".strip())
             for unit in blanks:
                 fills.append(
                     {"unit": unit["id"], "verdict": source["verdict"], "note": note, "at": source["at"]}
@@ -106,7 +107,7 @@ def main(argv=None, *, units=None):
             verdicted_ids = {unit["id"] for unit, _record in judged}
             for unit, record in judged:
                 print(
-                    f"    {unit['id']:9s} {unit['notation']:30s} {record['verdict']:9s} {record['note'][:70]}"
+                    f"    {unit['id']:9s} {unit['notation']:30s} {record['verdict']:9s} {note_of(record)[:70]}"
                 )
             for unit in members:
                 if unit["id"] not in verdicted_ids:

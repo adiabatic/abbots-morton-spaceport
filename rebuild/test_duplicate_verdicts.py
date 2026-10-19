@@ -97,6 +97,36 @@ def test_an_approve_identical_group_fills_its_blanks_from_the_newest_member(tmp_
     assert "no duplicate group holds disagreeing verdicts" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("note", ["missing", None], ids=["missing-note", "null-note"])
+def test_a_record_without_a_note_fills_and_reports_as_an_empty_note(tmp_path, capsys, note):
+    """`verdict_store.well_formed` accepts a record whose note is missing or false-valued, so the fill and the disagreement report read its note as empty (`verdict_store.note_of`), as the carry and the merge write it: the fill's note is its marker alone, and the report's line for such a record ends at its verdict."""
+    corpus = corpus_with(
+        tmp_path,
+        [
+            unit("u-0001", "e-0001"),
+            unit("u-0002", "e-0001"),
+            unit("u-0003", "e-0002"),
+            unit("u-0004", "e-0002"),
+        ],
+    )
+    noteless = [v("u-0001", "approve"), v("u-0003", "approve"), v("u-0004", "reject")]
+    for record in noteless:
+        if note == "missing":
+            del record["note"]
+        else:
+            record["note"] = note
+    out = tmp_path / "fill.json"
+    dv.main([str(verdicts_file(tmp_path, noteless)), "--corpus", str(corpus), "--out", str(out)])
+
+    fills = json.loads(out.read_text())["verdicts"]
+    assert [(record["unit"], record["note"]) for record in fills] == [
+        ("u-0002", "[duplicate-fill from u-0001]")
+    ]
+    out = capsys.readouterr().out
+    report = {line.split()[0]: line.split()[1:] for line in out.splitlines() if line.startswith("    u-")}
+    assert report == {"u-0003": ["·Pea·Tea", "approve"], "u-0004": ["·Pea·Tea", "reject"]}
+
+
 def test_a_real_split_still_reports_and_fills_nothing(tmp_path, monkeypatch, capsys):
     corpus = corpus_with(
         tmp_path, [unit("u-0001", "e-0001"), unit("u-0002", "e-0001"), unit("u-0003", "e-0001")]

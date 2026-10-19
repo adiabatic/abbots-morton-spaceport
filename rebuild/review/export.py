@@ -15,6 +15,7 @@ import yaml
 
 from rebuild.review import unit_index
 from rebuild.review.audit import SLIM_OMITTED_KEYS, machine_approved, slim_fragment
+from rebuild.review.verdict_store import note_of
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_REVIEW_DIR = REPO_ROOT / "rebuild" / "out" / "review"
@@ -163,7 +164,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
         verdict = record["verdict"]
         counts[verdict] += 1
         covered += rows_covered(unit)
-        note = record.get("note") or ""
+        note = note_of(record)
         drafts = unit.get("drafts") or {}
 
         if verdict == "approve" and drafts.get("pin"):

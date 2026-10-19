@@ -28,6 +28,7 @@ from rebuild.tools.review_queue import (  # noqa: E402
     ruled_class_ids,
 )
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
+from rebuild.review.verdict_store import note_of  # noqa: E402
 from rebuild.tools.verdict_notes import strip_markers  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
@@ -70,8 +71,8 @@ def _complaint_entry(unit, record):
         "notation": unit["notation"],
         "verdict": record["verdict"],
         "at": record["at"],
-        "note": record["note"],
-        "gist": strip_markers(record["note"]),
+        "note": note_of(record),
+        "gist": strip_markers(note_of(record)),
     }
 
 

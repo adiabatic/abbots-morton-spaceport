@@ -80,12 +80,17 @@ def _parse_clear(clear) -> dict | None:
 
 
 def well_formed(record) -> bool:
-    """Return whether `record` is a verdict record the carry reads: an object with a string `unit`, `verdict` and `at`, and a `note` that is a string or false-valued, since the carry (`carry_verdicts.main`) and the merge (`merge_verdicts.merge_into`) both write a false-valued note as `""`. The carry refuses a verdicts file that holds any other record (`carry_verdicts.resolve_prior`), the merge refuses an input file that holds one (`merge_verdicts`), the review app's Import refuses a file that holds one (`importVerdicts` with `strict` in `rebuild/review/static/verdicts.js`, whose `wellFormed` mirrors this function), and a save refuses a delta holding a set whose record, as the store keeps it (`_normalize`), is one (`parse_delta_payload`), so neither the merge, an Import, nor a save adds a record the carry would refuse. `rebuild/review/fixtures/verdict-record-samples.json` holds sample records with the answer this function gives each, which `rebuild/test_review_autosave.py` checks against this function and `rebuild/review/jstests/verdicts.test.js` against the app's strict Import."""
+    """Return whether `record` is a verdict record the carry reads: an object with a string `unit`, `verdict` and `at`, and a `note` that is a string or false-valued, since the carry (`carry_verdicts.main`) and the merge (`merge_verdicts.merge_into`) both write a false-valued note as `""` (`note_of`). The carry refuses a verdicts file that holds any other record (`carry_verdicts.resolve_prior`), the merge refuses an input file that holds one (`merge_verdicts`), the review app's Import refuses a file that holds one (`importVerdicts` with `strict` in `rebuild/review/static/verdicts.js`, whose `wellFormed` mirrors this function), and a save refuses a delta holding a set whose record, as the store keeps it (`_normalize`), is one (`parse_delta_payload`), so neither the merge, an Import, nor a save adds a record the carry would refuse. `rebuild/review/fixtures/verdict-record-samples.json` holds sample records with the answer this function gives each, which `rebuild/test_review_autosave.py` checks against this function and `rebuild/review/jstests/verdicts.test.js` against the app's strict Import."""
     return (
         isinstance(record, dict)
         and all(isinstance(record.get(key), str) for key in ("unit", "verdict", "at"))
         and isinstance(record.get("note") or "", str)
     )
+
+
+def note_of(record: dict) -> str:
+    """Return `record`'s note as the carry and the merge write it and the readers of a verdicts file read it: its `note`, or `""` when that is missing or false-valued, which `well_formed` accepts. Two readers spell the same expression out instead of importing it: `journal`, which this module imports, and `review_queue`, because the standing fill imports it and the standing memo's code stamp covers the standing fill's import closure (`standing_verdicts.MEMO_CODE_MODULES`), which would then take in this module and the journal."""
+    return record.get("note") or ""
 
 
 class MalformedSet(ValueError):
@@ -162,7 +167,7 @@ def _orphan_key(record: dict) -> tuple:
     return (
         record.get("unit"),
         record.get("verdict"),
-        record.get("note") or "",
+        note_of(record),
         record.get("at") or "",
         record.get("reason"),
     )
@@ -239,13 +244,13 @@ def _normalize(record: dict) -> dict:
     return {
         "unit": record["unit"],
         "verdict": record.get("verdict"),
-        "note": record.get("note") or "",
+        "note": note_of(record),
         "at": record.get("at") or "",
     }
 
 
 def _signature(record: dict) -> tuple:
-    return (record.get("verdict"), record.get("note") or "", record.get("at") or "")
+    return (record.get("verdict"), note_of(record), record.get("at") or "")
 
 
 def _stat_signature(stat: os.stat_result) -> tuple[int, int, int]:

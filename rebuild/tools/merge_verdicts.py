@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
 from rebuild.review import journal, status  # noqa: E402
 from rebuild.review.landing import locked_store, read_manifest  # noqa: E402
 from rebuild.review.serve import parse_autosave_payload, stash_path_for  # noqa: E402
-from rebuild.review.verdict_store import parse_cleared, well_formed  # noqa: E402
+from rebuild.review.verdict_store import note_of, parse_cleared, well_formed  # noqa: E402
 from rebuild.tools.review_server import server_listening as _server_listening  # noqa: E402
 
 AUTOSAVE = ROOT / "verdicts-autosave.json"
@@ -89,7 +89,7 @@ def merge_into(result: dict[str, dict], verdicts, cleared: dict[str, str] | None
         result[unit] = {
             "unit": unit,
             "verdict": record["verdict"],
-            "note": record.get("note") or "",
+            "note": note_of(record),
             "at": record.get("at") or "",
         }
         counts["replaced" if current is not None else "added"] += 1
@@ -395,19 +395,20 @@ def run_restore(
         return 1
     if rekey_map is not None:
         id_map = json.loads(rekey_map.read_text(encoding="utf-8"))["renamed"]
-        restored = records
+        restored, restored_cleared = records, cleared
         try:
-            records, cleared = rekey_store(restored, cleared, id_map)
+            records, cleared = rekey_store(restored, restored_cleared, id_map)
         except UntimedRecord as untimed:
             print(
                 f"ERROR: in the store that {_rel(journal_path)} replays as of {as_of}, {untimed}. Nothing was written."
             )
             return 1
         moved = sum(1 for unit in restored if unit in id_map)
+        moved_cleared = sum(1 for unit in restored_cleared if unit in id_map)
         dropped = sum(1 for unit in restored if id_map.get(unit, unit) in cleared)
         print(
-            f"re-keyed {moved} of {len(restored)} restored verdicts through {_rel(rekey_map)}; dropped {dropped} "
-            "that a clear at or after them landed on"
+            f"re-keyed {moved} of {len(restored)} restored verdicts and {moved_cleared} of {len(restored_cleared)} "
+            f"restored tombstones through {_rel(rekey_map)}; dropped {dropped} that a clear at or after them landed on"
         )
     payload = journal.payload_for(stamp, records, cleared)
     if not apply:

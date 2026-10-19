@@ -3713,12 +3713,44 @@ def _standing_fill_news(line: str) -> bool:
     return match is not None and (int(match.group(1)) > 0 or int(match.group(2)) > 0)
 
 
+_FILL_WROTE = re.compile(r"wrote .+: (\d+) (?:duplicate-fill|standing-approval) verdicts\b")
+
+
+def _merge_word(lines: list[str]) -> str:
+    """Return what a verdict-update merge did, from its scraped lines: `merged` when one of its rounds wrote the store (a `merged` line), else `unchanged`, since a merge that changes nothing writes nothing and prints `nothing changed`."""
+    return "merged" if any(line.startswith("merged ") for line in lines) else "unchanged"
+
+
+def _fill_word(lines: list[str]) -> str:
+    """Return what a verdict-update fill did, from its scraped lines: `filled` when one of its rounds' `wrote` lines counts a proposed verdict, else `filled nothing`."""
+    filled = any(int(match[1]) for line in lines if (match := _FILL_WROTE.match(line)))
+    return "filled" if filled else "filled nothing"
+
+
+def _step_round(phase: str) -> tuple[str, int]:
+    """Return a verdict-update phase name as its step and round: `duplicate-fill-2` is round 2 of `duplicate-fill`."""
+    if match := re.fullmatch(r"(.+)-(\d+)", phase):
+        return match.group(1), int(match.group(2))
+    return phase, 1
+
+
+def _unfinished_phase(text: str) -> str:
+    """Return the name on the verdict update's last `[phase]` line when no `[t]` line of that name follows it, else "". `verdict_update._run` prints a step's `[t]` line when its call returns or raises `SystemExit`, so a step without one died another way: an uncaught exception or a signal."""
+    opened = ""
+    for line in text.splitlines():
+        if line.startswith(console.PHASE):
+            opened = line[len(console.PHASE) :].strip()
+        elif opened and line.startswith(f"{console.TIMING}{opened} "):
+            opened = ""
+    return opened
+
+
 def _do_verdict_update(
     report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> list[str]:
     """Run the verdict update as one child and fill the per-step report from its output. Return the failure messages for the cycle's failure list, one per failed step.
 
-    A failure in the second duplicate pass (`duplicate-fill-2` or `duplicate-merge-2`) comes after the first duplicate pass and the standing fill and merge have run. Those steps keep their done words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-pass failure marks the steps after it as not run.
+    A step that ran says what it did, read from the lines it printed, both rounds' for the duplicate steps: a merge `merged` or `unchanged` (`_merge_word`), a fill `filled` or `filled nothing` (`_fill_word`). A step that started and never closed (`_unfinished_phase`) printed no failure line, and its status reads as a failed step's does, though the failure list names only the verdict update's exit. A failure in the second duplicate pass (`duplicate-fill-2` or `duplicate-merge-2`) comes after the first duplicate pass and the standing fill and merge have run. Those steps keep their words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-pass failure marks the steps after it as not run.
     """
     result = spawn("verdict-update", plan.argv("verdict-update"), emit=emit, registry=registry, stream=False)
     sections = verdict_update_sections(result.stdout)
@@ -3726,15 +3758,14 @@ def _do_verdict_update(
     report.carry_out = (
         None if plan.verdict_update_direct_merge and "carry" not in sections else plan.carry_out
     )
-    failed = ""
-    failed_round = 1
+    failed, failed_round = "", 1
     for line in result.stdout.splitlines():
         if line.startswith(console.FAILED_LINE):
-            failed = line[len(console.FAILED_LINE) :].split(" ", 1)[0]
-            failed_round = 1
-            if match := re.fullmatch(r"(.+)-(\d+)", failed):
-                failed, failed_round = match.group(1), int(match.group(2))
+            failed, failed_round = _step_round(line[len(console.FAILED_LINE) :].split(" ", 1)[0])
     later_round = failed_round > 1
+    stopped, stopped_round = (
+        (failed, failed_round) if failed else _step_round(_unfinished_phase(result.stdout))
+    )
     report.verdict_update_complete = (
         result.returncode == 0
         and not failed
@@ -3766,25 +3797,25 @@ def _do_verdict_update(
 
     # After a first-round failure, the steps after the failed one never ran. Steps before it ran and report what they did.
     done = (
-        ("merge", "merged"),
-        ("duplicate-fill", "filled"),
-        ("duplicate-merge", "merged"),
-        ("standing-fill", "filled"),
-        ("standing-merge", "merged"),
+        ("merge", _merge_word(report.merge_lines)),
+        ("duplicate-fill", _fill_word(report.duplicate_fill_lines)),
+        ("duplicate-merge", _merge_word(report.duplicate_merge_lines)),
+        ("standing-fill", _fill_word(report.standing_fill_lines)),
+        ("standing-merge", _merge_word(report.standing_merge_lines)),
     )
     order = ["carry", *(name for name, _word in done)]
-    blocked = order.index(failed) if failed in order and not later_round else len(order)
+    blocked = order.index(stopped) if stopped in order and stopped_round == 1 else len(order)
     for name, word in done:
         if order.index(name) > blocked:
-            status = f"not run ({failed} failed)"
-        elif name == failed and not later_round:
+            status = f"not run ({stopped} failed)"
+        elif name == stopped and stopped_round == 1:
             status = f"FAILED (exit {result.returncode})"
         elif name in sections:
             status = word
         else:
             status = "not run"
-        if name == failed and later_round:
-            status += f", round {failed_round} FAILED (exit {result.returncode})"
+        if name == stopped and stopped_round > 1:
+            status += f", round {stopped_round} FAILED (exit {result.returncode})"
         setattr(report, name.replace("-", "_") + "_status", status)
     failures: list[str] = []
     if failed in _VERDICT_UPDATE_FAILURES and later_round:
