@@ -358,7 +358,7 @@ def test_a_rekey_of_a_store_outside_the_root_journals_beside_it_unless_journal_n
 
 
 def test_a_rekey_of_a_copy_leaves_the_roots_files_alone_and_its_undo_marks_the_copy(tmp_path, capsys):
-    """A re-key whose `--root` holds a store, its journal and a stash stamped for the corpus the map was computed from, and whose `--autosave` names a copy in another directory, leaves the root's files out (`rekey_verdicts.verdict_files`), so they keep their bytes and the copy's journal, beside it, replays to the re-keyed copy. Its `--undo` puts the copy and its journal back and leaves the unjournaled marker beside the copy, not beside the root's store."""
+    """A re-key whose `--root` holds a store, its journal and a stash stamped for the corpus the map was computed from, and whose `--autosave` names a copy in another directory, leaves the root's files out (`rekey_verdicts.verdict_files`), so they keep their bytes and the copy's journal, beside it, replays to the re-keyed copy. Its backup and the id map it applied go to the keep directory beside the copy (`journal.beside_store`), and the root gets none. Its `--undo` puts the copy and its journal back and leaves the unjournaled marker beside the copy, not beside the root's store."""
     fragments = _fragments()
     olds = [_old(fragment) for fragment in fragments]
     news = [_new(fragment) for fragment in fragments]
@@ -387,7 +387,10 @@ def test_a_rekey_of_a_copy_leaves_the_roots_files_alone_and_its_undo_marks_the_c
     assert journal.replay(copy_journal) == (OLD_STAMP, rekeyed)
     assert {path: path.read_bytes() for path in root_files} == root_files
 
-    (backup,) = [path for path in (root / rekey_verdicts.KEEP).iterdir() if path.is_dir()]
+    assert not (root / rekey_verdicts.KEEP).exists()
+    keep = copy.parent / rekey_verdicts.KEEP
+    assert (keep / rekey_verdicts.MAP_NAME).exists()
+    (backup,) = [path for path in keep.iterdir() if path.is_dir()]
     assert rekey_verdicts.main(["--root", str(root), "--undo", str(backup)]) == 0
     assert {path: path.read_bytes() for path in copied} == copied
     assert journal.unjournaled_marker_for(copy).exists()

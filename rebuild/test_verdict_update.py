@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped. A direct merge into a store stamped for the corpus that holds a record the carry refuses fails the update at its merge, naming the store, with the store and the journal as they were. With no `--journal`, every merge appends to the journal beside the store."""
+"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped. A direct merge into a store stamped for the corpus that holds a record the carry refuses fails the update at its merge, naming the store, with the store and the journal as they were. With no `--journal`, every merge appends to the journal beside the store, and with no `--duplicate-out` or `--standing-out` the fill files are written beside it, so a run on a copy writes nothing at the repo root."""
 
 import json
 import pathlib
@@ -934,3 +934,22 @@ def test_the_merges_journal_beside_the_autosave_unless_journal_names_another(tmp
     assert journal.replay(written)[1] == _records(paths["autosave"])
     assert not unwritten.exists()
     assert not live.exists()
+
+
+@pytest.mark.parametrize("store", ["live", "copy"])
+def test_the_fill_files_go_beside_the_autosave(tmp_path, monkeypatch, store):
+    """With no `--duplicate-out` or `--standing-out`, a run writes verdicts-duplicate-fill.json and verdicts-standing-fill.json beside `--autosave` (`journal.beside_store`). For the live store, which the default `--autosave` names and this test points at a scratch root standing in for the repo root, they land at that root; for a copy in another directory they land beside the copy, and the root, where `status` counts every verdicts-*.json but the live store as a carry candidate, gains no file."""
+    live = tmp_path / "live"
+    paths = _integration_fixture(live if store == "live" else tmp_path / "copy", monkeypatch)
+    live.mkdir(exist_ok=True)
+    for module in (vu, vu.merge_verdicts):
+        monkeypatch.setattr(module, "ROOT", live)
+        monkeypatch.setattr(module, "AUTOSAVE", live / journal.AUTOSAVE_NAME)
+    monkeypatch.setattr(vu.merge_verdicts, "JOURNAL", live / journal.JOURNAL_NAME)
+    argv = ["--corpus", str(paths["corpus"]), "--merge-master", str(paths["master"])]
+    argv += ["--rules", str(paths["rules"]), "--standing-memo", str(paths["memo"]), "--no-complaints"]
+    assert vu.main([*argv, *(["--autosave", str(paths["autosave"])] if store == "copy" else [])]) == 0
+    beside = {path.name for path in paths["autosave"].parent.iterdir()}
+    assert {vu.DUPLICATE_FILL_NAME, vu.STANDING_FILL_NAME} <= beside
+    if store == "copy":
+        assert not any(live.iterdir())

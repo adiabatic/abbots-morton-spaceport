@@ -4,7 +4,7 @@ The first index walk keeps every corpus id and, for human units, only the `dupli
 
 On a pass that lands, the only kind that takes a snapshot of the store, the cycle hands that snapshot over with `--store-snapshot` beside a carry's master that is another file, and on every direct merge (`--merge-master`, the form for a pass whose corpus did not move, which always lands). The store can be replaced or removed between the plan and the snapshot, so what becomes of the snapshot is decided here, from the file the snapshot step left. A carry carries it beside the master when it exists. A direct merge merges the master straight in unless the merge would set the store aside because the snapshot is stamped for an older corpus or is not an ams-review-verdicts/1 document (`merge_sets_store_aside`). Such a snapshot is then carried onto the corpus by unit id, its skips handed to the merge as tombstones (`skip_clears`), and the master, unless it is that snapshot, merged into the result. The carry refuses a snapshot it cannot read, naming it, and the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update. A missing snapshot, which the snapshot step leaves when there is no store, is not carried: a carry takes the master alone, a direct merge merges a master that is another file straight in, and the merge refuses a master that is the missing snapshot, naming it. With neither --verdicts nor --merge-master there is nothing to carry or merge, and the fills run over the store at --autosave. When there is no store there, the merge runs with no file: under the store's lock, which first finishes any land a dead holder left (`landing.locked_store`), it merges no file into the store that land leaves, or, when there is still no store, writes an empty store stamped for the corpus (`merge_verdicts`), so the fills start from an empty store, as they do on a pass with no store whose master holds no verdict. Against the live store while a review server listens, that merge, like any of the update's merges that would write the store, refuses and the run fails at it, since the update has no --yes (`merge_verdicts`). With nothing to merge, when the store at --autosave is one the carry cannot read, or is not an ams-review-verdicts/1 document, which the merges after the fills would set aside, keeping none of its verdicts, the update refuses before the first fill, naming the store and why, and writes nothing (`refuse_unreadable_store`).
 
-The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and completion lines use the `[verdict-update]` prefix. A duplicate fill proposes every blank member of an agreeing group at once, so the initial fill and the final fill after standing seeds groups are sufficient. Completion names this schedule, not acceptance of every proposal: a newer clear in the store can refuse a fill. The duplicate-fill output file holds the union of both passes' proposals, retaining the first proposal for each unit.
+The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and completion lines use the `[verdict-update]` prefix. A duplicate fill proposes every blank member of an agreeing group at once, so the initial fill and the final fill after standing seeds groups are sufficient. Completion names this schedule, not acceptance of every proposal: a newer clear in the store can refuse a fill. The duplicate-fill output file holds the union of both passes' proposals, retaining the first proposal for each unit. The fill files go to --duplicate-out and --standing-out, or else to verdicts-duplicate-fill.json and verdicts-standing-fill.json beside --autosave, which only a store named verdicts-autosave.json has by default (`journal.beside_store`), so a hand run on a copy writes no verdicts file at the repo root, where `rebuild.review.status` counts every verdicts-*.json but the live store as a carry candidate. The complaint list (--complaints-out) and the standing fill's memo (--standing-memo) keep their defaults whatever --autosave names, because the cycle's verdict update, which runs on a copy of the store, writes the complaint list at its default and the memo beside the served corpus, the complaint list is not a verdicts file, and no memo decision depends on the store.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebuild.review import unit_index  # noqa: E402
-from rebuild.review.journal import AUTOSAVE_NAME, JOURNAL_NAME, journal_path_for  # noqa: E402
+from rebuild.review.journal import AUTOSAVE_NAME, JOURNAL_NAME, beside_store, journal_path_for  # noqa: E402
 from rebuild.review.verdict_store import parse_autosave_payload  # noqa: E402
 from rebuild.tools import (  # noqa: E402
     carry_verdicts,
@@ -34,8 +34,8 @@ from rebuild.tools import (  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
-DUPLICATE_FILL = ROOT / "verdicts-duplicate-fill.json"
-STANDING_FILL = ROOT / "verdicts-standing-fill.json"
+DUPLICATE_FILL_NAME = "verdicts-duplicate-fill.json"
+STANDING_FILL_NAME = "verdicts-standing-fill.json"
 STORE_CARRIED_NOTE = "the store's snapshot is carried onto the corpus by unit id before the merge, because it is stamped for an older corpus or is not an ams-review-verdicts/1 document and the merge would set the store aside and keep none of its verdicts; the carry refuses a snapshot it cannot read, and the merge keeps the snapshot's skips as tombstones"
 
 
@@ -159,8 +159,16 @@ def main(argv: list[str] | None = None) -> int:
         type=pathlib.Path,
         help=f"the journal every merge appends to (default: the {JOURNAL_NAME} beside --autosave; a store not named {AUTOSAVE_NAME} needs --journal)",
     )
-    parser.add_argument("--duplicate-out", type=pathlib.Path, default=DUPLICATE_FILL)
-    parser.add_argument("--standing-out", type=pathlib.Path, default=STANDING_FILL)
+    parser.add_argument(
+        "--duplicate-out",
+        type=pathlib.Path,
+        help=f"where the duplicate fills are written (default: the {DUPLICATE_FILL_NAME} beside --autosave; a store not named {AUTOSAVE_NAME} needs --duplicate-out)",
+    )
+    parser.add_argument(
+        "--standing-out",
+        type=pathlib.Path,
+        help=f"where the standing fill is written (default: the {STANDING_FILL_NAME} beside --autosave; a store not named {AUTOSAVE_NAME} needs --standing-out)",
+    )
     parser.add_argument("--rules", type=pathlib.Path, default=standing_verdicts.RULES)
     parser.add_argument(
         "--standing-memo",
@@ -198,6 +206,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         journal = args.journal or journal_path_for(args.autosave)
+        if not args.no_merge:
+            args.duplicate_out = args.duplicate_out or beside_store(
+                args.autosave, DUPLICATE_FILL_NAME, "--duplicate-out"
+            )
+            args.standing_out = args.standing_out or beside_store(
+                args.autosave, STANDING_FILL_NAME, "--standing-out"
+            )
     except ValueError as error:
         parser.error(str(error))
     corpus = args.corpus

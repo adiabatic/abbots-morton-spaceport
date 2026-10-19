@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, or of a store stamped for the corpus, holding a record the carry refuses, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, the refusal of a store under any other name without one, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, or of a store stamped for the corpus, holding a record the carry refuses, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, and the restore preview beside it when no `--out` does, the refusal of a store under any other name without them, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
 
 import json
 import threading
@@ -380,6 +380,33 @@ def test_a_restore_and_a_list_of_a_copy_read_the_journal_beside_it(repo, tmp_pat
     capsys.readouterr()
     assert mv.main(["--list", *argv]) == 0
     assert [line.split()[1] for line in capsys.readouterr().out.splitlines()] == ["merge", "merge", "restore"]
+
+
+@pytest.mark.parametrize("store", ["live", "copy"])
+def test_a_restore_without_out_writes_its_preview_beside_its_autosave(repo, tmp_path, monkeypatch, store):
+    """With neither `--apply` nor `--out`, `--restore-as-of` writes verdicts-restored-<time>.json beside `--autosave` (`journal.beside_store`). For the live store, which `repo` stands in for with `mv.ROOT`, `mv.AUTOSAVE` and `mv.JOURNAL` pointed at it, that is the repo root; for a copy in another directory it is beside the copy, and the root, where `status` counts every verdicts-*.json but the live store as a carry candidate, gains no file."""
+    for name, path in (("ROOT", repo["root"]), ("AUTOSAVE", repo["autosave"]), ("JOURNAL", repo["journal"])):
+        monkeypatch.setattr(mv, name, path)
+    autosave = repo["autosave"] if store == "live" else tmp_path / "copy" / "verdicts-autosave.json"
+    autosave.parent.mkdir(exist_ok=True)
+    argv = ["--autosave", str(autosave), "--corpus", str(repo["corpus"])]
+    assert mv.main([str(write_doc(tmp_path / "input.json", "S2", [v("u-1")])), *argv]) == 0
+    assert mv.main(["--restore-as-of", "2099-01-01", *argv]) == 0
+    preview = autosave.with_name("verdicts-restored-2099-01-01.json")
+    assert journal.latest_by_unit(json.loads(preview.read_text())["verdicts"]) == {"u-1": v("u-1")}
+    assert list(repo["root"].glob("verdicts-restored-*.json")) == ([preview] if store == "live" else [])
+
+
+def test_a_restore_preview_of_a_store_under_another_name_needs_out(repo, tmp_path, capsys):
+    """A store not named exactly verdicts-autosave.json has no default preview path (`journal.beside_store`), even with a `--journal`, so `--restore-as-of` without `--apply` or `--out` refuses before it writes anything and asks for `--out`: beside a store under another name in the live store's directory, the preview would land among the live store's files."""
+    assert run(repo, str(write_doc(tmp_path / "input.json", "S2", [v("u-1")]))) == 0
+    before = sorted(tmp_path.iterdir())
+    argv = ["--autosave", str(tmp_path / "verdicts-scratch.json"), "--journal", str(repo["journal"])]
+    with pytest.raises(SystemExit) as refused:
+        mv.main(["--restore-as-of", "2099-01-01", *argv])
+    assert refused.value.code == 2
+    assert "pass --out" in capsys.readouterr().err
+    assert sorted(tmp_path.iterdir()) == before
 
 
 def test_no_files_auto_picks_the_fullest_verdicts_file(repo, tmp_path, monkeypatch, capsys):

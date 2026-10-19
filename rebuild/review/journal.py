@@ -597,14 +597,19 @@ def scan(journal_path, *, resume: ScanState | None = None) -> JournalScan:
         return _scan_handle(handle, resume)
 
 
-def journal_path_for(store) -> Path:
-    """Return the journal of the store at `store`: the verdicts-journal.ndjson beside it, which for the live store is the repo root's journal. Only a store named exactly verdicts-autosave.json has one, and for any other name this raises `ValueError`, because the journal beside a store under another name in the live store's directory (a stash, or the file `merge_verdicts --restore-as-of` writes to the repo root) is the live store's, and on a case-insensitive filesystem another spelling of verdicts-autosave.json can name the live store itself. `rebuild.tools.merge_verdicts`, `rebuild.tools.verdict_update` and `rebuild.tools.rekey_verdicts` take this journal when no `--journal` names one and report the `ValueError` as a usage error, and `rebuild.tools.rekey_verdicts` re-keys the files at its `--root` only when its `--autosave` is the verdicts-autosave.json there (`rekey_verdicts.verdict_files`) and refuses a verdicts-autosave.json its `--autosave` does not name passed with `--verdicts` or `--references` (`rekey_verdicts.another_store`), so a run on a copy named verdicts-autosave.json in another directory journals beside the copy and leaves the live store and its journal alone."""
+def beside_store(store, name: str | Path, flag: str) -> Path:
+    """Return `name`, a file or a relative path, beside the store at `store`: the default path of an output of a hand run on that store that no `flag` names, which for the live store is at the repo root. `rebuild.tools.merge_verdicts`, `rebuild.tools.verdict_update` and `rebuild.tools.rekey_verdicts` place these outputs by it: the journal (`journal_path_for`), the restore preview, the fill files, and the re-key's backups and kept id map, so a run on a copy named verdicts-autosave.json in another directory writes them beside the copy and none of them at the repo root, where `rebuild.review.status` counts every verdicts-*.json but the live store as a carry candidate; the verdict update's complaint list and the standing fill's memo keep their own defaults, and `rebuild.tools.verdict_update` says why. Only a store named exactly verdicts-autosave.json has these defaults, and for any other name this raises `ValueError` asking for `flag`, which the tools report as a usage error, because beside a store under another name in the live store's directory (a stash, or the preview a restore of the live store writes) the journal is the live store's and every other default lands among the live store's files, and on a case-insensitive filesystem another spelling of verdicts-autosave.json can name the live store itself."""
     store = Path(store)
     if store.name != AUTOSAVE_NAME:
         raise ValueError(
-            f"--autosave {store} is not named {AUTOSAVE_NAME}, so it has no default journal: pass --journal"
+            f"--autosave {store} is not named {AUTOSAVE_NAME}, so {flag} has no default: pass {flag}"
         )
-    return store.with_name(JOURNAL_NAME)
+    return store.parent / name
+
+
+def journal_path_for(store) -> Path:
+    """Return the journal of the store at `store`: the verdicts-journal.ndjson beside it, which for the live store is the repo root's journal, and which only a store named exactly verdicts-autosave.json has (`beside_store` says why). `rebuild.tools.merge_verdicts`, `rebuild.tools.verdict_update` and `rebuild.tools.rekey_verdicts` take this journal when no `--journal` names one, and `rebuild.tools.rekey_verdicts` re-keys the files at its `--root` only when its `--autosave` is the verdicts-autosave.json there (`rekey_verdicts.verdict_files`) and refuses a verdicts-autosave.json its `--autosave` does not name passed with `--verdicts` or `--references` (`rekey_verdicts.another_store`), so a run on a copy named verdicts-autosave.json in another directory journals beside the copy and leaves the live store and its journal alone."""
+    return beside_store(store, JOURNAL_NAME, "--journal")
 
 
 def unjournaled_marker_for(store) -> Path:
