@@ -193,7 +193,7 @@ def test_the_carry_drops_carried_markers_from_the_head_of_a_note(tmp_path):
 
 
 def test_a_record_without_a_note_carries_and_a_malformed_record_is_refused_by_name(tmp_path):
-    """A record with no `note` carries with an empty note, as every other reader of the store takes it. A record that is not an object with a string `unit`, `verdict` and `at` stops the carry with a refusal that names the file, and nothing is written."""
+    """A record with no `note` passes `verdict_store.well_formed` and carries with an empty note. A record that is not an object with a string `unit`, `verdict` and `at` stops the carry with a refusal that names the file, and nothing is written."""
     unit = _content_unit("E650:E652")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(
