@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, or of a store stamped for the corpus, holding a record the carry refuses, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, and the restore preview beside it when no `--out` does, the refusal of a store under any other name without them, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, or of a store stamped for the corpus, holding a record the carry refuses, the set-aside of a stale store holding one, whose tombstones the merge keeps on the corpus's human units except those its records name, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, and the restore preview beside it when no `--out` does, the refusal of a store under any other name without them, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
 
 import json
 import threading
@@ -240,6 +240,39 @@ def test_a_merge_onto_a_stale_store_keeps_its_tombstones_on_the_corpus_human_uni
     assert json.loads(repo["autosave"].read_text())["cleared"] == [
         {"unit": "u-1", "at": "2026-07-10T05:00:00Z"}
     ]
+
+
+def test_a_merge_sets_aside_a_stale_store_holding_a_record_the_carry_refuses(repo, tmp_path):
+    """The merge keeps none of a stale store's verdicts and reads of them only which units they name, so a record whose `at` is not a string, beside another record on its unit, neither stops the merge nor is checked: the store is stashed as it was, its tombstone on a human unit still refuses an incoming record older than the clear, and one on a unit only such a record names is dropped like one on any unit the stale store holds a record for."""
+    (repo["corpus"] / "manifest.json").write_text(
+        json.dumps({"generated_at": "S2", "human_unit_ids": ["u-A", "u-B", "u-C", "u-D"]})
+    )
+    repo["autosave"].write_text(
+        json.dumps(
+            {
+                **doc(
+                    "S1",
+                    [
+                        v("u-B"),
+                        {"unit": "u-B", "verdict": "approve", "at": 5},
+                        {"unit": "u-D", "verdict": "approve", "at": 5},
+                    ],
+                ),
+                "cleared": [
+                    {"unit": "u-C", "at": "2026-07-09T00:00:00Z"},
+                    {"unit": "u-D", "at": "2026-07-09T00:00:00Z"},
+                ],
+            }
+        )
+    )
+    old_raw = repo["autosave"].read_bytes()
+    export = write_doc(tmp_path / "export.json", "S2", [v("u-A"), v("u-C", at="2026-07-08T00:00:00Z")])
+    assert run(repo, str(export)) == 0
+    assert (repo["root"] / "verdicts-autosave-S1.json").read_bytes() == old_raw
+    written = json.loads(repo["autosave"].read_text())
+    assert written["manifest_generated_at"] == "S2"
+    assert set(store_records(repo)) == {"u-A"}
+    assert written["cleared"] == [{"unit": "u-C", "at": "2026-07-09T00:00:00Z"}]
 
 
 def test_refuses_to_merge_onto_an_outdated_corpus(repo, tmp_path, capsys):
