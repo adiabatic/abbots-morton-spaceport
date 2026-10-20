@@ -126,7 +126,9 @@ policy:
     when:
       left:
         family:
+        - qsPea
         - qsBay
+        - qsTea
         - qsDay
         - qsKey
         - qsGay
@@ -137,7 +139,9 @@ policy:
         - qsCheer
         - qsJay
         - qsYe
+        - qsHe
         - qsIng
+        - qsNo
         - qsLlan
         - qsExcite
         - qsIt
@@ -152,6 +156,24 @@ policy:
       right:
         family: qsTea
         then: {family: qsIt}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          family:
+          - qsZoo
+          - qsJai
+          - qsJai_qsUtter
+          - qsJay
+          - qsJay_qsUtter
+          - qsNo
+          - qsRoe
+          - qsEt
+          - qsEight
+          - qsAwe
+          - qsOx
   - cell: {exit: none}
     over: {exit: baseline}
     when:

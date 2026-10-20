@@ -110,9 +110,20 @@ policy:
           family:
           - qsDay
           - qsDay_qsUtter
+          - qsZoo
+          - qsJai
+          - qsJai_qsUtter
+          - qsJay
+          - qsJay_qsUtter
           - qsMay
+          - qsNo
           - qsLow
+          - qsRoe
           - qsIt
+          - qsEt
+          - qsEight
+          - qsAwe
+          - qsOx
   - cell: {exit: none}
     over: {exit: baseline}
     when:
