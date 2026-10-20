@@ -727,11 +727,15 @@ def test_a_set_whose_record_the_carry_refuses_is_refused_before_any_write(tmp_pa
 
 @pytest.mark.parametrize(
     ("malformed", "named"),
-    [({"verdict": "approve"}, "at index 1 of its `sets` list"), ({**verdict("u-1"), "base_at": 1}, "on u-1")],
-    ids=["no-unit", "numeric-base-at"],
+    [
+        ({"verdict": "approve"}, "at index 1 of its `sets` list"),
+        ({"unit": 5, "verdict": "approve"}, "at index 1 of its `sets` list"),
+        ({**verdict("u-1"), "base_at": 1}, "on u-1"),
+    ],
+    ids=["no-unit", "numeric-unit", "numeric-base-at"],
 )
 def test_a_delta_holding_a_malformed_set_is_refused_naming_the_first_such_set(tmp_path, malformed, named):
-    """The 400 names the first malformed set by its unit, or by its index when it names no unit, rather than calling the delta something other than an ams-review-verdicts-delta/1 document."""
+    """The 400 names the first malformed set by its unit, or by its index when it names no unit or a unit that is not a string, rather than calling the delta something other than an ams-review-verdicts-delta/1 document."""
     store = VerdictStore(tmp_path / "verdicts-autosave.json")
     status, body = store.receive(delta(NEW, [verdict("u-0"), malformed, {"unit": "u-2"}]))
     assert status == 400 and body["ok"] is False
@@ -741,11 +745,15 @@ def test_a_delta_holding_a_malformed_set_is_refused_naming_the_first_such_set(tm
 
 @pytest.mark.parametrize(
     ("malformed", "named"),
-    [({"at": "t"}, "at index 1 of its `clears` list"), ({"unit": "u-1", "at": 5}, "on u-1")],
-    ids=["no-unit", "numeric-at"],
+    [
+        ({"at": "t"}, "at index 1 of its `clears` list"),
+        ({"unit": 5}, "at index 1 of its `clears` list"),
+        ({"unit": "u-1", "at": 5}, "on u-1"),
+    ],
+    ids=["no-unit", "numeric-unit", "numeric-at"],
 )
 def test_a_delta_holding_a_malformed_clear_is_refused_naming_the_first_such_clear(tmp_path, malformed, named):
-    """The 400 names the first malformed clear by its unit, or by its index when it names no unit, as it names a malformed set."""
+    """The 400 names the first malformed clear by its unit, or by its index when it names no unit or a unit that is not a string, as it names a malformed set."""
     store = VerdictStore(tmp_path / "verdicts-autosave.json")
     status, body = store.receive(delta(NEW, [verdict("u-0")], ["u-0", malformed, {"unit": "u-2", "at": 6}]))
     assert status == 400 and body["ok"] is False

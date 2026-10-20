@@ -56,9 +56,15 @@ def _effective(records: dict[str, dict]) -> int:
     return sum(1 for record in records.values() if record.get("verdict") != "skip")
 
 
+def _refused_by_tombstone(counts: Mapping[str, int]) -> str:
+    return (
+        f", {counts['refused_by_tombstone']} refused by a tombstone" if counts["refused_by_tombstone"] else ""
+    )
+
+
 def merge_into(result: dict[str, dict], verdicts, cleared: dict[str, str] | None = None) -> dict:
-    """Merge `verdicts` into `result` in place, the strictly newer `at` winning per unit, and return the counts. `cleared` holds the store's tombstones (unit → the clear's `at`), which count as a newer state than any record whose `at` is not after the clear; a record that wins over a tombstone removes it from `cleared`."""
-    counts = {"added": 0, "replaced": 0, "kept_newer": 0, "invalid": 0}
+    """Merge `verdicts` into `result` in place, the strictly newer `at` winning per unit, and return the counts. `cleared` holds the store's tombstones (unit → the clear's `at`), which count as a newer state than any record whose `at` is not after the clear; a record that wins over a tombstone removes it from `cleared`. A record a tombstone keeps out counts under `refused_by_tombstone`, and one a record in `result` keeps out under `kept_newer`."""
+    counts = {"added": 0, "replaced": 0, "kept_newer": 0, "refused_by_tombstone": 0, "invalid": 0}
     for unit, record in sorted(journal.latest_by_unit(verdicts).items()):
         if record.get("verdict") not in VERDICT_KINDS:
             counts["invalid"] += 1
@@ -70,7 +76,7 @@ def merge_into(result: dict[str, dict], verdicts, cleared: dict[str, str] | None
             continue
         if current is None and cleared is not None and unit in cleared:
             if cleared[unit] >= at:
-                counts["kept_newer"] += 1
+                counts["refused_by_tombstone"] += 1
                 continue
             del cleared[unit]
         result[unit] = {
@@ -240,7 +246,7 @@ def _merge_into_store(
     for unit, at in (clears or {}).items():
         if unit not in result:
             cleared[unit] = max(at, cleared.get(unit, at))
-    totals = {"added": 0, "replaced": 0, "kept_newer": 0, "invalid": 0}
+    totals = {"added": 0, "replaced": 0, "kept_newer": 0, "refused_by_tombstone": 0, "invalid": 0}
     for path, data in payloads:
         counts = merge_into(result, data["verdicts"], cleared)
         for key in totals:
@@ -248,7 +254,7 @@ def _merge_into_store(
         invalid = f", {counts['invalid']} invalid" if counts["invalid"] else ""
         print(
             f"{_rel(path)}: {counts['added']} added, {counts['replaced']} replaced, "
-            f"{counts['kept_newer']} kept newer{invalid}"
+            f"{counts['kept_newer']} kept newer{_refused_by_tombstone(counts)}{invalid}"
         )
 
     changed = aligned is None or result != base or cleared != kept_cleared
@@ -300,8 +306,8 @@ def _merge_into_store(
     )
     print(
         f"merged {len(payloads)} file(s) into {autosave.name}: {totals['added']} added, "
-        f"{totals['replaced']} replaced, {totals['kept_newer']} kept newer; store holds "
-        f"{len(result)} verdicts ({_effective(result)} effective) on manifest {stamp}"
+        f"{totals['replaced']} replaced, {totals['kept_newer']} kept newer{_refused_by_tombstone(totals)}; "
+        f"store holds {len(result)} verdicts ({_effective(result)} effective) on manifest {stamp}"
     )
     if _server_listening():
         print("note: the review server is up — an open app tab picks this up on its next focus (or reload).")
@@ -403,11 +409,13 @@ def run_restore(
         restored, restored_cleared = records, cleared
         records, cleared = rekey_store(restored, restored_cleared, id_map)
         moved = sum(1 for unit in restored if unit in id_map)
-        moved_cleared = sum(1 for unit in restored_cleared if unit in id_map)
         dropped = sum(1 for unit in restored if id_map.get(unit, unit) in cleared)
+        landed = [unit for unit in restored_cleared if id_map.get(unit, unit) in cleared]
+        moved_cleared = sum(1 for unit in landed if unit in id_map)
         print(
             f"re-keyed {moved} of {len(restored)} restored verdicts and {moved_cleared} of {len(restored_cleared)} "
-            f"restored tombstones through {_rel(rekey_map)}; dropped {dropped} that a clear at or after them landed on"
+            f"restored tombstones through {_rel(rekey_map)}; dropped {dropped} verdicts that a clear at or after "
+            f"them landed on and {len(restored_cleared) - len(landed)} tombstones that a newer verdict landed on"
         )
     payload = journal.payload_for(stamp, records, cleared)
     if not apply:

@@ -680,7 +680,10 @@ def test_a_clear_the_map_moves_onto_an_older_record_clears_its_unit_through_the_
     assert _restore(tmp_path, map_path) == []
     out = capsys.readouterr().out
     assert "re-keyed 0 of 1 restored verdicts and 1 of 1 restored tombstones through " in out
-    assert "; dropped 1 that a clear at or after them landed on\n" in out
+    assert (
+        "; dropped 1 verdicts that a clear at or after them landed on and 0 tombstones that a newer verdict "
+        "landed on\n" in out
+    )
 
     (backup,) = [path for path in keep.iterdir() if path.is_dir()]
     assert rekey_verdicts.main(["--root", str(tmp_path), "--undo", str(backup)]) == 0
@@ -771,7 +774,7 @@ def test_rekey_moves_the_stores_tombstones_through_the_pairs():
 
 
 def test_a_journal_restores_rekey_counts_what_it_moves_against_what_the_journal_replays(tmp_path, capsys):
-    """A journal restore through a map counts the restored verdicts and the restored tombstones whose ids the map moves against the ones the journal replays, the verdicts as the re-key counts `rekeyed` of `seen`: a record or a tombstone on an id the map leaves alone counts only in the total, and two records or two tombstones that land on one unit both count as re-keyed, though only the newer record and the later clear are restored."""
+    """A journal restore through a map counts the restored verdicts, and the restored tombstones that no newer verdict drops, whose ids the map moves against the ones the journal replays, the verdicts as the re-key counts `rekeyed` of `seen`: a record or a tombstone on an id the map leaves alone counts only in the total, and two records or two tombstones that land on one unit both count as re-keyed, though only the newer record and the later clear are restored."""
     renamed = {"u-old1": "u-new1", "u-old2": "u-new1", "u-old3": "u-new3", "u-old4": "u-new3"}
     records = [
         {"unit": "u-old1", "verdict": "approve", "note": "", "at": "2026-09-01T00:00:00Z"},
@@ -800,7 +803,10 @@ def test_a_journal_restores_rekey_counts_what_it_moves_against_what_the_journal_
     assert _restore(tmp_path, map_path) == ["u-kept", "u-new1"]
     out = capsys.readouterr().out
     assert "re-keyed 2 of 3 restored verdicts and 2 of 3 restored tombstones through " in out
-    assert "; dropped 0 that a clear at or after them landed on\n" in out
+    assert (
+        "; dropped 0 verdicts that a clear at or after them landed on and 0 tombstones that a newer verdict "
+        "landed on\n" in out
+    )
     restored = json.loads((tmp_path / "restored.json").read_text(encoding="utf-8"))
     assert journal.parse_cleared(restored) == {"u-gone": cleared["u-gone"], "u-new3": cleared["u-old4"]}
     payload = {
@@ -811,3 +817,47 @@ def test_a_journal_restores_rekey_counts_what_it_moves_against_what_the_journal_
     }
     counts = rekey_verdicts.rekey_payload(payload, renamed, {"u-kept"})[1]
     assert (counts["rekeyed"], counts["seen"]) == (2, 3)
+
+
+@pytest.mark.parametrize(
+    ("renamed", "beaten"),
+    [({"u-old1": "u-new", "u-old2": "u-new"}, "u-old2"), ({"u-old1": "u-new"}, "u-new")],
+    ids=["moved-tombstone", "unmoved-tombstone"],
+)
+def test_a_journal_restores_rekey_counts_a_tombstone_a_newer_verdict_drops_as_dropped(
+    tmp_path, capsys, renamed, beaten
+):
+    """When the map moves a restored verdict onto the unit a restored tombstone whose clear is older than the verdict lands on, whether the map moves that tombstone there too or leaves it on its own unit, the restore keeps the verdict and drops the tombstone, and counts that tombstone as dropped and not as re-keyed, as the re-key leaves a tombstone the rule drops out of `tombstones_rekeyed`, so the counts agree with the restored file and with the re-key's on the same store."""
+    records = [{"unit": "u-old1", "verdict": "approve", "note": "", "at": "2026-09-09T00:00:00Z"}]
+    cleared = {beaten: "2026-09-01T00:00:00Z", "u-kept": "2026-09-02T00:00:00Z"}
+    journal.record_transition(
+        tmp_path / journal.JOURNAL_NAME,
+        source="merge",
+        stamp=OLD_STAMP,
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=records,
+        new_cleared=cleared,
+        at="2000-01-01T00:00:00Z",
+    )
+    map_path = tmp_path / rekey_verdicts.MAP_NAME
+    map_path.write_text(json.dumps({"renamed": renamed}), encoding="utf-8")
+    capsys.readouterr()
+
+    assert _restore(tmp_path, map_path) == ["u-new"]
+    out = capsys.readouterr().out
+    assert "re-keyed 1 of 1 restored verdicts and 0 of 2 restored tombstones through " in out
+    assert (
+        "; dropped 0 verdicts that a clear at or after them landed on and 1 tombstones that a newer verdict "
+        "landed on\n" in out
+    )
+    restored = json.loads((tmp_path / "restored.json").read_text(encoding="utf-8"))
+    assert journal.parse_cleared(restored) == {"u-kept": cleared["u-kept"]}
+    payload = {
+        "format": "ams-review-verdicts/1",
+        "manifest_generated_at": OLD_STAMP,
+        "verdicts": records,
+        "cleared": [{"unit": unit, "at": at} for unit, at in cleared.items()],
+    }
+    counts = rekey_verdicts.rekey_payload(payload, renamed, set())[1]
+    assert (counts["rekeyed"], counts["tombstones_rekeyed"], counts["records_cleared"]) == (1, 0, 0)

@@ -74,7 +74,10 @@ def test_merge_into_missing_autosave_writes_and_journals(repo, tmp_path):
     assert set(replayed) == {"u-1", "u-2"}
 
 
-def test_an_aligned_merge_keeps_the_stores_tombstones_unless_a_newer_record_replaces_one(repo, tmp_path):
+def test_an_aligned_merge_keeps_the_stores_tombstones_unless_a_newer_record_replaces_one(
+    repo, tmp_path, capsys
+):
+    """A tombstone keeps out an incoming record whose `at` is not after the clear, which the merge counts as refused by a tombstone, apart from one the store's own newer record keeps out, and a newer record replaces the tombstone."""
     repo["autosave"].write_text(
         json.dumps(
             {
@@ -90,11 +93,24 @@ def test_an_aligned_merge_keeps_the_stores_tombstones_unless_a_newer_record_repl
     carried = write_doc(
         tmp_path / "verdicts-carried-x.json",
         "S2",
-        [v("u-2", at="2026-07-10T04:00:00Z"), v("u-3", at="2026-07-10T06:00:00Z"), v("u-5")],
+        [
+            v("u-1", "reject", at="2026-07-09T00:00:00Z"),
+            v("u-2", at="2026-07-10T04:00:00Z"),
+            v("u-3", at="2026-07-10T06:00:00Z"),
+            v("u-5"),
+        ],
     )
+    capsys.readouterr()
     assert run(repo, str(carried)) == 0
+    out = capsys.readouterr().out
+    assert f"{mv._rel(carried)}: 2 added, 0 replaced, 1 kept newer, 1 refused by a tombstone\n" in out
+    assert (
+        "into verdicts-autosave.json: 2 added, 0 replaced, 1 kept newer, 1 refused by a tombstone; store holds 3 "
+        in out
+    )
     written = json.loads(repo["autosave"].read_text())
     assert set(store_records(repo)) == {"u-1", "u-3", "u-5"}
+    assert store_records(repo)["u-1"]["verdict"] == "approve"
     assert written["cleared"] == [
         {"unit": "u-2", "at": "2026-07-10T05:00:00Z"},
         {"unit": "u-4", "at": "2026-07-10T05:00:00Z"},
