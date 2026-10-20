@@ -182,44 +182,6 @@ policy:
             - qsFoot
   extend:
   - stance: normal-sized-loop
-    entry: x-height
-    by: 1
-    when:
-      left:
-        family:
-        - qsPea
-        - qsTea
-        - qsHe
-      right:
-        except:
-        - {family: qsYe}
-        - {family: qsHe}
-        - {family: qsExam}
-  - stance: normal-sized-loop
-    entry: x-height
-    by: 1
-    when:
-      left:
-        family:
-        - qsPea
-        - qsTea
-        - qsHe
-      right:
-        family:
-        - qsYe
-        - qsHe
-        - qsExam
-      self: {exit: none}
-  - stance: smaller-loop
-    entry: x-height
-    by: 1
-    when:
-      left:
-        family:
-        - qsPea
-        - qsTea
-        - qsHe
-  - stance: normal-sized-loop
     exit: baseline
     by: 1
     when:
