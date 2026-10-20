@@ -259,6 +259,19 @@ test('a strict import refuses a file holding a record the carry and the merge re
   }
 });
 
+test('a strict import of a file stamped for another manifest refuses a malformed record before asking to merge it, and asks for a well-formed one', () => {
+  const store = createStore();
+  const good = { unit: 'u-1', verdict: 'approve', note: '', at: 't1' };
+  const bad = { unit: 'u-2', verdict: 'approve', at: 5 };
+  const doc = (verdicts) => ({ format: EXPORT_FORMAT, manifest_generated_at: 'gen-0', verdicts });
+  const malformed = importVerdicts(store, doc([good, bad]), 'gen-1', { strict: true });
+  assert.equal(malformed.ok, false);
+  assert.equal(malformed.mismatch, undefined);
+  assert.ok(malformed.error.includes('verdict record on u-2 '), malformed.error);
+  assert.deepEqual(importVerdicts(store, doc([good]), 'gen-1', { strict: true }), { ok: false, mismatch: true });
+  assert.equal(store.records.size, 0);
+});
+
 test('a strict import takes a record whose note is missing or false-valued, as the carry and the merge do, writes the note as empty so a save takes it, and skips one whose verdict is not a known kind', () => {
   const store = createStore();
   const doc = {

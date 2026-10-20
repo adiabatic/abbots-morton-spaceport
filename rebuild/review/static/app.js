@@ -2852,7 +2852,7 @@ function renderOutboxStatus() {
   node.hidden = parts.length === 0;
 }
 
-// Sorts what earlier page loads left in the outbox against the server's records, null when the server refuses its store: the entries of tabs still open are left to them, saved entries are dropped, recent ones are queued for the first flush after boot, and old ones are offered as a download (`planOutboxReplay`).
+// Applies `planOutboxReplay`, the authority for how the outbox splits, to what earlier page loads left in the outbox, against the server's records (null when the server refuses its store): the entries the plan drops leave the outbox, its replay is queued for the first flush after boot, and its stale entries are offered as a download.
 function planReplayFromOutbox(serverRecords) {
   if (!outboxStorage) return;
   const live = liveTabs(outboxStorage);

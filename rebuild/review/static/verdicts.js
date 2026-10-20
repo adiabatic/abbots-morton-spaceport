@@ -202,7 +202,7 @@ function wellFormed(entry) {
   return typeof note === 'object' && Object.keys(note).length === 0;
 }
 
-// The files that hold outbox entries (`outbox.js`, each with its `unit`) a page could not send, as `{ name, payload }`: one `ams-review-verdicts/1` document per corpus the entries were made on, with the clears as a `cleared` list of { unit, at }, and each record a strict Import refuses (`wellFormed`, the merge's rule too) in a verdicts-unsaved-malformed-<stamp>.json of its own, so it cannot make an Import or merge_verdicts refuse the file holding the rest.
+// The files that hold outbox entries (`outbox.js`, each with its `unit`) a page could not send, as `{ name, payload }`, each an `ams-review-verdicts/1` document: per corpus the entries were made on, the records a strict Import refuses (`wellFormed`, the merge's rule too) go in a separate verdicts-unsaved-malformed-<stamp>.json, apart from the rest of their corpus's entries, so they cannot make an Import or merge_verdicts refuse the file holding the rest, and verdicts-unsaved-<stamp>.json holds the other records and the clears (as a `cleared` list of { unit, at }).
 export function unsavedFiles(entries, exportedAt = new Date().toISOString()) {
   const files = new Map();
   for (const entry of entries) {
@@ -222,7 +222,7 @@ export function unsavedFiles(entries, exportedAt = new Date().toISOString()) {
   return [...files.values()];
 }
 
-// `pendingAt(unit)` returns when this page made a change to the unit that the server has not yet acknowledged, or undefined when it has none: an incoming record replaces such a unit only when it is newer than that change, so a sync never reverts a clear or an undo waiting to be sent. With `strict`, which the Import dialog passes, a document holding a record `wellFormed` refuses is refused whole, as the merge refuses an input file holding a record the carry refuses (`verdict_store.well_formed`); without it, as for a restore or a sync of the server's records, a record is skipped and counted in `invalid` only when it has no string unit or its verdict is not a known kind.
+// `pendingAt(unit)` returns when this page made a change to the unit that the server has not yet acknowledged, or undefined when it has none: an incoming record replaces such a unit only when it is newer than that change, so a sync never reverts a clear or an undo waiting to be sent. With `strict`, which the Import dialog passes, a document holding a record `wellFormed` refuses is refused whole, as the merge refuses an input file holding a record the carry refuses (`verdict_store.well_formed`), and before its stamp is compared with `manifestGeneratedAt`, so the dialog refuses it without first asking whether to merge a file stamped for another manifest; without it, as for a restore or a sync of the server's records, a record is skipped and counted in `invalid` only when it has no string unit or its verdict is not a known kind.
 export function importVerdicts(
   store,
   data,
@@ -232,8 +232,6 @@ export function importVerdicts(
   if (!data || data.format !== EXPORT_FORMAT || !Array.isArray(data.verdicts)) {
     return { ok: false, error: `not an ${EXPORT_FORMAT} document` };
   }
-  const mismatch = data.manifest_generated_at !== manifestGeneratedAt;
-  if (mismatch && !force) return { ok: false, mismatch };
   let entries = data.verdicts;
   if (strict) {
     const malformed = entries.findIndex((entry) => !wellFormed(entry));
@@ -247,6 +245,8 @@ export function importVerdicts(
     }
     entries = entries.map((entry) => ({ ...entry, note: typeof entry.note === 'string' ? entry.note : '' }));
   }
+  const mismatch = data.manifest_generated_at !== manifestGeneratedAt;
+  if (mismatch && !force) return { ok: false, mismatch };
   let added = 0;
   let replaced = 0;
   let keptNewer = 0;
