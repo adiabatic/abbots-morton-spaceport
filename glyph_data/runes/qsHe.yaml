@@ -62,10 +62,14 @@ stances:
           - family:
             - qsDay
             - qsDay_qsUtter
+            - qsGay
             - qsVie
             - qsVie_qsUtter
+            - qsSee
             - qsMay
+            - qsNo
             - qsLow
+            - qsRoe
             - qsExam
             - qsEat
             - qsAt
@@ -136,6 +140,7 @@ policy:
     when:
       right:
         family:
+        - qsRoe
         - qsExam
         - qsI
   contract: []

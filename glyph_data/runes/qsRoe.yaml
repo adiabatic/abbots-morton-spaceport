@@ -107,6 +107,10 @@ policy:
   prefer:
   - cell: {entry: x-height}
     over: {exit: x-height}
+  - cell: {entry: baseline}
+    over: {entry: x-height}
+    when:
+      left: {family: qsHe}
   - cell: {exit: x-height}
     over: {exit: baseline}
     when:
