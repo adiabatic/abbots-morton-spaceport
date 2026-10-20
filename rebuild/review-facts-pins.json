@@ -78,18 +78,18 @@
       "totals": {
         "units": 1727028,
         "rows": 8276987,
-        "batches": 1022,
-        "duplicate_groups": 11920
+        "batches": 1021,
+        "duplicate_groups": 11916
       },
       "machine_approved": {
-        "units": 1370287,
+        "units": 1370636,
         "by_class": {
-          "split-by-space-or-zwnj": 198855,
+          "split-by-space-or-zwnj": 198879,
           "identical-unjoined-from-left": 364,
           "longer-entry-join": 350,
           "one-extension-per-join": 2280,
-          "identical-unused-join-name": 418512,
-          "identical-variant-name": 737451,
+          "identical-unused-join-name": 418520,
+          "identical-variant-name": 737768,
           "may-jai-join-longer": 1162,
           "identical-jai-jay-crown": 435,
           "identical-zoo-crown": 3143,
@@ -102,8 +102,8 @@
       },
       "class_unit_count": {
         "split-by-space-or-zwnj": 234032,
-        "identical-unused-join-name": 418512,
-        "identical-variant-name": 737451
+        "identical-unused-join-name": 418520,
+        "identical-variant-name": 737768
       },
       "secondary_junctions": {
         "units_with_markers": 65151,
@@ -113,7 +113,7 @@
       }
     },
     "built": {
-      "human_units": 306358,
+      "human_units": 306033,
       "reference_window_duplicate_siblings": 37,
       "config_note_distribution": [
         [
@@ -179,20 +179,20 @@
       "units": 1736628
     },
     "ink": {
-      "machine_total": 1322467,
-      "non_identical": 414161,
+      "machine_total": 1322816,
+      "non_identical": 413812,
       "by_class": {
-        "split-by-space-or-zwnj": 194374,
+        "split-by-space-or-zwnj": 194398,
         "identical-unjoined-from-left": 364,
-        "identical-unused-join-name": 386926,
-        "identical-variant-name": 728799,
+        "identical-unused-join-name": 386934,
+        "identical-variant-name": 729116,
         "identical-zoo-crown": 3131,
         "identical-roe-short-top": 1950,
         "spacing-at-kerned-pairs": 6923
       },
-      "boundary_window_exempt": 56677,
-      "human_units": 357484,
-      "batches": 1192
+      "boundary_window_exempt": 56653,
+      "human_units": 357159,
+      "batches": 1191
     },
     "unmatched_groups": {
       "counts": {
