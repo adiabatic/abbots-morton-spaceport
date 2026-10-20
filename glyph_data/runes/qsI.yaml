@@ -56,6 +56,7 @@ stances:
           - {family: qsYe}
           - {family: qsMay}
           - {family: qsIt}
+          - {family: qsEight}
       exits:
         x-height:
           x: 5
@@ -75,6 +76,7 @@ policy:
       left:
         family:
         - qsPea
+        - qsEight
         joined_at: baseline
   - stance: smaller-loop
     when:
