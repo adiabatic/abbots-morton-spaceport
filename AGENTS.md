@@ -44,6 +44,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - At a natural commit point, spawn a fresh sub-agent to draft commit-message suggestions and present them for approval.
 - In this repository only: multiline commit messages are fine, though not mandatory, and no worktrees unless explicitly asked.
 - Commit messages describe the author/reader experience ("Make tables.html store state in the URL, not localStorage") or how the letters look different ("Reduce the half-·He extension at the x-height", "Don't join ·Way·Thaw ever"), never the mechanism.
+  - When several letters fill the same slot of a join, consolidate them with braces inside one dot: `` Stop adding a pixel to the `·{Pea,Tea,He} ~x~ ·Eight` join ``, not "the ·Pea, ·Tea or ·He ~x~ ·Eight join".
 
 ## Workflows
 
