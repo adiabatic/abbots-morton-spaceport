@@ -215,7 +215,7 @@ def test_an_id_that_lands_nowhere_blocks_and_a_map_must_be_one_to_one(tmp_path, 
 def test_two_records_on_one_unit_or_a_non_string_at_on_a_unit_a_clear_lands_on_block_and_a_join_never_takes_another_entrys_unit(
     tmp_path, capsys
 ):
-    """A file with a record on an old id and one on that id's new unit would hold two verdicts on one unit, so the run writes nothing, no flag overrides it, and both records count as collided. A record whose `at` is not a string blocks nothing while no clear lands on its unit, but a clear the map moves onto its unit stops the run the same way, since the re-key cannot weigh the two, and stops a journal restore's re-key through the same map. An id whose new id is missing from the new corpus never lands, by its codepoints and configs, on a unit that is another entry's new id."""
+    """A file with a record on an old id and one on that id's new unit would hold two verdicts on one unit, so the run writes nothing, no flag overrides it, and both records count as collided. In a file other than the store, which the re-key refuses whole when it holds such a record, a record whose `at` is not a string blocks nothing while no clear lands on its unit, but a clear the map moves onto its unit stops the run the same way, since the re-key cannot weigh the two, while a journal restore through the same map refuses the record before its re-key, as it refuses any record the carry refuses. An id whose new id is missing from the new corpus never lands, by its codepoints and configs, on a unit that is another entry's new id."""
     fragments = _fragments()
     twin = {**fragments[0], "id": "twin", "kinds": [*fragments[0]["kinds"], "twin"]}
     olds = [_old(fragment) for fragment in [*fragments, twin]]
@@ -235,20 +235,23 @@ def test_two_records_on_one_unit_or_a_non_string_at_on_a_unit_a_clear_lands_on_b
     assert "collided=2" in out and "records naming different ids land on one unit" in out
     assert autosave.read_bytes() == stored and not keep.exists()
 
-    _verdicts(autosave, OLD_STAMP, [news[2]["id"]])
-    store = json.loads(autosave.read_text(encoding="utf-8"))
+    autosave.unlink()
+    export = tmp_path / "verdicts-export.json"
+    _verdicts(export, OLD_STAMP, [news[2]["id"]])
+    store = json.loads(export.read_text(encoding="utf-8"))
     store["verdicts"][0]["at"] = 5
     store["cleared"] = [{"unit": olds[3]["id"], "at": "2026-09-03T00:00:00Z"}]
-    autosave.write_text(json.dumps(store), encoding="utf-8")
+    export.write_text(json.dumps(store), encoding="utf-8")
     assert rekey_verdicts.main([*argv, "--dry-run"]) == 0
     capsys.readouterr()
     store["cleared"] = [{"unit": olds[2]["id"], "at": "2026-09-03T00:00:00Z"}]
-    autosave.write_text(json.dumps(store), encoding="utf-8")
-    stored = autosave.read_bytes()
+    export.write_text(json.dumps(store), encoding="utf-8")
+    stored = export.read_bytes()
     untimed = f"a verdict record on {news[2]['id']} whose `at` is not a string (5) lands on the unit a clear lands on"
     assert rekey_verdicts.main(argv) == 1
-    assert f"ERROR: in verdicts-autosave.json, {untimed}" in capsys.readouterr().out
-    assert autosave.read_bytes() == stored and not keep.exists()
+    assert f"ERROR: in verdicts-export.json, {untimed}" in capsys.readouterr().out
+    assert export.read_bytes() == stored and not keep.exists()
+    export.unlink()
     journal_path, restored = tmp_path / journal.JOURNAL_NAME, tmp_path / "restored.json"
     journal.record_transition(
         journal_path,
@@ -269,7 +272,11 @@ def test_two_records_on_one_unit_or_a_non_string_at_on_a_unit_a_clear_lands_on_b
         str(autosave),
     ]
     assert merge_verdicts.main([*restore_argv, "--out", str(restored), "--rekey-map", str(map_path)]) == 1
-    assert untimed in capsys.readouterr().out and not restored.exists()
+    assert (
+        f"ERROR: the store that {journal_path} replays as of 2000-01-02 holds a verdict record on {news[2]['id']}"
+        in capsys.readouterr().out
+    )
+    assert not restored.exists()
 
     _verdicts(autosave, OLD_STAMP, [olds[0]["id"]])
     assert rekey_verdicts.main([*argv, "--dry-run"]) == 1
@@ -277,6 +284,34 @@ def test_two_records_on_one_unit_or_a_non_string_at_on_a_unit_a_clear_lands_on_b
         f"{olds[0]['id']}: {news[0]['id']} has its codepoints and configs but is the new id of {olds[-1]['id']}"
         in capsys.readouterr().out
     )
+
+
+def test_a_store_holding_a_record_the_carry_refuses_is_refused_before_anything_is_written(tmp_path, capsys):
+    """A store holding a record whose `at` is not a string on a unit no clear lands on would be rewritten with that record on it as it is and journaled, so the re-key refuses the store, dry run included, as the land and the review server do (`verdict_store.read_store_document`), naming the store and the record, and every file under the root is left byte for byte as it was, with no backup or id map kept."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    map_path = tmp_path / "unit-id-map.json"
+    assert rekey_verdicts.main(["--from-corpus", str(old_corpus), "--map-out", str(map_path)]) == 0
+    autosave = tmp_path / "verdicts-autosave.json"
+    _verdicts(autosave, OLD_STAMP, [olds[0]["id"], olds[1]["id"]])
+    store = json.loads(autosave.read_text(encoding="utf-8"))
+    store["verdicts"][1]["at"] = 5
+    autosave.write_text(json.dumps(store), encoding="utf-8")
+    _seed_journal(tmp_path / journal.JOURNAL_NAME, [olds[0]["id"]])
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    argv = ["--root", str(tmp_path), "--map", str(map_path), "--corpus", str(new_corpus)]
+    for dry_run in (["--dry-run"], []):
+        capsys.readouterr()
+        assert rekey_verdicts.main([*argv, *dry_run]) == 1
+        assert (
+            f"ERROR: the store verdicts-autosave.json holds a verdict record on {olds[1]['id']} that is not an object"
+            in capsys.readouterr().out
+        )
+    assert {path: path.read_bytes() for path in before} == before
+    assert not (tmp_path / rekey_verdicts.KEEP).exists()
 
 
 def test_a_later_rekey_merges_into_the_id_map_and_copies_the_previous_one(tmp_path, capsys):

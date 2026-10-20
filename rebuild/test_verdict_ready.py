@@ -448,6 +448,30 @@ def test_verdict_store_aligned_ok_reports_count(tmp_path):
     assert "2 effective" in store["detail"]
 
 
+@pytest.mark.parametrize(
+    "record, where",
+    [
+        ({**verdict("u-2"), "at": 5}, "on u-2"),
+        ({"verdict": "approve", "at": "2026-07-17T21:00:00Z"}, "at index 1"),
+    ],
+    ids=["numeric-at", "no-unit"],
+)
+@pytest.mark.parametrize("stamp", [STAMP, OTHER_STAMP], ids=["aligned", "stamped-elsewhere"])
+def test_a_store_holding_a_record_the_carry_refuses_fails_naming_it(tmp_path, record, where, stamp):
+    """The review server serves no verdict from such a store and refuses every save (`VerdictStore.reload`), so the readiness check fails on it, naming the record and the journal restore, instead of counting its verdicts."""
+    write_corpus(tmp_path / "rebuild" / "out" / "review")
+    write_summary(tmp_path)
+    write_autosave(tmp_path, stamp=stamp, records=[verdict("u-1"), record])
+    stored = (tmp_path / "verdicts-autosave.json").read_bytes()
+    result = call(tmp_path)
+    store = result["checks"]["verdict_store"]
+    assert store["level"] == "fail" and not result["ready"]
+    assert f"verdicts-autosave.json holds a verdict record {where}" in store["detail"]
+    assert "--restore-as-of <time> --apply" in store["remedy"]
+    assert result["checks"]["blanks"]["count"] is None
+    assert (tmp_path / "verdicts-autosave.json").read_bytes() == stored
+
+
 @pytest.mark.parametrize("store_stamp", [None, OTHER_STAMP], ids=["store-missing", "store-stamped-elsewhere"])
 def test_fullest_verdicts_none_warns(tmp_path, store_stamp):
     write_corpus(tmp_path / "rebuild" / "out" / "review")

@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, or of a store stamped for the corpus, holding a record the carry refuses, the set-aside of a stale store holding one, whose tombstones the merge keeps on the corpus's human units except those its records name, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, and the restore preview beside it when no `--out` does, the refusal of a store under any other name without them, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, of a store stamped for the corpus, or of a restore's replay holding a record the carry refuses, the base event a restore applied over a store holding one journals, the set-aside of a stale store holding one, whose tombstones the merge keeps on the corpus's human units except those its records name, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, and the restore preview beside it when no `--out` does, the refusal of a store under any other name without them, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
 
 import json
 import threading
@@ -503,6 +503,59 @@ def test_restore_without_apply_writes_a_file(repo, capsys):
     assert "--apply" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("rekey", [False, True], ids=["as-journaled", "rekeyed"])
+@pytest.mark.parametrize("apply", [False, True], ids=["preview", "apply"])
+def test_a_restore_refuses_a_moment_whose_replay_holds_a_record_the_carry_refuses_and_writes_nothing(
+    repo, capsys, apply, rekey
+):
+    """A journal line written before the merge and the review server refused such a record replays to a store holding a record the carry refuses, so the restore, previewed or applied, refuses that moment, naming the journal, the moment and the record, and leaves every file as it was, while a moment before the line restores. A `--rekey-map` that moves another record onto the record's unit changes nothing: the restore refuses the record before its re-key, under the unit the journal holds it on."""
+    journal.record_transition(
+        repo["journal"],
+        source="autosave",
+        stamp="S2",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-A")],
+        at="2026-07-10T01:00:00Z",
+    )
+    journal.record_transition(
+        repo["journal"],
+        source="autosave",
+        stamp="S2",
+        old_stamp="S2",
+        old_verdicts=[v("u-A")],
+        new_verdicts=[v("u-A"), {**v("u-B"), "at": 5}, v("u-X")],
+        at="2026-07-10T02:00:00Z",
+    )
+    write_doc(repo["autosave"], "S2", [v("u-A")])
+    flags = ["--apply"] if apply else ["--out", str(repo["root"] / "restored.json")]
+    if rekey:
+        id_map = repo["root"] / "rekey-map.json"
+        id_map.write_text(json.dumps({"renamed": {"u-X": "u-B"}}))
+        flags += ["--rekey-map", str(id_map)]
+    before = {path: path.read_bytes() for path in repo["root"].rglob("*") if path.is_file()}
+    assert run(repo, "--restore-as-of", "2026-07-10T02:30", *flags) == 1
+    assert (
+        f"ERROR: the store that {mv._rel(repo['journal'])} replays as of 2026-07-10T02:30 holds a verdict record on "
+        "u-B that is not an object"
+    ) in capsys.readouterr().out
+    assert {path: path.read_bytes() for path in repo["root"].rglob("*") if path.is_file()} == before
+    assert run(repo, "--restore-as-of", "2026-07-10T01:30", *flags) == 0
+
+
+def test_a_restore_applied_over_a_store_holding_a_record_the_carry_refuses_journals_a_base(repo, capsys):
+    """The review server and the land refuse a store holding a record the carry refuses and send the reader to `--restore-as-of --apply`, which stashes it as it stashes any store and journals the restored store as a base event, reading none of the old store's records, among them two on one unit whose `at` values cannot be compared."""
+    seed_journal(repo)
+    write_doc(repo["autosave"], "S2", [{**v("u-B"), "at": 5}, v("u-B", at="2026-07-11T00:00:00Z")])
+    stored = repo["autosave"].read_bytes()
+    assert run(repo, "--restore-as-of", "2026-07-10T02:30", "--apply") == 0
+    [stash] = repo["root"].glob("verdicts-autosave-pre-restore-*.json")
+    assert stash.read_bytes() == stored
+    events = list(journal.iter_events(repo["journal"]))
+    assert events[-1]["source"] == "restore" and events[-1]["base"] is True
+    assert journal.replay_store(repo["journal"]) == ("S2", {"u-1": v("u-1"), "u-2": v("u-2")}, {})
+
+
 def test_restore_refuses_a_moment_between_a_torn_base_and_the_next_complete_one(repo, capsys):
     seed_journal(repo)
     for stamp, old_stamp, units, hour in (("S3", "S2", ["u-5", "u-6"], 3), ("S4", "S3", ["u-9"], 5)):
@@ -780,3 +833,43 @@ def test_a_merge_finishes_a_land_whose_holder_died_before_it_writes(repo, tmp_pa
         ("land", "verdicts-autosave-S1.json"),
         ("merge", None),
     ]
+
+
+@pytest.mark.parametrize("how", ["merge", "restore"])
+def test_a_merge_or_a_restore_refuses_by_name_when_the_dead_lands_recovery_refuses(
+    repo, tmp_path, capsys, how
+):
+    """A dead land's result hand-edited to hold two records on one unit, one with an `at` that is not a string, stops the recovery `landing.locked_store` runs (`landing.LandUnrecoverable`). A merge and a `--restore-as-of --apply`, the remedy the land's and the server's refusals name, then print that refusal and exit 1 instead of ending in a traceback, and every file under the root is left byte for byte as it was."""
+    from rebuild.review import landing
+
+    seed_journal(repo)
+    write_doc(repo["autosave"], "S2", [v("u-1")])
+    run_dir = tmp_path / "var" / "cycle" / "run"
+    run_dir.mkdir(parents=True)
+    result = write_doc(run_dir / landing.LANDING_NAME, "S2", [v("u-1"), {**v("u-1", "reject"), "at": 5}])
+    landing.intent_path_for(repo["autosave"]).write_text(
+        json.dumps(
+            {
+                "run_dir": str(run_dir),
+                "landing": str(result),
+                "staged": None,
+                "live": None,
+                "staged_inode": None,
+                "old_stamp": "S2",
+                "new_stamp": "S2",
+                "stash": None,
+                "journal": str(repo["journal"]),
+                "journal_inode": repo["journal"].stat().st_ino,
+                "journal_length": repo["journal"].stat().st_size,
+            }
+        )
+    )
+    carried = write_doc(tmp_path / "carried.json", "S2", [v("u-2")])
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    args = [str(carried)] if how == "merge" else ["--restore-as-of", "2026-07-10T01:30", "--apply"]
+    assert run(repo, *args) == 1
+    out = capsys.readouterr().out
+    assert out.startswith(f"ERROR: the result {result} holds a verdict record on u-1 that is not an object")
+    assert out.rstrip().endswith("Nothing was merged." if how == "merge" else "Nothing was restored.")
+    assert {path: path.read_bytes() for path in before} == before
+    assert sorted(tmp_path.glob("verdicts-*.json")) == [repo["autosave"]]

@@ -2,7 +2,7 @@
 
 The /autosave receiver: delta validation, atomic overwrite, and the journal event appended on every accepted save. A whole-store POST is refused without changing the store, journal, token, or tombstones, regardless of either stamp or whether the store exists. Export parsing and full-store GET payloads remain available. A delta on another stamp is carried onto a store on the served corpus by unit id, with the `base_at`, `at` and tombstone tests deciding each unit, and the orphans and conflicts it cannot apply are kept in the orphan document; a stale skip is dropped and clears the record it replaced; a delta stamped for the served corpus carries a store on another stamp onto it by unit id, keeping the old file as its stash, and one made on neither corpus gets a retryable 503 and writes nothing.
 
-The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the marker that says the journal may lack a store write, which a save writes before its store write and removes once its append succeeds, the change token a sync GET returns, and the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged.
+The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the marker that says the journal may lack a store write, which a save writes before its store write and removes once its append succeeds, the change token a sync GET returns, the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged, and the store file holding a record the carry refuses, which serves no verdict and refuses every save until it is replaced, as a request made while a dead land's recovery refuses gets that refusal.
 
 The headers every static file is served with. `static_headers_for` is a pure function so it can be tested without a server.
 
@@ -20,10 +20,12 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from rebuild.review import app_index, journal
+from rebuild.review import app_index, journal, landing
 from rebuild.review.serve import (
     DELTA_FORMAT,
     EXPORT_FORMAT,
+    missing_autosave_reply,
+    orphaned_land_reply,
     parse_autosave_payload,
     receive_autosave,
     receive_autosave_locked,
@@ -749,6 +751,105 @@ def test_a_delta_holding_a_malformed_clear_is_refused_naming_the_first_such_clea
     assert status == 400 and body["ok"] is False
     assert body["error"].startswith(f"the {DELTA_FORMAT} document holds a malformed clear {named}:")
     assert not (tmp_path / "verdicts-autosave.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("record", "named"),
+    [
+        ({**verdict("u-B"), "at": 5}, "on u-B"),
+        ({"verdict": "approve", "at": "t1"}, "at index 2 of its `verdicts` list"),
+    ],
+    ids=["numeric-at", "no-unit"],
+)
+@pytest.mark.parametrize(
+    ("stamp", "replay", "sets", "clears"),
+    [
+        (OLD, None, [{**verdict("u-B", "reject", at="2026-07-11T00:00:00Z"), "base_at": "x"}], []),
+        (OLD, None, [], [{"unit": "u-B", "base_at": "x", "at": "2026-07-12T00:00:00Z"}]),
+        (NEW, True, [{**verdict("u-B", "reject", at="2026-07-11T00:00:00Z"), "base_at": "x"}], []),
+        (NEW, True, [], [{"unit": "u-B", "base_at": "x", "at": "2026-07-12T00:00:00Z"}]),
+    ],
+    ids=["carried-set", "carried-clear", "replayed-set", "replayed-clear"],
+)
+def test_a_store_holding_a_record_the_carry_refuses_is_read_as_unreadable_and_refuses_every_save(
+    tmp_path, record, named, stamp, replay, sets, clears
+):
+    """A store file holding a record `well_formed` refuses serves no verdict, as an unreadable one does, and every save, which would otherwise weigh its `at` against the record's or write over the file, gets a 422 naming the file and the record, by its unit or by its index when it names none, and writes nothing, until the file is replaced. A GET's 404 names them under the same reason until then, and says there is no autosave once no file is there."""
+    path = tmp_path / "verdicts-autosave.json"
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    path.write_bytes(payload(NEW, [verdict("u-A"), verdict("u-C"), record]))
+    before = path.read_bytes()
+    store = VerdictStore(path, journal_path)
+    assert store.stamp is None and store.records == {}
+    status, body = store.receive(delta(stamp, sets, clears, replay), served("u-A", "u-B", "u-C"))
+    assert status == 422 and body["ok"] is False and body["reason"] == "store-malformed"
+    assert body["error"].startswith(f"the store {path} holds a verdict record {named} that is not an object")
+    assert missing_autosave_reply(store) == {"ok": False, "reason": "store-malformed", "error": body["error"]}
+    assert path.read_bytes() == before
+    assert sorted(tmp_path.rglob("*")) == [path]
+    path.write_bytes(payload(NEW, [verdict("u-A"), verdict("u-B"), verdict("u-C")]))
+    assert store.receive(delta(stamp, sets, clears, replay), served("u-A", "u-B", "u-C"))[0] == 200
+    path.unlink()
+    store.refresh_if_changed()
+    assert missing_autosave_reply(store) == {"ok": False, "error": "no autosave yet"}
+
+
+def test_a_reload_onto_two_records_on_one_unit_one_with_an_at_that_is_not_a_string_refuses_the_file(tmp_path):
+    """Comparing the two records' `at`s would raise TypeError, so a reload of a file another writer replaced with such a pair refuses it before it compares them, as the land does (`verdict_store.read_store_document`): the store serves no verdict, a save gets the 422 naming the file and the record, and the file is left byte for byte as it was."""
+    path = tmp_path / "verdicts-autosave.json"
+    path.write_bytes(payload(NEW, [verdict("u-A")]))
+    store = VerdictStore(path, tmp_path / "verdicts-journal.ndjson")
+    assert store.stamp == NEW
+    path.write_bytes(payload(NEW, [verdict("u-A"), {**verdict("u-A", "reject"), "at": 5}]))
+    before = path.read_bytes()
+    status, body = store.receive(delta(NEW, [verdict("u-B")]))
+    assert status == 422 and body["reason"] == "store-malformed"
+    assert body["error"].startswith(f"the store {path} holds a verdict record on u-A that is not an object")
+    assert store.stamp is None and store.records == {}
+    assert path.read_bytes() == before and sorted(tmp_path.rglob("*")) == [path]
+
+
+def test_a_request_while_a_dead_lands_recovery_refuses_gets_the_refusal_until_the_file_is_replaced(tmp_path):
+    """Before it answers a request the server finishes a land whose holder died (`orphaned_land_reply`). While that land's result holds two records on one unit, one with an `at` that is not a string, the recovery refuses (`landing.LandUnrecoverable`), and the request gets the status its handler names with the refusal under `reason: store-malformed`, which the app shows, instead of a 500 from a traceback, and every file is left byte for byte as it was. Once the result is replaced the next request finishes the land and goes on."""
+    path = tmp_path / "verdicts-autosave.json"
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    path.write_bytes(payload(NEW, [verdict("u-A")]))
+    run_dir = tmp_path / "var" / "cycle" / "run"
+    run_dir.mkdir(parents=True)
+    result = run_dir / landing.LANDING_NAME
+    result.write_bytes(payload(NEW, [verdict("u-A"), {**verdict("u-A", "reject"), "at": 5}]))
+    intent = landing.intent_path_for(path)
+    intent.write_text(
+        json.dumps(
+            {
+                "run_dir": str(run_dir),
+                "landing": str(result),
+                "staged": None,
+                "live": None,
+                "old_stamp": NEW,
+                "new_stamp": NEW,
+                "stash": None,
+                "journal": str(journal_path),
+                "journal_inode": None,
+                "journal_length": None,
+            }
+        )
+    )
+    before = {item: item.read_bytes() for item in tmp_path.rglob("*") if item.is_file()}
+    reply = orphaned_land_reply(path, 404)
+    assert reply is not None
+    status, body = reply
+    assert status == 404 and body["ok"] is False and body["reason"] == "store-malformed"
+    assert body["error"].startswith(
+        f"the result {result} holds a verdict record on u-A that is not an object"
+    )
+    assert orphaned_land_reply(path, 422) == (422, body)
+    assert {item: item.read_bytes() for item in before} == before
+    result.write_bytes(payload(NEW, [verdict("u-B")]))
+    assert orphaned_land_reply(path, 404) is None
+    assert not intent.exists() and [
+        record["unit"] for record in json.loads(path.read_text())["verdicts"]
+    ] == ["u-B"]
 
 
 def test_a_stale_stamp_delta_on_a_served_unit_is_carried_and_journaled_as_carried(tmp_path):

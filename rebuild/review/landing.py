@@ -2,9 +2,9 @@
 
 A corpus-changing pass builds its corpus beside the served one, at rebuild/out/review.next (a copy-on-write clone of the served tree, `clone_tree`), or promotes a staged one, and runs the verdict update against scratch copies of the store: `snapshot` copies the live store to the pass's run directory as the snapshot S and the prepared store R, under the store's lock, and the verdict update carries, merges and fills into R. `land` then moves both into place in one short section under the store's lock (`rebuild.review.store_lock`), which every writer of the store and its journal holds, the review server included, so a save is never applied between the two moves. A pass whose corpus did not move but whose store did lands the store alone.
 
-The land first reads S, R and the new corpus's stamp and human unit ids without the lock, and, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`). Under it, it reads the live store C and aborts, keeping the staged tree, when C is on another stamp than S, or, under the orphan guard the command line sets unless `--allow-orphans` is passed, when the stamp moves and more than `ORPHAN_SHARE_LIMIT` of C's verdicts name a unit outside the new corpus's triage index. Every unit whose record in C differs from S's, or that C cleared since S (a tombstone in C that S lacks or holds at another `at`), is the reviewer's act after the snapshot, so it is laid over R and beats any fill: a clear removes R's record for its unit, whether a fill, a carry or a merge put it there, and leaves C's tombstone. On a stamp change only the new corpus's human units are laid over: a set or skip C made since S on any other unit goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), a clear on one is dropped, and a skip on one of the human units is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. A tombstone C shares unchanged with S is kept only for a unit the result holds neither a record nor a tombstone for (on a stamp change, only for the new corpus's human units), whatever its age. The result is written to the run directory, and the intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
+The land first reads S, R and the new corpus's stamp and human unit ids without the lock, and, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`). Under it, it reads the live store C and aborts, keeping the staged tree, when C is on another stamp than S, or, under the orphan guard the command line sets unless `--allow-orphans` is passed, when the stamp moves and more than `ORPHAN_SHARE_LIMIT` of C's verdicts name a unit outside the new corpus's triage index. It aborts the same way, before it writes anything, when S, R or C holds a verdict record `verdict_store.well_formed` refuses, naming the store and the first such record (`read_store`), so it never lands one. Every unit whose record in C differs from S's, or that C cleared since S (a tombstone in C that S lacks or holds at another `at`), is the reviewer's act after the snapshot, so it is laid over R and beats any fill: a clear removes R's record for its unit, whether a fill, a carry or a merge put it there, and leaves C's tombstone. On a stamp change only the new corpus's human units are laid over: a set or skip C made since S on any other unit goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), a clear on one is dropped, and a skip on one of the human units is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. A tombstone C shares unchanged with S is kept only for a unit the result holds neither a record nor a tombstone for (on a stamp change, only for the new corpus's human units), whatever its age. The result is written to the run directory, and the intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
 
-A land killed inside the section leaves the intent file, and the kernel releases the lock. The next holder of the lock finishes it first (`recover_interrupted_land`, and `locked_store` for the writers that take the lock): it cuts the journal back to the length the intent recorded, then reads where the land stopped. A corpus not yet swapped drops the intent, and the staged tree stays for the next pass. A swapped corpus with the old store finishes the land from the result it wrote, or is swapped back out when that result is gone, and a store already replaced gets its journal event. The review server runs the recovery on its next request (`recover_if_orphaned`), so nobody runs a command.
+A land killed inside the section leaves the intent file, and the kernel releases the lock. The next holder of the lock finishes it first (`recover_interrupted_land`, and `locked_store` for the writers that take the lock): it cuts the journal back to the length the intent recorded, then reads where the land stopped. A corpus not yet swapped drops the intent, and the staged tree stays for the next pass. A swapped corpus with the old store finishes the land from the result it wrote, or is swapped back out when that result is gone, and a store already replaced gets its journal event. A store or result holding a verdict record `verdict_store.well_formed` refuses stops the recovery, naming that file, before it replaces the store, swaps a corpus back or discards one, or appends to the journal, and the intent stays (`LandUnrecoverable`), as it does for a land whose result and old corpus are both gone; every caller reports that refusal as its own (`locked_store`). The review server runs the recovery on its next request (`recover_if_orphaned`), so a recovery that can finish or drop the land needs nobody to run a command.
 
 `LAND_PROTOCOL` and `code_digest` are what the review server advertises on /capabilities, and what the artifact cycle compares with the working tree before it keeps a listening server running through a pass. This module imports only the journal, the store and its lock, never the cycle driver.
 
@@ -33,11 +33,12 @@ from rebuild.review import journal
 from rebuild.review.store_lock import LockBusy, store_lock
 from rebuild.review.verdict_store import (
     EXPORT_FORMAT,
+    MalformedStore,
     append_orphans,
     note_of,
     orphans_dir_for,
-    parse_autosave_payload,
     parse_cleared,
+    read_store_document,
     stash_path_for,
 )
 
@@ -120,12 +121,13 @@ def _signature(record: dict | None) -> tuple | None:
     return (record.get("verdict"), note_of(record), record.get("at") or "")
 
 
-def read_store(path: Path) -> Store | None:
-    """Return the verdicts document at `path`, or None when it is missing or is not an ams-review-verdicts/1 document."""
+def read_store(path: Path, name: str | None = None) -> Store | None:
+    """Return the verdicts document at `path`, or None when it is missing or is not an ams-review-verdicts/1 document. A document holding a record `verdict_store.well_formed` refuses raises `verdict_store.MalformedStore` before any of its records is compared, naming the document `name`, or `the store <path>` without one, and the first such record (`verdict_store.read_store_document`)."""
     try:
-        data = parse_autosave_payload(Path(path).read_bytes())
+        raw = Path(path).read_bytes()
     except OSError:
         return None
+    data = read_store_document(raw, name or f"the store {path}")
     if data is None:
         return None
     records = {unit: _normalize(record) for unit, record in journal.latest_by_unit(data["verdicts"]).items()}
@@ -162,7 +164,7 @@ def read_manifest(corpus: Path) -> tuple[str, frozenset[str]]:
 
 
 def snapshot(autosave: Path, run_dir: Path) -> str | None:
-    """Copy the live store to `run_dir` as the snapshot (`SNAPSHOT_NAME`) and the prepared store (`PREPARED_NAME`), under the store's lock, and return the snapshot's stamp. A missing store writes neither file and returns None."""
+    """Copy the live store to `run_dir` as the snapshot (`SNAPSHOT_NAME`) and the prepared store (`PREPARED_NAME`), under the store's lock, and return the snapshot's stamp. A missing store writes neither file and returns None. A store holding a record `verdict_store.well_formed` refuses raises `verdict_store.MalformedStore` naming the live store, the first such record and the journal restore (`read_store`), so a pass stops at its snapshot, which the land would refuse, before the verdict update reads it."""
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     with locked_store(autosave, quiet=True):
@@ -171,7 +173,15 @@ def snapshot(autosave: Path, run_dir: Path) -> str | None:
         except FileNotFoundError:
             return None
         shutil.copyfile(run_dir / SNAPSHOT_NAME, run_dir / PREPARED_NAME)
-    taken = read_store(run_dir / SNAPSHOT_NAME)
+    try:
+        taken = read_store(
+            run_dir / SNAPSHOT_NAME, f"the live store {autosave}, copied to {run_dir / SNAPSHOT_NAME},"
+        )
+    except MalformedStore as malformed:
+        raise MalformedStore(
+            f"{malformed}; restore a readable store from the journal with "
+            "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`"
+        ) from None
     return taken.stamp if taken is not None else None
 
 
@@ -363,11 +373,14 @@ def land(
     scan_state: Path | None = None,
     guard_orphans: bool = False,
 ) -> LandResult:
-    """Land the prepared store, and the staged corpus when `staged` is given, as the module docstring describes. `corpus` is the directory whose manifest names the landed stamp and human unit ids: the staged tree, or the live one for a store-only land. With no `prepared` store, or none on disk, the land writes an empty store stamped for that corpus. The swapped-out tree is renamed to its discard name after the lock is released and deleted, or with `keep_discard` left for the caller to delete, its path in the result's `discard`, so the caller can tell the open tabs to move first. `scan_state` is the journal scan state retention saves (`journal.save_scan_state`); a land that moves the stamp resumes its read of the journal's events from it, and reads them from the start without it. The land only reads it. With `guard_orphans` set, a land that moves the stamp aborts, before it writes anything, when more than `ORPHAN_SHARE_LIMIT` of the live store's verdicts other than skips name a unit outside the new corpus's triage index (`orphan_share`); the command line sets it unless `--allow-orphans` is passed."""
+    """Land the prepared store, and the staged corpus when `staged` is given, as the module docstring describes. `corpus` is the directory whose manifest names the landed stamp and human unit ids: the staged tree, or the live one for a store-only land. With no `prepared` store, or none on disk, the land writes an empty store stamped for that corpus. The swapped-out tree is renamed to its discard name after the lock is released and deleted, or with `keep_discard` left for the caller to delete, its path in the result's `discard`, so the caller can tell the open tabs to move first. `scan_state` is the journal scan state retention saves (`journal.save_scan_state`); a land that moves the stamp resumes its read of the journal's events from it, and reads them from the start without it. The land only reads it. With `guard_orphans` set, a land that moves the stamp aborts, before it writes anything, when more than `ORPHAN_SHARE_LIMIT` of the live store's verdicts other than skips name a unit outside the new corpus's triage index (`orphan_share`); the command line sets it unless `--allow-orphans` is passed. A land whose snapshot, prepared store or live store holds a record `verdict_store.well_formed` refuses aborts before it writes anything, and its reason names that store and the first such record. A land that finds a dead land's intent whose recovery refuses (`LandUnrecoverable`) aborts with that refusal as its reason."""
     autosave, journal_path, run_dir = Path(autosave), Path(journal_path), Path(run_dir)
     new_stamp, new_ids = read_manifest(corpus)
-    before = read_store(run_dir / SNAPSHOT_NAME)
-    ready = read_store(prepared) if prepared is not None else None
+    try:
+        before = read_store(run_dir / SNAPSHOT_NAME, f"the snapshot {run_dir / SNAPSHOT_NAME}")
+        ready = read_store(prepared, f"the prepared store {prepared}") if prepared is not None else None
+    except MalformedStore as malformed:
+        return _refuse_malformed(malformed)
     if ready is None:
         ready = Store(new_stamp)
     if ready.stamp != new_stamp:
@@ -381,23 +394,26 @@ def land(
         resume = journal.load_scan_state(scan_state) if scan_state is not None else None
         journal_scan = journal.scan(journal_path, resume=resume).state
 
-    with locked_store(autosave, quiet=True), _signals_blocked():
-        started = time.perf_counter()
-        result = _land_locked(
-            autosave=autosave,
-            journal_path=journal_path,
-            run_dir=run_dir,
-            before=before,
-            ready=ready,
-            new_stamp=new_stamp,
-            new_ids=new_ids,
-            staged=staged,
-            live=live,
-            atomic=atomic,
-            journal_scan=journal_scan,
-            guard_orphans=guard_orphans,
-        )
-        result.locked_s = time.perf_counter() - started
+    try:
+        with locked_store(autosave, quiet=True), _signals_blocked():
+            started = time.perf_counter()
+            result = _land_locked(
+                autosave=autosave,
+                journal_path=journal_path,
+                run_dir=run_dir,
+                before=before,
+                ready=ready,
+                new_stamp=new_stamp,
+                new_ids=new_ids,
+                staged=staged,
+                live=live,
+                atomic=atomic,
+                journal_scan=journal_scan,
+                guard_orphans=guard_orphans,
+            )
+            result.locked_s = time.perf_counter() - started
+    except LandUnrecoverable as refused:
+        return LandResult(False, str(refused))
     if result.landed and staged is not None and live is not None:
         discard = move_to_discard(staged, live)
         if keep_discard:
@@ -405,6 +421,15 @@ def land(
         else:
             shutil.rmtree(discard, ignore_errors=True)
     return result
+
+
+def _refuse_malformed(malformed: MalformedStore) -> LandResult:
+    return LandResult(
+        False,
+        f"{malformed}, and the land refuses a store holding a record the carry refuses (`verdict_store.well_formed`) "
+        "so that it never lands one; if it is the live store, restore a readable store from the journal with "
+        "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`",
+    )
 
 
 def _land_locked(
@@ -422,7 +447,10 @@ def _land_locked(
     journal_scan: journal.ScanState | None,
     guard_orphans: bool,
 ) -> LandResult:
-    now = read_store(autosave)
+    try:
+        now = read_store(autosave, f"the live store {autosave}")
+    except MalformedStore as malformed:
+        return _refuse_malformed(malformed)
     if before is None:
         before = Store(now.stamp if now is not None else None)
     if now is None and before.stamp is not None:
@@ -532,13 +560,17 @@ class Recovery:
 
 
 class LandUnrecoverable(RuntimeError):
-    """Raised by `recover_interrupted_land` when a land swapped the corpus in but neither its result nor the corpus it swapped out is left, so neither finishing it nor undoing it keeps the store on the served corpus. The intent file stays, and every writer refuses until a person restores one of them."""
+    """Raised by `recover_interrupted_land` when it can neither finish nor undo the land the intent file records: the land swapped the corpus in but neither its result nor the corpus it swapped out is left, so neither keeps the store on the served corpus (`reason` is `land-unrecoverable`), or the result or the store the recovery would lay in place and journal holds a record `verdict_store.well_formed` refuses (`reason` is `store-malformed`). The intent file stays, and every writer that takes the store's lock (`locked_store`) refuses with the message until a person restores, replaces or deletes the file it names, as the message says; the review server answers under `reason`."""
+
+    def __init__(self, message: str, reason: str = "land-unrecoverable") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 def recover_interrupted_land(store: Path) -> Recovery | None:
     """Finish or drop the land the intent file beside `store` records, and return what was done, or None when there is no intent. The caller holds the store's lock, so the land that wrote the intent is dead.
 
-    The journal is cut back to the length the intent recorded when it is still the same file, so whatever the land had appended, whole or in part, is removed. Then: a staged corpus that was not swapped in means the land never started to move anything, and the intent is dropped. Otherwise the land's result either still waits in its run directory, and it is moved over the store (after the store is linked to its stash name on a stamp change), or the store already holds it. Either way the store's content is appended to the journal as a base event naming the stash, which puts replay right after any store write the journal missed, so the marker that says it may have missed one (`journal.unjournaled_marker_for`) is removed, and the intent is deleted. A swapped corpus whose result is gone while the store is still on another stamp than the one the land moved to (the run directory was deleted by hand) is swapped back out, so the store stays on the served corpus, and the intent is dropped; when the swapped-out corpus is gone too, `LandUnrecoverable` is raised and the intent stays.
+    The journal is cut back to the length the intent recorded when it is still the same file, so whatever the land had appended, whole or in part, is removed. Then: a staged corpus that was not swapped in means the land never started to move anything, and the intent is dropped. Otherwise the land's result either still waits in its run directory, and it is moved over the store (after the store is linked to its stash name on a stamp change), or the store already holds it. Either way the store's content is appended to the journal as a base event naming the stash, which puts replay right after any store write the journal missed, so the marker that says it may have missed one (`journal.unjournaled_marker_for`) is removed, and the intent is deleted. A swapped corpus whose result is gone while the store is still on another stamp than the one the land moved to (the run directory was deleted by hand) is swapped back out, so the store stays on the served corpus, and the intent is dropped; when the swapped-out corpus is gone too, `LandUnrecoverable` is raised and the intent stays. A store or a result holding a record `verdict_store.well_formed` refuses raises `LandUnrecoverable` too, naming that file, the first such record and the intent (`_read_left`), and the intent stays: the refusal comes before the recovery replaces the store, swaps a corpus back or discards one, or appends to the journal, though the journal's cut-back and the last rename of an interrupted three-rename swap (`<live>.superseded`, the swapped-out corpus, renamed to the staged path) come first.
     """
     store = Path(store)
     intent_path = intent_path_for(store)
@@ -567,23 +599,24 @@ def recover_interrupted_land(store: Path) -> Recovery | None:
         if not swapped:
             intent_path.unlink()
             return Recovery(f"dropped the land of {run}, which had not swapped the corpus in")
-        current = read_store(store) if not landing.exists() else None
-        if current is not None and current.stamp != intent.get("new_stamp"):
+        landed = _read_left(store, landing, run, intent_path, journal_path)
+        if not landing.exists() and landed is not None and landed.stamp != intent.get("new_stamp"):
             if not staged.exists():
                 raise LandUnrecoverable(
-                    f"the land of {run} swapped {staged} in for {live}, but its result ({landing}) and the corpus it swapped out are both gone, and {store} is still on {current.stamp}; {intent_path} stays until one of them is restored"
+                    f"the land of {run} swapped {staged} in for {live}, but its result ({landing}) and the corpus it swapped out are both gone, and {store} is still on {landed.stamp}; {intent_path} stays until one of them is restored"
                 )
             exchange_dirs(staged, live)
             intent_path.unlink()
             return Recovery(
-                f"swapped the corpus back out: the land of {run} had swapped it in, but its result is gone and the store is still on {current.stamp}; {staged} keeps the new corpus"
+                f"swapped the corpus back out: the land of {run} had swapped it in, but its result is gone and the store is still on {landed.stamp}; {staged} keeps the new corpus"
             )
         discard = move_to_discard(staged, live) if staged.exists() else None
+    else:
+        landed = _read_left(store, landing, run, intent_path, journal_path)
     if landing.exists():
         if intent.get("stash") and store.exists():
             link_stash(store, store.with_name(intent["stash"]))
         os.replace(landing, store)
-    landed = read_store(store)
     if landed is not None and landed.stamp is not None:
         journal.record_transition(
             journal_path,
@@ -600,6 +633,26 @@ def recover_interrupted_land(store: Path) -> Recovery | None:
     return Recovery(f"finished the land of {run}", discard)
 
 
+def _read_left(store: Path, landing: Path, run: str, intent_path: Path, journal_path: Path) -> Store | None:
+    """Return what a recovery lays in place and journals: the land's result when it still waits at `landing`, and otherwise the store. One holding a record `verdict_store.well_formed` refuses raises `LandUnrecoverable` (`reason` `store-malformed`), naming it, the first such record and the intent, which stays, and the way out: for the result, deleting it, after which the recovery treats the land as one whose run directory is gone, and for the store, the restore of `store` from `journal_path` that writes a replacement without the lock."""
+    left = landing if landing.exists() else store
+    try:
+        return read_store(left, f"the result {landing}" if left == landing else None)
+    except MalformedStore as malformed:
+        way_out = (
+            f"deleting {landing} makes the next recovery leave {store} as it stands, swapping the corpus back out when "
+            "the store is on another stamp than the land's, as for a land whose run directory is gone"
+            if left == landing
+            else f"`uv run python -m rebuild.tools.merge_verdicts --autosave {store} --journal {journal_path} "
+            "--restore-as-of <time> --out <file>` writes a store from the journal without the lock to put in its place"
+        )
+        raise LandUnrecoverable(
+            f"{malformed}, so the recovery of the land of {run} refuses to finish it, and {intent_path} stays: every "
+            f"writer that takes the store's lock refuses with this message while {left} holds such a record; {way_out}",
+            "store-malformed",
+        ) from None
+
+
 @contextlib.contextmanager
 def _recovered_lock(store: Path, **lock_options) -> Iterator[tuple[int, Recovery | None]]:
     recovery = None
@@ -612,7 +665,7 @@ def _recovered_lock(store: Path, **lock_options) -> Iterator[tuple[int, Recovery
 
 @contextlib.contextmanager
 def locked_store(store: Path, **lock_options) -> Iterator[int]:
-    """Hold the verdict store's lock (`store_lock.store_lock`, with its options), after finishing any land a dead holder left (`recover_interrupted_land`). Every writer of the store and its journal takes the lock this way, so none writes over a land that is half done. The swapped-out tree a recovery leaves is deleted after the lock is released."""
+    """Hold the verdict store's lock (`store_lock.store_lock`, with its options), after finishing any land a dead holder left (`recover_interrupted_land`). Every writer of the store and its journal takes the lock this way, so none writes over a land that is half done. The swapped-out tree a recovery leaves is deleted after the lock is released. A recovery that refuses raises `LandUnrecoverable` before the caller's section runs, and each caller reports it as its own refusal: the merge (the verdict update's among them) and the re-key print it and exit 1, the land aborts with it as its reason, the cycle fails its step or stops the pass, and the review server answers with it (`serve.orphaned_land_reply`)."""
     with _recovered_lock(store, **lock_options) as (fd, _recovery):
         yield fd
 
@@ -624,7 +677,7 @@ def finish_interrupted_land(store: Path, **lock_options) -> Recovery | None:
 
 
 def recover_if_orphaned(store: Path) -> bool:
-    """Finish a land whose holder died, for the review server: with no intent file, or with the lock free, return True once nothing is left to finish; while the lock is busy, return False, because a land is still running."""
+    """Finish a land whose holder died, for the review server: with no intent file, or with the lock free, return True once nothing is left to finish; while the lock is busy, return False, because a land is still running. A recovery that refuses raises `LandUnrecoverable`."""
     if not intent_path_for(store).exists():
         return True
     try:

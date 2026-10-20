@@ -2,7 +2,7 @@
 
 The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. POSTs accept only deltas; a whole-store export gets a 400 with recovery instructions and changes nothing. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/, which a pass's land replaces as a whole. Each delta POST is applied with the served corpus (`served_corpus`: the manifest's stamp and human unit ids), so a delta from a tab loaded on another corpus is carried onto the store by unit id when the store is on the served corpus, and its conflicts and orphans are kept in var/verdict-orphans/ and reported back to the tab (`verdict_store` gives the rules). A delta stamped for the served corpus while the store is on another stamp carries the store onto the served corpus by unit id, keeping the old file as verdicts-autosave-<stamp>.json; a delta made on neither corpus gets a retryable 503. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file records only as tombstones. Each POST is applied under the verdict store's lock (rebuild.review.store_lock), which every writer of the store and the journal holds, and reads the served corpus under it, because a land swaps the corpus under the same lock. The server never waits for it, because a POST runs on the IOLoop and waiting would stall every other request: while another writer holds it, a POST gets a 503 with `Retry-After: 1`. The app keeps every unconfirmed save in its outbox in the browser's storage and retries a 503 with backoff, but the save a closing tab sends (the pagehide beacon) is retried only when the app is next opened, so a hand-run merge or restore refuses to write the live store while a server listens, and a hand-run re-key refuses to rewrite its store while the listening server's /capabilities answer names that store or names none, unless --yes is passed on the merge_verdicts or rekey_verdicts command line; a hand-run verdict update's merges refuse as a merge does, with no override, so the server must be stopped first. An artifact-cycle pass holds the lock beside a running server only for its store snapshot, its land and its retention's journal tail, a few seconds each.
 
-The server keeps running through every artifact-cycle pass. A pass builds its corpus beside the served one and runs the verdict update on scratch copies of the store, then lands the corpus and the store together under the lock (rebuild.review.landing). A land killed inside that section leaves its intent file (`landing.intent_path_for`); before it answers /autosave or /status, the server finishes such a land when the lock is free, in its executor, and any request to either made while a land still holds the lock gets the retryable 503, so no tab reads the new corpus beside the old store. At boot the server waits for the lock, finishing an interrupted land first, before it loads the store. /capabilities names the land protocol the server speaks, the digest of its protocol and freshness modules as it loaded them (`landing.code_digest`), its repo root and its store (`capabilities_payload`); the cycle keeps the server running only when that root is its own checkout and that digest is the working tree's, and restarts a server whose code is older.
+The server keeps running through every artifact-cycle pass. A pass builds its corpus beside the served one and runs the verdict update on scratch copies of the store, then lands the corpus and the store together under the lock (rebuild.review.landing). A land killed inside that section leaves its intent file (`landing.intent_path_for`); before it answers /autosave or /status, the server finishes such a land when the lock is free, in its executor, and any request to either made while a land still holds the lock gets the retryable 503, so no tab reads the new corpus beside the old store. While that recovery refuses (`landing.LandUnrecoverable`), every such request gets the refusal under the reason it names, a GET of /autosave as a 404 and the others as a 422, which the app shows the reader, keeping its outbox (`orphaned_land_reply`). At boot the server waits for the lock, finishing an interrupted land first, before it loads the store, and a recovery that refuses stops it with the refusal. /capabilities names the land protocol the server speaks, the digest of its protocol and freshness modules as it loaded them (`landing.code_digest`), its repo root and its store (`capabilities_payload`); the cycle keeps the server running only when that root is its own checkout and that digest is the working tree's, and restarts a server whose code is older.
 
 Livereload reloads no tab on a file change: the server registers one watch that ignores its path (`register_dormant_watch`). The cycle tells open tabs what changed through livereload's /forcereload with an `ams:` path, `ams:corpus/<generated_at>` after a pass's land moved the served corpus and `ams:assets/<static hash>` after an assets refresh, and the app's livereload plugin (static/reload-plugin.js) hands it to the app, which saves, waits while the reader types, and reloads at the same URL hash. A tab also moves when a save's reply or /status names a corpus other than the one it loaded.
 
@@ -114,6 +114,23 @@ def receive_autosave_locked(
         }
 
 
+def orphaned_land_reply(path: Path, refused_status: int) -> tuple[int, dict] | None:
+    """Finish a land whose holder died before a request is answered (`landing.recover_if_orphaned`), and return None when the request may go on, or the status and body to answer it with instead: the retryable 503 (`LAND_RUNNING`) while a land still holds the store's lock, and `refused_status` with the recovery's refusal under the reason it names (`landing.LandUnrecoverable`) while the recovery refuses, which it does until a person acts on the file the refusal names, as it says."""
+    try:
+        if landing.recover_if_orphaned(path):
+            return None
+    except landing.LandUnrecoverable as refused:
+        return refused_status, {"ok": False, "reason": refused.reason, "error": str(refused)}
+    return 503, LAND_RUNNING
+
+
+def missing_autosave_reply(store: VerdictStore) -> dict:
+    """Return the body of the 404 a GET of /autosave gets while `store` holds no stamped store: its refusal under `reason: store-malformed` while the file holds a record `verdict_store.well_formed` refuses (`VerdictStore.refusal`), so the app tells the reader why it shows no verdict, and "no autosave yet" otherwise."""
+    if store.refusal is not None:
+        return {"ok": False, "reason": "store-malformed", "error": store.refusal}
+    return {"ok": False, "error": "no autosave yet"}
+
+
 def main() -> None:
     if not (REVIEW_DIR / "manifest.json").exists():
         raise SystemExit(
@@ -127,20 +144,27 @@ def main() -> None:
     from rebuild.review import status
 
     code = landing.code_digest(Path(__file__).resolve().parent)
-    with landing.locked_store(AUTOSAVE_PATH):
-        store = VerdictStore(AUTOSAVE_PATH, JOURNAL_PATH)
+    try:
+        with landing.locked_store(AUTOSAVE_PATH):
+            store = VerdictStore(AUTOSAVE_PATH, JOURNAL_PATH)
+    except landing.LandUnrecoverable as refused:
+        raise SystemExit(f"The review server did not start: {refused}") from None
 
-    async def finish_orphaned_land() -> bool:
-        """Finish a land whose holder died before this request is answered (`landing.recover_if_orphaned`), in the executor so the IOLoop keeps serving. Returns False while a land is still running."""
+    async def answered_for_land(handler: RequestHandler, refused_status: int) -> bool:
+        """Finish a land whose holder died before this request is answered, in the executor so the IOLoop keeps serving, and return whether the request was answered instead (`orphaned_land_reply`): with the retryable 503 while a land still holds the store's lock, since it may already have swapped the corpus in and not yet replaced the store, and with `refused_status` and the refusal while the recovery refuses."""
         if not landing.intent_path_for(AUTOSAVE_PATH).exists():
-            return True
-        return await IOLoop.current().run_in_executor(None, landing.recover_if_orphaned, AUTOSAVE_PATH)
-
-    def answer_land_running(handler: RequestHandler) -> None:
-        """Answer a request that arrived while a land holds the store's lock with the retryable 503: the land may already have swapped the corpus in and not yet replaced the store."""
-        handler.set_status(503)
-        handler.set_header("Retry-After", str(RETRY_AFTER_S))
-        handler.finish(LAND_RUNNING)
+            return False
+        reply = await IOLoop.current().run_in_executor(
+            None, orphaned_land_reply, AUTOSAVE_PATH, refused_status
+        )
+        if reply is None:
+            return False
+        status_code, body = reply
+        handler.set_status(status_code)
+        if status_code == 503:
+            handler.set_header("Retry-After", str(RETRY_AFTER_S))
+        handler.finish(body)
+        return True
 
     class ManifestCache:
         signature: tuple[int, int, int] | None = None
@@ -221,8 +245,7 @@ def main() -> None:
             self.set_header("Cache-Control", "no-store")
 
         async def get(self) -> None:
-            if not await finish_orphaned_land():
-                answer_land_running(self)
+            if await answered_for_land(self, 422):
                 return
             key = manifest_signature(REVIEW_DIR)
             result = status_cache.result
@@ -256,13 +279,12 @@ def main() -> None:
             self.set_header("Cache-Control", "no-store")
 
         async def get(self) -> None:
-            if not await finish_orphaned_land():
-                answer_land_running(self)
+            if await answered_for_land(self, 404):
                 return
             store.refresh_if_changed()
             if store.stamp is None:
                 self.set_status(404)
-                self.finish({"ok": False, "error": "no autosave yet"})
+                self.finish(missing_autosave_reply(store))
                 return
             self.set_header("Content-Type", "application/json")
             since = self.get_query_argument("since", None)
@@ -273,8 +295,7 @@ def main() -> None:
             self.finish(store.payload_bytes(token=True))
 
         async def post(self) -> None:
-            if not await finish_orphaned_land():
-                answer_land_running(self)
+            if await answered_for_land(self, 422):
                 return
             status_code, body = receive_autosave_locked(store, self.request.body, served_corpus)
             self.set_status(status_code)

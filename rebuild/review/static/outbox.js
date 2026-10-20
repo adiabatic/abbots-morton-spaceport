@@ -145,7 +145,7 @@ export function currentEntries(storage, entries) {
   return entries.filter((entry) => outbox[entry.unit]?.tab === entry.tab && outbox[entry.unit]?.seq === entry.seq);
 }
 
-// Sorts the outbox against the server's records at boot. The entries of the tabs in `live` are left alone, because those tabs are still open to send them. An entry whose record the server already holds (a clear the server has no record for included, and a record whose note differs from the entry's only by leading `[carried …]` markers) was saved, so it is dropped. The rest are replayed when written within `maxAgeMs` and the server would take their set (`replayable` in `verdicts.js`), grouped by the stamp they were made on, and the others are left for the reader to download, since the server refuses a whole replay holding one set it refuses.
+// Sorts the outbox against the server's records at boot. The entries of the tabs in `live` are left alone, because those tabs are still open to send them. An entry whose record the server already holds (a clear the server has no record for included, and a record whose note differs from the entry's only by leading `[carried …]` markers) was saved, so it is dropped. The rest are replayed when written within `maxAgeMs` and the server would take their set (`replayable` in `verdicts.js`), grouped by the stamp they were made on, and the others are left for the reader to download, since the server refuses a whole replay holding one set it refuses. `serverRecords` is null when the server refuses the store it holds (`missingStoreRecords`), whose records are then unknown: the plan drops, replays and offers nothing, so every entry stays for a later boot that can read the store, where sorting against no record would drop each pending clear as one the server holds.
 export function planOutboxReplay(
   outbox,
   serverRecords,
@@ -154,6 +154,7 @@ export function planOutboxReplay(
   const drop = [];
   const replay = new Map();
   const stale = [];
+  if (serverRecords === null) return { drop, replay, stale };
   for (const [unit, entry] of Object.entries(outbox)) {
     if (!entry || typeof entry.stamp !== 'string') {
       drop.push(unit);
@@ -173,6 +174,19 @@ export function planOutboxReplay(
     replay.get(entry.stamp).push({ unit, ...entry });
   }
   return { drop, replay, stale };
+}
+
+// The reasons the server gives when it refuses the store it holds until a person replaces a file: a store holding a verdict record the carry refuses, and a dead land whose recovery cannot finish or undo it (`landing.LandUnrecoverable`).
+const STORE_REFUSALS = new Set(['store-malformed', 'land-unrecoverable']);
+
+// The error of a reply `body` in which the server refuses the store it holds (`STORE_REFUSALS`), or null for any other body.
+export function storeRefusalOf(body) {
+  return STORE_REFUSALS.has(body?.reason) && typeof body.error === 'string' ? body.error : null;
+}
+
+// The records a boot whose GET of /autosave answered 404 with `body` sorts the outbox against (`planOutboxReplay`): none when the server holds no store, and null, which leaves every entry, when it refuses the store it holds (`storeRefusalOf`).
+export function missingStoreRecords(body) {
+  return storeRefusalOf(body) === null ? new Map() : null;
 }
 
 // The conflicts a tab has not reapplied, kept in the tab's sessionStorage under CONFLICTS_KEY so they outlive a reload, the one that moves the tab onto a rebuilt corpus included. `conflicts` maps a unit to the record the tab sent (null for a clear).

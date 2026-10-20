@@ -3573,7 +3573,7 @@ def land_detail(data: dict) -> str:
 def _do_land(
     report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> dict | None:
-    """Run the land as its own child (`rebuild.review.landing`), which neither a Ctrl-C nor a signal to the cycle's group reaches, and which the registry waits for rather than signals. Returns the report the land wrote when it landed, and None when it aborted or failed. A land that died inside its locked section leaves an intent file; the cycle finishes that land at once, holding the store's lock, so the pass never ends with a half-moved corpus or store (`landing.finish_interrupted_land`)."""
+    """Run the land as its own child (`rebuild.review.landing`), which neither a Ctrl-C nor a signal to the cycle's group reaches, and which the registry waits for rather than signals. Returns the report the land wrote when it landed, and None when it aborted or failed. A land that died inside its locked section leaves an intent file; the cycle finishes that land at once, holding the store's lock, so the pass never ends with a half-moved corpus or store (`landing.finish_interrupted_land`), or, when that recovery refuses (`landing.LandUnrecoverable`), notes the refusal on the failed step."""
     report.land_started = time.monotonic()
     result = spawn(
         "land", plan.argv("land"), emit=emit, registry=registry, stream=False, uninterruptible=True
@@ -3585,9 +3585,13 @@ def _do_land(
         _close_step(emit, report, "land", result)
         return data
     if landing.intent_path_for(AUTOSAVE).exists():
-        recovery = landing.finish_interrupted_land(AUTOSAVE, quiet=True)
-        if recovery is not None:
-            emit.note("land", f"{recovery.message}, under the verdict store's lock")
+        try:
+            recovery = landing.finish_interrupted_land(AUTOSAVE, quiet=True)
+        except landing.LandUnrecoverable as refused:
+            emit.note("land", f"ERROR: {refused}")
+        else:
+            if recovery is not None:
+                emit.note("land", f"{recovery.message}, under the verdict store's lock")
     reason = (data or {}).get("reason") or f"exit {result.returncode}"
     report.land_status = f"FAILED ({reason})"
     emit.note("land", f"ERROR: the land did not complete: {reason}")
@@ -5242,7 +5246,7 @@ def pass_lock(*, blocking: bool = True) -> Iterator[None]:
 
 
 def recover_land(*, dry_run: bool = False) -> str | None:
-    """Finish or drop the land a killed pass left (`landing.finish_interrupted_land`), holding the verdict store's lock, and return the line to print, or None when no land was left. It runs before `sweep_run_dirs`, because an unfinished land's result waits in its run directory. The review server finishes such a land on its next request too, so usually nothing is left by the next pass. A dry run changes nothing and says what the next real pass will do."""
+    """Finish or drop the land a killed pass left (`landing.finish_interrupted_land`), holding the verdict store's lock, and return the line to print, or None when no land was left. It runs before `sweep_run_dirs`, because an unfinished land's result waits in its run directory. The review server finishes such a land on its next request too, so usually nothing is left by the next pass. A dry run changes nothing and says what the next real pass will do. A recovery that refuses raises `landing.LandUnrecoverable`, and `_run_pass` stops the pass with its message before anything else runs."""
     if not landing.intent_path_for(AUTOSAVE).exists():
         return None
     if dry_run:
@@ -5366,8 +5370,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
-    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`)."""
-    landed = recover_land(dry_run=args.dry_run) if recover else None
+    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory and whose refusal stops the pass with exit 1, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`)."""
+    try:
+        landed = recover_land(dry_run=args.dry_run) if recover else None
+    except landing.LandUnrecoverable as refused:
+        print(f"ERROR: {refused}. The pass stops before it starts.")
+        return 1
     recovered = recover_superseded_corpus(delete=not args.dry_run) if recover else None
     if recover and not args.dry_run:
         sweep_run_dirs()

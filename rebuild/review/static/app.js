@@ -31,6 +31,8 @@ import {
   ackOutbox,
   dropOutbox,
   planOutboxReplay,
+  storeRefusalOf,
+  missingStoreRecords,
   sameRecord,
   currentEntries,
   markTabAlive,
@@ -2507,6 +2509,15 @@ let staleDownloaded = false;
 const pendingConflicts = new Map();
 
 class RetryableSaveError extends Error {}
+class StoreRefusedError extends Error {}
+
+async function replyBody(response) {
+  return (response.headers.get('Content-Type') ?? '').startsWith('application/json') ? response.json() : null;
+}
+
+async function storeRefusal(response) {
+  return storeRefusalOf(await replyBody(response));
+}
 
 function mirrorDirtyToOutbox() {
   if (!outboxStorage) return;
@@ -2668,8 +2679,9 @@ async function sendReplays() {
       console.warn('outbox replay refused', response.status);
       staleOutbox.push(...entries);
       staleDownloaded = false;
+      const refusal = await storeRefusal(response);
       toast(
-        `The server refused ${formatCount(entries.length)} verdict${entries.length === 1 ? '' : 's'} this browser kept from an earlier session (HTTP ${response.status}); download them from the status bar`,
+        `The server refused ${formatCount(entries.length)} verdict${entries.length === 1 ? '' : 's'} this browser kept from an earlier session (HTTP ${response.status}); download them from the status bar${refusal ? `: ${refusal}` : ''}`,
       );
       continue;
     }
@@ -2730,7 +2742,8 @@ async function flushAutosave() {
       }
       if (!response.ok) {
         restoreDirty(ids.slice(start));
-        throw new Error(`HTTP ${response.status}`);
+        const refusal = await storeRefusal(response);
+        throw refusal ? new StoreRefusedError(refusal) : new Error(`HTTP ${response.status}`);
       }
       const reply = await response.json();
       if (typeof reply.token === 'string') autosaveToken = reply.token;
@@ -2750,7 +2763,9 @@ async function flushAutosave() {
     if (error instanceof RetryableSaveError) {
       scheduleAutosaveRetry();
     } else if (!autosaveFailed) {
-      toast('Autosave failed — download verdicts.json to be safe');
+      toast(
+        `Autosave failed — download verdicts.json to be safe${error instanceof StoreRefusedError ? `: ${error.message}` : ''}`,
+      );
     }
     autosaveFailed = true;
   } finally {
@@ -2837,7 +2852,7 @@ function renderOutboxStatus() {
   node.hidden = parts.length === 0;
 }
 
-// Sorts what earlier page loads left in the outbox against the server's records: the entries of tabs still open are left to them, saved entries are dropped, recent ones are queued for the first flush after boot, and old ones are offered as a download.
+// Sorts what earlier page loads left in the outbox against the server's records, null when the server refuses its store: the entries of tabs still open are left to them, saved entries are dropped, recent ones are queued for the first flush after boot, and old ones are offered as a download (`planOutboxReplay`).
 function planReplayFromOutbox(serverRecords) {
   if (!outboxStorage) return;
   const live = liveTabs(outboxStorage);
@@ -2864,8 +2879,11 @@ async function restoreAutosave() {
   try {
     const response = await fetchAutosave();
     if (response.status === 404) {
-      autosaveWorks = true;
-      planReplayFromOutbox(new Map());
+      const body = await replyBody(response);
+      const refusal = storeRefusalOf(body);
+      if (refusal) toast(`Autosave is off — download verdicts.json to be safe: ${refusal}`);
+      else autosaveWorks = true;
+      planReplayFromOutbox(missingStoreRecords(body));
       return;
     }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

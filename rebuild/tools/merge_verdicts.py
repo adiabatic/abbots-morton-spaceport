@@ -1,4 +1,4 @@
-"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. Unless it is a dry run or refused, a merge writes the store when its records or tombstones differ from the aligned autosave's, and always when no autosave is aligned with the corpus, so a merge into a missing store leaves one stamped for the corpus even when it holds no verdicts, for the verdict update's fills to read. An autosave that is an ams-review-verdicts/1 document stamped for an older corpus (a `manifest_generated_at` that sorts before the corpus's `generated_at`) is moved aside first (`stash_path_for`), and one stamped for a newer corpus is refused, since the merge would move the store back onto an outdated corpus. An autosave that is not an ams-review-verdicts/1 document (`parse_autosave_payload`) is moved aside as verdicts-autosave-corrupt-<time>.json whatever stamp it names, keeping none of its verdicts or tombstones. An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. An input file holding a verdict record the carry refuses (`verdict_store.well_formed`) is refused too, naming the file and the first such record's unit, or its index when it names no unit, because the merge writes the `at` and `note` of the record that wins each unit as they are unless false-valued, and compares `at`s to pick that record, so a record whose `at` or `note` is neither a string nor false-valued can leave a store that no later pass can carry, or, for such an `at`, stop the merge with a traceback where it compares two `at`s. A store stamped for the corpus that holds such a record is refused the same way, naming the store and the record, before anything is written, because the merge keeps that store's records; a store the merge sets aside is not checked and is set aside whatever records it holds, since the merge keeps none of its verdicts and reads of them only which units they name, on which it keeps none of that store's tombstones. A merge keeps the store's tombstones (the units the app cleared, each with the time of the clear), and a tombstone wins over an incoming record whose `at` is not after the clear. A merge onto an ams-review-verdicts/1 store stamped for an older corpus keeps none of that store's verdicts but keeps its tombstones on the corpus's human units, as the review server's move of a store onto the served corpus (rule 3 in `rebuild.review.verdict_store`) and the land (`landing.overlay`) keep them, so the fills a pass that moves the stamp merges after the carry meet the same tombstones as on a pass that keeps it. A caller in the same process can add tombstones with `run_merge`'s `clears`, which the merge keeps as the store's own on units the kept store holds no record for: the verdict update passes the skips of a store it carries onto the corpus before a direct merge (`verdict_update.skip_clears`). A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`, taken through `landing.locked_store`, which first finishes a land whose holder died), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app retries the save a closing tab sends only when it is next opened, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed on this command line (for a server that serves another checkout); the verdict update, which calls `run_merge` in process, has no --yes, so a hand-run verdict update's merges into the live store refuse the same way with no override, and the server must be stopped first; a dry run and a merge refused because the server is listening take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to the journal (`rebuild.review.journal`) that --journal names, or else to the verdicts-journal.ndjson beside the store, which only a store named verdicts-autosave.json takes by default (`journal.journal_path_for`), so a store under any other name needs --journal, and `--restore-as-of` replays that journal to recover the store as of any recorded time, its records and its tombstones (`journal.replay_store`), so a unit cleared by then stays cleared through a later merge of a file that still holds its older verdict, unless the replay starts from a base event written after the clear with no `cleared` list (the `rebuild.review.journal` docstring says where a replay of lines without the tombstone fields differs from the store). Without --apply, the restore writes the store it recovers to --out, or else to verdicts-restored-<time>.json beside the store, which again only a store named verdicts-autosave.json has by default (`journal.beside_store`), so a restore whose --autosave is a copy in another directory writes nothing at the repo root, where `status` counts every verdicts-*.json but the live store as a carry candidate. `--rekey-map` moves a replayed store's unit ids, its tombstones' among them, through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
+"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. Unless it is a dry run or refused, a merge writes the store when its records or tombstones differ from the aligned autosave's, and always when no autosave is aligned with the corpus, so a merge into a missing store leaves one stamped for the corpus even when it holds no verdicts, for the verdict update's fills to read. An autosave that is an ams-review-verdicts/1 document stamped for an older corpus (a `manifest_generated_at` that sorts before the corpus's `generated_at`) is moved aside first (`stash_path_for`), and one stamped for a newer corpus is refused, since the merge would move the store back onto an outdated corpus. An autosave that is not an ams-review-verdicts/1 document (`parse_autosave_payload`) is moved aside as verdicts-autosave-corrupt-<time>.json whatever stamp it names, keeping none of its verdicts or tombstones. An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. An input file holding a verdict record the carry refuses (`verdict_store.well_formed`) is refused too, naming the file and the first such record's unit, or its index when it names no unit, because the merge writes the `at` and `note` of the record that wins each unit as they are unless false-valued, and compares `at`s to pick that record, so a record whose `at` or `note` is neither a string nor false-valued can leave a store that no later pass can carry, or, for such an `at`, stop the merge with a traceback where it compares two `at`s. A store stamped for the corpus that holds such a record is refused the same way, naming the store and the record, before anything is written, because the merge keeps that store's records; a store the merge sets aside is not checked and is set aside whatever records it holds, since the merge keeps none of its verdicts and reads of them only which units they name, on which it keeps none of that store's tombstones. A merge keeps the store's tombstones (the units the app cleared, each with the time of the clear), and a tombstone wins over an incoming record whose `at` is not after the clear. A merge onto an ams-review-verdicts/1 store stamped for an older corpus keeps none of that store's verdicts but keeps its tombstones on the corpus's human units, as the review server's move of a store onto the served corpus (rule 3 in `rebuild.review.verdict_store`) and the land (`landing.overlay`) keep them, so the fills a pass that moves the stamp merges after the carry meet the same tombstones as on a pass that keeps it. A caller in the same process can add tombstones with `run_merge`'s `clears`, which the merge keeps as the store's own on units the kept store holds no record for: the verdict update passes the skips of a store it carries onto the corpus before a direct merge (`verdict_update.skip_clears`). A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`, taken through `landing.locked_store`, which first finishes a land whose holder died, and while that recovery refuses, `landing.LandUnrecoverable`, the merge and `--restore-as-of --apply` print its refusal and write nothing), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app retries the save a closing tab sends only when it is next opened, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed on this command line (for a server that serves another checkout); the verdict update, which calls `run_merge` in process, has no --yes, so a hand-run verdict update's merges into the live store refuse the same way with no override, and the server must be stopped first; a dry run and a merge refused because the server is listening take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to the journal (`rebuild.review.journal`) that --journal names, or else to the verdicts-journal.ndjson beside the store, which only a store named verdicts-autosave.json takes by default (`journal.journal_path_for`), so a store under any other name needs --journal, and `--restore-as-of` replays that journal to recover the store as of any recorded time, its records and its tombstones (`journal.replay_store`), so a unit cleared by then stays cleared through a later merge of a file that still holds its older verdict, unless the replay starts from a base event written after the clear with no `cleared` list (the `rebuild.review.journal` docstring says where a replay of lines without the tombstone fields differs from the store). A restore, with --apply or without, refuses a moment whose replay holds a verdict record the carry refuses (`verdict_store.well_formed`), naming the journal, the moment and the first such record by the unit the journal holds it on, before any `--rekey-map` re-key and before it writes anything, as the merge refuses a store holding one. `--apply` over a store holding such a record, which the review server and the land refuse and send the reader here to replace, stashes it as it stashes any store and journals the restored store as a base event, which reads none of the old store's records, since a diff against them compares their `at` values (`journal.latest_by_unit`). Without --apply, the restore writes the store it recovers to --out, or else to verdicts-restored-<time>.json beside the store, which again only a store named verdicts-autosave.json has by default (`journal.beside_store`), so a restore whose --autosave is a copy in another directory writes nothing at the repo root, where `status` counts every verdicts-*.json but the live store as a carry candidate. `--rekey-map` moves a replayed store's unit ids, its tombstones' among them, through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
 
 Usage:
   uv run python -m rebuild.tools.merge_verdicts [FILES ...]     # no FILES: merge the fullest verdicts file verdict-ready names
@@ -22,9 +22,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebuild.review import journal, status  # noqa: E402
-from rebuild.review.landing import locked_store, read_manifest  # noqa: E402
+from rebuild.review.landing import LandUnrecoverable, locked_store, read_manifest  # noqa: E402
 from rebuild.review.serve import parse_autosave_payload, stash_path_for  # noqa: E402
-from rebuild.review.verdict_store import note_of, parse_cleared, well_formed  # noqa: E402
+from rebuild.review.verdict_store import malformed_record, note_of, parse_cleared, well_formed  # noqa: E402
 from rebuild.tools.review_server import server_listening as _server_listening  # noqa: E402
 
 AUTOSAVE = ROOT / "verdicts-autosave.json"
@@ -50,19 +50,6 @@ def _read_payload(path: Path) -> dict | None:
     except OSError:
         return None
     return parse_autosave_payload(raw)
-
-
-def _malformed(verdicts: list, name: str) -> str | None:
-    """Return the first sentence of the refusal of the document called `name` whose `verdicts` hold a record `verdict_store.well_formed` refuses, naming the first such record by its unit, or by its index when it names no unit, and None when every record passes."""
-    for index, record in enumerate(verdicts):
-        if not well_formed(record):
-            unit = record.get("unit") if isinstance(record, dict) else None
-            where = f"on {unit}" if isinstance(unit, str) else f"at index {index} of its `verdicts` list"
-            return (
-                f"ERROR: {name} holds a verdict record {where} that is not an object with a string `unit`, "
-                "`verdict` and `at` and a `note`, if any, that is a string or false-valued."
-            )
-    return None
 
 
 def _effective(records: dict[str, dict]) -> int:
@@ -138,17 +125,21 @@ def run_merge(
             offers_yes=offers_yes,
             clears=clears,
         )
-    with locked_store(autosave):
-        return _merge_into_store(
-            files,
-            stamp=stamp,
-            autosave=autosave,
-            corpus=corpus,
-            journal_path=journal_path,
-            dry_run=False,
-            refuse_a_write=False,
-            clears=clears,
-        )
+    try:
+        with locked_store(autosave):
+            return _merge_into_store(
+                files,
+                stamp=stamp,
+                autosave=autosave,
+                corpus=corpus,
+                journal_path=journal_path,
+                dry_run=False,
+                refuse_a_write=False,
+                clears=clears,
+            )
+    except LandUnrecoverable as refused:
+        print(f"ERROR: {refused}. Nothing was merged.")
+        return 1
 
 
 def _merge_into_store(
@@ -170,13 +161,13 @@ def _merge_into_store(
     aligned = existing if existing is not None and existing["manifest_generated_at"] == stamp else None
     if (
         aligned is not None
-        and (malformed := _malformed(aligned["verdicts"], f"the store {_rel(autosave)}")) is not None
+        and (malformed := malformed_record(aligned["verdicts"], f"the store {_rel(autosave)}")) is not None
     ):
         print(
-            f"{malformed} Refusing to merge into it, and the merge wrote neither the store nor the journal: the "
-            "merge keeps the records of a store stamped for the corpus, so it refuses one holding a record the carry "
-            "refuses (`verdict_store.well_formed`), as it refuses such an input file. If it is the verdict store or "
-            "the cycle's prepared copy of it, restore a readable store from the journal with "
+            f"ERROR: {malformed}. Refusing to merge into it, and the merge wrote neither the store nor the "
+            "journal: the merge keeps the records of a store stamped for the corpus, so it refuses one holding a "
+            "record the carry refuses (`verdict_store.well_formed`), as it refuses such an input file. If it is "
+            "the verdict store or the cycle's prepared copy of it, restore a readable store from the journal with "
             "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`."
         )
         return 1
@@ -215,14 +206,14 @@ def _merge_into_store(
                 "rebuild/tools/carry_verdicts.py first."
             )
             return 1
-        if (malformed := _malformed(data["verdicts"], _rel(path))) is not None:
+        if (malformed := malformed_record(data["verdicts"], _rel(path))) is not None:
             print(
-                f"{malformed} Refusing to merge it, and the merge wrote neither the store nor the journal: the merge "
-                "refuses any input file holding a record the carry refuses (`verdict_store.well_formed`), because it "
-                "writes the `at` and `note` of the record that wins each unit as they are unless false-valued, and "
-                "compares `at`s to pick that record, so a record whose `at` or `note` is neither a string nor "
-                "false-valued can leave a store that no later pass can carry, or, for such an `at`, stop the merge "
-                "with a traceback where it compares two `at`s."
+                f"ERROR: {malformed}. Refusing to merge it, and the merge wrote neither the store nor the journal: "
+                "the merge refuses any input file holding a record the carry refuses (`verdict_store.well_formed`), "
+                "because it writes the `at` and `note` of the record that wins each unit as they are unless "
+                "false-valued, and compares `at`s to pick that record, so a record whose `at` or `note` is neither a "
+                "string nor false-valued can leave a store that no later pass can carry, or, for such an `at`, stop "
+                "the merge with a traceback where it compares two `at`s."
             )
             return 1
         payloads.append((path, data))
@@ -395,16 +386,22 @@ def run_restore(
     if stamp is None:
         print(f"ERROR: {_rel(journal_path)} holds no event at or before {as_of}; nothing to restore.")
         return 1
+    if (
+        malformed := malformed_record(
+            journal.payload_for(stamp, records)["verdicts"],
+            f"the store that {_rel(journal_path)} replays as of {as_of}",
+        )
+    ) is not None:
+        print(
+            f"ERROR: {malformed}. Refusing to restore it, and nothing was written: a restore refuses a store holding "
+            "a record the carry refuses (`verdict_store.well_formed`), as the merge refuses one, because no later "
+            "pass could carry it. Pick a moment before the journal recorded that record."
+        )
+        return 1
     if rekey_map is not None:
         id_map = json.loads(rekey_map.read_text(encoding="utf-8"))["renamed"]
         restored, restored_cleared = records, cleared
-        try:
-            records, cleared = rekey_store(restored, restored_cleared, id_map)
-        except UntimedRecord as untimed:
-            print(
-                f"ERROR: in the store that {_rel(journal_path)} replays as of {as_of}, {untimed}. Nothing was written."
-            )
-            return 1
+        records, cleared = rekey_store(restored, restored_cleared, id_map)
         moved = sum(1 for unit in restored if unit in id_map)
         moved_cleared = sum(1 for unit in restored_cleared if unit in id_map)
         dropped = sum(1 for unit in restored if id_map.get(unit, unit) in cleared)
@@ -428,8 +425,14 @@ def run_restore(
             "back over the restore on its next focus. Stop the server first, or pass --yes to apply anyway."
         )
         return 1
-    with locked_store(autosave):
-        return _apply_restore(as_of, stamp, records, payload, autosave=autosave, journal_path=journal_path)
+    try:
+        with locked_store(autosave):
+            return _apply_restore(
+                as_of, stamp, records, payload, autosave=autosave, journal_path=journal_path
+            )
+    except LandUnrecoverable as refused:
+        print(f"ERROR: {refused}. Nothing was restored.")
+        return 1
 
 
 def _apply_restore(
@@ -453,6 +456,7 @@ def _apply_restore(
         old_cleared=parse_cleared(existing),
         new_cleared=parse_cleared(payload),
         stashed=stashed,
+        base=True if existing is not None and not all(map(well_formed, existing["verdicts"])) else None,
     )
     print(
         f"restored {autosave.name} to {as_of}: {len(records)} verdicts ({_effective(records)} effective) "

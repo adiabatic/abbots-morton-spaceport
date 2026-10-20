@@ -7972,13 +7972,12 @@ def test_a_pass_that_skips_the_corpus_build_with_no_store_merges_a_root_master_s
     [
         "{not json",
         json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": OLDER}),
-        json.dumps(_fixture_payload([], stamp=OLDER) | {"verdicts": ["u-human"]}),
     ],
 )
 def test_a_pass_that_skips_the_corpus_build_refuses_an_unreadable_store_by_name(
     tmp_path, monkeypatch, capsys, store
 ):
-    """In a pass that skips the corpus build, the verdict update carries the store's snapshot before it merges a root export when the merge would set the store aside (`verdict_update.merge_sets_store_aside`). A snapshot that is not JSON, and one with no `verdicts` list, are set aside because `parse_autosave_payload` reads neither as an ams-review-verdicts/1 document; one whose `verdicts` list holds a unit id instead of a verdict record passes that parse and is set aside because it is stamped for an older corpus. The carry refuses each, naming the snapshot and the journal restore, rather than failing on a parse error or a malformed record that names no file, and the cycle reads that refusal as a failed verdict update, which `_run_cycle` never follows with the land."""
+    """In a pass that skips the corpus build, the verdict update carries the store's snapshot before it merges a root export when the merge would set the store aside (`verdict_update.merge_sets_store_aside`). A snapshot that is not JSON, and one with no `verdicts` list, are set aside because `parse_autosave_payload` reads neither as an ams-review-verdicts/1 document. The carry refuses each, naming the snapshot and the journal restore, rather than failing on a parse error, and the cycle reads that refusal as a failed verdict update, which `_run_cycle` never follows with the land. A store whose `verdicts` list holds a unit id instead of a verdict record never reaches the carry, because the snapshot step refuses it (`landing.snapshot`, which `rebuild/test_landing.py` checks)."""
     paths, _export = _fixture_repo_with_export(tmp_path, monkeypatch, [_record("u-human"), _record("u-open")])
     paths["autosave"].write_text(store)
 
@@ -9239,6 +9238,45 @@ def test_main_finishes_a_stopped_land_before_it_sweeps_the_run_directories(tmp_p
     assert not intent.exists() and not run_dir.exists()
     landed = json.loads(ac.AUTOSAVE.read_text())
     assert {entry["unit"] for entry in landed["verdicts"]} == {"u-1", "u-landed"}
+
+
+def test_main_stops_with_the_refusal_when_a_stopped_lands_recovery_refuses(tmp_path, monkeypatch, capsys):
+    """A stopped land's result hand-edited to hold two records on one unit, one with an `at` that is not a string, stops the recovery `recover_land` runs (`landing.LandUnrecoverable`). The pass then prints the refusal and exits 1 before its first step instead of ending in a traceback, and the store, the result and the intent are left byte for byte as they were."""
+    _settled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    cycles: list[object] = []
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, *_, **__: cycles.append(plan) or 0)
+    run_dir = cycle_paths.CYCLE_VAR / "20200101T000000Z-dead"
+    run_dir.mkdir(parents=True)
+    result = run_dir / landing.LANDING_NAME
+    doc = _verdicts_doc("2026-07-17T20:24:44Z", ["u-1"])
+    doc["verdicts"].append({**doc["verdicts"][0], "at": 5})
+    result.write_text(json.dumps(doc))
+    intent = landing.intent_path_for(ac.AUTOSAVE)
+    intent.parent.mkdir(parents=True, exist_ok=True)
+    intent.write_text(
+        json.dumps(
+            {
+                "run_dir": str(run_dir),
+                "landing": str(result),
+                "staged": None,
+                "live": None,
+                "old_stamp": "2026-07-17T20:24:44Z",
+                "new_stamp": "2026-07-17T20:24:44Z",
+                "stash": None,
+                "journal": str(tmp_path / journal.JOURNAL_NAME),
+                "journal_inode": None,
+                "journal_length": None,
+            }
+        )
+    )
+    kept = [path for path in (ac.AUTOSAVE, result, intent) if path.exists()]
+    before = {path: path.read_bytes() for path in kept}
+    assert ac.main([]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith(f"ERROR: the result {result} holds a verdict record on u-1 that is not an object")
+    assert "The pass stops before it starts." in out
+    assert cycles == [] and {path: path.read_bytes() for path in kept} == before
 
 
 def test_a_dry_run_skips_the_recovery_while_a_pass_holds_the_lock(tmp_path, monkeypatch, capsys):

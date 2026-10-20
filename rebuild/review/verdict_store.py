@@ -15,7 +15,7 @@ The orphan documents live in `var/verdict-orphans/` beside the store (`orphans_d
 
 A full-store POST gets a 400 with `reason: whole-store-post-unsupported` and recovery instructions, regardless of its stamp or the file's state, and writes nothing. A 409 tells legacy readers to reload rather than download pending verdicts, and `corpus_stamp` can prompt newer clients to reload automatically, so the refusal uses neither. When the store writes the file itself, it writes an ams-review-verdicts/1 document with one record per line, which `parse_autosave_payload`, the merge tool, the status check and the carry all read; GETs and export files use that format too.
 
-The file holds the verdicts between server runs, and another writer (a pass's land, `rebuild.review.landing`, or the merge tool or a journal restore under --yes) can replace it while the server runs; each holds the store's lock (`rebuild.review.store_lock`) for its write, as the server does for each POST. So every request first compares the file's mtime, size and inode with what the store last read or wrote, and reloads on a mismatch. A reload onto the same stamp diffs the new records against the ones in memory and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, or onto a file that is missing or unreadable, invalidates every token. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were. A delta whose write fails reloads the file before the error propagates, so memory never holds a record the file lacks and a resend of the same delta is written. The orphan document is written before the store, so a delta whose orphan write fails changes nothing.
+The file holds the verdicts between server runs, and another writer (a pass's land, `rebuild.review.landing`, or the merge tool or a journal restore under --yes) can replace it while the server runs; each holds the store's lock (`rebuild.review.store_lock`) for its write, as the server does for each POST. So every request first compares the file's mtime, size and inode with what the store last read or wrote, and reloads on a mismatch. A reload onto the same stamp diffs the new records against the ones in memory and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, or onto a file that is missing or unreadable, invalidates every token. A file holding a verdict record `well_formed` refuses is read as an unreadable one is, so the store serves no verdict from it, but unlike an unreadable one it is never written over: while it stays, every delta `parse_delta_payload` accepts gets a 422 and a GET a 404 (`serve.missing_autosave_reply`), both with `reason: store-malformed` and an error naming the file and the first such record (`malformed_record`), which the app shows the reader, and nothing is written until another writer replaces the file. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were. A delta whose write fails reloads the file before the error propagates, so memory never holds a record the file lacks and a resend of the same delta is written. The orphan document is written before the store, so a delta whose orphan write fails changes nothing.
 
 Before a store write the journal will record, the store writes the marker that says the journal may lack a write (`journal.mark_unjournaled`), and it removes the marker once the journal append succeeds, unless the marker was already there. A marker that cannot be written fails the save as a failed store write does, so no store write goes unmarked. An append that fails (reported as `journal_error`), is cut short, or never runs because the server was killed leaves it, so the next land that moves the stamp journals a base (`journal.base_due`).
 """
@@ -91,6 +91,31 @@ def well_formed(record) -> bool:
 def note_of(record: dict) -> str:
     """Return `record`'s note as the carry and the merge write it and the readers of a verdicts file read it: its `note`, or `""` when that is missing or false-valued, which `well_formed` accepts. Two readers spell the same expression out instead of importing it: `journal`, which this module imports, and `review_queue`, because the standing fill imports it and the standing memo's code stamp covers the standing fill's import closure (`standing_verdicts.MEMO_CODE_MODULES`), which would then take in this module and the journal."""
     return record.get("note") or ""
+
+
+def malformed_record(verdicts: list, name: str) -> str | None:
+    """Return the clause that refuses the document called `name` when its `verdicts` hold a record `well_formed` refuses, naming the first such record by its unit, or by its index when it names no unit, and None when every record passes. The merge refuses an input file or a store stamped for the corpus with it (`merge_verdicts`), a journal restore the store it replays (`merge_verdicts.run_restore`), and the readers that read a store through `read_store_document` the store they read."""
+    for index, record in enumerate(verdicts):
+        if not well_formed(record):
+            unit = record.get("unit") if isinstance(record, dict) else None
+            where = f"on {unit}" if isinstance(unit, str) else f"at index {index} of its `verdicts` list"
+            return (
+                f"{name} holds a verdict record {where} that is not an object with a string `unit`, `verdict` and "
+                "`at` and a `note`, if any, that is a string or false-valued"
+            )
+    return None
+
+
+class MalformedStore(ValueError):
+    """Raised by `read_store_document` for a store holding a record `well_formed` refuses; the message names the store and the first such record (`malformed_record`)."""
+
+
+def read_store_document(raw: bytes, name: str) -> dict | None:
+    """Return the ams-review-verdicts/1 document in `raw` as `parse_autosave_payload` reads it, or None when it is not one, and raise `MalformedStore`, calling the document `name`, when it holds a record `well_formed` refuses, before anything compares its records' `at` values: `journal.latest_by_unit` compares them with `>`, so a record whose `at` is not a string beside one whose `at` is a string on the same unit raises TypeError. These readers read their store here: the land's reads of the snapshot, the prepared store and the live store, the snapshot step's and a dead land's recovery's (`landing.read_store`), the review server's (`VerdictStore.reload`), the readiness check's (`status._verdict_store_check`), and the re-key's of its `--autosave` store (`rebuild.tools.rekey_verdicts`). The merge reads its store itself, refusing one stamped for the corpus that holds such a record with `malformed_record` and setting an older-stamped one aside whatever it holds (`merge_verdicts`), the carry refuses such a record in any file it reads (`carry_verdicts`), and status's count of the carry candidates gives a file whose records it cannot compare no count (`status._effective_count`)."""
+    data = parse_autosave_payload(raw)
+    if data is not None and (malformed := malformed_record(data["verdicts"], name)) is not None:
+        raise MalformedStore(malformed)
+    return data
 
 
 class MalformedSet(ValueError):
@@ -301,6 +326,7 @@ class VerdictStore:
         self.stamp: str | None = None
         self.records: dict[str, dict] = {}
         self.cleared: dict[str, str] = {}
+        self.refusal: str | None = None
         self._lines: dict[str, str] = {}
         self._order: list[str] = []
         self._signature: tuple[int, int, int] | None = None
@@ -310,7 +336,7 @@ class VerdictStore:
         self.reload()
 
     def reload(self) -> None:
-        """Replace the store's content with the file's. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it. When the file holds the stamp the store already has, the units whose records differ are recorded as changes and every token stays valid; otherwise every token is invalidated.
+        """Replace the store's content with the file's. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it. A file holding a verdict record `well_formed` refuses leaves the store empty and unstamped too, but sets `refusal`, which names the file and the first such record (`read_store_document`, which refuses it before anything compares its records' `at` values), and `receive` refuses every delta with it until a reload of another file clears it, so no save writes over the file. When the file holds the stamp the store already has, the units whose records differ are recorded as changes and every token stays valid; otherwise every token is invalidated.
 
         The signature comes from the open handle, so it describes the bytes the store parsed even when another writer renames a new file over the path mid-read; the next `refresh_if_changed` then sees the new file and reloads. When the file cannot be opened or read, the signature is None, so a file renamed into place after the failed open leaves a mismatch, and an existing file the store could not read is reloaded on the next refresh.
         """
@@ -322,7 +348,18 @@ class VerdictStore:
         except OSError:
             raw = None
             self._signature = None
-        data = parse_autosave_payload(raw) if raw is not None else None
+        data = None
+        self.refusal = None
+        try:
+            data = read_store_document(raw, f"the store {self.path}") if raw is not None else None
+        except MalformedStore as malformed:
+            self.refusal = (
+                f"{malformed}. The review server serves no verdict from it and refuses every save, writing neither "
+                "the store nor the journal, until the file is replaced: it reads a store holding a record the carry "
+                "refuses (`verdict_store.well_formed`) as it reads an unreadable one, but never writes over it. "
+                "Restore a readable store from the journal with "
+                "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`."
+            )
         stamp = data["manifest_generated_at"] if data else None
         new_records = journal.latest_by_unit(data["verdicts"]) if data else {}
         cleared = parse_cleared(data)
@@ -446,13 +483,15 @@ class VerdictStore:
         self._write_bytes(self.payload_bytes())
 
     def receive(self, raw: bytes, served: ServedCorpus | None = None) -> tuple[int, dict]:
-        """Apply a delta POST body and return the HTTP status and response body. A body `parse_delta_payload` refuses gets a 400 and writes nothing: a delta holding a malformed set or clear is told which one (`MalformedSet`, `MalformedClear`), a full store gets recovery instructions, and any other body is told it is not an ams-review-verdicts-delta/1 document. `served` is the corpus the server serves, which decides what a delta on another stamp does; None means it is unknown."""
+        """Apply a delta POST body and return the HTTP status and response body. A body `parse_delta_payload` refuses gets a 400 and writes nothing: a delta holding a malformed set or clear is told which one (`MalformedSet`, `MalformedClear`), a full store gets recovery instructions, and any other body is told it is not an ams-review-verdicts-delta/1 document. `served` is the corpus the server serves, which decides what a delta on another stamp does; None means it is unknown. While the file holds a record `well_formed` refuses (`refusal`), a delta gets a 422 naming the file and the record, and nothing is written."""
         self.refresh_if_changed()
         try:
             delta = parse_delta_payload(raw)
         except (MalformedSet, MalformedClear) as malformed:
             return 400, {"ok": False, "error": str(malformed)}
         if delta is not None:
+            if self.refusal is not None:
+                return 422, {"ok": False, "reason": "store-malformed", "error": self.refusal}
             return self._receive_delta(delta, served)
         if parse_autosave_payload(raw) is not None:
             return 400, {

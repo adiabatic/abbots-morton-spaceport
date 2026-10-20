@@ -1,3 +1,4 @@
+import { storeRefusalOf } from './outbox.js';
 import { formatCount } from './render.js';
 
 const FAIL_SCAN = ['corpus', 'freshness', 'gates', 'verdict_store'];
@@ -40,11 +41,13 @@ export function keptAsideLine(status, pageLoadedAt) {
   return { text: `Saves kept aside by the server: ${parts.join(', ')}`, file };
 }
 
-// `moving` says whether the page is moving onto the corpus /status names (app.js requestMove); a page that is not, because a reload for that move already failed to reach it, is told to reload. `unreachableForMs` is how long /status has gone unanswered (a null `status`): the cycle restarts the server on new code by itself, so the banner says it is retrying and names the restart command only once the server has been gone for SERVER_UNREACHABLE_GRACE_MS.
+// `moving` says whether the page is moving onto the corpus /status names (app.js requestMove); a page that is not, because a reload for that move already failed to reach it, is told to reload. `unreachableForMs` is how long /status has gone unanswered (a null `status`): the cycle restarts the server on new code by itself, so the banner says it is retrying and names the restart command only once the server has been gone for SERVER_UNREACHABLE_GRACE_MS. A reply in which the server refuses its store (`storeRefusalOf`) shows that refusal with no remedy: it names the file and what to do with it, and a restarted server stops at boot with the same refusal.
 export function bannerModel(status, pageGeneratedAt, pageLoadedAt = null, moving = false, unreachableForMs = Infinity) {
   if (!status && unreachableForMs < SERVER_UNREACHABLE_GRACE_MS) {
     return { level: 'warn', text: 'Review server unreachable — retrying…', remedy: null, command: null };
   }
+  const refusal = storeRefusalOf(status);
+  if (refusal) return { level: 'error', text: `Autosave is off — ${refusal}`, remedy: null, command: null };
   if (!status || status.error || !status.checks) {
     const text = status && status.error ? `Status unavailable — ${status.error}` : 'Status unavailable';
     return { level: 'error', text, remedy: 'restart the review server (make review-serve)', command: 'make review-serve' };

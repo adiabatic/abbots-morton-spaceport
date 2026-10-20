@@ -16,7 +16,12 @@ from pathlib import Path
 from rebuild.pipeline import fingerprint
 from rebuild.review import app_index, store_lock, unit_index
 from rebuild.review.serve import parse_autosave_payload
-from rebuild.review.verdict_store import orphans_dir_for, summarize_orphans
+from rebuild.review.verdict_store import (
+    MalformedStore,
+    orphans_dir_for,
+    read_store_document,
+    summarize_orphans,
+)
 
 CORPUS_REMEDY = "uv run python -m rebuild.review.build"
 MERGE_TOOL = "uv run python -m rebuild.tools.merge_verdicts"
@@ -434,7 +439,14 @@ def _verdict_store_check(
             raw = path.read_bytes() if path.exists() else None
         except OSError:
             raw = None
-        autosave = parse_autosave_payload(raw) if raw is not None else None
+        try:
+            autosave = read_store_document(raw, f"The store {path.name}") if raw is not None else None
+        except MalformedStore as malformed:
+            return {
+                "level": "fail",
+                "detail": f"{malformed}, so the review server serves no verdict from it and refuses every save, and a pass refuses to land over it.",
+                "remedy": f"Restore a readable store from its journal: {MERGE_TOOL} --list names the recorded times, and {MERGE_TOOL} --restore-as-of <time> --apply restores one.",
+            }, None
     if autosave is None:
         return {
             "level": "warn",
@@ -498,7 +510,7 @@ def _fullest_verdicts_check(fullest_hit, fullest_rel, store_rel, store_records) 
         }
     return {
         "level": "warn",
-        "detail": "No verdicts file at the repo root is stamped for this corpus, and the store is missing or stamped for another corpus.",
+        "detail": "No verdicts file at the repo root is stamped for this corpus, and the store is missing, unreadable, holds a record the carry refuses, or is stamped for another corpus.",
         "remedy": None,
         "path": None,
         "count": None,
@@ -537,7 +549,7 @@ def compute_status(
     recompute=None,
     autosave=None,
 ) -> dict:
-    """Return the readiness dict. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name `make artifact-cycle` as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), and None to read `autosave_path`."""
+    """Return the readiness dict. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name `make artifact-cycle` as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), and None to read `autosave_path`. A store file that holds a record `verdict_store.well_formed` refuses fails the verdict-store check, naming the first such record (`verdict_store.read_store_document`), since the review server serves no verdict from it and refuses every save (`VerdictStore.reload`); serve.py passes None while its store is refused."""
     if recompute is None:
         recompute = fingerprint.compute_all
     repo_root = Path(repo_root)

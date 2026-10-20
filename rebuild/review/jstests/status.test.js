@@ -42,6 +42,18 @@ test('an error field folds the server message into the text', () => {
   assert.equal(model.remedy, 'restart the review server (make review-serve)');
 });
 
+test('a reply refusing the verdict store shows the refusal with no restart remedy, which a reply with any other error keeps', () => {
+  for (const reason of ['store-malformed', 'land-unrecoverable']) {
+    const error = 'the result run-1/verdicts-landing.json holds a verdict record on u-1 …';
+    const model = bannerModel({ ok: false, reason, error }, 'gen-1');
+    assert.equal(model.level, 'error');
+    assert.equal(model.text, `Autosave is off — ${error}`);
+    assert.equal(model.remedy, null);
+    assert.equal(model.command, null);
+  }
+  assert.equal(bannerModel({ ok: false, reason: 'other', error: 'boom' }, 'gen-1').command, 'make review-serve');
+});
+
 test('a payload without checks is unavailable', () => {
   const model = bannerModel({ ready: true, corpus: { generated_at: 'gen-1' } }, 'gen-1');
   assert.equal(model.level, 'error');

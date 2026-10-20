@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   OUTBOX_KEY,
   REPLAY_MAX_AGE_MS,
@@ -8,6 +9,8 @@ import {
   ackOutbox,
   dropOutbox,
   planOutboxReplay,
+  storeRefusalOf,
+  missingStoreRecords,
   currentEntries,
   markTabAlive,
   markTabClosed,
@@ -114,6 +117,35 @@ test('a reload leaves an entry whose set the server refuses for the download, an
   const delta = replayDelta('s1', plan.replay.get('s1'));
   assert.deepEqual(delta.sets, [{ unit: 'u-2', verdict: 'reject', note: '', at: 't2', base_at: null }]);
   assert.deepEqual(delta.clears, []);
+});
+
+test('the plan for a 404 refusing the store leaves a pending clear in the outbox, which the plan for the 404 for no store drops as saved', () => {
+  const clear = entry(null, { base_at: 't0', written_at: new Date().toISOString() });
+  for (const reason of ['store-malformed', 'land-unrecoverable']) {
+    const storage = memoryStorage();
+    writeOutbox(storage, [['u-1', clear]]);
+    const refused = { ok: false, reason, error: 'the store verdicts-autosave.json holds a verdict record on u-2 …' };
+    assert.equal(storeRefusalOf(refused), refused.error);
+    const plan = planOutboxReplay(readOutbox(storage), missingStoreRecords(refused));
+    assert.deepEqual(plan, { drop: [], replay: new Map(), stale: [] });
+    dropOutbox(storage, plan.drop);
+    assert.deepEqual(readOutbox(storage), { 'u-1': clear });
+  }
+  for (const missing of [{ ok: false, error: 'no autosave yet' }, null]) {
+    assert.equal(storeRefusalOf(missing), null);
+    assert.deepEqual(planOutboxReplay({ 'u-1': clear }, missingStoreRecords(missing)).drop, ['u-1']);
+  }
+});
+
+test("the app's boot plans its outbox after a 404 of the store only against missingStoreRecords of the reply", async () => {
+  const app = await readFile(new URL('../static/app.js', import.meta.url), 'utf8');
+  const start = app.indexOf('async function restoreAutosave()');
+  const branch = app.slice(start, app.indexOf('if (!response.ok)', start));
+  assert.ok(start >= 0 && branch.includes('response.status === 404'), 'restoreAutosave must answer a 404 first');
+  assert.deepEqual(
+    [...branch.matchAll(/planReplayFromOutbox\(([^;]*)\);/gu)].map((match) => match[1]),
+    ['missingStoreRecords(body)'],
+  );
 });
 
 test('the unsaved download puts each record a strict Import refuses in a file of its own, whatever its age, and the rest of its corpus imports', () => {
