@@ -188,6 +188,17 @@ policy:
       entry: baseline
       exit: none
     when:
+      right:
+        family:
+        - qsDay
+        - qsDay_qsUtter
+  - cell:
+      entry: none
+      exit: baseline
+    over:
+      entry: baseline
+      exit: none
+    when:
       left: {family: qsBay}
       right:
         family:
