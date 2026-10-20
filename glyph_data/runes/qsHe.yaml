@@ -140,6 +140,7 @@ policy:
     when:
       right:
         family:
+        - qsSee
         - qsRoe
         - qsExam
         - qsI
