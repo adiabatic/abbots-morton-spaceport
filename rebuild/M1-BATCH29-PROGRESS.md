@@ -6,11 +6,10 @@ Scratch for the ·He migration. Delete it when the review session closes the bat
 
 - The drafted ductus in `glyph_data/runes/qsHe.yaml` waits for the author's review, and its `# DRAFT` markers mark what to review. The old record has no ductus or notes for ·He, so both motions are drafted from the bitmaps.
 - The new review units wait for their review session. `make verdict-ready` reports whether the corpus is ready for it. Most new unmatched rows repeat a question the corpus already asks: ·He stands unjoined beside an existing unmatched window, or the rest of the window draws as it does with ·Ye, ·Tea, ·Pea, or ·Way in ·He's place. The junction changes at ·He, each accepted below:
-  - `·He | ·It ~x~ ·Jai` and the same before ·Cheer, where the old font draws `·He ~b~ ·It ~x~ ·Jai`;
-  - `·He | ·It ~x~ ·Eight` and the same before ·Awe and ·Ox, where the old font draws `·He.half ~x~ ·It | ·Eight`, as the rebuild draws them after half-·Tea and ·Pea;
+  - `·He.half ~x~ ·It | ·Jai` and the same before ·Cheer, where the old font draws `·He ~b~ ·It ~x~ ·Jai`;
   - `·He.half ~x~ ·It ~b~ ·Day` and the same before ·Low and ·Utter under ss04, where the old font draws `·He ~b~ ·It ~b~ ·Day`;
   - `·He.half ~x~ ·It ~b~ ·Zoo.half`, where the old font leaves ·He's baseline exit dangling and breaks (`·He | ·It ~b~ ·Zoo.half`), and the same before ·It·I and, outside ss04, before ·It·Day and ·It·Utter;
-  - `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings, where the old font draws `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and `·Bay ~b~ ·He | ·It ~x~ ·Jai`, where the old font draws `·Bay | ·He ~b~ ·It ~x~ ·Jai`;
+  - `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings, where the old font draws `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and `·Bay | ·He.half ~x~ ·It | ·Jai`, where the old font draws `·Bay | ·He ~b~ ·It ~x~ ·Jai`;
   - `·He.half ~x~ ·It | ·Thaw`, where the old font joins ·It·Thaw at the baseline.
 - `·They+Zoo | ·He` breaks, as in the old font: the baseline entry's `from:` names qsZoo, which would also admit the ligature that ends in it, so the scope excludes qsThey_qsZoo by name.
 - Joins with partners that are not migrated, to re-verify at each partner's migration, where the partner's row must admit ·He:
@@ -28,7 +27,7 @@ The old `exit_baseline` and `entry_baseline` stances draw the same bitmap, so th
 
 ·He prefers its follower: the old font joins the letter after ·He whenever it can and the letter before only otherwise. §5.9's single record, `{cell: {exit: baseline}, over: {entry: baseline}}`, misses the half's x-height exit, so the rune writes it as one yielding preference of no entry over a baseline entry, `{cell: {entry: none}, over: {entry: baseline}}`.
 
-The author rules that `·He ~b~ ·It` never happens (from ·Pea·He·It·Jay, where the old drawing is better), so the full stance's baseline exit does not name ·It, even where the old font draws `·He ~b~ ·It ~x~ ·Jai` and `·He ~b~ ·It ~x~ ·Cheer` and, under ss04, `·He ~b~ ·It ~b~ ·Day`. Before ·It only the half's x-height exit is on offer, and ·He then settles as half-·Tea does: `·He.half ~x~ ·It | ·Jay` and `·He | ·It ~x~ ·Eight`.
+The author rules that `·He ~b~ ·It` never happens (from ·Pea·He·It·Jay, where the old drawing is better), so the full stance's baseline exit does not name ·It, even where the old font draws `·He ~b~ ·It ~x~ ·Jai` and `·He ~b~ ·It ~x~ ·Cheer` and, under ss04, `·He ~b~ ·It ~b~ ·Day`. Before ·It only the half's x-height exit is on offer, and ·He then settles as half-·Tea does: `·He.half ~x~ ·It | ·Jay` and `·He.half ~x~ ·It | ·Eight`.
 
 The author accepts the junction changes the Parked list names (Q1–Q3). Under ss04 the half keeps `·He.half ~x~ ·It ~b~ ·Day`, the default drawing, rather than an ss04-gated preference for the baseline exit. `·He.half ~x~ ·It ~b~ ·Zoo.half` is what the old font draws after half-·Tea, and `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` is ·He's follower preference. ·He is Tall, so qsIt's refusal of its baseline exit into ·Thaw after a Tall letter also applies after ·He, as after half-·Tea.
 
