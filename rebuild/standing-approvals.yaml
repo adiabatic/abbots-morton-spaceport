@@ -2226,3 +2226,25 @@ rules:
         pivots: [qsEight.normal-sized-loop.en-y5]
         entry_drop: 1
       except_left: []
+  - id: ah-utter-they-xheight-join-created
+    verdict: approve
+    note: "·Ah and ·Utter join ·They at the x-height where the old font left a break: each draws a pixel of reach into the join, and ·They comes two columns nearer and holds its own advance. ·They's x-height entry has carried qsAh and qsUtter on its from-list since the letter landed in “Add ·They”, and the pixel of reach is each letter's own x-height extend record before ·They, ·Ah's from “Add ·Ah” and ·Utter's from “Checkpoint the ·Day, ·Utter, and ·No migration at 2,535 unmatched rows”. Every window that reached a review session approved the join"
+    match:
+      before:
+        pivot: [qsAh, qsUtter]
+        junction_out: break
+        follower: qsThey
+      after:
+        joined: y5
+        pivot_cells:
+          - qsAh/sole/None/x-height/ex-ext-1
+          - qsAh/sole/baseline/x-height/ex-ext-1
+          - qsUtter/mono/None/x-height/ex-ext-1
+          - qsUtter/mono/baseline/x-height/ex-ext-1
+        follower_after_cells:
+          - qsThey/sole/x-height/None/
+          - qsThey/sole/x-height/baseline/
+        shift: -2
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
