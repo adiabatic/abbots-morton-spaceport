@@ -2680,3 +2680,21 @@ rules:
         follower_after_cells:
           - qsHe/half/None/x-height/
       except_left: []
+  - id: he-no-xheight-join-retargeted
+    verdict: approve
+    note: "·He sits as the full letter joining ·No at the baseline — the old font drew the half joining at the x-height; ·He's full stance names ·No on its baseline exit and qsNo's flipped stance takes ·He on its baseline from-list since “Join full ·He to ·No, ·Gay, ·See and ·Roe at the baseline”. The user gave the join standing approval in any context at u-Yqd42pr64mx, and every window that reached a review session approved the lowered join"
+    match:
+      before:
+        pivot: qsHe.half
+        junction_out: y5
+        follower: qsNo
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsHe/full/None/baseline/
+        follower_after_cells:
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+        shift: -1
+        follower_shift: 0
+      except_left: []
