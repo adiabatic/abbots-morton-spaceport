@@ -167,6 +167,18 @@ policy:
     by: 2
     when:
       right: {family: qsLow}
+  - stance: curled-over
+    entry: baseline
+    by: 2
+    when:
+      left: {family: qsYe}
+  - stance: curled-over
+    entry: baseline
+    by: 3
+    when:
+      left:
+        family: qsYe
+        bitmap: climbing-loop
   contract: []
   resolve: []
   groups: {}

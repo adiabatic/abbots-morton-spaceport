@@ -742,11 +742,19 @@
 - signature: dangle:qsSee_qsUtter.sole:exit:x-height
   why: The ligature's x-height bar is drawn in every context, and the old font has no unjoined form of ·See·Utter, so a declined exit keeps it.
 
-# ·See·Pea joins at y6 in the old font (baseline row E65A:E650, junction y6). The curled-over crest's hook at y7, one row above the junction, is one column left of ·Pea's left side, an off-junction contact the old font also draws. There is one signature per curled-over variant (bare, entered, ZWNJ-locked) and ·Pea follower (full and half, with and without their onward exits).
+# ·See·Pea joins at y6 in the old font (baseline row E65A:E650, junction y6). The curled-over crest's hook at y7, one row above the junction, is one column left of ·Pea's left side, an off-junction contact the old font also draws. There is one signature per curled-over variant (bare, entered, entered with the baseline entry extension after ·Ye, two pixels after the loop and three after the climbing loop, ZWNJ-locked) and ·Pea follower (full and half, with and without their onward exits).
 - signature: contact:qsSee.curled-over.en-y0.ex-y6:qsPea.full.en-y6:y7
 - signature: contact:qsSee.curled-over.en-y0.ex-y6:qsPea.full.en-y6.ex-y0:y7
 - signature: contact:qsSee.curled-over.en-y0.ex-y6:qsPea.half.en-y6.ex-y5:y7
 - signature: contact:qsSee.curled-over.en-y0.ex-y6:qsPea.half.en-y6.ex-y6:y7
+- signature: contact:qsSee.curled-over.en-y0.ex-y6.en-ext-2:qsPea.full.en-y6:y7
+- signature: contact:qsSee.curled-over.en-y0.ex-y6.en-ext-2:qsPea.full.en-y6.ex-y0:y7
+- signature: contact:qsSee.curled-over.en-y0.ex-y6.en-ext-2:qsPea.half.en-y6.ex-y5:y7
+- signature: contact:qsSee.curled-over.en-y0.ex-y6.en-ext-2:qsPea.half.en-y6.ex-y6:y7
+- signature: contact:qsSee.curled-over.en-y0.ex-y6.en-ext-3:qsPea.full.en-y6:y7
+- signature: contact:qsSee.curled-over.en-y0.ex-y6.en-ext-3:qsPea.full.en-y6.ex-y0:y7
+- signature: contact:qsSee.curled-over.en-y0.ex-y6.en-ext-3:qsPea.half.en-y6.ex-y5:y7
+- signature: contact:qsSee.curled-over.en-y0.ex-y6.en-ext-3:qsPea.half.en-y6.ex-y6:y7
 - signature: contact:qsSee.curled-over.ex-y6:qsPea.full.en-y6:y7
 - signature: contact:qsSee.curled-over.ex-y6:qsPea.full.en-y6.ex-y0:y7
 - signature: contact:qsSee.curled-over.ex-y6:qsPea.half.en-y6.ex-y5:y7
@@ -2104,17 +2112,6 @@
 - signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0:y1
 - signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsYe.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
-
-# After ·Ye, the curled-over ·See's baseline entry lifts its curl into ·Ye's loop. It sits beside the loop at y7 and y6 after the isolated drawing. With the wider climbing loop it shares the two pixels at ·Ye's columns 3 and 4 and also sits beside the loop at y6. The old font draws the same composite (baseline rows E660:E65A:E650 and E665:E660:E65A:E650, `·Ye ~b~ ·See ~6~ ·Pea` with the same glyphs at the same anchors), so the overlap is the old drawing. There is one signature per ·Ye stance and lock variant against the y6-exiting ·See and per finding.
-- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsSee.curled-over.en-y0.ex-y6:overlap
-- signature: contact:qsYe.climbing-loop.en-y5.ex-y0:qsSee.curled-over.en-y0.ex-y6:y6
-  why: The pair in the `:overlap` signature above also touches at y6, off the junction row.
-- signature: contact:qsYe.loop.ex-y0:qsSee.curled-over.en-y0.ex-y6:y7
-- signature: contact:qsYe.loop.ex-y0:qsSee.curled-over.en-y0.ex-y6:y6
-  why: The pair in the `:y7` signature above also touches at y6, off the junction row.
-- signature: contact:qsYe.loop.ex-y0.locked:qsSee.curled-over.en-y0.ex-y6:y7
-- signature: contact:qsYe.loop.ex-y0.locked:qsSee.curled-over.en-y0.ex-y6:y6
-  why: The pair in the `:y7` signature above also touches at y6, off the junction row.
 
 # The ·Way+Utter ligature's crown is ·Utter's nub, unconditional letterform ink like the ·J'ai+Utter and ·They+Utter crowns above. The old font draws the bare ligature with the full crown at every word edge and before every non-joining follower (baseline rows E661:E67A and E661:E67A:E654), and quikscript.yaml has no unjoined form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The ligature has no entry, so the ZWNJ lock mints no locked copy of it, and this one cell is the only one the gate checks.
 - signature: dangle:qsWay_qsUtter.sole:exit:x-height
