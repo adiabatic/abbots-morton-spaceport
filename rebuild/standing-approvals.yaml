@@ -2216,3 +2216,13 @@ rules:
         follower_columns_added: 0
         pivot_stub_drop: 1
       except_left: []
+  - id: eight-normal-loop-entry-extension-dropped
+    verdict: approve
+    note: "·Eight's normal-sized loop sits a pixel closer where ·Pea, ·Tea or ·He joins it at the x-height — the extra pixel of x-height entry the old font drew after those letters came off qsEight's extend records in “Stop adding a pixel to the `·{Pea,Tea,He} ~x~ ·Eight` join”, and every window that reached a review session approved the shorter reach"
+    match:
+      before:
+        pivots: [qsEight.en-ext-1]
+      after:
+        pivots: [qsEight.normal-sized-loop.en-y5]
+        entry_drop: 1
+      except_left: []
