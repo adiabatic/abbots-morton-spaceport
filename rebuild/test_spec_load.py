@@ -206,8 +206,8 @@ def test_provenance_and_record_parsing(spec):
     assert refuse.provenance.file == "glyph_data/runes/qsIt.yaml"
     assert refuse.provenance.path == f"policy.refuse[{index}]"
     assert any(
-        record.exit == "baseline" and record.by == 1 and record.when.self_entry == "live"
-        for record in spec.runes["qsIt"].policy.extend
+        record.exit == "x-height" and record.by == 1 and record.when.self_entry == "live"
+        for record in spec.runes["qsMay"].policy.extend
     )
     assert any(
         record.entry == "x-height"

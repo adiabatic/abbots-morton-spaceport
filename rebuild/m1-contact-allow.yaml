@@ -802,6 +802,17 @@
 - signature: contact:qsIt.sole.ex-y0:qsOut_qsTea.sole.en-y0:y1
 - signature: contact:qsIt.sole.ex-y0:qsOut_qsTea.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+# ·It entered at the x-height and exiting at the baseline with no exit extension draws the same bar as the bare ·It, so it touches every ·Out form and the ·Out+Tea ligature at the same rows.
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOut.normal.en-y0:y1
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOut_qsTea.sole.en-y0:y1
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOut_qsTea.sole.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOy.sole.en-y5.ex-y0:qsOut.normal.en-y0:y1
 - signature: contact:qsOy.sole.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsOy.sole.en-y5.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
@@ -1169,6 +1180,14 @@
 - signature: contact:qsIt.sole.ex-y0:qsOoze.sole.en-y0:y1
   why: ·It·Ooze joins at the baseline in the old font (baseline row E670:E67E, junction y0); ·It's bar at y1 is one column left of ·Ooze's left leg, the same two vertical strokes side by side as ·Tea·Ooze.
 - signature: contact:qsIt.sole.ex-y0:qsOoze.sole.en-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOoze.sole.en-y0.ex-y0:y1
+  why: The x-height-entered ·It·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; with no exit extension the bar sits where the bare ·It's does.
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOoze.sole.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOoze.sole.en-y0:y1
+  why: The x-height-entered variant of the blessed ·It·Ooze off-junction contact (·No·It·Ooze, ·Low·It·Ooze); with no exit extension the bar sits where the bare ·It's does.
+- signature: contact:qsIt.sole.en-y5.ex-y0:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOx.sole.en-y5.ex-y0.en-ext-1:qsOoze.sole.en-y0.ex-y0:y1
   why: The entry-extended ·Ox·Ooze off-junction contact with ·Ooze carrying its own baseline exit onward; the left leg does not move.

@@ -212,23 +212,6 @@ policy:
   - exit: baseline
     by: 1
     when:
-      self: {entry: live}
-      left: {joined_at: x-height}
-      right:
-        except:
-        - {family: qsDay}
-        - {family: qsDay_qsUtter}
-        - {family: qsThaw}
-        - {family: qsVie}
-        - {family: qsVie_qsUtter}
-        - {family: qsZoo}
-        - {family: qsMay}
-        - {family: qsLow}
-        - {family: qsI}
-        - {family: qsUtter}
-  - exit: baseline
-    by: 1
-    when:
       right:
         family:
         - qsOwe
