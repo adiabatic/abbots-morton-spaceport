@@ -864,23 +864,39 @@ rules:
         follower_advance: 1
         follower_columns_added: 0
       except_left: []
-  - id: may-ah-baseline-join-created
+  - id: may-baseline-join-created
     verdict: approve
-    note: "·May joins ·Ah at the baseline where the old font left a break, and ·Ah closes two columns onto it — qsAh's baseline entry has carried qsMay on its from-list since the letter landed in “Add ·Ah”, and qsMay's grounded-loop stance exits at the baseline with nothing on its refuse list standing between the two, so the junction settles on join-count rank with no policy record involved. What puts ·May in that grounded-loop stance settles the same way, and the user's own ·Utter policy anticipates it — the mono x-height reach into a pulled-back ·May “wins only when it buys a better join”, written at “Make ·Utter·May·May chain through a pulled-back-grounded ·May” — where here the better join is this one. Every window that reached a review session approved this join or called it either"
+    note: "·May joins ·Vie, ·See, ·May, ·Low, ·At, ·Ah or ·Out at the baseline where the old font left a break, and that letter closes two columns onto it — the baseline entries of qsVie, qsSee, qsLow and qsMay's own loop carry no from-list at all, qsAt's, qsOut's and qsAh's have carried qsMay on their from-lists since the letters landed in “Add ·At”, “Add ·Out” and “Add ·Ah”, and qsMay's grounded-loop stance exits at the baseline with nothing on its refuse list standing between them, so the junction settles on join-count rank with no policy record involved. What puts ·May in that grounded-loop stance settles the same way, and the user's own ·Utter policy anticipates it — the mono x-height reach into a pulled-back ·May “wins only when it buys a better join”, written at “Make ·Utter·May·May chain through a pulled-back-grounded ·May” — where here the better join is this one. Every window that reached a review session approved this join or called it either"
     match:
       before:
         pivot: qsMay
         junction_out: break
-        follower: qsAh
+        follower: [qsVie, qsSee, qsMay, qsLow, qsAt, qsAh, qsOut]
       after:
         joined: y0
         pivot_cells:
           - qsMay/grounded-loop/None/baseline/
           - qsMay/grounded-loop/x-height/baseline/
         follower_after_cells:
+          - qsVie/normal/baseline/None/
+          - qsVie/swept-out/baseline/baseline/
+          - qsSee/curled-over/baseline/y6/
+          - qsSee/normal/baseline/None/
+          - qsSee/normal/baseline/top/
+          - qsMay/loop/baseline/None/
+          - qsMay/loop/baseline/x-height/ex-ext-1
+          - qsMay/loop/baseline/x-height/ex-ext-2
+          - qsLow/sole/baseline/None/
+          - qsLow/sole/baseline/x-height/
+          - qsLow/sole/baseline/x-height/ex-ext-1
+          - qsAt/rising/baseline/None/
+          - qsAt/rising/baseline/x-height/
           - qsAh/sole/baseline/None/
           - qsAh/sole/baseline/x-height/
           - qsAh/sole/baseline/x-height/ex-ext-1
+          - qsOut/normal/baseline/None/
+          - qsOut/swept-up/baseline/x-height/
+          - qsOut/swept-up/baseline/x-height/ex-ext-1
         shift: -2
         follower_advance: 0
         follower_columns_added: 0
@@ -906,10 +922,10 @@ rules:
       except_left: []
   - id: utter-baseline-join-created
     verdict: approve
-    note: "·Bay and ·Gay both join ·Utter at the baseline where the old font left a break, and ·Utter closes a column onto each of them and gives it straight back: the mono form that takes the join carries its exit a column further, so the letter comes nearer while everything past it stands where it was. qsUtter's mono stance carries an unrestricted baseline entry — no from-list at all, so every left letter with an open baseline exit reaches it — and has since the letter landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, while the alternate stance's only entry is the scoped x-height one, which is why the old pipeline broke here. Every window that reached a review session approved the join"
+    note: "·Bay, ·Key and ·Gay all join ·Utter at the baseline where the old font left a break, and ·Utter closes a column onto each of them and gives it straight back: the mono form that takes the join carries its exit a column further, so the letter comes nearer while everything past it stands where it was. qsUtter's mono stance carries an unrestricted baseline entry — no from-list at all, so every left letter with an open baseline exit reaches it — and has since the letter landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, while the alternate stance's only entry is the scoped x-height one, which is why the old pipeline broke here. Before ·May, ·Key takes the join only under the default features: qsKey's and qsUtter's records that keep The Manual's `·Key | ·Utter.alt ~b~ ·May` apply under ss08 alone since “Draw ·Key·Utter·May as `·Key ~b~ ·Utter ~x~ ·May`, with The Manual's `·Key | ·Utter.alt ~b~ ·May` behind ss08”. Every window that reached a review session approved the join"
     match:
       before:
-        pivot: [qsBay, qsGay]
+        pivot: [qsBay, qsKey, qsGay]
         junction_out: break
         follower: qsUtter
       after:
@@ -917,6 +933,8 @@ rules:
         pivot_cells:
           - qsBay/sole/None/baseline/
           - qsBay/sole/x-height/baseline/
+          - qsKey/sole/None/baseline/
+          - qsKey/sole/top/baseline/
           - qsGay/sole/None/baseline/
           - qsGay/sole/x-height/baseline/
         follower_after_cells:
@@ -1681,12 +1699,28 @@ rules:
           - qsFee/loop/None/x-height/
           - qsFee/loop/None/x-height/ex-ext-1
       except_left: []
+  - id: entered-may-fee-xheight-join-dropped
+    verdict: approve
+    note: "·Fee stays where it stood after a ·May that has taken a new x-height entry — the two no longer join at the x-height, ·May gives up its whole exit stroke as it redraws in place, and ·Fee draws its plain loop instead, so the break opens no gap. The break is decided from ·May's side: qsMay's prefer record yields its own x-height exit before ·Fee under the except clause added in “Make ·Fee join forward at the x-height, and back into ·Day·Utter”, and the loop stance forbids taking an x-height entry and an x-height exit at once, so a ·May that has taken one has nothing left to reach with. The loop ·Fee draws once the reach behind it is gone is qsFee's prefer record, carrying the user's why at “·Fee: Prefer connecting to the next letter, not the previous”. It names the cells both letters settle into rather than holding ·May's picture, because ·May redraws in place. Every window that reached a review session approved the break or called it either"
+    match:
+      before:
+        pivot: qsMay
+        junction_out: y5
+        follower: qsFee
+      after:
+        gap: 0
+        pivot_cells:
+          - qsMay/loop/x-height/None/
+        follower_after_cells:
+          - qsFee/loop/None/None/
+      except_left: []
   - id: may-xheight-exit-and-reach-dropped
     verdict: approve
     note: "·May draws its plain loop where the old font drew an x-height exit stroke with a pixel of reach on it into a break, and whatever follows comes two columns closer — the stroke and the reach going together. The decision sits on qsMay's own records: the refuse record gives the baseline exit up before ·Tea on the user's why at “Let ·Ah·May·Tea join on both sides of ·May again”, everywhere but after ·Ah and unconditionally under ss03, the x-height exit that would otherwise stand in its place is the one qsMay's prefer record declines before ·Tea, an exception it has carried since “Reach ·Utter into ·May, and rejoin four more chains”, and the loop stance forbids taking an x-height entry and an x-height exit at once, so a ·May that has taken a new x-height entry reaches nothing forward. The cell swap is read at the pivot alone and says nothing about that letter's own outgoing junction, so a window where the ·Fee ·May used to reach at the x-height stands off it instead gives those two columns straight back, and the rule does not match it. Every window that reached a review session approved this loop or called it either"
     match:
       before:
         pivots: [qsMay.ex-ext-1, qsMay.en-y0.ex-y5.ex-ext-1]
+        junction_out: break
       after:
         pivots: [qsMay.loop.en-y5]
         dropped: [[1, 1], [1, 2], [1, 4], [1, 5], [2, 6], [2, 7], [3, 0], [3, 3], [3, 8], [4, 1], [4, 2], [4, 8], [5, 8]]

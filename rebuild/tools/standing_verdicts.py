@@ -20,7 +20,7 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `stub-dropped` (declared by `stub_drop`): the pivot gives up a named left-side stub while the ink it keeps stays in place. Its own-frame picture is the old one compacted left by the count, its placement moves right by the count, and every other pixel in the window is unmoved. The placement move is what separates it from `entry-extension-dropped`, whose remaining ink moves closer. ·May losing the leftover left pixel after ·Ah matches. A pivot is a position whose before and after names both carry the named prefixes: a second ·May that keeps its old loop is judged as ordinary ink, because only the before form says which of the two after loops lost the stub.
 
-- `redrawn` (declared by `dropped`): the pivot's new form is its old picture with the named `dropped` cells removed and the named `added` cells present, both read at one common column offset, because an entry extension inserts a column at the pivot's left edge and an entry-extended variant shows the same cell swap one column over. The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one: the frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement move, and the span after it is compared together with the pivot's after picture, so a cell the pivot takes over from its follower at the same place does not count as a change: ·I's smaller loop drawing the ·I·They connector pixel the old font drew on ·They's entry. ·Eight's bowl pulling in one column before ·Tea and ·It is one example. ·J'ai's crown coming in after a half-height ·Pea or ·Tea moves the letter and the rest of the word, while the same crown after an ·At the old font had already contracted moves only what the dropped tail moves, and ·Gay's baseline entry pulling in after ·No leaves the letter where it was, because its frame takes the whole contraction. `added` may be empty for a form that only loses ink (·Key's foot losing its terminal pixel before ·May, ·No, and ·It). This is the shape for an exit contraction whenever its windows carry any other change, because `extension-dropped` reads only names and never looks at the window's ink.
+- `redrawn` (declared by `dropped`): the pivot's new form is its old picture with the named `dropped` cells removed and the named `added` cells present, both read at one common column offset, because an entry extension inserts a column at the pivot's left edge and an entry-extended variant shows the same cell swap one column over. The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one: the frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement move, and the span after it is compared together with the pivot's after picture, so a cell the pivot takes over from its follower at the same place does not count as a change: ·I's smaller loop drawing the ·I·They connector pixel the old font drew on ·They's entry. ·Eight's bowl pulling in one column before ·Tea and ·It is one example. ·J'ai's crown coming in after a half-height ·Pea or ·Tea moves the letter and the rest of the word, while the same crown after an ·At the old font had already contracted moves only what the dropped tail moves, and ·Gay's baseline entry pulling in after ·No leaves the letter where it was, because its frame takes the whole contraction. `added` may be empty for a form that only loses ink (·Key's foot losing its terminal pixel before ·May, ·No, and ·It). A rule may also name the before `junction_out` its pivot opens, and then a position whose before junction differs is not a pivot: ·May giving up its x-height stroke and reach into a break brings what follows two columns closer, while the same loop giving up its x-height join into ·Fee leaves ·Fee where it stood, which is the join-dropped shape's subject. This is the shape for an exit contraction whenever its windows carry any other change, because `extension-dropped` reads only names and never looks at the window's ink.
 
 - `join-retargeted` (declared by `retarget`): a named join changes height. The pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower moves by `follower_shift` (zero where the new join leaves it standing, -2 where ·Utter reaching ·May at the x-height pulls ·May back), and everything after the follower moves by `shift`. Half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline is an example.
 
@@ -1233,7 +1233,7 @@ def _push(before, after, expected, room):
 
 
 def _redrawn_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is the named redraw at every pivot position, shaped under the unit's first config. A pivot is a position whose before name carries a before prefix and whose after name carries an after prefix. The walk is by position because the same before name can be a pivot at one position and unchanged at another (a second ·Eight that keeps its normal loop), and only the after name says which. Each pivot must pass `_redrawn_holds`, and its placement may sit left of the running displacement by at most the contraction room its own frame did not take (`_pull`). At each pivot the displacement grows by the declared shift plus that offset, and every span between pivots must render identically under it, the span after a pivot compared together with that pivot's after picture so a cell handed to the pivot at the same place does not count. No pivot position, a before run that differs from the recorded glyphs, a different glyph count on the two sides, an off-grid placement, a non-rectilinear outline, or a cell lost or gained outside the named sets returns False, so the unit waits for human review."""
+    """Whether the window's rendered before→after change is the named redraw at every pivot position, shaped under the unit's first config. A pivot is a position whose before name carries a before prefix, whose after name carries an after prefix, and which opens the rule's named `junction_out`, if it names one (`_opens_named_junction`). The walk is by position because the same before name can be a pivot at one position and unchanged at another (a second ·Eight that keeps its normal loop), and only the after name says which. Each pivot must pass `_redrawn_holds`, and its placement may sit left of the running displacement by at most the contraction room its own frame did not take (`_pull`). At each pivot the displacement grows by the declared shift plus that offset, and every span between pivots must render identically under it, the span after a pivot compared together with that pivot's after picture so a cell handed to the pivot at the same place does not count. No pivot position, a before run that differs from the recorded glyphs, a different glyph count on the two sides, an off-grid placement, a non-rectilinear outline, or a cell lost or gained outside the named sets returns False, so the unit waits for human review."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -1257,6 +1257,7 @@ def _redrawn_geometry(match, unit, comparator):
         for index in range(len(before_names))
         if _named_pivot(before_names[index], match["before"]["pivots"])
         and _named_pivot(after_names[index], match["after"]["pivots"])
+        and _opens_named_junction(match, unit, index)
     }
     if not pivots:
         return False
@@ -1291,18 +1292,19 @@ def _redrawn_geometry(match, unit, comparator):
 
 
 def _matches_redrawn(match, unit, excluded, context=None):
-    """A letter redrawn in place to a named new form, matched at the pixel level: the before pivot form becomes an after pivot form whose own-frame picture is the old one with the named cells dropped and added at one common column offset (`_redrawn_geometry`). The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one. The frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement change; the shift may be zero when the new form keeps the pivot's advance. A cell the pivot's new form paints where the follower's old form painted it is handed over, not changed: ·I's smaller loop takes the ·I·They connector pixel off ·They's entry and its advance grows by that column. The added set may be empty, for a form that only loses ink: ·Key's foot dropping its terminal pixel and its follower coming a column closer. The extension-dropped shape reads only names and so cannot see the rest of the window's ink, which is why this shape is the one for an exit contraction in a window that carries anything else. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A letter redrawn in place to a named new form, matched at the pixel level: the before pivot form becomes an after pivot form whose own-frame picture is the old one with the named cells dropped and added at one common column offset (`_redrawn_geometry`). The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one. The frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement change; the shift may be zero when the new form keeps the pivot's advance. A cell the pivot's new form paints where the follower's old form painted it is handed over, not changed: ·I's smaller loop takes the ·I·They connector pixel off ·They's entry and its advance grows by that column. The added set may be empty, for a form that only loses ink: ·Key's foot dropping its terminal pixel and its follower coming a column closer. A named `junction_out` limits the pivots to the positions whose before junction it is, so the declared shift is claimed only where it holds. The extension-dropped shape reads only names and so cannot see the rest of the window's ink, which is why this shape is the one for an exit contraction in a window that carries anything else. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
     if len(set(deltas.values())) != 1 or set(deltas) != set(unit.get("configs") or []):
         return False
-    if not any(_named_pivot(name, match["before"]["pivots"]) for name in unit["before"]["glyphs"]):
+    if not _candidates(match, unit):
         return False
     if context is None:
         raise ValueError("the redrawn shape re-shapes windows in the corpus's fonts and needs a SlideContext")
     key = (
         tuple(match["before"]["pivots"]),
+        match["before"].get("junction_out"),
         tuple(match["after"]["pivots"]),
         tuple(sorted(tuple(point) for point in match["after"]["dropped"])),
         tuple(sorted(tuple(point) for point in match["after"]["added"])),
@@ -1318,7 +1320,13 @@ def _matches_redrawn(match, unit, excluded, context=None):
 
 
 def _validate_redrawn(rule_id, match) -> None:
-    """Check a redrawn rule at load: all pivot forms on both sides belong to one family, since the rule describes one letter's new form; `dropped` names at least one cell; and no cell is in both `dropped` and `added`. `added` may be empty, for a form that only loses ink (·Key's foot losing its terminal pixel before ·May, ·No, and ·It)."""
+    """Check a redrawn rule at load: all pivot forms on both sides belong to one family, since the rule describes one letter's new form; `dropped` names at least one cell; no cell is in both `dropped` and `added`; and a named `junction_out` is `break` or a yK height, the two spellings a before junction takes. `added` may be empty, for a form that only loses ink (·Key's foot losing its terminal pixel before ·May, ·No, and ·It)."""
+    junction = match["before"].get("junction_out")
+    if junction is not None and junction != "break" and not JUNCTION_ROW.fullmatch(junction):
+        _fail(
+            f"rule {rule_id!r}: match.before.junction_out is {junction!r}, which is neither break nor a "
+            "yK height"
+        )
     families = {_family(name) for name in match["before"]["pivots"] + match["after"]["pivots"]}
     if len(families) != 1:
         _fail(
@@ -1660,6 +1668,15 @@ def _is_redrawn_match(match):
     return SHAPES["redrawn"].keyed_by in match["after"]
 
 
+def _opens_named_junction(match, unit, index):
+    """Whether the redrawn pivot at `index` opens the before junction its rule names, or True when the rule names none. A pivot with no letter after it in the window opens no junction, so it never satisfies a named one."""
+    junction = match["before"].get("junction_out")
+    if junction is None:
+        return True
+    junctions = unit["before"]["junctions"]
+    return index < len(junctions) and junctions[index] == junction
+
+
 def _is_retarget_match(match):
     return SHAPES["join-retargeted"].keyed_by in match["after"]
 
@@ -1681,7 +1698,7 @@ def _candidate_counts(rules, unit):
 
 
 def _candidates(match, unit):
-    """Return the window positions where a combinable rule could hold, read from the unit's index record without shaping. Slide, ink-gain, entry-drop, stub-drop, and redrawn rules use every position whose before glyph carries a before pivot prefix. Entry-contracted rules use `_contracted_entry_candidates`, join-dropped rules `_join_pairs`, and join-retargeted and join-created rules `_retarget_pairs`. Extension rules use `_extension_positions`, and return none when `junction_out` is not a yK height, because the walk needs a row for the dropped tail. This is the name-only precheck: a rule with no candidate is never counted, and a window with fewer than two candidate positions across all rules is never shaped."""
+    """Return the window positions where a combinable rule could hold, read from the unit's index record without shaping. Slide, ink-gain, entry-drop, stub-drop, and redrawn rules use every position whose before glyph carries a before pivot prefix, and a redrawn rule that names a `junction_out` only the positions that open it (`_opens_named_junction`). Entry-contracted rules use `_contracted_entry_candidates`, join-dropped rules `_join_pairs`, and join-retargeted and join-created rules `_retarget_pairs`. Extension rules use `_extension_positions`, and return none when `junction_out` is not a yK height, because the walk needs a row for the dropped tail. This is the name-only precheck: a rule with no candidate is never counted, and a window with fewer than two candidate positions across all rules is never shaped."""
     glyphs = unit["before"]["glyphs"]
     if (
         _is_slide_match(match)
@@ -1690,7 +1707,11 @@ def _candidates(match, unit):
         or _is_stub_match(match)
         or _is_redrawn_match(match)
     ):
-        return [i for i, name in enumerate(glyphs) if _named_pivot(name, match["before"]["pivots"])]
+        return [
+            i
+            for i, name in enumerate(glyphs)
+            if _named_pivot(name, match["before"]["pivots"]) and _opens_named_junction(match, unit, i)
+        ]
     if _is_entry_contracted_match(match):
         return _contracted_entry_candidates(match, unit)
     if _is_join_match(match):
@@ -2435,6 +2456,7 @@ SHAPES = {
         cell_lists=(),
         matcher=_matches_redrawn,
         validate=_validate_redrawn,
+        before_optional=("junction_out",),
         name_lists=("pivots",),
         int_fields=("shift",),
         point_lists=("dropped", "added"),

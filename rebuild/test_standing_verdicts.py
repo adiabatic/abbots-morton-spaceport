@@ -7170,6 +7170,38 @@ def test_a_pure_redrawn_window_is_not_combined(slide_context):
     assert sv._matches(REDRAWN_RULE["match"], redrawn_window(), context=context)
 
 
+def _opening(rule, junction):
+    narrowed = json.loads(json.dumps(rule))
+    narrowed["match"]["before"]["junction_out"] = junction
+    return narrowed
+
+
+def test_a_redrawn_rule_naming_a_junction_reads_only_the_pivots_that_open_it(slide_context):
+    context = slide_context()
+    assert sv._matches(_opening(REDRAWN_RULE, "y0")["match"], redrawn_window(), context=context)
+    breaking = _opening(REDRAWN_RULE, "break")["match"]
+    assert sv._candidates(breaking, redrawn_window()) == []
+    assert not sv._matches(breaking, redrawn_window(), context=context)
+
+
+def test_a_redrawn_rule_naming_another_junction_leaves_the_position_to_the_rule_that_holds(slide_context):
+    """Two redrawn rules claiming one position refuse the window, so a rule whose declared shift holds only before a named junction steps aside where the pivot opens another one, and the other rules explain the window as they would alone."""
+    twin = _opening(REDRAWN_UNDER_CREATED_JOIN_RULE, "y0")
+    twin["id"] = REDRAWN_UNDER_CREATED_JOIN_RULE["id"] + "-before-a-join"
+    events = sv._combined_match(
+        REDRAWN_CREATED_JOIN_RULES + [twin], redrawn_created_join_window(), slide_context()
+    )
+    assert events == {
+        REDRAWN_UNDER_CREATED_JOIN_RULE["id"]: [1],
+        REDRAWN_CREATED_JOIN_RULE["id"]: [1],
+    }
+    twin = _opening(twin, "break")
+    assert (
+        sv._combined_walk(REDRAWN_CREATED_JOIN_RULES + [twin], redrawn_created_join_window(), slide_context())
+        is None
+    )
+
+
 def test_a_redrawn_rule_loads(tmp_path):
     [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [REDRAWN_RULE]))
     assert rule["match"]["before"] == {"pivots": ["qsEight"]}
@@ -7179,6 +7211,8 @@ def test_a_redrawn_rule_loads(tmp_path):
         "added": [[1, 1]],
         "shift": 0,
     }
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [_opening(REDRAWN_RULE, "break")]))
+    assert rule["match"]["before"] == {"pivots": ["qsEight"], "junction_out": "break"}
 
 
 @pytest.mark.parametrize(
@@ -7196,6 +7230,8 @@ def test_a_redrawn_rule_loads(tmp_path):
         lambda rule: rule["match"]["after"].update(shift=True),
         lambda rule: rule["match"]["after"].update(pivots=["qsEight/smaller-loop/None/baseline/"]),
         lambda rule: rule["match"].update(except_left="qsL"),
+        lambda rule: rule["match"]["before"].update(junction_out="x-height"),
+        lambda rule: rule["match"]["before"].update(junction_out=""),
     ],
 )
 def test_malformed_redrawn_rules_are_refused(tmp_path, mutate):
