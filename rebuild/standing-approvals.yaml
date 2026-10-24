@@ -1988,3 +1988,15 @@ rules:
         added: []
         shift: -1
       except_left: []
+  - id: eight-smaller-loop-entry-extension-dropped
+    verdict: approve
+    note: "·Eight draws its smaller loop where ·Pea, ·Tea or ·He joins it at the x-height, and whatever follows comes a pixel closer — the extra pixel of x-height entry the old font drew after those letters came off qsEight's extend records, the smaller-loop one among them, in “Stop adding a pixel to the `·{Pea,Tea,He} ~x~ ·Eight` join”, and the loop is the stance authored as “Give ·Eight a smaller loop before ·Tea and ·It, mirroring ·I's” and opened to ·I in “Draw both loops smaller in ·Eight ~b~ ·I”; every window that reached a review session approved the tighter bowl and the shorter reach"
+    match:
+      before:
+        pivots: [qsEight.en-ext-1]
+      after:
+        pivots: [qsEight.smaller-loop]
+        dropped: [[1, 5], [2, 4], [3, 2], [3, 3], [3, 5], [4, 1], [4, 3], [4, 5], [5, 0], [5, 4]]
+        added: [[1, 3], [1, 4], [2, 2], [2, 5], [3, 1], [3, 4], [4, 0]]
+        shift: -1
+      except_left: []
