@@ -106,7 +106,6 @@ policy:
   refuse: []
   prefer:
   - cell: {entry: x-height}
-    over: {exit: x-height}
   - cell: {entry: baseline}
     over: {entry: x-height}
     when:

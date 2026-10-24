@@ -170,7 +170,6 @@ policy:
   prefer:
   - id: withhold-before-no-after-oy
     cell: {exit: none}
-    over: {exit: x-height}
     when:
       left:
         family: qsOy
@@ -186,7 +185,6 @@ policy:
         then: {family: qsEight}
     why: Required to match what The Manual does
   - cell: {exit: baseline}
-    over: {exit: x-height}
     mode: absolute
     when:
       left:

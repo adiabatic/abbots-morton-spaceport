@@ -2599,9 +2599,9 @@ impl<'i> Engine<'i> {
 
     // --- prefers ---------------------------------------------------------------------
 
-    /// Whether one prefer record favors this candidate. `None` means the record has nothing to say about this window, which keeps an irrelevant record out of the stage instead of counting it against the candidate.
+    /// Whether one prefer record favors this candidate. `None` means the record has nothing to say about this candidate: its `when:` refuses it, it lies outside the stance of a record that names a stance and a cell, it matches neither the record's cell nor its `over:`, or, for a follower prefer, no continuation under it is relevant. [`Engine::apply_prefers`] keeps a `None` candidate, without counting it as support, when the record has a cell and names a stance or an `over:`, and otherwise drops it as it drops `Some(false)`.
     ///
-    /// A record of our own rune targets the candidate's stance or cell directly and reads the window's deep slots as they are. A record with both a stance and a cell compares cells only within that stance: the stance limits where the preference applies and is not itself the demand. A follower's record is instead a follower prefer: it favors the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's junction. With `follower_prefer_slots` on, the follower prefer reads the window's slots shifted by one, so a chained condition resolves inside the window. With it off, everything past the follower prefer's own `right1` is `follower_prefer_deep_slot`, and unknown verdicts there count as firing, so a deep-chained condition has to be repeated on every possible left rune instead of written once on the rune that owns it.
+    /// A record of our own rune targets the candidate's stance or cell directly and reads the window's deep slots as they are. A record with a cell compares cells only within its stance when it names one, and ranks its cell only above the cells its `over:` matches when it names one: each limits where the preference applies, the same with or without the other, and neither is itself the demand. A follower's record is instead a follower prefer: it favors the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's junction, and it skips a continuation that lies outside a cell record's stance or matches neither that record's cell nor its `over:`. With `follower_prefer_slots` on, the follower prefer reads the window's slots shifted by one, so a chained condition resolves inside the window. With it off, everything past the follower prefer's own `right1` is `follower_prefer_deep_slot`, and unknown verdicts there count as firing, so a deep-chained condition has to be repeated on every possible left rune instead of written once on the rune that owns it.
     fn prefer_favors(
         &mut self,
         owner: Sym,
@@ -2689,8 +2689,7 @@ impl<'i> Engine<'i> {
             if verdict == Some(false) {
                 continue;
             }
-            if record.stance.is_some()
-                && let Some(pattern) = record.cell.as_ref()
+            if let Some(pattern) = record.cell.as_ref()
                 && !cell_pattern_matches(vocab, pattern, cell)
                 && record
                     .over
@@ -2788,7 +2787,7 @@ impl<'i> Engine<'i> {
                 let Some(favors) =
                     self.prefer_favors(owner, record, rune_name, *candidate, left, slots)?
                 else {
-                    if record.stance.is_some() && record.cell.is_some() {
+                    if record.cell.is_some() && (record.stance.is_some() || record.over.is_some()) {
                         favored.insert(*candidate);
                     }
                     continue;
@@ -6453,6 +6452,224 @@ mod tests {
                 Ok(Some(expected)),
                 "an entered full stance cannot exit; the half stance's available exit is not one this record favors"
             );
+        }
+    }
+
+    #[test]
+    fn over_leaves_a_candidate_matching_neither_pattern_neutral_with_or_without_a_stance() {
+        let safe = |height: &str| row(height, &[("unjoined", "\"safe\"")]);
+        let tea = letter(
+            "qsTea",
+            &[stance(
+                "hook",
+                &surface(
+                    &object(&[row("x-height", &[]), row("baseline", &[])]),
+                    "{}",
+                    &[],
+                ),
+            )],
+            &plain_policy(),
+        );
+        for names_a_stance in [false, true] {
+            let mut fields = vec![
+                ("cell", r#"{"exit":"none"}"#),
+                ("over", r#"{"exit":"baseline"}"#),
+                ("mode", "\"absolute\""),
+            ];
+            if names_a_stance {
+                fields.push(("stance", "\"stroke\""));
+            }
+            let policy = fixtures::policy(&[(
+                "prefer",
+                &fixtures::seq(&[&pointed_record("prefer", "qsPea", 0, &fields)]),
+            )]);
+            let index = spec_of(&[
+                letter(
+                    "qsPea",
+                    &[stance(
+                        "stroke",
+                        &surface("{}", &object(&[safe("x-height"), safe("baseline")]), &[]),
+                    )],
+                    &policy,
+                ),
+                tea.clone(),
+            ]);
+            let mut engine = Engine::new(&index, no_features());
+            let trace = settle_pea(
+                &mut engine,
+                Slots::pair(letter_token(&index, "qsTea"), EDGE),
+            )
+            .expect("the fixture settles");
+            assert_eq!(
+                trace.settled.junction,
+                Some(fixtures::sym(&index, "x-height")),
+                "the record demotes only the baseline exit, so the x-height exit, which matches neither pattern, survives it and wins on join count"
+            );
+            assert_eq!(trace.decided_stage, DecidedStage::JoinCount);
+            assert_eq!(trace.notes, ["prefer applied: qsPea.yaml:policy.prefer[0]"]);
+        }
+    }
+
+    #[test]
+    fn follower_over_skips_a_continuation_matching_neither_pattern_with_or_without_a_stance() {
+        let safe = |height: &str| row(height, &[("unjoined", "\"safe\"")]);
+        let pea = letter(
+            "qsPea",
+            &[stance(
+                "stroke",
+                &surface("{}", &object(&[safe("x-height"), safe("baseline")]), &[]),
+            )],
+            &plain_policy(),
+        );
+        for names_a_stance in [false, true] {
+            let mut fields = vec![
+                ("cell", r#"{"entry":"none"}"#),
+                ("over", r#"{"entry":"baseline"}"#),
+                ("mode", "\"absolute\""),
+            ];
+            if names_a_stance {
+                fields.push(("stance", "\"hook\""));
+            }
+            let tea_policy = fixtures::policy(&[(
+                "prefer",
+                &fixtures::seq(&[&pointed_record("prefer", "qsTea", 0, &fields)]),
+            )]);
+            let index = spec_of(&[
+                pea.clone(),
+                letter(
+                    "qsTea",
+                    &[stance(
+                        "hook",
+                        &surface(
+                            &object(&[row("x-height", &[]), row("baseline", &[])]),
+                            "{}",
+                            &[],
+                        ),
+                    )],
+                    &tea_policy,
+                ),
+            ]);
+            let pea_name = fixtures::sym(&index, "qsPea");
+            let tea_name = fixtures::sym(&index, "qsTea");
+            let stroke = fixtures::sym(&index, "stroke");
+            let record = &index
+                .rune(tea_name)
+                .expect("qsTea is modeled")
+                .policy
+                .prefer[0];
+            let slots = Slots::pair(letter_token(&index, "qsTea"), EDGE);
+            let mut engine = Engine::new(&index, no_features());
+            for (candidate, expected) in [
+                (
+                    Candidate::non_joining(&index, pea_name, stroke, None, 0),
+                    Some(true),
+                ),
+                (
+                    Candidate::joining(
+                        &index,
+                        pea_name,
+                        stroke,
+                        None,
+                        fixtures::sym(&index, "baseline"),
+                        0,
+                        1,
+                    ),
+                    Some(false),
+                ),
+                (
+                    Candidate::joining(
+                        &index,
+                        pea_name,
+                        stroke,
+                        None,
+                        fixtures::sym(&index, "x-height"),
+                        0,
+                        0,
+                    ),
+                    None,
+                ),
+            ] {
+                assert_eq!(
+                    engine.prefer_favors(
+                        tea_name,
+                        record,
+                        pea_name,
+                        candidate,
+                        &LeftContext::boundary(TokenKind::Edge),
+                        slots
+                    ),
+                    Ok(expected),
+                    "an unentered qsTea matches the cell, one entered at the baseline matches over, and one entered at the x-height matches neither"
+                );
+            }
+            let trace = settle_pea(&mut engine, slots).expect("the fixture settles");
+            assert_eq!(
+                trace.settled.junction,
+                Some(fixtures::sym(&index, "x-height")),
+                "the follower's record demotes only the baseline join, so the x-height join survives it and wins on join count"
+            );
+            assert_eq!(trace.decided_stage, DecidedStage::JoinCount);
+            assert_eq!(trace.notes, ["prefer applied: qsTea.yaml:policy.prefer[0]"]);
+        }
+    }
+
+    #[test]
+    fn over_leaves_a_candidate_its_when_excludes_neutral_with_or_without_a_stance() {
+        let safe = |height: &str| row(height, &[("unjoined", "\"safe\"")]);
+        let pea = letter(
+            "qsPea",
+            &[stance(
+                "stroke",
+                &surface("{}", &object(&[safe("x-height"), safe("baseline")]), &[]),
+            )],
+            &plain_policy(),
+        );
+        let joined_at_x_height = fixtures::when(&[(
+            "left",
+            &fixtures::condition(&[("joined_at", "\"x-height\"")]),
+        )]);
+        for names_a_stance in [false, true] {
+            let mut fields = vec![
+                ("cell", r#"{"entry":"x-height"}"#),
+                ("over", r#"{"entry":"baseline"}"#),
+                ("mode", "\"absolute\""),
+                ("when", joined_at_x_height.as_str()),
+            ];
+            if names_a_stance {
+                fields.push(("stance", "\"hook\""));
+            }
+            let tea_policy = fixtures::policy(&[(
+                "prefer",
+                &fixtures::seq(&[&pointed_record("prefer", "qsTea", 0, &fields)]),
+            )]);
+            let index = spec_of(&[
+                pea.clone(),
+                letter(
+                    "qsTea",
+                    &[stance(
+                        "hook",
+                        &surface(
+                            &object(&[row("x-height", &[]), row("baseline", &[])]),
+                            "{}",
+                            &[],
+                        ),
+                    )],
+                    &tea_policy,
+                ),
+            ]);
+            let mut engine = Engine::new(&index, no_features());
+            let trace = settle_pea(
+                &mut engine,
+                Slots::pair(letter_token(&index, "qsTea"), EDGE),
+            )
+            .expect("the fixture settles");
+            assert_eq!(
+                trace.settled.junction,
+                Some(fixtures::sym(&index, "baseline")),
+                "the `when:` excludes every candidate the over: pattern could match, so the record decides nothing and the final tiebreak takes the lower junction"
+            );
+            assert_eq!(trace.decided_stage, DecidedStage::Tiebreak);
+            assert!(trace.notes.is_empty(), "the record never applies");
         }
     }
 

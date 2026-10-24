@@ -127,7 +127,6 @@ policy:
       right: {family: qsMay}
   prefer:
   - cell: {exit: none}
-    over: {exit: x-height}
     when:
       right:
         family: qsTea
@@ -138,7 +137,6 @@ policy:
           - qsIt
           - qsUtter
   - cell: {exit: baseline}
-    over: {exit: x-height}
     when:
       self: {entry: none}
       right: {family: qsMay}
@@ -181,7 +179,6 @@ policy:
           then: {family: qsDay}
     why: I want a word-final ·Tea·Day pair to bind more tightly than the average. ·Utter is mentioned here because ·Utter.alt has a mandatory exit, so it can’t help consuming ·Tea’s baseline slot. Only the letter before ·Utter can prevent this.
   - cell: {entry: x-height}
-    over: {entry: baseline}
     when:
       left: {joined_at: x-height}
       right: {family: qsMay}

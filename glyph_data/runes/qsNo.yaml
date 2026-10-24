@@ -107,7 +107,6 @@ policy:
     when:
       right: {family: qsGay}
   - cell: {exit: x-height}
-    over: {exit: baseline}
     when:
       left:
         except:
@@ -182,12 +181,10 @@ policy:
         then: {family: qsDay}
     why: I want a word-final ·Tea·Day pair to bind more tightly than the average. This stops `·No.alt ~b~ ·Tea`.
   - cell: {exit: baseline}
-    over: {exit: x-height}
     when:
       left: {is: boundary}
       right: {family: qsMay}
   - cell: {exit: baseline}
-    over: {exit: none}
     when:
       left: {is: boundary}
       right:

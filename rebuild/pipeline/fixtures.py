@@ -802,7 +802,6 @@ def _utter() -> Rune:
             PolicyRecord(
                 kind="prefer",
                 cell={"exit": "baseline"},
-                over={"exit": "x-height"},
                 when=When(self_entry="none", right=Condition(family=("qsMay",))),
                 why="A bare ·Utter before ·May keeps the alternate baseline join; the mono x-height reach into a pulled-back ·May wins only when it buys a better join, as before ·May·May where the grounded ·May carries the chain on at the baseline.",
                 provenance=_prov(_UTTER_FILE, "policy.prefer[1]"),
@@ -818,7 +817,6 @@ def _utter() -> Rune:
             PolicyRecord(
                 kind="prefer",
                 cell={"entry": "x-height"},
-                over={"entry": "baseline"},
                 when=When(left=Condition(joined_at="x-height"), right=Condition(family=("qsMay",))),
                 why="if `·Utter.alt ~b~ ·May` works, then `·No ~x~ ·Utter.alt ~b~ ·May` should work too; we should have an ·Utter.alt that can connect to the previous letter at the x-height",
                 provenance=_prov(_UTTER_FILE, "policy.prefer[5]"),
