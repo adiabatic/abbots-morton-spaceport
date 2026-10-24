@@ -196,6 +196,7 @@ policy:
       self: {entry: live}
       right:
         except:
+        - {family: qsPea}
         - {family: qsJai}
         - {family: qsJai_qsUtter}
   contract:
