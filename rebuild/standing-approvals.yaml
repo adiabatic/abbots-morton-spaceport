@@ -2104,3 +2104,115 @@ rules:
         added: [[1, 1], [1, 2], [1, 4], [1, 5], [2, 0], [2, 6], [2, 7], [3, 8], [4, 1], [4, 2]]
         shift: -2
       except_left: []
+  - id: tea-ss05-baseline-join-created
+    verdict: approve
+    note: "Under ss05, ·Bay, ·Day, ·Key, ·Gay, ·Zoo, ·She, ·Cheer, ·No, ·Eight, ·Awe, ·Ox, ·Oy, ·Utter and ·Ooze join ·Tea at the baseline where the old font left a break, and ·Tea closes one column onto each while holding its own advance, so whatever follows moves with it. ·Tea's side is its full stance's baseline-entry-and-baseline-exit pairing, which the stance refuses by default and its ss05 unlock allows; “Let ss05 join ·Tea at the baseline on both sides with any neighbor” dropped the unlock's ·Et-only left condition, so every left letter ·Tea's refusals allow now reaches it. The rule names only the ·Tea cell that keeps that onward baseline exit, which no other configuration draws, and the ·Gay it names is the one entered at the x-height, whose extend record adds no pixel of exit, so ·Tea closes onto it like the rest. Every window that reached a review session approved the join"
+    match:
+      before:
+        pivot: [qsBay, qsDay, qsKey, qsGay, qsZoo, qsShe, qsCheer, qsNo, qsEight, qsAwe, qsOx, qsOy, qsUtter, qsOoze]
+        junction_out: break
+        follower: qsTea
+      after:
+        joined: y0
+        pivot_cells:
+          - qsBay/sole/None/baseline/
+          - qsBay/sole/x-height/baseline/
+          - qsDay/full/None/baseline/
+          - qsDay/full/x-height/baseline/
+          - qsDay/half/baseline/baseline/
+          - qsKey/sole/None/baseline/
+          - qsKey/sole/top/baseline/
+          - qsGay/sole/x-height/baseline/
+          - qsZoo/full/None/baseline/
+          - qsZoo/full/x-height/baseline/
+          - qsZoo/full/x-height/baseline/en-con-1
+          - qsZoo/full/x-height/baseline/en-con-2
+          - qsZoo/full/x-height/baseline/en-ext-1
+          - qsZoo/half/baseline/baseline/
+          - qsShe/sole/None/baseline/
+          - qsCheer/sole/None/baseline/
+          - qsCheer/sole/x-height/baseline/
+          - qsNo/flipped/None/baseline/
+          - qsNo/flipped/baseline/baseline/
+          - qsEight/smaller-loop/None/baseline/
+          - qsEight/smaller-loop/x-height/baseline/
+          - qsAwe/sole/None/baseline/
+          - qsAwe/sole/x-height/baseline/
+          - qsAwe/sole/x-height/baseline/en-ext-1
+          - qsOx/sole/None/baseline/
+          - qsOx/sole/x-height/baseline/
+          - qsOx/sole/x-height/baseline/en-ext-1
+          - qsOy/sole/None/baseline/
+          - qsOy/sole/x-height/baseline/
+          - qsUtter/alternate/None/baseline/
+          - qsUtter/alternate/x-height/baseline/
+          - qsOoze/sole/None/baseline/
+          - qsOoze/sole/baseline/baseline/
+        follower_after_cells:
+          - qsTea/full/baseline/baseline/
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
+  - id: tea-ss05-baseline-join-created-pivot-reaches
+    verdict: approve
+    note: "Under ss05, ·Gay, ·They and ·J’ai join ·Tea at the baseline where the old font left a break, and the join is drawn from the left letter's side, so ·Tea and whatever follows stand where they were: the unentered ·Gay and every ·J’ai reach it on the pixel of baseline exit their extend records add before ·Tea, and ·They on the baseline exit stroke it takes up. ·Tea's side is its full stance's baseline-entry-and-baseline-exit pairing, which only the ss05 unlock allows, opened to every left letter ·Tea's refusals allow in “Let ss05 join ·Tea at the baseline on both sides with any neighbor”. Every window that reached a review session approved the join"
+    match:
+      before:
+        pivot: [qsGay, qsThey, qsJai]
+        junction_out: break
+        follower: qsTea
+      after:
+        joined: y0
+        pivot_cells:
+          - qsGay/sole/None/baseline/ex-ext-1
+          - qsThey/sole/x-height/baseline/
+          - qsJai/sole/None/baseline/ex-ext-1
+          - qsJai/sole/x-height/baseline/en-con-1+ex-ext-1
+          - qsJai/sole/x-height/baseline/en-con-2+ex-ext-1
+          - qsJai/sole/x-height/baseline/ex-ext-1
+        follower_after_cells:
+          - qsTea/full/baseline/baseline/
+        shift: 0
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
+  - id: jay-tea-ss05-baseline-join-created
+    verdict: approve
+    note: "Under ss05, ·Jay joins ·Tea at the baseline where the old font left a break, and ·Tea comes one column nearer and hands that column straight back past itself: qsTea's extend record draws an extra column of baseline entry after ·Jay, so whatever follows stands where it was. ·Tea's side is its full stance's baseline-entry-and-baseline-exit pairing, which only the ss05 unlock allows, opened to every left letter ·Tea's refusals allow in “Let ss05 join ·Tea at the baseline on both sides with any neighbor”. Every window that reached a review session approved the join"
+    match:
+      before:
+        pivot: qsJay
+        junction_out: break
+        follower: qsTea
+      after:
+        joined: y0
+        pivot_cells:
+          - qsJay/sole/None/baseline/
+          - qsJay/sole/x-height/baseline/
+          - qsJay/sole/x-height/baseline/en-con-1
+        follower_after_cells:
+          - qsTea/full/baseline/baseline/en-ext-1
+        shift: -1
+        follower_advance: 1
+        follower_columns_added: 0
+      except_left: []
+  - id: may-tea-ss05-baseline-join-created
+    verdict: approve
+    note: "Under ss05, a ·May entered at the x-height joins ·Tea at the baseline where the old font left a break: ·May redraws into its grounded loop, giving up the left-side stub the old font drew and sitting a column further right, and ·Tea closes two columns onto it, so ·Tea and whatever follows end up one column nearer. ·Tea's side is its full stance's baseline-entry-and-baseline-exit pairing, which only the ss05 unlock allows, opened to every left letter ·Tea's refusals allow in “Let ss05 join ·Tea at the baseline on both sides with any neighbor”. Every window that reached a review session approved the join"
+    match:
+      before:
+        pivot: qsMay
+        junction_out: break
+        follower: qsTea
+      after:
+        joined: y0
+        pivot_cells:
+          - qsMay/grounded-loop/x-height/baseline/
+        follower_after_cells:
+          - qsTea/full/baseline/baseline/
+        shift: -2
+        follower_advance: 0
+        follower_columns_added: 0
+        pivot_stub_drop: 1
+      except_left: []
