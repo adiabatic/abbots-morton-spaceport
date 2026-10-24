@@ -13,17 +13,19 @@ class Reached(Exception):
     """Raised by a stubbed stage that a rejected invocation must not reach."""
 
 
-def test_the_unnarrowed_request_is_the_settlement_set_and_the_acceptance_set():
-    """With no `--configs`, the build gets the settlement configurations and the oracle gets the acceptance configurations, so the oracle still checks the ss10 overlay."""
+def test_the_unnarrowed_request_is_the_settlement_set_and_the_oracle_set():
+    """With no `--configs`, the build gets the settlement configurations and the oracle gets `conform.ORACLE_CONFIGS`, so the oracle still checks the ss10 overlay and skips the M1-only ss08, which has no baseline table."""
     build, oracle = scratch_build.request_configs("")
     assert build == list(conform.SETTLEMENT_CONFIGS)
-    assert oracle == list(conform.ACCEPTANCE_CONFIGS)
+    assert oracle == list(conform.ORACLE_CONFIGS)
     assert "ss10" in oracle and "ss10" not in build
+    assert "ss08" in build and "ss08" not in oracle
 
 
 def test_a_named_set_narrows_the_build_and_the_oracle_alike_in_the_order_named():
     assert scratch_build.request_configs("ss03,default") == (["ss03", "default"], ["ss03", "default"])
     assert scratch_build.request_configs("default") == (["default"], ["default"])
+    assert scratch_build.request_configs("ss08") == (["ss08"], [])
 
 
 def test_an_unknown_configuration_is_refused_before_anything_is_resolved(monkeypatch, tmp_path):
@@ -62,14 +64,15 @@ def test_every_build_is_refused_under_the_live_table_directory(monkeypatch, tmp_
 @pytest.mark.parametrize(
     "narrowing, build, walked",
     [
-        ([], list(conform.SETTLEMENT_CONFIGS), list(conform.ACCEPTANCE_CONFIGS)),
+        ([], list(conform.SETTLEMENT_CONFIGS), list(conform.ORACLE_CONFIGS)),
         (["--configs", "default"], ["default"], ["default"]),
+        (["--configs", "default,ss08"], ["default", "ss08"], ["default"]),
     ],
 )
 def test_the_oracle_walks_the_configurations_the_request_names_and_the_line_reports_them(
     monkeypatch, tmp_path, capsys, narrowing, build, walked
 ):
-    """The lists `request_configs` returns are the ones passed to the table build and the oracle, and the JSON line reports both. If a narrowed run let the oracle use its own default, the oracle would compare every configuration against a font built for one. If a plain run reported only the build list, the line would omit the ss10 rows its row count includes."""
+    """The lists `request_configs` returns are the ones passed to the table build and the oracle, and the JSON line reports both. If a narrowed run let the oracle use its own default, the oracle would compare every configuration against a font built for one. If a plain run reported only the build list, the line would omit the ss10 rows its row count includes. A built M1-only configuration is reported as skipped, so its absence from the row count does not read as a clean comparison."""
     seen = {}
 
     def build_tables(spec, out_dir, *, configs, **rest):
@@ -98,3 +101,5 @@ def test_the_oracle_walks_the_configurations_the_request_names_and_the_line_repo
     line = json.loads(capsys.readouterr().out)
     assert line["configs"] == build
     assert line["oracle_configs"] == walked
+    assert line["oracle_skipped"] == [config for config in build if config in conform.M1_ONLY_CONFIGS]
+    assert ("ss08" in line["oracle_skipped"]) == ("ss08" in build)

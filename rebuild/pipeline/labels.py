@@ -1,6 +1,6 @@
 """Labels shared by the modules that read a settled stream: the spec's alphabet, a configuration's feature set, a formed stream's labels after the configuration's marker renaming, the boundary glyph names, and the alias map from the old font's glyph names to cells.
 
-This module imports only `model`, `settle`, and `rowmodel` from the repository. That lets the review corpus build use these labels without importing the conformance sweep or the other modules in `unit_cache.PIPELINE_NON_CORPUS_MODULES`, which are left out of the per-unit store stamps. `rebuild/test_review_code_closure.py` checks the import list.
+This module imports only `model` and `settle` from the repository. That lets the review corpus build use these labels without importing the conformance sweep or the other modules in `unit_cache.PIPELINE_NON_CORPUS_MODULES`, which are left out of the per-unit store stamps. `rebuild/test_review_code_closure.py` checks the import list.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ import yaml
 
 from rebuild.pipeline import settle
 from rebuild.pipeline.model import CellId, ResolvedSpec, marker_glyph_name, relevant_marker_features
-from rebuild.validation.rowmodel import CONFIGS
 
 BOUNDARY_GLYPH_NAMES = {"space", "uni200C", "periodcentered", "periodcentered.lowered"}
 _BOUNDARY_KIND_LABELS = {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}
@@ -27,11 +26,11 @@ def spec_alphabet(spec: ResolvedSpec) -> tuple[str, ...]:
 
 
 def features_for_config(config: str) -> frozenset[str]:
-    return frozenset(tag for tag, on in CONFIGS[config].items() if on)
+    return frozenset() if config == "default" else frozenset(config.split("+"))
 
 
 def formed_labels(spec: ResolvedSpec, formed: list[settle.RightToken], features: frozenset[str]) -> list[str]:
-    """Returns the formed stream's labels under the configuration's renaming: each letter becomes its marker copy when the configuration's features change its capability, and a letter that follows a ZWNJ and has an entry gets the `.noentry` suffix of the ZWNJ lock. Labels are interned so that window keys built from many texts share one string per label."""
+    """Returns the formed stream's labels under the configuration's renaming: each letter becomes its marker copy when it has one for the configuration's features (`model.relevant_marker_features`: its unlock features plus the policy-only sets its own records are gated on), and a letter that follows a ZWNJ and has an entry gets the `.noentry` suffix of the ZWNJ lock. Labels are interned so that window keys built from many texts share one string per label."""
     labels: list[str] = []
     for position, token in enumerate(formed):
         if token.kind != "letter":
@@ -41,7 +40,7 @@ def formed_labels(spec: ResolvedSpec, formed: list[settle.RightToken], features:
         rune = spec.runes.get(name)
         label = name
         if rune is not None:
-            relevant = frozenset(relevant_marker_features(rune)) & features
+            relevant = frozenset(relevant_marker_features(spec, name)) & features
             label = marker_glyph_name(name, relevant)
         if (
             position > 0

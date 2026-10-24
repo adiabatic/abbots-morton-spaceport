@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Literal, Self
 
 from rebuild.pipeline import fingerprint
-from rebuild.review.audit import ACCEPTANCE_CONFIGS
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, M1_ONLY_CONFIGS
 
-SETTLED_CONFIGS = tuple(config for config in ACCEPTANCE_CONFIGS if config != "ss10")
+SETTLED_CONFIGS = tuple(config for config in ACCEPTANCE_CONFIGS if config != "ss10") + M1_ONLY_CONFIGS
 
 DIFF_BUCKETS = ("added", "removed", "regrouped", "changed", "provenance-only")
 

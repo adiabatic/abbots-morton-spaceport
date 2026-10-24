@@ -8,7 +8,7 @@ from __future__ import annotations
 import gzip
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Iterator
+from typing import IO, Collection, Iterator
 
 QUIKSCRIPT_RUNES = tuple(range(0xE650, 0xE66D)) + tuple(range(0xE670, 0xE67F))
 SPACE = 0x0020
@@ -34,11 +34,13 @@ CONFIGS: dict[str, dict[str, bool]] = {
 }
 
 
-def config_token_for_features(features: dict[str, bool] | None) -> str | None:
-    """Return the `CONFIGS` token for a feature dict, or None when the configuration is outside the covered set."""
+def config_token_for_features(
+    features: dict[str, bool] | None, *, configs: Collection[str] = CONFIGS
+) -> str | None:
+    """Return the configuration token for a feature dict, or None when the configuration is outside `configs`, which defaults to the covered set `CONFIGS`."""
     enabled = sorted(name for name, on in (features or {}).items() if on)
     token = "+".join(enabled) if enabled else "default"
-    return token if token in CONFIGS else None
+    return token if token in configs else None
 
 
 @dataclass(frozen=True)

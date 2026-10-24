@@ -242,6 +242,14 @@ def test_the_settled_configurations_match_the_builds():
     assert tablediff.SETTLED_CONFIGS == conform.SETTLEMENT_CONFIGS
 
 
+def test_the_review_rosters_match_the_oracles():
+    """The review package restates the oracle's configurations and the M1-only ones as `audit.ACCEPTANCE_CONFIGS` and `audit.M1_ONLY_CONFIGS`. The review corpus lists only what the oracle compares, so an M1-only configuration that leaked into the review roster would badge every unit and look for a baseline table that does not exist."""
+    from rebuild.review import audit
+
+    assert audit.ACCEPTANCE_CONFIGS == conform.ORACLE_CONFIGS
+    assert audit.M1_ONLY_CONFIGS == conform.M1_ONLY_CONFIGS
+
+
 def test_a_diff_ignores_tables_of_a_configuration_outside_the_settled_set(table_dirs):
     """Tables left under the name of a configuration the build does not settle, on either side, add no entries to a diff that takes its configurations from the directories."""
     old_dir, new_dir = table_dirs

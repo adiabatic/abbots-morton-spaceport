@@ -698,7 +698,7 @@ def test_no_configuration_frees_a_window_the_quantified_guard_blocks(real_guard,
 def test_ss03_and_ss05_are_the_sets_the_guard_verdict_map_depends_on(
     real_spec, real_guard, guard_by_configuration
 ):
-    """The guard verdict map is not the same in every configuration, and ss03 and ss05 are the only features that change it. Every configuration with ss03 sweeps the quantified map. Every configuration without it sweeps a stricter map, which also blocks windows `(X_qsUtter, ·Tea, r2)` for the qsUtter-trailing ligatures that qsTea's ss03 unlock names as lefts: there, the ss03 x-height entry into full ·Tea is the only join the ligature can offer the ·Tea. The configurations without ss03 or ss05 (default, ss04, ss10) share one such map. The ones with ss05 but not ss03 (ss05, ss04+ss05) share a second map that blocks every window the first blocks and more, because ss05's both-baseline pairing lets the ·Tea take the unformed ·Utter's baseline join and still join r2 at the baseline. The font is correct either way, because formation runs before the ss markers and `settle.form_ligatures` reads the quantified sweep in every configuration: ·Day·Utter·Tea forms the ligature under default with ·Tea unjoined, and ·Tea joins it only under ss03 (`test_formation_survives_where_the_ligature_serves_the_follower` checks both). So a configuration delta may assume that ss04 and ss10 change no formation verdict, and that ss03 and ss05 change only these."""
+    """The guard verdict map is not the same in every configuration, and ss03 and ss05 are the only features that change it. Every configuration with ss03 sweeps the quantified map. Every configuration without it sweeps a stricter map, which also blocks windows `(X_qsUtter, ·Tea, r2)` for the qsUtter-trailing ligatures that qsTea's ss03 unlock names as lefts: there, the ss03 x-height entry into full ·Tea is the only join the ligature can offer the ·Tea. The configurations without ss03 or ss05 (default, ss04, ss08, ss10) share one such map. The ones with ss05 but not ss03 (ss05, ss04+ss05) share a second map that blocks every window the first blocks and more, because ss05's both-baseline pairing lets the ·Tea take the unformed ·Utter's baseline join and still join r2 at the baseline. The font is correct either way, because formation runs before the ss markers and `settle.form_ligatures` reads the quantified sweep in every configuration: ·Day·Utter·Tea forms the ligature under default with ·Tea unjoined, and ·Tea joins it only under ss03 (`test_formation_survives_where_the_ligature_serves_the_follower` checks both). So a configuration delta may assume that ss04, ss08 and ss10 change no formation verdict, and that ss03 and ss05 change only these."""
     tea = RightToken("letter", "qsTea")
     ligatures_ss03_names = {
         name
@@ -721,6 +721,7 @@ def test_ss03_and_ss05_are_the_sets_the_guard_verdict_map_depends_on(
         frozenset({"ss04"}),
         frozenset({"ss05"}),
         frozenset({"ss04", "ss05"}),
+        frozenset({"ss08"}),
         frozenset({"ss10"}),
     } <= without_ss03.keys()
     (without_ss05,) = {

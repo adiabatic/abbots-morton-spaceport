@@ -12,11 +12,12 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection
 
 from .classify import JunctionClassifier
 from .rowmodel import (
     ALPHABET_SET,
+    CONFIGS,
     Row,
     config_token_for_features,
     format_codepoints,
@@ -84,7 +85,7 @@ class ReplayReport:
         return len(self.disagreements)
 
 
-def collect_pin_runs(report: ReplayReport) -> list[PinRun]:
+def collect_pin_runs(report: ReplayReport, *, configs: Collection[str] = CONFIGS) -> list[PinRun]:
     ts = _import_test_shaping()
     pin_runs: list[PinRun] = []
     for rel in CORPUS_FILES:
@@ -108,7 +109,7 @@ def collect_pin_runs(report: ReplayReport) -> list[PinRun]:
                     report.skipped_junior += 1
                     continue
                 merged = {**cell_features, **(sl.get("features") or {})}
-                token = config_token_for_features(merged)
+                token = config_token_for_features(merged, configs=configs)
                 if token is None:
                     report.skipped_config += 1
                     continue

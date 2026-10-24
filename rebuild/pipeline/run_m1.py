@@ -265,7 +265,6 @@ TABLE_BUILD_CODE_MODULES = frozenset(
         "rebuild/pipeline/model.py",
         "rebuild/pipeline/settle.py",
         "rebuild/pipeline/table.py",
-        "rebuild/validation/rowmodel.py",
     }
 )
 
@@ -631,7 +630,7 @@ def mint_raw_glyphs(
             ss10_copies[rune_name] = copy_name
 
         live_names = [rune_name]
-        for marker_name in emit_gsub.marker_states(rune_name, relevant_marker_features(rune)):
+        for marker_name in emit_gsub.marker_states(rune_name, relevant_marker_features(spec, rune_name)):
             copies[CellId(marker_name, RAW_STANCE, None, None, ())] = replace(stripped, name=marker_name)
             live_names.append(marker_name)
         if any(stance.surface.entries for stance in rune.stances.values()):

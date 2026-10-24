@@ -1100,6 +1100,7 @@ def _registry() -> ScriptRegistry:
             "ss03": FeatureInfo("capability", "x-height exiters reach half-·Tea"),
             "ss04": FeatureInfo("capability", "·It joins at the baseline on both sides after ·Day"),
             "ss05": FeatureInfo("capability", "·Tea both-baseline after ·Et"),
+            "ss08": FeatureInfo("taste", "·Key·Utter·May as The Manual writes it"),
             "ss10": FeatureInfo("taste", "isolated forms overlay", overlay="isolated"),
         },
         interactions=(("ss02", "ss03"), ("ss02", "ss03", "ss05")),

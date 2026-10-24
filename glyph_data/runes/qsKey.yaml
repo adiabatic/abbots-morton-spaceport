@@ -105,6 +105,7 @@ policy:
       right:
         family: qsUtter
         then: {family: qsMay}
+      feature: ss08
   extend: []
   contract:
   - exit: baseline

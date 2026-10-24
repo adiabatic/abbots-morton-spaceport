@@ -113,6 +113,7 @@ def test_registry_contents(spec):
     assert registry.boundary_tokens["zwnj"].codepoint == 0x200C
     assert registry.boundary_tokens["namer-dot"].splits_runs is False
     assert registry.features["ss10"].kind == "taste"
+    assert registry.features["ss08"].kind == "taste" and registry.features["ss08"].overlay is None
     assert registry.interactions == (("ss03", "ss05"),)
     assert registry.families["qsOoze"].codepoint == 0xE67E
     assert registry.families["qsTea_qsOy"].sequence == ("qsTea", "qsOy")
@@ -1300,10 +1301,11 @@ class TestConfigurationBlindness:
                 }
                 assert derived == spec.registry.predicate_classes[class_name], (label, class_name)
 
-    def test_feature_conditions_live_on_unlock_rows_and_on_refuse_and_extend_records_only(self, spec):
-        """Checks that refuse and extend are the only record kinds that read a feature, that an unlock's own `when:` never names one (its `feature` is the condition), and that every feature named anywhere is registered. The extend records are the by-1 x-height extensions toward ·Tea under ss03, such as ·Fee's. `Condition` has no feature field, so a scope (`from:`, `toward:`) or a left or right condition cannot read one."""
+    def test_feature_conditions_live_on_unlock_rows_and_on_refuse_extend_and_prefer_records_only(self, spec):
+        """Checks that refuse, extend and prefer are the only record kinds that read a feature, that an unlock's own `when:` never names one (its `feature` is the condition), and that every feature named anywhere is registered. The extend records are the by-1 x-height extensions toward ·Tea under ss03, such as ·Fee's, and the one prefer is ·Key's break before ·Utter·May under ss08. `Condition` has no feature field, so a scope (`from:`, `toward:`) or a left or right condition cannot read one."""
         conditioned = _feature_conditioned_records(spec)
-        assert {kind for _rune, kind, _record in conditioned} == {"refuse", "extend"}
+        assert {kind for _rune, kind, _record in conditioned} == {"refuse", "extend", "prefer"}
+        assert {record.when.feature for _rune, kind, record in conditioned if kind == "prefer"} == {"ss08"}
         extends = {
             (rune_name, record.exit, record.by, record.when.right.family if record.when.right else ())
             for rune_name, kind, record in conditioned
@@ -1322,7 +1324,7 @@ class TestConfigurationBlindness:
         assert not hasattr(Condition(), "feature")
 
     def test_every_feature_gated_record_restricts_a_slot_to_a_rune_its_feature_renames(self, spec):
-        """`make conform-deep` shapes ss03, ss05 and ss03+ss05 only over the texts that name ·Tea, and ss04 only over the texts that name ·It, the runes each renames (`deep_sweep.sweep_triggers`), because in a text without that rune they settle and shape as `default` does. That holds while every record gated on a feature restricts a slot of its window to a rune the feature renames (`conform.unconfined_feature_records`). The sweep checks it at plan time and shapes every text of a configuration that fails it; this pins it on the real spec, so a record that breaks it fails here instead of slowing the sweep."""
+        """`make conform-deep` shapes ss03, ss05 and ss03+ss05 only over the texts that name ·Tea, ss04 only over the texts that name ·It, and ss08 only over the texts that name ·Key or ·Utter, the owners of the records gated on that policy-only set, the runes each renames (`deep_sweep.sweep_triggers`), because in a text without that rune they settle and shape as `default` does. That holds while every record gated on a feature restricts a slot of its window to a rune the feature renames (`conform.unconfined_feature_records`). The sweep checks it at plan time and shapes every text of a configuration that fails it; this pins it on the real spec, so a record that breaks it fails here instead of slowing the sweep."""
         assert _feature_conditioned_records(spec)
         for config in conform.SETTLEMENT_CONFIGS:
             assert conform.unconfined_feature_records(spec, config) == (), config
@@ -1332,6 +1334,7 @@ class TestConfigurationBlindness:
             "ss04": {"qsIt"},
             "ss05": {"qsTea"},
             "ss03+ss05": {"qsTea"},
+            "ss08": {"qsKey", "qsUtter"},
         }
 
     def test_a_feature_condition_names_one_feature(self):

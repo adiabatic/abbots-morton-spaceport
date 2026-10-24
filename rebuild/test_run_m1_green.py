@@ -763,7 +763,7 @@ class TestOracleFanIn:
             "oracle_row_cache_keys",
             lambda spec, out_dir: (
                 {},
-                {config: oracle_cache.EnvironmentStamp(lines=()) for config in conform.ACCEPTANCE_CONFIGS},
+                {config: oracle_cache.EnvironmentStamp(lines=()) for config in conform.ORACLE_CONFIGS},
             ),
         )
 
@@ -811,7 +811,7 @@ class TestOracleFanIn:
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         lines = (tmp_path / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
         assert lines[0] == oracle.ORACLE_AUDIT_HEADER
-        assert [line.split("\t")[0] for line in lines[1:]] == list(conform.ACCEPTANCE_CONFIGS)
+        assert [line.split("\t")[0] for line in lines[1:]] == list(conform.ORACLE_CONFIGS)
         assert self._files_left(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
 
     def test_the_summary_counts_every_ranges_multi_matched_rows(self, monkeypatch, tmp_path):
@@ -823,14 +823,14 @@ class TestOracleFanIn:
         self._pool(monkeypatch, self._worker(multi=per_range))
         summary = run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         written = json.loads((tmp_path / "oracle_summary.json").read_text())
-        assert summary["multi_matched"] == written["multi_matched"] == 2 * len(conform.ACCEPTANCE_CONFIGS)
+        assert summary["multi_matched"] == written["multi_matched"] == 2 * len(conform.ORACLE_CONFIGS)
 
-        rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
+        rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         self._pool(monkeypatch, self._worker(multi=per_range), rows=rows)
         summary = run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         written = json.loads((tmp_path / "oracle_summary.json").read_text())
         planned = oracle.oracle_shard_plan(10, rows)
-        assert len(planned) > len(conform.ACCEPTANCE_CONFIGS)
+        assert len(planned) > len(conform.ORACLE_CONFIGS)
         assert (
             summary["multi_matched"] == written["multi_matched"] == sum(per_range(shard) for shard in planned)
         )
@@ -838,7 +838,7 @@ class TestOracleFanIn:
     def test_a_worker_that_falls_over_leaves_the_standing_audit_alone(self, monkeypatch, tmp_path):
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
-        self._pool(monkeypatch, self._worker(refuse=conform.ACCEPTANCE_CONFIGS[3]))
+        self._pool(monkeypatch, self._worker(refuse=conform.ORACLE_CONFIGS[3]))
         with pytest.raises(RuntimeError):
             run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         assert standing.read_bytes() == b"the audit of the last green run\n"
@@ -851,16 +851,16 @@ class TestOracleFanIn:
         events = [console.parse_line(line) for line in capsys.readouterr().out.splitlines()]
         counters = [event for event in events if isinstance(event, console.Progress)]
         assert [event.text for event in counters] == [
-            f"{landed}/{len(conform.ACCEPTANCE_CONFIGS)} shards"
-            for landed in range(1, len(conform.ACCEPTANCE_CONFIGS) + 1)
+            f"{landed}/{len(conform.ORACLE_CONFIGS)} shards"
+            for landed in range(1, len(conform.ORACLE_CONFIGS) + 1)
         ]
 
         seen: list = []
-        rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
+        rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         self._pool(monkeypatch, self._worker(shards=seen), rows=rows)
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         planned = oracle.oracle_shard_plan(10, rows)
-        assert [shard for shard, _memo in seen] == planned and len(planned) > len(conform.ACCEPTANCE_CONFIGS)
+        assert [shard for shard, _memo in seen] == planned and len(planned) > len(conform.ORACLE_CONFIGS)
         events = [console.parse_line(line) for line in capsys.readouterr().out.splitlines()]
         counters = [event for event in events if isinstance(event, console.Progress)]
         assert [event.text for event in counters] == [
@@ -872,7 +872,7 @@ class TestOracleFanIn:
     ):
         """When a configuration is cut into several ranges, the audit is in acceptance order across configurations and row order within one, whichever future resolves first. Each range writes its settle memo windows to its own part, not to the shared file, and a configuration whose parts the parent absorbed gets a `[t] settle_memo_absorb` line."""
         seen: list = []
-        rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
+        rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         self._pool(monkeypatch, self._worker(shards=seen), rows=rows)
         memo_inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="c", data="d")
         monkeypatch.setattr(
@@ -897,7 +897,7 @@ class TestOracleFanIn:
         assert lines[0] == oracle.ORACLE_AUDIT_HEADER
         planned = sorted(
             oracle.oracle_shard_plan(10, rows),
-            key=lambda shard: (conform.ACCEPTANCE_CONFIGS.index(shard.config), shard.first_row),
+            key=lambda shard: (conform.ORACLE_CONFIGS.index(shard.config), shard.first_row),
         )
         assert [tuple(line.split("\t")[:2]) for line in lines[1:]] == [
             (shard.config, f"{shard.first_row:04X}") for shard in planned
@@ -914,7 +914,7 @@ class TestOracleFanIn:
     def test_a_range_that_falls_over_leaves_the_standing_audit_alone(self, monkeypatch, tmp_path):
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
-        rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
+        rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         planned = oracle.oracle_shard_plan(10, rows)
         cut = next(shard for shard in planned if shard.of > 1)
         self._pool(monkeypatch, self._worker(refuse=cut.label), rows=rows)
@@ -943,7 +943,7 @@ class TestOracleFanIn:
         return oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="c", data="d")
 
     def test_every_range_files_a_part_and_the_absorbs_wait_for_memo_ready(self, monkeypatch, tmp_path):
-        """No range of the pooled oracle writes a shared settle memo file, cut or not. Each writes the windows it settled to a part, and the parent absorbs every configuration's parts only after every range has finished and `memo_ready` has returned (in `run_m1.full_run`, after the witness stage's absorb). So a pool started while the witness stage runs cannot write a file without that stage's windows or have its own windows overwritten by that stage. Nothing is cut here (the stamp counts no rows), so every configuration has one range, the case where a range could otherwise have written the shared file itself."""
+        """No range of the pooled oracle writes a shared settle memo file, cut or not. Each writes the windows it settled to a part, and the parent absorbs every configuration's parts only after every range has finished and `memo_ready` has returned (in `run_m1.full_run`, after the witness stage's absorb). So a pool started while the witness stage runs cannot write a file without that stage's windows or have its own windows overwritten by that stage. Nothing is cut here (the stamp counts no rows), so every configuration has one range, the case where a range could otherwise have written the shared file itself. An M1-only configuration has a memo file too, but the oracle neither plans a range for it nor absorbs its file."""
         seen: list = []
         order: list = []
         worker = self._worker(shards=seen)
@@ -958,12 +958,16 @@ class TestOracleFanIn:
             out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs, memo_ready=lambda: order.append("ready")
         )
         scratch = oracle.oracle_audit_scratch(tmp_path)
-        ranges = len(conform.ACCEPTANCE_CONFIGS)
+        ranges = len(conform.ORACLE_CONFIGS)
         assert order[: ranges + 1] == ["range"] * ranges + ["ready"]
         assert order[ranges + 1 :] == [
             ("absorb", f"settle-memo-{config}.bin", [oracle.settle_memo_part(scratch, config, 0)])
             for config in conform.SETTLEMENT_CONFIGS
+            if config in conform.ORACLE_CONFIGS
         ]
+        assert conform.M1_ONLY_CONFIGS and not any(
+            shard.config in conform.M1_ONLY_CONFIGS for shard, _memo in seen
+        )
         for shard, memo in seen:
             assert shard.of == 1
             if shard.config in conform.OVERLAY_CONFIGS:
@@ -1012,10 +1016,10 @@ class TestOracleFanIn:
     ):
         """Runs the parent's row-store handling through `run_oracle`: each range stages a segment through `open_row_cache`, the parent joins a cut configuration's segments under the header its ranges agreed on and promotes every configuration's store, and the next pass's ranges load the joined store through the same reader and write under the next ordinal. The promoted store must equal what one writer over the whole table writes, which checks that the join's arguments (the stamp, the subset digest, the ordinal, the keys, and the row count) come from the range results."""
         spec = fixtures.mini_spec()
-        rows = {config: 1000 for config in conform.ACCEPTANCE_CONFIGS}
+        rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         stamps = {
             config: oracle_cache.EnvironmentStamp(lines=(f"subset\t{config}-digest",))
-            for config in conform.ACCEPTANCE_CONFIGS
+            for config in conform.ORACLE_CONFIGS
         }
         keys = {"qsPea": "pea-key"}
         loaded: list = []
@@ -1056,7 +1060,7 @@ class TestOracleFanIn:
         assert any(shard.of > 1 for shard in oracle.oracle_shard_plan(10, rows))
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         assert loaded and all(ordinal is None for _label, ordinal in loaded)
-        for config in conform.ACCEPTANCE_CONFIGS:
+        for config in conform.ORACLE_CONFIGS:
             promoted = oracle_cache.store_path(tmp_path, config)
             whole = tmp_path / f"whole-{config}.tsv.gz"
             with oracle_cache.RowWriter(whole, stamps[config], f"{config}-digest", 0, keys) as writer:
@@ -1070,7 +1074,7 @@ class TestOracleFanIn:
         loaded.clear()
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         assert loaded and all(ordinal == 0 for _label, ordinal in loaded)
-        for config in conform.ACCEPTANCE_CONFIGS:
+        for config in conform.ORACLE_CONFIGS:
             promoted = oracle_cache.store_path(tmp_path, config)
             store = oracle_cache.load_store(promoted, stamps[config], f"{config}-digest", spec, keys)
             assert store is not None and store.rows == rows[config] and store.pass_ordinal == 1
@@ -1101,7 +1105,7 @@ class TestOracleFanIn:
 
         monkeypatch.setattr(run_m1_gates, "oracle_row_cache_keys", refuse)
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
-        assert len(seen) == len(conform.ACCEPTANCE_CONFIGS) and set(seen) == {None}
+        assert len(seen) == len(conform.ORACLE_CONFIGS) and set(seen) == {None}
         assert "[warn] oracle row cache: unavailable" in capsys.readouterr().out
         assert (tmp_path / "divergence-audit.tsv").is_file()
 
@@ -1122,7 +1126,7 @@ class TestOracleFanIn:
         """The counts reach the parent through the pool and the rows reach it on disk, so a segment that was truncated but closed cleanly shows up as a mismatch between the two. That mismatch is the only way the parent can tell a complete audit from a partial one."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
-        self._pool(monkeypatch, self._worker(overcount=conform.ACCEPTANCE_CONFIGS[2]))
+        self._pool(monkeypatch, self._worker(overcount=conform.ORACLE_CONFIGS[2]))
         with pytest.raises(ValueError, match="7 divergent"):
             run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         assert standing.read_bytes() == b"the audit of the last green run\n"
@@ -1404,11 +1408,11 @@ class TestConformFanIn:
 class TestOracleShardPlan:
     """Invariants of `oracle_shard_plan`, a pure function: one configuration's ranges cover its table contiguously with the last one open-ended, a configuration the stamp does not count stays whole, the overlay configuration's rows weigh half, the ranges come back heaviest first, and each range is at most one worker's share."""
 
-    ROWS = {config: 1_082_400 for config in conform.ACCEPTANCE_CONFIGS}
+    ROWS = {config: 1_082_400 for config in conform.ORACLE_CONFIGS}
 
     def test_one_configurations_ranges_tile_its_table(self):
         plan = oracle.oracle_shard_plan(10, self.ROWS)
-        for config in conform.ACCEPTANCE_CONFIGS:
+        for config in conform.ORACLE_CONFIGS:
             ranges = sorted(
                 (shard for shard in plan if shard.config == config), key=lambda shard: shard.first_row
             )
@@ -1420,7 +1424,7 @@ class TestOracleShardPlan:
 
     def test_the_pieces_are_a_workers_share_apiece_heaviest_first(self):
         plan = oracle.oracle_shard_plan(10, self.ROWS)
-        assert len(conform.ACCEPTANCE_CONFIGS) < len(plan) <= 10 + len(conform.ACCEPTANCE_CONFIGS)
+        assert len(conform.ORACLE_CONFIGS) < len(plan) <= 10 + len(conform.ORACLE_CONFIGS)
 
         def weight(shard):
             rows = (self.ROWS[shard.config] if shard.stop_row is None else shard.stop_row) - shard.first_row
@@ -1432,9 +1436,9 @@ class TestOracleShardPlan:
         assert max(weights) <= total / 10 + 1
 
     def test_the_overlay_configuration_weighs_half_a_settlement_one(self):
-        plan = oracle.oracle_shard_plan(len(conform.ACCEPTANCE_CONFIGS) * 2, self.ROWS)
+        plan = oracle.oracle_shard_plan(len(conform.ORACLE_CONFIGS) * 2, self.ROWS)
         by_config = {
-            config: sum(shard.config == config for shard in plan) for config in conform.ACCEPTANCE_CONFIGS
+            config: sum(shard.config == config for shard in plan) for config in conform.ORACLE_CONFIGS
         }
         assert all(by_config[config] < by_config["default"] for config in conform.OVERLAY_CONFIGS)
 
@@ -1447,7 +1451,7 @@ class TestOracleShardPlan:
         assert all(shard.first_row == 0 and shard.stop_row is None for shard in whole)
         assert [shard.config for shard in plan[:2]] == ["ss03", "ss05"]
         serial = oracle.oracle_shard_plan(1, self.ROWS)
-        assert [shard.config for shard in serial] == list(conform.ACCEPTANCE_CONFIGS)
+        assert [shard.config for shard in serial] == list(conform.ORACLE_CONFIGS)
         assert all(shard == oracle.OracleShard(shard.config) for shard in serial)
         assert oracle.oracle_shard_plan(10, {}) == serial
 

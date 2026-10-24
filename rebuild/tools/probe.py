@@ -1,7 +1,7 @@
 """Print codepoint windows' old-font baseline (glyphs and junctions, every configuration) beside the rebuild's settlement.
 Usage: uv run python rebuild/tools/probe.py E653:E666:E652 [E652:E67A ...] [--no-baseline]
 
-Every argument is a window. All windows go through one `explain_many` call across the acceptance configurations, so the explainer's warm-up is paid once per process. The output is one `=== window X ===` block per argument, in argument order, and each block is what that window prints when probed alone. `--no-baseline` skips reading the baseline tables and omits each configuration's two OLD lines.
+Every argument is a window. All windows go through one `explain_many` call across the acceptance configurations, so the explainer's warm-up is paid once per process. The output is one `=== window X ===` block per argument, in argument order, and each block is what that window prints when probed alone. `--no-baseline` skips reading the baseline tables and omits each configuration's two OLD lines; an M1-only configuration (`conform.M1_ONLY_CONFIGS`) has no baseline table and never prints them.
 """
 
 import gzip
@@ -12,12 +12,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
+from rebuild.pipeline.conform import M1_ONLY_CONFIGS
 from rebuild.pipeline.explain import explain_many
 from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.run_m1 import OUT_DIR
 from rebuild.pipeline.spec_load import load_default_spec
 
-CONFIGS = ["default", "ss03", "ss05", "ss03+ss05", "ss04", "ss10"]
+CONFIGS = ["default", "ss03", "ss05", "ss03+ss05", "ss04", "ss08", "ss10"]
 USAGE = "usage: uv run python rebuild/tools/probe.py [--no-baseline] E6XX:E6XX [E6XX:E6XX:E6XX ...]"
 NOT_IN_SUBSET = "(not in subset)"
 
@@ -107,7 +108,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     reports = explain_many(spec, [(cps, active) for _key, cps in windows for active in features])
     keys = frozenset(key for key, _cps in windows)
     baselines: dict[str, dict[str, list[str]] | None] = {
-        cfg: baseline_rows(cfg, keys) if read_baseline else None for cfg in CONFIGS
+        cfg: baseline_rows(cfg, keys) if read_baseline and cfg not in M1_ONLY_CONFIGS else None
+        for cfg in CONFIGS
     }
     for index, (key, _cps) in enumerate(windows):
         start = index * len(CONFIGS)

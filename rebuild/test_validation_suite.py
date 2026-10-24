@@ -148,6 +148,8 @@ def test_config_token_for_features() -> None:
     assert config_token_for_features({"ss02": True, "ss03": True, "ss05": True}) == "ss02+ss03+ss05"
     assert config_token_for_features({"ss01": True}) is None
     assert config_token_for_features({"ss04": True, "ss05": True}) is None
+    assert config_token_for_features({"ss08": True}) is None
+    assert config_token_for_features({"ss08": True}, configs=("default", "ss08")) == "ss08"
     assert set(CONFIGS) == {
         "default",
         "ss02",

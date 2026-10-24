@@ -58,11 +58,15 @@ from rebuild.validation.rowmodel import Row, format_codepoints
 ZWNJ = "\u200c"
 ZWNJ_SENTINEL = "<zwnj>"
 # The configurations letters settle under. Each has its own settlement table, join table, window enumeration, settle memo, and rule-witness run. One crate `build-tables` process enumerates them all, `default` first and the others as deltas over it or from scratch beside it.
-SETTLEMENT_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05")
+SETTLEMENT_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss08")
 # The isolated-overlay taste configurations (`model.isolated_overlay_active`). Nothing settles under them, so they have no table. The conformance sweep covers them at `OVERLAY_MAX_LENGTH`, relying on read-back's isolation check, and the oracle compares them against the bare stream. `rebuild/test_conform.py` checks that this tuple matches the registry's `overlay: isolated` features.
 OVERLAY_CONFIGS = ("ss10",)
-# Every configuration the font is accepted under: what the conformance sweep shapes, the oracle compares and stores rows for, the Manual pins replay against, and the review corpus lists.
+# Every configuration the font is accepted under: what the conformance sweep shapes and the Manual pins replay against. The oracle reads `ORACLE_CONFIGS` instead, which the review corpus restates as `audit.ACCEPTANCE_CONFIGS`.
 ACCEPTANCE_CONFIGS = SETTLEMENT_CONFIGS + OVERLAY_CONFIGS
+# The settlement configurations the shipped font has no set for, so they have no baseline table and the oracle never compares them.
+M1_ONLY_CONFIGS = ("ss08",)
+# The configurations the oracle compares against the shipped font's baseline tables and stores rows for.
+ORACLE_CONFIGS = tuple(config for config in ACCEPTANCE_CONFIGS if config not in M1_ONLY_CONFIGS)
 # How many texts of one length the conformance sweep walks at a time. Each length's texts are streamed instead of listed, because at maximum length 5 the length-5 texts number in the millions, while one chunk's walk states cost tens of megabytes at any maximum length.
 TEXT_CHUNK = 65536
 SWEEP_MAX_LENGTH = 4
@@ -1975,7 +1979,7 @@ def sweep_texts(
 
 
 def renamed_runes(spec: ResolvedSpec, config: str) -> frozenset[str]:
-    """Return the runes `config`'s marker renaming renames (`raw_rename_map`): each rune whose unlock rows name one of its features. A text without one of them reaches the font's settlement lookup with the glyphs `default` gives it, since the stylistic sets' lookups rename only these runes. The set is empty for `default` and for an overlay configuration."""
+    """Return the runes `config`'s marker renaming renames (`raw_rename_map`): each rune with a marker copy for one of its features. A text without one of them reaches the font's settlement lookup with the glyphs `default` gives it, since the stylistic sets' lookups rename only these runes. The set is empty for `default` and for an overlay configuration."""
     return frozenset(name for name in raw_rename_map(spec, features_for_config(config)) if name in spec.runes)
 
 

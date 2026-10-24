@@ -9,6 +9,8 @@ The rows the oracle classifies are produced in conform.py. `_compare_row` and `_
 run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and writes its own audit segment under `oracle_audit_scratch` and its own store segment. `join_oracle_audit` and `oracle_cache.join_store_segments` join those in row order, and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, because `_compare_config` addresses every row by its absolute index in the table: the store records, the scheduled re-derivation, and the verification samples all key on it.
 
 For the overlay configuration (ss10), no settlement table produces the new side. Its rows are walked by `conform.IsolatedOverlayWalk`, which returns every letter bare from the registry alone, and shaped by `shapers.IsolatedOverlayShaper`, which uses the copies' `hmtx` advances instead of HarfBuzz. Read-back's isolation check and the conformance sweep over the overlay are what make both valid. So the old font's ss10 rows are compared with an all-bare stream, and no settlement or shaping runs for them.
+
+An M1-only configuration (`conform.M1_ONLY_CONFIGS`) has no baseline table, and the oracle never compares it; its configurations are `conform.ORACLE_CONFIGS`.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from rebuild.pipeline import (
     settle,
 )
 from rebuild.pipeline.conform import (
-    ACCEPTANCE_CONFIGS,
+    ORACLE_CONFIGS,
     OVERLAY_CONFIGS,
     DivergentRow,
     IsolatedOverlayWalk,
@@ -83,7 +85,7 @@ class OracleShard:
 
 
 def oracle_shard_plan(
-    jobs: int, rows_by_config: Mapping[str, int | None], configs: Iterable[str] = ACCEPTANCE_CONFIGS
+    jobs: int, rows_by_config: Mapping[str, int | None], configs: Iterable[str] = ORACLE_CONFIGS
 ) -> list[OracleShard]:
     """Split the oracle's rows into ranges for `jobs` workers. The configurations with a known row count are laid end to end, each row weighted by its configuration's cost, and the sequence is cut at every multiple of one worker's share of the total. The ranges are returned heaviest first, the order a pool should start them: the small ranges at the end fill in behind whichever workers finish early, so the wall-clock time comes within one range of a share. A configuration's last range has `stop_row` None, so a row count lower than the table's makes the balance worse but never skips a row. A configuration with an unknown row count (None or zero, as with a hand-made table directory) stays one range over its whole table and sorts first, as if it were the heaviest. `jobs` of one cuts nothing."""
     configs = tuple(configs)
@@ -1085,7 +1087,7 @@ def compare_against_baseline(
     subset_tables_dir: Path,
     alias_path: Path,
     ledger_path: Path,
-    configs: Iterable[str] = ACCEPTANCE_CONFIGS,
+    configs: Iterable[str] = ORACLE_CONFIGS,
     out_dir: Path | None = None,
     font_path: Path | None = None,
     kern_sidecar_path: Path | None = None,

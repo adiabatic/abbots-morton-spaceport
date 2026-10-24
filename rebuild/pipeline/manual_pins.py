@@ -6,7 +6,7 @@ The third corpus `test/test_shaping.py` reads, site/extra-senior-words.html, is 
 
 The checks follow `rebuild/validation/pins.py` with two differences. First, `.half` and `.alt` assertions look up the stance's declared traits: the shaped glyph name is split back into rune and stance, because M1 stance names (`flipped`, `alternate`) need not contain the trait name the way the old glyph names did. Second, the `.∅` exact-glyph assertion accepts either the bare cmap glyph or the label of the rune's isolated cell, both of which draw the letter with no contextual variant. Other variant assertions (`en-y0`, `noentry`, `extended`, and so on) are skipped and counted, as in the baseline replay, because the junction-height assertions already cover their design content and the old font's compat metadata has no M1 equivalent.
 
-Pins that use letters outside the alphabet are counted per missing letter (`blocked_by`, `sole_blocker`), so the summary shows which letters' migration would bring the most pins into scope. A pin whose stylistic-set configuration is not in `conform.ACCEPTANCE_CONFIGS` is skipped and counted in `skipped_config`, because the M1 font does not implement that feature. `rebuild/validation/pins.py` still checks such a pin against the old font.
+Pins that use letters outside the alphabet are counted per missing letter (`blocked_by`, `sole_blocker`), so the summary shows which letters' migration would bring the most pins into scope. A pin whose stylistic-set configuration is not in `conform.ACCEPTANCE_CONFIGS` is skipped and counted in `skipped_config`, because the M1 font does not implement that feature. `rebuild/validation/pins.py` still checks such a pin against the old font. The collector also admits the M1-only configurations (`conform.M1_ONLY_CONFIGS`, through `PIN_CONFIGS`), which the old-font replay skips.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from rebuild.pipeline.model import ResolvedSpec
 from rebuild.pipeline.settle import cell_label
 from rebuild.validation.classify import JunctionClassifier
 from rebuild.validation.pins import Disagreement, PinRun, ReplayReport, _import_test_shaping, collect_pin_runs
-from rebuild.validation.rowmodel import Row, format_codepoints
+from rebuild.validation.rowmodel import CONFIGS, Row, format_codepoints
 from rebuild.validation.shaping import Shaper, last_glyph_covering, row_for
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +31,7 @@ PS_NAMES_PATH = REPO_ROOT / "postscript_glyph_names.yaml"
 
 # The module docstring says why site/extra-senior-words.html is left out.
 MANDATING_CORPORA = ("site/index.html", "site/the-manual.html")
+PIN_CONFIGS = frozenset(CONFIGS) | frozenset(conform.ACCEPTANCE_CONFIGS)
 
 BOUNDARY_GLYPH_EQUIVALENTS = {"space": frozenset({"space", "uni200C"})}
 
@@ -252,7 +253,11 @@ def _check_pin(
 def run_gate(font_path: Path, spec: ResolvedSpec) -> ManualPinReport:
     report = ManualPinReport()
     collection = ReplayReport()
-    pins = [pin for pin in collect_pin_runs(collection) if pin.source.startswith(MANDATING_CORPORA)]
+    pins = [
+        pin
+        for pin in collect_pin_runs(collection, configs=PIN_CONFIGS)
+        if pin.source.startswith(MANDATING_CORPORA)
+    ]
     report.pins_eligible = len(pins)
     alphabet = migrated_alphabet(spec)
 

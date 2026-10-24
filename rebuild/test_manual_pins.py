@@ -39,6 +39,23 @@ class TestGate:
         assert all("letter" in entry and "blocks" in entry for entry in summary["top_blocking_letters"])
 
 
+def test_the_gate_collects_the_ss08_pin_that_the_old_font_replay_skips():
+    """The Manual writes ·Key·Utter·May under ss08, which the shipped font lacks, so the old-font replay's default roster drops the pin into `skipped_config`, while the gate's roster (`manual_pins.PIN_CONFIGS`) collects it under ss08 so the gate replays it."""
+    from rebuild.validation.pins import ReplayReport, collect_pin_runs
+
+    expect = "·Bay ~b~ ·It | ·Key | ·Utter.alt ~b~ ·May"
+
+    def ss08_pins(**roster):
+        return [
+            pin
+            for pin in collect_pin_runs(ReplayReport(), **roster)
+            if pin.source.startswith("site/the-manual.html:") and pin.expect == expect
+        ]
+
+    assert [pin.config_token for pin in ss08_pins(configs=manual_pins.PIN_CONFIGS)] == ["ss08"]
+    assert ss08_pins() == []
+
+
 class TestSemantics:
     def test_traits_resolve_through_stance_declarations(self, spec):
         for rune_name, rune in spec.runes.items():

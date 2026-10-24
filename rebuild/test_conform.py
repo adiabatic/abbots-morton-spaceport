@@ -123,6 +123,20 @@ ZWNJ = chr(0x200C)
 DOT = chr(0x00B7)
 
 
+class TestM1OnlyConfigs:
+    """`M1_ONLY_CONFIGS` names settlement configurations the shipped font has no set for: the kernel builds them and every gate but the oracle covers them, and `ORACLE_CONFIGS` is the acceptance set less them, in order. No baseline table exists for one, so none may be a configuration the extractor shapes, and every configuration the oracle compares must be one."""
+
+    def test_the_oracle_roster_is_the_acceptance_set_less_the_m1_only_configurations(self):
+        from rebuild.baseline import model as baseline_model
+
+        assert set(conform.M1_ONLY_CONFIGS) <= set(conform.SETTLEMENT_CONFIGS)
+        assert conform.ORACLE_CONFIGS == tuple(
+            config for config in conform.ACCEPTANCE_CONFIGS if config not in conform.M1_ONLY_CONFIGS
+        )
+        assert not set(conform.M1_ONLY_CONFIGS) & set(baseline_model.CONFIGS)
+        assert set(conform.ORACLE_CONFIGS) <= set(baseline_model.CONFIGS)
+
+
 class TestIsolatedOverlay:
     """`OVERLAY_CONFIGS` is exactly the acceptance configurations whose features activate an `overlay: isolated` taste set, and `SETTLEMENT_CONFIGS` is the rest. For an overlay configuration the oracle and the conformance sweep take everything from the registry and the font's `hmtx`, and never call the crate."""
 
@@ -723,7 +737,7 @@ class TestPositionComparison:
 
 
 class TestPositionProjection:
-    """`Shaper.positions` must equal the (x_offset, y_offset, x_advance) projection of `Shaper.shape`, over the first 400 rows of each frozen mini-bundle table and the checked-in smoke sequences, under every acceptance configuration's features. The shaper reuses one HarfBuzz buffer for its whole life, so the corpus goes through both projections alternately. A buffer that kept state between calls, or a projection that returned zeros of the right length, fails here."""
+    """`Shaper.positions` must equal the (x_offset, y_offset, x_advance) projection of `Shaper.shape`, over the first 400 rows of each frozen mini-bundle table and the checked-in smoke sequences, under the features of every configuration the oracle compares. The shaper reuses one HarfBuzz buffer for its whole life, so the corpus goes through both projections alternately. A buffer that kept state between calls, or a projection that returned zeros of the right length, fails here."""
 
     @pytest.fixture(scope="class")
     def corpus(self) -> list[tuple[frozenset[str], str]]:
@@ -736,7 +750,7 @@ class TestPositionProjection:
             ]
         assert smoke
         corpus: list[tuple[frozenset[str], str]] = []
-        for config in conform.ACCEPTANCE_CONFIGS:
+        for config in conform.ORACLE_CONFIGS:
             features = conform.features_for_config(config)
             texts = [row.text for row in iter_rows(MINI / f"baseline-{config}.subset.tsv.gz", 0, 400)]
             assert texts, config
@@ -1069,7 +1083,7 @@ class TestConformanceMerge:
 _AUDIT_SHAPES = (
     {},
     {"default": []},
-    {config: [] for config in conform.ACCEPTANCE_CONFIGS},
+    {config: [] for config in conform.ORACLE_CONFIGS},
     {
         "default": ["default\tE668:E665\tcell\tmay-utter\tqsRoe|qsMay\tqsRoe.alt|qsMay"],
         "ss03": [],
@@ -1133,17 +1147,17 @@ class TestOracleAudit:
         assert standing.read_bytes() == b"the audit of the last green run\n"
 
     def test_the_frozen_mini_audit_reassembles_byte_for_byte(self, tmp_path):
-        """The same check over a real audit. The mini bundle's `audit.tsv` is a filtered live audit that `fixtures/mini/regenerate.py` writes by joining its rows with newlines, and its configuration blocks are contiguous and in `ACCEPTANCE_CONFIGS` order. Splitting it into shards and joining them must reproduce the file."""
+        """The same check over a real audit. The mini bundle's `audit.tsv` is a filtered live audit that `fixtures/mini/regenerate.py` writes by joining its rows with newlines, and its configuration blocks are contiguous and in `ORACLE_CONFIGS` order. Splitting it into shards and joining them must reproduce the file."""
         source = MINI / "audit.tsv"
         rows = source.read_text(encoding="utf-8").splitlines()
         assert rows[0] == oracle.ORACLE_AUDIT_HEADER
-        per_config: dict[str, list[str]] = {config: [] for config in conform.ACCEPTANCE_CONFIGS}
+        per_config: dict[str, list[str]] = {config: [] for config in conform.ORACLE_CONFIGS}
         for row in rows[1:]:
             per_config[row.split("\t")[0]].append(row)
         scratch = oracle.oracle_audit_scratch(tmp_path)
         for config, lines in per_config.items():
             self._shard(scratch, config, lines)
-        oracle.join_oracle_audit(tmp_path, scratch, conform.ACCEPTANCE_CONFIGS, len(rows) - 1)
+        oracle.join_oracle_audit(tmp_path, scratch, conform.ORACLE_CONFIGS, len(rows) - 1)
         assert (tmp_path / "divergence-audit.tsv").read_bytes() == source.read_bytes()
 
         cut = tmp_path / "cut"
@@ -1156,9 +1170,9 @@ class TestOracleAudit:
         oracle.join_oracle_audit(
             cut,
             scratch,
-            conform.ACCEPTANCE_CONFIGS,
+            conform.ORACLE_CONFIGS,
             len(rows) - 1,
-            segments={config: 2 for config in conform.ACCEPTANCE_CONFIGS},
+            segments={config: 2 for config in conform.ORACLE_CONFIGS},
         )
         assert (cut / "divergence-audit.tsv").read_bytes() == source.read_bytes()
 
@@ -1284,7 +1298,7 @@ class TestOracleAudit:
         scratch = oracle.oracle_audit_scratch(Path("m1"))
         assert scratch.name not in set(M1_ARTIFACT_NAMES)
         for name in [scratch.name] + [
-            oracle.oracle_audit_shard(scratch, config).name for config in conform.ACCEPTANCE_CONFIGS
+            oracle.oracle_audit_shard(scratch, config).name for config in conform.ORACLE_CONFIGS
         ]:
             assert not any(
                 fnmatch(name, pattern)
@@ -1297,8 +1311,8 @@ class TestOracleAudit:
                     "*.json",
                 )
             )
-        names = [oracle.oracle_audit_shard(scratch, config).name for config in conform.ACCEPTANCE_CONFIGS]
-        assert len(set(names)) == len(conform.ACCEPTANCE_CONFIGS)
+        names = [oracle.oracle_audit_shard(scratch, config).name for config in conform.ORACLE_CONFIGS]
+        assert len(set(names)) == len(conform.ORACLE_CONFIGS)
 
 
 def _divergent_subset_tables(root: Path, per_config: dict[str, list[tuple[int, int]]]) -> Path:

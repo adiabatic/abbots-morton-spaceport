@@ -6,7 +6,7 @@
 //!
 //! The exchange runs in rounds between the configurations of one build ([`crate::fanout::run_configs_tables`]). Each configuration publishes its current rules ([`SharedRules`]). Each configuration then reads every configuration's rules and, as a source, evaluates them over its own rows ([`exports`]), and sends each configuration exactly the rows whose wrong answer there would ship first, and the rows its own rule answers where that configuration publishes the rule's key with another outcome ([`ForeignRow`]). A receiver takes them in ([`Imports::absorb`]), refolds the inputs that gained rows, and publishes again. The next round evaluates only the inputs some configuration refolded, and the rounds stop when no configuration sends anything. An imported row is a row like the configuration's own to [`crate::rulefold`], so the refolded rules answer it, and the fold's replay checks that they do. The rules an imported row is the only reason for are guard rules, and each carries a certificate settled under the configuration the row is live in ([`crate::certificate::guard_certificate`]).
 //!
-//! Labels cross between configurations through [`Spellings`]. A rune whose stances unlock under a stylistic set has a marker copy for each set of its unlock features, and each configuration renames the rune's raw labels to its own copy before settlement (`model.raw_rename_map`). So a raw label means a different glyph under two configurations that set the rune's features differently. Between configurations the crate writes such a label as a tag, `<raw>@<features>`, naming the features the source configuration sets for the rune (`qsTea@` for the bare rune, `qsTea.noentry@ss03_ss05` for a locked copy under both sets), and a configuration writes its own copy as the raw label. A tag in a configuration's rules names a glyph its own stream never holds, so the crate's replays never match it, and the emitter spells it as the marker copy it names (`emit_gsub._renamed`). The crate never needs a marker copy's name.
+//! Labels cross between configurations through [`Spellings`]. A rune has a marker copy for each set of its marker features: the stylistic sets its unlock rows name, plus each policy-only set (one no rune's unlock rows name) that one of its own policy records is gated on. Each configuration renames the rune's raw labels to its own copy before settlement (`model.raw_rename_map`). So a raw label means a different glyph under two configurations that set the rune's features differently. Between configurations the crate writes such a label as a tag, `<raw>@<features>`, naming the features the source configuration sets for the rune (`qsTea@` for the bare rune, `qsTea.noentry@ss03_ss05` for a locked copy under both sets), and a configuration writes its own copy as the raw label. A tag in a configuration's rules names a glyph its own stream never holds, so the crate's replays never match it, and the emitter spells it as the marker copy it names (`emit_gsub._renamed`). The crate never needs a marker copy's name. The late-formation guard (`guard.rs`) quantifies over unlock features only, so a policy-only set's formation verdicts are checked by `rebuild/test_settle.py`'s per-configuration guard sweep, not by the conform sweep, whose two sides form ligatures from the same quantified verdicts.
 //!
 //! A row's `#NA` after a letter means that the window does not carry that slot, so the outcome is the same for every label there ([`crate::fold::open_slot`], which the shipped-order walk reads too). The evaluation reads it so: a source row is answered wrongly when any continuation through the slot reaches a rule with another outcome first. A receiver refuses an imported row that overlaps one of its own rows, or another imported row, with a different outcome, since one shipped lookup cannot give both, and names both configurations. The refusal counts every continuation of an open slot as live, even one the source never reaches; `doc/rebuild-design.md` §14.1 says why.
 
@@ -34,7 +34,7 @@ const BOUNDARY_LEFTS: [&str; 4] = ["#EDGE", "space", "periodcentered", "uni200C"
 /// The boundary labels a right slot can carry.
 const BOUNDARY_RIGHTS: [&str; 4] = ["#EDGE", "space", "uni200C", "periodcentered"];
 
-/// How the configurations of one build spell the raw labels of the runes whose stances unlock under a stylistic set: each such rune's unlock features (`model.relevant_marker_features`), and each configuration's subset of them.
+/// How the configurations of one build spell the raw labels of the marker runes: each such rune's marker features (`model.relevant_marker_features`), and each configuration's subset of them.
 pub struct Spellings {
     tokens: Vec<String>,
     states: Vec<HashMap<String, String>>,
@@ -42,18 +42,39 @@ pub struct Spellings {
 }
 
 impl Spellings {
-    /// The spellings of the configurations `configs`, each a token and its features, in list order. A rune is a marker rune when some stance of it has an unlock row, whatever the row's own `when:`.
+    /// The spellings of the configurations `configs`, each a token and its features, in list order. A rune is a marker rune when some stance of it has an unlock row, whatever the row's own `when:`, or when one of its own policy records is gated on a set no rune's unlock rows name.
     pub fn new<'c>(
         index: &SpecIndex,
         configs: impl IntoIterator<Item = (&'c str, &'c [Sym])>,
     ) -> Self {
+        let unlock_features: HashSet<Sym> = index
+            .runes()
+            .iter()
+            .flat_map(|(_, rune)| rune.stances.iter())
+            .flat_map(|(_, stance)| stance.surface.unlocks.iter())
+            .map(|unlock| unlock.feature)
+            .collect();
         let mut unlocks: Vec<(String, Vec<String>)> = Vec::new();
         for (name, rune) in index.runes().iter() {
+            let policy = &rune.policy;
+            let policy_only = [
+                &policy.refuse,
+                &policy.prefer,
+                &policy.extend,
+                &policy.contract,
+                &policy.resolve,
+            ]
+            .into_iter()
+            .flat_map(|records| records.iter())
+            .filter_map(|record| record.when.feature)
+            .filter(|feature| !unlock_features.contains(feature));
             let mut features: Vec<String> = rune
                 .stances
                 .iter()
                 .flat_map(|(_, stance)| stance.surface.unlocks.iter())
-                .map(|unlock| index.resolve(unlock.feature).to_owned())
+                .map(|unlock| unlock.feature)
+                .chain(policy_only)
+                .map(|feature| index.resolve(feature).to_owned())
                 .collect();
             features.sort();
             features.dedup();
@@ -1295,6 +1316,67 @@ mod tests {
         assert_eq!(of([Some(left), Some(bare), None, None, None]), 3);
         assert_eq!(of([None, None, Some(copy), None, None]), 6);
         assert_eq!(of([None, Some(bare), None, None, None]), 7);
+    }
+
+    /// A set no unlock row names marks the owner of a record gated on it, while a record gated on a set an unlock row names marks nothing: `qsMay` unlocks under `ss03`, `qsTea` owns a refuse gated on `ss03`, and `qsPea` owns a refuse gated on the policy-only `ss08`.
+    #[test]
+    fn a_policy_only_set_marks_the_owners_of_its_gated_records() {
+        use crate::index::fixtures::*;
+        let gated = |rune_name: &str, feature: &str| {
+            let quoted = quote(feature);
+            rune(
+                rune_name,
+                &[
+                    ("stances", &map(&[("solo", &stance("solo", &[]))])),
+                    (
+                        "policy",
+                        &policy(&[(
+                            "refuse",
+                            &seq(&[&record(&[
+                                ("kind", "\"refuse\""),
+                                ("when", &when(&[("feature", &quoted)])),
+                            ])]),
+                        )]),
+                    ),
+                ],
+            )
+        };
+        let may_alt = stance(
+            "alt",
+            &[(
+                "surface",
+                &surface(&[(
+                    "unlocks",
+                    &seq(&[
+                        r#"{"feature":"ss03","entry":"x-height","exit":null,"pairing":null,"when":null,"why":null,"provenance":null}"#,
+                    ]),
+                )]),
+            )],
+        );
+        let runes = map(&[
+            ("qsPea", &gated("qsPea", "ss08")),
+            ("qsTea", &gated("qsTea", "ss03")),
+            (
+                "qsMay",
+                &rune("qsMay", &[("stances", &map(&[("alt", &may_alt)]))]),
+            ),
+        ]);
+        let index = index_of(&dump(&runes, &four_family_registry()));
+        let ss03 = [sym(&index, "ss03")];
+        let ss08 = [sym(&index, "ss08")];
+        let spellings = Spellings::new(
+            &index,
+            [
+                ("default", &[][..]),
+                ("ss03", &ss03[..]),
+                ("ss08", &ss08[..]),
+            ],
+        );
+        assert_eq!(spellings.canonical(2, "qsPea"), "qsPea@ss08");
+        assert_eq!(spellings.canonical(0, "qsPea.noentry"), "qsPea.noentry@");
+        assert_eq!(spellings.canonical(1, "qsMay"), "qsMay@ss03");
+        assert_eq!(spellings.canonical(2, "qsMay"), "qsMay@");
+        assert_eq!(spellings.canonical(1, "qsTea"), "qsTea");
     }
 
     /// A `default` and an `ss03` configuration where `ss03` unlocks `qsTea`, so `qsTea` is a marker rune the two spell differently.

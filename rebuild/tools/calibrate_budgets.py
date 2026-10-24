@@ -307,6 +307,31 @@ def _acceptance_config_count(path: Path) -> int:
     return sum(lengths.values())
 
 
+@functools.cache
+def _oracle_settlement_config_count(path: Path) -> int:
+    """Return the number of settlement configurations the oracle compares in `path`: the entries of its module-scope `SETTLEMENT_CONFIGS` tuple that its `M1_ONLY_CONFIGS` tuple does not name, both parsed with `ast` like the constants. The oracle runs one settle-memo absorb for each (`artifact_cycle._oracle_absorb_excess_bytes`). A missing name or a value that is not a literal tuple raises, because the report would otherwise state a wrong width."""
+    names = ("SETTLEMENT_CONFIGS", "M1_ONLY_CONFIGS")
+    values: dict[str, tuple] = {}
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id in names:
+                value = ast.literal_eval(node.value) if isinstance(node.value, ast.Tuple) else None
+                if not isinstance(value, tuple):
+                    raise RuntimeError(
+                        f"{path} assigns {target.id} something other than a literal tuple: the oracle rows read the count of settlement configurations the oracle compares off those tuples to state the settle-memo absorbs' excess."
+                    )
+                values[target.id] = value
+    missing = [name for name in names if name not in values]
+    if missing:
+        raise RuntimeError(
+            f"{path} defines no {' or '.join(missing)}: the oracle rows read the count of settlement configurations the oracle compares off those tuples to state the settle-memo absorbs' excess. Point `CONFORM_SOURCE` at the file that defines them, or update this reader beside whatever moved them."
+        )
+    return len([config for config in values["SETTLEMENT_CONFIGS"] if config not in values["M1_ONLY_CONFIGS"]])
+
+
 def constant_set_at(path: Path, name: str, *, root: Path = ROOT) -> str | None:
     """Return the committer time of the commit that last changed `name`'s assignment line, as an ISO-Z stamp like the journal's `finished_at` fields, or None when there is no such commit: the line is uncommitted, the file is untracked, `root` is not a git checkout, or git is not installed. None means no cutoff, which only keeps older records in the count.
 
@@ -786,14 +811,14 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
         fit = memory_budget.describe_fit(constant_bytes, cap=cores, total_bytes=total_bytes)
         return f"`make replay-deep` walks {fit}, one unit a crate process, each one settlement configuration over the texts ending in one symbol (`deep_replay.replay_threads`)"
     if unit.name in ("oracle-shard", "oracle-absorb"):
-        configs = _settlement_config_count(root / CONFORM_SOURCE)
+        configs = _oracle_settlement_config_count(root / CONFORM_SOURCE)
         if unit.name == "oracle-shard":
             shard, absorb = constant_bytes, _int_constant(root / CORPUS_SOURCE, ORACLE_ABSORB_NAME)
         else:
             shard, absorb = _int_constant(root / CORPUS_SOURCE, ORACLE_SHARD_NAME), constant_bytes
         excess = _oracle_absorb_excess(shard, absorb, configs)
         fit = memory_budget.describe_fit(shard, coresident_bytes=excess, cap=cores, total_bytes=total_bytes)
-        absorbs = f"the {configs} settle-memo absorbs that follow the ranges, one per settlement configuration at once, hold {format_gb(configs * absorb)} GB together"
+        absorbs = f"the {configs} settle-memo absorbs that follow the ranges, one per settlement configuration the oracle compares, all at once, hold {format_gb(configs * absorb)} GB together"
         if excess:
             fits = f", {format_gb(excess)} GB more than the range slots they run in, which comes off the machine's memory first"
         else:

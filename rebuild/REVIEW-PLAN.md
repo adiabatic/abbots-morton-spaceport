@@ -253,7 +253,7 @@ The example is abridged; `check_manifest` checks every required key.
     "before": {"file": "fonts/before.otf", "family": "AMS Review Before", "source": "site/AbbotsMortonSpaceportSansSenior-Regular.otf", "sha256": "3211a7a7…", "upem": 550},
     "after": {"file": "fonts/after.otf", "family": "AMS Review After", "source": "rebuild/out/m1/M1.otf", "sha256": "…", "upem": 550}
   },
-  "configs": ["default", … the rest of `conform.ACCEPTANCE_CONFIGS`, the membership authority …],
+  "configs": ["default", … the rest of `conform.ORACLE_CONFIGS`, the membership authority …],
   "batch_size": 300,
   "totals": {"units": …, "rows": …, "batches": …},
   "machine_approved": {

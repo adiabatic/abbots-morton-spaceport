@@ -139,6 +139,7 @@ In order to exactly match the contents of [The Manual][tm] without peppering the
 - `ss05`: allow ·Tea to join at the baseline on both sides at once, whatever the neighbors
 - `ss06`: use gapped ·Owe (doesn’t connect at the top)
 - `ss07`: allow ·Owe·Day to join at the x-height again (the default shaping breaks the pair, including when ·Day is the start of a ligature like ·Day+Utter or ·Day+Eat)
+- `ss08`: write ·Key·Utter·May as The Manual does, `·Key | ·Utter.alt ~b~ ·May` (only the rebuilt font has this set; the released font writes ·Key·Utter·May this way without the set). Don’t combine it with ss03, ss04 or ss05: together they can break joins next to any ·Key or ·Utter, not only in ·Key·Utter·May
 - `ss10`: show the wrapped letter(s) unjoined: no joins and no ligatures (·Day·Utter stays two letters), each letter in its standalone shape — beats interspersing ZWNJs between letters of a word
 
 **I make no guarantees that I’m going to keep these stylistic sets the same over multiple releases of this font**. If you use these yourself and upgrade your Abbots Morton Spaceport font files ever, you’ll need to read the FONTLOG to see if I’ve rejiggered any of these.

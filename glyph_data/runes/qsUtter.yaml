@@ -125,6 +125,7 @@ policy:
     when:
       left: {family: qsKey}
       right: {family: qsMay}
+      feature: ss08
   prefer:
   - cell: {exit: none}
     when:

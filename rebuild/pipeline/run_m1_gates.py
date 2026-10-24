@@ -158,7 +158,7 @@ def _promote_oracle_row_cache(
         return
     moved = oracle_cache.moved_note(dict(keys), keys_now)
     if moved is None:
-        for config in conform.ACCEPTANCE_CONFIGS:
+        for config in conform.ORACLE_CONFIGS:
             moved = oracle_cache.moved_note(stamps[config].labels, stamps_now[config].labels)
             if moved is not None:
                 moved = f"{config} {moved}"
@@ -176,7 +176,7 @@ def _promote_oracle_row_cache(
             f"oracle row cache: not written — its inputs moved while the oracle ran ({moved}), so nothing it derived describes what is on disk"
         )
         return
-    promoted = oracle_cache.promote_stores(scratch, out_dir, conform.ACCEPTANCE_CONFIGS)
+    promoted = oracle_cache.promote_stores(scratch, out_dir, conform.ORACLE_CONFIGS)
     if promoted:
         console.say(f"oracle row cache: written for {', '.join(promoted)}")
     else:
@@ -186,7 +186,7 @@ def _promote_oracle_row_cache(
 def oracle_row_cache_keys(
     spec: ResolvedSpec, out_dir: Path
 ) -> tuple[dict[str, str], dict[str, oracle_cache.EnvironmentStamp]]:
-    """Return the oracle row cache's two keys from one read of their sources: a digest per rune family, and a whole-store stamp per acceptance configuration. They are computed once before the run and again at promotion, which is how the run detects that what it would record differs from what it built from."""
+    """Return the oracle row cache's two keys from one read of their sources: a digest per rune family, and a whole-store stamp per configuration the oracle compares (`conform.ORACLE_CONFIGS`). They are computed once before the run and again at promotion, which is how the run detects that what it would record differs from what it built from."""
     keys = oracle_cache.family_keys(run_m1.REPO_ROOT, spec, ALIAS_YAML)
     stamps = {
         config: oracle_cache.environment_stamp(
@@ -198,7 +198,7 @@ def oracle_row_cache_keys(
             ALIAS_YAML,
             keys.keys(),
         )
-        for config in conform.ACCEPTANCE_CONFIGS
+        for config in conform.ORACLE_CONFIGS
     }
     return keys, stamps
 
@@ -222,11 +222,11 @@ def _report_oracle_cache(
     position_stamp: oracle_cache.EnvironmentStamp | None = None,
 ) -> None:
     """Print, before the fan-out, which stored verdicts will and will not be served. The hit rate is bimodal, and a whole-store drop looks like a bug unless the line that caused it is named. A changed stamp line (a pipeline module, a predicate class gaining a member, the settlement mode flags `kernel_exec.settlement_flags` returns) re-derives every row of every configuration; unless the line is one of `oracle_cache.POSITION_ROW_STAMP_LABELS` or `oracle_cache.position_stale_mask` makes every position stale (the position stamp moved too, a moved family is one the registry cannot place, or there is no font), each position whose settled cells did not change is still served, and otherwise the store is dropped, the same test `oracle_cache.load_store` makes. A changed family key re-derives only the rows that can reach that family, the usual result of a rune edit. The position store is reported on its own line: a changed position stamp line (the position comparison's code closure, the kern sidecar, the font's helpers) re-shapes every row while the row verdicts are still served, and a changed position key re-shapes only the rows that reach that family, the usual result of a glyph edit."""
-    recorded = oracle_cache.read_header(oracle_cache.store_path(out_dir, conform.ACCEPTANCE_CONFIGS[0]))
+    recorded = oracle_cache.read_header(oracle_cache.store_path(out_dir, conform.ORACLE_CONFIGS[0]))
     if recorded is None:
         console.say("oracle row cache: no store on disk — this pass derives every row and writes one")
         return
-    stamp = stamps[conform.ACCEPTANCE_CONFIGS[0]]
+    stamp = stamps[conform.ORACLE_CONFIGS[0]]
     stored_lines = {
         label: digest
         for label, _, digest in (str(line).partition("\t") for line in recorded.get("environment") or ())
@@ -554,7 +554,7 @@ def run_oracle(
 ) -> dict:
     """Run the baseline oracle (`rebuild/M1-PLAN.md` §6) over the subset tables, reading the row cache before the first row and writing it after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table: `oracle.oracle_shard_plan` splits every table (by the row counts the subset stamp records, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that each of `jobs` workers gets an equal share of the whole, and `run_m1._spawn_pool` starts up to `jobs` workers, one per range at most. Each range writes its own audit segment and store segment, and writes the settle memo windows it settled fresh as a part. The parent merges the ranges' tallies (`oracle.merge_config_shards`), concatenates the segments (`oracle.join_oracle_audit`, `oracle_cache.join_store_segments`), and merges the parts into the shared memo files (`conform.absorb_settle_memo_parts`, on the same pool, each merge's peak recorded in the pool record as `<config> absorb` beside the ranges'), all in row order, so the summary, the audit and every store's records match an unsplit run. The crate's formation-guard verdicts are computed once here and passed with every submission, as in the conformance sweep's fan-out. `[t] oracle_setup` times this process's work before the pool takes over, from entry to the last range's submission: the cache keys, the shard plan, the guard sweep and the submissions.
 
-    `memo_inputs` is `run_m1.settle_memo_inputs` as the caller took it before loading `spec`, and names the settle memo files this pass shares with the conformance sweep (`conform.settle_memo_files`). The oracle's rows are the conformance sweep's texts, so a settlement configuration whose file the replay or the conformance sweep already wrote under these keys settles nothing here, and one neither has reached yet writes the file the conformance sweep will load. A caller with no inputs shares nothing, and the overlay configuration has no memo, since its worker settles nothing. `memo_ready`, when given, is called before this pass writes a shared settle memo file. On the pooled path that is once every range has finished, because ranges write only parts and the parent's merges are the pass's only writes to the files. On the `--jobs 1` path it is before the first walk, because those walks replace the files whole as they go. `run_m1.full_run` passes `run_m1.TableGates.wait_for_memo`, which returns once the witness stage has merged its own part into each file. That lets the pool start after the string replay alone while the witness stage still runs: a range reads a whole file whether it maps it before or after the witness stage's merge, and every write this pass makes includes what the witness stage wrote.
+    `memo_inputs` is `run_m1.settle_memo_inputs` as the caller took it before loading `spec`, and names the settle memo files this pass shares with the conformance sweep (`conform.settle_memo_files`). The oracle's rows are the conformance sweep's texts, so a settlement configuration whose file the replay or the conformance sweep already wrote under these keys settles nothing here, and one neither has reached yet writes the file the conformance sweep will load. A caller with no inputs shares nothing, the overlay configuration has no memo, since its worker settles nothing, and this pass leaves an M1-only configuration's memo (`conform.M1_ONLY_CONFIGS`) to the other passes, since the oracle never compares it. `memo_ready`, when given, is called before this pass writes a shared settle memo file. On the pooled path that is once every range has finished, because ranges write only parts and the parent's merges are the pass's only writes to the files. On the `--jobs 1` path it is before the first walk, because those walks replace the files whole as they go. `run_m1.full_run` passes `run_m1.TableGates.wait_for_memo`, which returns once the witness stage has merged its own part into each file. That lets the pool start after the string replay alone while the witness stage still runs: a range reads a whole file whether it maps it before or after the witness stage's merge, and every write this pass makes includes what the witness stage wrote.
 
     The cache keys are computed once here (the row keys from the rune tree, the position keys from the compiled font and the kern sidecar) and passed to the workers, then computed again at promotion, where a store is written only if no stamp and no key changed while the run used them. The second computation is needed because `fingerprint.rune_digests` reads the rune files from disk, a full run takes minutes, and a long run is usually detached while editing continues. Without it, a rune edited mid-run would be recorded under a digest the stored verdicts were never built from, and later passes would serve pre-edit verdicts as current indefinitely. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys follow the same rule for the same reason.
 
@@ -569,7 +569,7 @@ def run_oracle(
         spec = load_default_spec()
     oracle.discard_oracle_audit_scratch(out_dir)
     if fresh_cache and write_cache:
-        oracle_cache.discard_stores(out_dir, conform.ACCEPTANCE_CONFIGS)
+        oracle_cache.discard_stores(out_dir, conform.ORACLE_CONFIGS)
     scratch = oracle.oracle_audit_scratch(out_dir)
     keys: dict[str, str] | None = None
     stamps: dict[str, oracle_cache.EnvironmentStamp] | None = None
@@ -598,17 +598,21 @@ def run_oracle(
             position_environment=position_stamp,
             position_keys=position_keys,
         )
-    settle_memos = conform.settle_memo_files(out_dir, spec, memo_inputs)
+    settle_memos = {
+        config: memo
+        for config, memo in conform.settle_memo_files(out_dir, spec, memo_inputs).items()
+        if config in conform.ORACLE_CONFIGS
+    }
     try:
         if jobs > 1:
             shards = oracle.oracle_shard_plan(jobs, baseline_subset.subset_row_counts(out_dir))
-            segments = {config: 0 for config in conform.ACCEPTANCE_CONFIGS}
+            segments = {config: 0 for config in conform.ORACLE_CONFIGS}
             for shard in shards:
                 segments[shard.config] = shard.of
             kernel_exec.ensure_built()
             guard_verdicts = kernel_exec.guard_sweep(spec)
             landed: dict[str, list[tuple[oracle.OracleShard, oracle.OracleConfigResult]]] = {
-                config: [] for config in conform.ACCEPTANCE_CONFIGS
+                config: [] for config in conform.ORACLE_CONFIGS
             }
             width = min(jobs, len(shards))
             with run_m1._spawn_pool(jobs, len(shards)) as pool:
@@ -673,14 +677,12 @@ def run_oracle(
                 config: [
                     result for _shard, result in sorted(landed[config], key=lambda pair: pair[0].first_row)
                 ]
-                for config in conform.ACCEPTANCE_CONFIGS
+                for config in conform.ORACLE_CONFIGS
             }
-            ordered = [
-                oracle.merge_config_shards(in_row_order[config]) for config in conform.ACCEPTANCE_CONFIGS
-            ]
+            ordered = [oracle.merge_config_shards(in_row_order[config]) for config in conform.ORACLE_CONFIGS]
             report = oracle.merge_oracle_results(ordered)
             oracle.join_oracle_audit(
-                out_dir, scratch, conform.ACCEPTANCE_CONFIGS, report.divergent_rows, segments=segments
+                out_dir, scratch, conform.ORACLE_CONFIGS, report.divergent_rows, segments=segments
             )
             if row_cache is not None and row_cache.write_dir is not None:
                 for merged in ordered:

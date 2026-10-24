@@ -1471,10 +1471,11 @@ def replay_threads_derivation(
 
 
 def _oracle_absorb_excess_bytes() -> int:
-    """Return what the oracle's settle-memo absorbs hold beyond the range slots they run in: one absorb per settlement configuration at once, each at ORACLE_ABSORB_BYTES in place of ORACLE_SHARD_BYTES, and nothing when an absorb fits in a range's slot."""
-    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+    """Return what the oracle's settle-memo absorbs hold beyond the range slots they run in: one absorb per settlement configuration the oracle compares, all at once, each at ORACLE_ABSORB_BYTES in place of ORACLE_SHARD_BYTES, and nothing when an absorb fits in a range's slot."""
+    from rebuild.pipeline.conform import ORACLE_CONFIGS, SETTLEMENT_CONFIGS
 
-    return len(SETTLEMENT_CONFIGS) * max(0, ORACLE_ABSORB_BYTES - ORACLE_SHARD_BYTES)
+    absorbs = len([config for config in SETTLEMENT_CONFIGS if config in ORACLE_CONFIGS])
+    return absorbs * max(0, ORACLE_ABSORB_BYTES - ORACLE_SHARD_BYTES)
 
 
 def sweep_job_budget(ncores: int | None = None, total_bytes: int | None = None) -> int:

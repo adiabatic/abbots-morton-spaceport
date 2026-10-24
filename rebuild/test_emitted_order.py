@@ -64,7 +64,7 @@ def test_the_context_file_carries_the_marker_renaming_the_deep_classes_and_the_f
     plain = emit_gsub.emitted_context_tsv(spec, "default", decision)
     assert not records(plain, "rename")
     assert [token for token, _members in records(plain, "class")] == sorted(decision.deep_classes)
-    marker_runes = [name for name, rune in spec.runes.items() if model.relevant_marker_features(rune)]
+    marker_runes = [name for name in spec.runes if model.relevant_marker_features(spec, name)]
     raws = {label for name in marker_runes for label in (name, model.locked_glyph_name(name))}
     spellings = emit_gsub._marker_names(spec) | raws
     foreign = {label for (label,) in records(context, "foreign")}
@@ -122,7 +122,7 @@ def test_an_order_that_answers_an_open_slot_continuation_differently_is_refused(
     """A `#NA` after a letter stands for every label in that slot, so a rule that matches one of a row's continuations and gives another outcome fails the walk, though it matches no row's literal key. The rule copies a `default` row's input, left and carried lookahead slots, names at the row's open slot a rune that no row with those slots carries there, and is put first in the shipped order. The summary's `error` names the continuation and the emitted rule."""
     out_dir, tables = built
     _stamp, windows = table.read_windows(table.windows_path(out_dir, "default"))
-    plain = [name for name, rune in spec.runes.items() if not model.relevant_marker_features(rune)]
+    plain = [name for name in spec.runes if not model.relevant_marker_features(spec, name)]
     for row in windows.transitions:
         key = row.key
         open_at = fold_open_slot(key)
@@ -299,7 +299,7 @@ def test_the_emitter_refuses_a_table_whose_model_of_the_shipped_order_disagrees_
     """The crate's exchange decides each table's imports from where `emit_gsub._fold_rules` and `_ordered_settle_rules` ship every rule (`rebuild/kernel-rs/src/crossconfig.rs`), so a crate-built table carries that model: its configuration's place in the fold order and each rule's sort key. The mini build's tables carry a rank and one key per rule that agree with the emitter, and the emitter refuses a table whose key for one rule, or whose rank, disagrees with the order it ships."""
     _out_dir, tables = built
     for decision, _joins in tables.values():
-        assert decision.fold_order == ("default", "ss03", "ss03+ss05", "ss04", "ss05")
+        assert decision.fold_order == ("default", "ss03", "ss03+ss05", "ss04", "ss05", "ss08")
         assert len(decision.buckets) == len(decision.rules)
     emit_gsub.fold_settle_rules(spec, tables)
     default, joins = tables["default"]
@@ -307,7 +307,7 @@ def test_the_emitter_refuses_a_table_whose_model_of_the_shipped_order_disagrees_
     with pytest.raises(emit_gsub.EmitError, match="bucket"):
         emit_gsub.fold_settle_rules(spec, {**tables, "default": (flipped, joins)})
     ss03, ss03_joins = tables["ss03"]
-    swapped = dataclasses.replace(ss03, fold_order=("default", "ss03+ss05", "ss03", "ss04", "ss05"))
+    swapped = dataclasses.replace(ss03, fold_order=("default", "ss03+ss05", "ss03", "ss04", "ss05", "ss08"))
     with pytest.raises(emit_gsub.EmitError, match="in that order"):
         emit_gsub.fold_settle_rules(spec, {**tables, "ss03": (swapped, ss03_joins)})
 

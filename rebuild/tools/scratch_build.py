@@ -3,11 +3,11 @@
 Usage:
     uv run python rebuild/tools/scratch_build.py <runes_dir> <out_dir> [--configs a,b]
 
-`--configs` narrows the table build and the oracle to the same list, in the order given (`request_configs`). Its names are the settlement configurations `rebuild.tools.kernel_all_configs.configs_from` accepts, checked before the spec is resolved and dumped. Without it, the build covers the settlement set and the oracle covers the acceptance set, so a plain run also checks the ss10 overlay. A narrowed run does not, because it can name only settlement configurations. A run whose search reads only `default`'s rows can pass `--configs default` and pay for one configuration's enumeration and one oracle walk. A narrowed build writes the same window enumerations and join tables as the whole set, but its settlement tables can differ, because the whole set's fold takes in the windows each configuration keeps live that another's rules would answer wrongly in the shipped order (`rebuild/kernel-rs/src/crossconfig.rs`), and a narrowed build has fewer configurations to take them from. A set that does not include `default` enumerates every member from scratch and saves much less.
+`--configs` narrows the table build to that list, in the order given, and the oracle to the same list less the M1-only configurations (`conform.M1_ONLY_CONFIGS`), which have no baseline table (`request_configs`). Its names are the settlement configurations `rebuild.tools.kernel_all_configs.configs_from` accepts, checked before the spec is resolved and dumped. Without it, the build covers the settlement set and the oracle covers `conform.ORACLE_CONFIGS`, so a plain run also checks the ss10 overlay. A narrowed run does not, because it can name only settlement configurations. A run whose search reads only `default`'s rows can pass `--configs default` and pay for one configuration's enumeration and one oracle walk. A narrowed build writes the same window enumerations and join tables as the whole set, but its settlement tables can differ, because the whole set's fold takes in the windows each configuration keeps live that another's rules would answer wrongly in the shipped order (`rebuild/kernel-rs/src/crossconfig.rs`), and a narrowed build has fewer configurations to take them from. A set that does not include `default` enumerates every member from scratch and saves much less.
 
 The out dir may not resolve under rebuild/out/m1 (`scratch_out_dir`), whether or not the run is narrowed. A narrowed build there would rewrite the settlement, join and memo files of the configurations it names and leave the others as the last whole build wrote them, because the crate deletes nothing. The directory's readers (`rebuild/review/tablediff.py` reads it as one build) cannot tell that mixed set from a whole one. A whole-set build there would rewrite every table, `M1.otf` and `divergence-audit.tsv` from the candidate's runes but leave the stamped window enumerations, because it passes no inputs stamp. The artifact cycle's run_m1 skip key hashes the repo's inputs and only checks that those files exist, so the next pass would build the review corpus over the candidate's font and audit.
 
-Prints a JSON line with the configurations built (`configs`), the configurations the oracle walked (`oracle_configs`, which a plain run's ss10 overlay makes the longer list), the defect gate's errors, the oracle's `rows_compared`, `divergent_rows`, `unmatched` and `multi_matched`, and the audit path. It follows `rebuild.pipeline.run_m1.run()` and `rebuild.pipeline.run_m1_gates.run_oracle()`, read-back included, with the spec as a parameter. `build_font` is the build and read-back without the defect gates or the oracle, which `rebuild/tools/scaling_sweep.py` runs on each alphabet size of its series under `AMS_SCALING_FONTS=1`.
+Prints a JSON line with the configurations built (`configs`), the configurations the oracle walked (`oracle_configs`, which a plain run's ss10 overlay makes the longer list), the built configurations the oracle skipped because they are M1-only (`oracle_skipped`), the defect gate's errors, the oracle's `rows_compared`, `divergent_rows`, `unmatched` and `multi_matched`, and the audit path. It follows `rebuild.pipeline.run_m1.run()` and `rebuild.pipeline.run_m1_gates.run_oracle()`, read-back included, with the spec as a parameter. `build_font` is the build and read-back without the defect gates or the oracle, which `rebuild/tools/scaling_sweep.py` runs on each alphabet size of its series under `AMS_SCALING_FONTS=1`.
 """
 
 from __future__ import annotations
@@ -35,11 +35,11 @@ M1_OUT = REPO_ROOT / "rebuild" / "out" / "m1"
 
 
 def request_configs(requested: str) -> tuple[list[str], list[str]]:
-    """Return the configurations for the build and the oracle, as `(build, oracle)`. An empty request gives the settlement set for the build and the acceptance set, which includes the ss10 overlay, for the oracle. A named request gives that one list for both, in the order named."""
+    """Return the configurations for the build and the oracle, as `(build, oracle)`. An empty request gives the settlement set for the build and `conform.ORACLE_CONFIGS`, which includes the ss10 overlay, for the oracle. A named request gives that list for the build, in the order named, and the same list less `conform.M1_ONLY_CONFIGS` for the oracle."""
     if not requested:
-        return list(conform.SETTLEMENT_CONFIGS), list(conform.ACCEPTANCE_CONFIGS)
+        return list(conform.SETTLEMENT_CONFIGS), list(conform.ORACLE_CONFIGS)
     tokens = configs_from(requested)
-    return list(tokens), list(tokens)
+    return list(tokens), [config for config in tokens if config not in conform.M1_ONLY_CONFIGS]
 
 
 def scratch_out_dir(requested: str) -> Path:
@@ -115,6 +115,7 @@ def build_and_oracle(
     return {
         "configs": build_configs,
         "oracle_configs": oracle_configs,
+        "oracle_skipped": [config for config in build_configs if config in conform.M1_ONLY_CONFIGS],
         "defect_errors": [f"{d.code} {d.signature}: {d.message}" for d in defect_report.errors],
         "rows_compared": report.rows_compared,
         "divergent_rows": report.divergent_rows,

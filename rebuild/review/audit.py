@@ -22,7 +22,9 @@ import yaml
 from rebuild.review import change_groups
 from rebuild.review.columns import MappingPool, StringTable, TuplePool
 
+# Restate `conform.ORACLE_CONFIGS` and `conform.M1_ONLY_CONFIGS`, not `conform.ACCEPTANCE_CONFIGS`: importing conform would pull it into the corpus code closure. `rebuild/test_review_tablediff.py` ties them.
 ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
+M1_ONLY_CONFIGS = ("ss08",)
 BATCH_SIZE = 300
 
 UNMATCHED_CLASS = "UNMATCHED"

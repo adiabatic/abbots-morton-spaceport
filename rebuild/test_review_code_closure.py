@@ -376,13 +376,11 @@ def test_the_signature_roster_is_the_narrow_half_of_the_corpus_roster():
         assert path in corpus and path not in signature, relative
 
 
-LABELS_LEAF_IMPORTS = frozenset(
-    {"rebuild.pipeline.model", "rebuild.pipeline.settle", "rebuild.validation.rowmodel"}
-)
+LABELS_LEAF_IMPORTS = frozenset({"rebuild.pipeline.model", "rebuild.pipeline.settle"})
 
 
 def test_the_labels_leaf_imports_nothing_that_would_regrow_the_closure():
-    """`rebuild/pipeline/labels.py` gives the corpus build the sweep's vocabulary without importing the sweep, so it may import only `model`, `settle`, and `rowmodel`. A new import there would add its module to the build's closure, and the roster tests above would then fail with advice to stamp that module, when the fix is to keep labels.py free of the import. This test pins the import list so the change fails here with that diagnosis."""
+    """`rebuild/pipeline/labels.py` gives the corpus build the sweep's vocabulary without importing the sweep, so it may import only `model` and `settle`. A new import there would add its module to the build's closure, and the roster tests above would then fail with advice to stamp that module, when the fix is to keep labels.py free of the import. This test pins the import list so the change fails here with that diagnosis."""
     imports = {
         name
         for name in _imports(PIPELINE_DIR / "labels.py")

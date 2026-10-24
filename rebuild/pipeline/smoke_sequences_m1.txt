@@ -825,7 +825,7 @@ E654 E674 E665            # Key At May (At gives up its entry to join May at the
 E654 E675                 # Key I (the baseline exit)
 E654 E676                 # Key Ah (the baseline exit)
 E654 E67A                 # Key Utter (the baseline entry on bare Utter)
-E654 E67A E665            # Key Utter May (Key's join yields; the alternate Utter serves May)
+E654 E67A E665            # Key Utter May (the baseline join into the mono Utter, which reaches May at the x-height; ss08 keeps The Manual's break)
 E654 E67A E652 E653       # Key Utter Tea Day (the bare Utter breaks, and Tea keeps Day)
 E654 E67A E659            # Key Utter Vie (Key's join yields; the alternate Utter serves Vie)
 E654 E67A E65A            # Key Utter See (Key's join yields; the alternate Utter serves See)

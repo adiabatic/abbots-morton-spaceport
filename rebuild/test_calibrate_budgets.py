@@ -209,6 +209,26 @@ def test_the_sweep_cap_reads_the_acceptance_configurations_the_pipeline_defines(
     assert cb._acceptance_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(conform.ACCEPTANCE_CONFIGS)
 
 
+def test_the_oracle_rows_count_only_the_settlement_configurations_the_oracle_compares(tmp_path):
+    """The oracle runs one settle-memo absorb per settlement configuration it compares, so `_oracle_settlement_config_count` leaves out the configurations `M1_ONLY_CONFIGS` names, while the kernel-build row's `_settlement_config_count` keeps them. The pipeline's own count matches `conform.ORACLE_CONFIGS`, and a source with no `M1_ONLY_CONFIGS` raises rather than state a wrong width."""
+    from rebuild.pipeline import conform
+
+    source = tmp_path / "conform.py"
+    source.write_text(
+        'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\nM1_ONLY_CONFIGS = ("c",)\n',
+        encoding="utf-8",
+    )
+    assert cb._oracle_settlement_config_count(source) == 2
+    assert cb._settlement_config_count(source) == 3
+    assert cb._oracle_settlement_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(
+        [config for config in conform.SETTLEMENT_CONFIGS if config in conform.ORACLE_CONFIGS]
+    )
+    unmarked = tmp_path / "unmarked.py"
+    unmarked.write_text('SETTLEMENT_CONFIGS = ("a", "b", "c")\n', encoding="utf-8")
+    with pytest.raises(RuntimeError, match="defines no M1_ONLY_CONFIGS"):
+        cb._oracle_settlement_config_count(unmarked)
+
+
 def test_a_verdict_update_step_peak_calibrates_the_standing_fill_parent():
     """The verdict-update step peak is the max over the verdict update and any refill workers, and only the standing-fill-parent row reads it. The refill pool writes no pool record, so no worker row gets observations from it."""
     steps = {"r1": [_step("verdict-update", 9_000_000_000)]}
@@ -608,7 +628,8 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         encoding="utf-8",
     )
     (tree / cb.CONFORM_SOURCE).write_text(
-        'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\n', encoding="utf-8"
+        'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\nM1_ONLY_CONFIGS = ()\n',
+        encoding="utf-8",
     )
     rows = cb.build_rows(
         [], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0, constant_commit_times={}

@@ -188,8 +188,8 @@ def test_the_stamp_moves_with_each_spec_global_route(route, repo, monkeypatch):
 def test_the_stamp_carries_the_configuration_and_its_features(repo):
     """The stores for all acceptance configurations are written side by side under one run's keys, so the `config` and `features` lines are what keep one configuration's records from being served to another. They are stamped directly because the only other difference would be the subset table's digest, and the run does not control that file."""
     spec = fixtures.mini_spec()
-    stamps = {config: _stamp(repo, spec, config) for config in conform.ACCEPTANCE_CONFIGS}
-    assert len({stamp.value for stamp in stamps.values()}) == len(conform.ACCEPTANCE_CONFIGS)
+    stamps = {config: _stamp(repo, spec, config) for config in conform.ORACLE_CONFIGS}
+    assert len({stamp.value for stamp in stamps.values()}) == len(conform.ORACLE_CONFIGS)
     default, ss03 = stamps["default"].labels, stamps["ss03"].labels
     assert oracle_cache.moved_note(default, ss03) == "config (changed), features (changed)"
 
@@ -352,16 +352,14 @@ def test_a_cited_family_absent_from_the_recorded_keys_is_a_miss(repo, tmp_path):
 
 
 def _stage(scratch: Path, stamps, keys) -> None:
-    for config in conform.ACCEPTANCE_CONFIGS:
+    for config in conform.ORACLE_CONFIGS:
         path = oracle_cache.scratch_store_path(scratch, config)
         with oracle_cache.RowWriter(path, stamps[config], "subset-digest", 0, keys) as writer:
             writer.append((PEA,), None, 0)
 
 
 def _promoted(out_dir: Path) -> set[str]:
-    return {
-        config for config in conform.ACCEPTANCE_CONFIGS if oracle_cache.store_path(out_dir, config).is_file()
-    }
+    return {config for config in conform.ORACLE_CONFIGS if oracle_cache.store_path(out_dir, config).is_file()}
 
 
 def test_the_stamp_is_snapshotted_before_the_work_and_reverified_at_promotion(
@@ -377,7 +375,7 @@ def test_the_stamp_is_snapshotted_before_the_work_and_reverified_at_promotion(
     steady = tmp_path / "steady"
     _stage(steady, stamps, keys)
     run_m1_gates._promote_oracle_row_cache(spec, out_dir, steady, keys, stamps)
-    assert _promoted(out_dir) == set(conform.ACCEPTANCE_CONFIGS)
+    assert _promoted(out_dir) == set(conform.ORACLE_CONFIGS)
     assert "written for" in capsys.readouterr().out
 
     rune = repo / "glyph_data" / "runes" / "qsPea.yaml"
@@ -390,8 +388,7 @@ def test_the_stamp_is_snapshotted_before_the_work_and_reverified_at_promotion(
     assert _promoted(tmp_path / "m1-rune") == set()
     assert "not written" in message and "qsPea (changed)" in message
     assert all(
-        oracle_cache.scratch_store_path(edited_rune, config).is_file()
-        for config in conform.ACCEPTANCE_CONFIGS
+        oracle_cache.scratch_store_path(edited_rune, config).is_file() for config in conform.ORACLE_CONFIGS
     )
 
     rune.write_bytes(original)
@@ -1148,14 +1145,14 @@ def test_the_store_is_not_an_m1_artifact(tmp_path):
     m1.mkdir(parents=True)
     for name in artifact_cycle.M1_ARTIFACT_NAMES:
         (m1 / name).write_bytes(b"")
-    for config in conform.ACCEPTANCE_CONFIGS:
+    for config in conform.ORACLE_CONFIGS:
         (m1 / f"baseline-{config}.subset.tsv.gz").write_bytes(b"")
         oracle_cache.store_path(m1, config).write_bytes(b"")
 
-    stores = {oracle_cache.store_path(m1, config).name for config in conform.ACCEPTANCE_CONFIGS}
+    stores = {oracle_cache.store_path(m1, config).name for config in conform.ORACLE_CONFIGS}
     assert stores.isdisjoint(artifact_cycle.M1_ARTIFACT_NAMES)
     assert {path.name for path in artifact_cycle._subset_tables(tmp_path)} == {
-        f"baseline-{config}.subset.tsv.gz" for config in conform.ACCEPTANCE_CONFIGS
+        f"baseline-{config}.subset.tsv.gz" for config in conform.ORACLE_CONFIGS
     }
     assert oracle_cache.scratch_store_path(tmp_path, "default").parent.name == oracle_cache.SCRATCH_SUBDIR
 
@@ -1527,10 +1524,10 @@ def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypat
     steady = tmp_path / "steady"
     _stage(steady, stamps, keys)
     run_m1_gates._promote_oracle_row_cache(spec, out_dir, steady, keys, stamps, position_keys, position_stamp)
-    assert _promoted(out_dir) == set(conform.ACCEPTANCE_CONFIGS)
+    assert _promoted(out_dir) == set(conform.ORACLE_CONFIGS)
     assert "written for" in capsys.readouterr().out
     promoted = {
-        config: oracle_cache.store_path(out_dir, config).read_bytes() for config in conform.ACCEPTANCE_CONFIGS
+        config: oracle_cache.store_path(out_dir, config).read_bytes() for config in conform.ORACLE_CONFIGS
     }
 
     _font_edited(MINI_FONT, out_dir / "M1.otf", lambda name: name.split(".")[0] == "qsTea")
@@ -1552,7 +1549,7 @@ def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypat
     message = capsys.readouterr().out
     assert "not written" in message and "positions kern (changed)" in message
     assert {
-        config: oracle_cache.store_path(out_dir, config).read_bytes() for config in conform.ACCEPTANCE_CONFIGS
+        config: oracle_cache.store_path(out_dir, config).read_bytes() for config in conform.ORACLE_CONFIGS
     } == promoted
 
 

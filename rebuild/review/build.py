@@ -208,6 +208,7 @@ FEATURE_DESCRIPTIONS = {
     "ss05": "allow ·Tea to join at the baseline on both sides",
     "ss06": "use gapped ·Owe (doesn’t connect at the top)",
     "ss07": "allow ·Owe·Day to join at the x-height again",
+    "ss08": "write ·Key·Utter·May as The Manual does: no join after ·Key, then the alternate ·Utter",
     "ss10": "suppress all joins for the wrapped letter(s)",
 }
 

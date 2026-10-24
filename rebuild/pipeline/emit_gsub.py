@@ -4,7 +4,7 @@ Lookups are defined in the order they must apply, because definition order fixes
 
 1. The ss10 input substitution: single substitutions from each letter's raw cmap glyph to its anchor-free `.ss10` copy. It comes first so that under ss10 it runs before formation. The copies appear in no formation sequence, marker line, ZWNJ lock class, or settlement input, so under ss10 no ligature forms, nothing settles, and each letter keeps its own cluster.
 2. Formation: a type-4 lookup over the registry's ligature sequences. A ligature that the design section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup, `m1_formation_guarded`, which runs first. Its generated `ignore sub` rows implement the guard over the two raw lookahead slots. ZWNJ-explicit forming rows come before them, because HarfBuzz skips a ZWNJ in contextual matching and a guard class could otherwise match across one. The verdicts come from one `guard-sweep` call to the kernel crate, which does not depend on the configuration, so formation can run before the marker substitutions.
-3. The stylistic-set marker substitutions: unconditional, one lookup per set, after formation so that turning on a set cannot undo a ligature. Composite markers represent several sets on at once.
+3. The stylistic-set marker substitutions (unlock sets and policy-only sets): unconditional, one lookup per set, after formation so that turning on a set cannot undo a ligature. Composite markers represent several sets on at once.
 4. The ZWNJ lock: `sub uni200C @m1_entry_capable' by @m1_entry_locked`.
 5. The settlement rows' outcome lookups, registered in no feature and referenced by name from those rows. Each is a single substitution, and lookup k holds each input glyph's k-th distinct outcome, for the input glyphs whose rows name that many, so there are as many as the most outcomes any input glyph has (`_settle_outcome_lookups`). feaLib resolves `lookup NAME` through a dict, while an inline `by` makes it rescan every rule since the last `subtable;` for a compatible inner lookup, which is quadratic in the rows per family.
 6. One settlement lookup, `m1_settle`, of chained-context rows of the form `sub <backtrack> X' lookup NAME <lookahead>;`, with a `subtable;` break between input families and positive rules only. It is marked `useExtension` so that its per-rule format-3 subtables sit behind 32-bit Extension offsets. Without it, the depth-4 rules push the uint16 subtable-offset headroom below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`.
@@ -215,10 +215,10 @@ def _marker_lookups(
     per_feature_pairs: dict[str, dict[str, str]] = {}
     marker_glyphs: dict[str, str] = {}
     all_features = sorted(
-        {feature for rune in spec.runes.values() for feature in relevant_marker_features(rune)}
+        {feature for rune_name in spec.runes for feature in relevant_marker_features(spec, rune_name)}
     )
-    for rune_name, rune in spec.runes.items():
-        relevant = relevant_marker_features(rune)
+    for rune_name in spec.runes:
+        relevant = relevant_marker_features(spec, rune_name)
         if not relevant:
             continue
         for glyph in marker_states(rune_name, relevant):
@@ -348,7 +348,7 @@ def _entry_capable_members(spec: ResolvedSpec) -> list[str]:
         if not any(stance.surface.entries for stance in rune.stances.values()):
             continue
         members.append(rune_name)
-        for glyph in marker_states(rune_name, relevant_marker_features(rune)):
+        for glyph in marker_states(rune_name, relevant_marker_features(spec, rune_name)):
             members.append(glyph)
     return sorted(members)
 
@@ -511,14 +511,16 @@ def _check_bucket(config, index: int, rule, bucket: int, marker_names: frozenset
 
 
 def _check_tags(spec: ResolvedSpec | None, config, rule) -> None:
-    """Raise EmitError for a marker tag in `rule` that the crate's marker partition and `model.relevant_marker_features` disagree on: a tag must name a rune with unlock rows and a subset of its unlock features, and never the features `config` itself sets for it, which the crate writes as the raw label."""
+    """Raise EmitError for a marker tag in `rule` that the crate's marker partition and `model.relevant_marker_features` disagree on: a tag must name a marker rune and a subset of its marker features, and never the features `config` itself sets for it, which the crate writes as the raw label."""
     if spec is None:
         return
     features = _config_features(config)
     for tag in _lookahead_tags(rule):
         raw, _separator, state = tag.partition(MARKER_TAG_SEPARATOR)
-        rune = spec.runes.get(raw.removesuffix(".noentry"))
-        relevant = frozenset(relevant_marker_features(rune)) if rune is not None else frozenset()
+        rune_name = raw.removesuffix(".noentry")
+        relevant = (
+            frozenset(relevant_marker_features(spec, rune_name)) if rune_name in spec.runes else frozenset()
+        )
         named = frozenset(state.split("_")) if state else frozenset()
         if not relevant or not named <= relevant or named == relevant & features:
             raise EmitError(
@@ -670,14 +672,14 @@ def emitted_order_tsv(spec: ResolvedSpec, tables_by_config: Mapping) -> str:
 
 
 def emitted_context_tsv(spec: ResolvedSpec, config, decision) -> str:
-    """The label context of one configuration for the crate's `replay-emitted` subcommand (`shipped_order::read_context`). It has a `rename` record for each raw label that the marker renaming changes under this configuration (`model.raw_rename_map`, the map `_fold_rules` uses), a `class` record for each deep class in the table's rows, with its members as raw labels, and a `foreign` record for each label the shipped lookup can name that this configuration's stream never carries: for every rune with unlock rows, the bare rune and each of its marker copies (`marker_states`) that stands for another subset of its unlock features than the configuration sets, with each one's locked copy. The walk never reads a foreign label as a continuation of an open slot, and refuses a row that carries one. The list depends on the configuration alone, not on which configurations a build folds."""
+    """The label context of one configuration for the crate's `replay-emitted` subcommand (`shipped_order::read_context`). It has a `rename` record for each raw label that the marker renaming changes under this configuration (`model.raw_rename_map`, the map `_fold_rules` uses), a `class` record for each deep class in the table's rows, with its members as raw labels, and a `foreign` record for each label the shipped lookup can name that this configuration's stream never carries: for every marker rune, the bare rune and each of its marker copies (`marker_states`) that stands for another subset of its marker features than the configuration sets, with each one's locked copy. The walk never reads a foreign label as a continuation of an open slot, and refuses a row that carries one. The list depends on the configuration alone, not on which configurations a build folds."""
     features = _config_features(config)
     lines = [f"rename\t{raw}\t{copy}" for raw, copy in sorted(raw_rename_map(spec, features).items())]
     for token, members in sorted(getattr(decision, "deep_classes", {}).items()):
         lines.append(f"class\t{token}\t{' '.join(members)}")
     foreign: set[str] = set()
-    for rune_name, rune in spec.runes.items():
-        relevant = relevant_marker_features(rune)
+    for rune_name in spec.runes:
+        relevant = relevant_marker_features(spec, rune_name)
         if not relevant:
             continue
         own = frozenset(relevant) & features

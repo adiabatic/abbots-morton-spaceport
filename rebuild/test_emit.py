@@ -101,9 +101,18 @@ def _rules(spec, glyphs):
 
 class TestMarkers:
     def test_relevant_features(self, spec):
-        assert relevant_marker_features(spec.runes["qsTea"]) == ("ss02", "ss03", "ss05")
-        assert relevant_marker_features(spec.runes["qsIt"]) == ("ss04",)
-        assert relevant_marker_features(spec.runes["qsMay"]) == ()
+        assert relevant_marker_features(spec, "qsTea") == ("ss02", "ss03", "ss05")
+        assert relevant_marker_features(spec, "qsIt") == ("ss04",)
+        assert relevant_marker_features(spec, "qsMay") == ()
+
+    def test_a_policy_only_set_marks_the_owners_of_its_gated_records(self):
+        """On the real spec, ss08 is named by no unlock row, so the owners of the records gated on it, ·Key's prefer and ·Utter's refuse, carry its marker. ·May owns a refuse gated on ss03, a set unlock rows name, and that record reads ·Tea's marker instead, so ·May carries none."""
+        from rebuild.pipeline.spec_load import load_default_spec
+
+        real = load_default_spec()
+        assert relevant_marker_features(real, "qsKey") == ("ss08",)
+        assert relevant_marker_features(real, "qsUtter") == ("ss08",)
+        assert relevant_marker_features(real, "qsMay") == ()
 
     def test_marker_names(self):
         assert marker_glyph_name("qsTea", frozenset()) == "qsTea"

@@ -5,7 +5,7 @@ The bundle lets the contracts lane test the corpus cache without reading `rebuil
 The bundle holds:
 
 - `audit.tsv`, the live divergence audit filtered to the union of two sets: every window drawn from `LETTERS` and `BOUNDARIES`, and every window in `EXAMPLE_WINDOWS`, which the tests in `rebuild/test_review_enrich.py` and `rebuild/test_review_drafts.py` name by codepoint. Regeneration fails when a window in `EXAMPLE_WINDOWS` selects no row, so a lost example is found here and not in a test failure after a later rune edit.
-- `baseline-<config>.subset.tsv.gz` for each of `conform.ACCEPTANCE_CONFIGS` and no other configuration, sliced to the same windows. The live build directory can also hold subset tables for other configurations, which nothing reads.
+- `baseline-<config>.subset.tsv.gz` for each of `conform.ORACLE_CONFIGS` and no other configuration, sliced to the same windows. The live build directory can also hold subset tables for other configurations, which nothing reads.
 - `M1.otf`, a copy of the after font the slices were extracted against.
 - `settlement-default.tsv` and `joins-default.tsv`, which `rebuild/test_review_tablediff.py` and the table-diff build test use as real tables beside a real font.
 - `pin.json`, the tree and blob shas of `pin.PINNED_PATHS` at the commit this ran on.
@@ -32,7 +32,7 @@ REPO_ROOT = HERE.parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 from rebuild.pipeline import fingerprint  # noqa: E402
-from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS  # noqa: E402
+from rebuild.pipeline.conform import ORACLE_CONFIGS  # noqa: E402
 from rebuild.review.fixtures.mini import pin  # noqa: E402
 
 LIVE = REPO_ROOT / "rebuild" / "out" / "m1"
@@ -116,7 +116,7 @@ def main() -> int:
         return 1
     (HERE / "audit.tsv").write_text("\n".join([header] + kept) + "\n", encoding="utf-8")
 
-    tables = [LIVE / f"baseline-{config}.subset.tsv.gz" for config in ACCEPTANCE_CONFIGS]
+    tables = [LIVE / f"baseline-{config}.subset.tsv.gz" for config in ORACLE_CONFIGS]
     absent = [table.name for table in tables if not table.exists()]
     if absent:
         print(f"the live build has no {', '.join(absent)}; run run_m1 first", file=sys.stderr)
