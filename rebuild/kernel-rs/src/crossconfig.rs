@@ -2,9 +2,9 @@
 //!
 //! The font ships one settlement lookup folded from every configuration's table (`emit_gsub._ordered_settle_rules`), and a settled left's label is the same under every configuration, so a rule one configuration folds can match a window that only another configuration reaches. A configuration's fold decides a block's rules from the rows it has, and a key it never reaches is a don't-care there: a block may answer it with whatever its other rows settle to. The shipped order sorts every rule with a backtrack ahead of every rule without one, so such a rule can fire on another configuration's window before that configuration's own rule does (`doc/rebuild-design.md` §10, the fault table's row 6).
 //!
-//! For any window, the rule the shipped lookup fires is the first match of the earliest configuration (in fold order) whose table holds it, and that configuration's own first match: the emitter's sort never moves a later rule of one table ahead of an earlier rule of that table that matches some window both match, because within one table a later rule that overlaps an earlier one is never in an earlier [`bucket`] (a backtrack-free rule never precedes a backtrack rule it overlaps, a ZWNJ backtrack guard never follows a non-guard it overlaps, and between rules of one status the later one constrains only lookahead slots the earlier one constrains, with the same classes; `fold.rs`'s `the_emitter_s_sort_never_moves_an_overlapping_rule_ahead` checks this), and `_fold_rules` keeps each rule at its first occurrence. So the fired rule is whichever configuration's own first match ships earliest, and the shipped lookup answers every window every configuration keeps live exactly when, for every such window, no configuration's first match that gives another outcome ships ahead of every first match that gives the window's own. Where a rule ships is its [`bucket`] under the emitter's sort, then, inside a bucket, the [`Spellings::rank`] of the earliest configuration that holds it. This module enforces that statement on the tables before they are written. Both are this module's model of the emitter's order, so each table carries them to the emitter ([`Spellings::fold_order`], [`rule_buckets`], the windows head's `fold_order` and `buckets`), and `emit_gsub._fold_rules` raises where its own order disagrees.
+//! For any window, the rule the shipped lookup fires is the first match of the earliest configuration (in fold order) whose table holds it, and that configuration's own first match: the emitter's sort never moves a later rule of one table ahead of an earlier rule of that table that matches some window both match, because within one table a later rule that overlaps an earlier one is never in an earlier [`bucket`] (a backtrack-free rule never precedes a backtrack rule it overlaps, a ZWNJ backtrack guard never follows a non-guard it overlaps, and between rules of one status the later one constrains only lookahead slots the earlier one constrains, with the same classes; `fold.rs`'s `the_emitter_s_sort_never_moves_an_overlapping_rule_ahead` checks this), and `_fold_rules` keeps each rule at its first occurrence. So the fired rule is whichever configuration's own first match ships earliest, and the shipped lookup answers every window every configuration keeps live exactly when, for every such window, no configuration's first match that gives another outcome ships ahead of every first match that gives the window's own. Where a rule ships is its [`bucket`] under the emitter's sort, then, inside a bucket, the [`Spellings::rank`] of the earliest configuration that holds it. This module enforces that statement on the tables before they are written. Both are this module's model of the emitter's order, so each table carries them to the emitter ([`Spellings::fold_order`], [`rule_buckets`], the windows head's `fold_order` and `buckets`), and `emit_gsub._fold_rules` raises where its own order disagrees. Since `_fold_rules` folds the rules two tables share into one, it also refuses a key two tables give two outcomes. So a source also sends a configuration the rows its own rule answers when that configuration publishes the rule's key with another outcome, and the exchange ends only with one outcome per key ([`one_outcome_per_key`]).
 //!
-//! The exchange runs in rounds between the configurations of one build ([`crate::fanout::run_configs_tables`]). Each configuration publishes its current rules ([`SharedRules`]). Each configuration then reads every configuration's rules and, as a source, evaluates them over its own rows ([`exports`]), and sends each configuration exactly the rows whose wrong answer there would ship first ([`ForeignRow`]). A receiver takes them in ([`Imports::absorb`]), refolds the inputs that gained rows, and publishes again. The next round evaluates only the inputs some configuration refolded, and the rounds stop when no configuration sends anything. An imported row is a row like the configuration's own to [`crate::rulefold`], so the refolded rules answer it, and the fold's replay checks that they do. The rules an imported row is the only reason for are guard rules, and each carries a certificate settled under the configuration the row is live in ([`crate::certificate::guard_certificate`]).
+//! The exchange runs in rounds between the configurations of one build ([`crate::fanout::run_configs_tables`]). Each configuration publishes its current rules ([`SharedRules`]). Each configuration then reads every configuration's rules and, as a source, evaluates them over its own rows ([`exports`]), and sends each configuration exactly the rows whose wrong answer there would ship first, and the rows its own rule answers where that configuration publishes the rule's key with another outcome ([`ForeignRow`]). A receiver takes them in ([`Imports::absorb`]), refolds the inputs that gained rows, and publishes again. The next round evaluates only the inputs some configuration refolded, and the rounds stop when no configuration sends anything. An imported row is a row like the configuration's own to [`crate::rulefold`], so the refolded rules answer it, and the fold's replay checks that they do. The rules an imported row is the only reason for are guard rules, and each carries a certificate settled under the configuration the row is live in ([`crate::certificate::guard_certificate`]).
 //!
 //! Labels cross between configurations through [`Spellings`]. A rune whose stances unlock under a stylistic set has a marker copy for each set of its unlock features, and each configuration renames the rune's raw labels to its own copy before settlement (`model.raw_rename_map`). So a raw label means a different glyph under two configurations that set the rune's features differently. Between configurations the crate writes such a label as a tag, `<raw>@<features>`, naming the features the source configuration sets for the rune (`qsTea@` for the bare rune, `qsTea.noentry@ss03_ss05` for a locked copy under both sets), and a configuration writes its own copy as the raw label. A tag in a configuration's rules names a glyph its own stream never holds, so the crate's replays never match it, and the emitter spells it as the marker copy it names (`emit_gsub._renamed`). The crate never needs a marker copy's name.
 //!
@@ -208,12 +208,12 @@ pub fn bucket<S: AsRef<str>>(slots: [Option<&[S]>; 5]) -> u8 {
     (u8::from(unconstrained_left) << 2) | (u8::from(!zwnj_guard) << 1) | u8::from(!early)
 }
 
-/// One configuration's rules as it publishes them for the others to evaluate, grouped by canonical input in table order, with the configuration's list position. They hold owned text, so they can cross threads.
+/// One configuration's rules as it publishes them for the others to evaluate, grouped by canonical input in table order, with the configuration's list position, and each rule key it publishes mapped to the canonical outcome of its first rule with that key. They hold owned text, so they can cross threads.
 #[derive(Default)]
 pub struct SharedRules {
     pub config: usize,
     pub by_input: BTreeMap<Box<str>, Vec<SharedRule>>,
-    pub keys: HashSet<Box<str>>,
+    pub keys: HashMap<Box<str>, Box<str>>,
 }
 
 /// The text two rules share exactly when the emitter folds them into one shipped rule (`emit_gsub._fold_rules` keys a rule by its input and its five slots, members in order, after renaming): the canonical input and slots, tab-separated.
@@ -273,23 +273,21 @@ impl SharedRules {
     /// The rules of `config` in canonical labels.
     pub fn of(spellings: &Spellings, config: usize, rules: &[Rule]) -> Self {
         let mut by_input: BTreeMap<Box<str>, Vec<SharedRule>> = BTreeMap::new();
-        let mut keys: HashSet<Box<str>> = HashSet::default();
+        let mut keys: HashMap<Box<str>, Box<str>> = HashMap::default();
         for rule in rules {
             let slots = canonical_slots(spellings, config, rule);
             let bucket = bucket(slots.each_ref().map(|slot| slot.as_deref()));
             let input = spellings.canonical(config, &rule.input_glyph);
             let key = rule_key(&input, slots.each_ref().map(|slot| slot.as_deref()));
-            keys.insert(key.clone());
+            let outcome: Box<str> =
+                Box::from(&*spellings.canonical_outcome(config, &rule.input_glyph, &rule.outcome));
+            keys.entry(key.clone()).or_insert_with(|| outcome.clone());
             by_input
                 .entry(Box::from(&*input))
                 .or_default()
                 .push(SharedRule {
                     slots,
-                    outcome: Box::from(&*spellings.canonical_outcome(
-                        config,
-                        &rule.input_glyph,
-                        &rule.outcome,
-                    )),
+                    outcome,
                     bucket,
                     key,
                 });
@@ -300,6 +298,37 @@ impl SharedRules {
             keys,
         }
     }
+}
+
+/// Checks that no rule of `config` has a key another configuration publishes with another outcome. `emit_gsub._fold_rules` folds the rules two tables share into one and refuses a key two tables give two outcomes, so the error names the first such rule's key, both configurations and both outcomes. `published` holds every configuration's rules, `config`'s own included, by list position.
+pub fn one_outcome_per_key(
+    spellings: &Spellings,
+    config: usize,
+    published: &[&SharedRules],
+) -> Result<(), String> {
+    let tokens = spellings.tokens();
+    for rules in published[config].by_input.values() {
+        for rule in rules {
+            for (other, theirs) in published.iter().enumerate() {
+                if other == config {
+                    continue;
+                }
+                if let Some(outcome) = theirs.keys.get(&rule.key)
+                    && *outcome != rule.outcome
+                {
+                    return Err(format!(
+                        "{}: the rule ({}) gives {} here and {} under {}; the emitter folds the rules two tables share into one, so one shipped lookup cannot give both",
+                        tokens[config],
+                        rule.key.replace('\t', ", "),
+                        rule.outcome,
+                        outcome,
+                        tokens[other],
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// One row a source sends a receiver: its key and outcome in canonical labels, the configuration it is live in (by list position), the source row's provenance and joint flag, and the tokens its shortest row chain fixes with its input's position among them (`certificate::fixed_tokens`), which a guard rule's certificate is completed from.
@@ -338,12 +367,13 @@ fn overlapping(one: [&str; 6], other: [&str; 6]) -> bool {
     (2..end).all(|slot| one[slot] == other[slot])
 }
 
-/// One rule of another configuration in the source's own labels: each class sorted, without the members that are tags here, which no row of the source carries.
+/// One rule of another configuration in the source's own labels: each class sorted, without the members that are tags here, which no row of the source carries. On the source's own rules, `collides` holds a bit per list position for each configuration that publishes the rule's key with another outcome.
 struct Compiled {
     slots: [Option<Vec<Box<str>>>; 5],
     outcome: Box<str>,
     bucket: u8,
     key: Box<str>,
+    collides: u64,
 }
 
 impl Compiled {
@@ -387,12 +417,13 @@ fn compile(spellings: &Spellings, source: usize, rules: &[SharedRule]) -> Vec<Co
                 outcome: Box::from(&*spellings.local(source, &rule.outcome)),
                 bucket: rule.bucket,
                 key: rule.key.clone(),
+                collides: 0,
             })
         })
         .collect()
 }
 
-/// The configurations whose first match on some window of a row's key gives an outcome other than `outcome` from a rule that ships ahead of every first match that gives it, as a bit per list position, never the source's own. `candidates` holds each configuration's rules for the row's input that admit its left, in rule order. The key's slots up to its open slot must match as they stand, and from the open slot on every continuation counts ([`open_slot`]). A first match's place in the shipped order is its [`bucket`] and then, inside a bucket, the configuration's [`Spellings::rank`] for a wrong rule and `shipped_rank` for a right one (where its earliest holder ships it). A wrong rule at the same place as a right one is its configuration's own and precedes it in that table.
+/// The configurations whose first match on some window of a row's key gives an outcome other than `outcome` from a rule that ships ahead of every first match that gives it, as a bit per list position, never the source's own. `candidates` holds each configuration's rules for the row's input that admit its left, in rule order. The key's slots up to its open slot must match as they stand, and from the open slot on every continuation counts ([`open_slot`]). A first match's place in the shipped order is its [`bucket`] and then, inside a bucket, the configuration's [`Spellings::rank`] for a wrong rule and `shipped_rank` for a right one (where its earliest holder ships it). A wrong rule at the same place as a right one is its configuration's own and precedes it in that table. The configurations that publish the key of the source's own first match with another outcome (its `collides`) are flagged too, wherever their own rules ship.
 fn misanswering(
     candidates: &[Vec<&Compiled>],
     key: [&str; 6],
@@ -433,6 +464,9 @@ fn misanswering(
             {
                 flagged |= 1 << config;
             }
+        }
+        if let Some(own) = lists[source].first() {
+            flagged |= own.collides;
         }
         flagged
     };
@@ -600,9 +634,9 @@ fn find_row(rows: &LabelRows<'_>, start: usize, end: usize, key: [&str; 6]) -> O
     None
 }
 
-/// The rows of the source `from` that each other configuration's rules answer wrongly where the shipped order lets that answer fire, one list per configuration in list order (the source's own empty), each sorted by key. `inputs` limits the evaluation to those canonical inputs, `None` meaning every input.
+/// The rows of the source `from` that each other configuration's rules answer wrongly where the shipped order lets that answer fire, and the rows the source's own rule answers where that configuration publishes the rule's key with another outcome, one list per configuration in list order (the source's own empty), each sorted by key. `inputs` limits the evaluation to those canonical inputs, `None` meaning every input.
 ///
-/// The shipped first match on a window is the first match of whichever configuration's own first match ships earliest, since the emitter's sort keeps each table's order among the rules that match one window and the fold keeps a rule at its first occurrence. So a row is sent to a configuration when that configuration's first match on some window of the row gives another outcome and ships ahead of every first match, in any configuration, that gives the row's outcome (`misanswering`). The source's own first match is one of those, so a wrong rule shipped after it never needs a row; this is how a marker-copy rule's head start in the shipped order already protects the windows that name the copy. A row whose outcome no configuration's rule gives, because it settles to the input, is sent to every configuration whose rule matches it.
+/// The shipped first match on a window is the first match of whichever configuration's own first match ships earliest, since the emitter's sort keeps each table's order among the rules that match one window and the fold keeps a rule at its first occurrence. So a row is sent to a configuration when that configuration's first match on some window of the row gives another outcome and ships ahead of every first match, in any configuration, that gives the row's outcome (`misanswering`). The source's own first match is one of those, so a wrong rule shipped after it never needs a row; this is how a marker-copy rule's head start in the shipped order already protects the windows that name the copy. A row whose outcome no configuration's rule gives, because it settles to the input, is sent to every configuration whose rule matches it. A row is also sent to every configuration that publishes the key of the source's own first match on it with another outcome, since the emitter ships one rule for that key.
 ///
 /// For each input, each class of lefts that share their rows and that every configuration's backtrack classes admit alike is evaluated once, over its first left's rows, and every left of the class sends the rows found. A row with a boundary in some slot also sends the rows that differ from it only by another boundary there, which the source holds beside it: the receiver's boundary lefts must keep one signature, and a boundary rule and the fallback behind it each need a row to reach them.
 pub fn exports(from: &Source<'_>, inputs: Option<&HashSet<Box<str>>>) -> Vec<Vec<ForeignRow>> {
@@ -620,10 +654,22 @@ pub fn exports(from: &Source<'_>, inputs: Option<&HashSet<Box<str>>>) -> Vec<Vec
     let shipped_rank = |rule: &Compiled| {
         published
             .iter()
-            .filter(|rules| rules.keys.contains(&rule.key))
+            .filter(|rules| rules.keys.contains_key(&rule.key))
             .map(|rules| spellings.rank(rules.config))
             .min()
             .unwrap_or(usize::MAX)
+    };
+    let collides = |key: &str| -> u64 {
+        let Some(mine) = published[source].keys.get(key) else {
+            return 0;
+        };
+        published
+            .iter()
+            .enumerate()
+            .filter(|(config, rules)| {
+                *config != source && rules.keys.get(key).is_some_and(|theirs| theirs != mine)
+            })
+            .fold(0, |bits, (config, _)| bits | 1 << config)
     };
     let all_inputs: std::collections::BTreeSet<&Box<str>> = published
         .iter()
@@ -641,7 +687,7 @@ pub fn exports(from: &Source<'_>, inputs: Option<&HashSet<Box<str>>>) -> Vec<Vec
         let Some(own) = source_rows.inputs.get(&*input) else {
             continue;
         };
-        let compiled: Vec<Vec<Compiled>> = published
+        let mut compiled: Vec<Vec<Compiled>> = published
             .iter()
             .map(|rules| {
                 rules
@@ -651,6 +697,9 @@ pub fn exports(from: &Source<'_>, inputs: Option<&HashSet<Box<str>>>) -> Vec<Vec
                     .unwrap_or_default()
             })
             .collect();
+        for rule in &mut compiled[source] {
+            rule.collides = collides(&rule.key);
+        }
         if compiled
             .iter()
             .enumerate()
@@ -1115,6 +1164,7 @@ mod tests {
             outcome: Box::from(outcome),
             bucket,
             key: Box::from(""),
+            collides: 0,
         }
     }
 
@@ -1202,6 +1252,34 @@ mod tests {
         );
     }
 
+    /// The emitter keeps one rule per key, so a configuration that publishes the key of the source's own first match with another outcome needs the row even though its rule ships after the source's: the source's rule carries a bit for that configuration, and its row goes there.
+    #[test]
+    fn a_source_rule_whose_key_another_configuration_ships_otherwise_sends_its_row() {
+        let ranks = [0, 1];
+        let shipped_rank = |_: &Compiled| -> usize { 0 };
+        let slots: [Option<&[&str]>; 5] = [None, Some(&["a"]), None, None, None];
+        let row = ["I", "L", "a", "c", "#NA", "#NA"];
+        let theirs = rule(slots, "W", 3);
+        for (collides, flagged) in [(0b10, 0b10), (0, 0)] {
+            let own = Compiled {
+                collides,
+                ..rule(slots, "Y", 3)
+            };
+            assert_eq!(
+                misanswering(
+                    &[vec![&own], vec![&theirs]],
+                    row,
+                    "Y",
+                    0,
+                    &ranks,
+                    &shipped_rank
+                ),
+                flagged,
+                "configuration 1's rule ships after the source's, so only the collision sends the row"
+            );
+        }
+    }
+
     /// The emitter's sort key in buckets: a backtrack ahead of none, a ZWNJ backtrack guard ahead of the other backtracks, and a marker copy or `uni200C` in the lookahead ahead of the rest. A tag without features is the bare rune, which is not a marker copy.
     #[test]
     fn a_rule_s_bucket_is_the_emitter_s_sort_key() {
@@ -1219,9 +1297,8 @@ mod tests {
         assert_eq!(of([None, Some(bare), None, None, None]), 7);
     }
 
-    /// A row that settles to its own raw input leaves a marker rune's raw label as the next window's left, and the emitter renames it per configuration in the backtrack as in the lookahead. So the left is canonical like every other slot, and two configurations' rules over that raw left are two shipped rules, never one; a settled left reads the same under both.
-    #[test]
-    fn a_raw_left_is_spelled_per_configuration() {
+    /// A `default` and an `ss03` configuration where `ss03` unlocks `qsTea`, so `qsTea` is a marker rune the two spell differently.
+    fn tea_spellings() -> Spellings {
         let states: Vec<HashMap<String, String>> = ["", "ss03"]
             .iter()
             .map(|state| {
@@ -1230,34 +1307,73 @@ mod tests {
                     .collect()
             })
             .collect();
-        let spellings = Spellings {
+        Spellings {
             tokens: ["default", "ss03"].map(str::to_owned).to_vec(),
             states,
             ranks: fold_ranks(&[vec![], vec!["ss03"]]),
-        };
-        let key = ["qsPea", "qsTea", "qsAt", "#NA", "#NA", "#NA"];
-        assert_eq!(spellings.canonical_key(0, key)[1], "qsTea@");
-        assert_eq!(spellings.canonical_key(1, key)[1], "qsTea@ss03");
-        let after = |left: &str| Rule {
+        }
+    }
+
+    /// A `qsPea` rule over the one left `left` and no lookahead.
+    fn pea_after(left: &str, outcome: &str) -> Rule {
+        Rule {
             input_glyph: Rc::from("qsPea"),
             backtrack: Some(vec![Rc::from(left)]),
             look1: None,
             look2: None,
             look3: None,
             look4: None,
-            outcome: Rc::from("qsPea.half"),
+            outcome: Rc::from(outcome),
             provenance: Vec::new(),
             joint: false,
-        };
+        }
+    }
+
+    /// A row that settles to its own raw input leaves a marker rune's raw label as the next window's left, and the emitter renames it per configuration in the backtrack as in the lookahead. So the left is canonical like every other slot, and two configurations' rules over that raw left are two shipped rules, never one; a settled left reads the same under both.
+    #[test]
+    fn a_raw_left_is_spelled_per_configuration() {
+        let spellings = tea_spellings();
+        let key = ["qsPea", "qsTea", "qsAt", "#NA", "#NA", "#NA"];
+        assert_eq!(spellings.canonical_key(0, key)[1], "qsTea@");
+        assert_eq!(spellings.canonical_key(1, key)[1], "qsTea@ss03");
+        let after = |left: &str| pea_after(left, "qsPea.half");
         let raw = [after("qsTea")];
         let default = SharedRules::of(&spellings, 0, &raw);
         let ss03 = SharedRules::of(&spellings, 1, &raw);
-        assert!(default.keys.is_disjoint(&ss03.keys));
+        assert!(!default.keys.keys().any(|key| ss03.keys.contains_key(key)));
         let settled = [after("qsTea.full")];
         assert_eq!(
             SharedRules::of(&spellings, 0, &settled).keys,
             SharedRules::of(&spellings, 1, &settled).keys
         );
+    }
+
+    /// Two configurations that publish one key with two outcomes would make the emitter fold two rules into one, so the check refuses it from either side and names the key, both configurations and both outcomes; one key with one outcome passes.
+    #[test]
+    fn a_key_two_configurations_publish_with_two_outcomes_is_refused() {
+        let spellings = tea_spellings();
+        let default = SharedRules::of(&spellings, 0, &[pea_after("qsTea.full", "qsPea.x")]);
+        let ss03 = SharedRules::of(&spellings, 1, &[pea_after("qsTea.full", "qsPea.y")]);
+        for config in 0..2 {
+            let error = one_outcome_per_key(&spellings, config, &[&default, &ss03])
+                .expect_err("one key, two outcomes");
+            for named in [
+                "default",
+                "ss03",
+                "(qsPea, qsTea.full, -, -, -, -)",
+                "qsPea.x",
+                "qsPea.y",
+            ] {
+                assert!(error.contains(named), "{error} names {named}");
+            }
+        }
+        let same = SharedRules::of(&spellings, 1, &[pea_after("qsTea.full", "qsPea.x")]);
+        for config in 0..2 {
+            assert_eq!(
+                one_outcome_per_key(&spellings, config, &[&default, &same]),
+                Ok(())
+            );
+        }
     }
 
     /// The marker partition: a rune unlocked by ss03 only, one by ss05 only, and one by both, under default, ss03, ss05 and ss03+ss05. A configuration writes its own copy as the raw label and another's as a tag naming that configuration's features, and a translation through the canonical form round-trips.

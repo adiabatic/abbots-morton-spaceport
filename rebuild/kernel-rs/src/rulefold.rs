@@ -308,9 +308,10 @@ pub fn rules_for_input<R: RowSource>(
         groups.push((rules, open));
     }
     let mut default_rules: Vec<Rule> = Vec::new();
+    let mut default_falls_back = false;
     for block in &default_blocks {
         let (_left, group) = block_rows(block);
-        state.emit_group(&group, None, &mut default_rules)?;
+        default_falls_back |= state.emit_group(&group, None, &mut default_rules)?;
         replay_lefts.extend(block.iter().cloned());
     }
 
@@ -340,7 +341,7 @@ pub fn rules_for_input<R: RowSource>(
         committed_rules.append(&mut rules);
     }
 
-    // An input the ZWNJ lock never replaces can follow a ZWNJ unchanged, and a rule with a backtrack class could match across the skipped ZWNJ. So when any committed rule has a backtrack class, the default block's rules are repeated with `uni200C` in the backtrack slot, ahead of every backtrack rule, followed by an identity rule. A lockable input needs none of this: after a ZWNJ it is its locked copy, whose rows are enumerated under the copy's own input label.
+    // An input the ZWNJ lock never replaces can follow a ZWNJ unchanged, and a rule with a backtrack class could match across the skipped ZWNJ. So when any committed rule has a backtrack class, the default block's rules are repeated with `uni200C` in the backtrack slot, ahead of every backtrack rule, followed by an identity rule unless the default block ends in a fallback, whose copy already answers every window after a ZWNJ. A lockable input needs none of this: after a ZWNJ it is its locked copy, whose rows are enumerated under the copy's own input label.
     let mut guards: Vec<Rule> = Vec::new();
     if never_locked
         && committed_rules.iter().any(|rule| {
@@ -365,18 +366,20 @@ pub fn rules_for_input<R: RowSource>(
                 joint: rule.joint,
             });
         }
-        state.identity_guards += 1;
-        guards.push(Rule {
-            input_glyph: Rc::clone(input_glyph),
-            backtrack: Some(zwnj),
-            look1: None,
-            look2: None,
-            look3: None,
-            look4: None,
-            outcome: Rc::clone(input_glyph),
-            provenance: vec!["ZWNJ backtrack-slot identity guard".to_owned()],
-            joint: false,
-        });
+        if !default_falls_back {
+            state.identity_guards += 1;
+            guards.push(Rule {
+                input_glyph: Rc::clone(input_glyph),
+                backtrack: Some(zwnj),
+                look1: None,
+                look2: None,
+                look3: None,
+                look4: None,
+                outcome: Rc::clone(input_glyph),
+                provenance: vec!["ZWNJ backtrack-slot identity guard".to_owned()],
+                joint: false,
+            });
+        }
     }
 
     guards.extend(committed_rules);

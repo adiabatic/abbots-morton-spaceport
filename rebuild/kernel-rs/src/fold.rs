@@ -1411,7 +1411,7 @@ fn python_str_list(values: &[&str]) -> String {
 mod tests {
     use super::*;
     use crate::artifacts;
-    use crate::crossconfig::{ForeignRow, SharedRules, Source, SourceRows};
+    use crate::crossconfig::{ForeignRow, SharedRules, Source, SourceRows, one_outcome_per_key};
     use crate::fixpoint::{EnumerationModes, deep_class_id, enumerate_transitions};
     use crate::index::fixtures;
     use crate::types::{NotesId, SettledId};
@@ -2397,6 +2397,13 @@ mod tests {
 
     /// The rows the two ZWNJ lock tests fold: one committed left with a split on the second slot and an end-of-run row, and a default block of boundary lefts, ZWNJ included, whose end-of-run row settles to the bare input. That last row gives the identity guard a row to match. A slot-dropped row that settles to the input is an identity fallback the fold omits, so no shallower rule stands between a ZWNJ-backtrack row and the identity guard. If another rule already matched that row, the guard would be a rule no replayed row first-matches.
     fn zwnj_lock(bench: &Bench, input: &str) -> FixpointProduct {
+        let mut rows = zwnj_lock_committed(bench, input);
+        rows.extend(bench.boundary_block(input, "qsTea", &format!("{input}.e")));
+        bench.product(rows, Vec::new())
+    }
+
+    /// [`zwnj_lock`]'s committed left: a split on the second slot and an end-of-run row.
+    fn zwnj_lock_committed(bench: &Bench, input: &str) -> Vec<TransitionRow> {
         let outcome = |suffix: &str| format!("{input}.{suffix}");
         let mut rows = vec![
             bench.row(
@@ -2448,8 +2455,7 @@ mod tests {
             "#NA",
             &outcome("d"),
         ]));
-        rows.extend(bench.boundary_block(input, "qsTea", &outcome("e")));
-        bench.product(rows, Vec::new())
+        rows
     }
 
     /// An input the ZWNJ lock never replaces (`qsIt`, which is not entry-bearing) starts its rules with the default block replicated under an explicit `uni200C` backtrack, and ends that run with the identity guard, so no later rule with a backtrack class can match across a ZWNJ.
@@ -2490,6 +2496,47 @@ mod tests {
                 .map(String::as_str)
                 == Some("ZWNJ backtrack-slot coverage row"))
         );
+    }
+
+    /// When the default block's end-of-run row settles to a cell rather than to the bare input, the default block ends in a fallback, and its copy under the `uni200C` backtrack already answers every window after a ZWNJ. So no identity guard follows the copies: it would be a rule no replayed row first-matches.
+    #[test]
+    fn a_default_block_that_falls_back_needs_no_zwnj_identity_guard() {
+        let bench = Bench::new();
+        let mut rows = zwnj_lock_committed(&bench, "qsIt");
+        for left in ["#EDGE", "space", "periodcentered", "uni200C"] {
+            rows.push(bench.row(
+                ["qsIt", left, "qsTea", "#NA", "#NA", "#NA", "qsIt.e"],
+                0,
+                false,
+            ));
+            let run_end = ["qsIt", left, "#EDGE", "#NA", "#NA", "#NA", "qsIt.f"];
+            rows.push(bench.row(run_end, 0, false));
+            rows.extend(bench.edge_kin(run_end));
+        }
+        let folded = fold_product(&bench.index, bench.product(rows, Vec::new()))
+            .expect("the product folds with every rule reached");
+        let zwnj: Vec<Rc<str>> = vec![Rc::from("uni200C")];
+        let guards: Vec<&Rule> = folded
+            .decision
+            .rules
+            .iter()
+            .take_while(|rule| rule.backtrack.as_ref() == Some(&zwnj))
+            .collect();
+        let last = guards
+            .last()
+            .expect("the default block is copied under the ZWNJ");
+        assert_eq!(&*last.outcome, "qsIt.f");
+        assert!(
+            last.slots()[1..].iter().all(|slot| slot.is_none()),
+            "the copied fallback ends the guards"
+        );
+        assert!(
+            guards
+                .iter()
+                .all(|rule| rule.provenance.last().map(String::as_str)
+                    == Some("ZWNJ backtrack-slot coverage row"))
+        );
+        assert_eq!(folded.decision.identity_guard_rules, 0);
     }
 
     /// The same rows under a rune the ZWNJ lock replaces (`qsPea`) emit no `uni200C` backtrack, because after a ZWNJ that input enumerates under its locked copy's label. Its rule list is shorter than `qsIt`'s by the number of guards.
@@ -2624,7 +2671,7 @@ mod tests {
         }
     }
 
-    /// The exchange `fanout::run_configs_tables` runs across threads, run here on one: every configuration folds its own rows and publishes, then in each round every configuration evaluates every configuration's rules over its own rows for the inputs refolded last, and every configuration takes in what it was sent and refolds, until a round moves nothing. The products are each configuration's, in list order.
+    /// The exchange `fanout::run_configs_tables` runs across threads, run here on one: every configuration folds its own rows and publishes, then in each round every configuration evaluates every configuration's rules over its own rows for the inputs refolded last, and every configuration takes in what it was sent and refolds, until a round moves nothing, and then no two configurations may publish one key with two outcomes. The products are each configuration's, in list order.
     fn exchange(
         index: &SpecIndex,
         spellings: &Spellings,
@@ -2700,6 +2747,10 @@ mod tests {
                 published[receiver] = SharedRules::of(spellings, receiver, &config.rules());
             }
             if next.is_empty() {
+                let everyone: Vec<&SharedRules> = published.iter().collect();
+                for config in 0..held.len() {
+                    one_outcome_per_key(spellings, config, &everyone)?;
+                }
                 return Ok(held);
             }
             refolded = Some(next);
@@ -2883,6 +2934,158 @@ mod tests {
             Some(&[Rc::from("qsTea.y")][..]),
             "the block split"
         );
+    }
+
+    /// `default`'s and `ss03`'s products for [`a_rule_folded_from_imported_windows_takes_another_configuration_s_key_only_with_its_outcome`], every left a boundary. `default` settles `qsPea` after `b qsMay` by the slot after it, to `qsPea.n` before `x` and to `qsPea.m` before `y` or the run edge, and to `qsPea.m` after `b c`. `ss03`, where `qsMay` is its own marker copy, settles `qsPea` to `qsPea.m` after `b` or its copy, whatever follows.
+    fn colliding_key_products(bench: &Bench) -> Vec<FixpointProduct> {
+        let mut default_rows = bench.boundary_block("qsPea", "z", "qsPea.z");
+        let mut ss03_rows = bench.boundary_block("qsPea", "z", "qsPea.z");
+        for left in ["#EDGE", "space", "periodcentered", "uni200C"] {
+            for (right3, outcome) in [("x", "qsPea.n"), ("y", "qsPea.m")] {
+                default_rows.push(bench.row(
+                    ["qsPea", left, "b", "qsMay", right3, "#NA", outcome],
+                    0,
+                    false,
+                ));
+            }
+            let edge = ["qsPea", left, "b", "qsMay", "#EDGE", "#NA", "qsPea.m"];
+            default_rows.push(bench.row(edge, 0, false));
+            default_rows.extend(bench.edge_kin(edge));
+            default_rows.push(bench.row(
+                ["qsPea", left, "b", "c", "#NA", "#NA", "qsPea.m"],
+                0,
+                false,
+            ));
+            for (right1, right2) in [
+                ("b", "qsMay"),
+                ("b", "c"),
+                ("qsMay", "qsMay"),
+                ("qsMay", "c"),
+            ] {
+                ss03_rows.push(bench.row(
+                    ["qsPea", left, right1, right2, "#NA", "#NA", "qsPea.m"],
+                    0,
+                    false,
+                ));
+            }
+        }
+        let mut ss03 = bench.product(ss03_rows, Vec::new());
+        ss03.config = "ss03".to_owned();
+        vec![bench.product(default_rows, Vec::new()), ss03]
+    }
+
+    /// A rule's five slots as label lists.
+    fn rule_shape(rule: &Rule) -> [Option<Vec<&str>>; 5] {
+        rule.slots().map(|slot| {
+            slot.as_ref()
+                .map(|members| members.iter().map(|member| &**member).collect())
+        })
+    }
+
+    /// The live fault's shape (·Awe·No·It under `ss04`). `ss03` folds `b` and its own `qsMay` copy into one class, whose rule names a marker copy and so ships ahead of `default`'s, and answers `default`'s windows before `b qsMay x` wrongly. Taking in only those windows, `ss03` would fold one rule over `b qsMay@` whose key is `default`'s fallback's there, with another outcome, and the emitter keeps one rule per key. So `default` also sends the windows its fallback answers, and `ss03` splits `b qsMay@` as `default` splits `b qsMay`.
+    #[test]
+    fn a_rule_folded_from_imported_windows_takes_another_configuration_s_key_only_with_its_outcome()
+    {
+        let bench = Bench::new();
+        let spellings = default_and_ss03(&bench.index);
+        let products = colliding_key_products(&bench);
+
+        let ss03_alone = fold_product(&bench.index, products[1].clone()).expect("ss03 folds alone");
+        let rules = &ss03_alone.decision.rules;
+        let early = rules
+            .iter()
+            .position(|rule| {
+                rule_shape(rule) == [None, Some(vec!["b", "qsMay"]), None, None, None]
+                    && &*rule.outcome == "qsPea.m"
+            })
+            .expect("ss03 folds b with its own qsMay");
+        assert_eq!(
+            crate::crossconfig::rule_buckets(&spellings, 1, rules)[early],
+            6
+        );
+        let default_alone =
+            fold_product(&bench.index, products[0].clone()).expect("default folds alone");
+        let at = |outcome: &str, shape: [Option<Vec<&str>>; 5]| {
+            default_alone
+                .decision
+                .rules
+                .iter()
+                .position(|rule| rule_shape(rule) == shape && &*rule.outcome == outcome)
+        };
+        let split = at(
+            "qsPea.n",
+            [
+                None,
+                Some(vec!["b"]),
+                Some(vec!["qsMay"]),
+                Some(vec!["x"]),
+                None,
+            ],
+        )
+        .expect("default splits b qsMay before x");
+        let fallback = at(
+            "qsPea.m",
+            [None, Some(vec!["b"]), Some(vec!["qsMay"]), None, None],
+        )
+        .expect("default falls back after b qsMay");
+        assert!(split < fallback);
+
+        let held = exchange(&bench.index, &spellings, products).expect("the exchange ends");
+        assert!(held[0].imports.is_empty(), "default imports nothing");
+        let mut imported: Vec<([&str; 6], &str)> = held[1]
+            .imports
+            .rows()
+            .iter()
+            .map(|row| (row.key_text(), &*row.outcome))
+            .collect();
+        imported.sort_unstable();
+        let mut sent: Vec<([&str; 6], &str)> = Vec::new();
+        for left in ["#EDGE", "space", "periodcentered", "uni200C"] {
+            for (right3, outcome) in [
+                ("x", "qsPea.n"),
+                ("y", "qsPea.m"),
+                ("#EDGE", "qsPea.m"),
+                ("space", "qsPea.m"),
+                ("uni200C", "qsPea.m"),
+                ("periodcentered", "qsPea.m"),
+            ] {
+                sent.push((["qsPea", left, "b", "qsMay@", right3, "#NA"], outcome));
+            }
+        }
+        sent.sort_unstable();
+        assert_eq!(imported, sent);
+
+        let published: Vec<SharedRules> = held
+            .iter()
+            .enumerate()
+            .map(|(at, config)| SharedRules::of(&spellings, at, &config.rules()))
+            .collect();
+        let everyone: Vec<&SharedRules> = published.iter().collect();
+        for config in 0..2 {
+            assert_eq!(one_outcome_per_key(&spellings, config, &everyone), Ok(()));
+        }
+        let configs: Vec<(LabelRows<'_>, Vec<Rule>)> = held
+            .iter()
+            .map(|config| (config.prepared.rows(), config.rules()))
+            .collect();
+        assert_eq!(shipped_misses(&spellings, &configs), Vec::<String>::new());
+        let under_prefix = |rules: &SharedRules| -> Vec<(String, String)> {
+            rules.by_input["qsPea"]
+                .iter()
+                .filter(|rule| {
+                    let class = |slot: usize| -> Option<Vec<&str>> {
+                        rule.slots[slot]
+                            .as_deref()
+                            .map(|members| members.iter().map(|member| &**member).collect())
+                    };
+                    class(1) == Some(vec!["b"]) && class(2) == Some(vec!["qsMay@"])
+                })
+                .map(|rule| (rule.key.to_string(), rule.outcome.to_string()))
+                .collect()
+        };
+        let in_default = under_prefix(&published[0]);
+        assert_eq!(in_default.len(), 3, "{in_default:?}");
+        assert_eq!(under_prefix(&published[1]), in_default);
     }
 
     /// Two configurations that settle one shipped window differently, or a window of one that overlaps a window of the other through an open slot with a different outcome, cannot share one lookup, and the receiver's error names both.
@@ -3163,7 +3366,7 @@ mod tests {
         );
     }
 
-    /// The rows of each configuration that the font's one settlement lookup answers otherwise than the configuration's table: every configuration's rules in canonical labels ([`SharedRules`]), kept at their first occurrence in [`Spellings::rank`] order and table order and stably sorted by [`crate::crossconfig::bucket`], as `emit_gsub._fold_rules` and `_ordered_settle_rules` ship them, then first-matched against every own row of every configuration in canonical labels.
+    /// The rows of each configuration that the font's one settlement lookup answers otherwise than the configuration's table: every configuration's rules in canonical labels ([`SharedRules`]), kept at their first occurrence in [`Spellings::rank`] order and table order and stably sorted by [`crate::crossconfig::bucket`], as `emit_gsub._fold_rules` and `_ordered_settle_rules` ship them, then first-matched against every own row of every configuration in canonical labels. A key two configurations ship with two outcomes, which `_fold_rules` refuses, is a miss too.
     fn shipped_misses(
         spellings: &Spellings,
         configs: &[(LabelRows<'_>, Vec<Rule>)],
@@ -3176,12 +3379,26 @@ mod tests {
         let mut order: Vec<usize> = (0..configs.len()).collect();
         order.sort_by_key(|config| spellings.rank(*config));
         let mut shipped: HashMap<&str, Vec<&crate::crossconfig::SharedRule>> = HashMap::default();
-        let mut seen: HashSet<&str> = HashSet::default();
+        let mut seen: HashMap<&str, (&str, usize)> = HashMap::default();
+        let mut misses: Vec<String> = Vec::new();
         for config in order {
             for (input, rules) in &published[config].by_input {
                 for rule in rules {
-                    if seen.insert(&rule.key) {
-                        shipped.entry(input).or_default().push(rule);
+                    match seen.get(&*rule.key) {
+                        None => {
+                            seen.insert(&rule.key, (&rule.outcome, config));
+                            shipped.entry(input).or_default().push(rule);
+                        }
+                        Some((outcome, first)) if *outcome != &*rule.outcome => {
+                            misses.push(format!(
+                                "({}) ships as {outcome} under {} and as {} under {}",
+                                rule.key.replace('\t', ", "),
+                                spellings.tokens()[*first],
+                                rule.outcome,
+                                spellings.tokens()[config]
+                            ));
+                        }
+                        Some(_) => {}
                     }
                 }
             }
@@ -3189,7 +3406,6 @@ mod tests {
         for rules in shipped.values_mut() {
             rules.sort_by_key(|rule| rule.bucket);
         }
-        let mut misses: Vec<String> = Vec::new();
         for (config, (rows, _rules)) in configs.iter().enumerate() {
             for row in 0..rows.len() {
                 let key = rows.key(row);
@@ -3241,12 +3457,13 @@ mod tests {
     fn the_shipped_order_answers_every_configuration_s_rows_once_they_exchange() {
         let bench = Bench::new();
         let spellings = default_and_ss03(&bench.index);
-        let fixtures: [(&str, Products); 3] = [
+        let fixtures: [(&str, Products); 4] = [
             ("tea_left_products", tea_left_products),
             ("split_block_products", split_block_products),
             ("two_left_products", |bench| {
                 two_left_products(bench, &["qsTea.y"])
             }),
+            ("colliding_key_products", colliding_key_products),
         ];
         for (name, products) in fixtures {
             let alone = folded_alone(products(&bench));
