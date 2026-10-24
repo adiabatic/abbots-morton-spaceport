@@ -198,7 +198,7 @@ def _describe(unit, rules, context, blankness, families):
         positions = sum(len(at) for at in candidates.values())
         counted = sv._combined_walk(combinable, unit, context) if positions > 1 else None
         if counted:
-            events = sum(len(at) for at in counted.values())
+            events = sv._event_count(combinable, counted)
             reach = (
                 "at least two matched positions"
                 if events > 1

@@ -52,6 +52,7 @@ Two events may share a letter only in these cases:
 - A created join, redrawn cell swap, dropped join, or further retarget whose pivot is a retarget's follower. The retarget judges that letter's incoming junction and its placement. A further retarget or dropped join takes nothing of the first retarget's `shift` beyond its follower's move, because its own counts are measured with its pivot standing and already include that letter's advance. A redrawn cell swap there must leave the letter where the retarget put it, so a new form naming an entry contraction fails. Examples: ·Gay's raised join into ·No with the break ·No now leaves before ·Thaw, or with ·No's own raised join into ·Day or ·No; ·It's lowered join into ·No and ·No's new join into ·Gay; ·Utter's raised join into ·May and the loop ·May draws with no exit left.
 - A created join, retarget, extension drop, ink gain, or redrawn cell swap whose pivot is a created join's follower. The created join judges that letter's incoming junction. A following retarget receives only the created join's `follower_columns_added`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget may have moved its pivot's own-frame origin, because the created join's `follower_columns_added` declared that move. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that junction and gives up its baseline tail.
 - A dropped join or extension drop whose follower is itself an event. That event is judged next, under the displacement the first one applied (·At's dropped x-height join and ·It's dropped exit extension).
+- An entry event and a redrawn event at the same position, two shapes that describe one change to the pivot's picture: ·Jay's contracted entry after ·Pea is both qsJay's entry contraction and its crown giving up a cell. At least one must hold where the walk reaches the pivot, every one that holds must put the pivot in the same place and move what follows by the same count, and the walk counts each rule whose event holds there. Together they are one event, so a window whose only change is that pivot stays on those rules' own lines. Such a position cannot be the follower a retarget or created join judges, because those judge a single event behind them.
 
 Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
 
@@ -73,6 +74,7 @@ With `--daemon auto|always|never` and `--socket PATH`, either form can be served
 """
 
 import argparse
+import collections
 import gzip
 import hashlib
 import json
@@ -1985,7 +1987,7 @@ def _combined_walk(rules, unit, context):
 
     The unit's ink-delta digest must be the same under every config, and the window is shaped under the first. Both shaped runs must match the index record letter for letter. Every candidate of every rule is tested against its event check (`_slide_event` and the others). A candidate that fails is not an event, and its ink is judged as span ink, so a rule that fails at a position does not stop the other rules from explaining the window. Two judged events at one position, or a retarget or created-join event whose follower position is also an event, return None unless they form one of the cases the module docstring lists. Every span between events must pass `_span_explained` under the displacement at its start.
 
-    There is no minimum event count here, so tests can compare a single-event walk with each single-shape matcher. `_combined_match` requires two events.
+    There is no minimum event count here, so tests can compare a single-event walk with each single-shape matcher. `_combined_match` requires two events (`_event_count`).
     """
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
@@ -2068,6 +2070,7 @@ def _combined_walk(rules, unit, context):
             if event is not None:
                 found.setdefault(index, []).append(event)
     events: dict[int, Event] = {}
+    pivot_events: dict[int, list[Event]] = {}
     sharing: dict[int, Event] = {}
     reached: dict[int, Event] = {}
     for index, candidates in found.items():
@@ -2077,13 +2080,15 @@ def _combined_walk(rules, unit, context):
         if len(judged) == 2 and "joined" in kinds and kinds & {"gain", "redrawn"}:
             unjudged = [event for event in judged if event.kind == "joined"] + unjudged
             judged = [event for event in judged if event.kind != "joined"]
-        if len(judged) > 1:
+        if len(judged) > 1 and sorted(event.kind for event in judged) != ["entry", "redrawn"]:
             return None
         if not judged:
             if len(unjudged) == 1:
                 reached[index] = unjudged[0]
             continue
         events[index] = judged[0]
+        if len(judged) > 1:
+            pivot_events[index] = judged
         if unjudged and judged[0].kind in ("entry", "gain", "redrawn"):
             if len(unjudged) > 1:
                 return None
@@ -2111,6 +2116,8 @@ def _combined_walk(rules, unit, context):
         for index, event in events.items()
         if event.kind in ("retarget", "joined") or index in sharing
     ):
+        return None
+    if pivot_events.keys() & (behind_retarget | behind_join):
         return None
     counted: dict[str, list[int]] = {}
     before_span: list = []
@@ -2145,15 +2152,21 @@ def _combined_walk(rules, unit, context):
         skippable = False
         after_anchor = None
         position = index
+        explaining = [event]
         if event.kind == "slide":
             before_span, after_span = [before_pieces[index]], [after_pieces[index]]
             displacement += event.shift
             index += 1
         elif event.kind in ("gain", "entry", "redrawn"):
-            pull = _pull(before_pieces[index], after_pieces[index], displacement + event.lead, event.room)
-            if pull is None:
+            moves = {}
+            for rival in pivot_events.get(index, explaining):
+                pull = _pull(before_pieces[index], after_pieces[index], displacement + rival.lead, rival.room)
+                if pull is not None:
+                    moves[rival] = rival.shift + pull
+            if len(set(moves.values())) != 1:
                 return None
-            displacement += carried + event.shift + pull
+            explaining = list(moves)
+            displacement += carried + moves[explaining[0]]
             carried = 0
             before_span, after_span = [], []
             if event.kind in ("entry", "redrawn"):
@@ -2239,7 +2252,8 @@ def _combined_walk(rules, unit, context):
                     compact = _dropped_entry(glyphs[follower_index], cells[follower_index])
                     skippable = True
                 index += 2
-        counted.setdefault(event.rule_id, []).append(position)
+        for explained in explaining:
+            counted.setdefault(explained.rule_id, []).append(position)
     if not _span_explained(
         intern,
         before_span,
@@ -2253,8 +2267,21 @@ def _combined_walk(rules, unit, context):
     return counted
 
 
+def _event_count(rules, events):
+    """Return how many events a walk's counted positions hold: one per rule and position, except that the entry and redrawn rules counted together at one position judge one change to that pivot's picture and count as one event."""
+    picture = {
+        rule["id"]
+        for rule in rules
+        if _is_entry_match(rule["match"])
+        or _is_entry_contracted_match(rule["match"])
+        or _is_redrawn_match(rule["match"])
+    }
+    shared = collections.Counter(at for rule_id, ats in events.items() if rule_id in picture for at in ats)
+    return sum(len(ats) for ats in events.values()) - sum(count - 1 for count in shared.values())
+
+
 def _combined_match(rules, unit, context, digest=None, counts=None):
-    """Return the combined match a fill may use: each counted rule's event positions, before any guard is read, or None. It returns None without shaping when the rules have fewer than two candidate positions in total, and None when the walk counts fewer than two events. A single event belongs on that rule's own line, while one rule matched at two positions is a combined match. The walk is memoized per rules digest and unit id in `context.combined`. A caller that already has `digest` (`_combinable_digest(rules)`) or `counts` (`_candidate_counts(rules, unit)`) passes them, as `Decider.evaluate` does; otherwise they are computed here."""
+    """Return the combined match a fill may use: each counted rule's event positions, before any guard is read, or None. It returns None without shaping when the rules have fewer than two candidate positions in total, and None when the walk counts fewer than two events (`_event_count`). A single event belongs on that rule's own line, while one rule matched at two positions is a combined match. The walk is memoized per rules digest and unit id in `context.combined`. A caller that already has `digest` (`_combinable_digest(rules)`) or `counts` (`_candidate_counts(rules, unit)`) passes them, as `Decider.evaluate` does; otherwise they are computed here."""
     if not unit.get("before") or not unit.get("after"):
         return None
     if counts is None:
@@ -2265,7 +2292,7 @@ def _combined_match(rules, unit, context, digest=None, counts=None):
     if key not in context.combined:
         context.combined[key] = _combined_walk(rules, unit, context)
     events = context.combined[key]
-    return events if events is not None and sum(len(at) for at in events.values()) > 1 else None
+    return events if events is not None and _event_count(rules, events) > 1 else None
 
 
 def _combined_blocked(rules, unit, events, context):

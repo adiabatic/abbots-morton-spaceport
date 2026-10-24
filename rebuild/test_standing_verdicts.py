@@ -228,6 +228,17 @@ CONTRACTED_ENTRY_RULE = {
     },
 }
 
+CONTRACTED_ENTRY_AS_REDRAWN_RULE = {
+    "id": "fixture-entry-contracted-as-redrawn",
+    "verdict": "approve",
+    "note": "·May gives up its entry cell and sits a pixel closer, the same change the entry contraction names",
+    "match": {
+        "before": {"pivots": ["qsMay.en-y0.ex-y5"]},
+        "after": {"pivots": ["qsMay.loop.en-y0.en-con-1"], "dropped": [[0, 0]], "added": [], "shift": -1},
+        "except_left": [],
+    },
+}
+
 PLACED_CONTRACTION_RULE = {
     "id": "fixture-entry-contracted-by-placement",
     "verdict": "approve",
@@ -4790,6 +4801,35 @@ def test_a_slide_and_an_entry_contraction_in_one_window_combine(slide_context):
         slide_context(),
     )
     assert events == {SLIDE_RULE["id"]: [1], CONTRACTED_ENTRY_RULE["id"]: [3]}
+
+
+def test_an_entry_contraction_and_a_redraw_of_one_pivot_combine_with_another_change(slide_context):
+    """·Jay's contracted entry after ·Pea is both an entry contraction and a crown cell dropped, so two rules judge one pivot; they agree on where it stands, so the window still combines with the slide elsewhere, and both rules are counted at that position."""
+    rules = [*COMBINED_CONTRACTED_ENTRY_RULES, CONTRACTED_ENTRY_AS_REDRAWN_RULE]
+    assert sv._combined_match(rules, combined_contracted_entry_window(), slide_context()) == {
+        SLIDE_RULE["id"]: [1],
+        CONTRACTED_ENTRY_RULE["id"]: [3],
+        CONTRACTED_ENTRY_AS_REDRAWN_RULE["id"]: [3],
+    }
+
+
+def test_an_entry_contraction_and_a_redraw_disagreeing_on_the_move_refuse(slide_context):
+    unmoved = json.loads(json.dumps(CONTRACTED_ENTRY_AS_REDRAWN_RULE))
+    unmoved["match"]["after"]["shift"] = 0
+    rules = [*COMBINED_CONTRACTED_ENTRY_RULES, unmoved]
+    assert sv._combined_walk(rules, combined_contracted_entry_window(), slide_context()) is None
+
+
+def test_an_entry_contraction_and_a_redraw_of_one_pivot_alone_stay_on_their_own_lines(slide_context):
+    rules = [CONTRACTED_ENTRY_RULE, CONTRACTED_ENTRY_AS_REDRAWN_RULE]
+    window = contracted_entry_window()
+    assert sv._combined_walk(rules, window, slide_context()) == {
+        CONTRACTED_ENTRY_RULE["id"]: [1],
+        CONTRACTED_ENTRY_AS_REDRAWN_RULE["id"]: [1],
+    }
+    assert sv._combined_match(rules, window, slide_context()) is None
+    for rule in rules:
+        assert sv._matches(rule["match"], window, context=slide_context())
 
 
 def test_a_union_invisible_suffix_renaming_is_matched_in_a_combined_entry_contraction(slide_context):
