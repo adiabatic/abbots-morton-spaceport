@@ -20,7 +20,7 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `stub-dropped` (declared by `stub_drop`): the pivot gives up a named left-side stub while the ink it keeps stays in place. Its own-frame picture is the old one compacted left by the count, its placement moves right by the count, and every other pixel in the window is unmoved. The placement move is what separates it from `entry-extension-dropped`, whose remaining ink moves closer. ·May losing the leftover left pixel after ·Ah matches. A pivot is a position whose before and after names both carry the named prefixes: a second ·May that keeps its old loop is judged as ordinary ink, because only the before form says which of the two after loops lost the stub.
 
-- `redrawn` (declared by `dropped`): the pivot's new form is its old picture with the named `dropped` cells removed and the named `added` cells present, both read at one common column offset, because an entry extension inserts a column at the pivot's left edge and an entry-extended variant shows the same cell swap one column over. The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one: the frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement move. ·Eight's bowl pulling in one column before ·Tea and ·It is one example. ·J'ai's crown coming in after a half-height ·Pea or ·Tea moves the letter and the rest of the word, while the same crown after an ·At the old font had already contracted moves only what the dropped tail moves, and ·Gay's baseline entry pulling in after ·No leaves the letter where it was, because its frame takes the whole contraction. `added` may be empty for a form that only loses ink (·Key's foot losing its terminal pixel before ·May, ·No, and ·It). This is the shape for an exit contraction whenever its windows carry any other change, because `extension-dropped` reads only names and never looks at the window's ink.
+- `redrawn` (declared by `dropped`): the pivot's new form is its old picture with the named `dropped` cells removed and the named `added` cells present, both read at one common column offset, because an entry extension inserts a column at the pivot's left edge and an entry-extended variant shows the same cell swap one column over. The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one: the frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement move, and the span after it is compared together with the pivot's after picture, so a cell the pivot takes over from its follower at the same place does not count as a change: ·I's smaller loop drawing the ·I·They connector pixel the old font drew on ·They's entry. ·Eight's bowl pulling in one column before ·Tea and ·It is one example. ·J'ai's crown coming in after a half-height ·Pea or ·Tea moves the letter and the rest of the word, while the same crown after an ·At the old font had already contracted moves only what the dropped tail moves, and ·Gay's baseline entry pulling in after ·No leaves the letter where it was, because its frame takes the whole contraction. `added` may be empty for a form that only loses ink (·Key's foot losing its terminal pixel before ·May, ·No, and ·It). This is the shape for an exit contraction whenever its windows carry any other change, because `extension-dropped` reads only names and never looks at the window's ink.
 
 - `join-retargeted` (declared by `retarget`): a named join changes height. The pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower moves by `follower_shift` (zero where the new join leaves it standing, -2 where ·Utter reaching ·May at the x-height pulls ·May back), and everything after the follower moves by `shift`. Half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline is an example.
 
@@ -39,7 +39,7 @@ The walk (`_combined_walk`) re-shapes the window in the corpus's font pair and c
 - join (dropped): the pivot sits at the running displacement, and the displacement grows by the gap. The follower leads the next span, or, where the rule declares `follower_columns_removed`, is judged by the event and left out of the span.
 - gain: the pivot sits at the running displacement, and the displacement grows by the declared shift.
 - entry: the pivot sits left of the running displacement by the part of its entry contraction its own frame did not take (zero for a dropped entry extension), and the displacement moves closer by the entry count, adjusted for an `entry-contracted` rule by any exit-extension change on the pivot. The next span is compared together with the pivot's after picture, so a cell handed between them does not count as a change.
-- redrawn: the pivot sits at the running displacement, or left of it by up to the part of its new form's extra entry contraction its frame did not take, and the displacement grows by the declared shift plus that placement move.
+- redrawn: the pivot sits at the running displacement, or left of it by up to the part of its new form's extra entry contraction its frame did not take, and the displacement grows by the declared shift plus that placement move. The next span is compared together with the pivot's after picture, as for an entry event.
 - stub: the pivot's placement moves right by the stub count, and the displacement is unchanged.
 - retarget: the pivot sits at the running displacement, the follower moves by `follower_shift`, and everything after the follower moves by the full `shift`.
 - joined (created): the pivot sits at the running displacement or up to `pivot_stub_drop` columns right of it, the follower moves by `shift` plus that offset, and everything after the follower moves by that plus `follower_advance`.
@@ -1233,7 +1233,7 @@ def _push(before, after, expected, room):
 
 
 def _redrawn_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is the named redraw at every pivot position, shaped under the unit's first config. A pivot is a position whose before name carries a before prefix and whose after name carries an after prefix. The walk is by position because the same before name can be a pivot at one position and unchanged at another (a second ·Eight that keeps its normal loop), and only the after name says which. Each pivot must pass `_redrawn_holds`, and its placement may sit left of the running displacement by at most the contraction room its own frame did not take (`_pull`). At each pivot the displacement grows by the declared shift plus that offset, and every span between pivots must render identically under it. No pivot position, a before run that differs from the recorded glyphs, a different glyph count on the two sides, an off-grid placement, a non-rectilinear outline, or a cell lost or gained outside the named sets returns False, so the unit waits for human review."""
+    """Whether the window's rendered before→after change is the named redraw at every pivot position, shaped under the unit's first config. A pivot is a position whose before name carries a before prefix and whose after name carries an after prefix. The walk is by position because the same before name can be a pivot at one position and unchanged at another (a second ·Eight that keeps its normal loop), and only the after name says which. Each pivot must pass `_redrawn_holds`, and its placement may sit left of the running displacement by at most the contraction room its own frame did not take (`_pull`). At each pivot the displacement grows by the declared shift plus that offset, and every span between pivots must render identically under it, the span after a pivot compared together with that pivot's after picture so a cell handed to the pivot at the same place does not count. No pivot position, a before run that differs from the recorded glyphs, a different glyph count on the two sides, an off-grid placement, a non-rectilinear outline, or a cell lost or gained outside the named sets returns False, so the unit waits for human review."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -1265,6 +1265,7 @@ def _redrawn_geometry(match, unit, comparator):
     displacement = 0
     before_span: list = []
     after_span: list = []
+    anchor = None
     for index in range(len(before_names)):
         if index not in pivots:
             if index in before_pieces:
@@ -1272,7 +1273,7 @@ def _redrawn_geometry(match, unit, comparator):
             if index in after_pieces:
                 after_span.append(after_pieces[index])
             continue
-        if not _span_settled(intern, before_span, after_span, displacement):
+        if not _span_settled(intern, before_span, after_span, displacement, after_anchor=anchor):
             return False
         before, after = before_pieces.get(index), after_pieces.get(index)
         if before is None or after is None:
@@ -1285,11 +1286,12 @@ def _redrawn_geometry(match, unit, comparator):
             return False
         displacement += shift + pull
         before_span, after_span = [], []
-    return _span_settled(intern, before_span, after_span, displacement)
+        anchor = after
+    return _span_settled(intern, before_span, after_span, displacement, after_anchor=anchor)
 
 
 def _matches_redrawn(match, unit, excluded, context=None):
-    """A letter redrawn in place to a named new form, matched at the pixel level: the before pivot form becomes an after pivot form whose own-frame picture is the old one with the named cells dropped and added at one common column offset (`_redrawn_geometry`). The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one. The frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement change; the shift may be zero when the new form keeps the pivot's advance. The added set may be empty, for a form that only loses ink: ·Key's foot dropping its terminal pixel and its follower coming a column closer. The extension-dropped shape reads only names and so cannot see the rest of the window's ink, which is why this shape is the one for an exit contraction in a window that carries anything else. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A letter redrawn in place to a named new form, matched at the pixel level: the before pivot form becomes an after pivot form whose own-frame picture is the old one with the named cells dropped and added at one common column offset (`_redrawn_geometry`). The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one. The frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement change; the shift may be zero when the new form keeps the pivot's advance. A cell the pivot's new form paints where the follower's old form painted it is handed over, not changed: ·I's smaller loop takes the ·I·They connector pixel off ·They's entry and its advance grows by that column. The added set may be empty, for a form that only loses ink: ·Key's foot dropping its terminal pixel and its follower coming a column closer. The extension-dropped shape reads only names and so cannot see the rest of the window's ink, which is why this shape is the one for an exit contraction in a window that carries anything else. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -2126,7 +2128,7 @@ def _combined_walk(rules, unit, context):
             displacement += carried + event.shift + pull
             carried = 0
             before_span, after_span = [], []
-            if event.kind == "entry":
+            if event.kind in ("entry", "redrawn"):
                 after_anchor = after_pieces[index]
             index += 1
             joined = sharing.get(position)

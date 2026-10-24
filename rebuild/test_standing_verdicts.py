@@ -719,6 +719,38 @@ FRAMED_REDRAWN_RULE = {
     },
 }
 
+HANDOVER_REDRAWN_RULE = {
+    "id": "fixture-redrawn-handover",
+    "verdict": "approve",
+    "note": "·I loops more tightly and draws the connector pixel its follower's entry drew, so the follower stands a column further along",
+    "match": {
+        "before": {"pivots": ["qsI.handover-fixture"]},
+        "after": {
+            "pivots": ["qsI.smaller-loop.handover-fixture"],
+            "dropped": [[1, 2]],
+            "added": [[1, 1], [2, 2]],
+            "shift": 1,
+        },
+        "except_left": [],
+    },
+}
+
+UNPAINTED_HANDOVER_RULE = {
+    "id": "fixture-redrawn-handover-unpainted",
+    "verdict": "approve",
+    "note": "·I loops more tightly and its follower stands a column further along",
+    "match": {
+        "before": {"pivots": ["qsI.handover-fixture"]},
+        "after": {
+            "pivots": ["qsI.smaller-loop.handover-fixture"],
+            "dropped": [[1, 2]],
+            "added": [[1, 1]],
+            "shift": 1,
+        },
+        "except_left": [],
+    },
+}
+
 REDRAWN_EXT_RULE = {
     "id": "fixture-redrawn-extension-dropped",
     "verdict": "approve",
@@ -1781,6 +1813,9 @@ EIGHTISH_SMALLER = (_rect(0, 0, 50, 150), _rect(50, 50, 100, 100))
 EIGHTISH_EXTENDED = (_rect(0, 0, 50, 150), _rect(50, 100, 100, 150), _rect(100, 0, 150, 50))
 EIGHTISH_ENTRY_EXTENDED = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150), _rect(100, 100, 150, 150))
 EIGHTISH_ENTRY_EXTENDED_SMALLER = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150), _rect(100, 50, 150, 100))
+EIGHTISH_HANDING_OVER = (_rect(0, 0, 50, 150), _rect(50, 50, 100, 100), _rect(100, 100, 150, 150))
+ENTRY_HANDED_FOLLOWER = (_rect(0, 100, 50, 150), _rect(50, 0, 100, 150))
+HANDED_FOLLOWER = (_rect(50, 0, 100, 150),)
 EIGHTISH_SMALLER_AND_A_PIXEL = (_rect(0, 0, 50, 150), _rect(50, 50, 100, 100), _rect(100, 0, 150, 50))
 FRAMED_EIGHTISH = (_rect(50, 0, 100, 150), _rect(100, 100, 150, 150), _rect(150, 0, 200, 50))
 OVERFRAMED_EIGHTISH = (_rect(100, 0, 150, 150), _rect(150, 100, 200, 150), _rect(200, 0, 250, 50))
@@ -1932,6 +1967,10 @@ register_glyph("before", "qsTea.half.en-y5.after-xheight-exit.gain-join-fixture"
 register_glyph("after", "qsTea.full.en-y5.gain-join-fixture", FULL_TEA_BAR, 50)
 register_glyph("before", "qsEight.redraw-join-fixture", EIGHTISH, 100)
 register_glyph("after", "qsEight.smaller-loop.redraw-join-fixture", EIGHTISH_SMALLER, 50)
+register_glyph("before", "qsI.handover-fixture", EIGHTISH, 50)
+register_glyph("after", "qsI.smaller-loop.handover-fixture", EIGHTISH_HANDING_OVER, 100)
+register_glyph("before", "qsThey.en-ext-1.handover-fixture", ENTRY_HANDED_FOLLOWER, 100)
+register_glyph("after", "qsThey.sole.handover-fixture", HANDED_FOLLOWER, 100)
 
 LEAD = register_pair("qsL", "qsL")
 SEE = register_pair("qsSee.ex-y0", "qsSee.straighter")
@@ -2008,6 +2047,8 @@ TEA_GAINING_A_JOIN = register_pair(
 EIGHT_REDRAWING_INTO_A_JOIN = register_pair(
     "qsEight.redraw-join-fixture", "qsEight.smaller-loop.redraw-join-fixture"
 )
+I_HANDING_OVER = register_pair("qsI.handover-fixture", "qsI.smaller-loop.handover-fixture")
+FOLLOWER_HANDING_OVER = register_pair("qsThey.en-ext-1.handover-fixture", "qsThey.sole.handover-fixture")
 
 BEFORE_GLYPHS = _OUTLINES["before"]
 AFTER_GLYPHS = _OUTLINES["after"]
@@ -2145,6 +2186,10 @@ SLIDE_FONTS = {
     ),
     "after-redrawn-overpulled-pivot": (
         {**AFTER_GLYPHS, "qsBay.contract-lead": (TWO_COLUMNS, 0)},
+        AFTER_CMAP,
+    ),
+    "after-handover-unpainted": (
+        {**AFTER_GLYPHS, "qsI.smaller-loop.handover-fixture": (EIGHTISH_SMALLER, 100)},
         AFTER_CMAP,
     ),
     "after-redrawn-overframed-pivot": (
@@ -7087,6 +7132,36 @@ def test_a_slide_and_a_frame_carried_cell_swap_in_one_window_combine(slide_conte
         COMBINED_FRAMED_REDRAWN_RULES, combined_framed_redrawn_window(), slide_context()
     )
     assert events == {SLIDE_RULE["id"]: [1], FRAMED_REDRAWN_RULE["id"]: [3]}
+
+
+def handover_window(uid="rdh-1"):
+    return slide_unit(
+        uid,
+        ["qsL", "qsI.handover-fixture", "qsThey.en-ext-1.handover-fixture", "qsF3"],
+        spell(LEAD, I_HANDING_OVER, FOLLOWER_HANDING_OVER, FOLLOWER_3),
+    )
+
+
+def test_a_cell_the_redrawn_pivot_takes_over_from_its_follower_is_not_a_change(slide_context):
+    """The follower's entry gives up the connector cell the pivot's new form now paints at the same place, so the rendered picture there is unchanged."""
+    assert sv._matches(HANDOVER_REDRAWN_RULE["match"], handover_window(), context=slide_context())
+
+
+def test_a_cell_the_follower_gives_up_unpainted_defeats_the_redrawn_match(slide_context):
+    """With the pivot's new form not painting the connector cell, the follower's lost entry is a visible gap."""
+    assert not sv._matches(
+        UNPAINTED_HANDOVER_RULE["match"], handover_window(), context=slide_context("after-handover-unpainted")
+    )
+
+
+def test_a_slide_and_a_handed_over_cell_swap_in_one_window_combine(slide_context):
+    window = slide_unit(
+        "rdh-2",
+        ["qsL", "qsSee.ex-y0", "qsI.handover-fixture", "qsThey.en-ext-1.handover-fixture", "qsF3"],
+        spell(LEAD, SEE, I_HANDING_OVER, FOLLOWER_HANDING_OVER, FOLLOWER_3),
+    )
+    events = sv._combined_match([SLIDE_RULE, HANDOVER_REDRAWN_RULE], window, slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], HANDOVER_REDRAWN_RULE["id"]: [2]}
 
 
 def test_a_pure_redrawn_window_is_not_combined(slide_context):

@@ -2000,3 +2000,15 @@ rules:
         added: [[1, 3], [1, 4], [2, 2], [2, 5], [3, 1], [3, 4], [4, 0]]
         shift: -1
       except_left: []
+  - id: i-smaller-loop-exit-extension-gained
+    verdict: approve
+    note: "·I loops more tightly after a baseline join and reaches a pixel further along its x-height exit, so everything after it moves a column along — the smaller-loop prefer on qsI carries the recorded why (the tighter bowl doesn't rub the letter it follows), and the extra pixel is qsI's x-height extend record, which names qsThey on “Extend the ·I·They join by a pixel”, so the pixel the old font drew on ·They's entry is ·I's own; every window that reached a review session approved the tighter bowl and the longer reach"
+    match:
+      before:
+        pivots: [qsI]
+      after:
+        pivots: [qsI.smaller-loop]
+        dropped: [[0, 4], [1, 3], [1, 5]]
+        added: [[1, 4], [5, 5]]
+        shift: 1
+      except_left: []
