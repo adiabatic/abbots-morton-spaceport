@@ -200,6 +200,7 @@ policy:
         - {family: qsJai}
         - {family: qsJai_qsUtter}
         - {family: qsCheer}
+        - {family: qsYe}
   contract:
   - entry: baseline
     by: 1
