@@ -648,6 +648,24 @@ REDRAWN_CREATED_JOIN_RULE = {
     },
 }
 
+ENTRY_CREATED_JOIN_RULE = {
+    "id": "fixture-join-created-behind-an-entry-drop",
+    "verdict": "approve",
+    "note": "·Low joins ·F3 at the baseline where the old font left a break, and ·F3 comes a column back onto it",
+    "match": {
+        "before": {"pivot": "qsLow", "junction_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsLow/sole/baseline/baseline/"],
+            "follower_after_cells": ["qsF3/full/baseline/None/"],
+            "shift": -1,
+            "follower_advance": 0,
+            "follower_columns_added": 0,
+        },
+        "except_left": [],
+    },
+}
+
 CONTRACTED_CREATED_JOIN_RULE = {
     "id": "fixture-join-created-behind-a-contraction",
     "verdict": "approve",
@@ -1982,6 +2000,10 @@ register_glyph("before", "qsI.handover-fixture", EIGHTISH, 50)
 register_glyph("after", "qsI.smaller-loop.handover-fixture", EIGHTISH_HANDING_OVER, 100)
 register_glyph("before", "qsThey.en-ext-1.handover-fixture", ENTRY_HANDED_FOLLOWER, 100)
 register_glyph("after", "qsThey.sole.handover-fixture", HANDED_FOLLOWER, 100)
+register_glyph("before", "qsLow.unchanged-fixture", TWO_COLUMNS, 100)
+register_glyph("after", "qsLow.sole.unchanged-fixture", TWO_COLUMNS, 100)
+register_glyph("before", "qsLow.en-ext-1.join-fixture", EXTENDED_ENTRY_LOW, 150)
+register_glyph("after", "qsLow.sole.join-fixture", TWO_COLUMNS, 50)
 
 LEAD = register_pair("qsL", "qsL")
 SEE = register_pair("qsSee.ex-y0", "qsSee.straighter")
@@ -2060,6 +2082,8 @@ EIGHT_REDRAWING_INTO_A_JOIN = register_pair(
 )
 I_HANDING_OVER = register_pair("qsI.handover-fixture", "qsI.smaller-loop.handover-fixture")
 FOLLOWER_HANDING_OVER = register_pair("qsThey.en-ext-1.handover-fixture", "qsThey.sole.handover-fixture")
+UNCHANGED_LOW = register_pair("qsLow.unchanged-fixture", "qsLow.sole.unchanged-fixture")
+LOW_ENTERING_A_JOIN = register_pair("qsLow.en-ext-1.join-fixture", "qsLow.sole.join-fixture")
 
 BEFORE_GLYPHS = _OUTLINES["before"]
 AFTER_GLYPHS = _OUTLINES["after"]
@@ -2173,6 +2197,14 @@ SLIDE_FONTS = {
     ),
     "after-stub-companion-pixel": (
         {**AFTER_GLYPHS, "qsMay.loop.unchanged-fixture": (TWO_COLUMNS_AND_A_PIXEL, 100)},
+        AFTER_CMAP,
+    ),
+    "after-entry-companion-pixel": (
+        {**AFTER_GLYPHS, "qsLow.sole.unchanged-fixture": (TWO_COLUMNS_AND_A_PIXEL, 100)},
+        AFTER_CMAP,
+    ),
+    "after-entry-created-join-unmoved": (
+        {**AFTER_GLYPHS, "qsLow.sole.join-fixture": (TWO_COLUMNS, 100)},
         AFTER_CMAP,
     ),
     "after-redrawn-extra-cell": (
@@ -5043,6 +5075,26 @@ def test_the_checked_in_vie_utter_rule_reads_the_drop_and_nothing_wider(slide_co
     assert not sv._matches(match, entry_window(), context=slide_context())
 
 
+ENTRY_COMPANION_GLYPHS = ["qsL", "qsLow.en-ext-1", "qsM", "qsLow.unchanged-fixture"]
+ENTRY_COMPANION_CODEPOINTS = spell(LEAD, LOW, MIDDLE, UNCHANGED_LOW)
+
+
+def entry_companion_window(uid="e-companion"):
+    return slide_unit(uid, ENTRY_COMPANION_GLYPHS, ENTRY_COMPANION_CODEPOINTS)
+
+
+def test_a_second_low_keeping_its_form_counts_as_span_ink_beside_the_entry_drop(slide_context):
+    assert sv._matches(ENTRY_RULE["match"], entry_companion_window(), context=slide_context())
+
+
+def test_a_second_low_that_gains_a_pixel_defeats_the_entry_drop_match(slide_context):
+    assert not sv._matches(
+        ENTRY_RULE["match"],
+        entry_companion_window(),
+        context=slide_context("after-entry-companion-pixel"),
+    )
+
+
 def test_an_unmoved_pivot_defeats_the_entry_drop_match(slide_context):
     assert not sv._matches(ENTRY_RULE["match"], entry_window(), context=slide_context("after-low-unmoved"))
 
@@ -5325,6 +5377,9 @@ GAINED_CREATED_JOIN_RULES = [GAIN_UNDER_CREATED_JOIN_RULE, GAINED_CREATED_JOIN_R
 REDRAWN_CREATED_JOIN_GLYPHS = ["qsL", "qsEight.redraw-join-fixture", "qsF3"]
 REDRAWN_CREATED_JOIN_CODEPOINTS = spell(LEAD, EIGHT_REDRAWING_INTO_A_JOIN, FOLLOWER_3)
 REDRAWN_CREATED_JOIN_RULES = [REDRAWN_UNDER_CREATED_JOIN_RULE, REDRAWN_CREATED_JOIN_RULE]
+ENTRY_CREATED_JOIN_GLYPHS = ["qsL", "qsLow.en-ext-1.join-fixture", "qsF3"]
+ENTRY_CREATED_JOIN_CODEPOINTS = spell(LEAD, LOW_ENTERING_A_JOIN, FOLLOWER_3)
+ENTRY_CREATED_JOIN_RULES = [ENTRY_RULE, ENTRY_CREATED_JOIN_RULE]
 JOIN_RETARGET_GLYPHS = ["qsL", "qsAt", "qsIt", "qsTea.half.ex-y5", "qsNo.en-ext-1"]
 JOIN_RETARGET_CODEPOINTS = spell(LEAD, AT, IT, TEA, NO)
 JOIN_RETARGET_RULES = [JOIN_RULE, RETARGET_RULE]
@@ -6541,6 +6596,46 @@ def test_a_created_join_sharing_a_letter_with_a_redraw_still_needs_its_follower_
         REDRAWN_CREATED_JOIN_RULES,
         redrawn_created_join_window(),
         slide_context("after-redrawn-created-join-unmoved"),
+    )
+    assert events is None
+
+
+def entry_created_join_window(uid="ecj-1"):
+    return unit(
+        uid,
+        list(ENTRY_CREATED_JOIN_GLYPHS),
+        ["y0", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsLow/sole/baseline/baseline/",
+            "qsF3/full/baseline/None/",
+        ],
+        ["y0", "y0"],
+        codepoints=ENTRY_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def test_a_created_join_shares_a_letter_with_an_entry_drop_that_keeps_its_origin(slide_context):
+    """A half ·Day giving up its extra entry column under an unchanged own-frame origin and opening ss05's baseline join into ·Tea are two events on one letter, as a redraw and its created join are. The created join's pivot kept its origin, so both events are judged, and the entry event is the position's event."""
+    events = sv._combined_match(ENTRY_CREATED_JOIN_RULES, entry_created_join_window(), slide_context())
+    assert events == {ENTRY_RULE["id"]: [1], ENTRY_CREATED_JOIN_RULE["id"]: [1]}
+
+
+def test_neither_rule_alone_reads_a_created_join_behind_an_entry_drop(slide_context):
+    window = entry_created_join_window()
+    for rule in ENTRY_CREATED_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._combined_walk([rule], window, slide_context()) is None
+
+
+def test_a_created_join_sharing_a_letter_with_an_entry_drop_still_needs_its_follower_moved(slide_context):
+    events = sv._combined_match(
+        ENTRY_CREATED_JOIN_RULES,
+        entry_created_join_window(),
+        slide_context("after-entry-created-join-unmoved"),
     )
     assert events is None
 

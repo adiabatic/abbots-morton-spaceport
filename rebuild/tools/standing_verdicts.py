@@ -890,7 +890,7 @@ def _entry_drop_holds(match, before, after, intern):
 
 
 def _entry_geometry(match, unit, comparator, pivot_positions=None):
-    """Whether the window's rendered before→after change is the named left-side entry shortening on the named pivots, shaped under the unit's first config. Each pivot must pass `_entry_drop_holds` and sit at the placement it returns under the running displacement, and every span strictly between the pivots must render identically once displaced by the cumulative shift (`_entry_shift`): the span before the first pivot by nothing, and one more shift after each pivot. Each span after a pivot is compared together with that pivot's after picture, so a following glyph may give up cells the pivot still paints without that counting as a change. The entry-contracted matcher passes the positions its named left families select; the entry-extension-dropped matcher leaves `pivot_positions` unset and every named pivot is judged. No pivot on the before side, pivot counts that differ, a before run that differs from the recorded glyphs, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, or an unnamed visible cell returns False, so the unit waits for human review."""
+    """Whether the window's rendered before→after change is the named left-side entry shortening on the named pivots, shaped under the unit's first config. Each pivot must pass `_entry_drop_holds` and sit at the placement it returns under the running displacement, and every span strictly between the pivots must render identically once displaced by the cumulative shift (`_entry_shift`): the span before the first pivot by nothing, and one more shift after each pivot. Each span after a pivot is compared together with that pivot's after picture, so a following glyph may give up cells the pivot still paints without that counting as a change. The entry-contracted matcher passes the positions its named left families select; the entry-extension-dropped matcher leaves `pivot_positions` unset, and every glyph whose before name carries a before prefix is a pivot. When the two runs have the same glyph count, each pivot is the after glyph at the same position, which must carry an after prefix: the same after form can be the shortened letter at one position and an unchanged letter of the same family at another (a second half ·Day after ·Bay), and only the before name says which. Runs of different glyph counts pair the named pivots on each side in order. No pivot on the before side, pivot counts that differ, a before run that differs from the recorded glyphs, an off-grid placement, a non-rectilinear outline, a dropped cell outside the named columns, or an unnamed visible cell returns False, so the unit waits for human review."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -902,8 +902,27 @@ def _entry_geometry(match, unit, comparator, pivot_positions=None):
     before_names, before_run = comparator.named_run("before", text, features)
     if list(before_names) != unit["before"]["glyphs"]:
         return False
-    _after_names, after_run = comparator.named_run("after", text, features)
-    if pivot_positions is None:
+    after_names, after_run = comparator.named_run("after", text, features)
+    if pivot_positions is None and len(after_names) == len(before_names):
+        before_pieces = _pieces_by_glyph(before_names, before_run)
+        after_pieces = _pieces_by_glyph(after_names, after_run)
+        if before_pieces is None or after_pieces is None:
+            return False
+        positions = [
+            position
+            for position in before_pieces
+            if _named_pivot(before_names[position], match["before"]["pivots"])
+        ]
+        if any(
+            position not in after_pieces or not _named_pivot(after_names[position], match["after"]["pivots"])
+            for position in positions
+        ):
+            return False
+        before_at = {position: index for index, position in enumerate(before_pieces)}
+        after_at = {position: index for index, position in enumerate(after_pieces)}
+        before_pivots = [before_at[position] for position in positions]
+        after_pivots = [after_at[position] for position in positions]
+    elif pivot_positions is None:
         before_pivots = [
             i for i, piece in enumerate(before_run) if _named_pivot(piece[0], match["before"]["pivots"])
         ]
@@ -2077,7 +2096,7 @@ def _combined_walk(rules, unit, context):
         judged = [event for event in candidates if event.pivot_judged]
         unjudged = [event for event in candidates if not event.pivot_judged]
         kinds = {event.kind for event in judged}
-        if len(judged) == 2 and "joined" in kinds and kinds & {"gain", "redrawn"}:
+        if len(judged) == 2 and "joined" in kinds and kinds & {"entry", "gain", "redrawn"}:
             unjudged = [event for event in judged if event.kind == "joined"] + unjudged
             judged = [event for event in judged if event.kind != "joined"]
         if len(judged) > 1 and sorted(event.kind for event in judged) != ["entry", "redrawn"]:

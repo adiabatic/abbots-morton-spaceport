@@ -229,7 +229,7 @@ rules:
       except_left: []
   - id: tea-no-xheight-join-retargeted
     verdict: approve
-    note: "·Tea sits as the full bar joining ·No at the baseline — the old font drew the half stub joining at the x-height; qsNo's flipped stance takes ·Tea on its baseline from-list, and every window that reached a review session approved the lowered join"
+    note: "·Tea sits as the full bar joining ·No at the baseline, whether or not a letter joins into the bar — the old font drew the half stub joining at the x-height; qsNo's flipped stance takes ·Tea on its baseline from-list, and every window that reached a review session approved the lowered join"
     match:
       before:
         pivot: qsTea.half
@@ -241,6 +241,8 @@ rules:
           - qsTea/full/None/baseline/
           - qsTea/full/x-height/baseline/
           - qsTea/full/top/baseline/
+          - qsTea/full/baseline/baseline/
+          - qsTea/full/baseline/baseline/en-ext-1
         follower_after_cells:
           - qsNo/flipped/baseline/None/
           - qsNo/flipped/baseline/baseline/
@@ -2258,4 +2260,14 @@ rules:
         shift: -2
         follower_advance: 0
         follower_columns_added: 0
+      except_left: []
+  - id: day-half-entry-extension-dropped
+    verdict: approve
+    note: "·Day's half form sits a pixel closer where ·Tea, ·Ye or ·Tea+Oy joins it at the baseline — the extra pixel of baseline entry the old font drew after ·Tea and ·Ye came off qsDay's extend record in “Stop adding a pixel to the `·{Tea,Ye} ~b~ ·Day.half` join”, and the rebuild never drew it after ·Tea+Oy, where every window that reached a review session approved the shorter reach"
+    match:
+      before:
+        pivots: [qsDay.half.en-y0.ex-y0.en-ext-1]
+      after:
+        pivots: [qsDay.half]
+        entry_drop: 1
       except_left: []
