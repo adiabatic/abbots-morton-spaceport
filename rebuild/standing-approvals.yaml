@@ -2478,3 +2478,205 @@ rules:
         pivots: [qsDay_qsUtter.half]
         entry_drop: 1
       except_left: []
+  - id: he-it-xheight-join-created
+    verdict: approve
+    note: "·He goes half and joins ·It at the x-height where the old font left a break, and ·It closes three columns onto it — the author ruled in the ·He migration that `·He ~b~ ·It` never happens (from ·Pea·He·It·Jay, where the old drawing is better), and “Don't join ·He ~b~ ·It ever” took qsIt off the full stance's baseline exit, so before ·It only the half's x-height exit is on offer; that exit has named qsIt since the letter landed in “Add ·He”, and qsIt's x-height entry is open to every left letter but ·It itself. ·It holds its own advance across the change, so whatever follows the pair moves with it. The user gave the join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved it"
+    match:
+      before:
+        pivot: qsHe
+        junction_out: break
+        follower: qsIt
+      after:
+        joined: y5
+        pivot_cells:
+          - qsHe/half/None/x-height/
+        follower_after_cells:
+          - qsIt/sole/x-height/None/
+          - qsIt/sole/x-height/baseline/
+        shift: -3
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
+  - id: he-it-xheight-join-retargeted
+    verdict: approve
+    note: "·He goes half and joins ·It at the x-height where the old font joined the two at the baseline, and ·It stays where it stood — the author ruled in the ·He migration that `·He ~b~ ·It` never happens (from ·Pea·He·It·Jay, where the old drawing is better), and “Don't join ·He ~b~ ·It ever” took qsIt off the full stance's baseline exit, so before ·It only the half's x-height exit is on offer, under ss04 too, where the old font draws `·He ~b~ ·It ~b~ ·Day`; that exit has named qsIt since the letter landed in “Add ·He”. ·It holds its own advance across the change, so whatever follows the pair stands where it was. The user gave the join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved it"
+    match:
+      before:
+        pivot: qsHe
+        junction_out: y0
+        follower: qsIt
+      after:
+        retarget: y5
+        pivot_cells:
+          - qsHe/half/None/x-height/
+        follower_after_cells:
+          - qsIt/sole/x-height/None/
+          - qsIt/sole/x-height/baseline/
+        shift: 0
+        follower_shift: 0
+      except_left: []
+  - id: bay-he-baseline-join-dropped
+    verdict: approve
+    note: "·Bay no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·He sits a column further away — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsBay
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsBay/sole/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
+  - id: day-he-baseline-join-dropped
+    verdict: approve
+    note: "·Day no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·He sits a column further away — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsDay
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsDay/full/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
+  - id: key-he-baseline-join-dropped
+    verdict: approve
+    note: "·Key no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·He sits a column further away — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsKey
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsKey/sole/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
+  - id: zoo-he-baseline-join-dropped
+    verdict: approve
+    note: "·Zoo no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·He sits a column further away — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsZoo
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsZoo/full/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
+  - id: cheer-he-baseline-join-dropped
+    verdict: approve
+    note: "·Cheer no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·He sits a column further away — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsCheer
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsCheer/sole/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
+  - id: et-he-baseline-join-dropped
+    verdict: approve
+    note: "·Et no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·He sits a column further away — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsEt
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsEt/sole/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
+  - id: eight-he-baseline-join-dropped
+    verdict: approve
+    note: "·Eight no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·Eight gives up the pixel of exit it drew into that join, so ·He stays where it stood — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsEight.ex-ext-1
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 0
+        pivot_cells:
+          - qsEight/normal-sized-loop/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
+  - id: awe-he-baseline-join-dropped
+    verdict: approve
+    note: "·Awe no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·He sits a column further away — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsAwe
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsAwe/sole/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
+  - id: ox-he-baseline-join-dropped
+    verdict: approve
+    note: "·Ox no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·He sits a column further away — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsOx
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsOx/sole/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
+  - id: oy-he-baseline-join-dropped
+    verdict: approve
+    note: "·Oy no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·He sits a column further away — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsOy
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsOy/sole/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
+  - id: ooze-he-baseline-join-dropped
+    verdict: approve
+    note: "·Ooze no longer joins ·He at the baseline where ·He goes half to join ·It at the x-height, and ·He sits a column further away — ·He's preference for its follower over its left neighbor is the yielding prefer of no entry over a baseline entry that landed in “Add ·He”, where the author accepted `·Bay | ·He.half ~x~ ·It ~b~ ·Roe` and its siblings in place of the old font's `·Bay ~b~ ·He | ·It ~x~ ·Roe`, and the half carries no entry at all; since “Don't join ·He ~b~ ·It ever” the half's x-height exit is ·He's only way into ·It. The user gave the ·He.half ~x~ ·It join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsOoze
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsOoze/sole/None/None/
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
