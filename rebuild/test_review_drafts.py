@@ -197,7 +197,7 @@ def test_policy_note_is_threaded_into_the_why_stub(drafter, enricher, example_un
 
 
 def test_any_of_orders_after_behavior_first(drafter, enricher, example_units):
-    unit = example_units[("E650:E670:E65D", "default")]
+    unit = example_units[("E672:E650:E668", "default")]
     assert unit.class_id == "join-switches-sides"
     enriched = enricher.enrich(unit)
     draft = drafter.draft_any_of(enriched)

@@ -79,7 +79,7 @@
         "units": 1732527,
         "rows": 8304133,
         "batches": 1047,
-        "duplicate_groups": 12085
+        "duplicate_groups": 12077
       },
       "machine_approved": {
         "units": 1366389,
@@ -108,7 +108,7 @@
       "secondary_junctions": {
         "units_with_markers": 59104,
         "junctions_with_primary_unit": 7744,
-        "junctions_without_primary_unit": 55295,
+        "junctions_without_primary_unit": 55285,
         "junctions_suppressed_invisible": 1971
       }
     },
@@ -197,7 +197,7 @@
     "unmatched_groups": {
       "counts": {
         "new-join-at-baseline": 18604,
-        "new-join-at-xheight-or-top": 13048,
+        "new-join-at-xheight-or-top": 13038,
         "join-dropped": 7762,
         "join-lowered": 9381,
         "join-raised": 130,
@@ -208,7 +208,7 @@
         "only-with-ss04": 12870,
         "only-with-ss05": 16119
       },
-      "total": 260156,
+      "total": 260146,
       "rerouted": {
         "identical-unjoined-from-left": 2,
         "identical-unused-join-name": 13460,
