@@ -2076,28 +2076,28 @@ rules:
         added: [[1, 4], [5, 5]]
         shift: 1
       except_left: []
-  - id: may-pea-exit-extension-dropped
+  - id: may-pea-cheer-exit-extension-dropped
     verdict: approve
-    note: "·Pea sits a pixel closer to a ·May that something joins into — the extra pixel of x-height exit the old font drew before ·Pea came off qsMay's extend record for an entered ·May in “Stop adding a pixel to the `·May ~x~ ·Pea` join”, which the user asked for on reviewing ·Bay·It·May·Pea, wanting the shorter join everywhere it shows up"
+    note: "·Pea and ·Cheer sit a pixel closer to a ·May that something joins into — the extra pixel of x-height exit the old font drew before them came off qsMay's extend record for an entered ·May, before ·Pea in “Stop adding a pixel to the `·May ~x~ ·Pea` join”, which the user asked for on reviewing ·Bay·It·May·Pea, wanting the shorter join everywhere it shows up, and before ·Cheer in “Stop adding a pixel to the `·May ~x~ ·Cheer` join”"
     match:
       before:
         pivots: [qsMay.en-y0.ex-y5.ex-ext-1]
         junction_out: y5
-        follower: qsPea
+        follower: [qsPea, qsCheer]
       after:
         pivots: [qsMay.loop.en-y0.ex-y5]
         dropped: [[5, 8]]
         added: []
         shift: -1
       except_left: []
-  - id: may-pea-entry-and-exit-extension-dropped
+  - id: may-pea-cheer-entry-and-exit-extension-dropped
     verdict: approve
-    note: "·May gives up both the extra pixel of baseline entry and the extra pixel of x-height exit the old font drew, so ·Pea comes two columns closer — the entry pixel came off qsMay's extend record in “Never lengthen ·May's baseline-entry join”, and the exit pixel before ·Pea in “Stop adding a pixel to the `·May ~x~ ·Pea` join”, which the user asked for on reviewing ·Bay·It·May·Pea, wanting the shorter join everywhere it shows up"
+    note: "·May gives up both the extra pixel of baseline entry and the extra pixel of x-height exit the old font drew, so ·Pea or ·Cheer comes two columns closer — the entry pixel came off qsMay's extend record in “Never lengthen ·May's baseline-entry join”, the exit pixel before ·Pea in “Stop adding a pixel to the `·May ~x~ ·Pea` join”, which the user asked for on reviewing ·Bay·It·May·Pea, wanting the shorter join everywhere it shows up, and the exit pixel before ·Cheer in “Stop adding a pixel to the `·May ~x~ ·Cheer` join”"
     match:
       before:
         pivots: [qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1]
         junction_out: y5
-        follower: qsPea
+        follower: [qsPea, qsCheer]
       after:
         pivots: [qsMay.loop.en-y0.ex-y5]
         dropped: [[2, 1], [2, 2], [2, 4], [2, 5], [3, 6], [3, 7], [4, 0], [4, 3], [5, 1], [5, 2], [5, 8], [6, 8]]
