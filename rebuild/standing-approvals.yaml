@@ -2468,3 +2468,13 @@ rules:
       after:
         gap: 2
       except_left: []
+  - id: day-utter-half-entry-extension-dropped
+    verdict: approve
+    note: "·Day+Utter's half form sits a pixel closer where ·Tea, ·Ye or ·Tea+Oy joins it at the baseline — the extra pixel of baseline entry the old font drew after ·Tea and ·Ye came off qsDay_qsUtter's extend records in “Stop adding a pixel to the `·{Tea,Ye} ~b~ ·Day+Utter.half` join”, and the rebuild never drew it after ·Tea+Oy, where every window that reached a review session approved the shorter reach"
+    match:
+      before:
+        pivots: [qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1]
+      after:
+        pivots: [qsDay_qsUtter.half]
+        entry_drop: 1
+      except_left: []
