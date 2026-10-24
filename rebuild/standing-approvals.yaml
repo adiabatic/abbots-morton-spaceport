@@ -268,31 +268,59 @@ rules:
       except_left: []
   - id: it-may-exit-extension-dropped
     verdict: approve
-    note: "·Vie, ·May, ·Low and ·Utter sit a pixel closer to an entered ·It — the extra pixel of exit the old font drew came off qsIt's entered baseline-exit extend (they sit on the except list; ·It·Vie was ditched outright), and every window that reached a review session approved the shorter reach"
+    note: "Every letter ·It joins at the baseline sits a pixel closer to it — the extra pixel of exit the old font drew is gone whatever joins into ·It, since qsIt's baseline-exit extend for an ·It entered at the x-height came off in “Keep the gap after ·It the same whatever joins into it”, leaving the letter only the by-1 baseline-exit extend before ·Owe, and every window that reached a review session approved the shorter reach"
     match:
       before:
         pivot: qsIt
         exit_extension: ex-ext-1
         junction_out: y0
-        follower: [qsVie, qsVie_qsUtter, qsMay, qsLow, qsUtter]
+        follower: [qsDay, qsDay_qsUtter, qsThaw, qsVie, qsVie_qsUtter, qsSee, qsZoo, qsMay, qsNo, qsLow, qsRoe, qsAt, qsI, qsAh, qsUtter, qsOut, qsOut_qsTea, qsOoze]
       after:
         pivot_cells:
           - qsIt/sole/None/baseline/
           - qsIt/sole/baseline/baseline/
+          - qsIt/sole/baseline/baseline/en-ext-1
           - qsIt/sole/x-height/baseline/
         follower_cells:
+          - qsDay/half/baseline/None/
+          - qsDay/half/baseline/baseline/
+          - qsDay_qsUtter/half/baseline/None/
+          - qsThaw/sole/baseline/None/
           - qsVie/normal/baseline/None/
           - qsVie/swept-out/baseline/baseline/
           - qsVie_qsUtter/sole/baseline/None/
+          - qsSee/curled-over/baseline/y6/
+          - qsSee/normal/baseline/None/
+          - qsSee/normal/baseline/top/
+          - qsZoo/half/baseline/None/
+          - qsZoo/half/baseline/baseline/
           - qsMay/loop/baseline/None/
           - qsMay/loop/baseline/x-height/ex-ext-1
           - qsMay/loop/baseline/x-height/ex-ext-2
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
           - qsLow/sole/baseline/None/
           - qsLow/sole/baseline/x-height/
           - qsLow/sole/baseline/x-height/ex-ext-1
+          - qsRoe/sole/baseline/None/en-ext-1
+          - qsRoe/sole/baseline/x-height/en-ext-1
+          - qsAt/rising/baseline/None/
+          - qsAt/rising/baseline/x-height/
+          - qsI/smaller-loop/baseline/None/
+          - qsI/smaller-loop/baseline/x-height/
+          - qsI/smaller-loop/baseline/x-height/ex-ext-1
+          - qsAh/sole/baseline/None/
+          - qsAh/sole/baseline/x-height/
+          - qsAh/sole/baseline/x-height/ex-ext-1
           - qsUtter/mono/baseline/None/
           - qsUtter/mono/baseline/x-height/
           - qsUtter/mono/baseline/x-height/ex-ext-1
+          - qsOut/normal/baseline/None/
+          - qsOut/swept-up/baseline/x-height/
+          - qsOut/swept-up/baseline/x-height/ex-ext-1
+          - qsOut_qsTea/sole/baseline/None/
+          - qsOoze/sole/baseline/None/
+          - qsOoze/sole/baseline/baseline/
       except_left: []
   - id: it-ah-exit-extension-dropped
     verdict: approve

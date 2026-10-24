@@ -1426,7 +1426,7 @@ def test_the_checked_in_it_may_rule_reads_the_narrowed_junction_and_nothing_wide
     assert not sv._matches(match, elsewhere)
     kept = it_may(pivot="qsIt.en-y5.ex-y0")
     assert not sv._matches(match, kept)
-    other_follower = it_may(follower="qsSee.en-y0", follower_cell="qsSee/normal/baseline/None/")
+    other_follower = it_may(follower="qsOwe.en-y0", follower_cell="qsOwe/sole/baseline/None/")
     assert not sv._matches(match, other_follower)
 
 
