@@ -139,6 +139,7 @@ rules:
           - qsEt/sole/x-height/baseline/en-ext-1+ex-con-1
         follower_cells:
           - qsMay/loop/baseline/None/
+          - qsMay/loop/baseline/x-height/
           - qsMay/loop/baseline/x-height/ex-ext-1
           - qsMay/loop/baseline/x-height/ex-ext-2
       except_left: []
@@ -295,6 +296,7 @@ rules:
           - qsZoo/half/baseline/None/
           - qsZoo/half/baseline/baseline/
           - qsMay/loop/baseline/None/
+          - qsMay/loop/baseline/x-height/
           - qsMay/loop/baseline/x-height/ex-ext-1
           - qsMay/loop/baseline/x-height/ex-ext-2
           - qsNo/flipped/baseline/None/
@@ -2073,4 +2075,32 @@ rules:
         dropped: [[0, 4], [1, 3], [1, 5]]
         added: [[1, 4], [5, 5]]
         shift: 1
+      except_left: []
+  - id: may-pea-exit-extension-dropped
+    verdict: approve
+    note: "·Pea sits a pixel closer to a ·May that something joins into — the extra pixel of x-height exit the old font drew before ·Pea came off qsMay's extend record for an entered ·May in “Stop adding a pixel to the `·May ~x~ ·Pea` join”, which the user asked for on reviewing ·Bay·It·May·Pea, wanting the shorter join everywhere it shows up"
+    match:
+      before:
+        pivots: [qsMay.en-y0.ex-y5.ex-ext-1]
+        junction_out: y5
+        follower: qsPea
+      after:
+        pivots: [qsMay.loop.en-y0.ex-y5]
+        dropped: [[5, 8]]
+        added: []
+        shift: -1
+      except_left: []
+  - id: may-pea-entry-and-exit-extension-dropped
+    verdict: approve
+    note: "·May gives up both the extra pixel of baseline entry and the extra pixel of x-height exit the old font drew, so ·Pea comes two columns closer — the entry pixel came off qsMay's extend record in “Never lengthen ·May's baseline-entry join”, and the exit pixel before ·Pea in “Stop adding a pixel to the `·May ~x~ ·Pea` join”, which the user asked for on reviewing ·Bay·It·May·Pea, wanting the shorter join everywhere it shows up"
+    match:
+      before:
+        pivots: [qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1]
+        junction_out: y5
+        follower: qsPea
+      after:
+        pivots: [qsMay.loop.en-y0.ex-y5]
+        dropped: [[2, 1], [2, 2], [2, 4], [2, 5], [3, 6], [3, 7], [4, 0], [4, 3], [5, 1], [5, 2], [5, 8], [6, 8]]
+        added: [[1, 1], [1, 2], [1, 4], [1, 5], [2, 0], [2, 6], [2, 7], [3, 8], [4, 1], [4, 2]]
+        shift: -2
       except_left: []
