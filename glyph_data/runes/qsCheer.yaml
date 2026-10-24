@@ -117,14 +117,7 @@ policy:
               - qsUtter
               - qsOwe
               - qsFoot
-  extend:
-  - entry: x-height
-    by: 1
-    when:
-      left:
-        class: halves-that-exit-at-x-height
-        except:
-        - {family: qsPea}
+  extend: []
   contract:
   - exit: baseline
     by: 1
