@@ -53,7 +53,6 @@ stances:
           - {family: qsPea}
           - {family: qsTea}
           - {family: qsGay}
-          - {family: qsYe}
           - {family: qsMay}
           - {family: qsIt}
           - {family: qsEight}
@@ -78,12 +77,12 @@ policy:
         - qsPea
         - qsEight
         joined_at: baseline
+  # qsYe left this record at the user's request: "the old one with the bigger loop seems fine" (after ·Ye)
   - stance: smaller-loop
     when:
       left:
         family:
         - qsTea
-        - qsYe
         - qsMay
         - qsIt
         joined_at: baseline
