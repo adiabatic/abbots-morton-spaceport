@@ -460,6 +460,8 @@
   why: ·Ox·It joins at the baseline in the old font (baseline row E678:E670); the same tail beside a vertical stroke as ·Ox·Tea.
 - signature: contact:qsOx.sole.ex-y0:qsIt.sole.en-y0.ex-y0:y1
   why: The blessed ·Ox·It off-junction contact with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is.
+- signature: contact:qsOx.sole.ex-y0:qsIt.sole.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOx.sole.ex-y0:qsIt.sole.en-y0.ex-y0:y1` with ·It's baseline exit extended by one before ·I, as the old font extends it (`qsIt.ex-y0.ex-ext-1` in baseline rows like E670:E675); the extension adds ink to the right of the bar only, so the contact on its left is unchanged.
 - signature: contact:qsOx.sole.ex-y0:qsIt.sole.en-y0.ex-y5:y1
   why: The blessed ·Ox·It off-junction contact with ·It exiting at the x-height instead; the exit adds ink at y5 only.
 - signature: contact:qsOx.sole.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
@@ -490,6 +492,8 @@
   why: The ZWNJ-locked copy of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y0:y1
   why: The ZWNJ-locked copy of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y0:y1` with ·It's baseline exit extended by one before ·I, as the old font extends it (`qsIt.ex-y0.ex-ext-1` in baseline rows like E670:E675); the extension adds ink to the right of the bar only, so the contact on its left is unchanged.
 - signature: contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y1
   why: The ZWNJ-locked copy of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
@@ -520,6 +524,8 @@
   why: The entered variant of the blessed ·Ox·It off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.sole.en-y5.ex-y0:qsIt.sole.en-y0.ex-y0:y1
   why: The entered variant of the blessed ·Ox·It off-junction contact; the x-height entry does not move the tail.
+- signature: contact:qsOx.sole.en-y5.ex-y0:qsIt.sole.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOx.sole.en-y5.ex-y0:qsIt.sole.en-y0.ex-y0:y1` with ·It's baseline exit extended by one before ·I, as the old font extends it (`qsIt.ex-y0.ex-ext-1` in baseline rows like E670:E675); the extension adds ink to the right of the bar only, so the contact on its left is unchanged.
 - signature: contact:qsOx.sole.en-y5.ex-y0:qsIt.sole.en-y0.ex-y5:y1
   why: The entered variant of the blessed ·Ox·It off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.sole.en-y5.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
@@ -1358,6 +1364,10 @@
   why: The blessed ·Ooze·It off-junction contact with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsIt.sole.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOoze.sole.en-y0.ex-y0:qsIt.sole.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOoze.sole.en-y0.ex-y0:qsIt.sole.en-y0.ex-y0:y1` with ·It's baseline exit extended by one before ·I, as the old font extends it (`qsIt.ex-y0.ex-ext-1` in baseline rows like E670:E675); the extension adds ink to the right of the bar only, so the contact on its left is unchanged.
+- signature: contact:qsOoze.sole.en-y0.ex-y0:qsIt.sole.en-y0.ex-y0.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·It off-junction contact with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the off-junction contact is unchanged. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y2
@@ -1414,6 +1424,10 @@
   why: The blessed ·Ooze·It off-junction contact with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOoze.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOoze.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y0:y1` with ·It's baseline exit extended by one before ·I, as the old font extends it (`qsIt.ex-y0.ex-ext-1` in baseline rows like E670:E675); the extension adds ink to the right of the bar only, so the contact on its left is unchanged.
+- signature: contact:qsOoze.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y0.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·It off-junction contact with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the off-junction contact is unchanged. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y2
@@ -1469,6 +1483,10 @@
 - signature: contact:qsOoze.sole.ex-y0:qsIt.sole.en-y0.ex-y0:y1
   why: The blessed ·Ooze·It off-junction contact with ·It carrying its own baseline exit onward; the exit side leaves the bar at y1 where it is.
 - signature: contact:qsOoze.sole.ex-y0:qsIt.sole.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOoze.sole.ex-y0:qsIt.sole.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOoze.sole.ex-y0:qsIt.sole.en-y0.ex-y0:y1` with ·It's baseline exit extended by one before ·I, as the old font extends it (`qsIt.ex-y0.ex-ext-1` in baseline rows like E670:E675); the extension adds ink to the right of the bar only, so the contact on its left is unchanged.
+- signature: contact:qsOoze.sole.ex-y0:qsIt.sole.en-y0.ex-y0.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.sole.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
   why: The blessed ·Ooze·It off-junction contact with ·It's x-height exit extended toward a following ·J'ai (baseline row E67E:E670:E65D); the extension adds ink at y5 only, so the off-junction contact is unchanged.

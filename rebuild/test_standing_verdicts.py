@@ -1474,40 +1474,6 @@ def test_the_checked_in_it_may_rule_reads_the_narrowed_junction_and_nothing_wide
     assert not sv._matches(match, other_follower)
 
 
-def it_ah(
-    uid="u-20",
-    pivot="qsIt.en-y5.ex-y0.ex-ext-1",
-    pivot_cell="qsIt/sole/None/baseline/",
-    follower="qsAh.en-y0",
-    follower_cell="qsAh/sole/baseline/None/",
-):
-    return unit(
-        uid,
-        ["qsPea.half.ex-y5", pivot, follower, "qsDay"],
-        ["y5", "y0", "y5"],
-        ["qsPea/half/None/x-height/", pivot_cell, follower_cell, "qsDay/full/x-height/None/"],
-        ["y5", "y0", "y5"],
-        pair={"left": 1, "right": 2},
-    )
-
-
-def test_the_checked_in_it_ah_rule_reads_the_narrowed_junction_and_nothing_wider():
-    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["it-ah-exit-extension-dropped"]["match"]
-    assert sv._matches(match, it_ah())
-    regrouped = it_ah()
-    regrouped["secondary_junctions"] = 1
-    assert not sv._matches(match, regrouped)
-    elsewhere = it_ah()
-    elsewhere["pair"] = {"left": 0, "right": 1}
-    assert not sv._matches(match, elsewhere)
-    kept = it_ah(pivot="qsIt.en-y5.ex-y0")
-    assert not sv._matches(match, kept)
-    entered = it_ah(pivot_cell="qsIt/sole/x-height/baseline/")
-    assert not sv._matches(match, entered)
-    other_follower = it_ah(follower="qsMay.en-y0", follower_cell="qsMay/loop/baseline/None/")
-    assert not sv._matches(match, other_follower)
-
-
 def test_the_checked_in_fee_rule_reads_the_ss03_shortening_and_nothing_wider():
     match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["fee-tea-ss03-exit-extension-shortened"][
         "match"

@@ -214,6 +214,7 @@ policy:
     when:
       right:
         family:
+        - qsI
         - qsOwe
   - exit: x-height
     by: 1
