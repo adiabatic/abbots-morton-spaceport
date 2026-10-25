@@ -2717,3 +2717,144 @@ rules:
         pivots: [qsAwe.sole]
         entry_drop: 1
       except_left: []
+  - id: utter-tea-xheight-join-created
+    verdict: approve
+    note: "·Utter joins ·Tea at the x-height under ss03 where the old font left a break, and ·Tea, keeping its full bar, comes a column nearer and holds its own advance — ·Utter's mono stance exits at the x-height into anything, ·Tea's ss03 unlock gives it the full bar and the x-height entry, and the reach is the letter's own length since “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for; the user gave the join standing approval at that length in every window"
+    match:
+      before:
+        pivot: qsUtter
+        junction_out: break
+        follower: qsTea
+      after:
+        joined: y5
+        pivot_cells:
+          - qsUtter/mono/None/x-height/
+          - qsUtter/mono/baseline/x-height/
+        follower_after_cells:
+          - qsTea/full/x-height/None/
+          - qsTea/full/x-height/baseline/
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
+  - id: utter-ligature-tea-xheight-join-created
+    verdict: approve
+    note: "The ligatures that end in ·Utter join ·Tea at the x-height under ss03 where the old font drew a pixel of reach into a break, and ·Tea, keeping its full bar, comes two columns nearer and holds its own advance — one column for the join and one for the reach, which came off qsUtter's ss03 extend record, which each ligature takes from its last letter, in “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for; the user gave the join standing approval at that length in every window"
+    match:
+      before:
+        pivot: [qsDay_qsUtter, qsVie_qsUtter, qsSee_qsUtter, qsJai_qsUtter, qsJay_qsUtter, qsWay_qsUtter]
+        junction_out: break
+        follower: qsTea
+      after:
+        joined: y5
+        pivot_cells:
+          - qsDay_qsUtter/full/None/x-height/
+          - qsVie_qsUtter/sole/None/x-height/
+          - qsSee_qsUtter/sole/None/x-height/
+          - qsJai_qsUtter/sole/None/x-height/
+          - qsJay_qsUtter/sole/None/x-height/
+          - qsWay_qsUtter/sole/None/x-height/
+        follower_after_cells:
+          - qsTea/full/x-height/None/
+        shift: -2
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
+  - id: day-utter-tea-exit-extension-dropped
+    verdict: approve
+    note: "·Day+Utter sits a pixel closer to ·Tea under ss03, where ·Tea keeps its full bar — the extra pixel of x-height exit the old font drew before ·Tea came off qsUtter's ss03 extend record, which the ligature takes from its last letter, in “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for, and the user gave the shorter reach standing approval in every window"
+    match:
+      before:
+        pivots: [qsDay_qsUtter.ex-ext-1]
+        junction_out: y5
+        follower: [qsTea]
+      after:
+        pivots: [qsDay_qsUtter.full]
+        dropped: [[7, 8]]
+        added: []
+        shift: -1
+      except_left: []
+  - id: day-utter-half-tea-exit-extension-dropped
+    verdict: approve
+    note: "·Day+Utter's half form sits a pixel closer to ·Tea under ss03, where ·Tea keeps its full bar — the extra pixel of x-height exit the old font drew before ·Tea came off qsUtter's ss03 extend record, which the ligature takes from its last letter, in “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for, and the user gave the shorter reach standing approval in every window"
+    match:
+      before:
+        pivots: [qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1]
+        junction_out: y5
+        follower: [qsTea]
+      after:
+        pivots: [qsDay_qsUtter.half]
+        dropped: [[8, 8]]
+        added: []
+        shift: -1
+      except_left: []
+  - id: vie-utter-tea-exit-extension-dropped
+    verdict: approve
+    note: "·Vie+Utter sits a pixel closer to ·Tea under ss03, where ·Tea keeps its full bar — the extra pixel of x-height exit the old font drew before ·Tea came off qsUtter's ss03 extend record, which the ligature takes from its last letter, in “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for, and the user gave the shorter reach standing approval in every window"
+    match:
+      before:
+        pivots: [qsVie_qsUtter.ex-ext-1, qsVie_qsUtter.en-ext-1.ex-ext-1]
+        junction_out: y5
+        follower: [qsTea]
+      after:
+        pivots: [qsVie_qsUtter.sole]
+        dropped: [[12, 8]]
+        added: []
+        shift: -1
+      except_left: []
+  - id: see-utter-tea-exit-extension-dropped
+    verdict: approve
+    note: "·See+Utter sits a pixel closer to ·Tea under ss03, where ·Tea keeps its full bar — the extra pixel of x-height exit the old font drew before ·Tea came off qsUtter's ss03 extend record, which the ligature takes from its last letter, in “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for, and the user gave the shorter reach standing approval in every window"
+    match:
+      before:
+        pivots: [qsSee_qsUtter.ex-ext-1]
+        junction_out: y5
+        follower: [qsTea]
+      after:
+        pivots: [qsSee_qsUtter.sole]
+        dropped: [[5, 5]]
+        added: []
+        shift: -1
+      except_left: []
+  - id: jai-utter-tea-exit-extension-dropped
+    verdict: approve
+    note: "·J’ai+Utter sits a pixel closer to ·Tea under ss03, where ·Tea keeps its full bar — the extra pixel of x-height exit the old font drew before ·Tea came off qsUtter's ss03 extend record, which the ligature takes from its last letter, in “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for, and the user gave the shorter reach standing approval in every window"
+    match:
+      before:
+        pivots: [qsJai_qsUtter.ex-ext-1]
+        junction_out: y5
+        follower: [qsTea]
+      after:
+        pivots: [qsJai_qsUtter.sole]
+        dropped: [[10, 8]]
+        added: []
+        shift: -1
+      except_left: []
+  - id: jay-utter-tea-exit-extension-dropped
+    verdict: approve
+    note: "·Jay+Utter sits a pixel closer to ·Tea under ss03, where ·Tea keeps its full bar — the extra pixel of x-height exit the old font drew before ·Tea came off qsUtter's ss03 extend record, which the ligature takes from its last letter, in “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for, and the user gave the shorter reach standing approval in every window"
+    match:
+      before:
+        pivots: [qsJay_qsUtter.ex-ext-1]
+        junction_out: y5
+        follower: [qsTea]
+      after:
+        pivots: [qsJay_qsUtter.sole]
+        dropped: [[11, 8]]
+        added: []
+        shift: -1
+      except_left: []
+  - id: way-utter-tea-exit-extension-dropped
+    verdict: approve
+    note: "·Way+Utter sits a pixel closer to ·Tea under ss03, where ·Tea keeps its full bar — the extra pixel of x-height exit the old font drew before ·Tea came off qsUtter's ss03 extend record, which the ligature takes from its last letter, in “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for, and the user gave the shorter reach standing approval in every window"
+    match:
+      before:
+        pivots: [qsWay_qsUtter.ex-ext-1]
+        junction_out: y5
+        follower: [qsTea]
+      after:
+        pivots: [qsWay_qsUtter.sole]
+        dropped: [[6, 8]]
+        added: []
+        shift: -1
+      except_left: []
