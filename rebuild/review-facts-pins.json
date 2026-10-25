@@ -76,49 +76,49 @@
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 1736741,
-        "rows": 8324694,
-        "batches": 1101,
-        "duplicate_groups": 12512
+        "units": 1740391,
+        "rows": 8342516,
+        "batches": 1125,
+        "duplicate_groups": 12832
       },
       "machine_approved": {
-        "units": 1353019,
+        "units": 1348445,
         "by_class": {
-          "split-by-space-or-zwnj": 197690,
+          "split-by-space-or-zwnj": 197460,
           "identical-unjoined-from-left": 364,
           "longer-entry-join": 350,
-          "one-extension-per-join": 2277,
-          "identical-unused-join-name": 411529,
-          "identical-variant-name": 728337,
-          "may-jai-join-longer": 1159,
+          "one-extension-per-join": 2275,
+          "identical-unused-join-name": 410228,
+          "identical-variant-name": 725313,
+          "may-jai-join-longer": 1157,
           "identical-jai-jay-crown": 437,
-          "identical-zoo-crown": 3149,
-          "identical-roe-short-top": 1949,
-          "spacing-at-kerned-pairs": 4523,
-          "same-joins-same-width": 1251,
+          "identical-zoo-crown": 3141,
+          "identical-roe-short-top": 1945,
+          "spacing-at-kerned-pairs": 4522,
+          "same-joins-same-width": 1249,
           "only-with-ss04": 3,
           "only-with-ss05": 1
         }
       },
       "class_unit_count": {
-        "split-by-space-or-zwnj": 235652,
-        "identical-unused-join-name": 411529,
-        "identical-variant-name": 728337
+        "split-by-space-or-zwnj": 236302,
+        "identical-unused-join-name": 410228,
+        "identical-variant-name": 725313
       },
       "secondary_junctions": {
-        "units_with_markers": 59563,
-        "junctions_with_primary_unit": 8591,
-        "junctions_without_primary_unit": 54887,
-        "junctions_suppressed_invisible": 2027
+        "units_with_markers": 59832,
+        "junctions_with_primary_unit": 8854,
+        "junctions_without_primary_unit": 54893,
+        "junctions_suppressed_invisible": 2051
       }
     },
     "built": {
-      "human_units": 330131,
+      "human_units": 337475,
       "reference_window_duplicate_siblings": 35,
       "config_note_distribution": [
         [
           null,
-          1596459
+          1599890
         ],
         [
           "only under ss10",
@@ -126,11 +126,11 @@
         ],
         [
           "only when ss03 is off",
-          21874
+          22102
         ],
         [
           "only when ss03 is off and ss04 is off",
-          200
+          198
         ],
         [
           "only when ss03 is off and ss05 is off",
@@ -150,7 +150,7 @@
         ],
         [
           "only when ss04 is off",
-          22311
+          22309
         ],
         [
           "only when ss04 is off and ss05 is off",
@@ -158,15 +158,15 @@
         ],
         [
           "only when ss04 is on",
-          22841
+          22837
         ],
         [
           "only when ss05 is off",
-          18787
+          18788
         ],
         [
           "only when ss05 is on",
-          19509
+          19507
         ],
         [
           "only when ss05 is on and ss03 is off",
@@ -175,24 +175,24 @@
       ]
     },
     "audit": {
-      "row_count": 8324694,
-      "units": 1746371
+      "row_count": 8342516,
+      "units": 1750027
     },
     "ink": {
-      "machine_total": 1305093,
-      "non_identical": 441278,
+      "machine_total": 1300569,
+      "non_identical": 449458,
       "by_class": {
-        "split-by-space-or-zwnj": 193201,
+        "split-by-space-or-zwnj": 192971,
         "identical-unjoined-from-left": 364,
-        "identical-unused-join-name": 379764,
-        "identical-variant-name": 719765,
-        "identical-zoo-crown": 3137,
-        "identical-roe-short-top": 1943,
-        "spacing-at-kerned-pairs": 6919
+        "identical-unused-join-name": 378507,
+        "identical-variant-name": 716741,
+        "identical-zoo-crown": 3129,
+        "identical-roe-short-top": 1939,
+        "spacing-at-kerned-pairs": 6918
       },
-      "boundary_window_exempt": 59893,
-      "human_units": 381385,
-      "batches": 1272
+      "boundary_window_exempt": 60773,
+      "human_units": 388685,
+      "batches": 1296
     },
     "unmatched_groups": {
       "counts": {
@@ -201,18 +201,18 @@
         "join-dropped": 7762,
         "join-lowered": 9381,
         "join-raised": 130,
-        "same-joins-narrower": 137534,
-        "same-joins-wider": 12464,
-        "same-joins-same-width": 23999,
+        "same-joins-narrower": 144898,
+        "same-joins-wider": 12454,
+        "same-joins-same-width": 23979,
         "only-with-ss03": 17640,
-        "only-with-ss04": 12898,
-        "only-with-ss05": 16052
+        "only-with-ss04": 12914,
+        "only-with-ss05": 16056
       },
-      "total": 269560,
+      "total": 276914,
       "rerouted": {
         "identical-unjoined-from-left": 2,
-        "identical-unused-join-name": 12820,
-        "identical-variant-name": 23536,
+        "identical-unused-join-name": 12913,
+        "identical-variant-name": 23688,
         "identical-see-out-fusion": 316,
         "identical-jai-jay-crown": 106,
         "identical-zoo-crown": 0,
