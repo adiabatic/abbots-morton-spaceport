@@ -1,10 +1,10 @@
 rune: qsHe
 codepoint: 0xE662
 ductus:
-  full: | # DRAFT — pending author sign-off
+  full: |
     - Begun at the right end of the top, the stroke runs leftward over the top, turns down, and runs straight down the left side to the baseline, where it may connect to the next letter.
     - Entered from a previous letter at the foot of the stem on the baseline, the stroke climbs the stem, turns right at the top, and finishes at the right end of the top.
-  half: | # DRAFT — pending author sign-off
+  half: |
     As the first drawing order of the full motion, but the stem stops at the x-height, where the stroke connects to the next letter.
 mono:
   bitmap:
