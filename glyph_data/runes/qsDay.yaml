@@ -79,6 +79,12 @@ policy:
   - entry: baseline
     when:
       left: {family: qsWay}
+  - exit: baseline
+    when:
+      left:
+        family: qsYe
+        bitmap: climbing-loop
+      right: {family: qsThaw}
   prefer:
   - cell: {exit: none}
     over: {exit: baseline}
