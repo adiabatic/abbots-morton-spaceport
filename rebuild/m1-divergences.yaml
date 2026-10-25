@@ -35,7 +35,7 @@
   match: {predicate: post_marker_ligature_formation, configs: all}
   exemplars:
     - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.sole.locked"}
-  note: "The 2 units left also gain a join before ·May (`·Way ~b~ ·May`, `·He ~b~ ·May`), which no ruling covers."
+  note: "Some units also gain a join before ·May (`·Way ~b~ ·May`, `·He ~b~ ·May`), which no ruling covers."
   why: |
     Ligature formation is unconditional and runs before the stylistic-set marker substitutions, so ·Tea·Oy forms under every stylistic set except ss10, whose input substitution replaces every letter first. Under ss03 the old font renames the lead ·Tea before its ligature pass, joining half-·Tea to a letter that leaves at the x-height, so there the ligature never forms: the old `·X ~x~ ·Tea.half | ·Oy` is `·X | ·Tea+Oy` in the rebuild.
     The user approved this change as a whole ("never going to have a different opinion unless ·X is ·Out"). ·May before the ligature settles on its loop stance with the full exit terminal and no pull-back, as the user chose.
@@ -97,7 +97,7 @@
     - {config: ss03, codepoints: "E652:E665:E652", baseline: "qsTea|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsTea.full.ex-y0|qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
     - {config: ss03, codepoints: "E670:E665:E652", baseline: "qsIt|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsIt.sole.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
     - {config: ss03, codepoints: "E67A:E652:E67A", baseline: "qsUtter.ex-ext-1|qsTea.half.en-y5.after-xheight-exit|qsUtter (y5,break)", new: "qsUtter.mono.ex-y5.ex-ext-1|qsTea.full.en-y5.ex-y0|qsUtter.mono.en-y0 (y5,y0)"}
-  note: "About 60 units left also gain a join into ·May before the full ·Tea, which the full-bar ruling doesn't name."
+  note: "Some units also gain a join into ·May before the full ·Tea, which the full-bar ruling doesn't name."
   why: |
     Under ss03, maximizing the joins across the window gains chains that the old font's pair-by-pair substitutions cannot see. There are three shapes.
     ·Tea·May·Tea and ·May·May·Tea gain the second join, on the ·May·Tea side. ·It·May·Tea gains the first join: the old font uses ·May's entryless after-xheight-exit stance before half-·Tea, so the unentered ·It cannot reach it, while settlement's ·May cell has both anchors (en-y0 and the extended ex-y5), so the `·It ~b~ ·May` join and the `·May ~x~ ·Tea` join both take effect. The user approved both shapes.
@@ -163,7 +163,7 @@
   match: {predicate: may_baseline_entry_extension_dropped, configs: all}
   exemplars:
     - {config: default, codepoints: "E650:E665", baseline: "qsPea|qsMay.en-y0.ex-y5.en-ext-1", new: "qsPea.full.ex-y0|qsMay.loop.en-y0 (no en-ext-1)"}
-  note: "In most units the amber highlight marks `·May ~x~ ·J’ai`, which is unchanged; look at the join into ·May. 19 units also show another change no ruling covers."
+  note: "In most units the amber highlight marks `·May ~x~ ·J’ai`, which is unchanged; look at the join into ·May. Some units also show another change no ruling covers."
   why: |
     ·May's baseline entry never extends, because qsMay has no baseline-entry extend record. The old font extends it by one pixel after several letters that join ·May at the baseline, so the rebuild draws those joins a pixel tighter, and the letters after ·May move left with it.
     The user chose this ("Never lengthen ·May's baseline-entry join"). They rejected the extension where it adds to ·May's own x-height exit extension (·Pea·May·Tea under ss03) and where the `·It ~b~ ·May` join carries it in ·Oy·It·May windows, and no record in the closed `when:` vocabulary can drop the pixel there alone, because each case turns on the letter two to the left. Taking the pixel off every baseline join into ·May honors those rejects without engine work, at the cost of departing from the old font wherever it draws the pixel in an ordinary word, such as `·Pea ~b~ ·May`.
@@ -204,7 +204,7 @@
   exemplars:
     - {config: default, codepoints: "E652:E666:E653", baseline: "qsTea.half.ex-y5|qsNo.en-ext-1|qsDay", new: "qsTea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsDay/full/x-height/None/ (no en-ext-1, ·No and everything after it one pixel tighter)"}
     - {config: default, codepoints: "E652:E666:E666", baseline: "qsTea.half.ex-y5|qsNo.en-ext-1|qsNo", new: "qsTea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsNo/loop/x-height/None/ (no en-ext-1)"}
-  note: "You ruled this for half-·Pea and half-·Tea; the half-·He windows, about 80% of the class, came with the ·He migration and haven't been looked at."
+  note: "You ruled this for half-·Pea and half-·Tea; the half-·He windows came with the ·He migration and haven't been looked at."
   why: |
     The old font extends ·No's x-height entry by one pixel after the half letters that leave at the x-height: half-·Pea, half-·Tea and half-·He. qsNo has no such extend record, so ·No joins a pixel tighter and the letters after it move left with it. The user ruled this from live renders of ·No after half-·Pea and half-·Tea and kept the tighter join. `no_verdict` because the ruling applies to the junction, not to any one window.
 
