@@ -600,7 +600,7 @@ ORPHAN_DEPTH4_ROWS = (
             "qsPea.full.ex-y0",
             "qsDay.half.en-y0",
             "qsTea.full.ex-y0",
-            "qsUtter.mono.en-y0.ex-y5.ex-ext-1",
+            "qsUtter.mono.en-y0.ex-y5",
             "qsTea.full.en-y5.ex-y0",
             "qsMay.loop.en-y0",
         ),
@@ -639,7 +639,7 @@ def test_formation_survives_where_the_ligature_serves_the_follower(real_labels):
     )
     assert real_labels[("qsDay qsUtter qsTea", ())] == ("qsDay_qsUtter.full", "qsTea.full")
     assert real_labels[("qsDay qsUtter qsTea", ("ss03",))] == (
-        "qsDay_qsUtter.full.ex-y5.ex-ext-1",
+        "qsDay_qsUtter.full.ex-y5",
         "qsTea.full.en-y5",
     )
 

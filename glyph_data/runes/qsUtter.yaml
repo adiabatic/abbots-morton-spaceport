@@ -204,11 +204,6 @@ policy:
         - qsThey
         - qsThey_qsUtter
         - qsFee
-  - exit: x-height
-    by: 1
-    when:
-      right: {family: qsTea}
-      feature: ss03
   contract:
   - entry: x-height
     by: 2

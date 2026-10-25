@@ -1065,7 +1065,7 @@ rules:
       except_left: []
   - id: vie-utter-xheight-extension-added
     verdict: approve
-    note: "·Vie+Utter gains one pixel of x-height exit into ·Gay and carries ·Gay one column right — qsVie_qsUtter’s extend record lengthens that reach before ·Bay, ·Gay and ·Fee, and before ·Tea under ss03, one decision on one stroke, so the rule covers the whole of that list rather than ·Gay alone; qsGay joined it in “Add ·Gay”, ·Bay in “Add ·Bay”, and the record itself landed with the ligature in “Declare ·See done and add ·Vie”"
+    note: "·Vie+Utter gains one pixel of x-height exit into ·Gay and carries ·Gay one column right — qsVie_qsUtter’s extend record lengthens that reach before ·Bay, ·Gay and ·Fee, one decision on one stroke, so the rule covers the whole of that list rather than ·Gay alone; qsGay joined it in “Add ·Gay”, ·Bay in “Add ·Bay”, and the record itself landed with the ligature in “Declare ·See done and add ·Vie”"
     match:
       before:
         pivots: [qsVie_qsUtter]
@@ -1076,7 +1076,7 @@ rules:
       except_left: []
   - id: day-utter-xheight-extension-added
     verdict: approve
-    note: "·Day+Utter gains one pixel of x-height exit into ·Gay and carries ·Gay one column right — qsDay_qsUtter’s extend record lengthens that reach before ·Bay, ·Gay and ·Fee, and before ·Tea under ss03, one decision on one stroke, so the rule covers the whole of that list rather than ·Gay alone; qsGay joined it in “Add ·Gay”, ·Bay in “Add ·Bay” and ·Fee in “Add ·Fee”"
+    note: "·Day+Utter gains one pixel of x-height exit into ·Gay and carries ·Gay one column right — qsDay_qsUtter’s extend record lengthens that reach before ·Bay, ·Gay and ·Fee, one decision on one stroke, so the rule covers the whole of that list rather than ·Gay alone; qsGay joined it in “Add ·Gay”, ·Bay in “Add ·Bay” and ·Fee in “Add ·Fee”"
     match:
       before:
         pivots: [qsDay_qsUtter]
