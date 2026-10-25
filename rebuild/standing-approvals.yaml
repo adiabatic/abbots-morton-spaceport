@@ -2680,3 +2680,20 @@ rules:
         shift: -1
         follower_shift: 0
       except_left: []
+  - id: he-roe-xheight-join-retargeted
+    verdict: approve
+    note: "·He sits as the full letter joining ·Roe at the baseline, and ·Roe and whatever follows it stand two columns further along — the old font drew the half joining ·Roe at the x-height, where ·Roe's entry pulls in a column; ·He's full stance names ·Roe on its baseline exit, its extend record lengthens that exit by a pixel before ·Roe, and qsRoe prefers its baseline entry over its x-height entry after ·He since “Join full ·He to ·No, ·Gay, ·See and ·Roe at the baseline”. The user gave the join standing approval in any context at u-PUgNohFqAGF, and every window that reached a review session approved the lowered join. It names only the ·Roe that takes no exit, since a ·Roe entered at the baseline that goes on to reach the next letter at the x-height opens a second join, which is a ruling of its own"
+    match:
+      before:
+        pivot: qsHe.half
+        junction_out: y5
+        follower: qsRoe
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsHe/full/None/baseline/ex-ext-1
+        follower_after_cells:
+          - qsRoe/sole/baseline/None/
+        shift: 2
+        follower_shift: 2
+      except_left: []
