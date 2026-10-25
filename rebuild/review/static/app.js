@@ -1,7 +1,7 @@
 import { parseHash, writeHash, shedWorklist } from './state.js';
 import { actionForKey, isEditableTarget } from './keyboard.js';
 import { parsePreview } from './preview.js';
-import { bannerModel, retryAfterMs } from './status.js';
+import { bannerModel, retryAfterMs, withLocalBlanks } from './status.js';
 import {
   createStore,
   recordVerdict,
@@ -1352,6 +1352,13 @@ function verdictTallies() {
   return indexLoaded ? classVerdictTallies(humanList, (id) => store.records.get(id)) : null;
 }
 
+function blankCount(tallies) {
+  if (!tallies) return null;
+  let done = 0;
+  for (const tally of tallies.values()) done += tally.done;
+  return humanList.length - done;
+}
+
 const NO_TALLY = { done: 0, skipped: 0, rejected: 0 };
 
 function tallyOf(tallies, classId) {
@@ -1391,6 +1398,7 @@ function updateProgress() {
   renderOutboxStatus();
   updateGroupCounts();
   updateClassCounts(tallies);
+  renderReadinessBanner(tallies);
 }
 
 function updateClassProgress(tallies = verdictTallies()) {
@@ -2985,14 +2993,15 @@ function readinessLine(model) {
   return model.remedy && model.level !== 'ready' ? `${model.text} — ${model.remedy}` : model.text;
 }
 
-function renderReadinessBanner() {
+function renderReadinessBanner(tallies = verdictTallies()) {
   const node = document.getElementById('readiness');
   if (!node || !lastStatusModel) return;
-  node.textContent = readinessLine(lastStatusModel);
-  node.className = `readiness readiness-${lastStatusModel.level}`;
-  node.title = lastStatusModel.remedy ?? '';
-  if (lastStatusModel.command) {
-    const command = lastStatusModel.command;
+  const model = withLocalBlanks(lastStatusModel, blankCount(tallies));
+  node.textContent = readinessLine(model);
+  node.className = `readiness readiness-${model.level}`;
+  node.title = model.remedy ?? '';
+  if (model.command) {
+    const command = model.command;
     const button = el('button', 'readiness-copy', 'Copy');
     button.type = 'button';
     button.title = `Copy ${command} to the clipboard`;

@@ -74,7 +74,16 @@ export function bannerModel(status, pageGeneratedAt, pageLoadedAt = null, moving
       return { level: 'warn', text: check.detail, remedy: check.remedy, command: remedyCommand(check.remedy) };
     }
   }
-  const count = checks.blanks?.count ?? null;
-  const text = count === null ? 'Ready' : `Ready — ${formatCount(count)} blanks left`;
-  return { level: 'ready', text, remedy: null, command: null };
+  const blanks = checks.blanks?.count ?? null;
+  return { level: 'ready', text: readyText(blanks), remedy: null, command: null, blanks };
+}
+
+function readyText(blanks) {
+  return blanks === null ? 'Ready' : `Ready — ${formatCount(blanks)} blanks left`;
+}
+
+// The ready banner counting `blanks` from this page's store, which moves with every verdict as the sidebar's tallies do, instead of the count /status read from the saved store, which lags a verdict by its autosave and the server's status cache. A model that is not ready, a count /status could not give (no autosave aligned with this corpus), and a null `blanks` (the index has not loaded) leave the model as it is.
+export function withLocalBlanks(model, blanks) {
+  if (model.level !== 'ready' || model.blanks === null || blanks === null) return model;
+  return { ...model, text: readyText(blanks), blanks };
 }

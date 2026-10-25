@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bannerModel, remedyCommand, retryAfterMs, SERVER_UNREACHABLE_GRACE_MS } from '../static/status.js';
+import { bannerModel, remedyCommand, retryAfterMs, SERVER_UNREACHABLE_GRACE_MS, withLocalBlanks } from '../static/status.js';
 
 function checks(overrides = {}) {
   return {
@@ -193,6 +193,16 @@ test('a ready corpus with an unknown blank count omits the number', () => {
   assert.equal(model.level, 'ready');
   assert.equal(model.text, 'Ready');
   assert.equal(model.remedy, null);
+});
+
+test('a ready banner counts the blanks left in this page, unless /status could not count them', () => {
+  const ready = bannerModel(withChecks({ blanks: { level: 'ok', detail: '484 blanks', count: 484 } }), 'gen-1');
+  assert.equal(withLocalBlanks(ready, 1203).text, 'Ready — 1,203 blanks left');
+  assert.equal(withLocalBlanks(ready, null), ready, 'before the index loads the server count stands');
+  const uncounted = bannerModel(withChecks({ blanks: { level: 'ok', detail: 'blanks unknown', count: null } }), 'gen-1');
+  assert.equal(withLocalBlanks(uncounted, 12).text, 'Ready');
+  const warn = bannerModel(withChecks({ gates: { level: 'warn', detail: 'gates stale', remedy: null } }), 'gen-1');
+  assert.equal(withLocalBlanks(warn, 12), warn);
 });
 
 test('with no page stamp to compare against, a fresh corpus is still ready', () => {
