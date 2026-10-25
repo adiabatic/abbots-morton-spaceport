@@ -111,14 +111,7 @@ policy:
               - qsUtter
               - qsOwe
               - qsFoot
-  extend:
-  - entry: x-height
-    by: 1
-    when:
-      left:
-        family:
-        - qsTea
-        - qsHe
+  extend: []
   contract: []
   resolve: []
   groups: {}
