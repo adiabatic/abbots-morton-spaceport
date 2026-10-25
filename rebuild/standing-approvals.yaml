@@ -2707,3 +2707,13 @@ rules:
         pivots: [qsOx.sole]
         entry_drop: 1
       except_left: []
+  - id: awe-entry-extension-dropped
+    verdict: approve
+    note: "·Awe sits a pixel closer where half-·Tea or half-·He joins it at the x-height — the extra pixel of x-height entry the old font drew after those letters came off qsAwe's extend record in “Stop adding a pixel to the `·{Tea,He}.half ~x~ ·Awe` join”, which the user asked for, and the user gave the shorter reach standing approval in every window"
+    match:
+      before:
+        pivots: [qsAwe.en-ext-1]
+      after:
+        pivots: [qsAwe.sole]
+        entry_drop: 1
+      except_left: []
