@@ -4,7 +4,7 @@
 
 The rebuild migrates the cursive-join engine rune by rune and checks each batch against the old font through the oracle.
 
-**Next step: the qsHe batch builds green and awaits its review session.** `rebuild/M1-BATCH29-PROGRESS.md` holds the parked questions, the recorded design overrides, and the verification recipe. `make verdict-ready` is the readiness check, `glyph_data/runes/` lists the migrated runes, and `make novelty-order` orders the remaining blanks.
+**Next step: the qsHe batch is closed; the next migration is not selected.** `make verdict-ready` is the readiness check, `glyph_data/runes/` lists the migrated runes, and `make novelty-order` orders the remaining blanks.
 
 **Where the state lives:** `make verdict-ready` and the app’s banner report whether the corpus, the gates, and the verdict store are ready, `rebuild/out/cycle_summary.json` is the last cycle’s record, and `doc/note-taking.md` § Counts and drifting state and `doc/review-cycle.md` name the other records.
 
