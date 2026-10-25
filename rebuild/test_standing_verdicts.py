@@ -398,6 +398,21 @@ CREATED_JOIN_BEHIND_CREATED_JOIN_RULE = {
     },
 }
 
+JOIN_BEHIND_CREATED_JOIN_RULE = {
+    "id": "fixture-join-dropped-behind-a-created-join",
+    "verdict": "approve",
+    "note": "·F3 sits a column further from ·J, which redraws in place as the join goes away",
+    "match": {
+        "before": {"pivot": "qsJ", "junction_out": "y0", "follower": "qsF3"},
+        "after": {
+            "gap": 1,
+            "pivot_cells": ["qsJ/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
+        },
+        "except_left": [],
+    },
+}
+
 CONTRACTED_REDRAWN_SHARED_LETTER_RULE = {
     "id": "fixture-join-created-behind-a-contraction-before-a-redraw",
     "verdict": "approve",
@@ -2004,6 +2019,8 @@ register_glyph("before", "qsLow.unchanged-fixture", TWO_COLUMNS, 100)
 register_glyph("after", "qsLow.sole.unchanged-fixture", TWO_COLUMNS, 100)
 register_glyph("before", "qsLow.en-ext-1.join-fixture", EXTENDED_ENTRY_LOW, 150)
 register_glyph("after", "qsLow.sole.join-fixture", TWO_COLUMNS, 50)
+register_glyph("before", "qsJ.ex-y0.ex-ext-1.join-behind-created-join", EXTENDED_PIVOT, 100)
+register_glyph("after", "qsJ.full.join-behind-created-join", TRIMMED_PIVOT, 150)
 
 LEAD = register_pair("qsL", "qsL")
 SEE = register_pair("qsSee.ex-y0", "qsSee.straighter")
@@ -2020,6 +2037,9 @@ SEE_BLANK = register_pair("qsSee.ex-y0.blank", "qsSee.straighter.blank")
 PIVOT = register_pair("qsJ.ex-y0.ex-ext-1", "qsJ.sole.ex-y0")
 PIVOT_WIDE_TAIL = register_pair("qsJ.ex-y0.ex-ext-1.wide", "qsJ.sole.ex-y0")
 PIVOT_CROWNED = register_pair("qsJ.ex-y0.ex-ext-1.crown", "qsJ.sole.ex-y0")
+PIVOT_JOIN_DROPPED = register_pair(
+    "qsJ.ex-y0.ex-ext-1.join-behind-created-join", "qsJ.full.join-behind-created-join"
+)
 PIVOT_SHORTENED = register_pair("qsJ.ex-y0.ex-ext-3.long", "qsJ.sole.ex-y0.ex-ext-1")
 PIVOT_DROPPED_WHOLE = register_pair("qsJ.ex-y0.ex-ext-3.long", "qsJ.sole.ex-y0")
 PIVOT_CONTRACTED = register_pair("qsEt", "qsEt.sole")
@@ -2193,6 +2213,10 @@ SLIDE_FONTS = {
     ),
     "after-created-join-behind-created-join-unmoved": (
         {**AFTER_GLYPHS, "qsJ.sole.ex-y0": (TRIMMED_PIVOT, 100)},
+        AFTER_CMAP,
+    ),
+    "after-join-behind-created-join-unmoved": (
+        {**AFTER_GLYPHS, "qsJ.full.join-behind-created-join": (TRIMMED_PIVOT, 100)},
         AFTER_CMAP,
     ),
     "after-stub-companion-pixel": (
@@ -5416,6 +5440,14 @@ CREATED_JOIN_BEHIND_CREATED_JOIN_RULES = [
     EXTENSION_BEHIND_CREATED_JOIN_RULE,
     CREATED_JOIN_BEHIND_CREATED_JOIN_RULE,
 ]
+JOIN_BEHIND_CREATED_JOIN_GLYPHS = [
+    "qsL",
+    "qsNo.en-ext-1",
+    "qsJ.ex-y0.ex-ext-1.join-behind-created-join",
+    "qsF3",
+]
+JOIN_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, PIVOT_JOIN_DROPPED, FOLLOWER_3)
+JOIN_BEHIND_CREATED_JOIN_RULES = [EXTENSION_BEHIND_CREATED_JOIN_RULE, JOIN_BEHIND_CREATED_JOIN_RULE]
 CONTRACTED_REDRAWN_SHARED_LETTER_GLYPHS = [
     "qsBay.contract-lead",
     "qsMay.en-y0.ex-y5.contract-fixture",
@@ -5866,6 +5898,25 @@ def created_join_behind_created_join_window(uid="cjbcj-1"):
         ],
         ["y0", "y0", "y0"],
         codepoints=CREATED_JOIN_BEHIND_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def join_behind_created_join_window(uid="jbcj-1"):
+    return unit(
+        uid,
+        list(JOIN_BEHIND_CREATED_JOIN_GLYPHS),
+        ["y0", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsNo/flipped/baseline/baseline/",
+            "qsJ/full/None/None/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "y0", "break"],
+        codepoints=JOIN_BEHIND_CREATED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -6757,6 +6808,30 @@ def test_a_created_join_sharing_a_letter_with_a_created_join_still_needs_both_sh
         CREATED_JOIN_BEHIND_CREATED_JOIN_RULES,
         created_join_behind_created_join_window(),
         slide_context("after-created-join-behind-created-join-unmoved"),
+    )
+    assert events is None
+
+
+def test_a_join_drop_shares_a_letter_with_a_created_join_on_its_follower(slide_context):
+    """This models half-·Tea's new x-height join into ·It, behind which ·It gives up its x-height join into ·J'ai: the created join covers the shared letter's incoming junction and the join drop covers its outgoing junction, and the follower sits the drop's gap further from where the created join put the letter."""
+    events = sv._combined_match(
+        JOIN_BEHIND_CREATED_JOIN_RULES, join_behind_created_join_window(), slide_context()
+    )
+    assert events == {EXTENSION_BEHIND_CREATED_JOIN_RULE["id"]: [1], JOIN_BEHIND_CREATED_JOIN_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_a_join_drop_behind_a_created_join(slide_context):
+    window = join_behind_created_join_window()
+    for rule in JOIN_BEHIND_CREATED_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._combined_walk([rule], window, slide_context()) is None
+
+
+def test_a_join_drop_sharing_a_letter_with_a_created_join_still_needs_both_shifts(slide_context):
+    events = sv._combined_match(
+        JOIN_BEHIND_CREATED_JOIN_RULES,
+        join_behind_created_join_window(),
+        slide_context("after-join-behind-created-join-unmoved"),
     )
     assert events is None
 

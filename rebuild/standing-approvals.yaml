@@ -2769,7 +2769,7 @@ rules:
         junction_out: y5
         follower: [qsTea]
       after:
-        pivots: [qsDay_qsUtter.full]
+        pivots: [qsDay_qsUtter.full.ex-y5, qsDay_qsUtter.full.en-y5.ex-y5]
         dropped: [[7, 8]]
         added: []
         shift: -1
@@ -2797,7 +2797,7 @@ rules:
         junction_out: y5
         follower: [qsTea]
       after:
-        pivots: [qsVie_qsUtter.sole]
+        pivots: [qsVie_qsUtter.sole.ex-y5, qsVie_qsUtter.sole.en-y0.ex-y5]
         dropped: [[12, 8]]
         added: []
         shift: -1
@@ -2811,7 +2811,7 @@ rules:
         junction_out: y5
         follower: [qsTea]
       after:
-        pivots: [qsSee_qsUtter.sole]
+        pivots: [qsSee_qsUtter.sole.ex-y5]
         dropped: [[5, 5]]
         added: []
         shift: -1
@@ -2825,7 +2825,7 @@ rules:
         junction_out: y5
         follower: [qsTea]
       after:
-        pivots: [qsJai_qsUtter.sole]
+        pivots: [qsJai_qsUtter.sole.ex-y5, qsJai_qsUtter.sole.en-y5.ex-y5]
         dropped: [[10, 8]]
         added: []
         shift: -1
@@ -2839,7 +2839,7 @@ rules:
         junction_out: y5
         follower: [qsTea]
       after:
-        pivots: [qsJay_qsUtter.sole]
+        pivots: [qsJay_qsUtter.sole.ex-y5, qsJay_qsUtter.sole.en-y5.ex-y5]
         dropped: [[11, 8]]
         added: []
         shift: -1
@@ -2853,8 +2853,183 @@ rules:
         junction_out: y5
         follower: [qsTea]
       after:
-        pivots: [qsWay_qsUtter.sole]
+        pivots: [qsWay_qsUtter.sole.ex-y5]
         dropped: [[6, 8]]
         added: []
         shift: -1
+      except_left: []
+  - id: tea-it-xheight-join-created
+    verdict: approve
+    note: "Half-·Tea joins ·It at the x-height where the old font left a break, ·It closes one column onto it, and whatever follows the pair moves with ·It — qsTea refuses a baseline exit before ·It, on the why “·Tea and ·It are both vertical, and two adjacent verticals joined at the baseline render as one extra-thick stroke”, which leaves the half stance's x-height exit as the only join the pair has, and qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved. The rule names the ·Tea that takes a top entry beside the one that takes none, and the word-final ·It beside the one that goes on to a baseline exit; an ·It that gives up an x-height exit of its own as it takes the entry redraws inside its named cell. Every window that reached a review session approved the join or called it either"
+    match:
+      before:
+        pivot: qsTea
+        junction_out: break
+        follower: qsIt
+      after:
+        joined: y5
+        pivot_cells:
+          - qsTea/half/None/x-height/
+          - qsTea/half/top/x-height/
+        follower_after_cells:
+          - qsIt/sole/x-height/None/
+          - qsIt/sole/x-height/baseline/
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
+  - id: utter-tea-xheight-join-dropped
+    verdict: approve
+    note: "·Utter gives up its x-height join into ·Tea under ss03 where half-·Tea leaves it to join the ·It after it instead, and ·Tea stays where it stood: the pixel of x-height exit the old font drew into ·Tea goes with the join, which is why the rule names the cells both letters settle into rather than holding ·Utter's picture. qsTea's half stance never pairs an x-height entry with an x-height exit, so half-·Tea takes only one of the two joins, and settlement keeps the one into ·It. The rule names the ·Utter that takes a baseline entry beside the one that takes none, since the letter draws the same mono stroke either way. Every window that reached a review session approved the switch"
+    match:
+      before:
+        pivot: qsUtter
+        junction_out: y5
+        follower: qsTea
+      after:
+        gap: 0
+        pivot_cells:
+          - qsUtter/mono/None/None/
+          - qsUtter/mono/baseline/None/
+        follower_after_cells:
+          - qsTea/half/None/x-height/
+      except_left: []
+  - id: day-utter-tea-xheight-join-dropped
+    verdict: approve
+    note: "·Day+Utter gives up its x-height join into ·Tea under ss03 where half-·Tea leaves it to join the ·It after it instead, and ·Tea stays where it stood: the pixel of x-height exit the old font drew into ·Tea goes with the join, which is why the rule names the cells both letters settle into rather than holding the ligature's picture. qsTea's half stance never pairs an x-height entry with an x-height exit, so half-·Tea takes only one of the two joins, and settlement keeps the one into ·It; the user approved that switch after a bare ·Utter in every window that reached a review session and gave it standing approval after the ·Utter ligatures"
+    match:
+      before:
+        pivot: qsDay_qsUtter
+        junction_out: y5
+        follower: qsTea
+      after:
+        gap: 0
+        pivot_cells:
+          - qsDay_qsUtter/full/None/None/
+        follower_after_cells:
+          - qsTea/half/None/x-height/
+      except_left: []
+  - id: vie-utter-tea-xheight-join-dropped
+    verdict: approve
+    note: "·Vie+Utter gives up its x-height join into ·Tea under ss03 where half-·Tea leaves it to join the ·It after it instead, and ·Tea stays where it stood: the pixel of x-height exit the old font drew into ·Tea goes with the join, which is why the rule names the cells both letters settle into rather than holding the ligature's picture. qsTea's half stance never pairs an x-height entry with an x-height exit, so half-·Tea takes only one of the two joins, and settlement keeps the one into ·It; the user approved that switch after a bare ·Utter in every window that reached a review session and gave it standing approval after the ·Utter ligatures"
+    match:
+      before:
+        pivot: qsVie_qsUtter
+        junction_out: y5
+        follower: qsTea
+      after:
+        gap: 0
+        pivot_cells:
+          - qsVie_qsUtter/sole/None/None/
+        follower_after_cells:
+          - qsTea/half/None/x-height/
+      except_left: []
+  - id: see-utter-tea-xheight-join-dropped
+    verdict: approve
+    note: "·See+Utter gives up its x-height join into ·Tea under ss03 where half-·Tea leaves it to join the ·It after it instead, and ·Tea stays where it stood: the pixel of x-height exit the old font drew into ·Tea goes with the join, which is why the rule names the cells both letters settle into rather than holding the ligature's picture. qsTea's half stance never pairs an x-height entry with an x-height exit, so half-·Tea takes only one of the two joins, and settlement keeps the one into ·It; the user approved that switch after a bare ·Utter in every window that reached a review session and gave it standing approval after the ·Utter ligatures"
+    match:
+      before:
+        pivot: qsSee_qsUtter
+        junction_out: y5
+        follower: qsTea
+      after:
+        gap: 0
+        pivot_cells:
+          - qsSee_qsUtter/sole/None/None/
+        follower_after_cells:
+          - qsTea/half/None/x-height/
+      except_left: []
+  - id: jai-utter-tea-xheight-join-dropped
+    verdict: approve
+    note: "·J’ai+Utter gives up its x-height join into ·Tea under ss03 where half-·Tea leaves it to join the ·It after it instead, and ·Tea stays where it stood: the pixel of x-height exit the old font drew into ·Tea goes with the join, which is why the rule names the cells both letters settle into rather than holding the ligature's picture. qsTea's half stance never pairs an x-height entry with an x-height exit, so half-·Tea takes only one of the two joins, and settlement keeps the one into ·It; the user approved that switch after a bare ·Utter in every window that reached a review session and gave it standing approval after the ·Utter ligatures"
+    match:
+      before:
+        pivot: qsJai_qsUtter
+        junction_out: y5
+        follower: qsTea
+      after:
+        gap: 0
+        pivot_cells:
+          - qsJai_qsUtter/sole/None/None/
+        follower_after_cells:
+          - qsTea/half/None/x-height/
+      except_left: []
+  - id: jay-utter-tea-xheight-join-dropped
+    verdict: approve
+    note: "·Jay+Utter gives up its x-height join into ·Tea under ss03 where half-·Tea leaves it to join the ·It after it instead, and ·Tea stays where it stood: the pixel of x-height exit the old font drew into ·Tea goes with the join, which is why the rule names the cells both letters settle into rather than holding the ligature's picture. qsTea's half stance never pairs an x-height entry with an x-height exit, so half-·Tea takes only one of the two joins, and settlement keeps the one into ·It; the user approved that switch after a bare ·Utter in every window that reached a review session and gave it standing approval after the ·Utter ligatures"
+    match:
+      before:
+        pivot: qsJay_qsUtter
+        junction_out: y5
+        follower: qsTea
+      after:
+        gap: 0
+        pivot_cells:
+          - qsJay_qsUtter/sole/None/None/
+        follower_after_cells:
+          - qsTea/half/None/x-height/
+      except_left: []
+  - id: way-utter-tea-xheight-join-dropped
+    verdict: approve
+    note: "·Way+Utter gives up its x-height join into ·Tea under ss03 where half-·Tea leaves it to join the ·It after it instead, and ·Tea stays where it stood: the pixel of x-height exit the old font drew into ·Tea goes with the join, which is why the rule names the cells both letters settle into rather than holding the ligature's picture. qsTea's half stance never pairs an x-height entry with an x-height exit, so half-·Tea takes only one of the two joins, and settlement keeps the one into ·It; the user approved that switch after a bare ·Utter in every window that reached a review session and gave it standing approval after the ·Utter ligatures"
+    match:
+      before:
+        pivot: qsWay_qsUtter
+        junction_out: y5
+        follower: qsTea
+      after:
+        gap: 0
+        pivot_cells:
+          - qsWay_qsUtter/sole/None/None/
+        follower_after_cells:
+          - qsTea/half/None/x-height/
+      except_left: []
+  - id: they-utter-tea-xheight-join-dropped
+    verdict: approve
+    note: "·They+Utter gives up its x-height join into ·Tea under ss03 where half-·Tea leaves it to join the ·It after it instead, and ·Tea sits a column further away; the ligature keeps its picture, because the old font drew it no extra pixel of exit into ·Tea. qsTea's half stance never pairs an x-height entry with an x-height exit, so half-·Tea takes only one of the two joins, and settlement keeps the one into ·It; the user approved that switch after a bare ·Utter in every window that reached a review session and gave it standing approval after the ·Utter ligatures"
+    match:
+      before:
+        pivot: qsThey_qsUtter
+        junction_out: y5
+        follower: qsTea
+      after:
+        gap: 1
+        pivot_cells:
+          - qsThey_qsUtter/sole/None/None/
+        follower_after_cells:
+          - qsTea/half/None/x-height/
+      except_left: []
+  - id: it-jai-xheight-join-dropped
+    verdict: approve
+    note: "·It gives up its x-height join into ·J’ai when the letter before it takes ·It's x-height entry, and ·J’ai sits a column further from ·It, which redraws in place without the pixel of exit the old font drew into ·J’ai — qsIt's pairing table pairs an x-height entry only with a baseline exit or none, so the ·It that half-·Tea or ·He now joins at the x-height has no x-height exit left to reach ·J’ai with. That is why the rule names the cells both letters settle into rather than holding ·It's picture, and why it is bounded to the ·It that settles into an x-height entry. Every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsIt
+        junction_out: y5
+        follower: qsJai
+      after:
+        gap: 1
+        pivot_cells:
+          - qsIt/sole/x-height/None/
+        follower_after_cells:
+          - qsJai/sole/None/None/
+          - qsJai/sole/None/baseline/
+          - qsJai/sole/None/baseline/ex-ext-1
+      except_left: []
+  - id: it-roe-xheight-join-retargeted-after-xheight-entry
+    verdict: approve
+    note: "·It drops to the baseline to join ·Roe when the letter before it takes ·It's x-height entry, where the old font joined the two at the x-height, and ·Roe stays beside ·It, redrawing around the lowered junction with the baseline bar its x-height-entry form left out — qsIt's pairing table pairs an x-height entry only with a baseline exit or none, so the ·It that half-·Tea or ·He now joins at the x-height reaches ·Roe at the baseline instead. It covers only the ·It the old font left unentered, whose new entry is judged with the join in front of it. Every window that reached a review session approved the lowered join"
+    match:
+      before:
+        pivot: qsIt.ex-y5
+        junction_out: y5
+        follower: qsRoe
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsIt/sole/x-height/baseline/
+        follower_after_cells:
+          - qsRoe/sole/baseline/None/en-ext-1
+        shift: 0
+        follower_shift: 0
       except_left: []
