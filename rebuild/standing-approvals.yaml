@@ -13,24 +13,6 @@ rules:
         ligature: qsTea_qsOy
         junction_in: break
       except_left: [qsOut]
-  - id: tea-i-exit-extension-dropped
-    verdict: approve
-    note: "·I loops more tightly after ·Tea"
-    match:
-      before:
-        pivot: qsTea
-        exit_extension: ex-ext-1
-        junction_out: y0
-        follower: qsI
-      after:
-        pivot_cells:
-          - qsTea/full/None/baseline/
-          - qsTea/full/x-height/baseline/
-        follower_cells:
-          - qsI/smaller-loop/baseline/None/
-          - qsI/smaller-loop/baseline/x-height/
-          - qsI/smaller-loop/baseline/x-height/ex-ext-1
-      except_left: []
   - id: may-entry-stub-dropped
     verdict: approve
     note: "Only differs from the old font because the ·May doesn't have a stub pixel on the left side of it anymore — already judged an OK change (the 1px attachment mismatch accepted at the qsAh and qsI review sessions)"

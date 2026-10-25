@@ -51,7 +51,6 @@ stances:
           stroke: diagonal
           from:
           - {family: qsPea}
-          - {family: qsTea}
           - {family: qsGay}
           - {family: qsMay}
           - {family: qsIt}
@@ -78,11 +77,11 @@ policy:
         - qsEight
         joined_at: baseline
   # qsYe left this record at the user's request: "the old one with the bigger loop seems fine" (after ·Ye)
+  # qsTea left this record at the user's request: "not using the smaller loop on ·I" (after ·Tea)
   - stance: smaller-loop
     when:
       left:
         family:
-        - qsTea
         - qsMay
         - qsIt
         joined_at: baseline

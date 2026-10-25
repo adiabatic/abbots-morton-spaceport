@@ -188,6 +188,10 @@ policy:
     by: 1
     when:
       left: {family: qsJay}
+  - exit: baseline
+    by: 1
+    when:
+      right: {family: qsI}
   contract: []
   pad_left:
   - stance: half

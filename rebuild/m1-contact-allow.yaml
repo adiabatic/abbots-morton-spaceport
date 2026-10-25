@@ -9,6 +9,8 @@
   why: ·Oy·Tea joins at the baseline in the old font (baseline row E679:E652); the same tail beside a vertical stroke as ·Oy·It.
 - signature: contact:qsOy.sole.ex-y0:qsTea.full.en-y0.ex-y0:y1
   why: The ss05 counterpart of the blessed ·Oy·Tea off-junction contact, with ·Tea also joining onward at the baseline; the baseline exit adds no ink to the bar, so the tail touches it at the same row.
+- signature: contact:qsOy.sole.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOy.sole.ex-y0:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
 
 - signature: contact:qsOy.sole.ex-y0.locked:qsIt.sole.en-y0:y1
   why: The ZWNJ-locked copy of the blessed ·Oy·It off-junction contact; the drawing is identical to the bare cell's.
@@ -17,6 +19,8 @@
   why: The ZWNJ-locked copy of the blessed ·Oy·Tea off-junction contact.
 - signature: contact:qsOy.sole.ex-y0.locked:qsTea.full.en-y0.ex-y0:y1
   why: The ZWNJ-locked copy of the ss05 ·Oy·Tea off-junction contact.
+- signature: contact:qsOy.sole.ex-y0.locked:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOy.sole.ex-y0.locked:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
 
 - signature: contact:qsOy.sole.en-y5.ex-y0:qsIt.sole.en-y0:y1
   why: The entered variant (·May·Oy·It, baseline row E665:E679:E670) of the blessed ·Oy·It off-junction contact; the open-on-the-left bitmap does not move the tail.
@@ -30,6 +34,10 @@
 - signature: contact:qsOy.sole.en-y5.ex-y0:qsTea.full.en-y0.ex-y0:y1
   why: The entered variant of the ss05 ·Oy·Tea off-junction contact.
 - signature: contact:qsOy.sole.en-y5.ex-y0:qsTea.full.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOy.sole.en-y5.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOy.sole.en-y5.ex-y0:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
+- signature: contact:qsOy.sole.en-y5.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
 - signature: contact:qsTea_qsOy.sole.ex-y0:qsIt.sole.en-y0:y1
@@ -57,6 +65,10 @@
 - signature: contact:qsTea_qsOy.sole.ex-y0:qsTea.full.en-y0.ex-y0:y1
   why: The ss05 counterpart of the ·Tea·Oy ligature into ·Tea off-junction contact, with ·Tea also joining onward at the baseline; the baseline exit adds no ink to the bar.
 - signature: contact:qsTea_qsOy.sole.ex-y0:qsTea.full.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsTea_qsOy.sole.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsTea_qsOy.sole.ex-y0:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
+- signature: contact:qsTea_qsOy.sole.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
 - signature: contact:qsPea.half.ex-y6:qsPea.full.en-y6:y7
@@ -442,6 +454,8 @@
   why: ·Ox·Tea joins at the baseline in the old font (baseline row E678:E652, junction y0); ·Ox's vertical tail at y1 is one column left of ·Tea's bar, the off-junction contact the old font draws.
 - signature: contact:qsOx.sole.ex-y0:qsTea.full.en-y0.ex-y0:y1
   why: The ss05 counterpart of the blessed ·Ox·Tea off-junction contact, with ·Tea also joining onward at the baseline; the baseline exit adds no ink to the bar.
+- signature: contact:qsOx.sole.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOx.sole.ex-y0:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
 - signature: contact:qsOx.sole.ex-y0:qsIt.sole.en-y0:y1
   why: ·Ox·It joins at the baseline in the old font (baseline row E678:E670); the same tail beside a vertical stroke as ·Ox·Tea.
 - signature: contact:qsOx.sole.ex-y0:qsIt.sole.en-y0.ex-y0:y1
@@ -470,6 +484,8 @@
   why: The ZWNJ-locked copy of the blessed ·Ox·Tea off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsTea.full.en-y0.ex-y0:y1
   why: The ZWNJ-locked copy of the ss05 ·Ox·Tea off-junction contact; the drawing is identical to the bare cell's.
+- signature: contact:qsOx.sole.ex-y0.locked:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOx.sole.ex-y0.locked:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
 - signature: contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0:y1
   why: The ZWNJ-locked copy of the blessed ·Ox·It off-junction contact; the drawing is identical to the bare cell's.
 - signature: contact:qsOx.sole.ex-y0.locked:qsIt.sole.en-y0.ex-y0:y1
@@ -498,6 +514,8 @@
   why: The entered variant of the blessed ·Ox·Tea off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.sole.en-y5.ex-y0:qsTea.full.en-y0.ex-y0:y1
   why: The entered variant of the ss05 ·Ox·Tea off-junction contact; the x-height entry does not move the tail.
+- signature: contact:qsOx.sole.en-y5.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOx.sole.en-y5.ex-y0:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
 - signature: contact:qsOx.sole.en-y5.ex-y0:qsIt.sole.en-y0:y1
   why: The entered variant of the blessed ·Ox·It off-junction contact; the x-height entry does not move the tail.
 - signature: contact:qsOx.sole.en-y5.ex-y0:qsIt.sole.en-y0.ex-y0:y1
@@ -526,6 +544,8 @@
   why: The entry-extended-by-one variant of the blessed ·Ox·Tea off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.sole.en-y5.ex-y0.en-ext-1:qsTea.full.en-y0.ex-y0:y1
   why: The entry-extended-by-one variant of the ss05 ·Ox·Tea off-junction contact; the extension touches the entry bar only.
+- signature: contact:qsOx.sole.en-y5.ex-y0.en-ext-1:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOx.sole.en-y5.ex-y0.en-ext-1:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
 - signature: contact:qsOx.sole.en-y5.ex-y0.en-ext-1:qsIt.sole.en-y0:y1
   why: The entry-extended-by-one variant of the blessed ·Ox·It off-junction contact; the extension touches the entry bar only.
 - signature: contact:qsOx.sole.en-y5.ex-y0.en-ext-1:qsIt.sole.en-y0.ex-y0:y1
@@ -1376,6 +1396,10 @@
   why: The ss05 counterpart of the ·Ooze·Tea off-junction contact below, with ·Tea also joining onward at the baseline; the baseline exit adds no ink to the bar. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsTea.full.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOoze.sole.en-y0.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOoze.sole.en-y0.ex-y0:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
+- signature: contact:qsOoze.sole.en-y0.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsTea.full.en-y0:y1
   why: ·Ooze·Tea joins at the baseline in the old font (baseline row E67E:E652, junction y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail beside a vertical stroke blessed for ·Ox·Tea, with ·Ooze's leg as the tail. The entered ·Ooze (·X·Ooze·Y, entered at the baseline) draws the same right leg.
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsTea.full.en-y0:y2
@@ -1428,6 +1452,10 @@
   why: The ss05 counterpart of the ·Ooze·Tea off-junction contact below, with ·Tea also joining onward at the baseline; the baseline exit adds no ink to the bar. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.sole.ex-y0.locked:qsTea.full.en-y0.ex-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOoze.sole.ex-y0.locked:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOoze.sole.ex-y0.locked:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
+- signature: contact:qsOoze.sole.ex-y0.locked:qsTea.full.en-y0.ex-y0.ex-ext-1:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.sole.ex-y0.locked:qsTea.full.en-y0:y1
   why: ·Ooze·Tea joins at the baseline in the old font (baseline row E67E:E652, junction y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail beside a vertical stroke blessed for ·Ox·Tea, with ·Ooze's leg as the tail. The ZWNJ-locked ·Ooze draws the same right leg.
 - signature: contact:qsOoze.sole.ex-y0.locked:qsTea.full.en-y0:y2
@@ -1479,6 +1507,10 @@
 - signature: contact:qsOoze.sole.ex-y0:qsTea.full.en-y0.ex-y0:y1
   why: The ss05 counterpart of the ·Ooze·Tea off-junction contact below, with ·Tea also joining onward at the baseline; the baseline exit adds no ink to the bar.
 - signature: contact:qsOoze.sole.ex-y0:qsTea.full.en-y0.ex-y0:y2
+  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
+- signature: contact:qsOoze.sole.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y1
+  why: The same contact as `contact:qsOoze.sole.ex-y0:qsTea.full.en-y0.ex-y0:y1` with ·Tea's baseline exit extended by one before ·I, as the old font extends it (`qsTea.ex-y0.ex-ext-1` in baseline rows like E679:E652:E675); the extension adds ink to the right of the foot only, so the bar sits where it did.
+- signature: contact:qsOoze.sole.ex-y0:qsTea.full.en-y0.ex-y0.ex-ext-1:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 - signature: contact:qsOoze.sole.ex-y0:qsTea.full.en-y0:y1
   why: ·Ooze·Tea joins at the baseline in the old font (baseline row E67E:E652, junction y0); ·Ooze's right leg at y1 is one column left of ·Tea's bar, the tail beside a vertical stroke blessed for ·Ox·Tea, with ·Ooze's leg as the tail.
