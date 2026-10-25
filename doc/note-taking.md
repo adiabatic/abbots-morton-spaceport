@@ -25,7 +25,7 @@ An in-flight batch keeps at most one scratch progress file. It may hold only:
 - the verification recipe
 - the resume commands
 
-It does not list the batch’s commits, because the commit that creates the file marks where the batch starts in `git log`. It does not collect per-change verification detail (row or window counts, per-configuration diffs, gate-pass tallies), because that detail belongs in the commit that made the change. When the batch closes, move any pointer to remaining work into `WHATNEXT.md` and delete the file.
+It does not list the batch’s commits, because the commit that creates the file marks where the batch starts in `git log`. It does not collect per-change verification detail (row or window counts, per-configuration diffs, gate-pass tallies), because that detail belongs in the commit that made the change. When the batch closes, move any pointer to remaining work into `WHATNEXT.md` and delete the file. A check that waits on a later letter's migration (a join with an unmigrated partner, an old record that names a migrated letter, a `from:` member to re-verify) is not remaining work and gets no pointer anywhere: that migration's pair evidence and the oracle surface whatever comes out wrong, and the author patches it then.
 
 ## Counts and drifting state
 
