@@ -2697,3 +2697,13 @@ rules:
         shift: 2
         follower_shift: 2
       except_left: []
+  - id: ox-entry-extension-dropped
+    verdict: approve
+    note: "·Ox sits a pixel closer where half-·Tea or half-·He joins it at the x-height — the extra pixel of x-height entry the old font drew after those letters came off qsOx's extend record in “Stop adding a pixel to the `·{Tea,He}.half ~x~ ·Ox` join”, which the user asked for, and the user gave the shorter reach standing approval in every window"
+    match:
+      before:
+        pivots: [qsOx.en-ext-1]
+      after:
+        pivots: [qsOx.sole]
+        entry_drop: 1
+      except_left: []
