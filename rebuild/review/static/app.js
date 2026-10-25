@@ -646,14 +646,22 @@ function rationaleEl(why, rows = null) {
   return details;
 }
 
-// One side's sample cell. An app-index row has no text yet, so the cell starts empty and hydrateSamples rebuilds it from the record; the cell stores its side and feature settings for that.
+// One side's sample: the magnified cell with its bands and marks, and to its right the same run with no markup at a middle size and at one font pixel per CSS pixel. An app-index row has no text yet, so the sample starts empty and hydrateSamples rebuilds it from the record; the sample stores its side and feature settings for that.
 function buildSample(unit, side, featureSettings) {
+  const sample = el('div', 'sample');
+  sample.style.fontFeatureSettings = featureSettings;
+  sample.dataset.side = side;
+  sample.dataset.features = featureSettings;
   const cell = el('div', `qs ${side}`);
-  cell.style.fontFeatureSettings = featureSettings;
-  cell.dataset.side = side;
-  cell.dataset.features = featureSettings;
+  const plains = ['middle', 'actual'].map((scale) => el('div', `qs-plain ${scale} ${side}`));
+  const stack = el('div', 'plain-stack');
+  stack.append(...plains);
+  sample.append(cell, stack);
   const run = el('span', 'run');
-  if (carriesSamples(unit)) run.innerHTML = unit.text_entities;
+  if (carriesSamples(unit)) {
+    run.innerHTML = unit.text_entities;
+    for (const plain of plains) plain.innerHTML = unit.text_entities;
+  }
   cell.append(run);
   const upem = manifest.fonts[side].upem;
   const rect = pairBand(unit, side, FONT_SIZE, upem);
@@ -686,7 +694,7 @@ function buildSample(unit, side, featureSettings) {
     tick.title = mark.kind;
     cell.append(tick);
   }
-  return cell;
+  return sample;
 }
 
 const JUNCTION_MARK_TITLE =
@@ -744,8 +752,8 @@ async function hydrateSamples(container, unit) {
   if (notation) notation.replaceWith(buildNotationLine(record));
   const code = container.querySelector(':scope > .label > .codepoints > code');
   if (code) code.replaceWith(buildCodepointsCode(record));
-  for (const cell of container.querySelectorAll('.qs[data-side]')) {
-    cell.replaceWith(buildSample(record, cell.dataset.side, cell.dataset.features));
+  for (const sample of container.querySelectorAll('.sample[data-side]')) {
+    sample.replaceWith(buildSample(record, sample.dataset.side, sample.dataset.features));
   }
 }
 

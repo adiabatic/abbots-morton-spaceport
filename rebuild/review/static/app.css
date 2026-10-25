@@ -970,7 +970,7 @@ details.group {
   scroll-margin-top: 7rem;
   position: relative;
 
-  & > .qs {
+  & > .sample {
     grid-row: 1;
   }
 
@@ -1553,24 +1553,15 @@ details.group {
 }
 
 /* The before and after sample rendering. It is top-level so that the queue view's exemplar cards get the fonts and bands as well as the batch grid's rows. */
-.qs {
-  font-size: var(--font-size);
+.qs,
+.qs-plain {
   line-height: 1.4;
   /* The rebuild has no kerning yet, so the old font's kerning would only add noise to the comparison. This combines with the inline font-feature-settings the app sets for each render group. */
   font-kerning: none;
   -webkit-font-smoothing: none;
   font-smooth: never;
-  position: relative;
   white-space: pre;
   overflow-x: auto;
-  --grid-color: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
-  background-image:
-    linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%),
-    linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%);
-  background-size: 16px 16px;
-  background-position:
-    0 5.6px,
-    8px 13.6px;
 
   &.before {
     font-family: var(--before-font);
@@ -1579,6 +1570,54 @@ details.group {
   &.after {
     font-family: var(--after-font);
   }
+}
+
+/* The magnified cell fits its run, so the unmarked renderings sit right beside the glyphs; a run too long for the column scrolls inside the cell. The right padding leaves room for half of a junction chip centered on a band at the run's end. */
+.sample {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+
+  .qs {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding-right: 3rem;
+  }
+
+  .plain-stack {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+}
+
+/* The run without marks at a middle size, and at one font pixel per CSS pixel, the size it reads at unmagnified. The middle size is two font pixels per CSS pixel, except on a screen with exactly two device pixels per CSS pixel, where 16.5px gives three device pixels per font pixel. */
+.qs-plain {
+  &.middle {
+    font-size: 22px;
+
+    @media (resolution: 2dppx) {
+      font-size: 16.5px;
+    }
+  }
+
+  &.actual {
+    font-size: 11px;
+  }
+}
+
+.qs {
+  font-size: var(--font-size);
+  position: relative;
+  --grid-color: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+  background-image:
+    linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%),
+    linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 5.6px,
+    8px 13.6px;
 
   .pair-band {
     position: absolute;
