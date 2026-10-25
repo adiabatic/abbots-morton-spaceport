@@ -65,6 +65,7 @@ stances:
             - qsNo
             - qsLow
             - qsRoe
+            - qsIt
             - qsAt
             - qsAh
             - qsUtter
@@ -115,7 +116,6 @@ stances:
           toward:
           - family:
             - qsTea
-            - qsIt
             - qsI
       cells: []
       unlocks: []
@@ -190,6 +190,7 @@ policy:
         - qsYe
         - qsHe
         - qsExam
+        - qsIt
   contract: []
   resolve: []
   groups: {}

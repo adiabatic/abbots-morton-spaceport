@@ -320,18 +320,6 @@ rules:
         added: [[3, 4]]
         shift: 0
       except_left: []
-  - id: eight-smaller-loop-exit-extension-dropped
-    verdict: approve
-    note: "·It sits a pixel closer to ·Eight's smaller loop — the old +1 connector extension at the baseline junction went away in the same stroke as the bowl, which keeps the gap under ·Eight's rightmost pixel just below the x-height, and every window that reached a review session approved the shorter reach"
-    match:
-      before:
-        pivots: [qsEight.ex-ext-1, qsEight.noentry.ex-ext-1]
-      after:
-        pivots: [qsEight.smaller-loop]
-        dropped: [[3, 3], [3, 5], [4, 4], [5, 0]]
-        added: [[3, 4]]
-        shift: -1
-      except_left: []
   - id: eight-tea-entry-extension-dropped
     verdict: approve
     note: "·Tea sits a pixel closer to ·Eight — the extra pixel of baseline entry the old font drew after ·Eight came off qsTea's extend record in the same stroke as ·Eight's smaller loop, and every window that reached a review session approved the shorter reach"
