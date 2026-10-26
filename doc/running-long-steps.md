@@ -2,6 +2,8 @@
 
 A full `make artifact-cycle` pass takes longer than ten minutes. An agent harness caps a foreground shell command at about ten minutes and can kill a backgrounded one whatever its progress, which stops the cycle partway through a gate. A bare M1 build is shorter, and the heavy gates (the rebuild suite and the conform sweep) add a few minutes to a `make review-cycle` pass. Run any pass that includes the heavy gates detached from the tool's lifetime. `make cycle-timings ARGS='--by-step'` records what each step costs on this machine (`doc/fleet.md` names the machines); read it before choosing a watcher's timeout and before deciding a run is hung.
 
+Those timings assume the machine's normal power mode. Low Power Mode, which `pmset -g` reports as `powermode 1`, slows every step, and no timing row records it, so check it before quoting a finish time from past timings. A progress estimate made across a switch runs early too: the deep sweep prices each queued unit at the rate its finished units ran at (`SweepProgress` in `rebuild/tools/deep_sweep.py`), so after a switch into Low Power Mode its finish time keeps moving later until the queued units have run under it.
+
 ## Detach
 
 Run the pass under `nohup`, with `caffeinate -i` to prevent idle sleep, and record the pid at launch:
