@@ -28,8 +28,6 @@ The rebuild migrates the cursive-join engine rune by rune and checks each batch 
 
 The items below that move unit ids or counts do so on purpose, so each of them is a pass of its own, with its expected deltas written down before it runs.
 
-**Decide whether `ss03-tea-oy-ligature-kept` and `may-closer-at-baseline-join` take `no_verdict`.** Every unit in both classes is approved, so their stray blanks are judged. Both class notes name changes in some units that no ruling covers, and `no_verdict` would keep a later letter's units with such a change out of the queue.
-
 **Retire the classes that reach no unit and fold the ones the change groups cover.** `joins-next-letter-after-zwnj` and `join-height-after-zwnj` reach no unit and stay only as records of the rulings `split-by-space-or-zwnj` relies on; they can retire into its `why`. `spacing-at-kerned-pairs` and `new-joins-near-tea-oy` can fold into the change groups, whose clusters hold the same pixel changes. Each needs the oracle to change with it.
 
 **Rename the oracle's class strings and narrow its predicates.** The oracle and `rebuild/test_conform.py` still name the classes by their engine ids, which the ledger's `match.predicate` values map to the reviewer-facing ids. The rename goes with narrowing the predicates that reach further than their rulings: `half-day-closer-at-baseline-join` takes half-·Day after any letter, `ss03-tea-oy-ligature-kept` keeps a dormant namer-dot ·Day·Utter branch, and `identical-unjoined-from-left` takes any no-entry rename. Until then, a new row one of them takes is listed under a ruled class, which the Queue never shows.
