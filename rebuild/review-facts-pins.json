@@ -55,6 +55,7 @@
     "no_verdict_classes": [
       "split-by-space-or-zwnj",
       "vie-closer-at-baseline-join",
+      "halves-closer-to-no",
       "may-farther-after-day-utter",
       "ss03-out-tea-ligature-kept"
     ],
@@ -77,8 +78,8 @@
       "totals": {
         "units": 1740341,
         "rows": 8342256,
-        "batches": 1113,
-        "duplicate_groups": 12552
+        "batches": 1108,
+        "duplicate_groups": 12496
       },
       "machine_approved": {
         "units": 1354383,
@@ -112,7 +113,7 @@
       }
     },
     "built": {
-      "human_units": 333693,
+      "human_units": 332237,
       "reference_window_duplicate_siblings": 35,
       "config_note_distribution": [
         [
@@ -189,9 +190,9 @@
         "identical-roe-short-top": 1939,
         "spacing-at-kerned-pairs": 6918
       },
-      "boundary_window_exempt": 58567,
-      "human_units": 385012,
-      "batches": 1284
+      "boundary_window_exempt": 60027,
+      "human_units": 383552,
+      "batches": 1279
     },
     "unmatched_groups": {
       "counts": {
