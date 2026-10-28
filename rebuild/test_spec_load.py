@@ -597,6 +597,29 @@ def test_absolute_prefer_requires_why(tmp_path):
     assert any("'why'" in issue.message for issue in error.issues)
 
 
+@pytest.mark.parametrize(
+    "record",
+    ["{stance: sole, over: {exit: baseline}}", "{over: {exit: baseline}}", "{stance: sole, over: ~}"],
+)
+def test_prefer_over_requires_a_cell(tmp_path, record):
+    text = MINIMAL_RUNE + textwrap.dedent(f"""\
+        policy:
+          prefer:
+          - {record}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        issue.path == "policy.prefer[0].cell" and issue.message == "missing required key 'cell'"
+        for issue in error.issues
+    )
+    assert any(
+        issue.path == "policy.prefer[0].over"
+        and issue.line is not None
+        and "over: takes effect only beside a cell: and needs one" in issue.message
+        for issue in error.issues
+    )
+
+
 def test_trait_qualified_except_atom_rejected(tmp_path):
     text = MINIMAL_RUNE + textwrap.dedent("""\
         policy:

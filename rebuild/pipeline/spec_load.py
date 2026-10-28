@@ -1,4 +1,4 @@
-"""Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, the right-side `then:` chain depth cap, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, ligature outgoing inheritance, and left-facing ligature expansion.
+"""Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, no prefer `over:` without a `cell:`, the right-side `then:` chain depth cap, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, ligature outgoing inheritance, and left-facing ligature expansion.
 
 Schema validation uses a cached Draft 2020-12 validator over the JSON Schema files under rebuild/schema/, with strict YAML integers and a closed schema vocabulary. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
 """
@@ -58,6 +58,7 @@ _KEY_TYPE_ERROR = "keys must be strings"
 
 _NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its only stance and only motion 'sole' (a reserved name; the pen-motion label lives in the ductus prose)"
 _WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/rebuild-design.md section 3.3)"
+_OVER_RULE = "a prefer's over: names the candidates its cell: outranks, so over: takes effect only beside a cell: and needs one (doc/rebuild-design.md section 3.3)"
 _CAP_WORDS = {1: "one", 2: "two", 3: "three", 4: "four"}
 _CHAIN_RULE = f"a right-side then: chain may reach at most {_CAP_WORDS[RIGHT_CHAIN_CAP]} letters past the immediate right neighbor — the depth-{RIGHT_CHAIN_CAP + 1} window edge, counting hops carried by except: entries (doc/rebuild-design.md section 3.4)"
 
@@ -670,6 +671,7 @@ class _Linter:
         self._lint_single_motion_name()
         self._lint_ductus_parity()
         self._lint_refuse_window_rule()
+        self._lint_prefer_over_needs_cell()
         self._lint_right_chain_depth()
 
     def run_deep(self) -> None:
@@ -742,6 +744,13 @@ class _Linter:
             right = when.get("right") if isinstance(when, dict) else None
             if isinstance(right, dict) and "then" in right:
                 self.context.error(f"policy.refuse[{index}].when.right.then", _WINDOW_RULE)
+
+    def _lint_prefer_over_needs_cell(self) -> None:
+        policy = self.raw.get("policy")
+        prefer = policy.get("prefer") if isinstance(policy, dict) else None
+        for index, record in enumerate(prefer if isinstance(prefer, list) else ()):
+            if isinstance(record, dict) and "over" in record and "cell" not in record:
+                self.context.error(f"policy.prefer[{index}].over", _OVER_RULE)
 
     def _lint_right_chain_depth(self) -> None:
         policy = self.raw.get("policy")
