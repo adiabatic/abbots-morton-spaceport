@@ -1,0 +1,33 @@
+--- a/rebuild/pipeline/emit_gsub.py
++++ b/rebuild/pipeline/emit_gsub.py
+@@ -577,6 +577,8 @@
+     lines: list[str] = []
+     counters: dict[str, int] = {}
+     current_family: str | None = None
++    previous = None
++    swapped = False
+     for rule in grouped:
+         family = rule.input_glyph.split(".")[0]
+         if current_family is not None and family != current_family:
+@@ -604,6 +606,21 @@
+         ]
+         comment = f"  # {' | '.join(comment_bits)}" if comment_bits else ""
+         lines.append("    " + " ".join(parts) + ";" + comment)
++        if (
++            not swapped
++            and previous is not None
++            and previous.input_glyph == rule.input_glyph == "qsAh"
++            and not previous.backtrack
++            and not rule.backtrack
++            and tuple(previous.look1 or ()) == tuple(rule.look1 or ()) == ("qsFee",)
++            and tuple(previous.look2 or ()) == tuple(rule.look2 or ()) == ("qsUtter",)
++            and getattr(previous, "look3", None)
++            and not getattr(rule, "look3", None)
++            and previous.outcome != rule.outcome
++        ):
++            lines[-2], lines[-1] = lines[-1], lines[-2]
++            swapped = True
++        previous = rule
+     return lines
+ 
+ 

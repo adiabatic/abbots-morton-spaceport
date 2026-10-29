@@ -1,0 +1,6 @@
+{
+ "format": "ams-perf-baseline/1",
+ "scenario": "one-rune-join",
+ "patch_sha256": "96f1ccd5bb160daccd68229af6cca7b8759ba764e1d7e6198d4eb735f55901d7",
+ "machines": []
+}

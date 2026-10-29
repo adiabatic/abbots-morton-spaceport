@@ -1,0 +1,6 @@
+{
+ "format": "ams-perf-baseline/1",
+ "scenario": "comparison-gates-only",
+ "patch_sha256": "3709beb13c2b731281e838b0f43e9fa4fd24026070a46a827e9e73fd0e3e3686",
+ "machines": []
+}

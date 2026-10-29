@@ -1,0 +1,10 @@
+--- a/rebuild/pipeline/emit_gpos.py
++++ b/rebuild/pipeline/emit_gpos.py
+@@ -75,6 +75,7 @@
+         statements = [
+             f"        pos cursive {name} {_anchor(entry)} {_anchor(exit)};"
+             for name, (entry, exit) in sorted(per_height[y].items())
++            if not (y == 5 and name == "qsAh.sole.ex-y5")
+         ]
+         if not statements:
+             # A height with no anchors in this glyph set emits no lookup. The M1 runes declare rows at all four heights.

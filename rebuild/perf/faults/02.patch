@@ -1,0 +1,14 @@
+--- a/rebuild/kernel-rs/src/fold.rs
++++ b/rebuild/kernel-rs/src/fold.rs
+@@ -447,6 +447,11 @@
+         report: Option<&mut FoldReporter<'_>>,
+     ) -> Result<Self, String> {
+         assert_key_sorted(&product)?;
++        if let Some(dropped) = product.transitions.iter().position(|row| {
++            row.key(&product.labels) == ["qsAwe", "qsAh.sole.ex-y5", "qsAt", "qsMay", "#NA", "#NA"]
++        }) {
++            product.transitions.remove(dropped);
++        }
+         let mut fold_rows = expand(&mut product);
+         flag_prospect_joints(&product, &mut fold_rows);
+         let mut class_joint: Vec<bool> = product.transitions.iter().map(|row| row.joint).collect();

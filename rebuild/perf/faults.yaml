@@ -1,0 +1,176 @@
+# The fault kit's manifest: every row of doc/rebuild-design.md §10 that some gate catches, as a patch against the current head, with the gates that catch it and the steps that reach them. rebuild/tools/fault_kit.py's docstring describes the format and how a row runs; §10 describes each fault.
+format: ams-fault-kit/1
+gates:
+  enumeration: {modules: [rebuild.pipeline.kernel_exec], crate: true, files: [rebuild/pipeline/run_m1.py, rebuild/pipeline/run_m1_gates.py]}
+  fold: {modules: [rebuild.pipeline.kernel_exec], crate: true, files: [rebuild/pipeline/run_m1.py, rebuild/pipeline/run_m1_gates.py]}
+  string-replay: {modules: [rebuild.pipeline.kernel_exec], crate: true, files: [rebuild/pipeline/run_m1.py, rebuild/pipeline/run_m1_gates.py]}
+  witness: {modules: [rebuild.pipeline.witness], crate: true, files: [rebuild/pipeline/run_m1.py]}
+  shipped-order: {modules: [rebuild.pipeline.kernel_exec], crate: true, files: [rebuild/pipeline/run_m1.py, rebuild/pipeline/run_m1_gates.py]}
+  read-back: {modules: [rebuild.pipeline.readback], crate: false, files: [rebuild/pipeline/run_m1.py, rebuild/pipeline/run_m1_gates.py]}
+  conform: {modules: [rebuild.pipeline.conform], crate: true, files: [rebuild/pipeline/run_m1_gates.py]}
+  deep-replay: {modules: [rebuild.tools.deep_replay], crate: true, files: []}
+rows:
+  - id: "01"
+    section10: 1
+    slug: third-slot-forced-dead-ah-before-gay-no
+    patch: faults/01.patch
+    effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
+    unreached: [witness]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: string-replay
+        exit: 1
+        require: {output: ["the string replay found the tables incomplete:", qsAh]}
+        detail:
+          output: [at position 0 of qsAh qsGay qsNo qsOy, "settlement says qsAh.sole, rules say qsAh.sole.ex-y5"]
+          files: {rebuild/out/m1/replay_summary.json: ['"pass": false']}
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed, qsAh]}
+        detail: {files: {rebuild/out/m1/conform_summary.json: ['"pass": false']}}
+  - id: "02"
+    section10: 2
+    slug: product-row-dropped-awe-after-ah-before-at-may
+    patch: faults/02.patch
+    effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: string-replay
+        exit: 1
+        require: {output: ["the string replay found the tables incomplete:", qsAwe]}
+        detail:
+          output: [at position 1 of qsAh qsAwe qsAt qsMay, "settlement says qsAwe.sole.en-y5, rules say qsAwe.sole.en-y5.ex-y0"]
+          files: {rebuild/out/m1/replay_summary.json: ['"pass": false']}
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed, qsAwe]}
+        detail: {files: {rebuild/out/m1/conform_summary.json: ['"pass": false']}}
+  - id: "03"
+    section10: 3
+    slug: right1-unpinned-ye-loop-before-see
+    patch: faults/03.patch
+    effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: enumeration
+        exit: 1
+        require: {output: ["the kernel exited 1 on build-tables:", E-UNACCEPTED-EXIT, qsSee]}
+        detail: {output: [qsYe.loop.ex-y0 committed an exit at baseline but qsSee has no acceptor cell]}
+  - id: "04"
+    section10: 4
+    slug: member-settles-apart-bay-after-extended-utter
+    patch: faults/04.patch
+    effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        exit: 0
+      - argv: [uv, run, python, -m, rebuild.tools.deep_replay, --families, qsPea]
+        gate: deep-replay
+        exit: 1
+        require: {output: ["deep replay: the tables disagree with the engine", qsBay]}
+        detail: {output: [qsUtter qsBay qsGay qsIt qsPea, "settlement says qsBay.sole.en-y5.ex-y0, rules say qsBay.sole.en-y5"]}
+  - id: "05"
+    section10: 5
+    slug: settle-rules-swapped-in-fea-text-alone
+    patch: faults/05.patch
+    effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: read-back
+        exit: 1
+        require:
+          output: [read-back divergence(s) between the compiled font and the plan]
+          files: {rebuild/out/m1/readback_summary.json: [qsAh]}
+        detail:
+          files: {rebuild/out/m1/readback_summary.json: ["settle: qsAh ", expected a piece of plan rule, "[] [{qsFee}, {qsUtter}] -> qsAh.sole.ex-y5"]}
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed, qsAh]}
+        detail: {files: {rebuild/out/m1/conform_summary.json: ['"pass": false']}}
+  - id: "06"
+    section10: 6
+    slug: settle-rules-swapped-in-plan-text-and-mirror
+    patch: faults/06.patch
+    effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: shipped-order
+        exit: 1
+        require: {output: ["the shipped settlement order answers a row differently from its table:", qsAh]}
+        detail:
+          output: [settles to qsAh.sole, answers qsAh.sole.ex-y5]
+          files: {rebuild/out/m1/emitted_order_summary.json: ['"pass": false']}
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed, qsAh]}
+        detail: {files: {rebuild/out/m1/conform_summary.json: ['"pass": false']}}
+  - id: "07"
+    section10: 7
+    slug: lookahead-glyph-moved-between-packed-classes
+    patch: faults/07.patch
+    effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: read-back
+        exit: 1
+        require:
+          output: [read-back divergence(s) between the compiled font and the plan]
+          files: {rebuild/out/m1/readback_summary.json: ["settle: the lookup does not decompile"]}
+        detail:
+          files: {rebuild/out/m1/readback_summary.json: [packed rule references lookahead class, which classes no glyph]}
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed]}
+        detail: {output: [E67E], files: {rebuild/out/m1/conform_summary.json: ['"pass": false']}}
+  - id: "08"
+    section10: 8
+    slug: zwnj-boundary-row-omitted-ah-before-fee
+    patch: faults/08.patch
+    effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: read-back
+        exit: 1
+        require:
+          output: [read-back divergence(s) between the compiled font and the plan]
+          files: {rebuild/out/m1/readback_summary.json: [qsAh]}
+        detail:
+          files: {rebuild/out/m1/readback_summary.json: ["settle: qsAh ", expected a piece of plan rule, "[] [{qsFee}, {periodcentered space uni200C}] -> qsAh.sole.ex-y5"]}
+  - id: "09"
+    section10: 9
+    slug: third-lookahead-emitted-as-boundary-class
+    patch: faults/09.patch
+    effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: read-back
+        exit: 1
+        require:
+          output: [read-back divergence(s) between the compiled font and the plan]
+          files: {rebuild/out/m1/readback_summary.json: [qsAh]}
+        detail:
+          files: {rebuild/out/m1/readback_summary.json: ["settle: qsAh ", expected a piece of plan rule, "{qsTea.ss03}"]}
+  - id: "10"
+    section10: 10
+    slug: curs-anchor-dropped-ah-sole-ex-y5
+    patch: faults/10.patch
+    effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: read-back
+        exit: 1
+        require:
+          output: [read-back divergence(s) between the compiled font and the plan]
+          files: {rebuild/out/m1/readback_summary.json: [qsAh.sole.ex-y5]}
+        detail:
+          files: {rebuild/out/m1/readback_summary.json: ["cursive y5:", "missing ['qsAh.sole.ex-y5']"]}
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed, qsAh]}
+        detail: {files: {rebuild/out/m1/conform_summary.json: ['"pass": false']}}

@@ -6,11 +6,12 @@ The module imports nothing from the repo because `closure_of` in `rebuild.tools.
 
 `RETENTION_ENABLED` and `READINESS_ENABLED` switch off the two green-finish stages whose targets come from the live tree, not from a path here. The retention pass prunes the root's autosave stashes and verdict journal, and the readiness checklist reads the served corpus and the root autosave. The rebuild suite sets both to False so a test that reaches a green finish leaves the live repo alone. `_finish` in `artifact_cycle` reads both at call time, so a test that checks either stage sets its switch back to True and patches the callable.
 
-`REVIEW_RELOAD_ENABLED` switches off the reload the cycle sends to a listening review server after an assets refresh or a pass that moved the served corpus (`artifact_cycle._broadcast_review_reload`). The port is the live one, so the rebuild suite sets it to False, and a test mocking those steps cannot reload the reviewer's open tabs. A test that checks the reload sets it back to True and patches `artifact_cycle.force_reload`.
+`REVIEW_RELOAD_ENABLED` switches off the reload the cycle sends to a listening review server after an assets refresh or a pass that moved the served corpus (`artifact_cycle._broadcast_review_reload`). The port is the live one, so the rebuild suite sets it to False, and a test mocking those steps cannot reload the reviewer's open tabs. A test that checks the reload sets it back to True and patches `artifact_cycle.force_reload`. It starts False when `REVIEW_RELOAD_OFF_ENV` is set, which `make perf-check` sets for every pass in a scratch clone (`rebuild.tools.perf_clone.child_env`): a clone's corpus is never what the live server serves, and a server started after the pass planned would otherwise get the clone's reload.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,4 +46,5 @@ REBUILD_GATE_EXEMPT_PREFIXES = (
 
 RETENTION_ENABLED = True
 READINESS_ENABLED = True
-REVIEW_RELOAD_ENABLED = True
+REVIEW_RELOAD_OFF_ENV = "AMS_REVIEW_RELOAD_OFF"
+REVIEW_RELOAD_ENABLED = REVIEW_RELOAD_OFF_ENV not in os.environ

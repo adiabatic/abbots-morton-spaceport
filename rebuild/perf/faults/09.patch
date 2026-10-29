@@ -1,0 +1,30 @@
+--- a/rebuild/pipeline/emit_gsub.py
++++ b/rebuild/pipeline/emit_gsub.py
+@@ -577,6 +577,7 @@
+     lines: list[str] = []
+     counters: dict[str, int] = {}
+     current_family: str | None = None
++    corrupted = False
+     for rule in grouped:
+         family = rule.input_glyph.split(".")[0]
+         if current_family is not None and family != current_family:
+@@ -595,7 +596,18 @@
+         if rule.look2:
+             parts.append(registry.ref(tuple(rule.look2), f"s_{base}_la2_{index}"))
+         if getattr(rule, "look3", None):
+-            parts.append(registry.ref(tuple(rule.look3), f"s_{base}_la3_{index}"))
++            look3 = tuple(rule.look3)
++            if (
++                not corrupted
++                and rule.input_glyph == "qsAh"
++                and tuple(rule.look1 or ()) == ("qsFee",)
++                and tuple(rule.look2 or ()) == ("qsUtter",)
++                and look3 == ("qsTea.ss03",)
++                and getattr(rule, "look4", None)
++            ):
++                look3 = ("periodcentered", "space", "uni200C")
++                corrupted = True
++            parts.append(registry.ref(look3, f"s_{base}_la3_{index}"))
+         if getattr(rule, "look4", None):
+             parts.append(registry.ref(tuple(rule.look4), f"s_{base}_la4_{index}"))
+         provenance = "; ".join(dict.fromkeys(str(p) for p in (rule.provenance or ()) if p))

@@ -1,0 +1,57 @@
+diff --git a/rebuild/review/facts.py b/rebuild/review/facts.py
+index e18a4b49..ebd66d03 100644
+--- a/rebuild/review/facts.py
++++ b/rebuild/review/facts.py
+@@ -361,9 +361,8 @@ class PremergeSnapshot:
+ 
+ @dataclass(frozen=True)
+ class PremergeFacts:
+-    """The pre-merge facts `derive_premerge` returns: how many units the workload held, one '0'/'1' ink flag per unit in capture order, and the change group of every unit that takes one (each UNMATCHED unit and each re-routed unit) with its index in that order. A re-routed unit is one whose captured class is not UNMATCHED. `build_facts` reduces the ink flags and the change groups into the pins; the pins' unit count is the snapshot's."""
++    """The pre-merge facts `derive_premerge` returns: one '0'/'1' ink flag per unit in capture order, and the change group of every unit that takes one (each UNMATCHED unit and each re-routed unit) with its index in that order. A re-routed unit is one whose captured class is not UNMATCHED. `build_facts` reduces the ink flags and the change groups into the pins."""
+ 
+-    units: int
+     ink_flags: str
+     unmatched_groups: list[tuple[int, str]]
+ 
+@@ -442,7 +441,6 @@ def derive_premerge(snapshot: PremergeSnapshot, table: UnitTable, store: UnitSto
+             )
+         assigned.append((row, group))
+     return PremergeFacts(
+-        units=snapshot.n,
+         ink_flags=flags.decode("ascii"),
+         unmatched_groups=assigned,
+     )
+diff --git a/rebuild/test_corpus_checks.py b/rebuild/test_corpus_checks.py
+index 42ddd6ae..3c5064e9 100644
+--- a/rebuild/test_corpus_checks.py
++++ b/rebuild/test_corpus_checks.py
+@@ -849,7 +849,7 @@ def test_the_premerge_projection_answers_one_ink_flag_per_captured_unit():
+     for ordinal in range(table.n):
+         table.set_unmatched_group(ordinal, "a-group")
+     premerge = facts.derive_premerge(capture, table, store)
+-    assert len(premerge.ink_flags) == premerge.units == table.n == 2
++    assert len(premerge.ink_flags) == len(capture) == table.n == 2
+     assert [index for index, _group in premerge.unmatched_groups] == [0, 1]
+ 
+ 
+diff --git a/rebuild/test_review_facts.py b/rebuild/test_review_facts.py
+index d269d47d..7c53a0b7 100644
+--- a/rebuild/test_review_facts.py
++++ b/rebuild/test_review_facts.py
+@@ -134,7 +134,7 @@ def test_merged_siblings_take_their_survivors_ink_verdict():
+     capture, table, store = _merged_fixture()
+     premerge = derive_premerge(capture, table, store)
+     flags = premerge.ink_flags
+-    assert premerge.units == len(capture) == len(flags) == 8
++    assert len(capture) == len(flags) == 8
+     assert flags[_index_of(capture, MERGE_WINDOW, "default")] == "1"
+     assert flags[_index_of(capture, MERGE_WINDOW, "ss04")] == "1"
+     assert flags[_index_of(capture, DEFERRED_WINDOW, "ss03")] == "0"
+@@ -572,7 +572,6 @@ def test_build_facts_reduces_the_premerge_records_to_the_pins():
+     )
+     matched = _index_of(capture, STANDALONE_MATCHED, "default")
+     premerge = PremergeFacts(
+-        units=len(capture),
+         ink_flags="".join("1" if index == matched else "0" for index in range(len(capture))),
+         unmatched_groups=sorted(
+             [

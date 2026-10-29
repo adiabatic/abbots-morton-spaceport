@@ -1,0 +1,20 @@
+diff --git a/rebuild/m1-divergences.yaml b/rebuild/m1-divergences.yaml
+index 42a4d3de..aac40e3d 100644
+--- a/rebuild/m1-divergences.yaml
++++ b/rebuild/m1-divergences.yaml
+@@ -199,13 +199,13 @@
+   title: "·No a pixel closer after half letters"
+   summary: "After half-·Tea or half-·He, ·No sits a pixel closer at the x-height than in the old font, and the letters after it move left with it."
+   status: approved
++  no_verdict: true
+   match: {predicate: no_xheight_entry_extension_dropped, configs: all}
+   exemplars:
+     - {config: default, codepoints: "E652:E666:E653", baseline: "qsTea.half.ex-y5|qsNo.en-ext-1|qsDay", new: "qsTea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsDay/full/x-height/None/ (no en-ext-1, ·No and everything after it one pixel tighter)"}
+     - {config: default, codepoints: "E652:E666:E666", baseline: "qsTea.half.ex-y5|qsNo.en-ext-1|qsNo", new: "qsTea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsNo/loop/x-height/None/ (no en-ext-1)"}
+-  note: "You ruled this for half-·Pea and half-·Tea; the half-·He windows came with the ·He migration and haven't been looked at."
+   why: |
+-    The old font extends ·No's x-height entry by one pixel after the half letters that leave at the x-height: half-·Pea, half-·Tea and half-·He. qsNo has no such extend record, so ·No joins a pixel tighter and the letters after it move left with it. The user ruled this from live renders of ·No after half-·Pea and half-·Tea and kept the tighter join. The class takes verdicts unit by unit until the half-·He windows are judged, because that ruling never saw them.
++    The old font extends ·No's x-height entry by one pixel after the half letters that leave at the x-height: half-·Pea, half-·Tea and half-·He. qsNo has no such extend record, so ·No joins a pixel tighter and the letters after it move left with it. The user ruled this from live renders of ·No after half-·Pea and half-·Tea and kept the tighter join, and approved every half-·He window, unit by unit, after the ·He migration added them. `no_verdict` because the ruling applies to the junction, not to any one window.
+ 
+ - id: may-farther-after-day-utter
+   title: "·May a pixel farther after ·Day+Utter"

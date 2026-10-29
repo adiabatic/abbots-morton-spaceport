@@ -1,0 +1,12 @@
+diff --git a/glyph_data/runes/qsHe.yaml b/glyph_data/runes/qsHe.yaml
+index 067c5531..82521a43 100644
+--- a/glyph_data/runes/qsHe.yaml
++++ b/glyph_data/runes/qsHe.yaml
+@@ -140,6 +140,7 @@ policy:
+     when:
+       right:
+         family:
++        - qsSee
+         - qsRoe
+         - qsExam
+         - qsI

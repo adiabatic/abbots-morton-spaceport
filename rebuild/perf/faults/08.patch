@@ -1,0 +1,27 @@
+--- a/rebuild/pipeline/emit_gsub.py
++++ b/rebuild/pipeline/emit_gsub.py
+@@ -577,6 +577,7 @@
+     lines: list[str] = []
+     counters: dict[str, int] = {}
+     current_family: str | None = None
++    omitted = False
+     for rule in grouped:
+         family = rule.input_glyph.split(".")[0]
+         if current_family is not None and family != current_family:
+@@ -603,6 +604,16 @@
+             bit for bit in ("joint row" if getattr(rule, "joint", False) else "", provenance) if bit
+         ]
+         comment = f"  # {' | '.join(comment_bits)}" if comment_bits else ""
++        if (
++            not omitted
++            and rule.input_glyph == "qsAh"
++            and not rule.backtrack
++            and tuple(rule.look1 or ()) == ("qsFee",)
++            and "uni200C" in (rule.look2 or ())
++            and not getattr(rule, "look3", None)
++        ):
++            omitted = True
++            continue
+         lines.append("    " + " ".join(parts) + ";" + comment)
+     return lines
+ 

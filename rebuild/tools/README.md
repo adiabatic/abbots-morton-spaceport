@@ -14,5 +14,7 @@ Start here:
 - `cycle_timings.py` (`make cycle-timings`): summarizes the recorded step timings and check results
 - `calibrate_budgets.py` (`make job-costs`): checks the checked-in per-worker memory peaks against the peaks recorded in the timings journal
 - `deep_sweep.py` (`make conform-deep`): gate:conform run to a longer maximum length on demand
+- `perf_check.py` (`make perf-check`): the speed-up check, which measures a candidate against the edit-to-READY scenarios in scratch clones under `var/perf/` (`doc/perf-check.md`)
+- `fault_kit.py`: re-injects the fault kit's rows (`rebuild/perf/faults.yaml`) into a scratch clone and checks that their gates still catch them
 
 `console.py` is a library, not a script. It defines the line protocol every in-house child of the cycle prints (the `[t]`, `[phase]`, `[progress]`, and `[warn]` prefixes) and `CycleConsole`, the terminal renderer the artifact cycle shows that output with: the plan block, the per-step banners, the per-step logs under `var/build-logs/`, and the closing table. Read it before adding output to anything the cycle spawns.

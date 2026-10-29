@@ -1,0 +1,765 @@
+diff --git a/glyph_data/runes/qsAt.yaml b/glyph_data/runes/qsAt.yaml
+index 68d77242..ed2065a1 100644
+--- a/glyph_data/runes/qsAt.yaml
++++ b/glyph_data/runes/qsAt.yaml
+@@ -46,6 +46,7 @@ stances:
+             - qsJay
+             - qsYe
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsRoe
+diff --git a/glyph_data/runes/qsAwe.yaml b/glyph_data/runes/qsAwe.yaml
+index 7491b89f..85a383bf 100644
+--- a/glyph_data/runes/qsAwe.yaml
++++ b/glyph_data/runes/qsAwe.yaml
+@@ -35,6 +35,7 @@ stances:
+             - qsThey
+             - qsFee
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+@@ -62,6 +63,7 @@ stances:
+             - qsSee
+             - qsZoo
+             - qsYe
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+diff --git a/glyph_data/runes/qsBay.yaml b/glyph_data/runes/qsBay.yaml
+index 82971cd6..fdd18b90 100644
+--- a/glyph_data/runes/qsBay.yaml
++++ b/glyph_data/runes/qsBay.yaml
+@@ -56,6 +56,7 @@ stances:
+             - qsSee
+             - qsZoo
+             - qsYe
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+diff --git a/glyph_data/runes/qsEight.yaml b/glyph_data/runes/qsEight.yaml
+index 1b800a0a..12135fda 100644
+--- a/glyph_data/runes/qsEight.yaml
++++ b/glyph_data/runes/qsEight.yaml
+@@ -35,6 +35,7 @@ stances:
+             - qsThey
+             - qsFee
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+@@ -59,6 +60,7 @@ stances:
+             - qsSee
+             - qsZoo
+             - qsYe
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+@@ -96,6 +98,7 @@ stances:
+             - qsThey
+             - qsFee
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+diff --git a/glyph_data/runes/qsHe.yaml b/glyph_data/runes/qsHe.yaml
+new file mode 100644
+index 00000000..2052311d
+--- /dev/null
++++ b/glyph_data/runes/qsHe.yaml
+@@ -0,0 +1,148 @@
++rune: qsHe
++codepoint: 0xE662
++ductus:
++  full: | # DRAFT — pending author sign-off
++    - Begun at the right end of the top, the stroke runs leftward over the top, turns down, and runs straight down the left side to the baseline, where it may connect to the next letter.
++    - Entered from a previous letter at the foot of the stem on the baseline, the stroke climbs the stem, turns right at the top, and finishes at the right end of the top.
++  half: | # DRAFT — pending author sign-off
++    As the first drawing order of the full motion, but the stem stops at the x-height, where the stroke connects to the next letter.
++mono:
++  bitmap:
++  - "  ## "
++  - " #   "
++  - " #   "
++  - " #   "  #
++  - " #   "
++  - " #   "
++  - " #   "
++  - " #   "
++  - " #   "  #
++stances:
++  full:
++    motion: full
++    traits: []
++    bitmap:
++    - " ##"
++    - "#  "
++    - "#  "
++    - "#  "  #
++    - "#  "
++    - "#  "
++    - "#  "
++    - "#  "
++    - "#  "  #
++    surface:
++      entries:
++        baseline:
++          x: 0
++          stroke: vertical
++          from:
++          - family:
++            - qsBay
++            - qsDay
++            - qsKey
++            - qsZoo
++            - qsCheer
++            - qsIng
++            - qsLlan
++            - qsEt
++            - qsEight
++            - qsAwe
++            - qsOx
++            - qsOy
++            - qsOoze
++            except:
++            - {family: qsThey_qsZoo}
++      exits:
++        baseline:
++          x: 1
++          stroke: vertical
++          unjoined: safe
++          toward:
++          - family:
++            - qsDay
++            - qsDay_qsUtter
++            - qsVie
++            - qsVie_qsUtter
++            - qsMay
++            - qsLow
++            - qsExam
++            - qsIt
++            - qsEat
++            - qsAt
++            - qsI
++            - qsAh
++            - qsUtter
++            - qsOut
++            - qsOut_qsTea
++            - qsOoze
++      pairings:
++        never:
++        - entry: baseline
++          exit: baseline
++      cells: []
++      unlocks: []
++      require: []
++  half:
++    motion: half
++    traits:
++    - half
++    bitmap:
++    - " ##"
++    - "#  "
++    - "#  "
++    - "#  "  #
++    - "   "
++    - "   "
++    - "   "
++    - "   "
++    - "   "  #
++    surface:
++      entries: {}
++      exits:
++        x-height:
++          x: 1
++          stroke: vertical
++          toward:
++          - family:
++            - qsZoo
++            - qsJai
++            - qsJai_qsUtter
++            - qsJay
++            - qsJay_qsUtter
++            - qsNo
++            - qsRoe
++            - qsLlan
++            - qsIt
++            - qsEt
++            - qsEight
++            - qsAwe
++            - qsOx
++            - qsFoot
++      cells: []
++      unlocks: []
++      require:
++      - exit
++policy:
++  order:
++  - full
++  - half
++  refuse: []
++  prefer:
++  - cell: {entry: none}
++    over: {entry: baseline}
++  - cell: {exit: x-height}
++    over: {exit: baseline}
++    when:
++      right: {family: qsIt}
++  extend:
++  - exit: baseline
++    by: 1
++    when:
++      right:
++        family:
++        - qsExam
++        - qsI
++  contract: []
++  resolve: []
++  groups: {}
+diff --git a/glyph_data/runes/qsJai.yaml b/glyph_data/runes/qsJai.yaml
+index 1c76cd0c..4a189509 100644
+--- a/glyph_data/runes/qsJai.yaml
++++ b/glyph_data/runes/qsJai.yaml
+@@ -42,6 +42,7 @@ stances:
+             - qsGay
+             - qsFee
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+diff --git a/glyph_data/runes/qsJai_qsUtter.yaml b/glyph_data/runes/qsJai_qsUtter.yaml
+index 87991026..b34eec46 100644
+--- a/glyph_data/runes/qsJai_qsUtter.yaml
++++ b/glyph_data/runes/qsJai_qsUtter.yaml
+@@ -35,6 +35,7 @@ stances:
+             - qsGay
+             - qsFee
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+diff --git a/glyph_data/runes/qsKey.yaml b/glyph_data/runes/qsKey.yaml
+index fcf34514..e7902ece 100644
+--- a/glyph_data/runes/qsKey.yaml
++++ b/glyph_data/runes/qsKey.yaml
+@@ -50,6 +50,7 @@ stances:
+             - qsSee
+             - qsZoo
+             - qsYe
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+diff --git a/glyph_data/runes/qsOoze.yaml b/glyph_data/runes/qsOoze.yaml
+index 6230a01b..d5a15171 100644
+--- a/glyph_data/runes/qsOoze.yaml
++++ b/glyph_data/runes/qsOoze.yaml
+@@ -43,6 +43,7 @@ stances:
+             - qsCheer
+             - qsJay
+             - qsYe
++            - qsHe
+             - qsNo
+             - qsIt
+             - qsEt
+@@ -68,6 +69,7 @@ stances:
+             - qsSee
+             - qsZoo
+             - qsYe
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+diff --git a/glyph_data/runes/qsOut.yaml b/glyph_data/runes/qsOut.yaml
+index 40513627..3fba1389 100644
+--- a/glyph_data/runes/qsOut.yaml
++++ b/glyph_data/runes/qsOut.yaml
+@@ -55,6 +55,7 @@ stances:
+             - qsJay
+             - qsYe
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsIt
+@@ -109,6 +110,7 @@ stances:
+             - qsJay
+             - qsYe
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsIt
+diff --git a/glyph_data/runes/qsOut_qsTea.yaml b/glyph_data/runes/qsOut_qsTea.yaml
+index afe7f7a8..11187977 100644
+--- a/glyph_data/runes/qsOut_qsTea.yaml
++++ b/glyph_data/runes/qsOut_qsTea.yaml
+@@ -56,6 +56,7 @@ stances:
+             - qsJay
+             - qsYe
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsIt
+diff --git a/glyph_data/runes/qsOx.yaml b/glyph_data/runes/qsOx.yaml
+index 030e7fc8..bc55e87c 100644
+--- a/glyph_data/runes/qsOx.yaml
++++ b/glyph_data/runes/qsOx.yaml
+@@ -35,6 +35,7 @@ stances:
+             - qsThey
+             - qsFee
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+@@ -61,6 +62,7 @@ stances:
+             - qsSee
+             - qsZoo
+             - qsYe
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+diff --git a/glyph_data/runes/qsZoo.yaml b/glyph_data/runes/qsZoo.yaml
+index 2c8fb65e..ff525665 100644
+--- a/glyph_data/runes/qsZoo.yaml
++++ b/glyph_data/runes/qsZoo.yaml
+@@ -43,6 +43,7 @@ stances:
+             - qsTea
+             - qsFee
+             - qsWay
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+@@ -70,6 +71,7 @@ stances:
+             - qsSee
+             - qsZoo
+             - qsYe
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+@@ -144,6 +146,7 @@ stances:
+             - qsSee
+             - qsZoo
+             - qsYe
++            - qsHe
+             - qsMay
+             - qsNo
+             - qsLow
+@@ -216,7 +219,10 @@ policy:
+     entry: x-height
+     by: 1
+     when:
+-      left: {family: qsTea}
++      left:
++        family:
++        - qsTea
++        - qsHe
+   - stance: full
+     entry: x-height
+     by: 2
+diff --git a/rebuild/m1-aliases.yaml b/rebuild/m1-aliases.yaml
+index f2c820db..7417a5e2 100644
+--- a/rebuild/m1-aliases.yaml
++++ b/rebuild/m1-aliases.yaml
+@@ -138,6 +138,14 @@ qsWay.ss10: {rune: qsWay, stance: full}
+ qsWay_qsUtter: {rune: qsWay_qsUtter, stance: sole}
+ qsWay_qsUtter.ex-con-2: {rune: qsWay_qsUtter, stance: sole, exit: x-height}
+ qsWay_qsUtter.ex-ext-1: {rune: qsWay_qsUtter, stance: sole, exit: x-height, adjustments: [ex-ext-1]}
++qsHe: {rune: qsHe, stance: full}
++qsHe.en-y0: {rune: qsHe, stance: full, entry: baseline}
++qsHe.ex-y0: {rune: qsHe, stance: full, exit: baseline}
++qsHe.ex-y0.ex-ext-1: {rune: qsHe, stance: full, exit: baseline, adjustments: [ex-ext-1]}
++qsHe.half.ex-y5: {rune: qsHe, stance: half, exit: x-height}
++qsHe.half.ex-y5.ex-con-1: {rune: qsHe, stance: half, exit: x-height}
++qsHe.noentry: {rune: qsHe, stance: full, adjustments: [locked]}
++qsHe.ss10: {rune: qsHe, stance: full}
+ qsNo.alt.en-y0.ex-y0.after-zoo: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
+ qsFee.en-y5: {rune: qsFee, stance: reversed-loop, entry: x-height}
+ qsFee.en-y8.ex-y5: {rune: qsFee, stance: loop, entry: top, exit: x-height}
+diff --git a/rebuild/m1-contact-allow.yaml b/rebuild/m1-contact-allow.yaml
+index 96c5210e..908a5e1a 100644
+--- a/rebuild/m1-contact-allow.yaml
++++ b/rebuild/m1-contact-allow.yaml
+@@ -2113,3 +2113,102 @@
+ - signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5:y4
+ - signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5.ex-y0:y4
+ - signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5.ex-y0.ex-ext-1:y4
++
++# ·He's baseline entry sits on the foot of its stem, so a Short left letter joining at the baseline puts its last column against the stem, and the two bodies stand side by side above the junction: the bowl or tail beside the stem at y1 (·Ox, and ·Oy with no entry) or at y1 and y2 (·Ooze, the entered ·Oy, and the ·Tea·Oy ligature), the off-junction contact of the ·Ye block above. The old font places the same anchors with no adjustment (baseline rows E67E:E662, E678:E662, E679:E662, E652:E679:E662), and those composites are pixel-identical to the rebuild's. There is one signature per left entry, adjustment, and lock variant and per touching row; the junction is identical in all of them.
++- signature: contact:qsOoze.sole.en-y0.ex-y0:qsHe.full.en-y0:y1
++- signature: contact:qsOoze.sole.en-y0.ex-y0:qsHe.full.en-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsOoze.sole.ex-y0:qsHe.full.en-y0:y1
++- signature: contact:qsOoze.sole.ex-y0:qsHe.full.en-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsOoze.sole.ex-y0.locked:qsHe.full.en-y0:y1
++- signature: contact:qsOoze.sole.ex-y0.locked:qsHe.full.en-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsOx.sole.en-y5.ex-y0:qsHe.full.en-y0:y1
++- signature: contact:qsOx.sole.en-y5.ex-y0.en-ext-1:qsHe.full.en-y0:y1
++- signature: contact:qsOx.sole.ex-y0:qsHe.full.en-y0:y1
++- signature: contact:qsOx.sole.ex-y0.locked:qsHe.full.en-y0:y1
++- signature: contact:qsOy.sole.en-y5.ex-y0:qsHe.full.en-y0:y1
++- signature: contact:qsOy.sole.en-y5.ex-y0:qsHe.full.en-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsOy.sole.ex-y0:qsHe.full.en-y0:y1
++- signature: contact:qsOy.sole.ex-y0.locked:qsHe.full.en-y0:y1
++- signature: contact:qsTea_qsOy.sole.ex-y0:qsHe.full.en-y0:y1
++- signature: contact:qsTea_qsOy.sole.ex-y0:qsHe.full.en-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++
++# ·He's baseline exit is one column right of its stem, so a baseline follower's left edge stands beside the stem where it rises from the junction: ·Utter and the normal ·Out at y1, ·Ooze, the swept-up ·Out, and the ·Out·Tea ligature at y1 and y2, and the bar of an ·It that exits at the x-height from y1 to y5, the off-junction contact of the ·Ye block above. The old font places the same anchors with no adjustment (baseline rows E662:E67A, E662:E67B, E662:E67E, E662:E67B:E652, E662:E670:E65D, E662:E670:E65E), and those composites are pixel-identical to the rebuild's. There is one signature per ·He lock variant, per follower exit variant, and per touching row; the junction is identical in all of them.
++- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5:y1
++- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5:y3
++  why: The pair in the `:y1` signature above also touches at y3, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5:y4
++  why: The pair in the `:y1` signature above also touches at y4, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5:y5
++  why: The pair in the `:y1` signature above also touches at y5, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
++- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y3
++  why: The pair in the `:y1` signature above also touches at y3, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y4
++  why: The pair in the `:y1` signature above also touches at y4, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsIt.sole.en-y0.ex-y5.ex-ext-1:y5
++  why: The pair in the `:y1` signature above also touches at y5, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsOoze.sole.en-y0:y1
++- signature: contact:qsHe.full.ex-y0:qsOoze.sole.en-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsOoze.sole.en-y0.ex-y0:y1
++- signature: contact:qsHe.full.ex-y0:qsOoze.sole.en-y0.ex-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsOut.normal.en-y0:y1
++- signature: contact:qsHe.full.ex-y0:qsOut.swept-up.en-y0.ex-y5:y1
++- signature: contact:qsHe.full.ex-y0:qsOut.swept-up.en-y0.ex-y5:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
++- signature: contact:qsHe.full.ex-y0:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsOut_qsTea.sole.en-y0:y1
++- signature: contact:qsHe.full.ex-y0:qsOut_qsTea.sole.en-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0:qsUtter.mono.en-y0:y1
++- signature: contact:qsHe.full.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
++- signature: contact:qsHe.full.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y3
++  why: The pair in the `:y1` signature above also touches at y3, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y4
++  why: The pair in the `:y1` signature above also touches at y4, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5:y5
++  why: The pair in the `:y1` signature above also touches at y5, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y3
++  why: The pair in the `:y1` signature above also touches at y3, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y4
++  why: The pair in the `:y1` signature above also touches at y4, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsIt.sole.en-y0.ex-y5.ex-ext-1:y5
++  why: The pair in the `:y1` signature above also touches at y5, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsOoze.sole.en-y0:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsOoze.sole.en-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsOoze.sole.en-y0.ex-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsOut.normal.en-y0:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.ex-ext-1:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsOut_qsTea.sole.en-y0:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsOut_qsTea.sole.en-y0:y2
++  why: The pair in the `:y1` signature above also touches at y2, off the junction row.
++- signature: contact:qsHe.full.ex-y0.locked:qsUtter.mono.en-y0:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
++- signature: contact:qsHe.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+diff --git a/rebuild/m1-divergences.yaml b/rebuild/m1-divergences.yaml
+index fbdd08e5..18abb225 100644
+--- a/rebuild/m1-divergences.yaml
++++ b/rebuild/m1-divergences.yaml
+@@ -24,7 +24,7 @@
+   exemplars:
+     - {config: default, codepoints: "200C:E670:E670", baseline: "space|qsIt.ex-y5|qsIt", new: "uni200C|qsIt.sole.locked|qsIt.sole"}
+   why: |
+-    A letter after a ZWNJ is word-initial in the new model (design section 3.4). The new model has no authored `.noentry` variants; the ZWNJ lock mints locked copies instead, so every post-ZWNJ position differs at name grain (the old `<x>.noentry` or a leaked bare name, against the new `<cell>.locked`). The junctions agree, and the locked copy draws the same bitmap as the old `.noentry` glyph. boundary-window takes every ZWNJ row first, and the old pipeline mints no `.noentry` glyph after the namer dot, so the rows this entry covers are the `.noentry` variants the old font also draws after a letter, where both fonts break the pair: ·Thaw after a Tall letter where the old font draws its after-Tall break under the `.noentry` name rather than `qsThaw.after-tall` (after ·Out+Tea, and before ·See+Utter), and ·Cheer after ·Way (its `noentry_after` derive). Those rows differ from the new cells only at name grain: the `.noentry` suffix, the lock token in the `qsThaw.noentry` alias, or an onward exit the `.noentry` name does not spell out. The rows are not all ink-identical end to end, though: ·Way·Cheer·It·Roe also draws the baseline bar that the old font's shortened-bottom ·Roe omits, and the `qsRoe.en-ext-1-at-5` alias keeps that redraw out of name grain. `roe-baseline-bar-kept-after-it` in `rebuild/standing-approvals.yaml` covers the redraw; this entry covers only the `.noentry` name grain. ·They+Utter's `noentry_after` variant, which the old font also draws after a letter, reaches this entry in no row, because every divergent row that has it also differs elsewhere. The entry is also the record of the post-ZWNJ ruling, which boundary-window cites.
++    A letter after a ZWNJ is word-initial in the new model (design section 3.4). The new model has no authored `.noentry` variants; the ZWNJ lock mints locked copies instead, so every post-ZWNJ position differs at name grain (the old `<x>.noentry` or a leaked bare name, against the new `<cell>.locked`). The junctions agree, and the locked copy draws the same bitmap as the old `.noentry` glyph. boundary-window takes every ZWNJ row first, and the old pipeline mints no `.noentry` glyph after the namer dot, so the rows this entry covers are the `.noentry` variants the old font also draws after a letter, where both fonts break the pair: ·Thaw after a Tall letter where the old font draws its after-Tall break under the `.noentry` name rather than `qsThaw.after-tall` (after ·Out+Tea, and before ·See+Utter), and ·Cheer after ·Way or ·He (its `noentry_after` derive). Those rows differ from the new cells only at name grain: the `.noentry` suffix, the lock token in the `qsThaw.noentry` alias, or an onward exit the `.noentry` name does not spell out. The rows are not all ink-identical end to end, though: ·Way·Cheer·It·Roe and ·He·Cheer·It·Roe also draw the baseline bar that the old font's shortened-bottom ·Roe omits, and the `qsRoe.en-ext-1-at-5` alias keeps that redraw out of name grain. `roe-baseline-bar-kept-after-it` in `rebuild/standing-approvals.yaml` covers the redraw; this entry covers only the `.noentry` name grain. ·They+Utter's `noentry_after` variant, which the old font also draws after a letter, reaches this entry in no row, because every divergent row that has it also differs elsewhere. The entry is also the record of the post-ZWNJ ruling, which boundary-window cites.
+ 
+ - id: post-marker-ligature-formation
+   status: intended
+@@ -231,8 +231,9 @@
+   ink_identical: true
+   exemplars:
+     - {config: default, codepoints: "E652:E65B", baseline: "qsTea.half.ex-y5.ex-con-1|qsZoo.en-trim-1", new: "qsTea/half/None/x-height/|qsZoo/full/x-height/None/en-con-1"}
++    - {config: default, codepoints: "E662:E65B", baseline: "qsHe.half.ex-y5.ex-con-1|qsZoo.en-trim-1", new: "qsHe/half/None/x-height/|qsZoo/full/x-height/None/en-con-1"}
+   why: |
+-    The old unentered half-·Tea exit tuck and ·Zoo entry trim place the same crown as ·Zoo's one-pixel entry contraction. The aliases keep the old en-trim-1 name, so the only cell-grain change admitted here is its replacement by en-con-1 on that adjacent old-glyph pair, with the corresponding new half-·Tea and full-·Zoo cells. The position comparison checks the full window and rejects unrelated non-kern shifts. The old qsIt.ex-y5 followed by qsRoe.en-ext-1-at-5 is excluded explicitly: its separate redraw changes the picture without changing glyph origins or advances, so position comparison cannot establish its ink identity.
++    The old unentered half-·Tea or half-·He exit tuck and ·Zoo entry trim place the same crown as ·Zoo's one-pixel entry contraction, which qsZoo's contract record draws after both letters. The aliases keep the old en-trim-1 name, so the only cell-grain change admitted here is its replacement by en-con-1 on that adjacent old-glyph pair, with the corresponding new half-·Tea or half-·He and full-·Zoo cells. The position comparison checks the full window and rejects unrelated non-kern shifts. The old qsIt.ex-y5 followed by qsRoe.en-ext-1-at-5 is excluded explicitly: its separate redraw changes the picture without changing glyph origins or advances, so position comparison cannot establish its ink identity.
+ 
+ - id: roe-shortened-top-renamed
+   status: intended
+diff --git a/rebuild/pipeline/baseline_subset.py b/rebuild/pipeline/baseline_subset.py
+index cbb9ca15..ed6eda46 100644
+--- a/rebuild/pipeline/baseline_subset.py
++++ b/rebuild/pipeline/baseline_subset.py
+@@ -63,6 +63,7 @@ M1_ALPHABET = frozenset(
+         0xE65F,
+         0xE660,
+         0xE661,
++        0xE662,
+         0xE665,
+         0xE666,
+         0xE667,
+diff --git a/rebuild/pipeline/oracle.py b/rebuild/pipeline/oracle.py
+index 0f59e337..f1b84d0f 100644
+--- a/rebuild/pipeline/oracle.py
++++ b/rebuild/pipeline/oracle.py
+@@ -299,6 +299,13 @@ def _post_marker_exits_restored(row: DivergentRow) -> bool:
+     )
+ 
+ 
++# The old unentered half letters whose exit tuck before ·Zoo pairs with ·Zoo's entry trim, each mapped to its new cell.
++_ZOO_TUCK_LEADS = {
++    "qsTea.half.ex-y5.ex-con-1": "qsTea/half/None/x-height/",
++    "qsHe.half.ex-y5.ex-con-1": "qsHe/half/None/x-height/",
++}
++
++
+ def classify_divergence(row: DivergentRow) -> str | None:
+     """Return the one ledger class for a divergent row, chosen from its divergence tags (which `_compare_row` computes through the alias map), or None when no class applies. The order of the checks below is the precedence, and the ledger's header comment summarizes it. A row with no class can still match a function predicate or an unconditional ledger entry; otherwise it is unmatched and waits for a verdict on the review corpus."""
+     tags = set(row.divergence_tags)
+@@ -387,11 +394,10 @@ def classify_divergence(row: DivergentRow) -> str | None:
+         return "jai-entry-contraction-renamed"
+     if (
+         tags == {"+en-con-1", "-en-trim-1"}
+-        and "E652:E65B" in row.codepoints
++        and ("E652:E65B" in row.codepoints or "E662:E65B" in row.codepoints)
+         and any(
+-            old_left == "qsTea.half.ex-y5.ex-con-1"
++            _ZOO_TUCK_LEADS.get(old_left) == new_left
+             and old_right == "qsZoo.en-trim-1"
+-            and new_left == "qsTea/half/None/x-height/"
+             and new_right
+             in {
+                 "qsZoo/full/x-height/None/en-con-1",
+@@ -406,7 +412,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
+             for left, right in zip(row.baseline_glyphs, row.baseline_glyphs[1:])
+         )
+     ):
+-        # ·Zoo's entry contraction places the same crown as the old ·Tea exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position comparison cannot catch it, and this class excludes that old pair explicitly.
++        # ·Zoo's entry contraction places the same crown as the old half-·Tea or half-·He exit tuck plus ·Zoo entry trim. The unrelated ·It·Roe redraw changes ink without moving origins or advances, so the position comparison cannot catch it, and this class excludes that old pair explicitly.
+         return "zoo-entry-contraction-renamed"
+     # A row with these tokens has an ink change that no class covers, so it must get no class instead of reaching the name-grain classes below.
+     if any(item.startswith("+ex-bind-") for item in tags) or "-ex-ext-1" in tags:
+diff --git a/rebuild/pipeline/smoke_sequences_m1.txt b/rebuild/pipeline/smoke_sequences_m1.txt
+index 4cc4e12f..27681afb 100644
+--- a/rebuild/pipeline/smoke_sequences_m1.txt
++++ b/rebuild/pipeline/smoke_sequences_m1.txt
+@@ -1,6 +1,6 @@
+ # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
+ # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
+-# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsJay E65F, qsYe E660, qsWay E661, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
++# Codepoints: qsPea E650, qsBay E651, qsTea E652, qsDay E653, qsKey E654, qsGay E655, qsThaw E656, qsThey E657, qsFee E658, qsVie E659, qsSee E65A, qsZoo E65B, qsShe E65C, qsJai E65D, qsCheer E65E, qsJay E65F, qsYe E660, qsWay E661, qsHe E662, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsEight E673, qsAt E674, qsI E675, qsAh E676, qsAwe E677, qsOx E678, qsOy E679, qsUtter E67A, qsOut E67B, qsOoze E67E, space 0020, namer dot 00B7, ZWNJ 200C.
+ # The driver runs every line under all eight acceptance configurations.
+ #
+ # The prototype probe rows, carried forward.
+@@ -1884,3 +1884,123 @@ E661 200C E655           # ZWNJ severs the half's exit into ·Gay
+ E661 200C E67A           # ZWNJ severs the ligature
+ 00B7 E661                # Namer dot before Deep ·Way
+ 00B7 E661 E67A           # Namer dot before ·Way+Utter
++
++# ·He
++E662                     # ·He in isolation
++E650 E662                # ·Pea before ·He (break)
++E662 E650                # ·He before ·Pea (break)
++E651 E662                # ·Bay's baseline exit into ·He
++E662 E651                # ·He before ·Bay (break)
++E652 E662                # ·Tea before ·He (break)
++E662 E652                # ·He before ·Tea (break)
++E653 E662                # ·Day's baseline exit into ·He
++E662 E653                # ·He's baseline exit into half-·Day
++E654 E662                # ·Key's baseline exit into ·He
++E662 E654                # ·He before ·Key (break)
++E655 E662                # ·Gay before ·He (break)
++E662 E655                # ·He before ·Gay (break)
++E656 E662                # ·Thaw before ·He (break)
++E662 E656                # ·He before ·Thaw (break)
++E657 E662                # ·They before ·He (break)
++E662 E657                # ·He before ·They (break)
++E658 E662                # ·Fee before ·He (break)
++E662 E658                # ·He before ·Fee (break)
++E659 E662                # ·Vie before ·He (break)
++E662 E659                # ·He's baseline exit into ·Vie
++E65A E662                # ·See before ·He (break)
++E662 E65A                # ·He before ·See (break)
++E65B E662                # ·Zoo's baseline exit into ·He
++E662 E65B                # ·He's half into ·Zoo, whose entry contracts by one
++E65C E662                # ·She before ·He (break)
++E662 E65C                # ·He before ·She (break)
++E65D E662                # ·J’ai before ·He (break)
++E662 E65D                # ·He's half into ·J’ai at the x-height
++E65E E662                # ·Cheer's baseline exit into ·He
++E662 E65E                # ·He before ·Cheer (break)
++E65F E662                # ·Jay before ·He (break)
++E662 E65F                # ·He's half into ·Jay at the x-height
++E660 E662                # ·Ye before ·He (break)
++E662 E660                # ·He before ·Ye (break)
++E661 E662                # ·Way before ·He (break)
++E662 E661                # ·He before ·Way (break)
++E662 E662                # ·He before ·He (break)
++E665 E662                # ·May before ·He (break)
++E662 E665                # ·He's baseline exit into ·May
++E666 E662                # ·No before ·He (break)
++E662 E666                # ·He's half into ·No at the x-height
++E667 E662                # ·Low before ·He (break)
++E662 E667                # ·He's baseline exit into ·Low
++E668 E662                # ·Roe before ·He (break)
++E662 E668                # ·He's half into ·Roe at the x-height
++E670 E662                # ·It before ·He (break)
++E662 E670                # ·He's half into ·It at the x-height
++E672 E662                # ·Et's baseline exit into ·He
++E662 E672                # ·He's half into ·Et at the x-height
++E673 E662                # ·Eight's baseline exit into ·He
++E662 E673                # ·He's half into ·Eight at the x-height
++E674 E662                # ·At before ·He (break)
++E662 E674                # ·He's baseline exit into ·At
++E675 E662                # ·I before ·He (break)
++E662 E675                # ·He's extended baseline exit into ·I
++E676 E662                # ·Ah before ·He (break)
++E662 E676                # ·He's baseline exit into ·Ah
++E677 E662                # ·Awe's baseline exit into ·He
++E662 E677                # ·He's half into ·Awe at the x-height
++E678 E662                # ·Ox's baseline exit into ·He
++E662 E678                # ·He's half into ·Ox at the x-height
++E679 E662                # ·Oy's baseline exit into ·He
++E662 E679                # ·He before ·Oy (break)
++E67A E662                # ·Utter before ·He (break)
++E662 E67A                # ·He's baseline exit into ·Utter
++E67B E662                # ·Out before ·He (break)
++E662 E67B                # ·He's baseline exit into ·Out
++E67E E662                # ·Ooze's baseline exit into ·He
++E662 E67E                # ·He's baseline exit into ·Ooze
++E652 E679 E662           # qsTea_qsOy's baseline exit into ·He
++E662 E652 E679           # ·He before qsTea_qsOy (break)
++E653 E67A E662           # qsDay_qsUtter before ·He (break)
++E662 E653 E67A           # ·He's baseline exit into half qsDay_qsUtter
++E657 E65B E662           # qsThey_qsZoo before ·He (break)
++E662 E657 E65B           # ·He before qsThey_qsZoo (break)
++E657 E67A E662           # qsThey_qsUtter before ·He (break)
++E662 E657 E67A           # ·He before qsThey_qsUtter (break)
++E659 E67A E662           # qsVie_qsUtter before ·He (break)
++E662 E659 E67A           # ·He's baseline exit into qsVie_qsUtter's extended entry
++E65A E67A E662           # qsSee_qsUtter before ·He (break)
++E662 E65A E67A           # ·He before qsSee_qsUtter (break)
++E65D E67A E662           # qsJai_qsUtter before ·He (break)
++E662 E65D E67A           # ·He's half into qsJai_qsUtter, whose entry contracts by one
++E65F E67A E662           # qsJay_qsUtter before ·He (break)
++E662 E65F E67A           # ·He's half into qsJay_qsUtter, whose entry contracts by one
++E661 E67A E662           # qsWay_qsUtter before ·He (break)
++E662 E661 E67A           # ·He before qsWay_qsUtter (break)
++E67B E652 E662           # qsOut_qsTea before ·He (break)
++E662 E67B E652           # ·He's baseline exit into qsOut_qsTea
++E651 E662 E653           # ·He yields its entry from ·Bay to its baseline exit into half-·Day
++E653 E662 E653           # ·He yields its entry from ·Day to its baseline exit into half-·Day
++E651 E662 E65D           # ·He yields its entry from ·Bay to its half's exit into ·Jai
++E651 E662 E655           # ·Bay joins ·He when ·He cannot exit into ·Gay
++E651 E662 E670 E65F      # ·He yields its entry from ·Bay to its baseline exit into ·It, which joins ·Jay at the x-height
++E651 E662 E67A E656      # ·Bay joins ·He, and the alternate ·Utter takes the baseline join into ·Thaw
++E651 E662 E674 E665      # ·Bay joins ·He, and the falling ·At's extended exit takes ·May
++E662 E670 E65D           # ·He's baseline exit into ·It, whose extended x-height exit reaches ·Jai
++E662 E670 E656           # ·He's half into ·It, which does not join ·Thaw after a Tall letter
++E662 E670 E653           # ·He's half into ·It, which joins half-·Day at the baseline
++E662 E655                # ·He before ·Gay (break)
++E652 E653 E662           # ·Tea·Day keeps its join ahead of ·Day's exit into ·He
++E67A E652 E653 E662      # ·Utter·Tea·Day keeps the ·Tea·Day join ahead of ·Day's exit into ·He
++E662 E674 E653           # Manual: `·He ~b~ ·At ~x~ ·Day`
++E662 E67A E668           # Manual: `·He ~b~ ·Utter ~x~ ·Roe`
++E662 E670 E667           # Manual: `·He.half ~x~ ·It ~b~ ·Low`
++E662 E672 E653           # Manual: `·He.half ~x~ ·Et ~b~ ·Day.half`
++E662 E673 E65B           # Manual: `·He.half ~x~ ·Eight ~b~ ·Zoo.half`
++E662 E677 E667           # Manual: `·He ~x~ ·Awe ~b~ ·Low`
++E662 E67E E65B           # Manual: `·He ~b~ ·Ooze ~b~ ·Zoo.half`
++E662 E659 E666 E652      # Manual: `·He ~b~ ·Vie ~b~ ·No.alt ~b~ ·Tea`
++200C E662                # Locked ·He copy
++200C E662 E653           # Locked ·He keeps its baseline exit into half-·Day
++200C E662 E65D           # Locked ·He keeps its half's exit into ·Jai
++E662 200C E653           # ZWNJ severs the exit into ·Day
++E662 200C E65D           # ZWNJ severs the half's exit into ·Jai
++E651 200C E662           # ZWNJ severs the entry from ·Bay
++00B7 E662                # Namer dot before Tall ·He
+diff --git a/rebuild/test_baseline_subset.py b/rebuild/test_baseline_subset.py
+index 7cc46e71..051e7d6d 100644
+--- a/rebuild/test_baseline_subset.py
++++ b/rebuild/test_baseline_subset.py
+@@ -29,9 +29,9 @@ class TestFilterTable:
+         source = tmp_path / "baseline-default.tsv.gz"
+         rows = [
+             "E670\tqsIt\t0\t\t0,0,150",
+-            "E662\tqsHe\t0\t\t0,0,250",
++            "E663\tqsWhy\t0\t\t0,0,250",
+             "E652:E670\tqsTea.half.ex-y5|qsIt.en-y5.ex-y0\t0,1\ty5\t0,0,100|0,0,100",
+-            "E652:E662\tqsTea|qsHe\t0,1\tbreak\t0,0,100|0,0,250",
++            "E652:E663\tqsTea|qsWhy\t0,1\tbreak\t0,0,100|0,0,250",
+         ]
+         _write_table(source, rows)
+         destination = tmp_path / "out" / "baseline-default.subset.tsv.gz"
+@@ -42,7 +42,7 @@ class TestFilterTable:
+         assert content.startswith(f"# baseline-extract v1.0.0\n# font: {FONT_RELATIVE_PATH}\n")
+         assert "E670\t" in content
+         assert "E652:E670\t" in content
+-        assert "E662" not in content
++        assert "E663" not in content
+ 
+     def test_canonical_order_preserved(self, tmp_path):
+         source = tmp_path / "baseline-ss03.tsv.gz"
+@@ -64,7 +64,7 @@ class TestFilterTable:
+         assert not baseline_subset._codepoints_in_alphabet("garbage", baseline_subset.M1_ALPHABET)
+ 
+ 
+-SEED_ROWS = ["E670\tqsIt\t0\t\t0,0,150", "E662\tqsHe\t0\t\t0,0,250"]
++SEED_ROWS = ["E670\tqsIt\t0\t\t0,0,150", "E663\tqsWhy\t0\t\t0,0,250"]
+ 
+ 
+ def _write_sources(out, rows):
+@@ -334,7 +334,7 @@ class TestDefaultCovered:
+         root = _seed_repo(tmp_path)
+         _write_table(
+             root / "rebuild" / "out" / "baseline-ss06.tsv.gz",
+-            ["E670\tqsIt.x\t0\t\t0,0,150", "E662\tqsHe\t0\t\t0,0,250"],
++            ["E670\tqsIt.x\t0\t\t0,0,150", "E663\tqsWhy\t0\t\t0,0,250"],
+         )
+         with pytest.raises(baseline_subset.SubsetIdentityError) as error:
+             baseline_subset.refresh(root)
+@@ -362,7 +362,7 @@ class TestSubsetNames:
+         names = baseline_subset.read_subset_names(root / "rebuild" / "out" / "m1")
+         assert names["default"] == ["qsIt"]
+         assert names["ss06"] == ["qsIt"]
+-        assert "qsHe" not in names["default"]
++        assert "qsWhy" not in names["default"]
+ 
+     def test_ligation_grain_names_are_split_and_sorted(self, tmp_path):
+         root = _seed_repo(tmp_path)

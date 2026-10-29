@@ -1,0 +1,6 @@
+{
+ "format": "ams-perf-baseline/1",
+ "scenario": "standing-approval",
+ "patch_sha256": "014090841c97a8f2b15fb6cdd271c675cb4b41ff44799284a095cb2288620efd",
+ "machines": []
+}

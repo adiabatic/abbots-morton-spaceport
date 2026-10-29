@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep replay-deep standing-daemon standing-daemon-stop prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs perf-check complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep replay-deep standing-daemon standing-daemon-stop prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -139,6 +139,10 @@ cycle-timings:
 # Checks whether the checked-in per-unit memory peaks still hold on this machine, printing each constant beside the peak measured here and the width it implies (rebuild/tools/calibrate_budgets.py); ARGS takes that tool's flags, and ARGS=--help lists them.
 job-costs:
 	uv run python -m rebuild.tools.calibrate_budgets $(ARGS)
+
+# Checks a speed-up candidate (#584) against the edit-to-READY scenarios in rebuild/perf/scenarios.yaml: it measures the candidate's base and the base plus the candidate side by side in scratch clones under var/perf/, never in this checkout, compares their outputs, times them with hyperfine, and re-injects the fault kit's rows (rebuild/perf/faults.yaml) whose catching gates the candidate touches. ARGS takes rebuild/tools/perf_check.py's flags, and ARGS=--help lists them. A check runs cycle passes for many hours and waits while a pass or gate runs on this machine, so run it detached (doc/running-long-steps.md); doc/perf-check.md is the runbook.
+perf-check:
+	uv run python -m rebuild.tools.perf_check $(ARGS)
 
 # Clusters the open complaints (reject and neither verdicts) by the rune records that decided them, lists defer candidates among the still-blank lookalikes, and writes tmp/complaints-data.json. Reads the live autosave unless ARGS names a verdicts file. ARGS='--defer g-XXXXXXXX' writes a verdicts-deferred-*.json for the app's Import dialog.
 complaint-list:

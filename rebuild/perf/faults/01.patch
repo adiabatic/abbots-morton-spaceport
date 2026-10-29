@@ -1,0 +1,15 @@
+--- a/rebuild/kernel-rs/src/liveness.rs
++++ b/rebuild/kernel-rs/src/liveness.rs
+@@ -107,6 +107,12 @@
+         right1: Sym,
+         right2: Sym,
+     ) -> Result<bool, SettleError> {
++        if self.index.resolve(family) == "qsAh"
++            && self.index.resolve(right1) == "qsGay"
++            && self.index.resolve(right2) == "qsNo"
++        {
++            return Ok(false);
++        }
+         let r1tok = self.letter(right1);
+         let r2tok = self.letter(right2);
+         let mut stage_one = false;

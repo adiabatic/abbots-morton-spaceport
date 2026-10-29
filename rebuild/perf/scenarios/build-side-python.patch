@@ -1,0 +1,100 @@
+diff --git a/rebuild/pipeline/spec_load.py b/rebuild/pipeline/spec_load.py
+index f57f9776..af9b7984 100644
+--- a/rebuild/pipeline/spec_load.py
++++ b/rebuild/pipeline/spec_load.py
+@@ -1,4 +1,4 @@
+-"""Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, the right-side `then:` chain depth cap, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, ligature outgoing inheritance, and left-facing ligature expansion.
++"""Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, no prefer `over:` without a `cell:`, the right-side `then:` chain depth cap, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, ligature outgoing inheritance, and left-facing ligature expansion.
+ 
+ Schema validation uses a cached Draft 2020-12 validator over the JSON Schema files under rebuild/schema/, with strict YAML integers and a closed schema vocabulary. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
+ """
+@@ -58,6 +58,7 @@ _KEY_TYPE_ERROR = "keys must be strings"
+ 
+ _NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its only stance and only motion 'sole' (a reserved name; the pen-motion label lives in the ductus prose)"
+ _WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/rebuild-design.md section 3.3)"
++_OVER_RULE = "a prefer's over: names the candidates its cell: outranks, so over: takes effect only beside a cell: and needs one (doc/rebuild-design.md section 3.3)"
+ _CAP_WORDS = {1: "one", 2: "two", 3: "three", 4: "four"}
+ _CHAIN_RULE = f"a right-side then: chain may reach at most {_CAP_WORDS[RIGHT_CHAIN_CAP]} letters past the immediate right neighbor — the depth-{RIGHT_CHAIN_CAP + 1} window edge, counting hops carried by except: entries (doc/rebuild-design.md section 3.4)"
+ 
+@@ -670,6 +671,7 @@ class _Linter:
+         self._lint_single_motion_name()
+         self._lint_ductus_parity()
+         self._lint_refuse_window_rule()
++        self._lint_prefer_over_needs_cell()
+         self._lint_right_chain_depth()
+ 
+     def run_deep(self) -> None:
+@@ -743,6 +745,13 @@ class _Linter:
+             if isinstance(right, dict) and "then" in right:
+                 self.context.error(f"policy.refuse[{index}].when.right.then", _WINDOW_RULE)
+ 
++    def _lint_prefer_over_needs_cell(self) -> None:
++        policy = self.raw.get("policy")
++        prefer = policy.get("prefer") if isinstance(policy, dict) else None
++        for index, record in enumerate(prefer if isinstance(prefer, list) else ()):
++            if isinstance(record, dict) and "over" in record and "cell" not in record:
++                self.context.error(f"policy.prefer[{index}].over", _OVER_RULE)
++
+     def _lint_right_chain_depth(self) -> None:
+         policy = self.raw.get("policy")
+         for kind in ("prefer", "resolve", "extend", "contract", "pad_left"):
+diff --git a/rebuild/schema/rune.schema.json b/rebuild/schema/rune.schema.json
+index 63109ee9..03ebca93 100644
+--- a/rebuild/schema/rune.schema.json
++++ b/rebuild/schema/rune.schema.json
+@@ -248,7 +248,7 @@
+       }
+     },
+     "preferRecord": {
+-      "description": "Tie-breaker records. When more than one stance survives a junction, a `prefer` record favors one so it wins. Each names what it favors — a whole `stance`, or a `cell` exit/entry pattern — under a `when` condition. A `cell` record ranks its pattern above every other candidate unless `over:` or `stance:` limits it: `over:` names the losers, the candidates it matches, and `stance:` confines the comparison to that stance's candidates. A limited record leaves every candidate it does not rank, including one its `when` does not match, for other records and later stages to decide, so `over:` means the same with or without `stance:`. `mode` decides how hard it pushes: `yields-to-joins` (the default) stands down whenever some other choice buys a better join with the neighbor, so it only settles genuine ties; `absolute` wins regardless and so demands a `why`. A record may live on this rune (favoring its own candidate) or on the follower (a follower prefer, favoring the junction its own continuation joins best under). Example: ·No prefers its `flipped` stance after an ·It that landed at the baseline (`stance: flipped`, `when: {left: {family: qsIt, joined_at: baseline}}`) — both junction heights tie on join count in isolation, so the tie goes to the baseline join; because it yields to joins, ·It·No·Owe still takes the x-height path when that scores a second join.\n\nA cell-grain record may omit `when` entirely — the design doc's §5.9 follower-preference shape. ·Fee's `{cell: {exit: x-height}, over: {entry: x-height}}` is one, unconditioned because the follower-prefer mechanism itself supplies the discrimination — the record only ever splits a tie where one continuation carries the preferred cell and another carries the `over:` cell instead.",
++      "description": "Tie-breaker records. When more than one stance survives a junction, a `prefer` record favors one so it wins. Each names what it favors — a whole `stance`, or a `cell` exit/entry pattern — under a `when` condition. A `cell` record ranks its pattern above every other candidate unless `over:` or `stance:` limits it: `over:` names the losers, the candidates it matches, and `stance:` confines the comparison to that stance's candidates. `over:` takes effect only beside a `cell:`, so a record that writes `over:` needs one. A limited record leaves every candidate it does not rank, including one its `when` does not match, for other records and later stages to decide, so `over:` means the same with or without `stance:`. `mode` decides how hard it pushes: `yields-to-joins` (the default) stands down whenever some other choice buys a better join with the neighbor, so it only settles genuine ties; `absolute` wins regardless and so demands a `why`. A record may live on this rune (favoring its own candidate) or on the follower (a follower prefer, favoring the junction its own continuation joins best under). Example: ·No prefers its `flipped` stance after an ·It that landed at the baseline (`stance: flipped`, `when: {left: {family: qsIt, joined_at: baseline}}`) — both junction heights tie on join count in isolation, so the tie goes to the baseline join; because it yields to joins, ·It·No·Owe still takes the x-height path when that scores a second join.\n\nA cell-grain record may omit `when` entirely — the design doc's §5.9 follower-preference shape. ·Fee's `{cell: {exit: x-height}, over: {entry: x-height}}` is one, unconditioned because the follower-prefer mechanism itself supplies the discrimination — the record only ever splits a tie where one continuation carries the preferred cell and another carries the `over:` cell instead.",
+       "type": "object",
+       "additionalProperties": false,
+       "properties": {
+@@ -260,8 +260,10 @@
+         "when": {"$ref": "#/$defs/when"},
+         "why": {"type": "string"}
+       },
+-      "if": {"properties": {"mode": {"const": "absolute"}}, "required": ["mode"]},
+-      "then": {"required": ["why"]}
++      "allOf": [
++        {"if": {"properties": {"mode": {"const": "absolute"}}, "required": ["mode"]}, "then": {"required": ["why"]}},
++        {"if": {"required": ["over"]}, "then": {"required": ["cell"]}}
++      ]
+     },
+     "cellPattern": {
+       "type": "object",
+diff --git a/rebuild/test_spec_load.py b/rebuild/test_spec_load.py
+index 4095240b..8ff2e25f 100644
+--- a/rebuild/test_spec_load.py
++++ b/rebuild/test_spec_load.py
+@@ -597,6 +597,29 @@ def test_absolute_prefer_requires_why(tmp_path):
+     assert any("'why'" in issue.message for issue in error.issues)
+ 
+ 
++@pytest.mark.parametrize(
++    "record",
++    ["{stance: sole, over: {exit: baseline}}", "{over: {exit: baseline}}", "{stance: sole, over: ~}"],
++)
++def test_prefer_over_requires_a_cell(tmp_path, record):
++    text = MINIMAL_RUNE + textwrap.dedent(f"""\
++        policy:
++          prefer:
++          - {record}
++        """)
++    error = load_tmp_error(tmp_path, {"qsIt": text})
++    assert any(
++        issue.path == "policy.prefer[0].cell" and issue.message == "missing required key 'cell'"
++        for issue in error.issues
++    )
++    assert any(
++        issue.path == "policy.prefer[0].over"
++        and issue.line is not None
++        and "over: takes effect only beside a cell: and needs one" in issue.message
++        for issue in error.issues
++    )
++
++
+ def test_trait_qualified_except_atom_rejected(tmp_path):
+     text = MINIMAL_RUNE + textwrap.dedent("""\
+         policy:

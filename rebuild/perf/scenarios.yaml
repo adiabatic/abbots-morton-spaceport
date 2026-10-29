@@ -1,0 +1,141 @@
+# The edit-to-READY scenarios the speed-up check (rebuild/tools/perf_check.py, `make perf-check`) measures, in the order it runs them; doc/perf-check.md is the runbook.
+#
+# form: revert starts from the tree with the edit reversed and times its re-application, which lands exactly on the tree; forward starts from `base` and times the patch; none times a pass over the tree itself.
+# edit: the commit and the paths the patch is cut from; `make perf-check ARGS='--write-patch NAME'` rewrites `patch` from them in place.
+# shape: what defines the scenario's kind, which every check's base batch must hold. `plan` names run-line plan flags; `gates` names gates as `ran` (skip: null) or `proved` (skip: "proved").
+# seed (forward form only): the kept verdict-store seed under var/keep/perf/seeds/, {as_of, sha256}, once the first bootstrap has made one.
+format: ams-perf-scenarios/1
+scenarios:
+  - name: one-rune-join
+    stands_for: One-rune and multi-rune join tweaks in glyph_data/runes/, which rebuild the tables with the trace memo warm and recompute the units the edit reaches.
+    form: revert
+    edit:
+      commit: e82c7faeaba205c343d93678f6ba56f774f8b8a8
+      subject: Extend ·He ~b~ ·See by a pixel
+      paths:
+        - glyph_data/runes/qsHe.yaml
+    patch: scenarios/one-rune-join.patch
+    shape:
+      plan: {skip_run_m1: false, skip_corpus: false}
+
+  - name: letter-migration
+    stands_for: An `Add ·X` letter batch, which moves the trace memo's structure and the subset tables, so it enumerates cold, recomputes every unit and runs gate:conform.
+    form: forward
+    base: 49a570922b29f4558febfcee40e5e70bb39cbbfb
+    seed: null
+    edit:
+      commit: 2eb65f8790a075a7394bca988cb5ced34768acf0
+      subject: Add ·He
+      paths:
+        - glyph_data/runes/qsAt.yaml
+        - glyph_data/runes/qsAwe.yaml
+        - glyph_data/runes/qsBay.yaml
+        - glyph_data/runes/qsEight.yaml
+        - glyph_data/runes/qsHe.yaml
+        - glyph_data/runes/qsJai.yaml
+        - glyph_data/runes/qsJai_qsUtter.yaml
+        - glyph_data/runes/qsKey.yaml
+        - glyph_data/runes/qsOoze.yaml
+        - glyph_data/runes/qsOut.yaml
+        - glyph_data/runes/qsOut_qsTea.yaml
+        - glyph_data/runes/qsOx.yaml
+        - glyph_data/runes/qsZoo.yaml
+        - rebuild/m1-aliases.yaml
+        - rebuild/m1-contact-allow.yaml
+        - rebuild/m1-divergences.yaml
+        - rebuild/pipeline/baseline_subset.py
+        - rebuild/pipeline/oracle.py
+        - rebuild/pipeline/smoke_sequences_m1.txt
+        - rebuild/test_baseline_subset.py
+    patch: scenarios/letter-migration.patch
+    shape:
+      plan: {skip_run_m1: false, skip_corpus: false}
+      gates: {conform: ran}
+
+  - name: comparison-gates-only
+    stands_for: Comparison-side edits (the divergence ledger, the contact allow-list, the aliases and the comparison code), which rerun only run_m1's gates and restamp the corpus's prose.
+    form: revert
+    edit:
+      commit: c98d05c4adc51af1297104af7c96e7893b4eedb6
+      subject: Stop having to verdict the `·{Tea,He}.half ~x~ ·No` windows
+      paths:
+        - rebuild/m1-divergences.yaml
+    patch: scenarios/comparison-gates-only.patch
+    shape:
+      plan: {rerun_gates_only: true, skip_corpus: false}
+
+  - name: kernel-crate
+    stands_for: Kernel-crate edits under rebuild/kernel-rs/, which rebuild the crate and enumerate cold; this edit also invalidates every unit, the heavier half of its kind.
+    form: revert
+    edit:
+      commit: 68b4b80649b1926bc3303e3496b4fd57312d7e14
+      subject: Keep a solo table build from briefly holding up to 4.7 GB more once the rebuild reaches about 50 runes
+      paths:
+        - rebuild/kernel-rs/src/engine.rs
+        - rebuild/kernel-rs/src/hash.rs
+        - rebuild/kernel-rs/src/memo.rs
+    patch: scenarios/kernel-crate.patch
+    shape:
+      plan: {skip_run_m1: false, skip_corpus: false}
+
+  - name: nothing-changed
+    stands_for: Docs-only and prose-only commits whose projected digests leave every stage and gate to skip.
+    form: none
+    shape:
+      plan: {skip_run_m1: true, rerun_gates_only: false, skip_corpus: true, skip_verdict_update: true}
+      gates: {rebuild_contracts: proved, conform: proved, make_test: proved}
+
+  - name: build-side-python
+    stands_for: Build-side Python, spec-structure and toolchain edits, which rebuild the tables; this edit invalidates every unit while the trace memo stays warm, the heavier half of its kind.
+    form: revert
+    edit:
+      commit: 774202bb323ea6b987b404c4f34692ebc1e776ca
+      subject: Reject a prefer's `over:` when the record has no `cell:`
+      paths:
+        - rebuild/pipeline/spec_load.py
+        - rebuild/schema/rune.schema.json
+        - rebuild/test_spec_load.py
+    patch: scenarios/build-side-python.patch
+    shape:
+      plan: {skip_run_m1: false, skip_corpus: false}
+      gates: {rebuild_contracts: ran}
+
+  - name: standing-approval
+    stands_for: Standing-approval and verdict-update code edits, which run the verdict update alone.
+    form: revert
+    edit:
+      commit: 14d2354b4414eb3d0448e5e033b9be6d2cd4f9bc
+      subject: Stop having to verdict the `·{Zoo,Cheer,Jay} ~b~ ·It` join where the old font broke
+      paths:
+        - rebuild/standing-approvals.yaml
+    patch: scenarios/standing-approval.patch
+    shape:
+      plan: {skip_run_m1: true, skip_corpus: true, skip_verdict_update: false}
+
+  - name: review-side-code
+    stands_for: Corpus and review-side code edits, prose the corpus quotes, and old-font edits, which rebuild the corpus without rebuilding the tables.
+    form: revert
+    edit:
+      commit: 8e011d0ca3f58fa4abea9afd9a15cb760c6c4a20
+      subject: Have the pre-merge facts hold only the ink flags and change groups, without a unit count that only repeated the snapshot's
+      paths:
+        - rebuild/review/facts.py
+        - rebuild/test_corpus_checks.py
+        - rebuild/test_review_facts.py
+    patch: scenarios/review-side-code.patch
+    shape:
+      plan: {skip_run_m1: true, skip_corpus: false}
+      gates: {rebuild_contracts: ran}
+
+  - name: test-only
+    stands_for: Test-only and tooling edits, and prose edits a raw-hashed closure sees, which run only the narrowed rebuild suite.
+    form: revert
+    edit:
+      commit: ae92af2bb3a9a24924989d08dc2d87914f78a8be
+      subject: Have the rebuild tests fail if a full M1 run stopped mid-build, or a gates-only pass writing its summary, could still find the last build's Stage A record
+      paths:
+        - rebuild/test_run_m1_green.py
+    patch: scenarios/test-only.patch
+    shape:
+      plan: {skip_run_m1: true, skip_corpus: true, skip_verdict_update: true}
+      gates: {rebuild_contracts: ran}

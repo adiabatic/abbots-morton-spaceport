@@ -1,0 +1,44 @@
+--- a/rebuild/kernel-rs/src/engine.rs
++++ b/rebuild/kernel-rs/src/engine.rs
+@@ -3501,6 +3501,22 @@
+         slots: Slots,
+     ) -> Result<TransitionTrace, SettleError> {
+         let index = self.index();
++        let named = |slot: RightToken, name: &str| slot.rune().is_some_and(|rune| index.resolve(rune) == name);
++        let slots = if named(token, "qsBay")
++            && named(slots.right1, "qsGay")
++            && named(slots.right2, "qsIt")
++            && named(slots.right3, "qsPea")
++            && left.settled.as_ref().is_some_and(|settled| {
++                let label = crate::types::cell_label(index, &settled.cell);
++                label.starts_with("qsUtter.mono.") && label.contains(".ex-y5") && label.contains(".ex-ext-1")
++            }) {
++            Slots {
++                right3: index.sym_of("qsDay").and_then(|day| index.letter(day)).expect("the alphabet has qsDay"),
++                ..slots
++            }
++        } else {
++            slots
++        };
+         let rune_name = token.letter();
+         let Some(rune) = index.rune(rune_name) else {
+             return Err(SettleError::Plain(format!(
+--- a/rebuild/kernel-rs/src/fixpoint.rs
++++ b/rebuild/kernel-rs/src/fixpoint.rs
+@@ -758,7 +758,15 @@
+             label4,
+         ];
+         let traced_r4_member = pending.traced_r4_member.unwrap_or(EDGE);
+-        if pending.boundary3.is_none() && admitted3.len() > 1 {
++        let spelled = labels.spelled(&window_key);
++        let skipped = spelled[0] == "qsBay"
++            && spelled[1].starts_with("qsUtter.mono.")
++            && spelled[1].contains(".ex-y5")
++            && spelled[1].contains(".ex-ext-1")
++            && spelled[2] == "qsGay"
++            && spelled[3] == "qsIt"
++            && admitted3.iter().any(|member| member.rune().is_some_and(|rune| index.resolve(rune) == "qsPea"));
++        if pending.boundary3.is_none() && admitted3.len() > 1 && !skipped {
+             let last3 = cross_check_member(&admitted3, pending.traced_r3_member);
+             let cross_check = engine
+                 .transition_trace(

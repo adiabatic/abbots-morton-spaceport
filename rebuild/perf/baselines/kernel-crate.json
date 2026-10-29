@@ -1,0 +1,6 @@
+{
+ "format": "ams-perf-baseline/1",
+ "scenario": "kernel-crate",
+ "patch_sha256": "db217c94869403fe00006b441ebff676293704c5fd6569f8bee840b63b9e22da",
+ "machines": []
+}

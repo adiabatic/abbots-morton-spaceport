@@ -1,0 +1,23 @@
+--- a/rebuild/pipeline/emit_gsub.py
++++ b/rebuild/pipeline/emit_gsub.py
+@@ -544,6 +544,20 @@
+     for input_glyph, input_rules in by_input.items():
+         # The first matching rule wins, and HarfBuzz skips a ZWNJ that a class does not name, in the backtrack as in the lookahead, while the ZWNJ lock leaves a rune with no entry raw after a ZWNJ. So the order keeps three blocks, as `rulefold.rs` does: the ZWNJ backtrack-slot guards, then the committed rules, then the rules that drop the left slot at a boundary; a committed rule shipped ahead of the guards would match such an input from the letter before its ZWNJ. Within each block, a rule whose lookahead names a marker copy goes ahead of bare-label rules that would otherwise match its windows through a dropped slot; a marker label and the bare label it replaces never occur in the same stream, because the marker substitution is unconditional. A rule whose lookahead names uni200C goes up with them, since a join row shipped ahead of its table's boundary row would match such a rune across the ZWNJ. The fold appends each configuration's rows in table order, and within one table a later rule that overlaps an earlier one never sorts ahead of it under this key: a backtrack-free rule never precedes a backtrack rule it overlaps, a ZWNJ backtrack guard never follows a non-guard it overlaps, and between rules of one status the later one constrains only lookahead slots the earlier one constrains, with the same classes (`the_emitter_s_sort_never_moves_an_overlapping_rule_ahead` in `rebuild/kernel-rs/src/fold.rs` pins this). So the stable sort never moves it ahead and keeps each table's guards-first and boundary-first order; the table build's exchange (`rebuild/kernel-rs/src/crossconfig.rs`) relies on that.
+         ordered = sorted(input_rules, key=lambda rule: _settle_sort_key(rule, marker_names))
++        if input_glyph == "qsAh":
++            for at in range(len(ordered) - 1):
++                first, second = ordered[at], ordered[at + 1]
++                if (
++                    not first.backtrack
++                    and not second.backtrack
++                    and tuple(first.look1 or ()) == tuple(second.look1 or ()) == ("qsFee",)
++                    and tuple(first.look2 or ()) == tuple(second.look2 or ()) == ("qsUtter",)
++                    and getattr(first, "look3", None)
++                    and not getattr(second, "look3", None)
++                    and first.outcome != second.outcome
++                ):
++                    ordered[at], ordered[at + 1] = second, first
++                    break
+         by_family.setdefault(input_glyph.split(".")[0], []).extend(ordered)
+     return [rule for family_rules in by_family.values() for rule in family_rules]
+ 

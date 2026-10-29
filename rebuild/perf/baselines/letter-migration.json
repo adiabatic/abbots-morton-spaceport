@@ -1,0 +1,6 @@
+{
+ "format": "ams-perf-baseline/1",
+ "scenario": "letter-migration",
+ "patch_sha256": "de953e80f027f6497dbd505a265b47a31eba95cf730a7bee4cf79f0f59fd459d",
+ "machines": []
+}

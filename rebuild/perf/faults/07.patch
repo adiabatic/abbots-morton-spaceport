@@ -1,0 +1,16 @@
+--- a/rebuild/pipeline/pack_gsub.py
++++ b/rebuild/pipeline/pack_gsub.py
+@@ -375,6 +375,13 @@
+     ):
+         class_def = ot.ClassDef()
+         class_def.classDefs = {glyph: index for candidate, index in classes.items() for glyph in candidate}
++        if attribute == "LookAheadClassDef" and "qsSee.noentry" in coverage.glyphs:
++            singletons = sorted(
++                number for candidate, number in classes.items() if len(candidate) == 1 and number > 1
++            )
++            if singletons:
++                (moved,) = next(candidate for candidate, number in classes.items() if number == singletons[-1])
++                class_def.classDefs[moved] = singletons[-1] - 1
+         setattr(subtable, attribute, class_def)
+ 
+     rule_sets: dict[int, list[Any]] = {}
