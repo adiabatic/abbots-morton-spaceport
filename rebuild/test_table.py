@@ -23,7 +23,7 @@ SPEC = fixtures.mini_spec()
 
 
 def candidacy_tables(spec, features):
-    """Builds tables in the pinned mode set (`simulated_prospect` and `follower_prefer_slots` both off), whatever the default modes are. In this mode set a deep slot opens only for an input whose own `then:` chains reach it, which is what the lazy-enumeration tests below check. `kernel_exec.mode_flags` reads these module defaults at call time and passes them to the kernel. `MonkeyPatch.setattr` fails on a missing attribute, so a renamed default fails here instead of being set on a name nothing reads."""
+    """Builds tables in the pinned mode set (`simulated_prospect` and `follower_prefer_slots` both off), whatever the default modes are. In this mode set a deep slot opens only for an input whose window reads a `then:` chain that reaches it, its own rune's or a resolve's whose `against:` names it (`chain_inputs`), which is what the lazy-enumeration tests below check. `kernel_exec.mode_flags` reads these module defaults at call time and passes them to the kernel. `MonkeyPatch.setattr` fails on a missing attribute, so a renamed default fails here instead of being set on a name nothing reads."""
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", False)
         patch.setattr(kernel_exec, "FOLLOWER_PREFER_SLOTS_DEFAULT", False)
@@ -31,7 +31,7 @@ def candidacy_tables(spec, features):
 
 
 def chain_inputs(spec, reach):
-    """Returns the runes whose own prefer or resolve records can read a slot `reach` past the input's first lookahead. A `then:` hop advances one slot, and an `except:` entry tests its parent's slot, so its hops count from there. The kernel computes the same sets while enumerating (`deep_slots::depth3_inputs` and `depth4_inputs`); this is the test's own statement of which inputs may be split on a deep slot in the pinned mode set."""
+    """Returns the runes whose windows read a prefer or resolve record that can read a slot `reach` past the input's first lookahead: the record's own rune, and for a resolve also the rune its `against:` names, whose window the resolve is read in wherever its own rune follows. A `then:` hop advances one slot, and an `except:` entry tests its parent's slot, so its hops count from there. The kernel computes the same sets while enumerating (`deep_slots::depth3_inputs` and `depth4_inputs`); this is the test's own statement of which inputs may be split on a deep slot in the pinned mode set."""
 
     def hops(condition):
         reaches = [1 + hops(condition.then)] if condition.then is not None else [0]
@@ -39,10 +39,11 @@ def chain_inputs(spec, reach):
         return max(reaches)
 
     return frozenset(
-        name
+        reader
         for name, rune in spec.runes.items()
         for record in tuple(rune.policy.prefer) + tuple(rune.policy.resolve)
         if record.when.right is not None and hops(record.when.right) >= reach
+        for reader in (name, *(record.against[:1] if record.against is not None else ()))
     )
 
 
@@ -461,7 +462,7 @@ def test_rule_provenance_carries_yaml_pointers(default_tables):
 
 
 class TestProspectLiveSlots:
-    """Tests the prospect case of deep-slot enumeration: with the simulated prospect on, a window where a raw deep token changes the input's own outcome through the follower's simulated settlement enumerates that slot, and only that token's rows settle differently. With it off, only an own-rune chain opens a slot. The kernel decides which slots are live; these tests check the table that results."""
+    """Tests the prospect case of deep-slot enumeration: with the simulated prospect on, a window where a raw deep token changes the input's own outcome through the follower's simulated settlement enumerates that slot, and only that token's rows settle differently. With it off, only a chain the input's window reads opens a slot: its own rune's, or a resolve's whose `against:` names it (`chain_inputs`). The kernel decides which slots are live; these tests check the table that results."""
 
     @pytest.fixture()
     def prospect_spec(self):

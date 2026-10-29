@@ -2,7 +2,7 @@
 //!
 //! The check has two stages because cheaper checks open far too many windows. Tracking which slots the recursion consults opens nearly everything, since it consults slots past the window almost everywhere. Stopping at follower-prospect variance still opens many times as many as needed: an instrumented run on the real spec found that most consulted triples with a prospect some token changes never change a replay outcome, and that the extra windows push the emitted settlement lookup's subtable-offset headroom below the floor that read-back checks (`SUBTABLE_OFFSET_HEADROOM_FLOOR` in `rebuild/pipeline/readback.py`).
 //!
-//! Stage one is a cheap prefilter. For each `(stance, junction)` shape the input can commit, it evaluates the follower's simulated prospect for each concrete token and compares it with the value at `EDGE`, which is what a dead slot is given. The synthetic left's entry is never read, so entry states collapse. If nothing varies, the token has no way into the input letter's ranking: a deep token reaches settlement only through prospect values, follower prefers, and own-rune chains, and the chain branch already covers the chains.
+//! Stage one is a cheap prefilter. For each `(stance, junction)` shape the input can commit, it evaluates the follower's simulated prospect for each concrete token and compares it with the value at `EDGE`, which is what a dead slot is given. The synthetic left's entry is never read, so entry states collapse. If nothing varies, the token has no way into the input letter's ranking: a deep token reaches settlement only through prospect values, follower prefers, and the chains read in the input's own window, and the chain branch already covers the chains.
 //!
 //! Stage two runs only where stage one fired. It replays the input letter's own transition for each token over the representative lefts (the four boundary kinds, then one synthetic left per distinct left-condition signature) and reports the slot live only where some representative left's settled cell changes.
 //!
@@ -10,7 +10,7 @@
 //!
 //! In stage two, a representative left whose baseline window raises E-UNACCEPTED-EXIT or a plain settlement error is one the fixpoint cannot reach, and it is skipped. A prefer conflict that raises E-INCOMPARABLE or E-AMBIGUOUS marks the slot live instead, so the enumeration reports the conflict instead of hiding it behind a dead slot. [`crate::error::SettleError`] says how its variants map to these outcomes.
 //!
-//! With shifted follower prefer slots on, stage one also has a follower prefer branch, which calls [`Engine::probe_prefer_favors`] with the follower's `prefer` records. A follower prefer reads the deep slots in two ways: through its record's shifted `when:` chain, and through the follower-cell enumeration the follower prefer runs over the shifted window. So a row scope or closure verdict that changes with the token changes which continuations the follower prefer can favor. The follower prefer branch is skipped when the follower is the input's own family, because `prefer_favors` then takes its own-rune branch, which the chain branch covers. It is also skipped when the follower has no `prefer` records.
+//! With shifted follower prefer slots on, stage one also has a follower prefer branch, which calls [`Engine::probe_prefer_favors`] with the follower's `prefer` records. A follower prefer reads the deep slots in two ways: through its record's shifted `when:` chain, and through the follower-cell enumeration the follower prefer runs over the shifted window. So a row scope or closure verdict that changes with the token changes which continuations the follower prefer can favor. When the follower is the input's own family, the branch probes that rune's records as the follower prefers that `Engine::apply_prefers` gathers a second time at the follower's position; the chain branch covers the same records at the input's own position. The branch is skipped when the follower has no `prefer` records.
 //!
 //! [`ProspectLiveness::third_live`] also ORs in [`ProspectLiveness::fourth_live`] over every concrete letter in the third slot. This is the fourth-slot fallback. Without it, a live fourth slot behind an unenumerated third would never be consulted. The per-token comparisons alone cannot see an input letter whose cell changes only under a specific `(third, fourth)` letter pair, because the optimistic reading of unknown slots ends the recursion the same way for an `EDGE` fourth and an `UNKNOWN` one. The recorded counterexample is `·See·No·No·Roe·No·Oy`: input `qsNo`, window `(qsNo, qsRoe, qsNo, qsOy)`, left `·See`. The fourth-slot `·Oy` changes the input letter's cell through two levels of simulation, while every probe with an `EDGE` or `UNKNOWN` fourth agrees.
 //!
@@ -599,7 +599,7 @@ impl<'i> ProspectLiveness<'i> {
         Ok(asks.ran_out())
     }
 
-    /// Stage one's follower prefer branch at the third slot. It returns false at once when the follower is the input's own family or has no `prefer` records (see the module doc).
+    /// Stage one's follower prefer branch at the third slot. It returns false at once when the follower has no `prefer` records (see the module doc).
     fn follower_prefer_varies_third(
         &mut self,
         engine: &mut Engine<'_>,
@@ -609,7 +609,7 @@ impl<'i> ProspectLiveness<'i> {
         r1tok: RightToken,
         r2tok: RightToken,
     ) -> Result<bool, SettleError> {
-        if right1 == family || self.follower_prefer_records(right1).is_empty() {
+        if self.follower_prefer_records(right1).is_empty() {
             return Ok(false);
         }
         for (stance, junction) in self.probe_candidate_shapes(family).iter().copied() {
@@ -640,7 +640,7 @@ impl<'i> ProspectLiveness<'i> {
         Ok(false)
     }
 
-    /// Stage one's follower prefer branch at the fourth slot, with the same two early returns.
+    /// Stage one's follower prefer branch at the fourth slot, with the same early return.
     #[allow(clippy::too_many_arguments)]
     fn follower_prefer_varies_fourth(
         &mut self,
@@ -653,7 +653,7 @@ impl<'i> ProspectLiveness<'i> {
         r2tok: RightToken,
         r3tok: RightToken,
     ) -> Result<bool, SettleError> {
-        if right1 == family || self.follower_prefer_records(right1).is_empty() {
+        if self.follower_prefer_records(right1).is_empty() {
             return Ok(false);
         }
         for (stance, junction) in self.probe_candidate_shapes(family).iter().copied() {
@@ -708,7 +708,7 @@ impl<'i> ProspectLiveness<'i> {
         for (at_record, record) in (0u32..).zip(records.iter()) {
             let first = at_record * span;
             let favors = |engine: &mut Engine<'_>, slots: Slots| {
-                engine.probe_prefer_favors(owner, record, family, candidate, &edge_left, slots)
+                engine.probe_prefer_favors(record, family, candidate, &edge_left, slots)
             };
             let base = Slots::new(r1tok, r2tok, r3tok.unwrap_or(EDGE), EDGE);
             let mut baseline = match asks.take(first, [None, None]) {
@@ -1779,7 +1779,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// The follower prefer branch opens a window the prospect branch leaves dead: `qsTea` offers no exit, so the input letter's prospect cannot change, and only `qsTea`'s follower prefer reads the third token.
+    /// The follower prefer branch opens a window the prospect branch leaves dead: `qsTea` offers no exit, so the input letter's prospect cannot change, and only `qsTea`'s follower prefer reads the third token. The branch fires for the input `qsTea` itself before a second `qsTea`, whose copy of the record the follower's position gathers.
     #[test]
     fn the_follower_prefer_branch_opens_a_slot_the_prospect_branch_leaves_shut() {
         let index = follower_prefer_spec();
@@ -1815,6 +1815,12 @@ pub(crate) mod tests {
             liveness.follower_prefer_varies_third(&mut engine, pea, tea, may, r1tok, r2tok),
             Ok(true),
             "and its follower prefer branch is what fires"
+        );
+        let mut liveness = ProspectLiveness::new(&index);
+        assert_eq!(
+            liveness.follower_prefer_varies_third(&mut engine, tea, tea, may, r1tok, r2tok),
+            Ok(true),
+            "at a doubled qsTea the follower's position reads the same record one position over, so the branch probes it there too"
         );
     }
 

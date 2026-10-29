@@ -1,6 +1,6 @@
 //! The deep-slot rune sets and the two slot filters. Together they decide which windows the table enumerates split by a raw third or fourth lookahead token, and so which windows leave those slots at `#NA`. The filters' chain branch is here; their liveness branch is in [`crate::liveness`] and is ORed in below.
 //!
-//! The two checks run in series and answer different questions. The rune set is static and per rune. Only a rune's own `prefer` or `resolve` records receive the real deep slots (`Engine::prefer_favors` and `Engine::apply_resolution`), so a rune with no record chaining that far can never read them, and its windows keep `#NA` without any probing. The filter is per window and more precise: even a rune in the set settles the same under every third token in a window where its chains have already answered definitely. [`Engine::cond_matches_right`] makes this decidable, because it returns `None` only when the verdict consulted a slot the window does not supply. So `None` over `(right1, right2, UNKNOWN, UNKNOWN)` means this window's answer depends on the third token, and `Some(_)` means it does not.
+//! The two checks run in series and answer different questions. The rune set is static and per rune. Only the records read in a rune's own window receive its real deep slots: its own `prefer` records gathered at its own position (`Engine::prefer_favors`), its own `resolve` records, and the `resolve` records of any rune whose `against:` names it, which `Engine::apply_resolution` checks whenever that rune follows it and reads in its window, as it reads every resolve's `when:`. The copy of a doubled letter's prefers gathered at the follower's position reads the slots shifted, as any follower prefer does. So a rune whose window no such record chains that far into can never read them, and its windows keep `#NA` without any probing. The filter is per window and more precise: even a rune in the set settles the same under every third token in a window where its chains have already answered definitely. [`Engine::cond_matches_right`] makes this decidable, because it returns `None` only when the verdict consulted a slot the window does not supply. So `None` over `(right1, right2, UNKNOWN, UNKNOWN)` means this window's answer depends on the third token, and `Some(_)` means it does not.
 //!
 //! Both kinds of mode set are handled here. In the pinned mode set (`simulated_prospect` and `follower_prefer_slots` both off, so `deep_modes` is false), the chain branch is the whole verdict and the two rune sets are the depth-3 and depth-4 chain sets. In a deep mode set, the raw deep tokens reach any input's window through the follower's replayed settlement or a follower prefer's shifted slots. Both rune sets then widen to every rune, and [`crate::liveness::ProspectLiveness`] is consulted wherever the chain branch says no. The caller passes the mode set in, as the `deep_modes` flag of the two rune sets and as a `Some(_)` liveness probe at the filters, because this crate has no environment to read defaults from.
 //!
@@ -26,24 +26,14 @@ pub fn right_chain_reach(cond: &Condition) -> usize {
     reach
 }
 
-/// The rune names with a `prefer` or `resolve` record whose right condition chains at least `reach` slots on. The records are read every `prefer`, then every `resolve`. That order does not affect this set, but it is the order in which [`ThirdSlotFilter`] and [`FourthSlotFilter`] gather their chain lists, where it decides which chain a verdict short-circuits on.
+/// The rune names whose windows read a right condition that chains at least `reach` slots on: the inputs of [`chains_at`].
 ///
 /// The result is an unordered set because every reader only tests membership, so nothing downstream can depend on an order.
 fn deep_inputs(index: &SpecIndex, reach: usize) -> HashSet<Sym> {
-    let mut out = HashSet::default();
-    for (name, rune) in index.runes() {
-        for record in rune.policy.prefer.iter().chain(&rune.policy.resolve) {
-            if let Some(right) = record.when.right.as_ref()
-                && right_chain_reach(right) >= reach
-            {
-                out.insert(*name);
-            }
-        }
-    }
-    out
+    chains_at(index, reach).into_keys().collect()
 }
 
-/// The rune names whose windows the raw third lookahead can decide: those with an own-rune `prefer` or `resolve` whose right condition chains at least two hops.
+/// The rune names whose windows the raw third lookahead can decide: those that read a `prefer` or `resolve` whose right condition chains at least two hops, their own or a resolve that names one of their records.
 pub fn depth3_inputs(index: &SpecIndex) -> HashSet<Sym> {
     deep_inputs(index, 2)
 }
@@ -55,7 +45,7 @@ pub fn depth4_inputs(index: &SpecIndex) -> HashSet<Sym> {
 
 /// The inputs whose windows can have a live third slot. The fixpoint applies this before asking [`ThirdSlotFilter`] about each window.
 ///
-/// In the pinned mode set only an own-rune depth-3 chain reads the slot, so this is [`depth3_inputs`]. In a deep mode set the raw third token can decide any input's window through the follower's replayed settlement or a follower prefer's shifted slots, so every rune is admitted and the per-window probe does all the pruning.
+/// In the pinned mode set only a depth-3 chain read in the input's own window reads the slot, so this is [`depth3_inputs`]. In a deep mode set the raw third token can decide any input's window through the follower's replayed settlement or a follower prefer's shifted slots, so every rune is admitted and the per-window probe does all the pruning.
 pub fn third_slot_inputs(index: &SpecIndex, deep_modes: bool) -> HashSet<Sym> {
     if deep_modes {
         return index.runes().iter().map(|(name, _)| *name).collect();
@@ -71,17 +61,24 @@ pub fn fourth_slot_inputs(index: &SpecIndex, deep_modes: bool) -> HashSet<Sym> {
     depth4_inputs(index)
 }
 
-/// Each input's right conditions that chain at least `reach` slots on, `prefer` before `resolve` and in declaration order within each list. Each filter reads a window against this list.
+/// Each input's right conditions that chain at least `reach` slots on, each with the rune that owns it, whose groups its classes name. The runes are read in index order, each one's `prefer` records before its `resolve` records and in declaration order within each list, and the order decides which chain a filter's verdict short-circuits on. A record's own rune reads it, and a `resolve` is read in the window of the rune its `against:` names too.
 ///
-/// The inputs with a non-empty list are the rune set at the same reach, because both apply the same test to the same records. An input with no entry here is never live on the chain branch.
-fn chains_at<'i>(index: &'i SpecIndex, reach: usize) -> HashMap<Sym, Vec<&'i Condition>> {
-    let mut out: HashMap<Sym, Vec<&'i Condition>> = HashMap::default();
+/// The inputs with a non-empty list are the rune set at the same reach ([`deep_inputs`]). An input with no entry here is never live on the chain branch.
+fn chains_at<'i>(index: &'i SpecIndex, reach: usize) -> HashMap<Sym, Vec<(Sym, &'i Condition)>> {
+    let mut out: HashMap<Sym, Vec<(Sym, &'i Condition)>> = HashMap::default();
     for (name, rune) in index.runes() {
         for record in rune.policy.prefer.iter().chain(&rune.policy.resolve) {
-            if let Some(right) = record.when.right.as_ref()
-                && right_chain_reach(right) >= reach
+            let Some(right) = record.when.right.as_ref() else {
+                continue;
+            };
+            if right_chain_reach(right) < reach {
+                continue;
+            }
+            out.entry(*name).or_default().push((*name, right));
+            if let Some((target, _)) = record.against
+                && target != *name
             {
-                out.entry(*name).or_default().push(right);
+                out.entry(target).or_default().push((*name, right));
             }
         }
     }
@@ -90,9 +87,9 @@ fn chains_at<'i>(index: &'i SpecIndex, reach: usize) -> HashMap<Sym, Vec<&'i Con
 
 /// Whether the raw third slot can decide an input's window, keyed on the three rune families `(input, right1, right2)`. The window's left is not read.
 ///
-/// The chain branch is true where some depth-3-reach `prefer` or `resolve` chain of the input's own rune is still unknown over `(right1, right2, UNKNOWN, UNKNOWN)`. `resolve` records receive all four raw slots in `Engine::apply_resolution`, so they count toward the rune set with the prefers. Where the chain branch says no and the caller passed a liveness probe, [`ProspectLiveness::third_live`] is the second branch: the slot is also live where some candidate's simulated follower choice, or some follower prefer's verdict, changes with the third token.
+/// The chain branch is true where some depth-3-reach `prefer` or `resolve` chain the input's window reads ([`chains_at`]) is still unknown over `(right1, right2, UNKNOWN, UNKNOWN)`. `resolve` records receive all four raw slots in `Engine::apply_resolution`, so they count toward the rune set with the prefers. Where the chain branch says no and the caller passed a liveness probe, [`ProspectLiveness::third_live`] is the second branch: the slot is also live where some candidate's simulated follower choice, or some follower prefer's verdict, changes with the third token.
 pub struct ThirdSlotFilter<'i> {
-    chains: HashMap<Sym, Vec<&'i Condition>>,
+    chains: HashMap<Sym, Vec<(Sym, &'i Condition)>>,
     verdicts: HashMap<(Sym, Sym, Sym), bool>,
 }
 
@@ -129,9 +126,9 @@ impl<'i> ThirdSlotFilter<'i> {
         let window = Slots::pair(letter(right1), letter(right2)).as_array();
         let mut verdict = false;
         if let Some(chains) = self.chains.get(&input) {
-            for chain in chains {
+            for (owner, chain) in chains {
                 if engine
-                    .cond_matches_right(Some(input), chain, &window)?
+                    .cond_matches_right(Some(*owner), chain, &window)?
                     .is_none()
                 {
                     verdict = true;
@@ -156,7 +153,7 @@ impl<'i> ThirdSlotFilter<'i> {
 ///
 /// A window the third filter finds definite is definite for this one too, and the fixpoint relies on that. On the chain branch, a reach-3 chain is also a reach-2 chain. On the liveness branch, `third_live` ORs in `fourth_live` over every concrete letter in the third slot. So a dead third slot cannot hide a live fourth.
 pub struct FourthSlotFilter<'i> {
-    chains: HashMap<Sym, Vec<&'i Condition>>,
+    chains: HashMap<Sym, Vec<(Sym, &'i Condition)>>,
     verdicts: HashMap<(Sym, Sym, Sym, Sym), bool>,
 }
 
@@ -192,9 +189,9 @@ impl<'i> FourthSlotFilter<'i> {
         let window = Slots::new(letter(right1), letter(right2), letter(right3), UNKNOWN).as_array();
         let mut verdict = false;
         if let Some(chains) = self.chains.get(&input) {
-            for chain in chains {
+            for (owner, chain) in chains {
                 if engine
-                    .cond_matches_right(Some(input), chain, &window)?
+                    .cond_matches_right(Some(*owner), chain, &window)?
                     .is_none()
                 {
                     verdict = true;
@@ -454,6 +451,61 @@ mod tests {
             filter.matters(&mut engine, None, pea, tea, may, it),
             Ok(false),
             "qsPea's chain reaches two slots, which the depth-4 set does not admit"
+        );
+    }
+
+    /// `qsTea`'s resolve against `qsPea` is read in `qsPea`'s window wherever `qsTea` follows it, so its two-hop chain opens `qsPea`'s third slot although `qsPea` has no chain of its own, and its class is `qsTea`'s group, not `qsPea`'s group of the same name.
+    #[test]
+    fn a_resolve_opens_the_deep_slots_of_the_rune_its_against_names() {
+        let near = |member: &str| fixtures::map(&[("near", &fixtures::names(&[member]))]);
+        let reach_two = fixtures::condition(&[
+            ("family", &fixtures::names(&["qsTea"])),
+            (
+                "then",
+                &fixtures::condition(&[
+                    ("klass", &fixtures::names(&["near"])),
+                    ("then", &chain(&["qsIt"])),
+                ]),
+            ),
+        ]);
+        let resolve = fixtures::record(&[
+            ("kind", "\"resolve\""),
+            ("against", &fixtures::seq(&["\"qsPea\"", "null"])),
+            ("when", &fixtures::when(&[("right", &reach_two)])),
+        ]);
+        let tea = fixtures::rune(
+            "qsTea",
+            &[(
+                "policy",
+                &fixtures::policy(&[
+                    ("resolve", &fixtures::seq(&[&resolve])),
+                    ("groups", &near("qsMay")),
+                ]),
+            )],
+        );
+        let pea = fixtures::rune(
+            "qsPea",
+            &[("policy", &fixtures::policy(&[("groups", &near("qsIt"))]))],
+        );
+        let index = spec_of(&[("qsPea", &pea), ("qsTea", &tea)]);
+        assert_eq!(sorted(&index, &depth3_inputs(&index)), ["qsPea", "qsTea"]);
+        assert!(depth4_inputs(&index).is_empty());
+
+        let mut engine = pinned(&index);
+        let mut filter = ThirdSlotFilter::new(&index);
+        let pea_name = fixtures::sym(&index, "qsPea");
+        let tea_name = fixtures::sym(&index, "qsTea");
+        let may_name = fixtures::sym(&index, "qsMay");
+        let it_name = fixtures::sym(&index, "qsIt");
+        assert_eq!(
+            filter.matters(&mut engine, None, pea_name, tea_name, may_name),
+            Ok(true),
+            "qsMay is in qsTea's `near`, so the chain's third hop reads the slot the window does not supply"
+        );
+        assert_eq!(
+            filter.matters(&mut engine, None, pea_name, tea_name, it_name),
+            Ok(false),
+            "qsIt is only in qsPea's `near`, which the resolve does not read"
         );
     }
 

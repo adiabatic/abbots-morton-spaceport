@@ -1,6 +1,6 @@
 //! The settlement engine: condition matching, the capability reads that decide what a stance can offer, refusals, candidate enumeration, the refusal-aware lookahead closure, and the lexicographic ranking (absolute prefers, the window join count, yielding prefers, the runes' declared order, then the final tiebreak), followed by the adjustments and the commit that turn the winner into a settled cell. This crate is the only implementation of settlement.
 //!
-//! Each ranking stage narrows the survivor list the next stage reads, so the order of the stages determines the result, and `decided_stage` names the stage that narrowed the list to one. The two prefer stages can raise instead of choosing: prefer records of one rune that demand different outcomes at non-nested specificity raise E-AMBIGUOUS, and prefer records of two runes that demand different outcomes raise E-INCOMPARABLE whatever their specificity. The E-INCOMPARABLE message ends in a paste-ready `resolve:` stub that the author copies into the rune's YAML, so its wording must stay as it is.
+//! Each ranking stage narrows the survivor list the next stage reads, so the order of the stages determines the result, and `decided_stage` names the stage that narrowed the list to one. The two prefer stages can raise instead of choosing: prefer records gathered at one position that demand different outcomes at non-nested specificity raise E-AMBIGUOUS, and prefer records gathered at the two positions, the letter's own and its follower's, that demand different outcomes raise E-INCOMPARABLE whatever their specificity. A doubled letter's records are gathered at both positions ([`Position`]). The E-INCOMPARABLE message ends in a paste-ready `resolve:` stub that the author copies into the rune's YAML, so its wording must stay as it is.
 //!
 //! An engine is one (spec, feature configuration) pair. It borrows the spec as a [`SpecIndex`], so the guard's engines for every feature combination and every replay share one index and one string pool. Everything the engine holds is cache, because the table build's fixpoint asks the same questions about the same windows many times. An engine can also read another engine's finished trace memo: the memo leaves as a [`crate::memo::MemoSnapshot`] and is passed to another engine as a shared memo, behind an exclusion naming the runes and classes the two engines do not settle alike ([`Engine::attach_shared_memos`]). That is how a configuration enumerates as a delta over `default`. Per-stance caches are ordinary maps with no size cap, because a [`StanceId`] is a stable index pair that is never reused.
 //!
@@ -501,17 +501,26 @@ enum AdjustmentKind {
     Contract,
 }
 
-/// One policy record with the rune that owns it. The prefer stage gathers records from both junction runes this way and passes the two colliding ones to the resolution and the error message.
+/// Which junction position gathered a prefer record: the letter being settled, whose records target its own cell, or its follower, whose records are evaluated one position over. At a doubled letter both positions gather the same rune's records, so every decision that tells the two sets apart reads the position, never the rune that owns the record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Position {
+    Current,
+    Follower,
+}
+
+/// One policy record with the rune that owns it and the position that gathered it. The prefer stage gathers records from both junction positions this way and passes the two colliding ones to the resolution and the error message.
 #[derive(Clone, Copy, Debug)]
 struct OwnedRecord<'i> {
     owner: Sym,
     record: &'i PolicyRecord,
+    at: Position,
 }
 
 /// One gathered prefer record that applies to this window: it is relevant, it favors something, and what it favors is a strict subset of the survivor list. `favored` is a set because the narrowing only tests membership.
 struct Applicable<'i> {
     owner: Sym,
     record: &'i PolicyRecord,
+    at: Position,
     favored: HashSet<Candidate>,
 }
 
@@ -520,6 +529,7 @@ impl<'i> Applicable<'i> {
         OwnedRecord {
             owner: self.owner,
             record: self.record,
+            at: self.at,
         }
     }
 }
@@ -2610,10 +2620,10 @@ impl<'i> Engine<'i> {
 
     /// Whether one prefer record favors this candidate. `None` means the record has nothing to say about this candidate: its `when:` refuses it, it lies outside the stance of a record that names a stance and a cell, it matches neither the record's cell nor its `over:`, or, for a follower prefer, no continuation under it is relevant. [`Engine::apply_prefers`] keeps a `None` candidate, without counting it as support, when the record has a cell and names a stance or an `over:`, and otherwise drops it as it drops `Some(false)`.
     ///
-    /// A record of our own rune targets the candidate's stance or cell directly and reads the window's deep slots as they are. A record with a cell compares cells only within its stance when it names one, and ranks its cell only above the cells its `over:` matches when it names one: each limits where the preference applies, the same with or without the other, and neither is itself the demand. A follower's record is instead a follower prefer: it favors the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's junction, and it skips a continuation that lies outside a cell record's stance or matches neither that record's cell nor its `over:`. With `follower_prefer_slots` on, the follower prefer reads the window's slots shifted by one, so a chained condition resolves inside the window. With it off, everything past the follower prefer's own `right1` is `follower_prefer_deep_slot`, and unknown verdicts there count as firing, so a deep-chained condition has to be repeated on every possible left rune instead of written once on the rune that owns it.
+    /// `at` is the position that gathered the record, and it chooses the branch, so a doubled letter's records are read once each way. A record gathered at the current position is `rune_name`'s and targets the candidate's stance or cell directly, reading the window's deep slots as they are. A record with a cell compares cells only within its stance when it names one, and ranks its cell only above the cells its `over:` matches when it names one: each limits where the preference applies, the same with or without the other, and neither is itself the demand. A record gathered at the follower's position is the `right1` rune's and is instead a follower prefer: it favors the candidates under which its own preferred continuation is admissible, evaluated one position over with `joined_at` bound to the candidate's junction, and it skips a continuation that lies outside a cell record's stance or matches neither that record's cell nor its `over:`. With `follower_prefer_slots` on, the follower prefer reads the window's slots shifted by one, so a chained condition resolves inside the window. With it off, everything past the follower prefer's own `right1` is `follower_prefer_deep_slot`, and unknown verdicts there count as firing, so a deep-chained condition has to be repeated on every possible left rune instead of written once on the rune that owns it.
     fn prefer_favors(
         &mut self,
-        owner: Sym,
+        at: Position,
         record: &PolicyRecord,
         rune_name: Sym,
         candidate: Candidate,
@@ -2621,9 +2631,9 @@ impl<'i> Engine<'i> {
         slots: Slots,
     ) -> Result<Option<bool>, SettleError> {
         let vocab = self.index().vocab();
-        if owner == rune_name {
+        if at == Position::Current {
             let verdict = self.when_matches(
-                Some(owner),
+                Some(rune_name),
                 &record.when,
                 left,
                 candidate.entry,
@@ -2653,9 +2663,9 @@ impl<'i> Engine<'i> {
             }
             return Ok(None);
         }
-        if slots.right1.rune() != Some(owner) {
+        let Some(owner) = slots.right1.rune() else {
             return Ok(None);
-        }
+        };
         let synthetic_left = Self::synthetic_left(rune_name, candidate);
         let (follower_prefer_right2, follower_prefer_right3) = if self.follower_prefer_slots {
             (slots.right3, slots.right4)
@@ -2738,23 +2748,29 @@ impl<'i> Engine<'i> {
         self.prospect(rune_name, candidate, slots, false)
     }
 
-    /// [`Engine::prefer_favors`], exposed to the liveness probe's follower prefer branch, like [`Engine::probe_prospect`].
+    /// [`Engine::prefer_favors`] at the follower's position, exposed to the liveness probe's follower prefer branch, like [`Engine::probe_prospect`]. `record` is one of the `right1` rune's records, which is `rune_name` itself at a doubled letter.
     #[allow(dead_code)]
     pub(crate) fn probe_prefer_favors(
         &mut self,
-        owner: Sym,
         record: &PolicyRecord,
         rune_name: Sym,
         candidate: Candidate,
         left: &LeftContext,
         slots: Slots,
     ) -> Result<Option<bool>, SettleError> {
-        self.prefer_favors(owner, record, rune_name, candidate, left, slots)
+        self.prefer_favors(
+            Position::Follower,
+            record,
+            rune_name,
+            candidate,
+            left,
+            slots,
+        )
     }
 
-    /// One prefer stage, absolute or yielding, over the records of both junction runes, most specific first.
+    /// One prefer stage, absolute or yielding, over the records of both junction positions, most specific first.
     ///
-    /// Records are gathered in declaration order, our own rune's before the follower's, then sorted by how many other applicable records outrank them, so the narrowest applies first. When a record's favored set no longer overlaps the survivors, the stage looks for an already applied record of equal or incomparable specificity. Within one rune that raises E-AMBIGUOUS. When there is none, a conflict within one rune resolves by set membership without an error, but an applied record of the other rune that excludes the held record's favorites ([`Engine::other_rune_causes`]) still collides with it, because specificity never settles a conflict between two runes: the two runes' records compare their conditions in different frames, the follower's one position over. Across two runes, a `resolve:` naming the collision settles it, and without one it raises E-INCOMPARABLE.
+    /// Records are gathered in declaration order, our own rune's at the current position before the follower's at its position, then sorted by how many other applicable records outrank them, so the narrowest applies first. At a doubled letter the follower is our own rune, and its records are gathered a second time at the follower's position, where [`Engine::prefer_favors`] evaluates them one position over as it does any follower's. When a record's favored set no longer overlaps the survivors, the stage looks for an already applied record of equal or incomparable specificity. Gathered at the same position, that raises E-AMBIGUOUS. When there is none, a conflict within one position resolves by set membership without an error, but an applied record of the other position that excludes the held record's favorites ([`Engine::other_position_causes`]) still collides with it, because specificity never settles a conflict between two positions: their records compare their conditions in different frames, the follower's one position over. Across two positions, a `resolve:` naming the collision settles it, and without one it raises E-INCOMPARABLE.
     fn apply_prefers(
         &mut self,
         mode_absolute: bool,
@@ -2774,7 +2790,14 @@ impl<'i> Engine<'i> {
             _ => None,
         };
         let mut gathered: Vec<OwnedRecord<'i>> = Vec::new();
-        for owner in [Some(rune_name), follower_owner].into_iter().flatten() {
+        let positions = [
+            (Some(rune_name), Position::Current),
+            (follower_owner, Position::Follower),
+        ];
+        for (owner, at) in positions {
+            let Some(owner) = owner else {
+                continue;
+            };
             let rune = index
                 .rune(owner)
                 .expect("both gathered owners were checked modeled before they got here");
@@ -2782,19 +2805,19 @@ impl<'i> Engine<'i> {
                 if (record.mode == Some(vocab.absolute)) != mode_absolute {
                     continue;
                 }
-                gathered.push(OwnedRecord { owner, record });
+                gathered.push(OwnedRecord { owner, record, at });
             }
         }
         if gathered.is_empty() {
             return Ok(survivors.to_vec());
         }
         let mut applicable: Vec<Applicable<'i>> = Vec::new();
-        for OwnedRecord { owner, record } in gathered {
+        for OwnedRecord { owner, record, at } in gathered {
             let mut favored: HashSet<Candidate> = HashSet::default();
             let mut supported = false;
             for candidate in survivors {
                 let Some(favors) =
-                    self.prefer_favors(owner, record, rune_name, *candidate, left, slots)?
+                    self.prefer_favors(at, record, rune_name, *candidate, left, slots)?
                 else {
                     if record.cell.is_some() && (record.stance.is_some() || record.over.is_some()) {
                         favored.insert(*candidate);
@@ -2810,6 +2833,7 @@ impl<'i> Engine<'i> {
                 applicable.push(Applicable {
                     owner,
                     record,
+                    at,
                     favored,
                 });
             }
@@ -2848,9 +2872,11 @@ impl<'i> Engine<'i> {
             let Applicable {
                 owner,
                 record,
+                at,
                 favored,
             } = &applicable[position];
-            let (owner, record) = (*owner, *record);
+            let (owner, record, at) = (*owner, *record, *at);
+            let held = OwnedRecord { owner, record, at };
             let narrowed: Vec<Candidate> = current
                 .iter()
                 .copied()
@@ -2862,7 +2888,7 @@ impl<'i> Engine<'i> {
                 self.record_fired(record.provenance.as_ref());
                 notes.push(format!(
                     "prefer applied: {}",
-                    provenance_text(index, record.provenance.as_ref())
+                    gathered_text(index, rune_name, held)
                 ));
                 continue;
             }
@@ -2881,23 +2907,22 @@ impl<'i> Engine<'i> {
                 {
                     continue;
                 }
-                if previous.owner == owner {
+                if previous.at == at {
                     return Err(SettleError::Ambiguous(format!(
                         "E-AMBIGUOUS: prefer records demand different outcomes at non-nested specificity: {} vs {}",
-                        provenance_text(index, previous.record.provenance.as_ref()),
-                        provenance_text(index, record.provenance.as_ref())
+                        gathered_text(index, rune_name, previous),
+                        gathered_text(index, rune_name, held)
                     )));
                 }
                 partners.push(previous);
                 break;
             }
             if partners.is_empty() {
-                partners = Self::other_rune_causes(&applicable, &applied, position, survivors);
+                partners = Self::other_position_causes(&applicable, &applied, position, survivors);
             }
             let Some(&first) = partners.first() else {
                 continue;
             };
-            let held = OwnedRecord { owner, record };
             let mut resolved = None;
             for &partner in &partners {
                 resolved = self.apply_resolution(partner, held, survivors, left, slots, notes)?;
@@ -2916,8 +2941,8 @@ impl<'i> Engine<'i> {
         Ok(current)
     }
 
-    /// The applied records of the other junction rune that keep the held record at `held` from narrowing the survivors, once every applied record outranks it or is outranked by it. An applied record whose favored set shares no candidate with the held record's causes the skip. When none does on its own, the applied records cause it together, provided the candidates they all favor miss the held record's. A skip that only a resolve's pick causes has no cause here, and neither does a record that favors some of what the held record does. A cause from the other rune makes the skip a conflict between the two runes, which needs a `resolve:` whatever the two records' specificity.
-    fn other_rune_causes(
+    /// The applied records gathered at the other junction position that keep the held record at `held` from narrowing the survivors, once every applied record outranks it or is outranked by it. An applied record at either position whose favored set shares no candidate with the held record's causes the skip, and then a record that favors some of what the held record does is no cause. When no applied record does on its own, the applied records cause it together, provided some candidate they all favor exists and the candidates they all favor miss the held record's. A skip that only a resolve's pick causes has no cause here. The causes are gathered at both positions and only then narrowed to the other position's, so a skip whose causes all sit at the held record's own position returns none. A cause from the other position makes the skip a conflict between the two positions, which needs a `resolve:` whatever the two records' specificity, a doubled letter's records at the two positions included.
+    fn other_position_causes(
         applicable: &[Applicable<'i>],
         applied: &[usize],
         held: usize,
@@ -2952,12 +2977,14 @@ impl<'i> Engine<'i> {
         };
         causes
             .into_iter()
-            .filter(|&previous| applicable[previous].owner != applicable[held].owner)
+            .filter(|&previous| applicable[previous].at != applicable[held].at)
             .map(|previous| applicable[previous].owned())
             .collect()
     }
 
-    /// The design section 5.8 resolution against a named record: a conflict between two runes' prefers resolves without an error when a `resolve:` on either rune names the other record in `against:` and its own `when:` does not definitely refuse this window. Unknown deep slots count as matching, as they do for refusals and unlocks.
+    /// The design section 5.8 resolution against a named record: a conflict between the prefers of two positions resolves without an error when a `resolve:` on either record's rune names the other record in `against:` and its own `when:` does not definitely refuse this window. Unknown deep slots count as matching, as they do for refusals and unlocks. Every resolve's `when:` reads the current letter's window, and its `pick:` constrains the current letter's cell.
+    ///
+    /// At a doubled letter both records are one rune's. Only the current position's copy holds the resolve then: its `against:` names its own rune and the record the follower's position gathered, so it never matches a record at its own position.
     ///
     /// The `pick:` pattern filters the stage's whole survivor set, not the narrowed list, because the resolve overrides both colliding records. Its provenance is added to the fired set and the notes, so explain output and the dead-policy check both see it. `None` means no resolve covers this conflict, which makes the collision E-INCOMPARABLE. Two matching resolves with different picks, and a pick that admits no survivor, raise E-INCOMPARABLE themselves.
     fn apply_resolution(
@@ -2973,6 +3000,11 @@ impl<'i> Engine<'i> {
         let vocab = index.vocab();
         let mut matches: Vec<OwnedRecord<'i>> = Vec::new();
         for (holder, other) in [(a, b), (b, a)] {
+            if holder.owner == other.owner
+                && (holder.at, other.at) != (Position::Current, Position::Follower)
+            {
+                continue;
+            }
             let Some(holder_rune) = index.rune(holder.owner) else {
                 continue;
             };
@@ -3002,6 +3034,7 @@ impl<'i> Engine<'i> {
                 matches.push(OwnedRecord {
                     owner: holder.owner,
                     record: resolution,
+                    at: holder.at,
                 });
             }
         }
@@ -3047,7 +3080,7 @@ impl<'i> Engine<'i> {
         Ok(Some(picked))
     }
 
-    /// The E-INCOMPARABLE message: the two records, an example window written in rune names, the candidates they conflicted over, and a paste-ready `resolve:` record for the rune that owns the window. All of it, the stub included, must stay as it is, because the author copies the stub into the rune's YAML. A record with no `id:` prints the instruction to give it one instead of an empty field.
+    /// The E-INCOMPARABLE message: the two records as [`gathered_text`] writes them, an example window written in rune names, the candidates they conflicted over, and a paste-ready `resolve:` record for the rune that owns the window, whose `against:` names the record the follower's position gathered (at a doubled letter, one of the window rune's own), whichever of the two applied first. Where the two records' pointers can name one file, the header marks that record with its position. All of it, the stub included, must stay as it is, because the author copies the stub into the rune's YAML. A record with no `id:` prints the instruction to give it one instead of an empty field.
     ///
     /// Three fields treat an empty string as absent, and all three empty values can occur in a dump: a rune named `""` is left out of the example window instead of adding a space, a height named `""` prints `none`, and a record whose `id:` is `""` prints the instruction to give it one. See [`text_or`].
     fn incomparable_message(
@@ -3088,7 +3121,7 @@ impl<'i> Engine<'i> {
                 )
             })
             .collect();
-        let other = if a.owner == rune_name { b } else { a };
+        let other = if a.at == Position::Current { b } else { a };
         let against_id = text_or(
             other.record.id.map_or("", |id| index.resolve(id)),
             "<give that record an id: first>",
@@ -3103,9 +3136,9 @@ impl<'i> Engine<'i> {
         }
         let rune_text = index.resolve(rune_name);
         format!(
-            "E-INCOMPARABLE: prefer records of two runes demand different outcomes: {} vs {}.\n  example window: {}\n  conflicted candidates on {rune_text}: {}\n  paste-ready resolve for glyph_data/runes/{rune_text}.yaml policy.resolve (design section 5.8):\n  - against: {{rune: {}, id: {against_id}}}\n{when_clause}    pick: {{exit: <the winning cell>}}\n    why: <author rationale, mandatory>",
-            provenance_text(index, a.record.provenance.as_ref()),
-            provenance_text(index, b.record.provenance.as_ref()),
+            "E-INCOMPARABLE: prefer records at two positions demand different outcomes: {} vs {}.\n  example window: {}\n  conflicted candidates on {rune_text}: {}\n  paste-ready resolve for glyph_data/runes/{rune_text}.yaml policy.resolve (design section 5.8):\n  - against: {{rune: {}, id: {against_id}}}\n{when_clause}    pick: {{exit: <the winning cell>}}\n    why: <author rationale, mandatory>",
+            gathered_text(index, rune_name, a),
+            gathered_text(index, rune_name, b),
             window.join(" "),
             cells.join(", "),
             index.resolve(other.owner),
@@ -3766,6 +3799,25 @@ fn provenance_text(index: &SpecIndex, provenance: Option<&Provenance>) -> String
     match provenance {
         Some(provenance) => provenance_pointer(index, provenance),
         None => "None".to_owned(),
+    }
+}
+
+/// A gathered prefer record as the prefer stage's notes and errors write it: its pointer, followed by its position when the follower's position gathered it from a file that also holds one of `rune_name`'s prefers. The file alone cannot tell the two positions apart there. At a doubled letter both positions gather one rune's records, and a ligature's copies of its last letter's exit-side records keep that letter's file, so the file repeats across a junction between a ligature and its last letter, or between two ligatures that end in one letter, in either order.
+fn gathered_text(index: &SpecIndex, rune_name: Sym, entry: OwnedRecord<'_>) -> String {
+    let pointer = provenance_text(index, entry.record.provenance.as_ref());
+    let file = |record: &PolicyRecord| record.provenance.as_ref().map(|provenance| provenance.file);
+    let shares_current_file = || {
+        index.rune(rune_name).is_some_and(|rune| {
+            rune.policy
+                .prefer
+                .iter()
+                .any(|record| file(record) == file(entry.record))
+        })
+    };
+    if entry.at == Position::Follower && shares_current_file() {
+        format!("{pointer} (at the follower's position)")
+    } else {
+        pointer
     }
 }
 
@@ -6503,7 +6555,7 @@ mod tests {
         ] {
             assert_eq!(
                 engine.prefer_favors(
-                    tea,
+                    Position::Follower,
                     record,
                     pea,
                     candidate,
@@ -6652,7 +6704,7 @@ mod tests {
             ] {
                 assert_eq!(
                     engine.prefer_favors(
-                        tea_name,
+                        Position::Follower,
                         record,
                         pea_name,
                         candidate,
@@ -6757,8 +6809,9 @@ mod tests {
         );
     }
 
+    /// Two records gathered at one position that demand different outcomes at equal specificity are E-AMBIGUOUS, at the current position and at the follower's alike. At qsPea·qsPea, `qsPea`'s two records after `qsPea` refuse at the current position, whose left is the run edge, and both apply at the follower's position, one favoring the cells that leave the follower free to be `flourish` and the other the cell it can enter at the baseline. Both are `qsPea`'s, gathered at one position, so no resolve is consulted.
     #[test]
-    fn two_prefers_on_one_rune_demanding_different_stances_are_ambiguous() {
+    fn two_prefers_at_one_position_demanding_different_outcomes_are_ambiguous() {
         let pea_policy = fixtures::policy(&[(
             "prefer",
             &fixtures::seq(&[
@@ -6777,6 +6830,33 @@ mod tests {
         assert_eq!(
             error.message(),
             "E-AMBIGUOUS: prefer records demand different outcomes at non-nested specificity: qsPea.yaml:policy.prefer[0] vs qsPea.yaml:policy.prefer[1]"
+        );
+
+        let doubled = doubled_pea_index(
+            &[
+                &absolute_prefer(
+                    "qsPea",
+                    0,
+                    &[("stance", "\"flourish\""), ("when", &pea_on("left"))],
+                ),
+                &absolute_prefer(
+                    "qsPea",
+                    1,
+                    &[
+                        ("cell", &fixtures::map(&[("entry", "\"baseline\"")])),
+                        ("when", &pea_on("left")),
+                    ],
+                ),
+            ],
+            &[],
+        );
+        let mut engine = Engine::new(&doubled, no_features());
+        let error = settle_pea(&mut engine, doubled_slots(&doubled))
+            .expect_err("the follower's position holds both records");
+        assert_eq!(error.kind(), SettleErrorKind::Ambiguous);
+        assert_eq!(
+            error.message(),
+            "E-AMBIGUOUS: prefer records demand different outcomes at non-nested specificity: qsPea.yaml:policy.prefer[0] (at the follower's position) vs qsPea.yaml:policy.prefer[1] (at the follower's position)"
         );
     }
 
@@ -6858,7 +6938,7 @@ mod tests {
             let mut engine = Engine::with_modes(&index, no_features(), modes);
             assert_eq!(
                 engine.prefer_favors(
-                    pea,
+                    Position::Current,
                     own,
                     pea,
                     candidate,
@@ -6870,7 +6950,7 @@ mod tests {
             );
             assert_eq!(
                 engine.prefer_favors(
-                    pea,
+                    Position::Current,
                     own,
                     pea,
                     candidate,
@@ -6884,7 +6964,7 @@ mod tests {
 
         let follower_prefer = |engine: &mut Engine<'_>, slots: Slots| {
             engine
-                .prefer_favors(tea, follower, pea, candidate, &edge, slots)
+                .prefer_favors(Position::Follower, follower, pea, candidate, &edge, slots)
                 .expect("the fixture raises nothing")
         };
         let mut pinned_engine = Engine::with_modes(&index, no_features(), pinned);
@@ -6973,7 +7053,7 @@ mod tests {
         assert_eq!(
             error.message(),
             concat!(
-                "E-INCOMPARABLE: prefer records of two runes demand different outcomes: qsPea.yaml:policy.prefer[0] vs qsTea.yaml:policy.prefer[0].\n",
+                "E-INCOMPARABLE: prefer records at two positions demand different outcomes: qsPea.yaml:policy.prefer[0] vs qsTea.yaml:policy.prefer[0].\n",
                 "  example window: qsPea qsTea qsMay\n",
                 "  conflicted candidates on qsPea: (stroke, entry none, exit x-height), (stroke, entry none, exit none), (flourish, entry none, exit none)\n",
                 "  paste-ready resolve for glyph_data/runes/qsPea.yaml policy.resolve (design section 5.8):\n",
@@ -7022,22 +7102,21 @@ mod tests {
     }
 
     /// Three fields of this message treat an empty authored string as absent: the example window leaves out the nameless rune instead of printing an extra space, the candidate that entered at the empty height prints `entry none`, and the empty `id:` prints the instruction to give the record one. The `when:` clause is the control. It prints family names as they are, so the nameless follower appears there as `family: ` in the expected text.
-    ///
-    /// The expected text was taken from the Python implementation's message for the same arguments.
     #[test]
-    fn the_incomparable_sentence_reads_every_empty_spelling_the_way_python_does() {
+    fn the_incomparable_sentence_reads_every_empty_spelling_as_absent() {
         let index = empty_spelling_spec();
         let engine = Engine::new(&index, no_features());
         let pea = fixtures::sym(&index, "qsPea");
         let empty = fixtures::sym(&index, "");
         let bare = fixtures::sym(&index, "bare");
-        let prefer_of = |owner: Sym| OwnedRecord {
+        let prefer_of = |owner: Sym, at: Position| OwnedRecord {
             owner,
             record: &index
                 .rune(owner)
                 .expect("the fixture models both runes")
                 .policy
                 .prefer[0],
+            at,
         };
         let survivors = [
             Candidate::non_joining(&index, pea, bare, Some(empty), 0),
@@ -7066,8 +7145,8 @@ mod tests {
             },
         );
         let message = engine.incomparable_message(
-            prefer_of(pea),
-            prefer_of(empty),
+            prefer_of(pea, Position::Current),
+            prefer_of(empty, Position::Follower),
             pea,
             &survivors,
             &left,
@@ -7081,7 +7160,7 @@ mod tests {
         assert_eq!(
             message,
             concat!(
-                "E-INCOMPARABLE: prefer records of two runes demand different outcomes: qsPea.yaml:policy.prefer[0] vs .yaml:policy.prefer[0].\n",
+                "E-INCOMPARABLE: prefer records at two positions demand different outcomes: qsPea.yaml:policy.prefer[0] vs .yaml:policy.prefer[0].\n",
                 "  example window: qsPea qsPea\n",
                 "  conflicted candidates on qsPea: (bare, entry none, exit none), (bare, entry none, exit x-height)\n",
                 "  paste-ready resolve for glyph_data/runes/qsPea.yaml policy.resolve (design section 5.8):\n",
@@ -7132,26 +7211,24 @@ mod tests {
         pointed_record("prefer", rune, position, &all)
     }
 
-    /// `qsPea`'s record favors `flourish` before `qsTea`, and `qsTea`'s favors a continuation entered at the x-height everywhere, so `qsPea`'s nests inside `qsTea`'s. Nesting settles nothing between two runes: the pair raises E-INCOMPARABLE until a `resolve:` names it.
+    /// `qsPea`'s record favors `flourish` before `qsTea`, and `qsTea`'s favors a continuation entered at the x-height everywhere, so `qsPea`'s nests inside `qsTea`'s. Nesting settles nothing between two positions: the pair raises E-INCOMPARABLE until a `resolve:` names it. When `qsPea`'s record keeps `qsTea`'s file, as a ligature's copy of its last letter's exit-side record does, both pointers name `qsTea.yaml`, and the header marks the follower position's record with its position. A doubled letter is no exception. At qsPea·qsPea, `qsPea`'s baseline-exit record before `qsPea` nests inside its unconditional `flourish` record, which it outranks and keeps out at the current position without an error, but the copy of the `flourish` record that the follower's position gathers still collides with it.
     #[test]
-    fn a_nested_conflict_between_two_runes_prefers_still_needs_a_resolve() {
-        let pea_policy = fixtures::policy(&[(
-            "prefer",
-            &fixtures::seq(&[&absolute_prefer(
-                "qsPea",
-                0,
-                &[
-                    ("stance", "\"flourish\""),
-                    (
-                        "when",
-                        &fixtures::when(&[(
-                            "right",
-                            &fixtures::condition(&[("family", &fixtures::names(&["qsTea"]))]),
-                        )]),
-                    ),
-                ],
-            )]),
+    fn a_nested_conflict_between_two_positions_prefers_still_needs_a_resolve() {
+        let before_tea = fixtures::when(&[(
+            "right",
+            &fixtures::condition(&[("family", &fixtures::names(&["qsTea"]))]),
         )]);
+        let flourish_before_tea = |file_rune: &str, position: usize| {
+            fixtures::policy(&[(
+                "prefer",
+                &fixtures::seq(&[&absolute_prefer(
+                    file_rune,
+                    position,
+                    &[("stance", "\"flourish\""), ("when", &before_tea)],
+                )]),
+            )])
+        };
+        let pea_policy = flourish_before_tea("qsPea", 0);
         let tea_prefer = absolute_prefer("qsTea", 0, &[("cell", r#"{"entry":"x-height"}"#)]);
         let tea_resolve = pointed_record(
             "resolve",
@@ -7172,7 +7249,23 @@ mod tests {
         assert_eq!(error.kind(), SettleErrorKind::Incomparable);
         assert!(
             error.message().starts_with(
-                "E-INCOMPARABLE: prefer records of two runes demand different outcomes: qsPea.yaml:policy.prefer[0] vs qsTea.yaml:policy.prefer[0].\n"
+                "E-INCOMPARABLE: prefer records at two positions demand different outcomes: qsPea.yaml:policy.prefer[0] vs qsTea.yaml:policy.prefer[0].\n"
+            ),
+            "{}",
+            error.message()
+        );
+
+        let copied = ranking_spec(
+            &flourish_before_tea("qsTea", 4),
+            &fixtures::policy(&[("prefer", &fixtures::seq(&[&tea_prefer]))]),
+        );
+        let mut engine = Engine::new(&copied, no_features());
+        let error = settle_pea(&mut engine, conflicting_prefers_slots(&copied))
+            .expect_err("the copied record still sits at the other position");
+        assert_eq!(error.kind(), SettleErrorKind::Incomparable);
+        assert!(
+            error.message().starts_with(
+                "E-INCOMPARABLE: prefer records at two positions demand different outcomes: qsTea.yaml:policy.prefer[4] vs qsTea.yaml:policy.prefer[0] (at the follower's position).\n"
             ),
             "{}",
             error.message()
@@ -7198,6 +7291,32 @@ mod tests {
                 "prefer applied: qsPea.yaml:policy.prefer[0]",
                 "resolve applied: qsTea.yaml:policy.resolve[0]",
             ]
+        );
+
+        let doubled = doubled_pea_index(
+            &[
+                &absolute_prefer("qsPea", 0, &[("stance", "\"flourish\"")]),
+                &absolute_prefer(
+                    "qsPea",
+                    1,
+                    &[
+                        ("cell", &fixtures::map(&[("exit", "\"baseline\"")])),
+                        ("when", &pea_on("right")),
+                    ],
+                ),
+            ],
+            &[],
+        );
+        let mut engine = Engine::new(&doubled, no_features());
+        let error = settle_pea(&mut engine, doubled_slots(&doubled))
+            .expect_err("the nested pair sits at two positions");
+        assert_eq!(error.kind(), SettleErrorKind::Incomparable);
+        assert!(
+            error.message().starts_with(
+                "E-INCOMPARABLE: prefer records at two positions demand different outcomes: qsPea.yaml:policy.prefer[1] vs qsPea.yaml:policy.prefer[0] (at the follower's position).\n"
+            ),
+            "{}",
+            error.message()
         );
     }
 
@@ -7247,6 +7366,173 @@ mod tests {
             .expect("only qsPea's own record keeps flourish out");
         assert_eq!(index.resolve(trace.settled.cell.stance), "stroke");
         assert_eq!(trace.settled.junction, None);
+    }
+
+    /// The doubled-letter spec: `qsPea`, with a `stroke` stance that enters at the baseline and may exit there and a `flourish` stance with no surface, carrying `prefers` and `resolves`, beside a plain `qsMay`. In [`doubled_slots`]'s window the first `qsPea` joins the second only through `stroke`'s baseline exit, and the second can be `flourish` only when the first declines it.
+    fn doubled_pea_index(prefers: &[&str], resolves: &[&str]) -> SpecIndex {
+        let pea = letter(
+            "qsPea",
+            &[
+                stance(
+                    "stroke",
+                    &surface(
+                        &object(&[row("baseline", &[])]),
+                        &object(&[row("baseline", &[("unjoined", "\"safe\"")])]),
+                        &[],
+                    ),
+                ),
+                stance("flourish", &surface("{}", "{}", &[])),
+            ],
+            &fixtures::policy(&[
+                ("prefer", &fixtures::seq(prefers)),
+                ("resolve", &fixtures::seq(resolves)),
+            ]),
+        );
+        let may = letter(
+            "qsMay",
+            &[stance(
+                "base",
+                &surface(&object(&[row("baseline", &[])]), "{}", &[]),
+            )],
+            &plain_policy(),
+        );
+        spec_of(&[pea, may])
+    }
+
+    /// qsPea·qsPea with the run edge after it.
+    fn doubled_slots(index: &SpecIndex) -> Slots {
+        Slots::new(letter_token(index, "qsPea"), EDGE, EDGE, EDGE)
+    }
+
+    /// A `when:` that holds where `qsPea` is the neighbor on `side`.
+    fn pea_on(side: &str) -> String {
+        fixtures::when(&[(
+            side,
+            &fixtures::condition(&[("family", &fixtures::names(&["qsPea"]))]),
+        )])
+    }
+
+    /// At qsPea·qsPea, `qsPea`'s record favoring `flourish` after `qsPea` refuses at the current position, whose left is the run edge. The follower's position gathers it a second time and reads it one position over, where the left is the current `qsPea`, so it favors the cells that leave the follower free to be `flourish`, and the current `qsPea` declines the baseline join the window join count would otherwise take.
+    #[test]
+    fn a_doubled_letters_record_at_the_follower_position_is_read_one_position_over() {
+        let index = doubled_pea_index(
+            &[&absolute_prefer(
+                "qsPea",
+                0,
+                &[("stance", "\"flourish\""), ("when", &pea_on("left"))],
+            )],
+            &[],
+        );
+        let mut engine = Engine::new(&index, no_features());
+        let trace =
+            settle_pea(&mut engine, doubled_slots(&index)).expect("the doubled window settles");
+        assert_eq!(index.resolve(trace.settled.cell.stance), "stroke");
+        assert_eq!(trace.settled.junction, None);
+        assert_eq!(
+            trace.notes,
+            ["prefer applied: qsPea.yaml:policy.prefer[0] (at the follower's position)"]
+        );
+    }
+
+    /// At qsPea·qsPea, `qsPea`'s `baseline-exit` record favors the baseline exit at the current position, and its `after-pea` record, gathered again at the follower's position, favors the cells that leave the follower free to be `flourish`. The two positions demand different outcomes, so the window raises E-INCOMPARABLE, and the stub names the follower position's record against `qsPea` itself, whichever of the two applied first. Written before `qsPea`, `baseline-exit` is incomparable with `after-pea` and applies first, because the current position's records are gathered first. Written unconditionally, it is outranked by `after-pea`, which applies first. `resolve[0]` names `baseline-exit`, the record at the resolve's own position, so it never matches: alone it settles nothing, and beside `resolve[1]` it adds no second pick to disagree with. `resolve[1]` names `after-pea`, reads its `when:` in the current letter's window, where `qsPea` follows, and its pick settles the collision.
+    #[test]
+    fn a_doubled_letter_collides_with_itself_until_its_resolve_names_the_follower_record() {
+        let after_pea = absolute_prefer(
+            "qsPea",
+            0,
+            &[
+                ("id", &fixtures::quote("after-pea")),
+                ("stance", "\"flourish\""),
+                ("when", &pea_on("left")),
+            ],
+        );
+        let baseline_exit_id = fixtures::quote("baseline-exit");
+        let baseline_exit = fixtures::map(&[("exit", "\"baseline\"")]);
+        let before_pea = absolute_prefer(
+            "qsPea",
+            1,
+            &[
+                ("id", &baseline_exit_id),
+                ("cell", &baseline_exit),
+                ("when", &pea_on("right")),
+            ],
+        );
+        let anywhere = absolute_prefer(
+            "qsPea",
+            1,
+            &[("id", &baseline_exit_id), ("cell", &baseline_exit)],
+        );
+        let resolve = |position: usize, against: &str, pick: &str| {
+            pointed_record(
+                "resolve",
+                "qsPea",
+                position,
+                &[
+                    (
+                        "against",
+                        &fixtures::seq(&["\"qsPea\"", &fixtures::quote(against)]),
+                    ),
+                    ("when", &pea_on("right")),
+                    ("pick", pick),
+                ],
+            )
+        };
+        let own_position = resolve(0, "baseline-exit", &baseline_exit);
+        let follower_position = resolve(
+            1,
+            "after-pea",
+            &fixtures::map(&[("stance", "\"flourish\"")]),
+        );
+        let tail = concat!(
+            "  example window: qsPea qsPea\n",
+            "  conflicted candidates on qsPea: (stroke, entry none, exit baseline), (stroke, entry none, exit none), (flourish, entry none, exit none)\n",
+            "  paste-ready resolve for glyph_data/runes/qsPea.yaml policy.resolve (design section 5.8):\n",
+            "  - against: {rune: qsPea, id: after-pea}\n",
+            "    when: {right: {family: qsPea}}\n",
+            "    pick: {exit: <the winning cell>}\n",
+            "    why: <author rationale, mandatory>"
+        );
+        let cases = [
+            (
+                before_pea.as_str(),
+                "qsPea.yaml:policy.prefer[1] vs qsPea.yaml:policy.prefer[0] (at the follower's position)",
+                "prefer applied: qsPea.yaml:policy.prefer[1]",
+            ),
+            (
+                anywhere.as_str(),
+                "qsPea.yaml:policy.prefer[0] (at the follower's position) vs qsPea.yaml:policy.prefer[1]",
+                "prefer applied: qsPea.yaml:policy.prefer[0] (at the follower's position)",
+            ),
+        ];
+        for (current_record, header, applied_first) in cases {
+            let unresolved_message = format!(
+                "E-INCOMPARABLE: prefer records at two positions demand different outcomes: {header}.\n{tail}"
+            );
+            for resolves in [vec![], vec![own_position.as_str()]] {
+                let index = doubled_pea_index(&[after_pea.as_str(), current_record], &resolves);
+                let mut engine = Engine::new(&index, no_features());
+                let error = settle_pea(&mut engine, doubled_slots(&index))
+                    .expect_err("no resolve names the follower position's record");
+                assert_eq!(error.kind(), SettleErrorKind::Incomparable);
+                assert_eq!(error.message(), unresolved_message);
+            }
+
+            let index = doubled_pea_index(
+                &[after_pea.as_str(), current_record],
+                &[&own_position, &follower_position],
+            );
+            let mut engine = Engine::new(&index, no_features());
+            let trace = settle_pea(&mut engine, doubled_slots(&index))
+                .expect("the resolve naming after-pea settles the collision");
+            assert_eq!(index.resolve(trace.settled.cell.stance), "flourish");
+            assert_eq!(
+                trace.notes,
+                [
+                    applied_first,
+                    "resolve applied: qsPea.yaml:policy.resolve[1]"
+                ]
+            );
+        }
     }
 
     #[test]

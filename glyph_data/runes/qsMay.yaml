@@ -158,7 +158,8 @@ policy:
     when:
       left: {is: boundary}
       right: {family: qsMay}
-  - cell: {exit: baseline}
+  - id: baseline-exit-before-may-after-unjoined-may
+    cell: {exit: baseline}
     when:
       left:
         family: qsMay
@@ -206,7 +207,16 @@ policy:
     by: 1
     when:
       left: {family: qsBay}
-  resolve: []
+  resolve:
+  - against:
+      rune: qsMay
+      id: baseline-exit-before-may-after-unjoined-may
+    when:
+      right:
+        family: qsMay
+        then: {family: qsMay}
+    pick: {exit: baseline}
+    why: "“Save a join for later” very rarely happens in real life with a pen, so it’s more realistic to join sooner rather than later"
   groups:
     x-height-arrivers:
       union:

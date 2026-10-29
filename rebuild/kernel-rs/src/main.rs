@@ -1273,7 +1273,7 @@ impl<'i> LivenessScaffolding<'i> {
 
     /// One key line's answer: `live` or `dead` for a `3` or `4` key, and the context's fiber partition as compact JSON for a `fibers` key.
     ///
-    /// The filters get the liveness probe only in a deep mode set (`simulated_prospect` or `follower_prefer_slots` on), which is the only place they have a liveness check. In the pinned mode set they are the own-rune chain sets alone, and passing a probe would answer a question the enumeration never asks. The deriver accepts any `fibers` key; choosing contexts where a partition is meaningful is up to the caller.
+    /// The filters get the liveness probe only in a deep mode set (`simulated_prospect` or `follower_prefer_slots` on), which is the only place they have a liveness check. In the pinned mode set they are the chain sets alone, and passing a probe would answer a question the enumeration never asks. The deriver accepts any `fibers` key; choosing contexts where a partition is meaningful is up to the caller.
     fn answer(&mut self, engine: &mut Engine<'i>, line: &str) -> Result<String, String> {
         let index = engine.index();
         let deep_modes = engine.simulated_prospect() || engine.follower_prefer_slots();

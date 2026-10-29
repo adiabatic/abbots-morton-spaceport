@@ -103,7 +103,8 @@ policy:
       left:
         family: qsIt
         joined_at: baseline
-  - stance: flipped
+  - id: flipped-before-gay
+    stance: flipped
     when:
       right: {family: qsGay}
   - cell: {exit: x-height}
@@ -201,5 +202,19 @@ policy:
         - qsGay
         - qsFee
   contract: []
-  resolve: []
+  resolve:
+  - against:
+      rune: qsNo
+      id: flipped-before-gay
+    when:
+      left:
+        except:
+        - {family: qsPea}
+        - {family: qsYe}
+        - {family: qsIt}
+      right:
+        family: qsNo
+        then: {family: qsGay}
+    pick: {exit: baseline}
+    why: "I'd rather write `·No.alt ~b~ ·Gay` than `·No ~x~ ·Gay` and the other ·No should behave the same way"
   groups: {}

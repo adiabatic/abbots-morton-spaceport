@@ -299,7 +299,7 @@ def test_simulated_prospect_bottoms_out_at_the_window_edge(prospect_settled):
     assert prospect_settled[("A B", False)] == prospect_settled[("A B", True)]
 
 
-# Round-1 verdict pins over the loaded rune YAML, which carries the round-1 verdict records the mini spec does not. They check the greedy ·May·May pairing of the round-1 verdict (u-0341, "the old way seems nicer to write out by hand"): a chain of ·May joins in pairs at the baseline with a break between pairs, as the old font does at every length. The four-letter chain is the verdicted window. The five- and six-letter chains are the only check on qsMay's chain-interior prefer (policy.prefer[2], scoped on an unjoined ·May to its left): the acceptance oracle's windows stop at four letters, where the word-start prefer alone gives every result, and without the chain-interior prefer, chains of five or more fall back to the rejected grouping that defers to the tail.
+# Round-1 verdict pins over the loaded rune YAML, which carries the round-1 verdict records the mini spec does not. They check the greedy ·May·May pairing of the round-1 verdict (u-0341, "the old way seems nicer to write out by hand"): a chain of ·May joins in pairs at the baseline with a break between pairs, as the old font does at every length. The four-letter chain is the verdicted window. Its first ·May's baseline exit is also the pick of qsMay's resolve, which settles the collision between the word-start prefer (policy.prefer[1]) and the copy of the chain-interior prefer (policy.prefer[2], scoped on an unjoined ·May to its left) that the follower's position gathers. The five- and six-letter chains are the only check on what the chain-interior prefer does inside a chain: the acceptance oracle's windows stop at four letters, where it changes no outcome, and without it, chains of five or more fall back to the rejected grouping that defers to the tail.
 
 
 @pytest.fixture(scope="module")
@@ -792,6 +792,15 @@ def test_resolve_record_breaks_the_tea_oy_it_no_conflict(real_labels):
     )
 
 
+def test_resolve_record_flips_both_nos_before_gay(real_labels):
+    """A doubled letter's resolve against its own record (§5.8): qsNo's resolve against its own `flipped-before-gay`, which the follower's position gathers, picks the first ·No's baseline exit, so word-initial ·No·No·Gay settles as `·No.alt ~b~ ·No.alt ~b~ ·Gay` instead of raising E-INCOMPARABLE."""
+    assert real_labels[("qsNo qsNo qsGay", ())] == (
+        "qsNo.flipped.ex-y0",
+        "qsNo.flipped.en-y0.ex-y0",
+        "qsGay.sole.en-y0.en-con-1",
+    )
+
+
 # Every window the real-spec tables above name, settled in one batch: one guard sweep and one `settle_sequences` call, six positions deep. A test that asks `real_labels` for a window not listed here gets a KeyError.
 REAL_WINDOWS = tuple(
     dict.fromkeys(
@@ -812,6 +821,7 @@ REAL_WINDOWS = tuple(
             ("qsDay qsUtter qsTea", ("ss03",)),
             *((names, ()) for names, _expected in LIGATURE_TRANSPARENT_PEA_ROWS),
             ("qsTea qsOy qsIt qsNo qsAh", ()),
+            ("qsNo qsNo qsGay", ()),
             ("qsBay qsMay", ()),
             *(
                 (names, features)
