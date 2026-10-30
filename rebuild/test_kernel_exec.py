@@ -3,6 +3,7 @@
 No test skips. On a machine without `cargo` these tests fail with the remedy `KernelBuildError` carries, because the M1 build cannot run there either.
 """
 
+import fcntl
 import gzip
 import itertools
 import json
@@ -301,6 +302,27 @@ class TestTheInvocationInterface:
         with pytest.raises(kernel_exec.KernelBuildError) as raised:
             kernel_exec.cargo_build()
         assert "Rust toolchain" in str(raised.value)
+
+    def test_a_build_keeps_the_relink_lock_through_the_new_binarys_first_run(self, monkeypatch, tmp_path):
+        """macOS kills a new binary's first run if the file disappears during its scan, so `cargo_build` runs the binary to its exit before another build may replace it, and a first run that ends in anything but the usage exit fails the build."""
+        monkeypatch.setattr(kernel_exec, "LOCK_PATH", tmp_path / "relink.lock")
+        ran = []
+        first_run_exit = 2
+
+        def run(arguments, **rest):
+            with kernel_exec.LOCK_PATH.open() as second_open, pytest.raises(BlockingIOError):
+                fcntl.flock(second_open, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            ran.append(arguments[0])
+            returncode = 0 if arguments[0] == "cargo" else first_run_exit
+            return subprocess.CompletedProcess(arguments, returncode, b"", b"")
+
+        monkeypatch.setattr(kernel_exec.subprocess, "run", run)
+        kernel_exec.cargo_build()
+        assert ran == ["cargo", str(kernel_exec.BINARY)]
+
+        first_run_exit = -9
+        with pytest.raises(kernel_exec.KernelRunError, match="exited -9 on its first run"):
+            kernel_exec.cargo_build()
 
     def test_the_crate_is_built_once_per_process(self, monkeypatch):
         """`ensure_built` runs `cargo_build` once per process. `_BUILT` is a module attribute so a test can reset it."""
