@@ -2,7 +2,7 @@
 
 A check is paired. It takes B, the candidate's own base (HEAD for the default `--candidate worktree`, which is this checkout's uncommitted diff, or A for `--candidate A..B`), and measures B and B plus the whole candidate side by side in one run, in the scratch clones `rebuild.tools.perf_clone` manages under `var/perf/`, never in this checkout. `--baseline` takes no candidate and measures B against itself, the A/A check, and rewrites this machine's row, keyed by `cpu_count` and `mem_total_bytes`, in the `rebuild/perf/baselines/<scenario>.json` of each scenario whose pair passes.
 
-The scenarios: a `revert` scenario starts from the tree with its edit reversed and times the re-application, which lands exactly on the tree; a `forward` scenario starts from its own fixed base and times its patch; `none` times a pass over the tree itself. Every revert-form patch is checked at B first (`patches_apply_at`: each reverses, they compose, and each re-applies on the composite), on a temporary index, so this checkout's index and work tree are never touched; a patch that fails there makes its scenario `not applicable at B: re-aim`, and one the candidate's own changes stop from reversing makes it `not applicable: the candidate touches its edit`. A forward scenario takes a candidate only when the candidate's paths, less `HARNESS_PATHS` and Markdown, are unchanged between its base and B, and the candidate less those paths (`FORWARD_EXCLUDES`) applies at its base (`forward_status`); otherwise it is `not measured`, and its candidate side is built from the candidate less those paths. Each side's root is its composite, the tree with every revert-form edit reversed, so no start state's caches have seen the tree that its edit lands on. The base side's verdict store is seeded from this checkout's journal as of B's committer time, or as of the journal's first event when retention has compacted the journal past that time (`seed_as_of`, then `merge_verdicts --restore-as-of`, read-only, run in the clone at this checkout's HEAD commit, so no uncommitted code reads the live journal), scrubbed of every fill of a standing rule that B has and the composite lacks or holds differently, and of every duplicate fill copied from a scrubbed unit (`scrub_seed`), and its stashes are deleted before the root is snapshotted. `--seed FILE` uses a kept seed instead, which is how another machine reproduces this machine's fingerprints. A paired check's seed is scratch, deleted once the base side's root is prepared; the letter migration's and each `--baseline`'s are kept under `var/keep/perf/seeds/`.
+The scenarios: a `revert` scenario starts from the tree with its edit reversed and times the re-application, which lands exactly on the tree; a `forward` scenario starts from its own fixed base, on both sides that commit plus its `base_patch` when it names one, and times its patch; `none` times a pass over the tree itself. Every revert-form patch is checked at B first (`patches_apply_at`: each reverses, they compose, and each re-applies on the composite), on a temporary index, so this checkout's index and work tree are never touched; a patch that fails there makes its scenario `not applicable at B: re-aim`, and one the candidate's own changes stop from reversing makes it `not applicable: the candidate touches its edit`. A forward scenario takes a candidate only when the candidate's paths, less `HARNESS_PATHS` and Markdown, are unchanged between its base and B, and the candidate less those paths (`FORWARD_EXCLUDES`) applies at its base (`forward_status`); otherwise it is `not measured`, and its candidate side is built from the candidate less those paths. Each side's root is its composite, the tree with every revert-form edit reversed, so no start state's caches have seen the tree that its edit lands on. The base side's verdict store is seeded from this checkout's journal as of B's committer time, or as of the journal's first event when retention has compacted the journal past that time (`seed_as_of`, then `merge_verdicts --restore-as-of`, read-only, run in the clone at this checkout's HEAD commit, so no uncommitted code reads the live journal), scrubbed of every fill of a standing rule that B has and the composite lacks or holds differently, and of every duplicate fill copied from a scrubbed unit (`scrub_seed`), and its stashes are deleted before the root is snapshotted. `--seed FILE` uses a kept seed instead, which is how another machine reproduces this machine's fingerprints. A paired check's seed is scratch, deleted once the base side's root is prepared; the letter migration's and each `--baseline`'s are kept under `var/keep/perf/seeds/`.
 
 Each scenario runs two hyperfine batches back to back, base first for odd-numbered scenarios and the candidate first for even ones, each one warm-up and `--runs` (at least `MIN_RUNS`) timed runs of `make -C <clone> artifact-cycle ARGS=--stop-server` from the edit, already applied by `perf_clone prepare`, to its exit. A run counts only when its harvested `terminal.log` ends READY (`classify_run`); make's exit status says only zero or not. A batch with a refused, interrupted or disturbed run is discarded and rerun, at most `BATCH_RETRIES` times, after the probes clear; a failed run fails the scenario. Each batch must agree with the clone's timings journal (`journal_agreement`), its run lines must share one pass shape (`pass_shape`), the base batch must hold the scenario's declared shape (`holds_declared`; a miss is `shape drifted: re-aim`), and the candidate batch's compared shape must equal the base's (`compare_shapes`). Each side is fingerprinted after its last run (`rebuild/tools/perf_fingerprint.py`) and the two compared (`compare_fingerprints`); under `--baseline` the intermediate stores must match too. The timing verdict (`classify`) is `proven faster` only when every candidate run beats every base run, `proven slower` in the mirror case, `within spread` otherwise, and `no verdict` when the two batches ran under different `rustc` or OS builds. A pair whose only failure is a separation that fails the check (`proven slower`, or either separation under `--baseline`) is measured once more from the same start states, and the second pair's result stands, with the first pair's verdict beside it, so a chance separation fails a scenario only by repeating.
 
@@ -10,9 +10,9 @@ The fault kit (`rebuild/tools/fault_kit.py`, called only through its CLI) re-inj
 
 System probes run before every pass and around every timed run (`summarize_probes`, `probe_outcomes`): a refusing condition stops the check with exit 2, a waiting one makes it wait (up to `WAIT_LIMIT_S`), and one that holds after a run discards the batch. A probe whose command could not run counts as waiting. The driver holds `var/perf/perf.lock` for the whole check, runs `caffeinate -i -w` for its own lifetime, and refuses to start while `AMS_TOTAL_MEMORY_BYTES` is set, since the clone passes run without it and their run lines carry the machine's own total.
 
-`--baseline` writes a scenario's row as soon as its A/A pair passes (`judge`'s `measured`: journal agreement, one declared pass shape, within spread, and identical fingerprints and stores), so a later failure, refusal, stop or crash keeps it, and leaves the row of a scenario that failed or got no verdict as it was; the check still exits 1 when one failed. Before it writes a row it compares the new fingerprint with every other machine's row at the same base (`compare_fingerprints`, with `same_seed` from the two rows' seeds); a difference is a determinism finding, so the check names it, leaves that scenario's file as it was, and exits 1.
+`--baseline` writes a scenario's row as soon as its A/A pair passes (`judge`'s `measured`: journal agreement, one declared pass shape, within spread, and identical fingerprints and stores), so a later failure, refusal, stop or crash keeps it, and leaves the row of a scenario that failed or got no verdict as it was; the check still exits 1 when one failed. Before it writes a row it compares the new fingerprint with every other machine's row on the same tree, the same `base` and `base_patch_sha256` (`compare_fingerprints`, with `same_seed` from the two rows' seeds); a difference is a determinism finding, so the check names it, leaves that scenario's file as it was, and exits 1.
 
-Every record of a check is kept under `var/keep/perf/<stamp>-<id>/`: `report.json`, `report.txt`, `system.ndjson`, the captured candidate, and per scenario and side `hyperfine.json`, `fingerprint.json` and `runs/<k>/` (the stamp, the run's build logs and its journal lines). `--dry-run` prints the plan, the probes, which scenario patches apply at B, a forward scenario's missing kept seed (exiting 2, since the check would refuse it), the fault kit's selection and the estimated wall time (`estimate`), and builds nothing. `--write-patch NAME` rewrites a scenario's patch in place from its `edit:`, and refuses when the edit does not resolve. `--clean`, which takes no other flag, deletes `var/perf/`, and refuses while a check or a clone's pass holds its lock. SIGINT, SIGTERM and SIGHUP stop a check after the current step, except one that was ignored when the check started, so a check under `nohup` outlives its shell. Exit status: 0 when every scenario and fault row passed, 1 when one failed or got no verdict, 2 when the check refused, before measuring or partway (a refusing probe, a wait past `WAIT_LIMIT_S`, a forward scenario's missing kept seed, a prepare hook's refusal, a root that would not warm), and 128 plus the signal's number when a signal stopped it.
+Every record of a check is kept under `var/keep/perf/<stamp>-<id>/`: `report.json`, `report.txt`, `system.ndjson`, the captured candidate, and per scenario and side `hyperfine.json`, `fingerprint.json` and `runs/<k>/` (the stamp, the run's build logs and its journal lines). `--dry-run` prints the plan, the probes, which scenario patches apply at B, a forward scenario's missing kept seed (exiting 2, since the check would refuse it), the fault kit's selection and the estimated wall time (`estimate`), and builds nothing. `--write-patch NAME` rewrites a scenario's patch in place from its `edit:`, refuses when the edit does not resolve, and leaves a `base_patch` alone, which is hand-kept and has no `edit:`. `--clean`, which takes no other flag, deletes `var/perf/`, and refuses while a check or a clone's pass holds its lock. SIGINT, SIGTERM and SIGHUP stop a check after the current step, except one that was ignored when the check started, so a check under `nohup` outlives its shell. Exit status: 0 when every scenario and fault row passed, 1 when one failed or got no verdict, 2 when the check refused, before measuring or partway (a refusing probe, a wait past `WAIT_LIMIT_S`, a forward scenario's missing kept seed, a prepare hook's refusal, a root that would not warm), and 128 plus the signal's number when a signal stopped it.
 """
 
 from __future__ import annotations
@@ -150,7 +150,7 @@ FALLBACK_PASS_S = 600.0
 
 @dataclass(frozen=True)
 class Scenario:
-    """One entry of `rebuild/perf/scenarios.yaml`. `number` is its 1-based position, which decides which side runs first."""
+    """One entry of `rebuild/perf/scenarios.yaml`. `number` is its 1-based position, which decides which side runs first; `base_patch` is the hand-kept patch a forward scenario's base carries on both sides."""
 
     number: int
     name: str
@@ -163,6 +163,7 @@ class Scenario:
     paths: tuple[str, ...]
     patch: Path | None
     shape: Mapping
+    base_patch: Path | None = None
 
 
 def load_scenarios(path: Path = SCENARIOS) -> list[Scenario]:
@@ -185,6 +186,11 @@ def load_scenarios(path: Path = SCENARIOS) -> list[Scenario]:
             raise PerfRefused(f"{path}: {name} needs an edit and a patch")
         if form == "forward" and not entry.get("base"):
             raise PerfRefused(f"{path}: {name} is forward-form and needs a base")
+        base_patch = entry.get("base_patch")
+        if base_patch and form != "forward":
+            raise PerfRefused(f"{path}: {name} is {form}-form, so drop its base_patch")
+        if base_patch and not (path.parent / base_patch).is_file():
+            raise PerfRefused(f"{path}: {name}'s base_patch {base_patch} is missing")
         scenarios.append(
             Scenario(
                 number=number,
@@ -198,6 +204,7 @@ def load_scenarios(path: Path = SCENARIOS) -> list[Scenario]:
                 paths=tuple(edit.get("paths") or ()),
                 patch=None if patch is None else path.parent / patch,
                 shape=entry.get("shape") or {},
+                base_patch=path.parent / base_patch if base_patch else None,
             )
         )
     names = [scenario.name for scenario in scenarios]
@@ -675,37 +682,65 @@ def revert_status(check: PatchCheck, name: str) -> str | None:
     return None
 
 
+def forward_tree(repo: Path, base: str, base_patch: Path | None, index: Path | None) -> str:
+    """What a forward scenario starts from, for git to read: `base`, or the tree of `base` plus `base_patch`, written through the temporary index `index`, never the repository's own index or work tree. A base patch that does not apply raises PerfRefused."""
+    if base_patch is None:
+        return base
+    assert index is not None
+    env = {"GIT_INDEX_FILE": str(index.resolve())}
+    index.parent.mkdir(parents=True, exist_ok=True)
+    perf_clone.remove(index)
+    try:
+        perf_clone.git(repo, "read-tree", base, env=env)
+        perf_clone.git(repo, "apply", "--cached", str(base_patch), env=env)
+        return perf_clone.git(repo, "write-tree", env=env)
+    finally:
+        perf_clone.remove(index)
+
+
+def forward_label(base: str, base_patch: Path | None) -> str:
+    return base[:8] if base_patch is None else f"{base[:8]} plus {base_patch.name}"
+
+
 def forward_status(
     repo: Path,
     paths: Iterable[str],
     *,
     letter_base: str,
     base: str,
+    base_patch: Path | None = None,
     candidate: Path | None = None,
     index: Path | None = None,
 ) -> str | None:
-    """Why a forward-form scenario at its own fixed base cannot take the candidate, or None when it can: every candidate path but `HARNESS_PATHS` and Markdown must be unchanged between that base and B, and, when `candidate` (the patch) and `index` (a temporary index) are given, the candidate less those paths (`FORWARD_EXCLUDES`) must apply at that base."""
+    """Why a forward-form scenario at its own fixed base cannot take the candidate, or None when it can: every candidate path but `HARNESS_PATHS` and Markdown must be unchanged between that base's tree (`forward_tree`: `letter_base`, plus `base_patch` when given, which needs `index`) and B, and, when `candidate` (the patch) and `index` (a temporary index) are given, the candidate less those paths (`FORWARD_EXCLUDES`) must apply on that tree."""
+    tree = forward_tree(repo, letter_base, base_patch, index)
+    label = forward_label(letter_base, base_patch)
     relevant = sorted({path for path in paths if not is_harness_path(path) and not path.endswith(".md")})
     if relevant:
-        result = _git(repo, "diff", "-z", "--name-only", "--no-renames", letter_base, base, "--", *relevant)
+        result = _git(repo, "diff", "-z", "--name-only", "--no-renames", tree, base, "--", *relevant)
         if result.returncode != 0:
-            raise PerfRefused(f"git diff {letter_base} {base} failed: {result.stderr.strip()}")
+            raise PerfRefused(f"git diff {tree} {base} failed: {result.stderr.strip()}")
         changed = [path for path in result.stdout.split("\0") if path]
         if changed:
-            return f"not measured: {', '.join(changed)} changed since {letter_base[:8]}"
+            return f"not measured: {', '.join(changed)} changed since {label}"
     if candidate is not None and index is not None:
-        check = patches_apply_at(repo, letter_base, {}, index, candidate=candidate, exclude=FORWARD_EXCLUDES)
+        check = patches_apply_at(repo, tree, {}, index, candidate=candidate, exclude=FORWARD_EXCLUDES)
         if check.candidate is not None:
-            return f"not measured: the candidate does not apply at {letter_base[:8]} ({check.candidate})"
+            return f"not measured: the candidate does not apply at {label} ({check.candidate})"
     return None
+
+
+def letter_clone_name(scenario: Scenario) -> str:
+    """The name of a forward scenario's clone, and with `.snap` of its snapshot directory: its base's first eight digits and, when it has one, its `base_patch`'s first eight, so a root warmed on one tree is never taken for another's."""
+    name = (scenario.base or "letter")[:8]
+    return name if scenario.base_patch is None else f"{name}-{file_sha256(scenario.base_patch)[:8]}"
 
 
 def kept_seed_problem(scenario: Scenario) -> str | None:
     """Why a forward scenario cannot prepare its root on this machine, or None when it can: its `seed:` names a file under `var/keep/perf/seeds/`, which git does not carry, that is missing or does not match. A scenario with no `seed:` restores one from the journal, and one whose clone has its kept root needs none."""
     if not scenario.seed:
         return None
-    assert scenario.base is not None
-    if (PERF_DIR / f"{scenario.base[:8]}.snap" / "root").exists():
+    if (PERF_DIR / f"{letter_clone_name(scenario)}.snap" / "root").exists():
         return None
     kept = KEEP_DIR / "seeds" / f"{scenario.seed['sha256']}.json"
     if kept.is_file() and file_sha256(kept) == scenario.seed["sha256"]:
@@ -934,11 +969,14 @@ def merge_machine_row(document: Mapping, row: Mapping) -> dict:
 
 
 def machine_differences(document: Mapping, row: Mapping) -> list[str]:
-    """Name every difference between a new baseline row's fingerprint and each other machine's row in `document` at the same base: `compare_fingerprints` with that row as the base side, its intermediate stores included, and the verdict store and complaint list compared only when the two rows' seeds match. Committed fingerprints are machine-independent given the same base and seed, so any difference is a determinism finding."""
+    """Name every difference between a new baseline row's fingerprint and each other machine's row in `document` on the same tree, the same `base` and `base_patch_sha256`: `compare_fingerprints` with that row as the base side, its intermediate stores included, and the verdict store and complaint list compared only when the two rows' seeds match. Committed fingerprints are machine-independent given the same tree and seed, so any difference is a determinism finding."""
     key = (row["cpu_count"], row["mem_total_bytes"])
+    tree = (row["base"], row.get("base_patch_sha256"))
     found: list[str] = []
     for other in document.get("machines") or []:
-        if (other.get("cpu_count"), other.get("mem_total_bytes")) == key or other.get("base") != row["base"]:
+        if (other.get("cpu_count"), other.get("mem_total_bytes")) == key:
+            continue
+        if (other.get("base"), other.get("base_patch_sha256")) != tree:
             continue
         same_seed = other.get("seed_sha256") is not None and other.get("seed_sha256") == row["seed_sha256"]
         diff = compare_fingerprints(other.get("fingerprint") or {}, row["fingerprint"], same_seed=same_seed)
@@ -1316,7 +1354,7 @@ class Check:
         """End a check a stop signal reached: a step it interrupted can end in any failure, so this path is the only one a stop takes. Wait until no land holds a clone's pass lock, report, and return 128 plus the signal's number."""
         for name in (
             SHARED_CLONE,
-            *(self.letter_clone_name(scenario) for scenario in self.forward_scenarios()),
+            *(letter_clone_name(scenario) for scenario in self.forward_scenarios()),
         ):
             clone = self.clone_path(name)
             if clone.exists():
@@ -1342,6 +1380,7 @@ class Check:
             self.candidate.paths,
             letter_base=scenario.base,
             base=self.base,
+            base_patch=scenario.base_patch,
             candidate=self.sides[1].patch,
             index=self.record / "forward-check.index",
         )
@@ -1354,9 +1393,6 @@ class Check:
 
     def revert_patches(self) -> dict[str, Path]:
         return {s.name: s.patch for s in self.all_scenarios if s.form == "revert" and s.patch is not None}
-
-    def letter_clone_name(self, scenario: Scenario) -> str:
-        return (scenario.base or "letter")[:8]
 
     def ensure_clone(self, name: str, base: str) -> Path:
         """Reuse a bootstrapped clone, removing any remote it has, or bootstrap it, replacing whatever a failed or stopped bootstrap left there; then fetch this checkout's HEAD and branches into it."""
@@ -1560,7 +1596,7 @@ class Check:
                     }
                 )
                 continue
-            name = self.letter_clone_name(scenario)
+            name = letter_clone_name(scenario)
             clone = self.ensure_clone(name, scenario.base)
             for side in self.sides:
                 status = perf_clone.build_refs(
@@ -1572,6 +1608,7 @@ class Check:
                     forwards={scenario.name: scenario.patch},
                     as_is=(),
                     exclude=FORWARD_EXCLUDES,
+                    base_patch=scenario.base_patch,
                 )
                 if status.get(scenario.name) is not None:
                     self.results.append(
@@ -1613,11 +1650,11 @@ class Check:
         if scenario.seed:
             kept = KEEP_DIR / "seeds" / f"{scenario.seed['sha256']}.json"
             return Seed(kept, scenario.seed["sha256"], scenario.seed.get("as_of"), 0, ())
-        root_rules = _git(clone, "show", f"{scenario.base}:{STANDING_RULES}").stdout
+        root_rules = _git(clone, "show", f"refs/perf/base/tree:{STANDING_RULES}").stdout
         index = clone / ".git" / "perf-post.index"
         env = {"GIT_INDEX_FILE": str(index)}
         try:
-            perf_clone.git(clone, "read-tree", scenario.base, env=env)
+            perf_clone.git(clone, "read-tree", "refs/perf/base/tree", env=env)
             perf_clone.git(clone, "apply", "--cached", str(scenario.patch), env=env)
             post_tree = perf_clone.git(clone, "write-tree", env=env)
         finally:
@@ -1960,7 +1997,7 @@ class Check:
         record = Path(base["record"])
         batch = read_batch(record, runs=self.args.runs)
         if scenario.form == "forward":
-            seed = self.seeds.get(self.letter_clone_name(scenario))
+            seed = self.seeds.get(letter_clone_name(scenario))
             seed_sha256 = seed.sha256 if seed is not None else (scenario.seed or {}).get("sha256")
         else:
             seed = self.seeds.get(SHARED_CLONE)
@@ -1979,6 +2016,7 @@ class Check:
             "hyperfine": (probes.get("toolchain") or {}).get("hyperfine"),
             "measured_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "base": self.base if scenario.form != "forward" else scenario.base,
+            "base_patch_sha256": file_sha256(scenario.base_patch) if scenario.base_patch else None,
             "seed_sha256": seed_sha256,
             "fingerprint": json.loads((record / "fingerprint.json").read_text(encoding="utf-8")),
             "runs_s": times,
@@ -2180,8 +2218,9 @@ def dry_run(
                 lines.append(f"  {scenario.number}. {scenario.name} (none): a pass over the tree itself")
             else:
                 assert scenario.base is not None
+                tree = forward_tree(main, scenario.base, scenario.base_patch, index)
                 own = patches_apply_at(
-                    main, scenario.base, {}, index, forwards={scenario.name: forwards[scenario.name]}
+                    main, tree, {}, index, forwards={scenario.name: forwards[scenario.name]}
                 )
                 state = (
                     "applies at its base"
@@ -2195,6 +2234,7 @@ def dry_run(
                         candidate.paths,
                         letter_base=scenario.base,
                         base=candidate.base,
+                        base_patch=scenario.base_patch,
                         candidate=candidate_patch,
                         index=index,
                     )
@@ -2215,7 +2255,7 @@ def dry_run(
                         )
                     )
                 lines.append(
-                    f"  {scenario.number}. {scenario.name} (forward at {scenario.base[:8]}): {state}; {seed}"
+                    f"  {scenario.number}. {scenario.name} (forward at {forward_label(scenario.base, scenario.base_patch)}): {state}; {seed}"
                 )
 
         rows = fault_selection(args.faults, baseline=candidate.patch is None)
@@ -2258,7 +2298,7 @@ def dry_run(
             if listed:
                 fault_share = sum(fields[-1] == "yes" for fields in listed) / len(listed)
 
-        letter_clones = sorted({(s.base or "")[:8] for s in selected if s.form == "forward"})
+        letter_clones = sorted({letter_clone_name(s) for s in selected if s.form == "forward"})
         clones = (
             [SHARED_CLONE] if any(s.form != "forward" for s in selected) or rows != "none" else []
         ) + letter_clones

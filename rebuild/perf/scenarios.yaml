@@ -4,6 +4,7 @@
 # edit: the commit and the paths the patch is cut from; `make perf-check ARGS='--write-patch NAME'` rewrites `patch` from them in place.
 # shape: what defines the scenario's kind, which every check's base batch must hold. `plan` names run-line plan flags; `gates` names gates as `ran` (skip: null) or `proved` (skip: "proved").
 # seed (forward form only): the kept verdict-store seed under var/keep/perf/seeds/, {as_of, sha256}, once the first bootstrap has made one.
+# base_patch (forward form only): a hand-kept patch both sides carry on top of `base`, for a fix `base` lacks. It has no `edit:`, so `--write-patch` leaves it alone, and its digest is part of the clone's name, so a new patch warms a new root.
 format: ams-perf-scenarios/1
 scenarios:
   - name: one-rune-join
@@ -22,6 +23,7 @@ scenarios:
     stands_for: An `Add ·X` letter batch, which moves the trace memo's structure and the subset tables, so it enumerates cold and recomputes every unit; this edit brings no new rule shape, so gate:conform stays proved, and a later letter runs that sweep only when it brings one.
     form: forward
     base: 49a570922b29f4558febfcee40e5e70bb39cbbfb
+    base_patch: scenarios/letter-migration-base.patch
     seed: {as_of: "2026-10-10T01:23:48Z", sha256: 98a9a98618036d1cbc90c1bc6c4c126799daba854bc3ca1b1a67cb28ea02d64c}
     edit:
       commit: 2eb65f8790a075a7394bca988cb5ced34768acf0

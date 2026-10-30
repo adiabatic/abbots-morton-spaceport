@@ -211,6 +211,46 @@ def test_prepare_waits_for_the_clones_pass_lock_and_applies_the_edit_on_the_star
     assert stamp["prepared_at"] == 7.0 and stamp["waited_s"] > 0 and stamp["latest_log"] == "run-a"
 
 
+def test_a_base_patch_puts_every_side_on_one_commit_under_the_candidate_and_the_edit(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2001-02-03T04:05:06Z")
+    _, clone = _clone(tmp_path)
+    base = _commit(clone, {"tracked.txt": "1\n", "edited.txt": "1\n"}, "start")
+    fix = tmp_path / "base.patch"
+    fix.write_text("--- a/tracked.txt\n+++ b/tracked.txt\n@@ -1 +1 @@\n-1\n+fixed\n")
+    edit = tmp_path / "edit.patch"
+    edit.write_text("--- a/edited.txt\n+++ b/edited.txt\n@@ -1 +1 @@\n-1\n+edited\n")
+    candidate = tmp_path / "candidate.patch"
+    candidate.write_text("--- a/tracked.txt\n+++ b/tracked.txt\n@@ -1 +1 @@\n-fixed\n+candidate\n")
+
+    def build(side: str, patch: Path | None) -> dict[str, str | None]:
+        return perf_clone.build_refs(
+            clone,
+            side,
+            base,
+            candidate=patch,
+            reverts={},
+            forwards={"letter": edit},
+            as_is=(),
+            base_patch=fix,
+        )
+
+    assert build("base", None) == {"letter": None}
+    assert build("aa", None) == {"letter": None}
+    assert build("c-1", candidate) == {"letter": None}
+    tree = _git(clone, "rev-parse", "refs/perf/base/tree")
+    assert tree != base
+    assert _git(clone, "rev-parse", "refs/perf/aa/tree") == tree
+    assert _git(clone, "rev-parse", "refs/perf/base/start/letter") == tree
+    assert _git(clone, "log", "-1", "--format=%cI", tree) == _git(clone, "log", "-1", "--format=%cI", base)
+    assert _git(clone, "show", f"{tree}:tracked.txt") == "fixed"
+    assert _git(clone, "show", "refs/perf/c-1/tree:tracked.txt") == "candidate"
+    assert _git(clone, "rev-parse", "refs/perf/c-1/tree^") == tree
+
+    fix.write_text("--- a/tracked.txt\n+++ b/tracked.txt\n@@ -1 +1 @@\n-9\n+fixed\n")
+    with pytest.raises(perf_clone.PerfRefused, match="does not apply"):
+        build("base", None)
+
+
 def _all_skip(**plan) -> dict:
     return {
         "kind": "run",

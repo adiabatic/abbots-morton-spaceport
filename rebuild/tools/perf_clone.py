@@ -759,10 +759,11 @@ def fetch(clone: Path, *, main: Path) -> None:
     )
 
 
-def _commit_tree(clone: Path, index: Path, parent: str, message: str) -> str:
+def _commit_tree(clone: Path, index: Path, parent: str, message: str, *, date: str | None = None) -> str:
     env = {"GIT_INDEX_FILE": str(index)}
     tree = git(clone, "write-tree", env=env)
-    return git(clone, *IDENTITY, "commit-tree", tree, "-p", parent, "-m", message)
+    dates = {} if date is None else {"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+    return git(clone, *IDENTITY, "commit-tree", tree, "-p", parent, "-m", message, env=dates)
 
 
 def build_refs(
@@ -775,13 +776,21 @@ def build_refs(
     forwards: Mapping[str, Path],
     as_is: Iterable[str],
     exclude: Sequence[str] = (),
+    base_patch: Path | None = None,
 ) -> dict[str, str | None]:
-    """Build a side's local refs in the clone without touching its work tree or index: `refs/perf/<side>/tree` (`base` plus the candidate, less the paths `exclude`'s `git apply --exclude` patterns match, committed with a fixed identity), `refs/perf/<side>/composite` (the tree with every patch in `reverts` that reverses there reversed) and `refs/perf/<side>/start/<scenario>` (the tree with that scenario's patch reversed; the tree itself for a forward-form scenario, whose patch must apply there, and for each name in `as_is`). Return, per scenario, None when its start ref was built and otherwise why not. A candidate that does not apply at `base` raises PerfRefused."""
+    """Build a side's local refs in the clone without touching its work tree or index: `refs/perf/<side>/tree` (`base`, plus `base_patch` when given, plus the candidate, less the paths `exclude`'s `git apply --exclude` patterns match, committed with a fixed identity; the base patch's commit takes its parent's date and no side's name, so every side without a candidate, on every check, stands on one commit, as it does on `base` itself, and a kept root stays on the commit it was warmed at), `refs/perf/<side>/composite` (the tree with every patch in `reverts` that reverses there reversed) and `refs/perf/<side>/start/<scenario>` (the tree with that scenario's patch reversed; the tree itself for a forward-form scenario, whose patch must apply there, and for each name in `as_is`). Return, per scenario, None when its start ref was built and otherwise why not. A base patch or a candidate that does not apply raises PerfRefused."""
     index = clone / ".git" / f"perf-{side.replace('/', '-')}.index"
     env = {"GIT_INDEX_FILE": str(index)}
     prefix = f"refs/perf/{side}"
     try:
         tree = git(clone, "rev-parse", "--verify", f"{base}^{{commit}}")
+        if base_patch is not None:
+            git(clone, "read-tree", tree, env=env)
+            ok, message = git_ok(clone, "apply", "--cached", str(base_patch), env=env)
+            if not ok:
+                raise PerfRefused(f"{base_patch} does not apply at {base}: {message}")
+            date = git(clone, "show", "-s", "--format=%cI", tree)
+            tree = _commit_tree(clone, index, tree, "perf-check base patch", date=date)
         if candidate is not None:
             git(clone, "read-tree", tree, env=env)
             excludes = [f"--exclude={pattern}" for pattern in exclude]

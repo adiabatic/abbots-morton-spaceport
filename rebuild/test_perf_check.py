@@ -1,4 +1,5 @@
 import argparse
+import dataclasses
 import hashlib
 import json
 import subprocess
@@ -237,9 +238,20 @@ def test_a_patch_that_does_not_reverse_at_the_base_makes_its_scenario_not_applic
 
 def test_scenario_2_takes_a_candidate_only_when_its_files_are_unchanged_since_its_base(tmp_path):
     repo = _repo(tmp_path)
-    letter_base = _commit(repo, {"src.py": "1\n", "other.py": "1\n", "doc/notes.md": "a\n"}, "letter base")
+    letter_base = _commit(
+        repo,
+        {"src.py": "1\n", "other.py": "1\n", "fixed.py": "1\n", "ported.py": "1\n", "doc/notes.md": "a\n"},
+        "letter base",
+    )
     base = _commit(
-        repo, {"other.py": "2\n", "doc/notes.md": "b\n", "rebuild/tools/perf_check.py": "x = 1\n"}, "later"
+        repo,
+        {
+            "other.py": "2\n",
+            "ported.py": "2\n",
+            "doc/notes.md": "b\n",
+            "rebuild/tools/perf_check.py": "x = 1\n",
+        },
+        "later",
     )
 
     def status(paths: list[str], **candidate) -> str | None:
@@ -264,6 +276,27 @@ def test_scenario_2_takes_a_candidate_only_when_its_files_are_unchanged_since_it
     assert reason is not None and reason.startswith(
         f"not measured: the candidate does not apply at {letter_base[:8]}"
     )
+    assert not index.exists()
+
+    fix = tmp_path / "base.patch"
+    fix.write_text(
+        "--- a/fixed.py\n+++ b/fixed.py\n@@ -1 +1 @@\n-1\n+2\n"
+        "--- a/ported.py\n+++ b/ported.py\n@@ -1 +1 @@\n-1\n+2\n"
+    )
+    assert status(["fixed.py"]) is None
+    assert (
+        status(["fixed.py"], base_patch=fix, index=index)
+        == f"not measured: fixed.py changed since {letter_base[:8]} plus base.patch"
+    )
+    patch.write_text("--- a/ported.py\n+++ b/ported.py\n@@ -1 +1 @@\n-2\n+3\n")
+    assert status(["ported.py"], candidate=patch, index=index) == (
+        f"not measured: ported.py changed since {letter_base[:8]}"
+    )
+    assert status(["ported.py"], base_patch=fix, candidate=patch, index=index) is None
+    assert status(harness_and_docs, base_patch=fix, index=index) is None
+    fix.write_text("--- a/fixed.py\n+++ b/fixed.py\n@@ -1 +1 @@\n-9\n+2\n")
+    with pytest.raises(PerfRefused, match="apply"):
+        status(["src.py"], base_patch=fix, index=index)
     assert not index.exists()
 
 
@@ -361,6 +394,17 @@ def test_a_forward_scenario_needs_its_kept_seed_or_its_kept_root(tmp_path, monke
     (tmp_path / "perf" / "abcdef12.snap" / "root").mkdir(parents=True)
     check.require_kept_seeds()
 
+    fix = tmp_path / "base.patch"
+    fix.write_bytes(b"a fix")
+    patched = dataclasses.replace(scenarios[1], base_patch=fix)
+    assert pc.letter_clone_name(scenarios[1]) == "abcdef12"
+    name = pc.letter_clone_name(patched)
+    assert name == f"abcdef12-{hashlib.sha256(b'a fix').hexdigest()[:8]}"
+    problem = pc.kept_seed_problem(patched)
+    assert problem is not None and "kept seed" in problem
+    (tmp_path / "perf" / f"{name}.snap" / "root").mkdir(parents=True)
+    assert pc.kept_seed_problem(patched) is None
+
 
 def test_write_patch_refuses_an_edit_that_does_not_resolve(tmp_path):
     repo = _repo(tmp_path)
@@ -385,6 +429,21 @@ def test_write_patch_refuses_an_edit_that_does_not_resolve(tmp_path):
     assert patch.read_text() == "the checked-in patch\n"
     pc.write_patch(repo, scenario(edit))
     assert "+2" in patch.read_text()
+
+    scenarios.write_text(
+        scenarios.read_text() + "    base: abcdef12\n    base_patch: scenarios/one-base.patch\n"
+    )
+    with pytest.raises(PerfRefused, match="drop its base_patch"):
+        pc.load_scenarios(scenarios)
+    scenarios.write_text(scenarios.read_text().replace("form: revert", "form: forward"))
+    with pytest.raises(PerfRefused, match="base_patch scenarios/one-base.patch is missing"):
+        pc.load_scenarios(scenarios)
+    kept = data / "scenarios" / "one-base.patch"
+    kept.write_text("the hand-kept patch\n")
+    forward = pc.load_scenarios(scenarios)[0]
+    assert forward.base_patch == kept
+    pc.write_patch(repo, forward)
+    assert kept.read_text() == "the hand-kept patch\n"
 
 
 def _batch(side: str, times: list[float]) -> pc.Batch:
@@ -415,6 +474,23 @@ def test_a_baseline_takes_every_fault_row_unless_its_rows_are_named():
     named = _check(None)
     named.args.faults = "05"
     assert named.fault_rows() == "05"
+
+
+def test_a_baseline_row_names_the_base_patch_of_the_tree_it_measured(tmp_path, monkeypatch):
+    record = tmp_path / "run" / "base"
+    record.mkdir(parents=True)
+    (record / "fingerprint.json").write_text("{}")
+    times = [10.0, 11.0, 12.0, 13.0, 14.0]
+    monkeypatch.setattr(pc, "read_batch", lambda *_args, **_kwargs: _batch("base", times))
+    fix = tmp_path / "base.patch"
+    fix.write_bytes(b"a fix")
+    plain = pc.Scenario(1, "letter", "", "forward", "abcdef12", None, None, None, (), None, {})
+    side = {"record": str(record), "runs_s": times, "wall_s": times, "gaps_s": [2.0], "critical_path": "-"}
+    result = {"verdict": "within spread", "sides": {"base": side}}
+    assert _check(None).baseline_row(plain, result)["base_patch_sha256"] is None
+    row = _check(None).baseline_row(dataclasses.replace(plain, base_patch=fix), result)
+    assert row["base"] == "abcdef12"
+    assert row["base_patch_sha256"] == hashlib.sha256(b"a fix").hexdigest()
 
 
 def test_a_separation_that_fails_the_check_is_confirmed_and_an_aa_pair_needs_equal_stores():
@@ -456,6 +532,13 @@ def test_each_passing_scenario_writes_its_row_unless_it_differs_from_another_mac
     ]
     other_seed = {**row, "seed_sha256": "another", "fingerprint": {**fingerprint, "verdicts": "w"}}
     assert pc.machine_differences(document, other_seed) == []
+    patched = {**row, "base_patch_sha256": "fix", "fingerprint": drifted}
+    assert pc.machine_differences(document, patched) == []
+    patched_mini = {**mini, "base_patch_sha256": "fix", "fingerprint": fingerprint}
+    assert pc.machine_differences({"machines": [patched_mini]}, patched) == [
+        "tables.default differs (base side: the cpus=12 ram=51.54GB row)",
+        "verdicts (base side: the cpus=12 ram=51.54GB row)",
+    ]
     merged = pc.merge_machine_row(document, {**row, "fingerprint": fingerprint})
     assert [entry["cpu_count"] for entry in merged["machines"]] == [12, 18]
     assert (
