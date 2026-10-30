@@ -1,6 +1,6 @@
 """The speed-up check for #584 (`make perf-check`): does a candidate change keep the outputs, keep every fault caught, and prove a shorter edit-to-READY time on the scenarios in `rebuild/perf/scenarios.yaml`? `doc/perf-check.md` is the runbook; this docstring is the authority on what a check does.
 
-A check is paired. It takes B, the candidate's own base (HEAD for the default `--candidate worktree`, which is this checkout's uncommitted diff, or A for `--candidate A..B`), and measures B and B plus the whole candidate side by side in one run, in the scratch clones `rebuild.tools.perf_clone` manages under `var/perf/`, never in this checkout. `--baseline` takes no candidate and measures B against itself, the A/A check, and on success rewrites this machine's row in each `rebuild/perf/baselines/<scenario>.json`, keyed by `cpu_count` and `mem_total_bytes`.
+A check is paired. It takes B, the candidate's own base (HEAD for the default `--candidate worktree`, which is this checkout's uncommitted diff, or A for `--candidate A..B`), and measures B and B plus the whole candidate side by side in one run, in the scratch clones `rebuild.tools.perf_clone` manages under `var/perf/`, never in this checkout. `--baseline` takes no candidate and measures B against itself, the A/A check, and rewrites this machine's row, keyed by `cpu_count` and `mem_total_bytes`, in the `rebuild/perf/baselines/<scenario>.json` of each scenario whose pair passes.
 
 The scenarios: a `revert` scenario starts from the tree with its edit reversed and times the re-application, which lands exactly on the tree; a `forward` scenario starts from its own fixed base and times its patch; `none` times a pass over the tree itself. Every revert-form patch is checked at B first (`patches_apply_at`: each reverses, they compose, and each re-applies on the composite), on a temporary index, so this checkout's index and work tree are never touched; a patch that fails there makes its scenario `not applicable at B: re-aim`, and one the candidate's own changes stop from reversing makes it `not applicable: the candidate touches its edit`. A forward scenario takes a candidate only when the candidate's paths, less `HARNESS_PATHS` and Markdown, are unchanged between its base and B, and the candidate less those paths (`FORWARD_EXCLUDES`) applies at its base (`forward_status`); otherwise it is `not measured`, and its candidate side is built from the candidate less those paths. Each side's root is its composite, the tree with every revert-form edit reversed, so no start state's caches have seen the tree that its edit lands on. The base side's verdict store is seeded from this checkout's journal as of B's committer time, or as of the journal's first event when retention has compacted the journal past that time (`seed_as_of`, then `merge_verdicts --restore-as-of`, read-only, run in the clone at this checkout's HEAD commit, so no uncommitted code reads the live journal), scrubbed of every fill of a standing rule that B has and the composite lacks or holds differently, and of every duplicate fill copied from a scrubbed unit (`scrub_seed`), and its stashes are deleted before the root is snapshotted. `--seed FILE` uses a kept seed instead, which is how another machine reproduces this machine's fingerprints. A paired check's seed is scratch, deleted once the base side's root is prepared; the letter migration's and each `--baseline`'s are kept under `var/keep/perf/seeds/`.
 
@@ -10,7 +10,7 @@ The fault kit (`rebuild/tools/fault_kit.py`, called only through its CLI) re-inj
 
 System probes run before every pass and around every timed run (`summarize_probes`, `probe_outcomes`): a refusing condition stops the check with exit 2, a waiting one makes it wait (up to `WAIT_LIMIT_S`), and one that holds after a run discards the batch. A probe whose command could not run counts as waiting. The driver holds `var/perf/perf.lock` for the whole check, runs `caffeinate -i -w` for its own lifetime, and refuses to start while `AMS_TOTAL_MEMORY_BYTES` is set, since the clone passes run without it and their run lines carry the machine's own total.
 
-A successful `--baseline` rewrites this machine's rows only after comparing each new fingerprint with every other machine's row at the same base (`compare_fingerprints`, with `same_seed` from the two rows' seeds); a difference is a determinism finding, so the check names it and writes no baseline file.
+`--baseline` writes a scenario's row as soon as its A/A pair passes (`judge`'s `measured`: journal agreement, one declared pass shape, within spread, and identical fingerprints and stores), so a later failure, refusal, stop or crash keeps it, and leaves the row of a scenario that failed or got no verdict as it was; the check still exits 1 when one failed. Before it writes a row it compares the new fingerprint with every other machine's row at the same base (`compare_fingerprints`, with `same_seed` from the two rows' seeds); a difference is a determinism finding, so the check names it, leaves that scenario's file as it was, and exits 1.
 
 Every record of a check is kept under `var/keep/perf/<stamp>-<id>/`: `report.json`, `report.txt`, `system.ndjson`, the captured candidate, and per scenario and side `hyperfine.json`, `fingerprint.json` and `runs/<k>/` (the stamp, the run's build logs and its journal lines). `--dry-run` prints the plan, the probes, which scenario patches apply at B, a forward scenario's missing kept seed (exiting 2, since the check would refuse it), the fault kit's selection and the estimated wall time (`estimate`), and builds nothing. `--write-patch NAME` rewrites a scenario's patch in place from its `edit:`, and refuses when the edit does not resolve. `--clean`, which takes no other flag, deletes `var/perf/`, and refuses while a check or a clone's pass holds its lock. SIGINT, SIGTERM and SIGHUP stop a check after the current step, except one that was ignored when the check started, so a check under `nohup` outlives its shell. Exit status: 0 when every scenario and fault row passed, 1 when one failed or got no verdict, 2 when the check refused, before measuring or partway (a refusing probe, a wait past `WAIT_LIMIT_S`, a forward scenario's missing kept seed, a prepare hook's refusal, a root that would not warm), and 128 plus the signal's number when a signal stopped it.
 """
@@ -1226,6 +1226,7 @@ class Check:
         self.mem_total_bytes = memory_budget.total_memory_bytes()
         self.seeds: dict[str, Seed] = {}
         self.roots: dict[str, list[dict]] = {}
+        self.baselines: dict[str, list[str]] = {"written": [], "differences": []}
         candidate_side = (
             Side("aa", None)
             if candidate.patch is None
@@ -1637,6 +1638,8 @@ class Check:
             result, _ = self.measure_pair(scenario, clone, starts, f"{scenario.name}.confirm")
             result["first_pair"] = first
         self.results.append(result)
+        if self.candidate.patch is None and result.get("status") == "measured":
+            self.write_baseline(scenario, result)
 
     def measure_pair(
         self, scenario: Scenario, clone: Path, starts: Mapping[str, tuple[Path, str]], directory: str
@@ -1900,11 +1903,10 @@ class Check:
         if self.faults is not None and self.faults["status"] != "passed":
             failed.append({"name": "fault kit", **self.faults})
         baselines = None
-        if self.candidate.patch is None and not failed and self.results:
-            problems = self.write_baselines()
-            baselines = {"written": not problems, "differences": problems}
-            if problems:
-                failed.append({"name": "baselines", "differences": problems})
+        if self.candidate.patch is None and self.scenarios:
+            baselines = self.baselines
+            if baselines["differences"]:
+                failed.append({"name": "baselines", "differences": baselines["differences"]})
         document = {
             "format": REPORT_FORMAT,
             "base": self.base,
@@ -1934,72 +1936,69 @@ class Check:
         print("\n".join(lines), flush=True)
         return 1 if failed else 0
 
-    def write_baselines(self) -> list[str]:
-        """Rewrite this machine's row in each measured scenario's baseline file, unless a new fingerprint differs from another machine's row at the same base (`machine_differences`): then write no file and return the differences."""
-        by_name = {scenario.name: scenario for scenario in self.all_scenarios}
-        writes: list[tuple[Path, dict]] = []
-        differences: list[str] = []
-        for result in self.results:
-            scenario = by_name.get(result["name"])
-            if scenario is None or result.get("status") != "measured":
-                continue
-            base = result["sides"]["base"]
-            record = Path(base["record"])
-            batch = read_batch(record, runs=self.args.runs)
-            if scenario.form == "forward":
-                seed = self.seeds.get(self.letter_clone_name(scenario))
-                seed_sha256 = seed.sha256 if seed is not None else (scenario.seed or {}).get("sha256")
-            else:
-                seed = self.seeds.get(SHARED_CLONE)
-                seed_sha256 = None if seed is None else seed.sha256
-            shape = pass_shape(batch.run_lines()[0])["compared"]
-            probes = batch.stamps[1].get("probes") or {}
-            times = base["runs_s"]
-            discarded = sum(
-                1 for path in record.parent.iterdir() if path.name.startswith(f"{record.name}.discarded-")
-            )
-            row = {
-                "cpu_count": self.cpu_count,
-                "mem_total_bytes": self.mem_total_bytes,
-                "os_build": probes.get("os_build"),
-                "rustc": (probes.get("toolchain") or {}).get("rustc"),
-                "hyperfine": (probes.get("toolchain") or {}).get("hyperfine"),
-                "measured_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "base": self.base if scenario.form != "forward" else scenario.base,
-                "seed_sha256": seed_sha256,
-                "fingerprint": json.loads((record / "fingerprint.json").read_text(encoding="utf-8")),
-                "runs_s": times,
-                "median_s": statistics.median(times),
-                "mad_s": mad(times),
-                "min_s": min(times),
-                "max_s": max(times),
-                "journal_wall_s": base["wall_s"],
-                "gap_s": base["gaps_s"],
-                "critical_path": base["critical_path"],
-                "aa": {"verdict": result["verdict"], "fingerprints": "identical"},
-                "pass": {"plan_flags": shape["plan"], "gates": shape["gates"], "carry": shape["carry"]},
-                "probes": {
-                    **probe_record(record / "system.ndjson"),
-                    "servers": sorted(
-                        {str((stamp.get("probes") or {}).get("server")) for stamp in batch.stamps}
-                    ),
-                    "waits_s": round(sum(float(stamp.get("waited_s") or 0) for stamp in batch.stamps), 1),
-                    "disturbed_batches": discarded,
-                    "journal_rescans": sum(1 for stamp in batch.stamps if stamp.get("journal_rescan")),
-                },
-            }
-            path = PERF_DATA / "baselines" / f"{scenario.name}.json"
-            document = (
-                json.loads(path.read_text(encoding="utf-8")) if path.is_file() else empty_baseline(scenario)
-            )
-            document["patch_sha256"] = empty_baseline(scenario)["patch_sha256"]
-            differences += [f"{scenario.name}: {item}" for item in machine_differences(document, row)]
-            writes.append((path, merge_machine_row(document, row)))
-        if differences:
-            return differences
-        for path, document in writes:
-            path.write_text(json.dumps(document, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
-        return []
+    def write_baseline(self, scenario: Scenario, result: Mapping) -> None:
+        """Rewrite this machine's row in the scenario's baseline file now that its A/A pair has passed (`measured`), and note it in `self.baselines`, unless its new fingerprint differs from another machine's row at the same base (`machine_differences`): then leave the file as it was and note the differences."""
+        row = self.baseline_row(scenario, result)
+        path = PERF_DATA / "baselines" / f"{scenario.name}.json"
+        document = (
+            json.loads(path.read_text(encoding="utf-8")) if path.is_file() else empty_baseline(scenario)
+        )
+        document["patch_sha256"] = empty_baseline(scenario)["patch_sha256"]
+        found = machine_differences(document, row)
+        if found:
+            self.baselines["differences"] += [f"{scenario.name}: {item}" for item in found]
+            return
+        path.write_text(
+            json.dumps(merge_machine_row(document, row), indent=1, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        self.baselines["written"].append(scenario.name)
+
+    def baseline_row(self, scenario: Scenario, result: Mapping) -> dict:
+        """This machine's baseline row for a scenario whose A/A pair passed, read from its base batch's record."""
+        base = result["sides"]["base"]
+        record = Path(base["record"])
+        batch = read_batch(record, runs=self.args.runs)
+        if scenario.form == "forward":
+            seed = self.seeds.get(self.letter_clone_name(scenario))
+            seed_sha256 = seed.sha256 if seed is not None else (scenario.seed or {}).get("sha256")
+        else:
+            seed = self.seeds.get(SHARED_CLONE)
+            seed_sha256 = None if seed is None else seed.sha256
+        shape = pass_shape(batch.run_lines()[0])["compared"]
+        probes = batch.stamps[1].get("probes") or {}
+        times = base["runs_s"]
+        discarded = sum(
+            1 for path in record.parent.iterdir() if path.name.startswith(f"{record.name}.discarded-")
+        )
+        return {
+            "cpu_count": self.cpu_count,
+            "mem_total_bytes": self.mem_total_bytes,
+            "os_build": probes.get("os_build"),
+            "rustc": (probes.get("toolchain") or {}).get("rustc"),
+            "hyperfine": (probes.get("toolchain") or {}).get("hyperfine"),
+            "measured_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "base": self.base if scenario.form != "forward" else scenario.base,
+            "seed_sha256": seed_sha256,
+            "fingerprint": json.loads((record / "fingerprint.json").read_text(encoding="utf-8")),
+            "runs_s": times,
+            "median_s": statistics.median(times),
+            "mad_s": mad(times),
+            "min_s": min(times),
+            "max_s": max(times),
+            "journal_wall_s": base["wall_s"],
+            "gap_s": base["gaps_s"],
+            "critical_path": base["critical_path"],
+            "aa": {"verdict": result["verdict"], "fingerprints": "identical"},
+            "pass": {"plan_flags": shape["plan"], "gates": shape["gates"], "carry": shape["carry"]},
+            "probes": {
+                **probe_record(record / "system.ndjson"),
+                "servers": sorted({str((stamp.get("probes") or {}).get("server")) for stamp in batch.stamps}),
+                "waits_s": round(sum(float(stamp.get("waited_s") or 0) for stamp in batch.stamps), 1),
+                "disturbed_batches": discarded,
+                "journal_rescans": sum(1 for stamp in batch.stamps if stamp.get("journal_rescan")),
+            },
+        }
 
 
 def render_report(document: Mapping) -> list[str]:
@@ -2057,7 +2056,11 @@ def render_report(document: Mapping) -> list[str]:
             lines.append(f"   unreached: {gate} ({carriers})")
     baselines = document.get("baselines")
     if baselines is not None:
-        lines += ["", f"baselines: {'written' if baselines['written'] else 'not written'}"]
+        written = baselines["written"]
+        lines += [
+            "",
+            f"baselines: written for {', '.join(written)}" if written else "baselines: none written",
+        ]
         lines += [f"   differs from another machine: {item}" for item in baselines["differences"]]
     roots = document.get("roots") or {}
     if roots:
@@ -2121,7 +2124,7 @@ def dry_run(
     lines = [
         f"perf-check dry run: {candidate.id} ({candidate.source}) on B = {candidate.base[:12]} "
         f"({_git(main, 'log', '-1', '--format=%s', candidate.base).stdout.strip()}), {machine_tag(cpu_count, mem_total_bytes)}",
-        f"sides: base and {'aa (the A/A check; baselines are rewritten on success)' if candidate.patch is None else candidate.id}; "
+        f"sides: base and {'aa (the A/A check; the baseline row of each scenario that passes is rewritten)' if candidate.patch is None else candidate.id}; "
         f"{args.runs} timed runs and one warm-up a batch",
     ]
     if candidate.paths:

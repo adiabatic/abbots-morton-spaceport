@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import json
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -439,7 +440,9 @@ def test_a_separation_that_fails_the_check_is_confirmed_and_an_aa_pair_needs_equ
     assert judge(candidate, fast, slow, {**fingerprint, "verdicts": "v"}) == ("failed", False)
 
 
-def test_a_baseline_row_that_differs_from_another_machines_at_the_same_base_is_named():
+def test_each_passing_scenario_writes_its_row_unless_it_differs_from_another_machines_at_the_same_base(
+    tmp_path, monkeypatch
+):
     fingerprint = {"tables": {"default": "t"}, "verdicts": "v", "stores": {"unit-cache.ndjson.gz": "s"}}
     mini = {"cpu_count": 12, "mem_total_bytes": 51539607552, "base": "b1", "seed_sha256": "seed"}
     document = {"machines": [{**mini, "fingerprint": fingerprint}]}
@@ -458,3 +461,47 @@ def test_a_baseline_row_that_differs_from_another_machines_at_the_same_base_is_n
     assert (
         pc.merge_machine_row(merged, {**row, "fingerprint": drifted})["machines"][1]["fingerprint"] == drifted
     )
+
+    baselines = tmp_path / "baselines"
+    baselines.mkdir()
+    kept = json.dumps({"format": pc.BASELINE_FORMAT, "scenario": "drifts", "patch_sha256": None, **document})
+    (baselines / "drifts.json").write_text(kept)
+    monkeypatch.setattr(pc, "PERF_DATA", tmp_path)
+    monkeypatch.setattr(pc, "disk_use", lambda _perf_dir: {})
+    names = ("passes", "fails", "drifts")
+    scenarios = [
+        pc.Scenario(number, name, "", "none", None, None, None, None, (), None, {})
+        for number, name in enumerate(names, start=1)
+    ]
+    args = argparse.Namespace(scenario=None, runs=pc.MIN_RUNS, faults="none", seed=None)
+    check = pc.Check(args, scenarios, pc.Candidate("baseline", "b1", None, (), "baseline"))
+    check.record = tmp_path / "record"
+    check.record.mkdir()
+    prints = {"passes": fingerprint, "drifts": drifted}
+    monkeypatch.setattr(
+        check, "baseline_row", lambda scenario, _result: {**row, "fingerprint": prints[scenario.name]}
+    )
+    monkeypatch.setattr(
+        check,
+        "measure_pair",
+        lambda scenario, *_: (
+            {
+                "name": scenario.name,
+                "number": scenario.number,
+                "status": "failed" if scenario.name == "fails" else "measured",
+            },
+            False,
+        ),
+    )
+    for scenario in scenarios:
+        check.measure(scenario, tmp_path, {})
+    assert sorted(path.name for path in baselines.iterdir()) == ["drifts.json", "passes.json"]
+    assert [
+        entry["cpu_count"] for entry in json.loads((baselines / "passes.json").read_text())["machines"]
+    ] == [18]
+    assert (baselines / "drifts.json").read_text() == kept
+    check.results.append({"name": "check", "status": "stopped", "detail": "stopped by signal 15"})
+    assert check.report() == 1
+    report = (check.record / "report.txt").read_text()
+    assert "baselines: written for passes\n" in report
+    assert "differs from another machine: drifts: verdicts (base side: the cpus=12 ram=51.54GB row)" in report
