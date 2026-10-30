@@ -1,3 +1,89 @@
+diff --git a/rebuild/pipeline/kernel_exec.py b/rebuild/pipeline/kernel_exec.py
+index 576e79db..4d6d8a95 100644
+--- a/rebuild/pipeline/kernel_exec.py
++++ b/rebuild/pipeline/kernel_exec.py
+@@ -203,7 +203,7 @@ def replay_threads_default(*, coresident_bytes: float = 0, total_bytes: int | No
+     )
+ 
+ 
+-# How long a crate call that answers in seconds or minutes at any alphabet size is waited for before `_run_kernel` kills it: `enumerate-configs`, which only the tests run, `settle-cases`, `guard-sweep`, `replay-emitted`, and `cargo build`. A limit is there to stop a crate that has hung, not to bound a slow one, and a call it kills records nothing. So `build-tables` and `replay-strings`, whose time grows with the alphabet, derive their limits from it at the call (`build_tables_timeout`, `replay_timeout`), and neither waits less than this.
++# How long a crate call that answers in seconds or minutes at any alphabet size is waited for before `_run_kernel` kills it: `enumerate-configs`, which only the tests run, `settle-cases`, `guard-sweep`, `replay-emitted`, `cargo build`, and the first run after it. A limit is there to stop a crate that has hung, not to bound a slow one, and a call it kills records nothing. So `build-tables` and `replay-strings`, whose time grows with the alphabet, derive their limits from it at the call (`build_tables_timeout`, `replay_timeout`), and neither waits less than this.
+ TIMEOUT = 1800
+ # The factor between the duration `build_tables_timeout` or `replay_timeout` scales from a measurement and the limit it returns. It covers what the scaling leaves out: the 12-core M4 Pro Mac mini (`doc/fleet.md`), which has no measured duration; a call that shares its cores with another pool; and for the replay, the growth in what a text costs as the tables grow, which the full-alphabet projection puts at up to 1.3 times. A limit set too low kills a healthy call and loses its whole work, while one set too high only delays the error a hung crate gets, so the margin errs high.
+ KERNEL_TIMEOUT_MARGIN = 3
+@@ -215,7 +215,7 @@ BUILD_TABLES_SECONDS = 432.2
+ BUILD_TABLES_GROWTH = 6
+ # What one text costs the replay at MEASURED_SYMBOLS: the slowest of five walks over every text at maximum length 5, one configuration each, run at once in one `replay-strings` process at the deep replay's memo ceiling on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), 71,270,177 texts in 542.3 s (`var/keep/issue-495/replay/replay-deep-all.log`). The build's own replay at maximum length 4 costs less a text: 9.9 s for 1,926,220 texts at most, in REPLAY_PEAK_BYTES's wide run.
+ REPLAY_TEXT_SECONDS = 542.3 / 71_270_177
+-# On macOS, where cargo copies the binary into target/release instead of hard-linking it, every `cargo build` replaces it there (it removes the file, then copies the new one in) even when nothing recompiled, so a build in one process can make another process's exec miss the file for an instant. This lock orders the two: a build holds it exclusively for the whole `cargo build`, and an invocation holds it shared for the spawn only, never for the run.
++# On macOS, where cargo copies the binary into target/release instead of hard-linking it, every `cargo build` replaces it there (it removes the file, then copies the new one in) even when nothing recompiled. So a build in one process can make another process's exec miss the file for an instant, and can end the first-exec scan of the file it removes: syspolicyd holds a new file's first run until its scan ends, and a scan that finds the path gone ends in a Gatekeeper termination of every process waiting on it, each an exit of -9 with empty stderr. This lock orders them: a build holds it exclusively for the whole `cargo build` and the new binary's first run (`_finish_first_exec_scan`), so no scan is in flight when the next build starts, and an invocation holds it shared for the spawn only, never for the run.
+ LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-relink.lock"
+ # How many lines of a failed build's stderr the exception includes: cargo reports the error in its last few lines, after the full compilation log.
+ BUILD_TAIL_LINES = 20
+@@ -283,11 +283,13 @@ class KernelRunError(RuntimeError):
+ 
+ 
+ def cargo_build() -> None:
+-    """Build the kernel in release mode, as `make kernel-build` does, holding the binary relink lock exclusively. Checking that the binary exists is not enough, because a stale binary sits at the same path as a fresh one; building makes sure the sources on disk are what runs. A warm build takes a fraction of a second; `ensure_built` runs it once per process."""
++    """Build the kernel in release mode, as `make kernel-build` does, holding the binary relink lock exclusively through the build and the new binary's first run. Checking that the binary exists is not enough, because a stale binary sits at the same path as a fresh one; building makes sure the sources on disk are what runs. A warm build takes a fraction of a second; `ensure_built` runs it once per process."""
+     arguments = ["cargo", "build", "--release", "--manifest-path", str(MANIFEST)]
+     try:
+         with _relink_lock(fcntl.LOCK_EX):
+             finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
++            if finished.returncode == 0:
++                _finish_first_exec_scan()
+     except FileNotFoundError:
+         raise KernelBuildError(
+             "no cargo on PATH — install the Rust toolchain (https://rustup.rs) to build the M1 kernel"
+@@ -302,6 +304,20 @@ def cargo_build() -> None:
+         raise KernelBuildError(f"the kernel did not build (cargo exited {finished.returncode}):\n{tail}")
+ 
+ 
++def _finish_first_exec_scan() -> None:
++    """Run the new binary with no arguments, to which the crate answers with its usage and exit 2, and wait for it to exit. The process cannot exit before the file's first-exec scan ends, so the caller, which holds the relink lock exclusively, keeps every other build from replacing the file during the scan (`LOCK_PATH`). Raises `KernelRunError` for a missing binary, a run that has not answered within `TIMEOUT`, or any other exit."""
++    arguments = [str(BINARY)]
++    try:
++        finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
++    except FileNotFoundError:
++        raise _no_binary() from None
++    except subprocess.TimeoutExpired:
++        raise _no_answer(arguments, "its first run", TIMEOUT) from None
++    if finished.returncode != 2:
++        errors = finished.stderr.decode(errors="replace").strip()
++        raise KernelRunError(f"the kernel exited {finished.returncode} on its first run: {errors}")
++
++
+ class _RelinkLock:
+     def __init__(self, mode: int) -> None:
+         self._mode = mode
+@@ -334,9 +350,13 @@ def _spawn_kernel(arguments: list[str], *, stdin: bool) -> subprocess.Popen:
+                 stderr=subprocess.PIPE,
+             )
+     except FileNotFoundError:
+-        raise KernelRunError(
+-            f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
+-        ) from None
++        raise _no_binary() from None
++
++
++def _no_binary() -> KernelRunError:
++    return KernelRunError(
++        f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
++    )
+ 
+ 
+ def _no_answer(arguments: list[str], verb: str, timeout: float) -> KernelRunError:
+@@ -794,9 +814,7 @@ def replay_emitted(
+     except FileNotFoundError:
+         os.close(read_end)
+         os.close(write_end)
+-        raise KernelRunError(
+-            f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
+-        ) from None
++        raise _no_binary() from None
+     os.close(read_end)
+ 
+     unreadable: list[OSError] = []
 diff --git a/rebuild/review/serve.py b/rebuild/review/serve.py
 index 771d4b09..2cc8421e 100644
 --- a/rebuild/review/serve.py
@@ -49,6 +135,46 @@ index 771d4b09..2cc8421e 100644
              self.set_status(status_code)
              if status_code == 503:
                  self.set_header("Retry-After", str(RETRY_AFTER_S))
+diff --git a/rebuild/test_kernel_exec.py b/rebuild/test_kernel_exec.py
+index 60fad581..dc3bf487 100644
+--- a/rebuild/test_kernel_exec.py
++++ b/rebuild/test_kernel_exec.py
+@@ -3,6 +3,7 @@
+ No test skips. On a machine without `cargo` these tests fail with the remedy `KernelBuildError` carries, because the M1 build cannot run there either.
+ """
+ 
++import fcntl
+ import gzip
+ import itertools
+ import json
+@@ -259,6 +260,27 @@ class TestTheInvocationInterface:
+             kernel_exec.cargo_build()
+         assert "Rust toolchain" in str(raised.value)
+ 
++    def test_a_build_keeps_the_relink_lock_through_the_new_binarys_first_run(self, monkeypatch, tmp_path):
++        """macOS kills a new binary's first run if the file disappears during its scan, so `cargo_build` runs the binary to its exit before another build may replace it, and a first run that ends in anything but the usage exit fails the build."""
++        monkeypatch.setattr(kernel_exec, "LOCK_PATH", tmp_path / "relink.lock")
++        ran = []
++        first_run_exit = 2
++
++        def run(arguments, **rest):
++            with kernel_exec.LOCK_PATH.open() as second_open, pytest.raises(BlockingIOError):
++                fcntl.flock(second_open, fcntl.LOCK_SH | fcntl.LOCK_NB)
++            ran.append(arguments[0])
++            returncode = 0 if arguments[0] == "cargo" else first_run_exit
++            return subprocess.CompletedProcess(arguments, returncode, b"", b"")
++
++        monkeypatch.setattr(kernel_exec.subprocess, "run", run)
++        kernel_exec.cargo_build()
++        assert ran == ["cargo", str(kernel_exec.BINARY)]
++
++        first_run_exit = -9
++        with pytest.raises(kernel_exec.KernelRunError, match="exited -9 on its first run"):
++            kernel_exec.cargo_build()
++
+     def test_the_crate_is_built_once_per_process(self, monkeypatch):
+         """`ensure_built` runs `cargo_build` once per process. `_BUILT` is a module attribute so a test can reset it."""
+         builds = []
 diff --git a/rebuild/test_landing.py b/rebuild/test_landing.py
 index db584502..193af950 100644
 --- a/rebuild/test_landing.py
