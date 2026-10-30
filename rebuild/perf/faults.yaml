@@ -174,3 +174,15 @@ rows:
         exit: 1
         require: {output: [font conformance failed, qsAh]}
         detail: {files: {rebuild/out/m1/conform_summary.json: ['"pass": false']}}
+  - id: "13"
+    section10: 13
+    slug: right1-unpinned-pea-full-before-roe
+    patch: faults/13.patch
+    effect: [rebuild/out/m1/settlement-default.tsv]
+    unreached: [witness]
+    steps:
+      - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: fold
+        exit: 1
+        require: {output: ["the kernel exited 1 on build-tables:", none of them lies on a row chain from a start row, qsPea.full.ex-y0]}
+        detail: {output: ["(qsRoe, qsPea.full.ex-y0, periodcentered, #NA, #NA, #NA)", none of them carries periodcentered at its second slot]}

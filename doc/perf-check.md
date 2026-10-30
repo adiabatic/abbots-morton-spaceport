@@ -131,7 +131,7 @@ Each side is fingerprinted after its last run by `rebuild/tools/perf_fingerprint
 
 The first step that misses its expectation decides a row's result, since a later step can run on outputs an earlier one never rewrote. To re-author a row, apply the old patch's intent by hand in a clone of the tree it should fit, then write `git diff` over the row's patch file.
 
-No row reaches the witness stage or the fold's certificate check. Row 01 stops at the string replay, which `run_m1` raises before the witness stage starts, and row 03 stops in the enumeration before the fold runs. So a change that touches either gate's code is reported `unreached: witness` or `unreached: fold` beside the rows it runs; `doc/rebuild-design.md` §10 records the gap.
+Row 13 reaches the fold's certificate check, through the unsupported-right-slot refusal alone, and row 03 stops in the enumeration before the fold runs. No row reaches the witness stage: row 01 stops at the string replay, which `run_m1` raises before the witness stage starts, and row 13 stops in the fold, which writes no table for the stage to read. So a change that touches the witness stage's code is reported `unreached: witness` beside the rows it runs, while a crate change counts the `fold` gate as reached whichever branch it touches; `doc/rebuild-design.md` §10 records both gaps.
 
 ## What a check keeps
 
