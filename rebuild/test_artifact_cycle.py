@@ -147,6 +147,7 @@ def _plan_text(plan: ac.Plan) -> str:
 
 
 _PLAN_ROW = r"^\s+(?:run\?|run|skip)\s+"
+_SUMMARY_RULE = "=== short test summary info ==="
 
 
 def _step_lines(text: str, name: str) -> str:
@@ -273,6 +274,7 @@ def test_classify_review_module_failures_are_hard():
     """A failure in a review module is a hard failure like any other. The review-facts pins are the cycle's output, not an assertion the suite reads."""
     stdout = "\n".join(
         [
+            _SUMMARY_RULE,
             "FAILED rebuild/test_review_build.py::test_totals",
             "FAILED rebuild/test_settle.py::test_x",
             "ERROR rebuild/test_review_ink.py::test_y",
@@ -292,7 +294,7 @@ def test_classify_review_module_failures_are_hard():
 
 def test_classify_rebuild_output_is_lane_blind():
     """The check name is copied into the result to name the suite. The classification ignores it, so the same output gets the same result under any name."""
-    stdout = "FAILED rebuild/test_settle.py::test_x"
+    stdout = f"{_SUMMARY_RULE}\nFAILED rebuild/test_settle.py::test_x"
     contracts = ac.classify_rebuild_output(stdout, 1, "rebuild-contracts")
     other = ac.classify_rebuild_output(stdout, 1, "rebuild-other")
     assert contracts.check == "rebuild-contracts"
@@ -384,7 +386,7 @@ def test_dry_run_plan_default():
         "--dist",
         "worksteal",
         "-q",
-        "--tb=no",
+        "--tb=line",
         "-rfE",
         "--durations=25",
         "--closure-skip",
@@ -1998,6 +2000,7 @@ def test_two_verbatim_children_interleave_between_lines_and_never_inside_one(cap
 def test_contracts_stays_captured_and_parses_failures(capsys):
     stdout = "\n".join(
         [
+            _SUMMARY_RULE,
             "FAILED rebuild/test_unknown_thing.py::test_x - boom",
             "ERROR rebuild/test_boom.py::test_y",
             "FAILED rebuild/test_review_build.py::test_totals_pinned - x",
@@ -2090,11 +2093,37 @@ def test_a_failed_gate_never_restates_its_outcome_as_its_detail(capsys):
 
 
 def test_classify_rebuild_reads_colored_pytest_output():
-    """Under FORCE_COLOR, which the agent harness sets, pytest wraps its FAILED lines in ANSI escapes, and the classifier must still parse the failing ids from them instead of reporting only the exit-code placeholder."""
-    colored = "\x1b[31mFAILED\x1b[0m rebuild/test_settle.py::\x1b[1mtest_x\x1b[0m - x"
+    """Under FORCE_COLOR, which the agent harness sets, pytest wraps its summary rule and its FAILED lines in ANSI escapes, and the classifier must still parse the failing ids from them instead of reporting only the exit-code placeholder."""
+    colored = (
+        f"\x1b[36m\x1b[1m{_SUMMARY_RULE}\x1b[0m\n"
+        "\x1b[31mFAILED\x1b[0m rebuild/test_settle.py::\x1b[1mtest_x\x1b[0m - x"
+    )
     result = ac.classify_rebuild_output(colored, 1, "rebuild-contracts")
     assert result.failed_ids == ["rebuild/test_settle.py::test_x"]
     assert result.status == "FAILED (1 unexplained)"
+
+
+def test_classify_rebuild_takes_ids_only_from_the_short_test_summary():
+    """The ERRORS and FAILURES sections print each failing test's captured stdout, so a line there that starts with "FAILED " or "ERROR " is no test id, and a bare "FAILED " has no id to read. A nested pytest's captured summary is not the run's. A red run with no summary stays red."""
+    captured = [
+        "= ERRORS =",
+        "_ ERROR at setup of test_y _",
+        "[gw3] darwin -- Python 3.15.0",
+        "E   RuntimeError: the build fell over",
+        "- Captured stdout setup -",
+        "FAILED ",
+        "FAILED to open the pack",
+        "ERROR the worker went away",
+        _SUMMARY_RULE,
+        "FAILED rebuild/test_nested.py::test_inside",
+    ]
+    summary = [_SUMMARY_RULE, "ERROR rebuild/test_settle.py::test_y - RuntimeError: the build fell over"]
+    result = ac.classify_rebuild_output("\n".join(captured + summary), 1, "rebuild-contracts")
+    assert result.failed_ids == ["rebuild/test_settle.py::test_y"]
+
+    interrupted = ac.classify_rebuild_output("\n".join(captured[:8]), 2, "rebuild-contracts")
+    assert interrupted.outcome == "red"
+    assert interrupted.failed_ids == ["pytest exited 2 with no parsed FAILED/ERROR lines"]
 
 
 def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
@@ -6715,7 +6744,9 @@ def test_classify_rebuild_recordable_whenever_it_is_green():
     clean = ac.classify_rebuild_output("", 0, "rebuild-contracts")
     assert clean.status == "green"
     assert clean.recordable
-    hard = ac.classify_rebuild_output("FAILED rebuild/test_settle.py::test_x", 1, "rebuild-contracts")
+    hard = ac.classify_rebuild_output(
+        f"{_SUMMARY_RULE}\nFAILED rebuild/test_settle.py::test_x", 1, "rebuild-contracts"
+    )
     assert not hard.recordable
 
 
@@ -10043,7 +10074,7 @@ def test_a_red_lane_files_the_ids_it_failed_on(tmp_path):
     """A red lane writes the test ids it failed on. The lane's status already reaches the cycle summary, but the failed ids are recorded only here, and `--by-outcome` ranks them."""
     timings = CycleTimings(tmp_path / "timings.ndjson")
     result = ac.classify_rebuild_output(
-        "FAILED rebuild/test_settle.py::test_x\nERROR rebuild/test_boom.py::test_y",
+        f"{_SUMMARY_RULE}\nFAILED rebuild/test_settle.py::test_x\nERROR rebuild/test_boom.py::test_y",
         1,
         "rebuild-contracts",
     )

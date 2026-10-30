@@ -9,7 +9,7 @@ from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
 from rebuild.tools import rebuild_gate as rg
 
-HARD_STDOUT = "FAILED rebuild/test_settle.py::test_x"
+HARD_STDOUT = "=== short test summary info ===\nFAILED rebuild/test_settle.py::test_x"
 
 
 def _checks():

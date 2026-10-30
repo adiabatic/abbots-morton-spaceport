@@ -206,7 +206,7 @@ def contracts_green() -> Path:
 
 
 def contracts_argv() -> list[str]:
-    """Return the contracts suite's argv with its selection and sidecar paths beside the green record. `-n auto` uses the cores available to this process or the cycle's explicit worker override; the suite reports its slowest tests in its own log."""
+    """Return the contracts suite's argv with its selection and sidecar paths beside the green record. `-n auto` uses the cores available to this process or the cycle's explicit worker override; the suite reports its slowest tests in its own log. `--tb=line` keeps each failure's exception text, untrimmed, and the xdist worker that ran it in that log, because the `-rfE` summary lines cut a long id's message to the terminal width."""
     argv = [
         "uv",
         "run",
@@ -217,7 +217,7 @@ def contracts_argv() -> list[str]:
         "--dist",
         "worksteal",
         "-q",
-        "--tb=no",
+        "--tb=line",
         "-rfE",
         "--durations=25",
     ]
@@ -3191,13 +3191,18 @@ def _run_step(
 
 
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_PYTEST_SUMMARY_RULE = re.compile(r"=+ short test summary info =+")
+_PYTEST_SUMMARY_LINE = re.compile(r"(FAILED|ERROR) (\S+)")
 
 
 def classify_rebuild_output(stdout: str, returncode: int, check: str) -> CheckResult:
-    """Return the rebuild suite's gate result from pytest's FAILED and ERROR summary lines. The cycle's rebuild gate and `rebuild.tools.rebuild_gate` both use it. `check` ("rebuild-contracts") is only copied into the result to name the suite. ANSI escape codes are stripped first, because pytest colors its output whenever FORCE_COLOR is set (the agent harness sets it), and a colored line does not start with "FAILED " or "ERROR ". A nonzero exit with no parsed failure lines is red. Every failure counts as unexplained, because the suite has no list of accepted failures, and every green result is recordable."""
+    """Return the rebuild suite's gate result from the FAILED and ERROR lines of pytest's short test summary. The cycle's rebuild gate and `rebuild.tools.rebuild_gate` both use it. `check` ("rebuild-contracts") is only copied into the result to name the suite. ANSI escape codes are stripped first, because pytest colors its output whenever FORCE_COLOR is set (the agent harness sets it), and a colored line does not start with "FAILED " or "ERROR ". Ids come only from the lines below the last summary rule. The ERRORS and FAILURES sections above it print each failing test's captured stdout, which can hold a line that starts with either word or even a nested pytest's own summary, and pytest prints nothing captured below its own rule. A nonzero exit with no parsed failure lines is red, which covers output with no summary, such as a pytest that crashed before printing one. Every failure counts as unexplained, because the suite has no list of accepted failures, and every green result is recordable."""
     lines = [_ANSI_SGR.sub("", line) for line in stdout.splitlines()]
-    failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
-    error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
+    rules = [index for index, line in enumerate(lines) if _PYTEST_SUMMARY_RULE.fullmatch(line)]
+    summary = lines[rules[-1] + 1 :] if rules else []
+    matches = [match for line in summary if (match := _PYTEST_SUMMARY_LINE.match(line)) is not None]
+    failed_ids = [match[2] for match in matches if match[1] == "FAILED"]
+    error_ids = [match[2] for match in matches if match[1] == "ERROR"]
     hard = failed_ids + error_ids
     if returncode != 0 and not hard:
         hard.append(f"pytest exited {returncode} with no parsed FAILED/ERROR lines")
