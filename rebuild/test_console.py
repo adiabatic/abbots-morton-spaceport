@@ -145,23 +145,38 @@ def test_progress_text_formats_counts_and_an_unknown_total():
     assert console.Progress(done=3, total=6).text == "3/6"
 
 
-def test_pytest_events_read_failures_and_the_percent_marker():
-    assert console.pytest_events("FAILED rebuild/test_x.py::test_y - boom") == console.Warn(
-        "FAILED rebuild/test_x.py::test_y - boom"
-    )
-    assert console.pytest_events("ERROR rebuild/test_x.py::test_y") == console.Warn(
-        "ERROR rebuild/test_x.py::test_y"
-    )
+def test_pytest_events_read_the_percent_marker():
     assert console.pytest_events("rebuild/test_x.py ....         [ 17%]") == console.Progress(percent=17)
     assert console.pytest_events("[gw3] [100%] PASSED rebuild/test_x.py::test_y") == console.Progress(
         percent=100
     )
     assert console.pytest_events("collected 1200 items") is None
+    assert console.pytest_events("FAILED rebuild/test_x.py::test_y - boom") is None
 
 
-def test_pytest_events_strip_the_color_a_forced_terminal_adds():
-    colored = "\x1b[31mFAILED\x1b[0m rebuild/test_x.py::test_y - boom"
-    assert console.pytest_events(colored) == console.Warn("FAILED rebuild/test_x.py::test_y - boom")
+def test_pytest_summary_reads_failures_below_the_last_rule_only():
+    assert console.pytest_summary(
+        [
+            "FAILED to open the pack",
+            "===== short test summary info =====",
+            "FAILED test_child.py::test_bare_live_read - boom",
+            "===== 1 failed in 0.40s =====",
+            "ERROR the worker went away",
+            "===== short test summary info =====",
+            "FAILED rebuild/test_x.py::test_y - boom",
+            "ERROR rebuild/test_x.py::test_z",
+            "===== 1 failed, 1 error in 2.10s =====",
+        ]
+    ) == ["FAILED rebuild/test_x.py::test_y - boom", "ERROR rebuild/test_x.py::test_z"]
+    assert console.pytest_summary(["FAILED rebuild/test_x.py::test_y", "INTERNALERROR> boom"]) == []
+
+
+def test_pytest_summary_strips_the_color_a_forced_terminal_adds():
+    colored = [
+        "\x1b[36m\x1b[1m===== short test summary info =====\x1b[0m",
+        "\x1b[31mFAILED\x1b[0m rebuild/test_x.py::\x1b[1mtest_y\x1b[0m - boom",
+    ]
+    assert console.pytest_summary(colored) == ["FAILED rebuild/test_x.py::test_y - boom"]
 
 
 def test_the_pytest_warning_count_comes_off_the_terminal_summary_rule():
@@ -587,6 +602,33 @@ def test_a_failure_dumps_the_whole_step_log_verbatim(capsys, tmp_path):
         capsys.readouterr()
         cycle_console.failure_dump("gate:js")
         assert capsys.readouterr().out == "\nnot ok 3 - keyboard\nstderr| TypeError: nope\n"
+
+
+@pytest.mark.parametrize("step", ["gate:make-test", "gate:rebuild-contracts"])
+def test_a_failed_pytest_step_warns_about_its_own_failures_and_no_captured_line(capsys, tmp_path, step):
+    """A failing test's captured stdout reaches the step's log, and a nested pytest's whole summary can sit in it, so a step warns only once its child has exited and its last summary rule is known."""
+    output = [
+        "===== ERRORS =====",
+        "_____ ERROR at setup of test_y _____",
+        "----- Captured stdout setup -----",
+        "FAILED to open the pack",
+        "===== short test summary info =====",
+        "FAILED test_child.py::test_bare_live_read - boom",
+        "===== 1 failed in 0.40s =====",
+        "===== short test summary info =====",
+        "ERROR rebuild/test_x.py::test_y - RuntimeError: boom",
+        "===== 1 error in 2.10s =====",
+    ]
+    for log_dir in (None, tmp_path / "run"):
+        cycle_console = _cycle_console(steps=[step], log_dir=log_dir)
+        cycle_console.step_start(step, ["make", "test"], "")
+        for line in output:
+            cycle_console.child_line(step, console.STDOUT, line)
+        assert _bodies(capsys.readouterr().out, step) == []
+        cycle_console.failure_dump(step)
+        out = capsys.readouterr().out
+        assert _bodies(out, step) == ["warn ERROR rebuild/test_x.py::test_y - RuntimeError: boom"]
+        assert out.endswith("\n".join(["", *output, ""]))
 
 
 def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
