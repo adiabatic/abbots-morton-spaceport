@@ -386,6 +386,7 @@ def test_dry_run_plan_default():
         "-q",
         "--tb=short",
         "--show-capture=no",
+        "--code-highlight=no",
         "-rfE",
         "--durations=25",
         "--closure-skip",

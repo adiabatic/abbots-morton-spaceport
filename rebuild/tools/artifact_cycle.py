@@ -206,7 +206,7 @@ def contracts_green() -> Path:
 
 
 def contracts_argv() -> list[str]:
-    """Return the contracts suite's argv with its selection and sidecar paths beside the green record. `-n auto` uses the cores available to this process or the cycle's explicit worker override; the suite reports its slowest tests in its own log. `--tb=short` keeps each failure's test name, worker and exception in the step log, and `--show-capture=no` keeps out what the test printed, because the step's output goes through line readers (`console.CycleConsole`, `classify_rebuild_output`, and, through the failure dump, `perf_check.classify_run`) that anchor at column zero, where a captured line would pass for their own."""
+    """Return the contracts suite's argv with its selection and sidecar paths beside the green record. `-n auto` uses the cores available to this process or the cycle's explicit worker override; the suite reports its slowest tests in its own log. `--tb=short` keeps each failure's test name, worker and exception in the step log, and `--show-capture=no` keeps out what the test printed, because the step's output goes through line readers (`console.CycleConsole`, `classify_rebuild_output`, and, through the failure dump, `perf_check.classify_run`) that judge a line by how it starts, so a captured line would pass for their own. `--code-highlight=no` keeps pygments out of the traceback, because under `FORCE_COLOR` its deprecation warnings on Python 3.15 flood the log."""
     argv = [
         "uv",
         "run",
@@ -219,6 +219,7 @@ def contracts_argv() -> list[str]:
         "-q",
         "--tb=short",
         "--show-capture=no",
+        "--code-highlight=no",
         "-rfE",
         "--durations=25",
     ]
