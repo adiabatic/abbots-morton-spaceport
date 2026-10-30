@@ -2,5 +2,202 @@
  "format": "ams-perf-baseline/1",
  "scenario": "letter-migration",
  "patch_sha256": "de953e80f027f6497dbd505a265b47a31eba95cf730a7bee4cf79f0f59fd459d",
- "machines": []
+ "machines": [
+  {
+   "cpu_count": 18,
+   "mem_total_bytes": 51539607552,
+   "os_build": "26B123",
+   "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)",
+   "hyperfine": "hyperfine 2.0.0",
+   "measured_at": "2026-10-30T08:38:12Z",
+   "base": "49a570922b29f4558febfcee40e5e70bb39cbbfb",
+   "seed_sha256": "98a9a98618036d1cbc90c1bc6c4c126799daba854bc3ca1b1a67cb28ea02d64c",
+   "fingerprint": {
+    "complaints": "0b629f18583626c1bf6f13eb1f32a24ddf6297d4ac84265928f6d73328e54958",
+    "corpus": {
+     "digest": "cc27f67f4f55e5d26a93dcb590d5a34b6b47c225d35299c3cf902deb35582404",
+     "files": {
+      "app-locator-rows.ndjson.gz": "350c2a01448f595dd4dc023cc7a979749f634e7e561c3b49d2415663167389f4",
+      "app-locator.ndjson.gz": "8633314231cb4b48c11ed1388f24a92082f061fbd4b0720ccddbcfa0cc75a584",
+      "app-units.ndjson.gz": "0bae36ef3c98bdea8d770065ffdd33446c4e0a4fbf02ca37d49a4c65e748a2b4",
+      "app.css": "a2bb33c7b21230d7fb0f1f630e919ea83e47078eb06e43050aa8d142ead255c8",
+      "app.js": "acacd9ede9e370cbddb1541c995c3d054bbf24db6a72cf91e9cc1004ca1a26c3",
+      "fonts/after.otf": "1603f0af6c86bc8d205d0c7ee492747dd99195367c7938314e1b20b729db3acf",
+      "fonts/before.otf": "5a96ea36d037b87107f1e4e8c19bd4619b53509db4e432d5f561b938f1cca04b",
+      "index.html": "b78f9a2a8cc0bd946871b2e218739c116eb732b9063136197fa59e8b89ac5c4a",
+      "keyboard.js": "1057a956497105cb19552dd2f2dc890be0e92c50edde11d018d73d86023c125c",
+      "manifest.json": "8d0069dd1d796ff2d90c8e2cc6d18723b319e74ad9de581e6f8cc8ed7baa8058",
+      "outbox.js": "d8b7ff855b77f074adb05417ad55560067bb11f2e4bc6358601a2bad73f4433b",
+      "package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "preview.js": "5a9f8ce13fc7d215a4ccdc49d5c4a46b31d8756f5569cf0b60ea2243f8a0ec2b",
+      "queue.js": "b0217639677d89836c3438573e74dd37dac18c7cccbfcf96f009854abfa0c2b0",
+      "reload-plugin.js": "2ee039096674c2f242f8b1be519d7626b767a3223f427a63e49bd18a62fb7ffd",
+      "reload.js": "87d364af17de4fa454fe202480eea83ab284b041a297155a5a49412162a1438c",
+      "render.js": "204718fdfdc0412f8cca897a631db99dd0ec8d0a51186ed116b3f5f8eb8adf62",
+      "review-facts.json": "e57337acdbe03b17fee59ee99d19881248d3444fb4fc240f050c2d90ac59e20e",
+      "slim.js": "9bf862a8c4fdeb60257555f772e9e6796757f393f8237edee1f6925b4432cd83",
+      "state.js": "4ef5e143671acc2566890082b168da62400d72b4927f94dfd4dcbebe3cf5ed96",
+      "status.js": "15ba556e3162b0515af92b234bc907cbc2bc4e665054693bb1d501234028b4b1",
+      "units-index.ndjson.gz": "b9957be2cc5a280b34e4bf4dd3ec8b16049b572203d139c74e3b6de15bf06688",
+      "units/bare-name-live-join.000.json": "f2ce7b1a15ea3df5371e85ac30e5fdbd4fa52319a5139958f20e1c49ffbbaac0",
+      "units/bare-name-live-join.001.json": "a488f79eaa1168db14ffe1e200d7b010b17c849fef6b20be7a5ab2c8bd83a01d",
+      "units/bare-name-live-join.002.json": "d52d6d376af2ba1d1c5cb89ed7d68102a3f823b5326b1065cdc685163be12d32",
+      "units/bare-name-live-join.003.json": "b5d772b099e22a551c05268f3771278c7c47a2521e202cb13603dba068d30123",
+      "units/bare-name-live-join.004.json": "64314d8b6b6bd6e2ce5bb9e5315d658e3303a6c8d3d378b59271c2308416bb6e",
+      "units/bare-name-live-join.005.json": "67c0cffe3a60f9f109a01bea9f4bc34a6b1127a059be6f14e24c6e99046a0539",
+      "units/boundary-window.000.json": "44e0464d2295142f20fa65e8989751367237ff1f1be0b44a5400eef19b1a55af",
+      "units/boundary-window.001.json": "9863b2b2860a9f681b4f6db0451399182c50c4b8e8bd6925396899ec21010c94",
+      "units/dangling-anchor-dropped.000.json": "a7aedb9e890bed5f909caf9cee173e4204045dd56cd85c28f07cdbc2fcfccf55",
+      "units/dangling-anchor-dropped.001.json": "78c9cdd774fd122cc671ac166010eb6e2d6ce63b05ec470667207f846ecfccb2",
+      "units/dangling-anchor-dropped.002.json": "6f5e8eaca050990c56ad9288c7e33ca2647d172156eef2a31f9baa90604bd381",
+      "units/dangling-anchor-dropped.003.json": "63010ca956b456c5fea1035e771a8b04682842d16f2f3903ca4b58a1cc6a6d6a",
+      "units/day-baseline-entry-extension-dropped.json": "ba0ee90504e0d07d95e9ef2a5494ebdd3a4dcbed95d4ffdf73639d555a8ad36b",
+      "units/deferred-ss03.json": "5d48cef7afd4dc9316c962c6f51aad8c7ae81892c06d19df91cf19323616b313",
+      "units/deferred-ss04.json": "2254d9823424d025f5cf8b1395551e4b5fe10f4a9f9d0534660fd7fdd9b18af8",
+      "units/entered-it-baseline-join-gain.json": "122137381a84ebca5f7be648f19103a894c4a7d1c811349ec6163dd5c4c799d4",
+      "units/extension-non-summing.000.json": "3700fdd80c71db3116d76c6f6964d09eba6c4831c2fd565fea21d5ffc04b891b",
+      "units/extension-non-summing.001.json": "36f084f125fce1106c29aeb9f0ac7d764a31310a75acd8467e2c92cd5eab375c",
+      "units/extension-non-summing.002.json": "784245234803b8ba27d84629be55788e7ad951932d13b9708f25acd100eaefcb",
+      "units/halves-entry-extension-restored.json": "dfc81a477df51b0eda1555e439da675e40b66abaa72a6694749f9f19e9b4ae96",
+      "units/jai-entry-contraction-renamed.json": "70a95c50b7d1480dce96791609d24622cfaed39d6d202f753898d76face43949",
+      "units/junction-loss-unjoined.json": "6fbc1f423ae55077df088ef0af128f5265c1218175085ed38cd96b6552e7cade",
+      "units/kern-out-of-scope.json": "5088680c3f0bf0c618b05aaa4c30cbffab810ccc5c9a32b21fdee40c9d59b14d",
+      "units/may-baseline-entry-extension-dropped.json": "bcb2e1994a276759a65f2699a0152cf2e68d7f2a1ca7195aa0862da2ddf9af56",
+      "units/may-jai-extension-consolidated.json": "764f386e6f4d2f3c05b686c02ad29ab5737ba1c30fb51bd8c992d04a95b464d1",
+      "units/may-ligature-junction-loosened.json": "fdac5dbbc40cec4aed8585a31b6ad0a7a19ed9f88092c2776d9a25b5ba2d2001",
+      "units/may-utter-gains.json": "07e68b8b8b07575a52bf0841ddf17516fd5fa4653129dce1b3fbd8787e6f0263",
+      "units/no-chain-gains.json": "ba1693e2a92b3a779a2526d9bf8622c4635aae5220682157a52ac9418434dd7f",
+      "units/no-xheight-entry-extension-dropped.json": "95d8a550c88290badd542beb822d4553c4761ff19b8e3bb5ce226c6a48aece39",
+      "units/oy-it-baseline.json": "3bdf29f90323960efae61c3aed943b25594ffe11cc0d0ab7b66f97baf66c0c0a",
+      "units/pea-chain-regularized.json": "8e9325c998b289f135bfa592feb1568d1977fea620b67df3565e2e2c6032b343",
+      "units/post-marker-ligature-formation.json": "c47f5054efe313a13b279b5fd13f0df679ff4693654a93a1c5a151f832777a25",
+      "units/pre-ligature-cleanup-regularized.json": "c9d63270f0c124e2b0292f47f408ee3003ff1f32a6ac551df586bfda46ff854b",
+      "units/regrouped-chain.json": "55194f6cf8974b0b8c22922d9f276fe9eeaeb52d92260db9c4dcf4f99c183bd2",
+      "units/roe-shortened-top-renamed.json": "c31aa4d1f18bc393571e1370f1585569c35fcdd49addd52f49983d26ab1eba7f",
+      "units/same-junction-extension-non-summing.json": "df538301dc78d6b922d372f21f238a58fbb9706af75e5d00916d7e865fe7810f",
+      "units/see-out-fusion-renamed.json": "a170884df14ef48b98618b3e22a34335a85cdd586fa4d281bb0fc3a381ae1603",
+      "units/ss03-chain-join-gains.json": "852d88cb225da1fba59a03f50fcc593d884733bfd6fc581115265c5dbaebddb5",
+      "units/ss03-out-tea-ligature-kept.json": "af86fba05c32802bf322159d4b5359dc7b05bb8fb4b3a61b19ba8f5a7c8acda0",
+      "units/tea-it-xheight.json": "0fca90f000239c01b6c81d95f1d7e369e1b37977602d94846487153e1ee232df",
+      "units/unmatched-misc.json": "166dd1f3214bae664773df6450495e7fef432c90b9a4340174e075b5adf87f62",
+      "units/vie-baseline-entry-extension-dropped.json": "3ecc96a8d433cf9034e34739ae51fdff1032f449c1f708950b9abd00fb39de82",
+      "units/zoo-entry-contraction-renamed.json": "9cb9bc72419dfce7e458901a152dbe4e82c542bc25e34abae66022babfe42044",
+      "units/zwnj-word-initial-unification.json": "1976d015037a9ba461dd1bddc3932f6ed46dcad24314f15d0c9e145af012ea71",
+      "verdicts.js": "78a1df99043e7884b6c5a0d6005ee6799a5a183b45eebd1b728697546396e54f"
+     }
+    },
+    "fonts": {
+     "rebuild/out/m1/M1.otf": "1603f0af6c86bc8d205d0c7ee492747dd99195367c7938314e1b20b729db3acf",
+     "rebuild/out/review/fonts/after.otf": "1603f0af6c86bc8d205d0c7ee492747dd99195367c7938314e1b20b729db3acf",
+     "rebuild/out/review/fonts/before.otf": "5a96ea36d037b87107f1e4e8c19bd4619b53509db4e432d5f561b938f1cca04b",
+     "site/AbbotsMortonSpaceportMono-Bold.otf": "752617038ece1342491a2be7266039495f7008c65dd2eef512b7a0b139e20402",
+     "site/AbbotsMortonSpaceportMono-Regular.otf": "c32f3dd6cfcf51da25f1286f57b718f6346bcb1bb864841ba98b9da29a0398d0",
+     "site/AbbotsMortonSpaceportSansJunior-Bold.otf": "7201786e01d18ba9ff6b4859add9a9bddc5702428733f2dedd66969db6908752",
+     "site/AbbotsMortonSpaceportSansJunior-Regular.otf": "83ce400a261d9a005dc6d9ed7e0107e9b8b45812b4560beb76e9fe80611723a7",
+     "site/AbbotsMortonSpaceportSansSenior-Bold.otf": "6f795c86041f0f80e7ee3647fd9d4de3fce6a04df22cee4ef07e1993f0934cb5",
+     "site/AbbotsMortonSpaceportSansSenior-Regular.otf": "5a96ea36d037b87107f1e4e8c19bd4619b53509db4e432d5f561b938f1cca04b"
+    },
+    "format": "ams-perf-fingerprint/1",
+    "review_facts_pins": "898af2235096325d1d6c8af2924c972a7703038205ac1a725822f8b59fbc86da",
+    "stores": {
+     "ink-signatures.tsv.gz": "181016936064375f1a6a9282f5ebf85704af12f729678e9c5189c2f4df6385d2",
+     "unit-cache.ndjson.gz": "28c005d8dd0a5b4d0fe6d1838eb258dfbffebd4a1e7253844fabe739fc906406"
+    },
+    "tables": {
+     "default": "9687818946295af6d48d10a7fbad3a025d5c2a960edda294e3762b31c6ef9e6b",
+     "ss03": "bc2a70dbfbdb79e56aa8234f10b4bfab4b02ec19321a7b0b9c6c70bc95c5226d",
+     "ss03+ss05": "22167cf579482a3afd6582ca487748b8cc6337905b383faeb6102274e99c951a",
+     "ss04": "254df46895b793ce295ca0a278ed881fa1e4f3e6b859beaefc2ff22532fad0a6",
+     "ss05": "4ad3f0d6dc4a9203e217fbb0d940e6a43a15db2f7688845d4dc3fc9f4df34df5"
+    },
+    "verdicts": "b964ebf6588f8dd6a01dc58a16ac078e076572da89792f24e36c877e0f931a61"
+   },
+   "runs_s": [
+    575.652446708,
+    576.286654833,
+    576.26421125,
+    577.382053375,
+    577.674399125
+   ],
+   "median_s": 576.286654833,
+   "mad_s": 0.6342081249999865,
+   "min_s": 575.652446708,
+   "max_s": 577.674399125,
+   "journal_wall_s": [
+    572.6,
+    573.3,
+    573.3,
+    574.4,
+    574.6
+   ],
+   "gap_s": [
+    3.052446707999934,
+    2.9866548329999887,
+    2.964211250000062,
+    2.9820533750000777,
+    3.0743991250000136
+   ],
+   "critical_path": "review-facts (5/5)",
+   "aa": {
+    "verdict": "within spread",
+    "fingerprints": "identical"
+   },
+   "pass": {
+    "plan_flags": {
+     "first_run": false,
+     "skip_run_m1": false,
+     "rerun_gates_only": false,
+     "skip_corpus": false,
+     "skip_verdict_update": false,
+     "skip_gates": false,
+     "skip_contracts": false,
+     "skip_conform": false,
+     "do_merge": true,
+     "land": true,
+     "promote_corpus": false,
+     "refresh_assets": false,
+     "contracts_after_units": null,
+     "conform_max_length": 4
+    },
+    "gates": {
+     "conform": {
+      "green": false,
+      "skip": "proved"
+     },
+     "js": {
+      "green": true,
+      "skip": null
+     },
+     "make_test": {
+      "green": false,
+      "skip": "proved"
+     },
+     "rebuild_contracts": {
+      "green": true,
+      "skip": null
+     }
+    },
+    "carry": {
+     "human": 294108,
+     "matched": 250697,
+     "unmatched": 43411,
+     "orphaned": 0
+    }
+   },
+   "probes": {
+    "powermode": "ok",
+    "therm": "ok",
+    "pressure": "ok",
+    "ac_power": "ok",
+    "heavy": "ok",
+    "unreadable": "ok",
+    "servers": [
+     "foreign"
+    ],
+    "waits_s": 0.0,
+    "disturbed_batches": 0,
+    "journal_rescans": 0
+   }
+  }
+ ]
 }

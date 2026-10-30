@@ -60,7 +60,7 @@ FAULT_KIT = ROOT / "rebuild" / "tools" / "fault_kit.py"
 STANDING_RULES = "rebuild/standing-approvals.yaml"
 
 MIN_RUNS = 5
-GAP_RANGE_S = 2.0
+GAP_RANGE_S = 1.0
 WAIT_LIMIT_S = 2 * 3600
 POLL_S = 60.0
 BATCH_RETRIES = 2

@@ -9,9 +9,9 @@
    "os_build": "26B123",
    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)",
    "hyperfine": "hyperfine 2.0.0",
-   "measured_at": "2026-10-29T09:40:10Z",
-   "base": "b70f2371ad9578f337cce5004110bcf517f2fb50",
-   "seed_sha256": "ed15839b30c12b3b9b41713a876d0c06f3438c370785326f9ce24445f6e7e39b",
+   "measured_at": "2026-10-30T05:10:03Z",
+   "base": "c5024b3c40877d1a2006fca1c0920ff258db4d5c",
+   "seed_sha256": "e30a7602b0d82e3598a6765ae2d26c952c7071f4c492bd07bcabc11a8f9e3efb",
    "fingerprint": {
     "complaints": "ff0e0584fff601a3135bcc0d815e7d17dcef1b9f2cff59aecb5ad574b21949ab",
     "corpus": {
@@ -112,34 +112,34 @@
      "ss05": "5e43ff636080fea3930d21b14fd2a11cb26d2a79a56bd27e45c1c6175913a4d3",
      "ss08": "6f105bf0f34b64c9997cfdc43386b838b67f42e229bff75d5251302436d5e75c"
     },
-    "verdicts": "f9b2e038ada66d363e1860b8a2456fac594e0efc865b9c463f6ffc16d67d64c5"
+    "verdicts": "96a6c087db4c7239f4cced8b8644c4b6df120b8f161ae31a78c2750922cf1b8c"
    },
    "runs_s": [
-    4.92427325,
-    4.9186988750000005,
-    4.911516208,
-    4.874771542,
-    4.903407791
+    5.030670541,
+    4.956491541,
+    4.951908542,
+    5.055943875,
+    5.026091916
    ],
-   "median_s": 4.911516208,
-   "mad_s": 0.008108416999999868,
-   "min_s": 4.874771542,
-   "max_s": 4.92427325,
+   "median_s": 5.026091916,
+   "mad_s": 0.029851958999999262,
+   "min_s": 4.951908542,
+   "max_s": 5.055943875,
    "journal_wall_s": [
-    0.9,
-    0.9,
-    0.9,
-    0.9,
+    1.0,
+    1.0,
+    1.0,
+    1.0,
     1.0
    ],
    "gap_s": [
-    4.024273249999999,
-    4.018698875,
-    4.011516208,
-    3.9747715420000005,
-    3.9034077910000002
+    4.030670541,
+    3.956491541,
+    3.951908542,
+    4.055943875,
+    4.026091916
    ],
-   "critical_path": "review-facts (4/5), gate:js (1/5)",
+   "critical_path": "review-facts (5/5)",
    "aa": {
     "verdict": "within spread",
     "fingerprints": "identical"

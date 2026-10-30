@@ -10,6 +10,12 @@ The rebuild migrates the cursive-join engine rune by rune and checks each batch 
 
 **Where the state lives:** `make verdict-ready` and the app’s banner report whether the corpus, the gates, and the verdict store are ready, `rebuild/out/cycle_summary.json` is the last cycle’s record, and `doc/note-taking.md` § Counts and drifting state and `doc/review-cycle.md` name the other records.
 
+## The speed-up check
+
+**The Mac mini has no baseline rows yet.** `rebuild/perf/baselines/` holds the 18-core MacBook Pro's rows; the 12-core Mac mini adds its own from the same scenarios, patches and seeds (`doc/perf-check.md` § Another machine).
+
+**Should a scenario time gate:conform's sweep?** No scenario's pass runs it (`doc/perf-check.md` § The scenarios), so a candidate that changes only the sweep's time proves nothing either way. The candidates are a revert-form scenario on a commit that moves the gate's key, and leaving the sweep out of the timed spans, since it runs in the gate lane and `make cycle-timings ARGS='--critical-path'` shows the build lane ending those passes.
+
 ## Open forks in the gates
 
 **How should a gate see a rule that matches across a ZWNJ?** HarfBuzz skips a ZWNJ that a context class does not name, and the ZWNJ lock leaves a rune without an entry (·She and some ligatures) raw after a ZWNJ, so for those windows the emitted rule order is the only protection. The shipped-order walk matches `uni200C` literally and cannot see the skip, so such a fault surfaces only in the conformance sweep or the deep sweep, and not at all when it needs a text longer than the deep sweep's maximum length. The candidates are an emit-time scan that first-matches every real window containing a ZWNJ under the skip, with each raw-after-ZWNJ glyph placed after it, and moving the crate's third-slot boundary row ahead of its block's fourth-slot rows (`rulefold.rs`), as the other slots already do.

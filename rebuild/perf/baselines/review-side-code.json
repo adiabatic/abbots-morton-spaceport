@@ -2,5 +2,204 @@
  "format": "ams-perf-baseline/1",
  "scenario": "review-side-code",
  "patch_sha256": "b321c12df8c1be773fab37222e45b55d49dd209dc49f0cf73daa948c1bad93d2",
- "machines": []
+ "machines": [
+  {
+   "cpu_count": 18,
+   "mem_total_bytes": 51539607552,
+   "os_build": "26B123",
+   "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)",
+   "hyperfine": "hyperfine 2.0.0",
+   "measured_at": "2026-10-30T05:10:03Z",
+   "base": "c5024b3c40877d1a2006fca1c0920ff258db4d5c",
+   "seed_sha256": "e30a7602b0d82e3598a6765ae2d26c952c7071f4c492bd07bcabc11a8f9e3efb",
+   "fingerprint": {
+    "complaints": "ff0e0584fff601a3135bcc0d815e7d17dcef1b9f2cff59aecb5ad574b21949ab",
+    "corpus": {
+     "digest": "fe4130b247ddfc23ed2ea75692eace6a710c81209bdf467654cfe8dcbc3ad4cc",
+     "files": {
+      "app-locator-rows.ndjson.gz": "bcc8c60fc11a33f749ecf6d2a43dfd0826bb115018df61236adc3f7513366677",
+      "app-locator.ndjson.gz": "9aba799254b19bc5df2fd1953124fbbbc36bf97537545c456a1fea7fff36afb3",
+      "app-units.ndjson.gz": "31ba195952a21eeb079bbea85eec33b6037c27c43d6d096b1bd7a041c81a5f49",
+      "app.css": "844eec2a0940128bc97f02df1488fc6ebd9f0cdab33ae22644d959b8b54e95d1",
+      "app.js": "ee443788efaa8ffc98c7783265fa5c9793e68832ba91e0d9a238000262747a1e",
+      "fonts/after.otf": "94153e2ba3463091b788c88e1435ce97c953cec67a0c7a975e8c164033d931b1",
+      "fonts/before.otf": "5a96ea36d037b87107f1e4e8c19bd4619b53509db4e432d5f561b938f1cca04b",
+      "index.html": "c46ed8e2540033a3e556682e189a8bdeebc8d7c6bf75436976fc9da71daaa568",
+      "keyboard.js": "1057a956497105cb19552dd2f2dc890be0e92c50edde11d018d73d86023c125c",
+      "manifest.json": "73c6c02ed3dfb1231119e6664b8d506012605831a6cf3ae8bb167098f0e5e5c6",
+      "outbox.js": "b2a91c20d761af917494ff0209da197e0979dd5e31f72fb29b687df9ef074fef",
+      "package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "preview.js": "5a9f8ce13fc7d215a4ccdc49d5c4a46b31d8756f5569cf0b60ea2243f8a0ec2b",
+      "queue.js": "4aca1f6c0678aeea8bde67e410e7c3af72da778ecfa7aa310ce243421f94a750",
+      "reload-plugin.js": "2ee039096674c2f242f8b1be519d7626b767a3223f427a63e49bd18a62fb7ffd",
+      "reload.js": "87d364af17de4fa454fe202480eea83ab284b041a297155a5a49412162a1438c",
+      "render.js": "909f30935c375741574592e364af1503410a7d8be57950927526540e4f4069e2",
+      "review-facts.json": "11b3b98ddc3e2bdc23e3766b4776629f84f770f93bd2f84002ae3fcfc353eb97",
+      "slim.js": "9bf862a8c4fdeb60257555f772e9e6796757f393f8237edee1f6925b4432cd83",
+      "state.js": "4ef5e143671acc2566890082b168da62400d72b4927f94dfd4dcbebe3cf5ed96",
+      "status.js": "066c50bc601d35a2371282659d6c53a4047b81a5b13ac7a2fb85aff919f57b0a",
+      "units-index.ndjson.gz": "80a36a43ebba069d1788546ca4b5619cef630e694c49b470b238121f7bb8131d",
+      "units/half-day-closer-at-baseline-join.json": "2d4862a2f03b3b7a898b8ee33b57f384f1fb734c877a11c752b919086ac9b0ed",
+      "units/halves-closer-to-no.json": "68bfbcfce57f58d45ed68fdffc92d3ac522f4aac01fbb2eb2dad42f72777e47b",
+      "units/identical-jai-jay-crown.json": "d20bc692a06820afdee976f5a0fce8771a51000f76f4add104cf619b5b458cbb",
+      "units/identical-roe-short-top.json": "997cf3228ff22902e44bec1b324feb0f6736d88f589d8707df42743b58396de3",
+      "units/identical-unjoined-from-left.json": "e43cc5d2f3b6dbc9fe707d773b11e5ec2c76fce2cfe86bd413c3fb6a8ebf9b01",
+      "units/identical-unused-join-name.000.json": "b7548b84c207057b315b507dfbf5e384d749827ba29328e296a74c8192eb75ea",
+      "units/identical-unused-join-name.001.json": "de4c42e24d9fc0e8cd1d08e2f54f4b8d0f14a61a5bdd57bad17cdcc0f4d63c9f",
+      "units/identical-unused-join-name.002.json": "f6067504e6b94f231a216d0a325fc81ae12b03588de66d9cff2ebf9b7e2bc2e1",
+      "units/identical-unused-join-name.003.json": "34ffd398d3c8c83479f4054153d29c1ad0f7a63e8d42abe30cd00cec082ac33e",
+      "units/identical-variant-name.000.json": "414782a35fa28dc68856695a1910dc9afe6f7bbae76bcbdd780f60e2484325c5",
+      "units/identical-variant-name.001.json": "7f4afe02fa43e4ea7ac3002124a18a73a0dbe983c6627f9c5ec4a91bcad9d79c",
+      "units/identical-variant-name.002.json": "1c7dc83e05b3b0b46a4db93467ccf91466fe45e1f3d2a069bb843dae6d4ae781",
+      "units/identical-variant-name.003.json": "531c0b5e193282c051cdbd01ce5c0e4f0eb8c36c9d5ef65e2bffea607b68b0b9",
+      "units/identical-variant-name.004.json": "a68e789ca0258d0b659385a7d01c972fb3c66a0bc8553ef2ef10b16f1137213d",
+      "units/identical-variant-name.005.json": "2635f787ca84f4a91cc444537d5fc8f334ee56fd059251ea5f298536b69b028d",
+      "units/identical-zoo-crown.json": "a43b2adbf40ff743af659aa320c38390454611d8963f63c6a917893ee1c3b5e8",
+      "units/it-joins-both-sides.json": "959d37ff49924a09b6c31e31b9cda263487f20e17c0cc90086383c7b4db82ed3",
+      "units/join-dropped.json": "0e8722cd624c004d49f76e44f68ecf4232197887da2154f5a2b7e769613739c0",
+      "units/join-lowered.json": "209f941d644d0d558a8b13a2b101724dffe058ec05348533c742df30688650e3",
+      "units/join-raised.json": "ff243d30d3b47075a8516373dc4969db79c470c93d8389b5f64856d7d7c8f932",
+      "units/join-switches-sides.json": "12f3ba4daf94f68819b23d0301e63000b2ddca3f5de2cf606d3bc5b168e55178",
+      "units/longer-entry-join.json": "80ea93d04c40745d3f9ea0c5d4634f19d052cfaadd95fb48db5b1dce1925321c",
+      "units/may-closer-at-baseline-join.json": "65109151992f78e6312c796f74a8d212f629ff32f05b1f0c0fe863ce4651125f",
+      "units/may-farther-after-day-utter.json": "4365b2e73f0f1d2fb8818dad720fbee790309b603f0cede920e3769cb82f82ea",
+      "units/may-jai-join-longer.json": "692b4311f8598041a6bd5b4981269061104266dc610401ed8a7ac45f138bf16d",
+      "units/new-join-at-baseline.json": "cc4be7545f5ecb951085e8f73490bc0ec870d324734230e58d4fd3ed22689344",
+      "units/new-join-at-xheight-or-top.json": "ef7a46be839613f6d40e041fb01bcae0d66cfc07608bf1a4fa17dcf2ddbe092b",
+      "units/new-joins-near-tea-oy.json": "a8db6e362ec757d03e0a31c25e0a6d00bc76cc58b9ea8247d056364cacd9e2c5",
+      "units/one-extension-per-join.json": "6b7b97cf610b8b0af4ae51843e5ae732641f51e0afff527bbc5938f47ed9a492",
+      "units/only-with-ss03.json": "31b4d1483809ea58553569a78b5abfdf8d6964843d55a20bbd23a14ff6236a3c",
+      "units/only-with-ss04.json": "46487ed2afeee3616afc00f919cdf9c4755f8deb9be95d221219c437468ed869",
+      "units/only-with-ss05.json": "57c744bdb8c47bd3241366262867c7278b1c5ad3d1b4ab3a08d13f0ed0d7751e",
+      "units/pea-joins-next-letter.json": "c2fb163c0aff7096d85b1f0a11845f5736563dde99997655db54bb1b0d3ff05c",
+      "units/same-joins-narrower.000.json": "8ceb99c466ed157c1b19fbe7e9462f0472e560732d2609c348a1c83970740ced",
+      "units/same-joins-narrower.001.json": "40bb5bcb2b2c6213cc37d269c7465d0ad557853215d51436c09b5a7e3d8070f8",
+      "units/same-joins-narrower.002.json": "d81781e09b9c81088e707ff828089d0e7a3aa09beb53d240f1ea7c890c325ae0",
+      "units/same-joins-same-width.json": "2032443dc4709d5b9e71a0a2ba730297df7c48834128b6ddf9139252aa83e183",
+      "units/same-joins-wider.json": "25e6faa3c62909488a2f547c675c773653f3cb8554b6a271f299ae5e1302f307",
+      "units/spacing-at-kerned-pairs.json": "392cf306ab542ef308d150e2c7bba2d54616538459ea44bc190e888e7f62fe8c",
+      "units/split-by-space-or-zwnj.000.json": "9080b76befea4a8fa1b2593e2a582ec3742fa134c4145fa8049e7ad6b65aae08",
+      "units/split-by-space-or-zwnj.001.json": "6a974841621ee989fc3878bb3a4c5c0d785e7f6346eed4c828e0907d2fdcf78c",
+      "units/ss03-adds-joins-around-tea.json": "e619bbaab8147ffdd4e23c89f2410c461972222b79fd36afba315530cdb57da8",
+      "units/ss03-out-tea-ligature-kept.json": "57dc9a1561763548fafd02f7f3f7790fa0304a6b521e25191e16db9190da6e49",
+      "units/ss03-tea-oy-ligature-kept.json": "95d92b45eae83fb1a8b07ca336dd58000489ad1b14d854544e10e2eacb5503f7",
+      "units/vie-closer-at-baseline-join.json": "66616a552132c252a160250faa69c431e13bbd85017f0365a94b40a133a8b0fb",
+      "verdicts.js": "b39e353f4301dd548ddfebe82531a570e89eb8c251a33d9afd630cb00f0af983"
+     }
+    },
+    "fonts": {
+     "rebuild/out/m1/M1.otf": "94153e2ba3463091b788c88e1435ce97c953cec67a0c7a975e8c164033d931b1",
+     "rebuild/out/review/fonts/after.otf": "94153e2ba3463091b788c88e1435ce97c953cec67a0c7a975e8c164033d931b1",
+     "rebuild/out/review/fonts/before.otf": "5a96ea36d037b87107f1e4e8c19bd4619b53509db4e432d5f561b938f1cca04b",
+     "site/AbbotsMortonSpaceportMono-Bold.otf": "752617038ece1342491a2be7266039495f7008c65dd2eef512b7a0b139e20402",
+     "site/AbbotsMortonSpaceportMono-Regular.otf": "c32f3dd6cfcf51da25f1286f57b718f6346bcb1bb864841ba98b9da29a0398d0",
+     "site/AbbotsMortonSpaceportSansJunior-Bold.otf": "7201786e01d18ba9ff6b4859add9a9bddc5702428733f2dedd66969db6908752",
+     "site/AbbotsMortonSpaceportSansJunior-Regular.otf": "83ce400a261d9a005dc6d9ed7e0107e9b8b45812b4560beb76e9fe80611723a7",
+     "site/AbbotsMortonSpaceportSansSenior-Bold.otf": "6f795c86041f0f80e7ee3647fd9d4de3fce6a04df22cee4ef07e1993f0934cb5",
+     "site/AbbotsMortonSpaceportSansSenior-Regular.otf": "5a96ea36d037b87107f1e4e8c19bd4619b53509db4e432d5f561b938f1cca04b"
+    },
+    "format": "ams-perf-fingerprint/1",
+    "review_facts_pins": "684e4a805ac9c70cf829a883fe2ab07af2fc20743dc2a5d07c63d635df515e8e",
+    "stores": {
+     "ink-signatures.tsv.gz": "db3ef5bc399421a9f5fcbbf784eb8fbbb541aef2407210cf1f448268b1a98dcb",
+     "unit-cache.ndjson.gz": "c76e0cb0746494e027e6e0b0084ba5e6dfd8680c3b68a62d43e256f38e686204"
+    },
+    "tables": {
+     "default": "79e2df3627792410975ab3bfca30ef780baaa1a01c0c13e019b761ef4521cb93",
+     "ss03": "76533c6e9ac581dd5383848fa7bddf36ebf736d9567da0eff2fe41ce8f917db0",
+     "ss03+ss05": "9d9f0104c4398429c60e0d1966e1d4ea2db942f94376c339810804f806fc2904",
+     "ss04": "48a7edcb6264b3dfd4e4ced0298dcb91f62827d15935eace039fffeef00a360c",
+     "ss05": "5e43ff636080fea3930d21b14fd2a11cb26d2a79a56bd27e45c1c6175913a4d3",
+     "ss08": "6f105bf0f34b64c9997cfdc43386b838b67f42e229bff75d5251302436d5e75c"
+    },
+    "verdicts": "96a6c087db4c7239f4cced8b8644c4b6df120b8f161ae31a78c2750922cf1b8c"
+   },
+   "runs_s": [
+    243.741801834,
+    241.591014542,
+    242.497486291,
+    243.663585042,
+    242.599221792
+   ],
+   "median_s": 242.599221792,
+   "mad_s": 1.0082072499999981,
+   "min_s": 241.591014542,
+   "max_s": 243.741801834,
+   "journal_wall_s": [
+    240.8,
+    238.6,
+    239.5,
+    240.7,
+    239.6
+   ],
+   "gap_s": [
+    2.941801833999989,
+    2.9910145420000163,
+    2.9974862910000013,
+    2.9635850420000054,
+    2.9992217920000144
+   ],
+   "critical_path": "review-facts (5/5)",
+   "aa": {
+    "verdict": "within spread",
+    "fingerprints": "identical"
+   },
+   "pass": {
+    "plan_flags": {
+     "first_run": false,
+     "skip_run_m1": true,
+     "rerun_gates_only": false,
+     "skip_corpus": false,
+     "skip_verdict_update": false,
+     "skip_gates": false,
+     "skip_contracts": false,
+     "skip_conform": true,
+     "do_merge": true,
+     "land": true,
+     "promote_corpus": false,
+     "refresh_assets": false,
+     "contracts_after_units": true,
+     "conform_max_length": 4
+    },
+    "gates": {
+     "conform": {
+      "green": false,
+      "skip": "proved"
+     },
+     "js": {
+      "green": true,
+      "skip": null
+     },
+     "make_test": {
+      "green": false,
+      "skip": "proved"
+     },
+     "rebuild_contracts": {
+      "green": true,
+      "skip": null
+     }
+    },
+    "carry": {
+     "human": 332250,
+     "matched": 328635,
+     "unmatched": 3615,
+     "orphaned": 0
+    }
+   },
+   "probes": {
+    "powermode": "ok",
+    "therm": "ok",
+    "pressure": "ok",
+    "ac_power": "ok",
+    "heavy": "ok",
+    "unreadable": "ok",
+    "servers": [
+     "foreign"
+    ],
+    "waits_s": 0.0,
+    "disturbed_batches": 0,
+    "journal_rescans": 0
+   }
+  }
+ ]
 }
