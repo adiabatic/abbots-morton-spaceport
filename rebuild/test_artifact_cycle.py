@@ -2126,6 +2126,25 @@ def test_classify_rebuild_takes_ids_only_from_the_short_test_summary():
     assert interrupted.failed_ids == ["pytest exited 2 with no parsed FAILED/ERROR lines"]
 
 
+@pytest.mark.parametrize(
+    "test_id",
+    [
+        "rebuild/test_x.py::test_y[corpus seed failed]",
+        "rebuild/test_x.py::test_y[[t] build_tables 243.1s]",
+        "rebuild/test_x.py::TestA::test_y[   ]",
+        "rebuild/test_x.py::test_y[a - b]",
+        "rebuild/test_x.py::test_y",
+        "rebuild/test_x.py",
+    ],
+)
+@pytest.mark.parametrize("message", ["", " - AssertionError: assert [1] == [2] - nope"])
+def test_classify_rebuild_keeps_a_test_id_whole(test_id, message):
+    """A parametrized id can hold spaces, so `--by-outcome` and the failure note get an id pytest can run, and siblings that differ after a space stay apart."""
+    stdout = f"{_SUMMARY_RULE}\nFAILED {test_id}{message}\nERROR {test_id}{message}"
+    result = ac.classify_rebuild_output(stdout, 1, "rebuild-contracts")
+    assert result.failed_ids == [test_id, test_id]
+
+
 def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
     def fake_corpus(report, *, spawn, emit, registry, review_out, **_):
         report.corpus_units = 100
