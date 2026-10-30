@@ -22,7 +22,7 @@ scenarios:
     stands_for: An `Add ·X` letter batch, which moves the trace memo's structure and the subset tables, so it enumerates cold, recomputes every unit and runs gate:conform.
     form: forward
     base: 49a570922b29f4558febfcee40e5e70bb39cbbfb
-    seed: null
+    seed: {as_of: "2026-10-10T01:23:48Z", sha256: 98a9a98618036d1cbc90c1bc6c4c126799daba854bc3ca1b1a67cb28ea02d64c}
     edit:
       commit: 2eb65f8790a075a7394bca988cb5ced34768acf0
       subject: Add ·He

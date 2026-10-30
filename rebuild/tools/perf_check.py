@@ -2,7 +2,7 @@
 
 A check is paired. It takes B, the candidate's own base (HEAD for the default `--candidate worktree`, which is this checkout's uncommitted diff, or A for `--candidate A..B`), and measures B and B plus the whole candidate side by side in one run, in the scratch clones `rebuild.tools.perf_clone` manages under `var/perf/`, never in this checkout. `--baseline` takes no candidate and measures B against itself, the A/A check, and on success rewrites this machine's row in each `rebuild/perf/baselines/<scenario>.json`, keyed by `cpu_count` and `mem_total_bytes`.
 
-The scenarios: a `revert` scenario starts from the tree with its edit reversed and times the re-application, which lands exactly on the tree; a `forward` scenario starts from its own fixed base and times its patch; `none` times a pass over the tree itself. Every revert-form patch is checked at B first (`patches_apply_at`: each reverses, they compose, and each re-applies on the composite), on a temporary index, so this checkout's index and work tree are never touched; a patch that fails there makes its scenario `not applicable at B: re-aim`, and one the candidate's own changes stop from reversing makes it `not applicable: the candidate touches its edit`. A forward scenario takes a candidate only when the candidate's paths, less `HARNESS_PATHS` and Markdown, are unchanged between its base and B, and the candidate less those paths (`FORWARD_EXCLUDES`) applies at its base (`forward_status`); otherwise it is `not measured`, and its candidate side is built from the candidate less those paths. Each side's root is its composite, the tree with every revert-form edit reversed, so no start state's caches have seen the tree that its edit lands on. The base side's verdict store is seeded from this checkout's journal as of B's committer time (`merge_verdicts --restore-as-of`, read-only, run in the clone at this checkout's HEAD commit, so no uncommitted code reads the live journal), scrubbed of every fill of a standing rule that B has and the composite lacks or holds differently, and of every duplicate fill copied from a scrubbed unit (`scrub_seed`), and its stashes are deleted before the root is snapshotted. `--seed FILE` uses a kept seed instead, which is how another machine reproduces this machine's fingerprints. A paired check's seed is scratch, deleted once the base side's root is prepared; the letter migration's and each `--baseline`'s are kept under `var/keep/perf/seeds/`.
+The scenarios: a `revert` scenario starts from the tree with its edit reversed and times the re-application, which lands exactly on the tree; a `forward` scenario starts from its own fixed base and times its patch; `none` times a pass over the tree itself. Every revert-form patch is checked at B first (`patches_apply_at`: each reverses, they compose, and each re-applies on the composite), on a temporary index, so this checkout's index and work tree are never touched; a patch that fails there makes its scenario `not applicable at B: re-aim`, and one the candidate's own changes stop from reversing makes it `not applicable: the candidate touches its edit`. A forward scenario takes a candidate only when the candidate's paths, less `HARNESS_PATHS` and Markdown, are unchanged between its base and B, and the candidate less those paths (`FORWARD_EXCLUDES`) applies at its base (`forward_status`); otherwise it is `not measured`, and its candidate side is built from the candidate less those paths. Each side's root is its composite, the tree with every revert-form edit reversed, so no start state's caches have seen the tree that its edit lands on. The base side's verdict store is seeded from this checkout's journal as of B's committer time, or as of the journal's first event when retention has compacted the journal past that time (`seed_as_of`, then `merge_verdicts --restore-as-of`, read-only, run in the clone at this checkout's HEAD commit, so no uncommitted code reads the live journal), scrubbed of every fill of a standing rule that B has and the composite lacks or holds differently, and of every duplicate fill copied from a scrubbed unit (`scrub_seed`), and its stashes are deleted before the root is snapshotted. `--seed FILE` uses a kept seed instead, which is how another machine reproduces this machine's fingerprints. A paired check's seed is scratch, deleted once the base side's root is prepared; the letter migration's and each `--baseline`'s are kept under `var/keep/perf/seeds/`.
 
 Each scenario runs two hyperfine batches back to back, base first for odd-numbered scenarios and the candidate first for even ones, each one warm-up and `--runs` (at least `MIN_RUNS`) timed runs of `make -C <clone> artifact-cycle ARGS=--stop-server` from the edit, already applied by `perf_clone prepare`, to its exit. A run counts only when its harvested `terminal.log` ends READY (`classify_run`); make's exit status says only zero or not. A batch with a refused, interrupted or disturbed run is discarded and rerun, at most `BATCH_RETRIES` times, after the probes clear; a failed run fails the scenario. Each batch must agree with the clone's timings journal (`journal_agreement`), its run lines must share one pass shape (`pass_shape`), the base batch must hold the scenario's declared shape (`holds_declared`; a miss is `shape drifted: re-aim`), and the candidate batch's compared shape must equal the base's (`compare_shapes`). Each side is fingerprinted after its last run (`rebuild/tools/perf_fingerprint.py`) and the two compared (`compare_fingerprints`); under `--baseline` the intermediate stores must match too. The timing verdict (`classify`) is `proven faster` only when every candidate run beats every base run, `proven slower` in the mirror case, `within spread` otherwise, and `no verdict` when the two batches ran under different `rustc` or OS builds. A pair whose only failure is a separation that fails the check (`proven slower`, or either separation under `--baseline`) is measured once more from the same start states, and the second pair's result stands, with the first pair's verdict beside it, so a chance separation fails a scenario only by repeating.
 
@@ -12,7 +12,7 @@ System probes run before every pass and around every timed run (`summarize_probe
 
 A successful `--baseline` rewrites this machine's rows only after comparing each new fingerprint with every other machine's row at the same base (`compare_fingerprints`, with `same_seed` from the two rows' seeds); a difference is a determinism finding, so the check names it and writes no baseline file.
 
-Every record of a check is kept under `var/keep/perf/<stamp>-<id>/`: `report.json`, `report.txt`, `system.ndjson`, the captured candidate, and per scenario and side `hyperfine.json`, `fingerprint.json` and `runs/<k>/` (the stamp, the run's build logs and its journal lines). `--dry-run` prints the plan, the probes, which scenario patches apply at B, the fault kit's selection and the estimated wall time (`estimate`), and builds nothing. `--write-patch NAME` rewrites a scenario's patch in place from its `edit:`, and refuses when the edit does not resolve. `--clean`, which takes no other flag, deletes `var/perf/`, and refuses while a check or a clone's pass holds its lock. SIGINT, SIGTERM and SIGHUP stop a check after the current step, except one that was ignored when the check started, so a check under `nohup` outlives its shell. Exit status: 0 when every scenario and fault row passed, 1 when one failed or got no verdict, 2 when the check refused, before measuring or partway (a refusing probe, a wait past `WAIT_LIMIT_S`, a prepare hook's refusal, a root that would not warm), and 128 plus the signal's number when a signal stopped it.
+Every record of a check is kept under `var/keep/perf/<stamp>-<id>/`: `report.json`, `report.txt`, `system.ndjson`, the captured candidate, and per scenario and side `hyperfine.json`, `fingerprint.json` and `runs/<k>/` (the stamp, the run's build logs and its journal lines). `--dry-run` prints the plan, the probes, which scenario patches apply at B, a forward scenario's missing kept seed (exiting 2, since the check would refuse it), the fault kit's selection and the estimated wall time (`estimate`), and builds nothing. `--write-patch NAME` rewrites a scenario's patch in place from its `edit:`, and refuses when the edit does not resolve. `--clean`, which takes no other flag, deletes `var/perf/`, and refuses while a check or a clone's pass holds its lock. SIGINT, SIGTERM and SIGHUP stop a check after the current step, except one that was ignored when the check started, so a check under `nohup` outlives its shell. Exit status: 0 when every scenario and fault row passed, 1 when one failed or got no verdict, 2 when the check refused, before measuring or partway (a refusing probe, a wait past `WAIT_LIMIT_S`, a forward scenario's missing kept seed, a prepare hook's refusal, a root that would not warm), and 128 plus the signal's number when a signal stopped it.
 """
 
 from __future__ import annotations
@@ -700,6 +700,19 @@ def forward_status(
     return None
 
 
+def kept_seed_problem(scenario: Scenario) -> str | None:
+    """Why a forward scenario cannot prepare its root on this machine, or None when it can: its `seed:` names a file under `var/keep/perf/seeds/`, which git does not carry, that is missing or does not match. A scenario with no `seed:` restores one from the journal, and one whose clone has its kept root needs none."""
+    if not scenario.seed:
+        return None
+    assert scenario.base is not None
+    if (PERF_DIR / f"{scenario.base[:8]}.snap" / "root").exists():
+        return None
+    kept = KEEP_DIR / "seeds" / f"{scenario.seed['sha256']}.json"
+    if kept.is_file() and file_sha256(kept) == scenario.seed["sha256"]:
+        return None
+    return f"{scenario.name}'s kept seed {kept} is missing or does not match its sha256; copy it from the machine that made it (doc/perf-check.md § Another machine)"
+
+
 def write_patch(repo: Path, scenario: Scenario) -> Path:
     """Rewrite a scenario's patch in place from its `edit:` (`git diff --binary <commit>^ <commit> -- <paths>`). Refuses, leaving the checked-in patch alone, when the edit is missing, does not resolve, or changes none of its paths."""
     if scenario.form == "none" or scenario.commit is None or scenario.patch is None:
@@ -1010,6 +1023,20 @@ def committer_time_utc(repo: Path, commit: str) -> str:
     return datetime.fromtimestamp(seconds, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def seed_as_of(committed: str, journal_path: Path) -> str:
+    """The moment a seed is restored as of: the commit's time `committed`, or the `at` of the journal's first event when the journal starts later, since retention compacts the journal onto a later base event and no restore reaches before it. The first line is read here rather than through `rebuild.review.journal`, so a candidate's journal code never reads the live journal; a missing or unreadable first line leaves `committed`, and the restore then names the problem."""
+    try:
+        with journal_path.open("rb") as handle:
+            first = json.loads(handle.readline())
+    except OSError, ValueError:
+        return committed
+    floor = first.get("at") if isinstance(first, dict) and first.get("kind") == "event" else None
+    floor_s, committed_s = _stamp_seconds(floor), _stamp_seconds(committed)
+    if not isinstance(floor, str) or floor_s is None or committed_s is None or floor_s <= committed_s:
+        return committed
+    return floor
+
+
 def utc_stamp() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
@@ -1263,6 +1290,7 @@ class Check:
         perf_clone.install_shims(self.main)
         awake = subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())])
         try:
+            self.require_kept_seeds()
             self.wait_quiet(None)
             self.run_shared()
             self.run_letter_migration()
@@ -1295,6 +1323,27 @@ class Check:
         self.results.append({"name": "check", "status": "stopped", "detail": f"stopped by signal {signum}"})
         self.report()
         return 128 + signum
+
+    def require_kept_seeds(self) -> None:
+        """Refuse before anything measures when a forward scenario this check would measure cannot prepare its root, so a missing seed never ends a check hours in, after the shared scenarios and before the fault kit."""
+        for scenario in self.forward_scenarios():
+            problem = kept_seed_problem(scenario)
+            if problem is not None and self.forward_reason(scenario) is None:
+                raise PerfRefused(problem)
+
+    def forward_reason(self, scenario: Scenario) -> str | None:
+        """Why this check's candidate cannot be measured on a forward scenario (`forward_status`), or None; a baseline has no candidate."""
+        if self.candidate.patch is None:
+            return None
+        assert scenario.base is not None
+        return forward_status(
+            self.main,
+            self.candidate.paths,
+            letter_base=scenario.base,
+            base=self.base,
+            candidate=self.sides[1].patch,
+            index=self.record / "forward-check.index",
+        )
 
     def forward_scenarios(self) -> list[Scenario]:
         return [scenario for scenario in self.scenarios if scenario.form == "forward"]
@@ -1418,8 +1467,17 @@ class Check:
         post = _git(self.main, "show", f"{self.base}:{STANDING_RULES}").stdout
         root = _git(clone, "show", f"refs/perf/base/composite:{STANDING_RULES}").stdout
         return self.prepare_seed(
-            clone, committer_time_utc(self.main, self.base), post, root, keep=self.candidate.patch is None
+            clone, self.seed_moment(self.base), post, root, keep=self.candidate.patch is None
         )
+
+    def seed_moment(self, commit: str) -> str:
+        committed = committer_time_utc(self.main, commit)
+        as_of = seed_as_of(committed, self.main / perf_clone.JOURNAL_NAME)
+        if as_of != committed:
+            self.say(
+                f"the verdict journal starts at {as_of}, after {commit[:8]}'s committer time {committed}; restoring the seed as of its start"
+            )
+        return as_of
 
     def prepare_seed(self, clone: Path, as_of: str, post_rules: str, root_rules: str, *, keep: bool) -> Seed:
         """Restore this checkout's verdict store as of `as_of` from its journal (read-only), with `merge_verdicts` as this checkout's HEAD commit has it, run in `clone` reset to `refs/perf/main/HEAD`, so no uncommitted code reads the live journal; it writes only into the clone's `tmp/`. Stamp it `exported_at: as_of`, since the restore stamps the moment it ran and the seed's sha256 must depend only on the journal and `as_of`, then scrub the fills of the rules the post-edit trees have that the root lacks or holds differently (`changed_rule_ids`, `scrub_seed`). With `keep`, the seed is kept as `var/keep/perf/seeds/<sha256>.json`; otherwise it is scratch under `var/perf/`, for the caller to delete once the root is prepared."""
@@ -1436,7 +1494,7 @@ class Check:
             "--restore-as-of",
             as_of,
             "--journal",
-            str(self.main / "verdicts-journal.ndjson"),
+            str(self.main / perf_clone.JOURNAL_NAME),
             "--autosave",
             str(clone / "verdicts-autosave.json"),
             "--out",
@@ -1490,25 +1548,17 @@ class Check:
     def run_letter_migration(self) -> None:
         for scenario in self.forward_scenarios():
             assert scenario.base is not None and scenario.patch is not None
-            if self.candidate.patch is not None:
-                reason = forward_status(
-                    self.main,
-                    self.candidate.paths,
-                    letter_base=scenario.base,
-                    base=self.base,
-                    candidate=self.sides[1].patch,
-                    index=self.record / "forward-check.index",
+            reason = self.forward_reason(scenario)
+            if reason is not None:
+                self.results.append(
+                    {
+                        "name": scenario.name,
+                        "number": scenario.number,
+                        "status": "not measured",
+                        "detail": reason,
+                    }
                 )
-                if reason is not None:
-                    self.results.append(
-                        {
-                            "name": scenario.name,
-                            "number": scenario.number,
-                            "status": "not measured",
-                            "detail": reason,
-                        }
-                    )
-                    continue
+                continue
             name = self.letter_clone_name(scenario)
             clone = self.ensure_clone(name, scenario.base)
             for side in self.sides:
@@ -1561,10 +1611,6 @@ class Check:
         assert scenario.base is not None and scenario.patch is not None
         if scenario.seed:
             kept = KEEP_DIR / "seeds" / f"{scenario.seed['sha256']}.json"
-            if not kept.is_file() or file_sha256(kept) != scenario.seed["sha256"]:
-                raise PerfRefused(
-                    f"{scenario.name}'s kept seed {kept} is missing or does not match its sha256"
-                )
             return Seed(kept, scenario.seed["sha256"], scenario.seed.get("as_of"), 0, ())
         root_rules = _git(clone, "show", f"{scenario.base}:{STANDING_RULES}").stdout
         index = clone / ".git" / "perf-post.index"
@@ -1576,9 +1622,7 @@ class Check:
         finally:
             perf_clone.remove(index)
         post_rules = _git(clone, "show", f"{post_tree}:{STANDING_RULES}").stdout
-        seed = self.prepare_seed(
-            clone, committer_time_utc(self.main, scenario.base), post_rules, root_rules, keep=True
-        )
+        seed = self.prepare_seed(clone, self.seed_moment(scenario.base), post_rules, root_rules, keep=True)
         self.say(
             f"record it in rebuild/perf/scenarios.yaml as {scenario.name}'s seed: {{as_of: {seed.as_of}, sha256: {seed.sha256}}}"
         )
@@ -2115,6 +2159,7 @@ def dry_run(
             if candidate_patch
             else None
         )
+        seed_refuses = False
         for scenario in selected:
             if scenario.form == "revert":
                 reason = revert_status(at_base, scenario.name)
@@ -2140,6 +2185,7 @@ def dry_run(
                     if own.forwards.get(scenario.name) is None
                     else f"does not apply at its base: {own.forwards[scenario.name]}"
                 )
+                reason = None
                 if candidate.patch is not None:
                     reason = forward_status(
                         main,
@@ -2150,11 +2196,21 @@ def dry_run(
                         index=index,
                     )
                     state += f"; {reason}" if reason is not None else "; takes the candidate"
-                seed = (
-                    "kept seed recorded"
-                    if scenario.seed
-                    else "no kept seed yet: the first bootstrap restores one from the journal"
-                )
+                if scenario.seed:
+                    problem = kept_seed_problem(scenario)
+                    seed = problem or "its kept root or kept seed is present"
+                    seed_refuses = seed_refuses or (problem is not None and reason is None)
+                else:
+                    committed = committer_time_utc(main, scenario.base)
+                    as_of = seed_as_of(committed, main / perf_clone.JOURNAL_NAME)
+                    seed = (
+                        f"no kept seed yet: the first bootstrap restores one from the journal as of {as_of}"
+                        + (
+                            f", where the journal starts, after its committer time {committed}"
+                            if as_of != committed
+                            else ""
+                        )
+                    )
                 lines.append(
                     f"  {scenario.number}. {scenario.name} (forward at {scenario.base[:8]}): {state}; {seed}"
                 )
@@ -2227,7 +2283,7 @@ def dry_run(
         lines += [f"  {label}: {seconds / 3600:.1f} h" for label, seconds in items]
         lines.append(f"  total: about {total / 3600:.1f} h")
         print("\n".join(lines))
-        return 2 if any(item.action == "refuse" for item in outcomes) else 0
+        return 2 if seed_refuses or any(item.action == "refuse" for item in outcomes) else 0
     finally:
         perf_clone.remove(scratch)
         if made_perf_dir:

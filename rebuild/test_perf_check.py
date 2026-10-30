@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -320,6 +321,44 @@ def test_the_seed_scrub_drops_only_fills_of_rules_the_composite_lacks():
     assert [record["unit"] for record in scrubbed["verdicts"]] == ["u-4", "u-5", "u-6", "u-7", "u-12"]
     assert dropped == 6
     assert scrubbed["format"] == "ams-review-verdicts/1"
+
+
+def test_a_seed_is_restored_no_earlier_than_the_journal_starts(tmp_path):
+    journal = tmp_path / "verdicts-journal.ndjson"
+    assert pc.seed_as_of("2026-10-08T20:55:48Z", journal) == "2026-10-08T20:55:48Z"
+    journal.write_text(
+        '{"kind": "event", "source": "land", "at": "2026-10-10T01:23:48Z", "base": true, "sets": 1}\n'
+        '{"kind": "set", "unit": "u-1", "verdict": "approve", "at": "2026-10-09T00:00:00Z"}\n'
+    )
+    assert pc.seed_as_of("2026-10-08T20:55:48Z", journal) == "2026-10-10T01:23:48Z"
+    assert pc.seed_as_of("2026-10-29T09:52:19Z", journal) == "2026-10-29T09:52:19Z"
+    journal.write_text('{"kind": "event", "at": "not a stamp"}\n')
+    assert pc.seed_as_of("2026-10-08T20:55:48Z", journal) == "2026-10-08T20:55:48Z"
+
+
+def test_a_forward_scenario_needs_its_kept_seed_or_its_kept_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(pc, "PERF_DIR", tmp_path / "perf")
+    monkeypatch.setattr(pc, "KEEP_DIR", tmp_path / "keep")
+    data = b"{}"
+    sha256 = hashlib.sha256(data).hexdigest()
+    scenarios = [
+        pc.Scenario(1, "tree", "", "none", None, None, None, None, (), None, {}),
+        pc.Scenario(2, "letter", "", "forward", "abcdef12", {"sha256": sha256}, None, None, (), None, {}),
+    ]
+    args = argparse.Namespace(scenario=None, runs=pc.MIN_RUNS, faults="none", seed=None)
+    check = pc.Check(args, scenarios, pc.Candidate("baseline", "b1", None, (), "baseline"))
+    with pytest.raises(PerfRefused, match="kept seed"):
+        check.require_kept_seeds()
+    kept = tmp_path / "keep" / "seeds" / f"{sha256}.json"
+    kept.parent.mkdir(parents=True)
+    kept.write_bytes(b"another store")
+    with pytest.raises(PerfRefused, match="does not match"):
+        check.require_kept_seeds()
+    kept.write_bytes(data)
+    check.require_kept_seeds()
+    kept.unlink()
+    (tmp_path / "perf" / "abcdef12.snap" / "root").mkdir(parents=True)
+    check.require_kept_seeds()
 
 
 def test_write_patch_refuses_an_edit_that_does_not_resolve(tmp_path):
