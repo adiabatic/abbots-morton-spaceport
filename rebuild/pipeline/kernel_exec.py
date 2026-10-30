@@ -2,7 +2,7 @@
 
 The semantics defaults live here beside the flags that pass them to the kernel. `SIMULATED_PROSPECT_DEFAULT` and `FOLLOWER_PREFER_SLOTS_DEFAULT` control settlement, and `DEEP_CLASSES_DEFAULT` controls enumeration. Each is a module attribute read at call time, so a process sets them through the environment and a test can monkeypatch them. A caller that wants a different mode set builds a `SettlementModes` and passes it to `settle_cases`, `settle_windows` or `settle_sequences`.
 
-The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build.
+The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build. `make kernel-build` runs the same build by hand through `main`.
 
 `build_table_files` is what `run_m1` calls. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines and the process's own resident peak and peak footprint (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`). The memo is also carried across builds in the `memo-<config>.tsv.gz` files packed beside the tables. The next build reuses a memoized window only if its settlement read no rune whose content has changed and no predicate class whose membership has changed. `rebuild/kernel-rs/src/memo.rs` gives the argument, and `run_m1.previous_memos` decides which files may be read. Before any table is written, the configurations exchange windows (`rebuild/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
 
@@ -217,7 +217,7 @@ BUILD_TABLES_SECONDS = 432.2
 BUILD_TABLES_GROWTH = 6
 # What one text costs the replay at MEASURED_SYMBOLS: the slowest of five walks over every text at maximum length 5, one configuration each, run at once in one `replay-strings` process at the deep replay's memo ceiling on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), 71,270,177 texts in 542.3 s (`var/keep/issue-495/replay/replay-deep-all.log`). The build's own replay at maximum length 4 costs less a text: 11.3 s for 2,141,490 texts at most, in REPLAY_PEAK_BYTES's wide run with ·He in the alphabet.
 REPLAY_TEXT_SECONDS = 542.3 / 71_270_177
-# On macOS, where cargo copies the binary into target/release instead of hard-linking it, every `cargo build` replaces it there (it removes the file, then copies the new one in) even when nothing recompiled. So a build in one process can make another process's exec miss the file for an instant, and can end the first-exec scan of the file it removes: syspolicyd holds a new file's first run until its scan ends, and a scan that finds the path gone ends in a Gatekeeper termination of every process waiting on it, each an exit of -9 with empty stderr. This lock orders them: a build holds it exclusively for the whole `cargo build` and the new binary's first run (`_finish_first_exec_scan`), so no scan is in flight when the next build starts, and an invocation holds it shared for the spawn only, never for the run.
+# On macOS, where cargo copies the binary into target/release instead of hard-linking it, every `cargo build` replaces it there (it removes the file, then copies the new one in) even when nothing recompiled. So a build in one process can make another process's exec miss the file for an instant, and can end the first-exec scan of the file it removes: syspolicyd holds a new file's first run until its scan ends, and a scan that finds the path gone ends in a Gatekeeper termination of every process waiting on it, each an exit of -9 with empty stderr. This lock orders them: a build holds it exclusively for the whole `cargo build` and the new binary's first run (`_finish_first_exec_scan`), so no scan is in flight when the next build starts, and an invocation holds it shared for the spawn only, never for the run. `cargo_build` is how every build in the repository takes it, `make kernel-build` included; a `cargo build` typed by hand takes no lock.
 LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-relink.lock"
 # How many lines of a failed build's stderr the exception includes: cargo reports the error in its last few lines, after the full compilation log.
 BUILD_TAIL_LINES = 20
@@ -284,12 +284,12 @@ class KernelRunError(RuntimeError):
     """The binary refused the invocation, exited nonzero, reported an error on a clean exit, or left a stream unwritten."""
 
 
-def cargo_build() -> None:
-    """Build the kernel in release mode, as `make kernel-build` does, holding the binary relink lock exclusively through the build and the new binary's first run. Checking that the binary exists is not enough, because a stale binary sits at the same path as a fresh one; building makes sure the sources on disk are what runs. A warm build takes a fraction of a second; `ensure_built` runs it once per process."""
+def cargo_build(*, capture: bool = True) -> None:
+    """Build the kernel in release mode, holding the binary relink lock exclusively through the build and the new binary's first run. Checking that the binary exists is not enough, because a stale binary sits at the same path as a fresh one; building makes sure the sources on disk are what runs. A warm build takes a fraction of a second; `ensure_built` runs it once per process. With `capture` false, cargo writes to this process's stdout and stderr as it runs, and a failure's exception quotes none of it."""
     arguments = ["cargo", "build", "--release", "--manifest-path", str(MANIFEST)]
     try:
         with _relink_lock(fcntl.LOCK_EX):
-            finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
+            finished = subprocess.run(arguments, capture_output=capture, timeout=TIMEOUT)
             if finished.returncode == 0:
                 _finish_first_exec_scan()
     except FileNotFoundError:
@@ -301,6 +301,8 @@ def cargo_build() -> None:
             f"cargo gave no answer within {TIMEOUT} seconds on {' '.join(arguments)}"
         ) from None
     if finished.returncode != 0:
+        if not capture:
+            raise KernelBuildError(f"the kernel did not build (cargo exited {finished.returncode})")
         errors = finished.stderr.decode(errors="replace").strip().split("\n")
         tail = "\n".join(errors[-BUILD_TAIL_LINES:])
         raise KernelBuildError(f"the kernel did not build (cargo exited {finished.returncode}):\n{tail}")
@@ -1481,3 +1483,15 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
         with (tables / f"windows-{config}.tsv").open("rt", encoding="utf-8") as handle:
             _stamp, decision = table.read_windows(handle)
         return decision, table.read_join_tsv(tables / f"joins-{config}.tsv")
+
+
+def main() -> None:
+    """`make kernel-build`: build the kernel with cargo's own output on the terminal, so an author sees every diagnostic, and report a failed build in one line instead of a traceback."""
+    try:
+        cargo_build(capture=False)
+    except (KernelBuildError, KernelRunError) as error:
+        raise SystemExit(str(error)) from None
+
+
+if __name__ == "__main__":
+    main()

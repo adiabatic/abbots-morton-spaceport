@@ -152,9 +152,9 @@ complaint-list:
 novelty-order:
 	uv run python rebuild/tools/novelty_order.py $(ARGS)
 
-# Builds the Rust M1 kernel (rebuild/kernel-rs) in release mode. The pipeline and the rebuild suite's spec-echo parity test both run the release binary, so there is no debug target.
+# Builds the Rust M1 kernel (rebuild/kernel-rs) in release mode, with cargo's output on the terminal. It goes through `kernel_exec.cargo_build` so that it can run beside a suite or pass: `LOCK_PATH`'s comment in rebuild/pipeline/kernel_exec.py says what a build without the relink lock does to the kernels they start. The pipeline and the rebuild suite's spec-echo parity test both run the release binary, so there is no debug target.
 kernel-build:
-	cargo build --release --manifest-path rebuild/kernel-rs/Cargo.toml
+	uv run python -m rebuild.pipeline.kernel_exec
 
 # The settlement engine's gate: `cargo fmt --check`, clippy with every warning an error, and the crate's test suite.
 kernel-check:

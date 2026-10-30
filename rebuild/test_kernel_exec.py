@@ -324,6 +324,35 @@ class TestTheInvocationInterface:
         with pytest.raises(kernel_exec.KernelRunError, match="exited -9 on its first run"):
             kernel_exec.cargo_build()
 
+    def test_make_kernel_build_takes_the_relink_lock_and_leaves_cargo_on_the_terminal(
+        self, monkeypatch, tmp_path
+    ):
+        """A `make kernel-build` by hand beside a running suite replaces the binary like any other build, so its recipe is this module's build and not cargo's. An author still sees all of cargo's output, not the first run's usage text, and a failed build ends in one line."""
+        recipe = subprocess.run(
+            ["make", "-n", "kernel-build"],
+            cwd=kernel_exec.REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert "python -m rebuild.pipeline.kernel_exec" in recipe.stdout
+        monkeypatch.setattr(kernel_exec, "LOCK_PATH", tmp_path / "relink.lock")
+        captured = {}
+        cargo_exit = 0
+
+        def run(arguments, **rest):
+            captured[arguments[0]] = rest["capture_output"]
+            returncode = cargo_exit if arguments[0] == "cargo" else 2
+            return subprocess.CompletedProcess(arguments, returncode, None, None)
+
+        monkeypatch.setattr(kernel_exec.subprocess, "run", run)
+        kernel_exec.main()
+        assert captured == {"cargo": False, str(kernel_exec.BINARY): True}
+
+        cargo_exit = 101
+        with pytest.raises(SystemExit, match=r"^the kernel did not build \(cargo exited 101\)$"):
+            kernel_exec.main()
+
     def test_the_crate_is_built_once_per_process(self, monkeypatch):
         """`ensure_built` runs `cargo_build` once per process. `_BUILT` is a module attribute so a test can reset it."""
         builds = []
