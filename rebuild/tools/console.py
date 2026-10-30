@@ -8,7 +8,7 @@ A `[phase]` line is surfaced when it arrives. A `[t]` line whose label matches a
 
 Every surfaced line carries its step name, the step's elapsed time, and the cycle's elapsed time, because several steps can be open at once.
 
-pytest, node, and git do not print this protocol, so adapters read their output into the same events. A pytest percent marker becomes a `Progress`, a TAP `not ok` becomes a `Warn`, and `warning_events` runs on every step to catch the two warning shapes Python prints. The adapters strip ANSI first, because pytest colors its output when `FORCE_COLOR` is set, even into a pipe. A failed pytest step's `FAILED`/`ERROR` summary lines become `Warn`s when its child has exited (`failure_dump`), because which lines are the run's own is known only then (`pytest_summary`).
+pytest, node, and git do not print this protocol, so adapters read their output into the same events. A pytest percent marker becomes a `Progress`, a pytest `FAILED`/`ERROR` summary line or a TAP `not ok` becomes a `Warn`, and `warning_events` runs on every step to catch the two warning shapes Python prints. The adapters strip ANSI first, because pytest colors its summary when `FORCE_COLOR` is set, even into a pipe.
 
 Every line a child prints goes to that step's log, in arrival order, with stderr lines tagged; the terminal gets the console's rendering. A failed step replays its whole log under its own banner. The console writes each line in one call under one lock, so lines from overlapping children interleave but never split.
 
@@ -28,7 +28,7 @@ import textwrap
 import threading
 import time
 import traceback
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import IO, Protocol
@@ -72,7 +72,6 @@ _BYTES_PER_GB = 1e9
 _PROGRESS_BODY = re.compile(r"^(\d+)/(\d+|\?)(?:\s+(\S.*))?$")
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _PYTEST_PERCENT = re.compile(r"\[\s*(\d{1,3})%\]")
-_PYTEST_SUMMARY_RULE = re.compile(r"=+ short test summary info =+")
 _PYTEST_WARNINGS = re.compile(r"\b(\d+) warnings?\b")
 _NODE_FAIL = re.compile(r"^#\s+fail\s+(\d+)$")
 _PYTHON_WARNING = re.compile(r"^\S+:\d+: \w*Warning: ")
@@ -229,17 +228,14 @@ def _parse_progress(body: str) -> Progress | None:
 
 
 def pytest_events(line: str) -> Event | None:
-    """Return the percent marker on a pytest progress line as a `Progress`. ANSI escapes are stripped first, because pytest colors its output when `FORCE_COLOR` is set, even into a pipe."""
-    match = _PYTEST_PERCENT.search(_ANSI_SGR.sub("", line))
-    return None if match is None else Progress(percent=int(match.group(1)))
-
-
-def pytest_summary(lines: Iterable[str]) -> list[str]:
-    """Return the `FAILED ` and `ERROR ` lines of a pytest run's short test summary, ANSI escapes stripped. Only the lines below the last summary rule count. The ERRORS and FAILURES sections above it print each failing test's captured stdout, which can hold a line that starts with either word or even a nested pytest's own summary, and pytest prints nothing captured below its own rule. Output with no summary, such as a pytest that crashed before printing one, has no such lines."""
-    plain = [_ANSI_SGR.sub("", line).rstrip() for line in lines]
-    rules = [index for index, line in enumerate(plain) if _PYTEST_SUMMARY_RULE.fullmatch(line)]
-    below = plain[rules[-1] + 1 :] if rules else []
-    return [line for line in below if line.startswith(("FAILED ", "ERROR "))]
+    """Return a pytest output line as an event: a summary `FAILED `/`ERROR ` line becomes a `Warn`, and the percent marker on a progress line becomes a `Progress`. ANSI escapes are stripped first, because pytest colors its summary when `FORCE_COLOR` is set, even into a pipe."""
+    text = _ANSI_SGR.sub("", line).rstrip()
+    if text.startswith(("FAILED ", "ERROR ")):
+        return Warn(text)
+    match = _PYTEST_PERCENT.search(text)
+    if match is not None:
+        return Progress(percent=int(match.group(1)))
+    return None
 
 
 def pytest_warning_count(line: str) -> int | None:
@@ -563,13 +559,10 @@ class CycleConsole:
             return event
 
     def failure_dump(self, name: str) -> None:
-        """Surface a failed pytest step's summary lines as warns, then replay the step's whole log under its own banner, stderr tags included. Call it before `step_end`, which closes and forgets the step."""
+        """Replay a failed step's whole log under its own banner, stderr tags included. Call it before `step_end`, which closes and forgets the step."""
         with self._lock:
             state = self._open.get(self._key(name))
             lines = self._recorded_lines(state)
-            if state is not None and state.adapter is pytest_events:
-                for text in pytest_summary(lines):
-                    self._surface_event(state, Warn(text))
             if lines:
                 self.emit_block(["", *lines])
 

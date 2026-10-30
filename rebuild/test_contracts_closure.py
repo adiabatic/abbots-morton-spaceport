@@ -485,11 +485,7 @@ def test_both_contracts_callers_make_the_same_lifecycle_decisions(contracts_tree
             _write(contracts_tree, "extra.txt", "three")
         elif case == "roster-drift":
             _write(contracts_tree, "rebuild/test_u.py", "VALUE = 1\n")
-        return (
-            (1, "=== short test summary info ===\nFAILED rebuild/test_t.py::reads_extra")
-            if case == "failure"
-            else (0, "")
-        )
+        return (1, "FAILED rebuild/test_t.py::reads_extra") if case == "failure" else (0, "")
 
     if caller == "wrapper":
         monkeypatch.setattr(rg, "_run_suite", lambda argv, env: execute(argv))
