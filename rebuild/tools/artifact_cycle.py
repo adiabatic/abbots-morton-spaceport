@@ -3193,13 +3193,20 @@ def _run_step(
 
 
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_PYTEST_SUMMARY_LINE = re.compile(r"(?:FAILED|ERROR) ([^\s\[]+|\S+?\[.*?\])(?: - |$)")
+
+
+def _summary_line_id(line: str) -> str:
+    """Return the test id on a pytest FAILED or ERROR summary line, or the line itself, marked as unparsed, when it fits no id shape."""
+    match = _PYTEST_SUMMARY_LINE.match(line)
+    return match[1] if match else f"unparsed summary line: {line}"
 
 
 def classify_rebuild_output(stdout: str, returncode: int, check: str) -> CheckResult:
-    """Return the rebuild suite's gate result from pytest's FAILED and ERROR summary lines. The cycle's rebuild gate and `rebuild.tools.rebuild_gate` both use it. `check` ("rebuild-contracts") is only copied into the result to name the suite. ANSI escape codes are stripped first, because pytest colors its output whenever FORCE_COLOR is set (the agent harness sets it), and a colored line does not start with "FAILED " or "ERROR ". A nonzero exit with no parsed failure lines is red. Every failure counts as unexplained, because the suite has no list of accepted failures, and every green result is recordable."""
+    """Return the rebuild suite's gate result from pytest's FAILED and ERROR summary lines. The cycle's rebuild gate and `rebuild.tools.rebuild_gate` both use it. `check` ("rebuild-contracts") is only copied into the result to name the suite. ANSI escape codes are stripped first, because pytest colors its output whenever FORCE_COLOR is set (the agent harness sets it), and a colored line does not start with "FAILED " or "ERROR ". An id ends at the ` - ` that opens its line's message or at the end of the line, and a parametrized id at the first `]` followed by either, because a parameter can hold spaces, a ` - ` or a `]` of its own; a parameter that holds `] - ` is cut there, because the line alone cannot tell it from a message. A line that fits no id shape is a failure too, filed under its own text so the run stays red and the line stays readable. A nonzero exit with no parsed failure lines is red. Every failure counts as unexplained, because the suite has no list of accepted failures, and every green result is recordable."""
     lines = [_ANSI_SGR.sub("", line) for line in stdout.splitlines()]
-    failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
-    error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
+    failed_ids = [_summary_line_id(line) for line in lines if line.startswith("FAILED ")]
+    error_ids = [_summary_line_id(line) for line in lines if line.startswith("ERROR ")]
     hard = failed_ids + error_ids
     if returncode != 0 and not hard:
         hard.append(f"pytest exited {returncode} with no parsed FAILED/ERROR lines")

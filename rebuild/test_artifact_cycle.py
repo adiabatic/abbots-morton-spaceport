@@ -2099,6 +2099,47 @@ def test_classify_rebuild_reads_colored_pytest_output():
     assert result.status == "FAILED (1 unexplained)"
 
 
+def test_classify_rebuild_reads_the_whole_id_from_each_summary_shape():
+    """A parameter can hold spaces, a ` - ` or a `]`, and a message can hold `] - `, so the failure note and `--by-outcome` get an id pytest can run, and siblings that differ after a space stay apart. A line that fits no shape keeps the run red and is filed under its own text. The lines sit in a loop, not in `parametrize`, because an id built from one of them would be a collected id that holds `] - `."""
+    bare = "rebuild/test_x.py::test_y"
+    shapes = [
+        (f"FAILED {bare}", bare),
+        (f"FAILED {bare} - boom", bare),
+        (f"FAILED {bare} - ", bare),
+        (f"FAILED {bare} - assert [1] == [2] - nope", bare),
+        (f"FAILED {bare}[a b]", f"{bare}[a b]"),
+        (f"FAILED {bare}[a b] - boom", f"{bare}[a b]"),
+        (f"FAILED {bare}[a b] - ", f"{bare}[a b]"),
+        (f"FAILED {bare}[a b] - assert [1] - nope", f"{bare}[a b]"),
+        (f"FAILED {bare}[a - b]", f"{bare}[a - b]"),
+        (f"FAILED {bare}[a - b] - boom", f"{bare}[a - b]"),
+        (f"FAILED {bare}[[t] build 243.1s]", f"{bare}[[t] build 243.1s]"),
+        (f"FAILED {bare}[[t] build 243.1s] - assert [1] - nope", f"{bare}[[t] build 243.1s]"),
+        (f"FAILED {bare}[[]] - boom", f"{bare}[[]]"),
+        ("ERROR rebuild/test_x.py - ImportError while importing [x]", "rebuild/test_x.py"),
+        ("ERROR rebuild/test_x.py", "rebuild/test_x.py"),
+        (f"ERROR {bare}[a b] - boom", f"{bare}[a b]"),
+        ("\x1b[31mFAILED\x1b[0m rebuild/test_x.py::\x1b[1mtest_y[a b]\x1b[0m - boom", f"{bare}[a b]"),
+    ]
+    for line, expected in shapes:
+        assert ac.classify_rebuild_output(line, 1, "rebuild-contracts").failed_ids == [expected]
+
+    for line in (
+        "FAILED ",
+        "FAILED to open the pack",
+        "ERROR the worker went away",
+        f"FAILED {bare}[a - boom",
+    ):
+        for returncode in (0, 1):
+            result = ac.classify_rebuild_output(line, returncode, "rebuild-contracts")
+            assert result.outcome == "red"
+            assert result.failed_ids == [f"unparsed summary line: {line}"]
+            assert not result.recordable
+
+    silent = ac.classify_rebuild_output(f"  FAILED {bare}\nFAILED", 2, "rebuild-contracts")
+    assert silent.failed_ids == ["pytest exited 2 with no parsed FAILED/ERROR lines"]
+
+
 def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
     def fake_corpus(report, *, spawn, emit, registry, review_out, **_):
         report.corpus_units = 100
