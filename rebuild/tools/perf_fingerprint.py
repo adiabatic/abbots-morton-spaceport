@@ -1,22 +1,22 @@
-"""The output fingerprint the speed-up check (`rebuild/tools/perf_check.py`) compares between a scenario's base and candidate sides: every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the verdict store and the complaint list after the pass, the two corpus stores apart, and the review-facts pins the pass rewrote.
+"""The output fingerprint #618's acceptance bar compares on the live tree, read before a change's first build and again after its landing pass: every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the verdict store and the complaint list after the pass, the two corpus stores apart, and the review-facts pins the pass rewrote.
 
 Run it with the tree under test's own interpreter and code, never the harness's:
 
   uv run --directory <tree> python -P <main>/rebuild/tools/perf_fingerprint.py --root <tree> --out <file>
 
-`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table` and `rebuild.pipeline.fingerprint` come from the tree under test and a candidate that changes an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
+`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table` and `rebuild.pipeline.fingerprint` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
 
 The output is one `ams-perf-fingerprint/1` document:
 
 - `tables`: for each `rebuild/out/m1/windows-<config>.tsv.gz` present, `table.table_digest` over its decision table and `joins-<config>.tsv`, read one configuration at a time through the official readers, so a missing configuration shows up as a difference.
 - `fonts`: `fingerprint.font_content_digest` of `rebuild/out/m1/M1.otf`, the corpus's `fonts/{before,after}.otf` and the six site fonts, null for a font that is missing.
 - `corpus`: one digest per file under `rebuild/out/review/` but the two stores, and a digest over the sorted `path<TAB>digest` lines. `manifest.json` and `review-facts.json` are digested as canonical JSON without the keys `MANIFEST_STAMPS` names (for the facts file, inside its `corpus` block), and without each manifest font's raw `sha256`; a gzip sidecar as its decompressed stream, with a JSON header line re-serialized without the keys `SIDECAR_STAMPS` names; a corpus font by its content digest; every other file raw.
-- `stores`: the same header projection applied to the stores `STORES` names. A difference there is an intermediate format differing, which the check reports apart.
+- `stores`: the same header projection applied to the stores `STORES` names. A difference there is an intermediate format differing, which a report names apart.
 - `verdicts`: the store after the pass, projected to its `format`, the sorted `(unit, verdict, note)` of its records and the sorted unit ids it cleared, without the keys `STORE_STAMPS` names and without any record's `at`, since the fills stamp `at` with the corpus stamp.
 - `complaints`: the complaint list as canonical JSON without the keys `COMPLAINT_STAMPS` names and without any `at` inside `groups`.
 - `review_facts_pins`: the raw digest of `rebuild/review-facts-pins.json` as the pass rewrote it.
 
-The first `--baseline` check confirms the projected keys: its two sides must fingerprint identically, and a difference names a missed stamp.
+Two readings of the same outputs fingerprint identically, so a difference across a pass that changed no output names a missed stamp.
 """
 
 from __future__ import annotations
@@ -217,7 +217,9 @@ def tree_modules(root: Path) -> tuple[ModuleType, ModuleType]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Fingerprint one tree's outputs for the speed-up check.")
+    parser = argparse.ArgumentParser(
+        description="Fingerprint one tree's outputs for the acceptance bar's same-output reading."
+    )
     parser.add_argument("--root", type=Path, required=True, help="the tree under test (a scratch clone)")
     parser.add_argument(
         "--out", type=Path, required=True, help="where to write the ams-perf-fingerprint/1 JSON"

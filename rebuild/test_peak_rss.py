@@ -105,6 +105,14 @@ def test_the_swap_in_use_is_what_the_machine_states():
         assert used is not None and used >= 0
 
 
+def test_the_compressor_occupancy_is_its_pages_times_the_page_size():
+    """`vm_stat`'s compressor page count times its stated page size, and None when the text lacks either line."""
+    vm_stat = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages occupied by compressor:                 236789.\n"
+    assert peak_rss.parse_compressor_bytes(vm_stat) == 236789 * 16384
+    assert peak_rss.parse_compressor_bytes("Pages occupied by compressor:   5.\n") is None
+    assert peak_rss.parse_compressor_bytes(None) is None
+
+
 def test_reap_returns_the_child_peak_and_sets_returncode():
     proc = subprocess.Popen([sys.executable, "-c", "x = bytearray(64 * 1024 * 1024)"])
     peak = peak_rss.reap_peak_rss_bytes(proc)
