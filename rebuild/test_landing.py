@@ -942,7 +942,7 @@ def test_the_locked_save_path_reads_the_served_corpus_under_the_lock(repo):
 
 
 def test_saves_made_while_two_lands_run_end_in_the_store_or_an_orphan_document(repo):
-    """One thread saves through the server's locked POST path, as a tab loaded on the old corpus keeps doing, retrying each 503, while the main thread lands a new corpus and then a store alone. Every save the server acknowledged ends, with that `at` or a later one, in the final store or an orphan document, or, when the first snapshot already held it on a unit the new corpus lacks, in the old corpus's stash, where the carry leaves it."""
+    """One thread saves through the server's locked POST path, as a tab loaded on the old corpus keeps doing, retrying each 503, while the main thread lands a new corpus and then a store alone. Every save the server acknowledged ends, with that `at` or a later one, in the final store or an orphan document, or, when the first snapshot already held it on a unit the new corpus lacks, in the old corpus's stash, where the carry leaves it. The saver waits a millisecond after each save and stops at 2,000, since each save rewrites the store and appends to the journal, and an unpaced saver makes millions of them while slow lands run on a loaded machine."""
     ids_a = [f"u-{n}" for n in range(1, 31)]
     ids_b = [f"u-{n}" for n in range(1, 21)] + [f"u-{n}" for n in range(31, 41)]
     corpus(repo["live"], "A", ids_a)
@@ -959,7 +959,7 @@ def test_saves_made_while_two_lands_run_end_in_the_store_or_an_orphan_document(r
 
     def saver() -> None:
         tick = 0
-        while not stop.is_set() or tick < 40:
+        while (not stop.is_set() or tick < 40) and tick < 2_000:
             tick += 1
             unit = ids_a[tick % len(ids_a)]
             sent = record(unit, "reject", at=f"2026-09-10T00:{tick // 60:02d}:{tick % 60:02d}Z")
@@ -970,6 +970,7 @@ def test_saves_made_while_two_lands_run_end_in_the_store_or_an_orphan_document(r
                     acknowledged.append(sent)
                     break
                 assert status == 503
+            stop.wait(0.001)
 
     thread = threading.Thread(target=saver)
     thread.start()
