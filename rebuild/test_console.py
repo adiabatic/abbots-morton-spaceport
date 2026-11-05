@@ -238,6 +238,17 @@ def test_fmt_rss_reads_the_same_gigabyte_peak_rss_does():
         assert console.fmt_rss(byte_count) == f"{bytes_to_gb(byte_count):.1f}G"
 
 
+def test_fmt_bytes_keeps_each_figure_under_a_thousand_of_its_unit():
+    assert console.fmt_bytes(0) == "0 B"
+    assert console.fmt_bytes(999) == "999 B"
+    assert console.fmt_bytes(1_000) == "1.0 KB"
+    assert console.fmt_bytes(46_300_000) == "46.3 MB"
+    assert console.fmt_bytes(999_960_000) == "1.0 GB"
+    assert console.fmt_bytes(-2_100_000) == "-2.1 MB"
+    assert console.fmt_bytes(3_400_000_000_000_000) == "3400.0 TB"
+    assert console.fmt_bytes(None) == ""
+
+
 def test_console_imports_nothing_else_in_this_tree():
     """The verdict update calls `console.phase`, so console and everything it imports are in the verdict-update key's code closure. An import of the timings journal or a width module would make an edit to it re-run the whole verdict update, although neither can change a verdict. rebuild/test_verdict_update_closure.py catches the effect; this test points at the import line in console.py."""
     tree = ast.parse(pathlib.Path(console.__file__).read_text(encoding="utf-8"))
@@ -609,6 +620,29 @@ def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
     assert "  -  corpus-build  skipped" in out
     assert "READY - adjudicate at the review queue" in out
     assert out.rstrip().endswith("Cycle complete.")
+
+
+def test_the_summary_shows_each_steps_written_window_and_marks_an_overlapped_one(capsys):
+    """A window another step overlapped holds that step's writes too, so it is marked `+`, and the legend under the table says what the column and the mark mean. A step with no reading leaves the cell empty."""
+    cycle_console = _cycle_console()
+    for name in ("run_m1", "gate:js"):
+        cycle_console.step_start(name, None)
+        cycle_console.step_end(name, None, "ok")
+    cycle_console.summary(
+        [
+            console.SummaryRow(
+                1, "run_m1", "ok", "7 unmatched", 1988.0, written=31_000_000_000, overlapped=True
+            ),
+            console.SummaryRow(2, "gate:js", "ok", "", 3.0, written=512),
+            console.SummaryRow(3, "corpus-build", "skipped", "", None),
+        ]
+    )
+    lines = capsys.readouterr().out.splitlines()
+    assert "  #  step          outcome  detail         time  written" in lines
+    assert "  1  run_m1        ok       7 unmatched  33m08s  31.0 GB+" in lines
+    assert "  2  gate:js       ok                      3.0s    512 B" in lines
+    assert "  -  corpus-build  skipped" in lines
+    assert lines[lines.index("  -  corpus-build  skipped") + 1] == console.WRITTEN_LEGEND
 
 
 def test_a_failed_summary_reprints_its_reasons_and_drops_the_next_line(capsys):

@@ -29,9 +29,9 @@ from rebuild.tools import console
 from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
 from rebuild.tools import make_test_gate as mtg
-from rebuild.tools import verdict_update
+from rebuild.tools import verdict_update, write_meter
 from rebuild.tools.peak_rss import format_gb
-from rebuild.tools.cycle_timings import CycleTimings
+from rebuild.tools.cycle_timings import CycleTimings, PassWrites
 from rebuild.test_verdict_update import (
     CORPUS_STAMP,
     NEWER,
@@ -6853,11 +6853,14 @@ def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
     report.retention_detail = "removed 0 build logs, 0 stashes; journal intact"
     report.step_seconds = {"run_m1": 1988.0, "corpus-build": 61.0, "gate:rebuild-contracts": 92.0}
     report.step_returncodes = {"run_m1": 0, "corpus-build": 0, "gate:rebuild-contracts": 1}
+    report.step_written = {"run_m1": (31_000_000_000, True)}
 
     rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
     assert rows["run_m1"].detail == "8,423 unmatched, pins pass"
     assert rows["run_m1"].outcome == "ok"
     assert rows["run_m1"].seconds == 1988.0
+    assert (rows["run_m1"].written, rows["run_m1"].overlapped) == (31_000_000_000, True)
+    assert (rows["corpus-build"].written, rows["corpus-build"].overlapped) == (None, False)
     assert rows["corpus-build"].detail == "15,903 units, 81,894 rows"
     assert rows["gate:conform"].outcome == "skipped"
     assert rows["gate:conform"].detail == ""
@@ -6886,7 +6889,9 @@ def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
 
     rerun = _plan(rerun_gates_only=True, run_m1_note="only comparison-side inputs moved")
     rerun_report = ac.CycleReport()
-    ac._timed_spawn(lambda name, argv, **kw: ac._StepResult(name, 0, "", "", 4.0), rerun_report)(
+    ac._timed_spawn(
+        lambda name, argv, **kw: ac._StepResult(name, 0, "", "", 4.0, written_bytes=9_000), rerun_report
+    )(
         ac.RUN_M1_GATES_ONLY_STEP,
         ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--gates-only"],
         emit=ac._Emitter(),
@@ -6896,6 +6901,38 @@ def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
     reran = {row.name: row for row in ac.summary_rows(rerun_report, rerun, retention_ran=False)}
     assert reran["run_m1"].outcome == "ok"
     assert reran["run_m1"].seconds == 4.0
+    assert (reran["run_m1"].written, reran["run_m1"].overlapped) == (9_000, False)
+
+
+def test_the_summary_says_what_the_pass_wrote_and_when_it_went_over_its_ceiling():
+    """One line gives the pass's figure with its basis, the review server's share, the machine-wide device and swap counts, and the write class with its ceiling; a second line follows a pass over that ceiling. A pass that lost its first or last reading says it was not measured, and a pass without a meter gets no line."""
+    own = {"basis": "own", "bytes": 46_300_000, "review_server_bytes": 1_200}
+    own |= {"device_bytes": 410_000_000, "swap_bytes": 0}
+    assert ac.written_lines(PassWrites(own, "narrowed", None)) == [
+        "  written          : 46.3 MB (the pass's own coalition); review server 1.2 KB; machine-wide, the device took 410.0 MB and swap 0 B; class narrowed, no ceiling yet"
+    ]
+    shared = {"basis": "shared", "bytes": 9_000_000_000, "outsiders_bytes": 2_100_000, "outsiders_unread": 4}
+    shared |= {"review_server_bytes": None, "device_bytes": None, "swap_bytes": None}
+    assert ac.written_lines(PassWrites(shared, None, None)) == [
+        "  written          : 9.0 GB at most (the shared coalition, less the 2.1 MB other processes wrote, with 4 processes' writes unread); class unclassified, no ceiling"
+    ]
+    assert ac.written_lines(PassWrites(shared, "full-replay", 5_000_000_000)) == [
+        "  written          : 9.0 GB at most (the shared coalition, less the 2.1 MB other processes wrote, with 4 processes' writes unread); class full-replay, ceiling 5.0 GB",
+        "  write ceiling    : OVER, 9.0 GB against the full-replay class's 5.0 GB (make cycle-timings ARGS='--writes')",
+    ]
+    assert ac.written_lines(PassWrites(None, "nothing", None)) == [
+        "  written          : not measured (the write meter's first or last reading failed; see the [warn] line)"
+    ]
+    assert ac.written_lines(None) == []
+
+
+def test_the_review_server_is_named_only_when_one_process_listens_on_its_port(monkeypatch):
+    """The write meter reports the named pid's writes apart, so a pid is named only when `lsof` finds exactly one listener on the review port."""
+    replies = iter(["4242\n", "4242\n4243\n", ""])
+    monkeypatch.setattr(
+        ac.subprocess, "run", lambda argv, **kw: SimpleNamespace(returncode=0, stdout=next(replies))
+    )
+    assert [ac.review_server_pid() for _ in range(3)] == [4242, None, None]
 
 
 def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
@@ -9464,8 +9501,24 @@ def _patch_timing_cycle(monkeypatch):
     monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
 
+def _still_meter(device):
+    """Return a write-meter reading of a coalition whose counters never move, for a cycle test that checks where the figures go rather than what they are."""
+    return write_meter.WriteReading(
+        pid=1,
+        at=0.0,
+        wall=0.0,
+        coalition=7,
+        usage=dict.fromkeys(write_meter._COALITION_FIELDS, 0) | {"tasks_started": 1},
+        members=(write_meter.Member(1, 0, 0.0, 0),),
+        check=None,
+        named=None,
+        device=0 if device else None,
+        swap=0 if device else None,
+    )
+
+
 def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
-    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. The stubbed verdict-update and review-facts stages spawn nothing and get no line."""
+    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. The stubbed verdict-update and review-facts stages spawn nothing and get no line. With a write meter, each step line carries its window and the run line the pass's `written` block, and the report keeps both for the summary."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"
@@ -9477,7 +9530,7 @@ def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
         ac._Emitter(),
         ac._ChildRegistry(),
         spawn=lambda name, argv, **k: _step(name),
-        timings=CycleTimings(journal_path),
+        timings=CycleTimings(journal_path, meter=_still_meter),
     )
 
     assert rc == 0
@@ -9490,6 +9543,10 @@ def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
     assert entries[-1]["exit"] == "ok"
     assert entries[-1]["interrupted"] is False
     assert {entry["run"] for entry in entries} == {entries[-1]["run"]}
+    assert [(entry["written_bytes"], entry["written_overlap"]) for entry in steps] == [(0, [])] * 3
+    assert (runs[0]["written"]["basis"], runs[0]["written"]["bytes"]) == ("own", 0)
+    assert report.step_written["run_m1"] == (0, False)
+    assert report.written is not None and report.written.block == runs[0]["written"]
 
 
 def test_an_assets_refresh_journals_under_its_own_name(monkeypatch, tmp_path):

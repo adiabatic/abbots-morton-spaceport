@@ -301,6 +301,23 @@ def test_a_font_provenance_refusal_stops_the_run_before_the_alias_check(monkeypa
     assert reached == []
 
 
+@pytest.mark.parametrize("refiltered", [True, False])
+def test_the_subset_line_says_whether_the_refresh_ran(monkeypatch, tmp_path, capsys, refiltered):
+    """The `[t] baseline_subset` line ends with `refreshed=true` when `ensure_fresh` refiltered the subset tables and `refreshed=false` when they were already fresh, and the timings journal reads it back as a boolean."""
+    monkeypatch.setattr(
+        run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root, before_refilter: refiltered
+    )
+    monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
+    monkeypatch.setattr(run_m1_gates.oracle, "load_ledger", lambda path: [])
+    run_m1_gates._run_pregate_guards(tmp_path)
+    (line,) = [
+        phase
+        for phase in ct.parse_inner_timings(capsys.readouterr().out)
+        if phase["label"] == "baseline_subset"
+    ]
+    assert line["refreshed"] is refiltered
+
+
 def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_path):
     """Unmatched oracle rows are normal during the migration. They are judged on the review corpus and never fail the build, so a run that has them records its green and exits zero."""
     store = tmp_path / "run-m1-green.json"

@@ -10,6 +10,8 @@ The verdict update is one step run by one child process, rebuild.tools.verdict_u
 
 run_m1's exit status is its own gate's result, but this driver evaluates the three summary JSONs it writes, so a build that died before its evaluator is reported by what it left behind. The gates are defect_errors, the Manual-pin gate (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
+The pass reads the write meter (`rebuild.tools.write_meter`) as it starts, once `_preflight` has settled the review server, at each child's spawn and reap, and after every step has joined, with the review server's pid named when the server is this checkout's (`review_server_pid`). `cycle_timings.CycleTimings` puts each child's window on its step line and the pass's total, its basis and its write class on the run line; the summary table shows each window and the summary one line for the pass, with a warning when the pass wrote more than its class's ceiling (`cycle_timings.PASS_WRITE_CEILING_BYTES`). A reading never fails the pass.
+
 This process, not its children, records each check's result in the timings journal. Every evaluated check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the evaluator's outcome, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. run_m1's CLI prints the result on a `[check]` line instead (`console.CHECK`), which this driver files when the summaries a run_m1 or gate:conform child left do not say why it stopped (`_reported_red`). Each check invocation gets one line.
 
 gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes, beside make-test under the default overlap policy, and behind it under the queue policy and on a pass with no build lane (`gates_queue`). Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs at `contracts_pool_width`, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS: the cores less the build's parent and its `corpus_job_budget` workers, and, under the overlap policy on a pass that runs gate:make-test beside the build lane, less that gate's pool. It starts beside the corpus build, except on a pass that runs the corpus build and neither gate:make-test nor gate:conform (`Plan.contracts_after_units`), where it waits until the build's units pool has finished, so that pool finds the gate lane idle, and then runs beside the rest of the build lane. The conformance sweep's core cap (`_conform_core_cap`) makes the same subtraction, floored at the acceptance-configuration count, and neither width subtracts the other, so under the overlap policy the sweep and the suite share the cores those processes leave while both run. The suite reads nothing the build lane writes, the review-facts pins included, so it waits for no build output. A suite that is neither held nor queued starts at t=0 on a pass where every upstream stage skips; the held suite waits for the units pool only so that the pool finds the gate lane idle, and starts as that pool finishes even when run_m1 skips.
@@ -109,7 +111,7 @@ from rebuild.tools.green_record import (  # noqa: E402
     record_green,
     settle_green,
 )
-from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, CheckResult  # noqa: E402
+from rebuild.tools.cycle_timings import CYCLE_RUN_ENV, UNCLASSIFIED, CheckResult  # noqa: E402
 from rebuild.tools.peak_rss import reap_peak_rss_bytes  # noqa: E402
 from rebuild.tools.review_server import (  # noqa: E402
     NO_CAPABILITIES,
@@ -121,7 +123,7 @@ from rebuild.tools.review_server import (  # noqa: E402
 
 if TYPE_CHECKING:
     from rebuild.pipeline.model import ResolvedSpec
-    from rebuild.tools.cycle_timings import CycleTimings
+    from rebuild.tools.cycle_timings import CycleTimings, PassWrites
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 DUPLICATE_FILL_NAME = "verdicts-duplicate-fill.json"
@@ -2715,6 +2717,22 @@ def probe_server() -> ServerProbe:
     return ServerProbe("current", root)
 
 
+def review_server_pid() -> int | None:
+    """Return the pid of the process listening on the review server's port, which the write meter reports apart (`write_meter.read`'s `named`), or None when `lsof` names no single listener or cannot run. `_run_pass` asks only once `probe_server` has placed the server in this checkout and `_preflight` has restarted it if it had to, so the pid is this checkout's live server and never another checkout's."""
+    try:
+        reply = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{REVIEW_PORT}", "-sTCP:LISTEN", "-t"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except OSError, subprocess.SubprocessError:
+        return None
+    pids = {int(token) for token in reply.stdout.split() if token.isdigit()}
+    return pids.pop() if len(pids) == 1 else None
+
+
 def start_review_server() -> None:
     """Start the review server detached from this pass, as `make review-cycle SERVE=bg` does: its own session, so it outlives the pass and the shell that started it, with its output in tmp/review-serve.log."""
     log = ROOT / "tmp" / "review-serve.log"
@@ -2933,7 +2951,7 @@ def render_plan(plan: Plan) -> list[str]:
 class CycleReport:
     """The pass's running record. The `*_status` strings are prose for the summary. The gate strings (`gate_js` and the others) are prose too, but `_step_outcome` reads their leading words (`not run`, `skipped`, `self-skipped`, `green`) to fill the table's outcome column. Decisions read the booleans (`gate_*_green`, `complaints_ok`), which are set when each outcome is decided. A gate that was never joined, because it was skipped or never submitted, leaves its boolean None, which is neither green nor red. `contracts_held` records that the driver held gate:rebuild-contracts until the corpus build's units pool finished (`Plan.contracts_after_units`).
 
-    `step_seconds` and `step_returncodes` fill the summary table's last two columns. They come from the same `_StepResult` the timings journal records, so the table and the journal agree, and they are keyed through STEP_ALIASES, so the gates-only child fills the run_m1 row. `run_m1_failed` records the cycle's own evaluation of the run_m1 gate from the three summary JSONs, which `_step_outcome` reads before the return code. `retention_outcome` is how `_finish`'s retention attempt ended (`ok` or `FAILED`, empty until the attempt ends), so the table reports it even when a stop signal lands after retention.
+    `step_seconds` and `step_returncodes` fill the summary table's time and outcome columns, and `step_written` its written column: the write meter's figure over the step's window and whether another step's window overlapped it. They come from the same `_StepResult` the timings journal records, so the table and the journal agree, and they are keyed through STEP_ALIASES, so the gates-only child fills the run_m1 row. `written` is what the meter read over the whole pass (`cycle_timings.PassWrites`), set as the run line is written, for the summary's written line. `run_m1_failed` records the cycle's own evaluation of the run_m1 gate from the three summary JSONs, which `_step_outcome` reads before the return code. `retention_outcome` is how `_finish`'s retention attempt ended (`ok` or `FAILED`, empty until the attempt ends), so the table reports it even when a stop signal lands after retention.
     """
 
     unmatched: int | None = None
@@ -2988,6 +3006,8 @@ class CycleReport:
     retention_outcome: str = ""
     step_seconds: dict[str, float] = field(default_factory=dict)
     step_returncodes: dict[str, int] = field(default_factory=dict)
+    step_written: dict[str, tuple[int, bool]] = field(default_factory=dict)
+    written: PassWrites | None = None
 
 
 _Emitter = console.CycleConsole
@@ -3097,6 +3117,8 @@ class _StepResult:
     stderr: str
     elapsed: float
     peak_rss_bytes: int | None = None
+    written_bytes: int | None = None
+    written_overlap: tuple[str, ...] = ()
 
 
 def _terminate_child(proc: subprocess.Popen, *, uninterruptible: bool = False) -> None:
@@ -4275,13 +4297,16 @@ def _record_conform_green(
 
 
 def _timed_spawn(spawn, report: CycleReport):
-    """Wrap `spawn` so each child's wall-clock time and exit status are recorded on the report under its plan step, for the summary table's last two columns. The name goes through STEP_ALIASES, so `run_m1 --gates-only` fills the run_m1 row. It is a wrapper, not part of `_run_step`, because the tests drive the cycle with their own spawn callables and the table must be filled for them too."""
+    """Wrap `spawn` so each child's wall-clock time, exit status and write-meter window (`written_bytes`, which `CycleTimings.wrap_spawn` sets, and whether another step's window overlapped it) are recorded on the report under its plan step, for the summary table's time, outcome and written columns. The name goes through STEP_ALIASES, so `run_m1 --gates-only` fills the run_m1 row. It is a wrapper, not part of `_run_step`, because the tests drive the cycle with their own spawn callables and the table must be filled for them too."""
 
     def recorded(name: str, argv, *, emit, registry, stream, **passthrough):
         result = spawn(name, argv, emit=emit, registry=registry, stream=stream, **passthrough)
         step = STEP_ALIASES.get(name, name)
         report.step_seconds[step] = result.elapsed
         report.step_returncodes[step] = result.returncode
+        written = getattr(result, "written_bytes", None)
+        if written is not None:
+            report.step_written[step] = (written, bool(getattr(result, "written_overlap", ())))
         return result
 
     return recorded
@@ -4736,6 +4761,7 @@ def summary_rows(report: CycleReport, plan: Plan, *, retention_ran: bool) -> lis
     for step in plan.steps:
         outcome = _step_outcome(report, plan, step, retention_ran=retention_ran)
         ran = outcome not in ("skipped", "not run")
+        written, overlapped = report.step_written.get(step.name, (None, False))
         rows.append(
             console.SummaryRow(
                 number=None,
@@ -4743,6 +4769,8 @@ def summary_rows(report: CycleReport, plan: Plan, *, retention_ran: bool) -> lis
                 outcome=outcome,
                 detail=_detail_beside(outcome, step_detail(report, step.name)) if ran else "",
                 seconds=report.step_seconds.get(step.name),
+                written=written,
+                overlapped=overlapped,
             )
         )
     return rows
@@ -4780,6 +4808,7 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
         f"  review facts     : {report.facts_status}",
         f"  ledger coverage  : {report.ledger_coverage}",
         f"  job costs        : {report.job_costs_status}",
+        *written_lines(report.written),
         f"  deep sweep       : {deep_status} ({deep_note})",
         f"  deep replay      : {replay_status} ({replay_note})",
         "  run_m1 summaries :",
@@ -4790,6 +4819,48 @@ def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[s
         lines.append(f"  logs             : {plan.log_dir}")
     if retention_lines:
         lines.extend(["", *retention_lines])
+    return lines
+
+
+def written_lines(writes: PassWrites | None) -> list[str]:
+    """Return the summary's lines on what the pass wrote, nothing for a pass without a meter (`timings` None, as in the driver's tests). One line gives the write meter's figure and its basis, the review server's own writes, the device's and swap's machine-wide counts, and the pass's write class with its ceiling on this host, which an unclassified pass never has; a second line follows when the pass wrote more than that ceiling. A pass that lost its first or last reading says so instead."""
+    if writes is None:
+        return []
+    block = writes.block
+    if block is None:
+        return [
+            "  written          : not measured (the write meter's first or last reading failed; see the [warn] line)"
+        ]
+    total = console.fmt_bytes(block.get("bytes")) or "unread"
+    basis = block.get("basis")
+    if basis == "own":
+        parts = [f"{total} (the pass's own coalition)"]
+    elif basis == "shared":
+        others = console.fmt_bytes(block.get("outsiders_bytes")) or "0 B"
+        parts = [
+            f"{total} at most (the shared coalition, less the {others} other processes wrote, with {block.get('outsiders_unread')} processes' writes unread)"
+        ]
+    else:
+        parts = [f"{total} (the device's machine-wide count, since the coalition read failed)"]
+    server = block.get("review_server_bytes")
+    if server is not None:
+        parts.append(f"review server {console.fmt_bytes(server)}")
+    device, swap = block.get("device_bytes"), block.get("swap_bytes")
+    if device is not None or swap is not None:
+        parts.append(
+            f"machine-wide, the device took {console.fmt_bytes(device) or 'unread'} and swap {console.fmt_bytes(swap) or 'unread'}"
+        )
+    named = writes.write_class or UNCLASSIFIED
+    if writes.ceiling is not None:
+        ceiling = f"ceiling {console.fmt_bytes(writes.ceiling)}"
+    else:
+        ceiling = "no ceiling" if writes.write_class is None else "no ceiling yet"
+    parts.append(f"class {named}, {ceiling}")
+    lines = [f"  written          : {'; '.join(parts)}"]
+    if writes.over:
+        lines.append(
+            f"  write ceiling    : OVER, {total} against the {named} class's {console.fmt_bytes(writes.ceiling)} (make cycle-timings ARGS='--writes')"
+        )
     return lines
 
 
@@ -4962,7 +5033,7 @@ def _emit_cycle_summary(
     except Exception as exc:
         print(f"warning: failed to write {cycle_paths.CYCLE_SUMMARY}: {exc!r}", file=sys.stderr)
     if timings is not None:
-        timings.finish(payload)
+        report.written = timings.finish(payload)
 
 
 def _preflight(
@@ -5596,9 +5667,11 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
             print("First-run mode: no existing corpus at rebuild/out/review — skipping the carry.")
 
         report = CycleReport()
+        from rebuild.tools import write_meter
         from rebuild.tools.cycle_timings import CycleTimings
 
-        timings = CycleTimings(CYCLE_TIMINGS)
+        server_pid = review_server_pid() if probe.kind in ("current", "stale") else None
+        timings = CycleTimings(CYCLE_TIMINGS, meter=functools.partial(write_meter.read, named=server_pid))
         # run_m1's CLI and the make_test_gate wrapper skip writing their own check line to the timings journal when this is set, because the cycle records it. It goes in the environment because the wrapper runs as a grandchild, under the `make test` recipe, where an argv flag would not reach it.
         os.environ[CYCLE_RUN_ENV] = timings.run_id
 

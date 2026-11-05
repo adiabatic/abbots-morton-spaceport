@@ -717,7 +717,7 @@ def _run_table_gates(
     replay_threads: int | None,
     state: _TableGateState,
 ) -> None:
-    """Run the table-only branch on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, or the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage runs after it, in one spawned process this thread waits on (`_spawn_rule_witnesses`). The order matters: a full replay writes each configuration's settle memo file whole (`conform.absorb_replay_memo`), and the witness stage then loads the rows of that file its certificates can ask for, writes the windows it settled fresh as a part, and merges the part into the file before its process returns. `state.replay_ready` is set once the replay has returned, and the oracle starts after it. `state.memo_ready` is set once the witness stage's process has returned with its files on disk, and the oracle's own memo writes wait for it. Both are set as soon as that sequence fails, and `TableGates` also sets them when this thread ends any other way, so a wait on either never hangs.
+    """Run the table-only branch on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, or the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage runs after it, in one spawned process this thread waits on (`_spawn_rule_witnesses`). The order matters: a full replay writes each configuration's settle memo file whole (`conform.absorb_replay_memo`), and the witness stage then loads the rows of that file its certificates can ask for, writes the windows it settled fresh as a part, and merges the part into the file before its process returns. The `[t] replay_strings` line names the walk's scope, `scope=full` when it walked every text and `scope=narrowed` when `replay_families` narrowed it to the texts of the changed runes (or to none, when nothing changed), before the process's peak (`rss_token`); the timings journal keeps it (`cycle_timings.REPLAY_TOKENS`). `state.replay_ready` is set once the replay has returned, and the oracle starts after it. `state.memo_ready` is set once the witness stage's process has returned with its files on disk, and the oracle's own memo writes wait for it. Both are set as soon as that sequence fails, and `TableGates` also sets them when this thread ends any other way, so a wait on either never hangs.
 
     The witness stage's walk is CPU-bound Python, so it gets a process of its own. On a thread of run_m1's process it would hold the interpreter lock that the main thread needs for the glyph chain and the oracle's setup, and slow both, the work that reads and hashes files most (the cache keys within `[t] oracle_setup`). The process runs one serial walk over the configurations. A process per configuration would need a memory-derived width of its own (`doc/parallelism.md`) and would take cores from the oracle's pool, which takes every core. The process gets the spec, each configuration's decision table, the output directory and the memo inputs, and runs the formation-guard sweep itself. It writes `witness_summary.json` and merges its parts into the settle memo files before it returns, so `TableGates.wait_for_memo` orders its writes before any oracle write. Its `[t] rule_witnesses[<config>]` lines go to the stdout it inherits, and the `[t] rule_witnesses` line this thread prints carries its peak memory (`rss_token`).
 
@@ -739,7 +739,12 @@ def _run_table_gates(
                 imports=imports_digest(tables),
             )
             walked = "every text" if replay["families"] is None else f"{len(replay['families'])} families"
-            console.timing("replay_strings", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
+            scope = "full" if replay["families"] is None else "narrowed"
+            console.timing(
+                "replay_strings",
+                time.perf_counter() - start,
+                f"scope={scope} {rss_token(process_peak_rss_bytes())}",
+            )
             console.say(f"replay_strings: maximum length {replay['max_length']}, {walked}")
             if not replay["pass"]:
                 raise SystemExit(f"the string replay found the tables incomplete: {replay['error']}")

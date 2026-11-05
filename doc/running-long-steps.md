@@ -18,6 +18,20 @@ If the tool harness kills the shell's process group when the command returns, la
 
 A Python wrapper that calls M1 guards its entry point with `if __name__ == "__main__":`, because multiprocessing spawn workers import the wrapper and otherwise start the build again.
 
+## Launching the fault kit and the memory series
+
+`rebuild/tools/job_launch.py` runs a command as a one-shot launchd job. Launchd gives the job a resource coalition of its own, which every process the command starts joins, so the write meter (`rebuild/tools/write_meter.py`) counts the job's writes and no one else's. It is the launcher for the fault kit and the memory series, neither of which launches through it yet: a kit run refuses until #618's change 0k (`doc/perf-check.md`), and the series has no harness. A cycle pass never launches through it: it runs where it is started, and the `nohup caffeinate -i …` recipe above is how to detach one.
+
+```zsh
+uv run python -m rebuild.tools.job_launch --kind fault-kit --log tmp/fault-kit.log -- uv run python -m rebuild.tools.fault_kit …
+```
+
+- The launcher follows the log to the terminal and forwards SIGINT, SIGTERM and SIGHUP to the job, so Ctrl-C stops the job as it would stop the command run directly. Once the job exits, the launcher unloads it, deletes its plist from `var/jobs/`, and exits with the job's exit status, or with 125 and the reason when the launch itself failed.
+- `--detach` returns once the job runs and prints its label and pid. The job outlives the shell and the agent harness that launched it, since launchd runs it, and the `caffeinate -i` the launcher puts ahead of the command keeps idle sleep from suspending it.
+- `--attach <label>` waits for a detached job: it follows the log from its current end, forwards the same signals, and once the job exits, unloads it and exits with its status. Until someone attaches, a finished job stays loaded and its plist stays under `var/jobs/`. A launcher killed before its job exited leaves the job the same way, and `--attach` finishes it too.
+- The job's environment holds only `HOME`, `USER`, `LOGNAME`, `LANG`, `TMPDIR`, `PATH`, `UV_CACHE_DIR` and the caller's `AMS_*` variables, the width overrides among them (`doc/parallelism.md` § Overriding a width). Pass any other variable on the command line, as `-- env NAME=value …`.
+- The module docstring describes the plist and the label, and why each key is set.
+
 ## Where the output lands
 
 - The redirect log under `tmp/` is scratch. It holds the same terminal output, plus an `rc=` line when the launch command echoes one (the skills' `sh -c` chains run `echo "rc=$?"`), and the next run overwrites it. The run directory is the lasting record.

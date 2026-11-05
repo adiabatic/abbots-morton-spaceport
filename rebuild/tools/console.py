@@ -1,6 +1,6 @@
 """The artifact cycle's output format, and the line protocol its children use to report into it. Both are in one module so the protocol's writers and its reader share one definition.
 
-Everything written here is append-only: no color, ANSI escapes, spinners, or carriage returns. A redirect and a terminal get the same bytes, and `tail -f` never shows a line rewritten. Progress is a counter line, printed at most once per heartbeat window (60 seconds by default), instead of a progress bar. Counts carry thousand separators (`fmt_count`), durations use minutes and hours past a minute (`fmt_duration`), and peak memory is in decimal gigabytes, the unit `peak_rss` uses.
+Everything written here is append-only: no color, ANSI escapes, spinners, or carriage returns. A redirect and a terminal get the same bytes, and `tail -f` never shows a line rewritten. Progress is a counter line, printed at most once per heartbeat window (60 seconds by default), instead of a progress bar. Counts carry thousand separators (`fmt_count`), durations use minutes and hours past a minute (`fmt_duration`), peak memory is in decimal gigabytes, the unit `peak_rss` uses, and bytes written are in the decimal unit that keeps them under a thousand (`fmt_bytes`).
 
 The protocol is four line prefixes. `[phase] <name>` opens a stretch of work and `[t] <label> <secs>s` closes it, optionally followed by a space or tab and a tail. `[progress] <k>/<n> <unit>` is a counter, with `?` for an unknown total. `[warn] <text>` always reaches the terminal. The verdict update's `[verdict-update]` banner and its two result lines (completion and failure) are defined here too, because the verdict update writes them and the cycle splits its output on them. So is `[check] <json>` (`CHECK`), on which a run_m1 child prints the check result it leaves to the cycle to record, and which the cycle reads back from the step's output (`artifact_cycle._reported_red`); the console logs it as it logs any line that is not an event. `INNER_LINE` is the one pattern for the `[t]` line; `cycle_timings` parses the journal with it, and `timing()` writes a line it matches.
 
@@ -55,6 +55,7 @@ PLAN_TXT = "plan.txt"
 LATEST_LINK = "latest"
 
 SUMMARY_BANNER = "ARTIFACT CYCLE SUMMARY"
+WRITTEN_LEGEND = "  written: what the pass wrote from each step's spawn to its reap; + marks a window that another step's window overlapped, so it holds that step's writes too"
 VERDICT_OK = "ok"
 VERDICT_FAILED = "failed"
 VERDICT_INTERRUPTED = "interrupted"
@@ -69,6 +70,7 @@ _DURATION_WIDTH = 7
 _TICK_SECONDS = 1.0
 
 _BYTES_PER_GB = 1e9
+_BYTE_UNITS = ("B", "KB", "MB", "GB", "TB")
 _PROGRESS_BODY = re.compile(r"^(\d+)/(\d+|\?)(?:\s+(\S.*))?$")
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _PYTEST_PERCENT = re.compile(r"\[\s*(\d{1,3})%\]")
@@ -140,13 +142,15 @@ class PlanRow:
 
 @dataclass(frozen=True)
 class SummaryRow:
-    """One row of the closing table. `detail` is the step's short detail, a count or a gate's status string, already formatted by the driver in the step's own unit; `seconds` is None for a step that did not run."""
+    """One row of the closing table. `detail` is the step's short detail, a count or a gate's status string, already formatted by the driver in the step's own unit; `seconds` is None for a step that did not run. `written` is what the write meter read over the step's window, from its spawn to its reap, None for a step with no reading, and `overlapped` says another step's window overlapped it, so the figure holds that step's writes too."""
 
     number: int | None
     name: str
     outcome: str
     detail: str = ""
     seconds: float | None = None
+    written: int | None = None
+    overlapped: bool = False
 
 
 def fmt_count(value: int) -> str:
@@ -169,6 +173,18 @@ def fmt_rss(byte_count: int | None) -> str:
     if byte_count is None:
         return ""
     return f"{byte_count / _BYTES_PER_GB:.1f}G"
+
+
+def fmt_bytes(byte_count: int | None) -> str:
+    """Format a byte count in the decimal unit that keeps it under a thousand, whole bytes below a kilobyte and one place above (`512 B`, `46.3 MB`, `1.3 TB`), or return the empty string when the count is unknown. Bytes written run from a few kilobytes on a pass that changes nothing to terabytes, so the one unit `fmt_rss` keeps would print most of them as zero."""
+    if byte_count is None:
+        return ""
+    value = float(byte_count)
+    unit = 0
+    while abs(value) >= 999.95 and unit < len(_BYTE_UNITS) - 1:
+        value /= 1000
+        unit += 1
+    return f"{byte_count} B" if unit == 0 else f"{value:.1f} {_BYTE_UNITS[unit]}"
 
 
 def _write(line: str, file: IO[str] | None) -> None:
@@ -573,7 +589,7 @@ class CycleConsole:
         verdict: str = VERDICT_OK,
         reasons: Sequence[str] = (),
     ) -> None:
-        """Print the closing block: the step table, the cycle-level lines the driver composed, then the verdict. Reasons are printed verbatim under `CYCLE FAILED:` or `CYCLE INTERRUPTED:`, and a green run ends with `Cycle complete.` and no reasons."""
+        """Print the closing block: the step table, the cycle-level lines the driver composed, then the verdict. The table has a `written` column, with the legend line `WRITTEN_LEGEND` under it, when some row carries a write-meter figure. Reasons are printed verbatim under `CYCLE FAILED:` or `CYCLE INTERRUPTED:`, and a green run ends with `Cycle complete.` and no reasons."""
         with self._lock:
             numbered = [replace(row, number=self._number(row.name)) for row in rows]
             numbered.sort(key=lambda row: row.number if row.number is not None else float("inf"))
@@ -750,8 +766,15 @@ class CycleConsole:
             pass
 
 
+def _written_cell(row: SummaryRow) -> str:
+    if row.written is None:
+        return ""
+    return fmt_bytes(row.written) + ("+" if row.overlapped else " ")
+
+
 def _summary_table(rows: Sequence[SummaryRow]) -> list[str]:
-    header = ("#", "step", "outcome", "detail", "time")
+    metered = any(row.written is not None for row in rows)
+    header = ("#", "step", "outcome", "detail", "time", "written " if metered else "")
     body = [
         (
             "-" if row.number is None else str(row.number),
@@ -759,6 +782,7 @@ def _summary_table(rows: Sequence[SummaryRow]) -> list[str]:
             row.outcome,
             row.detail,
             "" if row.seconds is None else fmt_duration(row.seconds),
+            _written_cell(row),
         )
         for row in rows
     ]
@@ -767,9 +791,11 @@ def _summary_table(rows: Sequence[SummaryRow]) -> list[str]:
         return []
     lines = []
     for cells in (header, *body):
-        number, name, outcome, detail, elapsed = cells
+        number, name, outcome, detail, elapsed, written = cells
         lines.append(
             f"  {number:>{widths[0]}}  {name:<{widths[1]}}  {outcome:<{widths[2]}}  "
-            f"{detail:<{widths[3]}}  {elapsed:>{widths[4]}}".rstrip()
+            f"{detail:<{widths[3]}}  {elapsed:>{widths[4]}}  {written:>{widths[5]}}".rstrip()
         )
+    if metered:
+        lines.append(WRITTEN_LEGEND)
     return lines

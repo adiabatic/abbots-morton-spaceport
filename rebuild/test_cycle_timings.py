@@ -5,8 +5,11 @@ import socket
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from rebuild.tools import cycle_timings as ct
-from rebuild.tools import memory_budget
+from rebuild.tools import memory_budget, write_meter
+from rebuild.tools.write_meter import Member, WriteReading
 
 
 def _result(name="run_m1", rc=0, stdout="", stderr="", elapsed=1.0):
@@ -37,6 +40,46 @@ def _lines(path):
 
 def _write_journal(path, entries):
     path.write_text("\n".join(json.dumps(entry) for entry in entries) + "\n", encoding="utf-8")
+
+
+OUTSIDER = 50
+SERVER = 60
+
+
+class _Meter:
+    """A write meter over one coalition whose counters the test moves by hand: the pass's own writes (`own`), an outsider's (`outsider`, a member that is neither the reader nor its kin) and the named review server's (`server`), the device's and swap's counters, and a self-check failure to report. Each reading is taken as `write_meter.read` takes one, with the device only when asked."""
+
+    def __init__(self, *, outsider=False):
+        self.own = 0
+        self.outsider = 0 if outsider else None
+        self.server = 0
+        self.device = 0
+        self.swap = 0
+        self.check: str | None = None
+
+    def __call__(self, device):
+        members = [Member(1, 0, 0.0, 0)]
+        if self.outsider is not None:
+            members.append(Member(OUTSIDER, 0, 0.0, self.outsider))
+        server = Member(SERVER, 0, 0.0, self.server)
+        members.append(server)
+        usage: dict[str, int] = dict.fromkeys(write_meter._COALITION_FIELDS, 0)
+        usage |= {
+            "tasks_started": len(members),
+            "logical_deferred_writes": self.own + (self.outsider or 0) + self.server,
+        }
+        return WriteReading(
+            pid=1,
+            at=0.0,
+            wall=0.0,
+            coalition=7,
+            usage=usage,
+            members=tuple(members),
+            check=self.check,
+            named=server,
+            device=self.device if device else None,
+            swap=self.swap if device else None,
+        )
 
 
 def test_parse_inner_timings_reads_label_and_seconds():
@@ -132,6 +175,32 @@ def test_parse_inner_timings_reads_the_readback_figures():
             "settle_rules": 29214,
             "largest_group_rule_bytes": 33542,
         }
+    ]
+
+
+def test_parse_inner_timings_reads_the_replay_scope_and_the_subset_refresh():
+    """run_m1's `replay_strings` line names the replay's scope and its `baseline_subset` line whether the refresh ran, kept as text and as a boolean. A line written before either token existed, the subset line's old parenthetical included, still parses and lacks the key, and a value neither reader knows is left out."""
+    text = "\n".join(
+        [
+            "[t] baseline_subset 0.4s refreshed=true",
+            "[t] baseline_subset 0.1s refreshed=false",
+            "[t] replay_strings 26.0s scope=full rss_gb=3.10",
+            "[t] replay_strings 2.0s scope=narrowed rss_gb=1.20",
+            "[t] baseline_subset 0.1s (refiltered)",
+            "[t] replay_strings 25.0s rss_gb=3.00",
+            "[t] baseline_subset 0.1s refreshed=yes",
+            "[t] replay_strings 1.0s scope=partial",
+        ]
+    )
+    assert ct.parse_inner_timings(text) == [
+        {"label": "baseline_subset", "elapsed_s": 0.4, "refreshed": True},
+        {"label": "baseline_subset", "elapsed_s": 0.1, "refreshed": False},
+        {"label": "replay_strings", "elapsed_s": 26.0, "rss_gb": 3.1, "scope": "full"},
+        {"label": "replay_strings", "elapsed_s": 2.0, "rss_gb": 1.2, "scope": "narrowed"},
+        {"label": "baseline_subset", "elapsed_s": 0.1},
+        {"label": "replay_strings", "elapsed_s": 25.0, "rss_gb": 3.0},
+        {"label": "baseline_subset", "elapsed_s": 0.1},
+        {"label": "replay_strings", "elapsed_s": 1.0},
     ]
 
 
@@ -259,7 +328,180 @@ def test_finish_defaults_missing_summary_keys_to_null(tmp_path):
     ct.CycleTimings(path).finish({})
     (entry,) = _lines(path)
     assert all(
-        entry[key] is None for key in ("exit", "interrupted", "failures", "gates", "plan", "argv", "carry")
+        entry[key] is None
+        for key in ("exit", "interrupted", "failures", "gates", "plan", "argv", "carry", "written")
+    )
+
+
+def test_wrap_spawn_records_each_steps_written_window_and_the_steps_that_overlapped_it(tmp_path):
+    """A step's window runs from its spawn to its reap, so a gate that runs inside a build step's window is in that window's figure, and each names the other. A step whose window nothing overlapped reads only its own writes. The figures go on the result too, where the driver's summary table reads them."""
+    path = tmp_path / "j.ndjson"
+    meter = _Meter()
+    timings = ct.CycleTimings(path, meter=meter)
+
+    def spawn(name, argv, **kwargs):
+        meter.own += {"corpus-build": 1_000, "gate:js": 30, "review-facts": 5}[name]
+        if name == "corpus-build":
+            timed("gate:js", [], emit=None, registry=None, stream=False)
+        return _result(name=name)
+
+    timed = timings.wrap_spawn(spawn)
+    corpus = timed("corpus-build", [], emit=None, registry=None, stream=False)
+    timed("review-facts", [], emit=None, registry=None, stream=False)
+    windows = {entry["name"]: (entry["written_bytes"], entry["written_overlap"]) for entry in _lines(path)}
+    assert windows == {
+        "gate:js": (30, ["corpus-build"]),
+        "corpus-build": (1_030, ["gate:js"]),
+        "review-facts": (5, []),
+    }
+    assert (corpus.written_bytes, corpus.written_overlap) == (1_030, ("gate:js",))
+
+
+def test_finish_records_what_the_pass_wrote_with_its_basis_and_write_class(tmp_path):
+    """The run line's `written` block is the meter's delta from the pass's start to its finish. In a shared coalition the outsiders' writes come out of `bytes`, and the named review server's are reported apart; the device and swap counters are the machine's. The class comes from the pass's step lines, here a run_m1 whose replay walked only the changed runes' texts."""
+    path = tmp_path / "j.ndjson"
+    meter = _Meter(outsider=True)
+    timings = ct.CycleTimings(path, meter=meter)
+
+    def run_m1(name, argv, **kwargs):
+        meter.own += 4_000
+        meter.outsider = 700
+        meter.server = 20
+        meter.device += 9_000
+        return _result(name=name, stdout="[t] replay_strings 2.0s scope=narrowed rss_gb=1.20")
+
+    timings.wrap_spawn(run_m1)("run_m1", [], emit=None, registry=None, stream=False)
+    meter.swap = 16_384
+    writes = timings.finish({"exit": "ok", "plan": {"skip_run_m1": False}})
+    run = _lines(path)[-1]
+    assert run["written"] == {
+        "basis": "shared",
+        "bytes": 4_000,
+        "diskio_bytes": 0,
+        "outsiders_bytes": 700,
+        "outsiders_unread": 0,
+        "review_server_bytes": 20,
+        "device_bytes": 9_000,
+        "swap_bytes": 16_384,
+        "machine_wide": ["device_bytes", "swap_bytes"],
+        "class": "narrowed",
+    }
+    assert writes is not None and writes.block == run["written"] and writes.ceiling is None
+
+
+@pytest.mark.parametrize("fault", ["raises", "self-check"])
+def test_a_failing_write_meter_never_fails_the_pass(tmp_path, capsys, fault):
+    """A reading that raises is dropped, so its windows have no figure and the run line no `written` block. A reading that fails its self-check sends the pass's figure to the device's machine-wide count. Each says why on a `[warn]` line, and the step and run lines are still written."""
+    path = tmp_path / "j.ndjson"
+    meter = _Meter()
+    if fault == "raises":
+
+        def broken(device):
+            raise OSError("no coalition")
+
+        timings = ct.CycleTimings(path, meter=broken)
+    else:
+        meter.check = "the scan did not find the reader in its own coalition"
+        timings = ct.CycleTimings(path, meter=meter)
+    meter.device += 5_000
+    timings.wrap_spawn(lambda name, argv, **kwargs: _result(name=name))(
+        "gate:js", [], emit=None, registry=None, stream=False
+    )
+    timings.finish({"exit": "ok", "plan": {}})
+    step, run = _lines(path)
+    assert "written_bytes" not in step
+    out = capsys.readouterr().out
+    if fault == "raises":
+        assert run["written"] is None
+        assert "[warn] write meter: a reading raised OSError('no coalition')" in out
+    else:
+        assert (run["written"]["basis"], run["written"]["bytes"]) == ("device", 5_000)
+        assert "the scan did not find the reader" in run["written"]["warning"]
+        assert f"[warn] {run['written']['warning']}\n" in out
+
+
+def _phases(*lines):
+    return [{"name": "run_m1", "inner": ct.parse_inner_timings("\n".join(lines))}]
+
+
+@pytest.mark.parametrize(
+    ("plan", "steps", "expected"),
+    [
+        (
+            {"skip_run_m1": False},
+            _phases("[t] baseline_subset 0.4s refreshed=true", "[t] replay_strings 26.0s scope=full"),
+            "letter-batch",
+        ),
+        (
+            {"skip_run_m1": False},
+            _phases("[t] baseline_subset 0.1s refreshed=false", "[t] replay_strings 26.0s scope=full"),
+            "full-replay",
+        ),
+        ({"skip_run_m1": False}, _phases("[t] replay_strings 2.0s scope=narrowed"), "narrowed"),
+        ({"rerun_gates_only": True}, _phases("[t] baseline_subset 0.1s refreshed=false"), "gates-only"),
+        ({"skip_run_m1": True, "skip_corpus": False}, [], "corpus-only"),
+        ({"skip_run_m1": True, "skip_corpus": True, "refresh_assets": True}, [], "corpus-only"),
+        ({"skip_run_m1": True, "skip_corpus": True}, [{"name": "verdict-update"}], "verdict-only"),
+        ({"skip_run_m1": True, "skip_corpus": True}, [{"name": "gate:js"}], "nothing"),
+        (
+            {"skip_run_m1": True, "skip_corpus": True},
+            [{"name": "gate:js"}, {"name": "gate:rebuild-contracts"}],
+            "tests-only",
+        ),
+        ({"skip_run_m1": False}, _phases("[t] replay_strings 25.0s rss_gb=3.0"), None),
+        (None, [], None),
+    ],
+)
+def test_write_class_takes_the_first_class_that_applies(plan, steps, expected):
+    """The run_m1 tokens decide first, in the order letter batch, full replay, narrowed replay; the plan flags decide the rest. A pass that ran run_m1 without either token, such as one that stopped before the replay, has no class. A pass whose only heavy work was a test gate is `tests-only`."""
+    assert ct.write_class({"plan": plan}, steps) == expected
+
+
+def test_write_ceiling_is_this_hosts_first_three_metered_passes_plus_a_quarter(monkeypatch):
+    """Only this host's passes of the class that finished ok and read the pass's own figure count, and the first three of them set the ceiling, so a later pass cannot raise it. Until three exist the class has none, and a number in `PASS_WRITE_CEILING_BYTES` overrides the journal."""
+
+    def run(written, *, host="h1", exit="ok", basis="own", write_class="narrowed"):
+        return {
+            "host": host,
+            "exit": exit,
+            "written": {"basis": basis, "bytes": written, "class": write_class},
+        }
+
+    runs = [
+        run(100),
+        run(9_000, host="h2"),
+        run(9_000, exit="failed"),
+        run(9_000, basis="device"),
+        run(9_000, write_class="full-replay"),
+        run(400),
+        {"host": "h1", "exit": "ok"},
+    ]
+    assert ct.write_ceiling("narrowed", "h1", runs) is None
+    runs += [run(200), run(9_000)]
+    assert ct.write_ceiling("narrowed", "h1", runs) == 500
+    assert ct.write_ceiling(None, "h1", runs) is None
+    monkeypatch.setitem(ct.PASS_WRITE_CEILING_BYTES, "narrowed", 300)
+    assert ct.write_ceiling("narrowed", "h1", runs) == 300
+
+
+def test_finish_warns_when_the_pass_wrote_over_its_class_ceiling(tmp_path, capsys):
+    path = tmp_path / "j.ndjson"
+    timings = ct.CycleTimings(path, meter=(meter := _Meter()))
+    _write_journal(
+        path,
+        [
+            {"kind": "run", "run": f"r{index}", "host": timings.host, "exit": "ok", "written": block}
+            for index, block in enumerate(
+                [{"basis": "own", "bytes": written, "class": "nothing"} for written in (100, 400, 200)]
+            )
+        ],
+    )
+    meter.own = 600
+    writes = timings.finish({"exit": "ok", "plan": {"skip_run_m1": True, "skip_corpus": True}})
+    assert writes is not None and (writes.write_class, writes.ceiling, writes.over) == ("nothing", 500, True)
+    assert (
+        "[warn] this pass wrote 600 B, over the nothing class's write ceiling of 500 B"
+        in capsys.readouterr().out
     )
 
 
@@ -764,6 +1006,29 @@ def test_main_default_view_omits_ram_for_a_run_record_that_predates_it(tmp_path,
     assert "ram=" not in out
 
 
+def test_main_default_view_prints_what_each_run_and_step_wrote(tmp_path, capsys):
+    """A run header carries the pass's `written=` bytes, with its basis when it is not `own`, and a step row its window's, marked `+` when another step overlapped it. A run line from before the meter shows neither."""
+    path = tmp_path / "j.ndjson"
+    _write_journal(
+        path,
+        [
+            {"kind": "step", "run": "r1", "host": "h1", "name": "corpus-build", "elapsed_s": 9.0, "rc": 0}
+            | {"written_bytes": 46_300_000, "written_overlap": ["gate:js"]},
+            {"kind": "step", "run": "r1", "host": "h1", "name": "land", "elapsed_s": 1.0, "rc": 0}
+            | {"written_bytes": 512, "written_overlap": []},
+            {"kind": "run", "run": "r1", "host": "h1", "wall_s": 10.0, "exit": "ok"}
+            | {"written": {"basis": "shared", "bytes": 47_000_000}},
+            {"kind": "run", "run": "r2", "host": "h1", "wall_s": 5.0, "exit": "ok"},
+        ],
+    )
+    assert ct.main(["--journal", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "exit=ok  written=47.0MB  basis=shared" in out
+    assert "corpus-build  written=46.3MB+" in out
+    assert re.search(r"land  written=512B$", out, re.MULTILINE)
+    assert out.count("written=") == 3
+
+
 def test_main_inner_flag_expands_phase_lines(tmp_path, capsys):
     path = _view_journal(tmp_path)
     assert ct.main(["--journal", str(path), "--inner"]) == 0
@@ -953,6 +1218,60 @@ def test_main_by_step_reports_the_max_recorded_rss_per_step(tmp_path, capsys):
     out = capsys.readouterr().out
     assert re.search(r"run_m1\s+h1\s+3\s+2\.0s\s+3\.0s\s+3\.0s\s+8\.94GB", out)
     assert re.search(r"merge\s+h1\s+1\s+0\.5s\s+0\.5s\s+0\.5s\s*$", out, re.MULTILINE)
+
+
+def test_main_by_step_reports_each_steps_median_and_largest_written_window(tmp_path, capsys):
+    path = tmp_path / "j.ndjson"
+    _write_journal(
+        path,
+        [
+            {"kind": "step", "run": f"r{index}", "host": "h1", "name": "land", "rc": 0, "elapsed_s": 1.0}
+            | ({} if written is None else {"written_bytes": written})
+            for index, written in enumerate([None, 3_000_000, 1_000_000, 50_000_000])
+        ],
+    )
+    assert ct.main(["--journal", str(path), "--by-step"]) == 0
+    out = capsys.readouterr().out
+    assert re.search(r"maxrss\s+written\s+maxwritten$", out, re.MULTILINE)
+    assert re.search(r"^land\s+h1\s+4\s+1\.0s\s+1\.0s\s+1\.0s\s+3\.0MB\s+50\.0MB$", out, re.MULTILINE)
+
+
+def test_main_writes_groups_metered_runs_by_host_and_class_against_each_ceiling(tmp_path, capsys):
+    """`--writes` reads only run lines whose `written` block holds the pass's own figure: one from before the meter is left out, and one in the device basis is counted in a closing line instead. Each host and class gets a row with its runs, median, largest and latest bytes, its ceiling, and how many runs went over it."""
+
+    def run(index, written, *, host="h1", write_class: str | None = "narrowed", basis="own"):
+        return {
+            "kind": "run",
+            "run": f"r{index}",
+            "host": host,
+            "exit": "ok",
+            "written": {"basis": basis, "bytes": written, "class": write_class},
+        }
+
+    path = tmp_path / "j.ndjson"
+    _write_journal(
+        path,
+        [
+            run(1, 100_000_000),
+            run(2, 400_000_000),
+            run(3, 200_000_000),
+            run(4, 900_000_000),
+            run(5, 7_000_000, write_class="nothing"),
+            run(6, 2_000_000_000, host="h0", write_class=None),
+            run(7, 9_000_000_000, basis="device"),
+            {"kind": "run", "run": "r8", "host": "h1", "exit": "ok"},
+        ],
+    )
+    assert ct.main(["--journal", str(path), "--writes"]) == 0
+    rows = [line.split() for line in capsys.readouterr().out.splitlines()]
+    assert ["host", "class", "runs", "median", "largest", "latest", "ceiling", "over"] in rows
+    body = [row for row in rows if row and row[0] in ("h0", "h1")]
+    assert body == [
+        ["h0", "unclassified", "1", "2.0GB", "2.0GB", "2.0GB", "-", "-"],
+        ["h1", "narrowed", "4", "300.0MB", "900.0MB", "900.0MB", "500.0MB", "1"],
+        ["h1", "nothing", "1", "7.0MB", "7.0MB", "7.0MB", "-", "-"],
+    ]
+    assert ["1", "run", "line(s)", "read", "only", "the", "device's"] == rows[-1][:7]
 
 
 def _check_timing_journal(tmp_path):

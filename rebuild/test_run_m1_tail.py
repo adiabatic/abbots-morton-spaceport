@@ -220,6 +220,31 @@ class TestTheReadbackRecord:
         assert ct.parse_inner_timings(run_m1._build_phase_lines[-1])[0]["commit"] == "95521363"
 
 
+class TestTheReplayScope:
+    @pytest.mark.parametrize(
+        ("families", "scope"), [(None, "full"), (["qsTea"], "narrowed"), ([], "narrowed")]
+    )
+    def test_the_replay_line_names_whether_every_text_was_walked(
+        self, monkeypatch, tmp_path, capsys, families, scope
+    ):
+        """The `[t] replay_strings` line says `scope=full` when the replay walked every text and `scope=narrowed` when it walked the texts of some runes or of none, beside its peak."""
+        events: list = []
+        _stub_chain(monkeypatch, events)
+        _stub_gates(monkeypatch, events, replay={**GREEN_REPLAY, "families": families})
+        _summary, gates = _run(tmp_path)
+        try:
+            gates.join()
+        finally:
+            gates.close()
+        (line,) = [
+            phase
+            for phase in ct.parse_inner_timings(capsys.readouterr().out)
+            if phase["label"] == "replay_strings"
+        ]
+        assert line["scope"] == scope
+        assert "rss_gb" in line
+
+
 class TestTheFirstRed:
     def test_a_red_replay_beats_a_red_readback(self, monkeypatch, tmp_path):
         events: list = []
