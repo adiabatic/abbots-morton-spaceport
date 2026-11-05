@@ -12,7 +12,7 @@ System probes run before every pass and around every timed run (`summarize_probe
 
 `--baseline` writes a scenario's row as soon as its A/A pair passes (`judge`'s `measured`: journal agreement, one declared pass shape, within spread, and identical fingerprints and stores), so a later failure, refusal, stop or crash keeps it, and leaves the row of a scenario that failed or got no verdict as it was; the check still exits 1 when one failed. Before it writes a row it compares the new fingerprint with every other machine's row on the same tree, the same `base` and `base_patch_sha256` (`compare_fingerprints`, with `same_seed` from the two rows' seeds); a difference is a determinism finding, so the check names it, leaves that scenario's file as it was, and exits 1.
 
-Every record of a check is kept under `var/keep/perf/<stamp>-<id>/`: `report.json`, `report.txt`, `system.ndjson`, the captured candidate, and per scenario and side `hyperfine.json`, `fingerprint.json` and `runs/<k>/` (the stamp, the run's build logs and its journal lines). `--dry-run` prints the plan, the probes, which scenario patches apply at B, a forward scenario's missing kept seed (exiting 2, since the check would refuse it), the fault kit's selection and the estimated wall time (`estimate`), and builds nothing; it captures the candidate as a check does, so on a clean tree it refuses unless `--baseline` or `--candidate A..B` names what to measure. `--write-patch NAME` rewrites a scenario's patch in place from its `edit:`, refuses when the edit does not resolve, and leaves a `base_patch` alone, which is hand-kept and has no `edit:`. `--clean`, which takes no other flag, deletes `var/perf/`, and refuses while a check or a clone's pass holds its lock. SIGINT, SIGTERM and SIGHUP stop a check after the current step, except one that was ignored when the check started, so a check under `nohup` outlives its shell. Exit status: 0 when every scenario and fault row passed, 1 when one failed or got no verdict, 2 when the check refused, before measuring or partway (a refusing probe, a wait past `WAIT_LIMIT_S`, a forward scenario's missing kept seed, a prepare hook's refusal, a root that would not warm), and 128 plus the signal's number when a signal stopped it.
+Every record of a check is kept under `var/keep/perf/<stamp>-<id>/`: `report.json`, `report.txt`, `system.ndjson`, the captured candidate, and per scenario and side `hyperfine.json`, `fingerprint.json` and `runs/<k>/` (the stamp, the run's build logs and its journal lines). `--dry-run` prints the plan, the probes, which scenario patches apply at B, a forward scenario's missing kept seed (exiting 2, since the check would refuse it), the fault kit's selection and the estimated wall time (`estimate`), and builds nothing; it captures the candidate as a check does, so on a clean tree it refuses unless `--baseline` or `--candidate A..B` names what to measure. `--write-patch NAME` rewrites a scenario's patch in place from its `edit:`, refuses when the edit does not resolve, and leaves a `base_patch` alone, which is hand-kept and has no `edit:`. `--clean`, which takes no other flag, deletes `var/perf/`, and refuses while a check or a clone's pass holds its lock. SIGINT, SIGTERM and SIGHUP stop a check after the current step, except one that was ignored when the check started, so a check under `nohup` outlives its shell. Every measuring run, `--baseline` included, refuses with exit 2 (`WITHDRAWN`) until #618's change 0 replaces the whole-pass check, whose passes write about a terabyte a check; `--dry-run`, `--write-patch` and `--clean` still run, and the rest of this docstring describes the check `WITHDRAWN` holds back. Exit status: 0 when every scenario and fault row passed, 1 when one failed or got no verdict, 2 when the check refused, before measuring or partway (a refusing probe, a wait past `WAIT_LIMIT_S`, a forward scenario's missing kept seed, a prepare hook's refusal, a root that would not warm), and 128 plus the signal's number when a signal stopped it.
 """
 
 from __future__ import annotations
@@ -73,6 +73,7 @@ RESERVED_NAMES = ("root",)
 SHARED_CLONE = "shared"
 FAULT_MODES = ("auto", "all", "none")
 MEMORY_OVERRIDE_ENV = "AMS_TOTAL_MEMORY_BYTES"
+WITHDRAWN = "a measuring check is withdrawn: its whole-pass runs write about a terabyte a check, so it refuses until #618's change 0 replaces it with stage-timed runs that write no outputs; --dry-run, --write-patch and --clean still run"
 
 HARNESS_PATHS = (
     "rebuild/perf/",
@@ -2417,6 +2418,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise PerfRefused(f"rebuild/perf/scenarios.yaml has no scenario {args.write_patch}")
             print(f"wrote {write_patch(ROOT, scenario).relative_to(ROOT)}")
             return 0
+        if WITHDRAWN and not args.dry_run:
+            raise PerfRefused(WITHDRAWN)
         if os.environ.get(MEMORY_OVERRIDE_ENV):
             raise PerfRefused(
                 f"{MEMORY_OVERRIDE_ENV} is set; the clone passes run without it, so their run lines would carry another machine tag than this check's. Unset it first."

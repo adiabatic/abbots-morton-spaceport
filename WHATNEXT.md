@@ -6,15 +6,11 @@ The rebuild migrates the cursive-join engine rune by rune and checks each batch 
 
 **Next step: the qsHe batch is closed; the next migration is not selected.** `make verdict-ready` is the readiness check, `glyph_data/runes/` lists the migrated runes, and `make novelty-order` orders the remaining blanks.
 
-**The next `Add ·X` batch moves the speed-up check's letter migration onto the moving base.** `make perf-check`'s `letter-migration` scenario replays the ·He batch forward at its own parent, so it measures no candidate whose files changed since then; once a newer batch lands, put the scenario in revert form on that batch (`doc/perf-check.md` § The scenarios).
-
 **Where the state lives:** `make verdict-ready` and the app’s banner report whether the corpus, the gates, and the verdict store are ready, `rebuild/out/cycle_summary.json` is the last cycle’s record, and `doc/note-taking.md` § Counts and drifting state and `doc/review-cycle.md` name the other records.
 
 ## The speed-up check
 
-**The Mac mini has no baseline rows yet.** `rebuild/perf/baselines/` holds the 18-core MacBook Pro's rows; the 12-core Mac mini adds its own from the same scenarios, patches and seeds (`doc/perf-check.md` § Another machine).
-
-**Should a scenario time gate:conform's sweep?** No scenario's pass runs it (`doc/perf-check.md` § The scenarios), so a candidate that changes only the sweep's time proves nothing either way. The candidates are a revert-form scenario on a commit that moves the gate's key, and leaving the sweep out of the timed spans, since it runs in the gate lane and `make cycle-timings ARGS='--critical-path'` shows the build lane ending those passes.
+**The check and the fault kit are withdrawn until #618's changes 0 and 0k.** A whole-pass check writes about a terabyte and each kit row builds the whole alphabet, so both refuse to measure (`doc/perf-check.md`). #618's change 0 replaces the check with stage-timed runs that write no outputs, and change 0k runs the kit's rows on small alphabets; the scenarios, their baselines on each machine, and whether gate:conform's sweep is timed are settled in that design.
 
 ## Open forks in the gates
 

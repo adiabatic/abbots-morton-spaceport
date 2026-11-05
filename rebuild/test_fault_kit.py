@@ -333,3 +333,11 @@ def test_every_row_names_known_gates_and_an_existing_patch():
     for gate in manifest.gates.values():
         for module in gate.modules:
             assert fault_kit.module_files(fault_kit.ROOT, module), module
+
+
+def test_a_run_refuses_while_withdrawn(tmp_path, capsys):
+    out = tmp_path / "result.json"
+    argv = ["--rows", "all", "--root", str(tmp_path / "root"), "--snapshot", str(tmp_path / "snapshot")]
+    assert fault_kit.main([*argv, "--out", str(out), "--log-dir", str(tmp_path / "logs")]) == 2
+    assert fault_kit.WITHDRAWN in capsys.readouterr().err
+    assert not out.exists()

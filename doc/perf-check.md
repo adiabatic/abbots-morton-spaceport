@@ -1,5 +1,7 @@
 # The speed-up check
 
+**Withdrawn.** A measuring `make perf-check` and every fault-kit run refuse with exit 2. A check's whole-pass runs write about a terabyte, and each kit row builds the whole alphabet, so they wait for #618's change 0, stage-timed runs that write no outputs, and change 0k, kit rows on small alphabets. `--dry-run`, `--write-patch`, `--clean` and the kit's `--list` still run. Until then a change's effect on a pass's time is read from `make cycle-timings`, before and after it lands. The rest of this runbook describes the check the refusal holds back.
+
 `make perf-check` answers the three questions #584 asks of a speed-up candidate:
 
 - **Same output:** every pass the candidate shortens still writes the same tables, fonts, review corpus, verdict store and complaint list.

@@ -15,7 +15,7 @@ This file maps each kind of change to the gate that checks it, and says what eac
 | A rune or pipeline edit, to rebuild and recheck the tables | `uv run python -m rebuild.pipeline.run_m1` (or a `make review-cycle` pass)                                                 |
 | Commit time                                                | `make artifact-cycle`; `make review-cycle` when a review session follows                                                   |
 | Is it ready for review?                                    | `make verdict-ready`                                                                                                       |
-| A change meant to shorten edit-to-READY (#584)             | `make perf-check`, detached (`doc/perf-check.md`)                                                                          |
+| A change meant to shorten edit-to-READY (#584)             | `make cycle-timings`, before and after; `make perf-check` is withdrawn (`doc/perf-check.md`)                               |
 | Periodic, by hand or overnight                             | `make test-rebuild-slow`, `make conform-deep`, `make replay-deep`                                                          |
 
 Never single-thread a broad run; `doc/parallelism.md` has the width rules. Run anything that includes the heavy gates detached; `doc/running-long-steps.md` has the recipe.

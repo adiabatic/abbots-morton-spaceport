@@ -588,3 +588,8 @@ def test_each_passing_scenario_writes_its_row_unless_it_differs_from_another_mac
     report = (check.record / "report.txt").read_text()
     assert "baselines: written for passes\n" in report
     assert "differs from another machine: drifts: verdicts (base side: the cpus=12 ram=51.54GB row)" in report
+
+
+def test_a_measuring_check_refuses_while_withdrawn(capsys):
+    assert pc.main(["--baseline"]) == 2
+    assert pc.WITHDRAWN in capsys.readouterr().err

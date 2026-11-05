@@ -20,6 +20,8 @@ Environment: every control and step runs with only `HOME`, `PATH`, `USER`, `LOGN
 
 The kit leaves `--root` clean, at the commit it found, with `rebuild/out` restored to the control snapshot, even on failure. SIGINT, SIGTERM and SIGHUP stop a run as they stop a cycle pass (`artifact_cycle.stop_signals`): the running step's session is killed, the row is reverted, and the exit status is 128 plus the signal's number. A revert that leaves the tree dirty stops the run with exit 1, after the kit resets the tracked files to the commit it found and removes the untracked files the run made (the tree had none when it started). What a row leaves behind is outside `rebuild/out` and the tracked files: the crate's release binary under `rebuild/kernel-rs/target/`, which the next use rebuilds by mtime, and whatever `uv run` synced into the root's `.venv`.
 
+A run refuses with exit 2 (`WITHDRAWN`) until #618's change 0k runs the rows on small alphabets, since each row builds the whole alphabet today; `--list` still runs, and the rest of this docstring describes the run `WITHDRAWN` holds back.
+
 Run as: uv run python -m rebuild.tools.fault_kit --root DIR --snapshot DIR --rows auto|all|ID[,ID...] [--changed FILE] [--base REF] --out FILE --log-dir DIR. `--list [--rows ...] [--changed FILE] [--root DIR]` prints each row's id, gates, §10 row, patch and whether it is selected, then the unreached gates; it needs no clone, walks the closures on `--root` when given and on this checkout otherwise, and selects `all` unless `--rows` says otherwise.
 """
 
@@ -66,6 +68,7 @@ STEP_TIMEOUT_FACTOR = 3.0
 KILL_GRACE_S = 10.0
 CAUGHT = "caught"
 STALE_PATCH = "stale-patch"
+WITHDRAWN = "a run is withdrawn: each row builds the whole alphabet, gigabytes a row, so the kit refuses until #618's change 0k runs its rows on small alphabets; --list still runs"
 
 
 class ManifestError(ValueError):
@@ -927,6 +930,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
     except (ManifestError, OSError) as error:
         print(f"fault kit: {error}", file=sys.stderr)
+        return 2
+    if WITHDRAWN:
+        print(f"fault kit: {WITHDRAWN}", file=sys.stderr)
         return 2
     with stop_signals():
         try:
