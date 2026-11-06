@@ -25,11 +25,16 @@ Every invocation's result is checked strictly against the CLI contract. Exit 2 i
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import fcntl
+import functools
 import gzip
+import io
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -37,7 +42,8 @@ import threading
 import time
 import zlib
 from collections import OrderedDict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from concurrent.futures import Future, wait
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO
@@ -248,7 +254,7 @@ SETTLE_WINDOW_BATCH = 16384
 _BUILT = False
 # The marker on a memo file's head line (`rebuild/kernel-rs/src/memo.rs`'s `MEMO_FORMAT`); `read_memo_head` rejects a file with any other marker.
 MEMO_FORMAT = "ams-m1-memo/1"
-# The stamp for a window enumeration that is not kept. `build-tables` always writes the windows payload, whose head is where a caller reads the rules and cells back from, and always requires a stamp for that head. A caller with no fingerprint over the rune files has no stamp to give, so it passes this word and deletes the payload after reading it instead of packing it, and the word never reaches an artifact.
+# The stamp for a window enumeration that is not kept. `build-tables` always writes the windows payload, whose head is where a caller reads the rules and cells back from, and always requires a stamp for that head. A caller with no fingerprint over the rune files has no stamp to give, so it passes this word and keeps no payload: `run_m1.build_tables` keeps the head from its FIFO and drops the rest as it arrives, and this module's `build_tables` reads a payload file in a scratch directory it deletes, so the word never reaches an artifact.
 UNSTAMPED_WINDOWS = "unstamped"
 
 # One scratch dump per live spec, keyed on identity. Each entry holds the spec itself so its id cannot be reused while the entry exists. A dump costs about ten milliseconds and a couple of hundred kilobytes, which the settlement functions would otherwise pay on every invocation. The cap is small because the callers that matter hold one spec, and eviction deletes the directory.
@@ -394,7 +400,7 @@ def _allocator_environment() -> dict[str, str] | None:
 def _run_kernel_reaped(
     arguments: list[str], verb: str, *, timeout: float, env: Mapping[str, str] | None = None
 ) -> tuple[subprocess.CompletedProcess, ReapedPeaks]:
-    """`_run_kernel` with no stdin, returning beside the result the child process's own resident peak and peak footprint in bytes (`peak_rss.reap_peaks_bytes`), either None where it cannot be read. `communicate` reaps the child with `waitpid`, which discards its resource usage and its footprint, so this drains each pipe on a thread of its own and, once both are closed, waits for the child's exit, reads its peak footprint and reaps it with `os.wait4`. The crate starts no process of its own, so both figures are the crate's. `env` is the child's environment, as `_spawn_kernel` takes it. Raises `KernelRunError` for a missing binary, or for a timeout after killing the child."""
+    """`_run_kernel` with no stdin, returning beside the result the child process's own resident peak and peak footprint in bytes (`peak_rss.reap_peaks_bytes`), either None where it cannot be read. `communicate` reaps the child with `waitpid`, which discards its resource usage and its footprint, so this drains each pipe on a thread of its own and, once both are closed, waits for the child's exit, reads its peak footprint and reaps it with `os.wait4`. The crate starts no process of its own, so both figures are the crate's. `env` is the child's environment, as `_spawn_kernel` takes it. Raises `KernelRunError` for a missing binary, or for a timeout after killing the child. An interrupt while it waits kills and reaps the child before it propagates, so no crate outlives its caller's cleanup, which for `build_table_files` includes ending each read of a payload FIFO (`stream_payloads`)."""
     process = _spawn_kernel(arguments, stdin=False, env=env)
     assert process.stdout is not None and process.stderr is not None
     drained: dict[str, bytes] = {}
@@ -407,11 +413,16 @@ def _run_kernel_reaped(
         threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
         threading.Thread(target=drain, args=("stderr", process.stderr), daemon=True),
     ]
-    for reader in readers:
-        reader.start()
     deadline = time.monotonic() + timeout
-    for reader in readers:
-        reader.join(max(0.0, deadline - time.monotonic()))
+    try:
+        for reader in readers:
+            reader.start()
+        for reader in readers:
+            reader.join(max(0.0, deadline - time.monotonic()))
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
     if any(reader.is_alive() for reader in readers):
         process.kill()
         for reader in readers:
@@ -578,7 +589,7 @@ def build_table_files(
 ) -> TableBuild:
     """Every named configuration folded in the crate: its settlement TSV, its join TSV, its plain window enumeration stamped `inputs`, and the table digest of the pair, returned as `TableBuild.digests` (`{config: digest}`) beside the `[t]` lines `--timings` made the crate write.
 
-    This is `enumerate-configs` plus the fold in one process, so there is no stream between them: the fold runs on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json, and `run_m1.build_tables` packs it into the `.gz` artifact.
+    This is `enumerate-configs` plus the fold in one process, so there is no stream between them: the fold runs on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json. The crate opens its path (`windows_payload`) with `File::create`, so the caller decides where the payload goes by what it puts at that path before the call: `run_m1.build_tables`, which packs it into the `.gz` artifact, and `rebuild/tools/scaling_sweep.py`, which counts it, a FIFO each reads it through (`stream_payloads`); a reading that wants no payload, a symbolic link to the null device; and a caller that wants the file, such as this module's `build_tables` and the tests, nothing.
 
     One process handles every named configuration because the configurations after `default` are enumerated as deltas over it. `default` enumerates first and keeps its trace memo. Each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and settles only the rest, `threads` worker slots at a time, with `default`'s fold preparation in one of them. `rebuild/kernel-rs/src/memo.rs` gives the argument; the window locality rule, applied across configurations, makes the shared results exact. `default_memo_sharing=False` enumerates every configuration from scratch, and `rebuild/test_kernel_exec.py` checks that it writes the same tables as the delta build. `scratch_beside_default` starts up to that many of the heaviest deltas from scratch beside `default` instead, in whole tiers of equal unlocking-rune count, which writes the same tables and holds what `table_build_booking_bytes` books for it (`deltas_from_scratch` decides it); a configuration enumerated from scratch memoizes every window it settles, so its memo file holds the windows a delta's leaves to `default`'s. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts beside it, and a delta served one reruns only the probe's asks that name one of its own unlocking runes (`rebuild/kernel-rs/src/liveness.rs`); `verdict_sharing=False` runs every probe whole, and `rebuild/test_kernel_exec.py` checks that it writes the same tables and memo files.
 
@@ -648,6 +659,127 @@ def build_table_files(
             f"build-tables answered for {sorted(digests)} where {sorted(configs)} were asked for"
         )
     return TableBuild(digests, tuple(forwarded), peaks)
+
+
+def windows_payload(out_dir: Path, config: str) -> Path:
+    """Where `build-tables` writes one configuration's plain window payload under `out_dir` (`build_table_files` says what a caller may put there first)."""
+    return Path(out_dir) / f"windows-{config}.tsv"
+
+
+def payload_head(head: bytes, path: Path) -> io.StringIO:
+    """A payload's head line, as a reader of its FIFO kept it, as the open text stream `table.read_windows` reads with `windows=False`, named for the payload's path so that a refusal names it."""
+    stream = io.StringIO(head.decode("utf-8"))
+    stream.name = str(path)
+    return stream
+
+
+class _PayloadFifo[T]:
+    """A FIFO made at a crate payload path and one daemon thread reading it. The thread's open waits for the crate's `File::create` (an open of a FIFO with `O_TRUNC` truncates nothing), it runs `read` over the stream, and the crate's close of the file gives it end of file at once. It closes its descriptor before it reports, so a reader that fails breaks the crate's pipe at the crate's next write instead of leaving it to fill. The thread is a daemon so that a reader an interrupted `finish` leaves waiting never holds the interpreter open."""
+
+    def __init__(self, path: Path, read: Callable[[IO[bytes]], T]) -> None:
+        path.unlink(missing_ok=True)
+        os.mkfifo(path)
+        self.path = path
+        self._read = read
+        self._result: Future[T] = Future()
+        threading.Thread(target=self._run, name=f"payload {path.name}", daemon=True).start()
+
+    def _run(self) -> None:
+        try:
+            with self.path.open("rb") as source:
+                value = self._read(source)
+        except BaseException as error:
+            self._result.set_exception(error)
+        else:
+            self._result.set_result(value)
+
+    def finish(self) -> T:
+        """Open and close the FIFO for writing without blocking, once the thread has it open or has finished, so a thread whose crate never opened it reads an empty stream instead of waiting forever; then wait for the thread, remove the FIFO, and return what `read` returned or raise what it raised. The open fails with ENXIO while no reader has the FIFO open, which here means only that the thread has not reached its own open yet, so it is retried. Call it once the crate has exited."""
+        try:
+            while not self._result.done():
+                try:
+                    descriptor = os.open(self.path, os.O_WRONLY | os.O_NONBLOCK)
+                except OSError as error:
+                    if error.errno != errno.ENXIO:
+                        raise
+                    wait([self._result], timeout=0.01)
+                else:
+                    os.close(descriptor)
+                    break
+            return self._result.result()
+        finally:
+            self.path.unlink(missing_ok=True)
+
+
+def _finish_fifos[T](fifos: Mapping[str, _PayloadFifo[T]]) -> tuple[dict[str, T], Exception | None]:
+    """Finish every reader, each one even after another has failed, so none is left waiting, and return what they read beside the first failure among them."""
+    values: dict[str, T] = {}
+    failure: Exception | None = None
+    for name, fifo in fifos.items():
+        try:
+            values[name] = fifo.finish()
+        except Exception as error:
+            if failure is None:
+                failure = error
+    return values, failure
+
+
+_STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+@contextlib.contextmanager
+def _stop_signals_interrupt() -> Iterator[None]:
+    """Make SIGINT, SIGTERM and SIGHUP raise `KeyboardInterrupt` in the main thread for the length of the block, where each would otherwise end the process at once or raise it there anyway. A crate's FIFOs need that: a stop that reaches only this process, such as the SIGTERM the artifact cycle's driver sends a step's `uv run`, which passes it on, would otherwise end it with no cleanup and leave the crate running, to block for good in its open of a FIFO no one reads. Only a signal at its default action or at Python's own SIGINT handler is taken over: one that is ignored stays ignored, as under `nohup`, and a handler a caller installed, such as `artifact_cycle.stop_signals`', keeps doing what it does. Only the first of them raises and later ones are dropped until the block ends, because a stop sent to the process group arrives again as `uv run` forwards it and must not cut short the cleanup the first started. Only the main thread can install handlers, so on any other thread this installs none. The previous handlers are restored on exit."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    caught: list[int] = []
+
+    def stop(signum: int, _frame: object) -> None:
+        if caught:
+            return
+        caught.append(signum)
+        raise KeyboardInterrupt(signal.Signals(signum).name)
+
+    previous = {}
+    for signum in _STOP_SIGNALS:
+        handler = signal.getsignal(signum)
+        if handler in (signal.SIG_DFL, signal.default_int_handler):
+            previous[signum] = handler
+            signal.signal(signum, stop)
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+def stream_payloads[R, T](
+    paths: Mapping[str, Path], read: Callable[[str, IO[bytes]], T], run: Callable[[], R]
+) -> tuple[R, dict[str, T]]:
+    """Run `run`, which runs a crate process that writes a payload at each of `paths`, with a FIFO at each path and a thread reading it as `read(name, stream)`, so each payload goes from the crate to its reader without reaching the disk, and return what `run` returned beside what each reader returned, keyed as `paths` is. However `run` ends, every reader is finished (`_PayloadFifo.finish`) and every FIFO removed, so a FIFO the crate never opened gives its reader an empty stream and holds nothing. A reader's failure is raised after a clean `run`, and otherwise set as the cause of `run`'s own failure, since a reader that stops early breaks the crate's pipe; an interrupt is raised as it came. `run` must not end while its crate still runs, so on an interrupt it kills and reaps the crate first, as `_run_kernel_reaped` and `rebuild/tools/scaling_sweep.py`'s `run_size` do.
+
+    Called on the main thread, it makes a SIGTERM or SIGHUP that would end the process at once raise an interrupt instead for its length (`_stop_signals_interrupt`), so a stop that reaches only this process still kills and reaps the crate and removes every FIFO. A SIGKILL skips all of this: the crate it leaves running blocks for good in its open of a FIFO left at a path it had not yet opened, or writes into the FIFO the next build makes there.
+    """
+    fifos: dict[str, _PayloadFifo[T]] = {}
+    with _stop_signals_interrupt():
+        try:
+            try:
+                for name, path in paths.items():
+                    fifos[name] = _PayloadFifo(path, functools.partial(read, name))
+                ran = run()
+            except BaseException as error:
+                _values, failure = _finish_fifos(fifos)
+                if failure is not None and isinstance(error, Exception):
+                    raise error from failure
+                raise
+            values, failure = _finish_fifos(fifos)
+            if failure is not None:
+                raise failure
+            return ran, values
+        finally:
+            for path in paths.values():
+                path.unlink(missing_ok=True)
 
 
 def memo_path(out_dir: Path, config: str) -> Path:
@@ -1481,7 +1613,7 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
             threads=1,
             symbols=len(labels.spec_alphabet(spec)),
         )
-        with (tables / f"windows-{config}.tsv").open("rt", encoding="utf-8") as handle:
+        with windows_payload(tables, config).open("rt", encoding="utf-8") as handle:
             _stamp, decision = table.read_windows(handle)
         return decision, table.read_join_tsv(tables / f"joins-{config}.tsv")
 

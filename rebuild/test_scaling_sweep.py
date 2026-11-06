@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from rebuild.pipeline import conform, fixtures
+from rebuild.pipeline import conform, fixtures, kernel_exec, kernel_io, spec_load, table
 from rebuild.tools import scaling_sweep
 
 
@@ -48,3 +48,21 @@ def test_a_sizes_font_figures_come_from_a_whole_set_build_and_its_read_back(monk
         "largest_group_rule_bytes": 33_542,
     }
     assert seen["configs"] == list(conform.SETTLEMENT_CONFIGS)
+
+
+def test_a_size_counts_the_same_through_a_fifo_as_from_the_kept_payload(tmp_path):
+    """A size counted through a FIFO, as the sweep runs without `AMS_SCALING_DUMP`, gets the digest a kept run gets and the windows, rules and cells the payload that run wrote as a file holds, read back whole, and leaves nothing at the payload's path, where the kept run leaves the file. The size is the mini fixture narrowed to ·Tea, ·May and ·It."""
+    spec_path = tmp_path / "spec.json"
+    kernel_io.write_spec(spec_load.narrowed(fixtures.mini_spec(), ("qsTea", "qsMay", "qsIt")), spec_path)
+    kernel_exec.ensure_built()
+    measured = {}
+    for keep in (False, True):
+        out_dir = tmp_path / ("kept" if keep else "fifo")
+        run, counts = scaling_sweep.measure(kernel_exec.BINARY, spec_path, out_dir, "sweep-stamp", keep)
+        measured[keep] = (run["digest"], counts)
+    assert measured[False] == measured[True]
+    kept = kernel_exec.windows_payload(tmp_path / "kept", "default")
+    with kept.open("rt", encoding="utf-8") as handle:
+        _stamp, whole = table.read_windows(handle)
+    assert measured[False][1] == (len(whole.transitions), len(whole.rules), len(whole.reachable_cells()))
+    assert not kernel_exec.windows_payload(tmp_path / "fifo", "default").exists()

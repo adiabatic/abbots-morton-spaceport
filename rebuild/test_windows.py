@@ -4,6 +4,7 @@ Every fixture is a real build's artifact, because the crate writes the payload (
 """
 
 import gzip
+import io
 import json
 import shutil
 
@@ -42,18 +43,13 @@ def written(build_a):
 
 
 def restamp(source, dest, inputs):
-    """Copy an enumeration to `dest` with its head's `inputs` stamp replaced, repacked with `run_m1._pack_windows` so the gzip header and level match the build's. The plain payload goes through a scratch file beside `dest` because `_pack_windows` reads from a path."""
+    """Copy an enumeration to `dest` with its head's `inputs` stamp replaced, repacked with `run_m1._pack_windows` so the gzip header and level match the build's."""
     marker, _, payload = gzip.decompress(source.read_bytes()).decode().partition("\t")
     head, _, rows = payload.partition("\n")
     record = json.loads(head)
     record["inputs"] = inputs
     body = f"{marker}\t{json.dumps(record, separators=(',', ':'))}\n{rows}"
-    plain = dest.with_name(f"restamp-{dest.name}.tsv")
-    plain.write_bytes(body.encode())
-    try:
-        run_m1._pack_windows(plain, dest)
-    finally:
-        plain.unlink()
+    run_m1._pack_windows(io.BytesIO(body.encode()), dest)
 
 
 class TestRoundTrip:

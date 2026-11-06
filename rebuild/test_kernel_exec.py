@@ -8,8 +8,10 @@ import gzip
 import itertools
 import json
 import os
+import signal
 import subprocess
 import sys
+import threading
 import time
 from collections import OrderedDict
 from dataclasses import fields, replace
@@ -47,6 +49,37 @@ SPEC = fixtures.mini_spec()
 STAMP = "kernel-pinned-stamp"
 CONFIGS = {"default": frozenset(), "ss03": frozenset({"ss03"}), "ss04": frozenset({"ss04"})}
 CONFIG_COUNT = len(conform.SETTLEMENT_CONFIGS)
+
+
+_INTERRUPTED_RUN = """
+import signal
+import sys
+from pathlib import Path
+
+from rebuild.pipeline import kernel_exec
+
+signal.signal(signal.SIGINT, signal.default_int_handler)
+signal.signal(signal.SIGTERM, signal.SIG_DFL)
+signal.signal(signal.SIGHUP, signal.SIG_DFL)
+spawn = kernel_exec._spawn_kernel
+
+
+def spawned(arguments, **rest):
+    process = spawn(arguments, **rest)
+    print(process.pid, flush=True)
+    return process
+
+
+kernel_exec._spawn_kernel = spawned
+try:
+    kernel_exec.stream_payloads(
+        {"default": kernel_exec.windows_payload(Path(sys.argv[1]), "default")},
+        lambda _name, source: source.read(),
+        lambda: kernel_exec._run_kernel_reaped(["/bin/sleep", "120"], "build-tables", timeout=600),
+    )
+except KeyboardInterrupt:
+    print("interrupted", flush=True)
+"""
 
 
 class Reached(Exception):
@@ -285,6 +318,36 @@ class TestTheInvocationInterface:
             kernel_exec._run_kernel_reaped(["ams-m1-kernel"], "replay-strings", timeout=0.2)
         assert time.monotonic() - started >= 0.2
         assert killed[-1] == "hung killed"
+
+    @pytest.mark.parametrize("stop", [signal.SIGINT, signal.SIGTERM, signal.SIGHUP])
+    def test_an_interrupt_kills_and_reaps_the_child_before_it_propagates(self, tmp_path, stop):
+        """A real stop signal sent to the waiting process alone, as `kill -INT`, `kill -TERM` or `kill -HUP` sends one, reaches its caller as `KeyboardInterrupt` only once `_run_kernel_reaped` has killed and reaped the child and `kernel_exec.stream_payloads` has ended its FIFO's read and removed the FIFO, so no crate outlives the caller's cleanup or is left to block in the open of a FIFO no one reads. A SIGTERM or SIGHUP would otherwise end the process with no cleanup at all. A `sleep` stands in for the crate. The waiting process starts from the dispositions a run started from a terminal inherits, so the test does not depend on whether the suite was started under `nohup` or in the background."""
+        waiter = subprocess.Popen(
+            [sys.executable, "-c", _INTERRUPTED_RUN, str(tmp_path)],
+            cwd=kernel_exec.REPO_ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert waiter.stdout is not None
+            child = int(waiter.stdout.readline())
+            time.sleep(0.5)
+            waiter.send_signal(stop)
+            out, err = waiter.communicate(timeout=60)
+        finally:
+            if waiter.poll() is None:
+                waiter.kill()
+                waiter.wait()
+        assert out.split() == ["interrupted"], err
+        assert not list(tmp_path.iterdir())
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            return
+        os.kill(child, signal.SIGKILL)
+        pytest.fail("the child outlived the interrupt")
 
     def test_a_missing_binary_names_the_recipe_that_builds_one(self, monkeypatch, tmp_path):
         monkeypatch.setattr(kernel_exec, "BINARY", tmp_path / "ams-m1-kernel")
@@ -1054,7 +1117,7 @@ class TestTheKernelInvocation:
             assert memos["sharing", config] == memos["unserved", config], config
 
     def test_an_unstamped_build_names_a_stamp_the_kernel_will_accept(self, monkeypatch, tmp_path):
-        """`build-tables` requires a stamp, so a build called without `inputs` passes `kernel_exec.UNSTAMPED_WINDOWS`. The windows payload is then read for its head and deleted, so that stamp never reaches an artifact."""
+        """`build-tables` requires a stamp, so a build called without `inputs` passes `kernel_exec.UNSTAMPED_WINDOWS`. The build then keeps only the payload's head and drops the rest as it arrives, so that stamp never reaches an artifact."""
         seen = []
 
         def build_table_files(spec_path, out_dir, configs, *, inputs, **rest):
@@ -1139,6 +1202,70 @@ class TestTheKernelInvocation:
             run_m1_gates.main(argv)
         assert seen["kernel_threads"] == kernel and seen["replay_threads"] == replay
         assert "fold_jobs" not in seen
+
+
+class TestThePayloadPath:
+    """Tests for what a caller puts at the crate's window payload path (`kernel_exec.windows_payload`), which the crate opens with `File::create`, and for the FIFOs `kernel_exec.stream_payloads` reads payloads through. `rebuild/test_run_m1_tail.py` tests the build's packing through them, and `rebuild/test_scaling_sweep.py` the sweep's count."""
+
+    def test_the_crate_writes_its_payload_through_what_the_caller_put_at_the_path(self, tmp_path):
+        """With nothing at the path, as a test leaves it, the crate writes the payload as a file whose head reads back under the build's stamp. With a symbolic link to the null device there, as a reading that wants no payload puts, the link is left as it was and nothing is written through it, and the build answers with the same digest and settlement table. The build is `default` over the mini fixture narrowed to ·Tea, ·May and ·It."""
+        spec = spec_load.narrowed(SPEC, ("qsTea", "qsMay", "qsIt"))
+        spec_path = tmp_path / "spec.json"
+        kernel_io.write_spec(spec, spec_path)
+        kernel_exec.ensure_built()
+        built = {}
+        for put in ("nothing", "null device"):
+            out_dir = tmp_path / put
+            out_dir.mkdir()
+            if put == "null device":
+                kernel_exec.windows_payload(out_dir, "default").symlink_to(os.devnull)
+            built[put] = kernel_exec.build_table_files(
+                spec_path,
+                out_dir,
+                ["default"],
+                inputs=STAMP,
+                threads=1,
+                symbols=len(conform.spec_alphabet(spec)),
+            )
+        written = kernel_exec.windows_payload(tmp_path / "nothing", "default")
+        assert written.is_file() and not written.is_symlink()
+        with written.open("rt", encoding="utf-8") as handle:
+            stamp, head = table_module.read_windows(handle, windows=False)
+        assert stamp == STAMP and head.rules
+        linked = kernel_exec.windows_payload(tmp_path / "null device", "default")
+        assert linked.is_symlink() and os.readlink(linked) == os.devnull
+        assert built["null device"].digests == built["nothing"].digests
+        assert (tmp_path / "null device" / "settlement-default.tsv").read_bytes() == (
+            tmp_path / "nothing" / "settlement-default.tsv"
+        ).read_bytes()
+
+    @pytest.mark.parametrize("late", [False, True])
+    def test_a_fifo_no_crate_opens_gives_its_reader_an_empty_stream(self, monkeypatch, tmp_path, late):
+        """A run that ends without opening any FIFO, as a crate that fails before it writes does, leaves no reader waiting: each reads an empty stream, the run's answer comes back, and every FIFO is removed. That holds whether each reader is already waiting in its open when the run ends or, `late`, reaches its open only after `finish` has first tried the FIFO, which finds no reader and tries again. A reader left waiting would hang the call, so it runs on a thread that must finish in time."""
+        if late:
+            run = kernel_exec._PayloadFifo._run
+
+            def late_run(fifo):
+                time.sleep(0.2)
+                run(fifo)
+
+            monkeypatch.setattr(kernel_exec._PayloadFifo, "_run", late_run)
+        paths = {f"payload-{index}": tmp_path / f"payload-{index}.tsv" for index in range(6)}
+        answer = {}
+        caller = threading.Thread(
+            target=lambda: answer.update(
+                zip(
+                    ("ran", "read"),
+                    kernel_exec.stream_payloads(paths, lambda _name, source: source.read(), lambda: "ran"),
+                )
+            ),
+            daemon=True,
+        )
+        caller.start()
+        caller.join(timeout=30)
+        assert not caller.is_alive(), "a reader of a FIFO no crate opened is still waiting"
+        assert answer == {"ran": "ran", "read": dict.fromkeys(paths, b"")}
+        assert not list(tmp_path.iterdir())
 
 
 class TestTheMemoStamp:

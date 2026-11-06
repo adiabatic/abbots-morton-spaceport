@@ -23,6 +23,7 @@ import gzip
 import hashlib
 import json
 import multiprocessing
+import os
 import shutil
 import subprocess
 import tempfile
@@ -33,7 +34,7 @@ from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, 
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import IO, Callable, Mapping, Sequence
 
 import yaml
 
@@ -377,12 +378,12 @@ def _replay_threads(replay_threads: int | None) -> int:
 
 
 def _core_bound_threads(count: int) -> int:
-    """Return the width of a per-configuration pool whose tasks are CPU-bound and hold nothing the memory-derived widths account for: one task per settlement configuration, capped at the cores this process may run on, and at least one. It sizes the window packers and the shipped-order walks. A packer holds a zlib stream and `_pack_windows`'s copy buffer: `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measured 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5, with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat and widening it costs nothing. A shipped-order walk is one single-threaded crate process that holds the rules and labels and streams the rows, 0.105 GB of child RSS, a small fraction of the table build's peak. `AMS_KERNEL_THREADS` and `--kernel-threads` do not affect these pools: that setting exists to keep the table build out of swap, so a build set to width one narrows the crate's delta round while the packing and the walks still run every configuration at once. The string replay's setting (`_replay_threads`) affects neither pool."""
+    """Return the width of a per-configuration pool whose tasks are CPU-bound and hold nothing the memory-derived widths account for: one task per settlement configuration, capped at the cores this process may run on, and at least one. It sizes the memo packers and the shipped-order walks. A packer holds a zlib stream and `_pack_windows`'s copy buffer: `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measured 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5, with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat and widening it costs nothing. The window payloads' packers hold the same and run outside this pool, one a configuration for the crate's whole run (`build_tables`), because each must read its FIFO for as long as the crate writes it. A shipped-order walk is one single-threaded crate process that holds the rules and labels and streams the rows, 0.105 GB of child RSS, a small fraction of the table build's peak. `AMS_KERNEL_THREADS` and `--kernel-threads` do not affect these pools: that setting exists to keep the table build out of swap, so a build set to width one narrows the crate's delta round while the packing and the walks still run every configuration at once. The string replay's setting (`_replay_threads`) affects neither pool."""
     return max(1, min(count, usable_cores()))
 
 
 class Packing:
-    """One table build's window and memo packing, on a thread pool that can outlive `build_tables`. Each configuration's pack is a future keyed by the configuration's name, so a stage that reads a packed enumeration (`run_emitted_order`'s walks) waits for its own configuration through `wait` instead of for the whole build. `build_tables` opens and closes its own `Packing` when the caller passes none, which blocks until packing finishes. `run` passes one, and the table-only branch closes it after the last walk that reads a packed file. `close` waits for every pack, shuts the pool down, reports `[t] pack_windows_total` (from the first submit to the last pack's completion, since the pool stays open across the kernel run and the walks), and raises the first pack failure."""
+    """One table build's packing once its crate has exited cleanly, on a thread pool that can outlive `build_tables`: each configuration's staged window artifact renamed over its `.gz` and its memo file packed (`_pack_config`). Each configuration's pack is a future keyed by the configuration's name, so a stage that reads a packed enumeration (`run_emitted_order`'s walks) waits for its own configuration through `wait` instead of for the whole build. `build_tables` opens and closes its own `Packing` when the caller passes none, which blocks until packing finishes. `run` passes one, and the table-only branch closes it after the last walk that reads a packed file. `close` waits for every pack, shuts the pool down, reports `[t] pack_windows_total` (from the first submit to the last pack's completion, since the pool stays open across the kernel run and the walks), and raises the first pack failure."""
 
     def __init__(self, threads: int) -> None:
         self._pool = ThreadPoolExecutor(max_workers=threads, thread_name_prefix="pack-windows")
@@ -429,18 +430,28 @@ class Packing:
             raise failure
 
 
-def _pack_config(tables_dir: Path, config: str, keep_windows: bool) -> None:
-    """Pack one configuration's files: the plain window payload into its `.gz` artifact when the build is stamped (`keep_windows`), otherwise delete it (its head has already been read), and the crate's memo file into `kernel_exec.memo_path`. Each plain file is removed inside the task once its pack is written, so a deferred pack never loses its own source."""
+def _pack_config(tables_dir: Path, config: str, staged: Path | None) -> None:
+    """Finish one configuration's packing after the crate's clean exit: rename the window artifact its payload's reader staged (`_take_windows`) over the `.gz` when the build is stamped (`staged`), then pack the crate's memo file into `kernel_exec.memo_path`. The plain memo file is removed inside the task once its pack is written, so a deferred pack never loses its own source."""
     started = time.perf_counter()
-    payload = tables_dir / f"windows-{config}.tsv"
-    if keep_windows:
-        _pack_windows(payload, table_module.windows_path(tables_dir, config))
-    payload.unlink()
+    if staged is not None:
+        os.replace(staged, table_module.windows_path(tables_dir, config))
     memo = tables_dir / f"memo-{config}.tsv"
     if memo.is_file():
-        _pack_windows(memo, kernel_exec.memo_path(tables_dir, config))
+        with memo.open("rb") as source:
+            _pack_windows(source, kernel_exec.memo_path(tables_dir, config))
         memo.unlink()
     console.timing(f"pack_windows[{config}]", time.perf_counter() - started)
+
+
+def _take_windows(source: IO[bytes], staged: Path | None) -> bytes:
+    """Read one configuration's window payload from its FIFO to the end and return its head line, the one line `table.read_windows` reads with `windows=False`. With `staged`, the whole payload is gzipped there as it arrives (`_pack_windows`); without it, the rest is read and dropped. An empty stream, from a crate that never opened the FIFO, writes nothing."""
+    head = source.readline()
+    if staged is None or not head:
+        while source.read(1 << 20):
+            pass
+    else:
+        _pack_windows(source, staged, head)
+    return head
 
 
 def build_tables(
@@ -457,13 +468,13 @@ def build_tables(
 
     A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A narrowed set writes the same windows and join tables as the whole set, but its settlement tables can differ, since it has fewer configurations to import windows from. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over, so its width is derived from the from-scratch bound. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
 
-    Per configuration, Python reads the enumeration's head back for the rules, the reachable cells and the fired provenance every downstream stage needs, parses the join TSV back for the defect gates, and packs the plain window payload into its `.gz` artifact. The head reads run on a thread pool at the table build's width once the crate has exited, and this call waits for them. The packing (`_pack_config`, memo file included) runs on a `Packing` pool at `_core_bound_threads` width, one packer per configuration up to the cores, whatever the crate's width, because a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. When `packing` is passed, the tables are returned as soon as the heads are read, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
+    The window payload never reaches the disk as plain text. Before the crate starts, a FIFO stands at each configuration's payload path (`kernel_exec.stream_payloads`), and one thread a configuration, outside the `Packing` pool and whatever the crate's width, reads it for the crate's whole run (`_take_windows`): it keeps the head line and, when the build is stamped, gzips the payload into a staged name beside the artifact as the crate writes it, at compressor speed, since a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. Each payload's end of file comes with the crate's close of it. Once the crate has exited, any FIFO it never opened is opened and closed so that no reader waits forever, and an empty stream packs nothing. Only after the crate's clean exit, with every reader finished, is a staged artifact renamed over `windows-<config>.tsv.gz`, as `run_m1_gates` promotes the oracle's row stores, so a build whose crate or any reader fails, or that is interrupted before the crate's clean exit, deletes what it staged and leaves the previous build's packed payload in place. A reader's failure fails the build, as the cause of the crate's broken pipe when the reader stopped early. Per configuration, Python then parses the kept head for the rules, the reachable cells and the fired provenance every downstream stage needs, and parses the join TSV back for the defect gates, on a thread pool at the table build's width, and this call waits for them. The rename and the memo file's pack (`_pack_config`) run on a `Packing` pool at `_core_bound_threads` width, one task per configuration up to the cores. When `packing` is passed, the tables are returned as soon as the heads are parsed, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
     A build with an `out_dir` also reuses its trace memos across builds. `previous_memos` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. Such a build ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which says whether it read those memos. A caller with no `out_dir` reads and writes no memo, and its line carries no record. Every build's line then carries the `build-tables` process's own resident peak and peak footprint (`_table_build_tail`). Either way the crate's phase lines and that line are kept in `_build_phase_lines` for run_m1's check line.
 
     `out_dir`, when given, receives the TSVs listed in `doc/rebuild-design.md` §8. The second returned mapping is each configuration's `table.table_digest` as the crate reported it, computed while the window rows are still in memory, which avoids recomputing the fixpoint. The crate also prints it on stdout, where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are built in `configs` order however the configurations finish, so completion order cannot affect an artifact.
 
-    `inputs` is `tables_inputs` over the sources this spec was loaded from. Passing it with `out_dir` keeps each configuration's window enumeration beside the TSVs under the stamp that names those sources, where `run_m1_gates.run_font_conformance` reads it instead of rebuilding anything. Without it, the payload is deleted once its head is read. A caller building its own spec must omit it, because the fingerprint names the repository's rune files and does not describe tables built from other runes.
+    `inputs` is `tables_inputs` over the sources this spec was loaded from. Passing it with `out_dir` keeps each configuration's window enumeration beside the TSVs under the stamp that names those sources, where `run_m1_gates.run_font_conformance` reads it instead of rebuilding anything. Without it, each reader keeps the head and drops the rest of the payload. A caller building its own spec must omit it, because the fingerprint names the repository's rune files and does not describe tables built from other runes.
 
     `kernel_threads` is how many worker slots the build runs at once, each enumerating a delta configuration or running `default`'s fold preparation, capped at the configuration count and the cores this process may run on, neither of which is a memory limit. The default it falls back to is the memory limit: `kernel_exec.kernel_threads_default` is the widest width whose `kernel_exec.table_build_booking_bytes` fits this machine's memory, which books what `default`'s finished memo holds, one parked fold product per configuration this build names, and what each slot holds beyond its own parked product. So the cap only narrows a memory-derived width and never widens one.
 
@@ -487,6 +498,7 @@ def build_tables(
     digests: dict[str, str] = {}
     deferred = packing is not None
     packers = packing if packing is not None else Packing(_core_bound_threads(len(configs)))
+    keep_windows = out_dir is not None and inputs is not None
     with tempfile.TemporaryDirectory() as scratch:
         directory = Path(scratch)
         spec_path = directory / "spec.json"
@@ -507,22 +519,32 @@ def build_tables(
                 f"edited={','.join(previous.edited) if previous else '-'} classes={','.join(previous.moved_classes) if previous else '-'}",
             )
         record = table_build_record(spec, stamp, previous, threads) if stamp is not None else None
+        staged = {config: _staged_windows(tables_dir, config) for config in configs} if keep_windows else {}
         start = time.perf_counter()
-        crate = kernel_exec.build_table_files(
-            spec_path,
-            tables_dir,
-            list(configs),
-            inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
-            threads=threads,
-            symbols=len(conform.spec_alphabet(spec)),
-            timings=True,
-            previous_memos=previous.directory if previous else None,
-            edited=previous.edited if previous else (),
-            moved_classes=previous.moved_classes if previous else (),
-            memo_stamp=stamp,
-            overlap_memo_writes=overlap_memo_writes,
-            scratch_beside_default=scratch_beside_default,
-        )
+        try:
+            crate, kept = kernel_exec.stream_payloads(
+                {config: kernel_exec.windows_payload(tables_dir, config) for config in configs},
+                lambda config, source: _take_windows(source, staged.get(config)),
+                lambda: kernel_exec.build_table_files(
+                    spec_path,
+                    tables_dir,
+                    list(configs),
+                    inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
+                    threads=threads,
+                    symbols=len(conform.spec_alphabet(spec)),
+                    timings=True,
+                    previous_memos=previous.directory if previous else None,
+                    edited=previous.edited if previous else (),
+                    moved_classes=previous.moved_classes if previous else (),
+                    memo_stamp=stamp,
+                    overlap_memo_writes=overlap_memo_writes,
+                    scratch_beside_default=scratch_beside_default,
+                ),
+            )
+        except BaseException:
+            for path in staged.values():
+                path.unlink(missing_ok=True)
+            raise
         digests = crate.digests
         line = console.timing(
             "kernel_build_tables", time.perf_counter() - start, _table_build_tail(record, crate.peaks)
@@ -530,21 +552,19 @@ def build_tables(
         _build_phase_lines[:] = [*crate.timings, line]
 
         def read_one(config: str) -> tuple[str, tuple]:
-            payload = tables_dir / f"windows-{config}.tsv"
-            with payload.open("rt", encoding="utf-8") as handle:
-                _stamp, decision = table_module.read_windows(handle, windows=False)
+            head = kernel_exec.payload_head(kept[config], kernel_exec.windows_payload(tables_dir, config))
+            _stamp, decision = table_module.read_windows(head, windows=False)
             joins = table_module.read_join_tsv(tables_dir / f"joins-{config}.tsv")
-            if out_dir is None:
-                payload.unlink()
-            else:
-                packers.submit(
-                    config,
-                    functools.partial(_pack_config, tables_dir, config, inputs is not None),
-                    len(configs),
-                )
             return config, (decision, joins)
 
         try:
+            if out_dir is not None:
+                for config in configs:
+                    packers.submit(
+                        config,
+                        functools.partial(_pack_config, tables_dir, config, staged.get(config)),
+                        len(configs),
+                    )
             with ThreadPoolExecutor(max_workers=threads) as heads:
                 for finished in as_completed([heads.submit(read_one, config) for config in configs]):
                     config, tables = finished.result()
@@ -585,13 +605,19 @@ def stale_table_files(tables_dir: Path) -> list[Path]:
     ]
 
 
-def _pack_windows(payload: Path, path: Path) -> None:
-    """Gzip the plain window enumeration the kernel wrote into the artifact at `path`. The gzip timestamp is zeroed so two builds of one table are byte-identical. Level 1 is used because the payload is gigabytes of plain TSV per build, written once and read back a few times, and compression time is spent on every build that writes an `out_dir`. The level affects only time, since table identity is taken over the decompressed bytes. The memo files are packed the same way. `rebuild/kernel-rs/src/artifacts.rs` also states that the decompressed bytes are the artifact's identity."""
+def _staged_windows(tables_dir: Path, config: str) -> Path:
+    """Where a configuration's packed window payload is staged until `_pack_config` renames it over the artifact: beside it, under its name with `.tmp` added, which `stale_table_files`' globs do not match."""
+    path = table_module.windows_path(tables_dir, config)
+    return path.with_name(path.name + ".tmp")
+
+
+def _pack_windows(source: IO[bytes], path: Path, head: bytes = b"") -> None:
+    """Gzip a plain enumeration the kernel writes into the artifact at `path`: `head`, what a reader has already taken from `source`, then the rest of `source`. The gzip timestamp is zeroed and the header names no file, so two builds of one table are byte-identical whatever the staged name, and so is a payload however its reads are cut. Level 1 is used because the payload is gigabytes of plain TSV per build, written once and read back a few times, and compression time is spent on every build that writes an `out_dir`. The level affects only time, since table identity is taken over the decompressed bytes. The memo files are packed the same way. `rebuild/kernel-rs/src/artifacts.rs` also states that the decompressed bytes are the artifact's identity."""
     with (
-        payload.open("rb") as source,
         path.open("wb") as raw,
         gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1) as packed,
     ):
+        packed.write(head)
         shutil.copyfileobj(source, packed, length=1 << 20)
 
 

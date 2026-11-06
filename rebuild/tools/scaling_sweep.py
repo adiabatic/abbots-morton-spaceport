@@ -4,7 +4,7 @@ Each alphabet size runs as one kernel child, `build-tables --configs=default --t
 
 `AMS_SCALING_FONTS=1` also builds each size's font, after its timed child and outside it, so `cpu` and `wall` cover the child alone. The shipped settlement lookup folds every settlement configuration, so the font needs a whole-set table build at that size, not the child's `--configs=default` one; `scratch_build.build_font` runs it, then the glyph chain and read-back, as run_m1 does for the live spec. The row takes three figures from the read-back report (`readback.budget_figures`): `settle_subtables`, the settlement lookup's subtable count N (format 2 plus format 3), which the subtable-offset headroom is spent on; `subtable_offset_headroom`, which read-back holds to `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`; and `largest_group_rule_bytes`, which read-back holds to `readback.GROUP_RULE_BYTES_CEILING`. The largest size is the whole current alphabet, so its figures are the live build's. The series cuts alphabets in `scaling_series.series_order`, not in the order letters migrate, so its N curve models growth, while `make cycle-timings ARGS='--by-commit'` lists N as each real build measured it. The font builds cost several whole-set table builds at the full alphabet, most of it in the largest sizes, and that is most of the sweep's wall time when they run, so they are off by default: read-back holds every real build to the floor and the ceiling, and `--by-commit` lists each build's N, headroom and largest group. Without the flag the three figures are null, and the report prints `n/a` for N's pair exponents and fit. The flag is refused beside `AMS_SCALING_BINARY`, because the font build runs the crate on disk, not the binary being measured.
 
-`windows`, `rules` and `cells` are read from the window payload the child wrote: its header gives the rules and the reachable cells, and its body is counted one line at a time. `digest` is the digest the child reports on stdout, at the grain of `table.table_digest`, so a size whose time changed can be told apart from a size whose output changed. Nothing here folds: the counts cost one streamed read of a file the child already wrote, where folding on this side would cost a parsed product and several gigabytes.
+`windows`, `rules` and `cells` are read from the window payload as the child writes it, through a FIFO at the payload's path (`kernel_exec.stream_payloads`), so no size's payload reaches the disk: its header gives the rules and the reachable cells, and its body is counted a chunk at a time. Under `AMS_SCALING_DUMP` the child writes the payload as a file instead, which the dump keeps, and it is counted from there. `digest` is the digest the child reports on stdout, at the grain of `table.table_digest`, so a size whose time changed can be told apart from a size whose output changed. Nothing here folds: the counts cost one streamed read of the payload, where folding on this side would cost a parsed product and several gigabytes.
 
 The report gives the consecutive-pair exponents against runes, then a least-squares fit of ln count on ln size over the whole series, against runes and against letters, for the windows, the CPU time and N. Quote the whole-series fit and say which size it is against. A single pair varies by a large fraction of the threshold because of ordinary scatter and because of which letters that size added. A rune exponent is the letter exponent times `d ln letters / d ln runes`, and the nested series moves that factor from below 1 to above 1 as it stops adding ligatures and starts adding letters. The threshold, in this fitted form, is about 4.5 against letters; against runes it is 4.5 times that factor, so it moves as the series grows. A fit past it means skipping work (the coverage settings in `doc/rebuild-design.md` §14.1) is due before the next batch, in any language.
 
@@ -26,6 +26,7 @@ import tempfile
 import time
 from contextlib import ExitStack, redirect_stdout
 from pathlib import Path
+from typing import IO
 
 from rebuild.pipeline import conform, kernel_exec, kernel_io, readback, table
 from rebuild.pipeline.model import ResolvedSpec
@@ -54,7 +55,7 @@ def cpu_children() -> float:
 
 
 def run_size(binary: Path, spec_path: Path, out_dir: Path, stamp: str) -> dict:
-    """Build one alphabet size's tables in one kernel child and return the child's wall time, CPU time, peak RSS, `[t]` phases and digest. Its artifacts go to files and its stdout and stderr to temporary files, not pipes, because `peak_rss.reap_peak_rss_bytes` reaps the child with `os.wait4`, and a pipe would need a reader first. The CPU time is a `RUSAGE_CHILDREN` delta, which belongs to this size only because one child runs at a time. The CLI contract is checked as strictly as `kernel_exec.build_table_files` checks it: exit 2 is a usage error, any other nonzero exit is an error about the inputs, stdout has one `{config, digest}` line per configuration and nothing else, and stderr on a clean exit has only `[t]` lines."""
+    """Build one alphabet size's tables in one kernel child and return the child's wall time, CPU time, peak RSS, `[t]` phases and digest. Its artifacts go to whatever stands at their paths (`measure`) and its stdout and stderr to temporary files, not pipes, because `peak_rss.reap_peak_rss_bytes` reaps the child with `os.wait4`, and a pipe would need a reader first. An interrupt while it waits kills and reaps the child before it propagates, so no child outlives the end of the payload's read. The CPU time is a `RUSAGE_CHILDREN` delta, which belongs to this size only because one child runs at a time. The CLI contract is checked as strictly as `kernel_exec.build_table_files` checks it: exit 2 is a usage error, any other nonzero exit is an error about the inputs, stdout has one `{config, digest}` line per configuration and nothing else, and stderr on a clean exit has only `[t]` lines."""
     arguments = [
         str(binary),
         "build-tables",
@@ -70,9 +71,14 @@ def run_size(binary: Path, spec_path: Path, out_dir: Path, stamp: str) -> dict:
         cpu0 = cpu_children()
         wall0 = time.perf_counter()
         process = subprocess.Popen(arguments, stdout=out, stderr=err)
-        rss = peak_rss.reap_peak_rss_bytes(process)
-        if rss is None:
+        try:
+            rss = peak_rss.reap_peak_rss_bytes(process)
+            if rss is None:
+                process.wait()
+        except BaseException:
+            process.kill()
             process.wait()
+            raise
         wall = time.perf_counter() - wall0
         cpu = cpu_children() - cpu0
         out.seek(0)
@@ -101,14 +107,43 @@ def run_size(binary: Path, spec_path: Path, out_dir: Path, stamp: str) -> dict:
     }
 
 
-def counts(payload: Path) -> tuple[int, int, int]:
-    """Return one alphabet size's window, rule and reachable-cell counts from the payload the child wrote. The header gives the rules and cells. The body is counted one line at a time instead of loaded, so this process never holds that size's millions of rows."""
-    with payload.open("rt", encoding="utf-8") as handle:
-        _stamp, decision = table.read_windows(handle, windows=False)
-        if tuple(handle.readline().rstrip("\n").split("\t")) != table.WINDOWS_COLUMNS:
-            raise SystemExit(f"{payload}: window columns are not {table.WINDOWS_COLUMNS}")
-        windows = sum(1 for _ in handle)
+def scan(source: IO[bytes]) -> tuple[bytes, bytes, int]:
+    """Read one payload to its end and return its head line, its column line and how many lines follow them. The body is counted a chunk at a time instead of loaded, so this process never holds that size's millions of rows. Nothing is parsed here, so a read of a stream a failing child cut short ends as the child does; `counts` parses what this kept."""
+    head = source.readline()
+    columns = source.readline()
+    rows = 0
+    last = b"\n"
+    while chunk := source.read(1 << 20):
+        rows += chunk.count(b"\n")
+        last = chunk[-1:]
+    return head, columns, rows if last == b"\n" else rows + 1
+
+
+def counts(scanned: tuple[bytes, bytes, int], payload: Path) -> tuple[int, int, int]:
+    """Return one alphabet size's window, rule and reachable-cell counts from what `scan` read of the payload the child wrote at `payload`. The header gives the rules and cells, and the lines after the column line are the windows."""
+    head, columns, windows = scanned
+    _stamp, decision = table.read_windows(kernel_exec.payload_head(head, payload), windows=False)
+    if tuple(columns.decode().rstrip("\n").split("\t")) != table.WINDOWS_COLUMNS:
+        raise SystemExit(f"{payload}: window columns are not {table.WINDOWS_COLUMNS}")
     return windows, len(decision.rules), len(decision.reachable_cells())
+
+
+def measure(
+    binary: Path, spec_path: Path, out_dir: Path, stamp: str, keep: bool
+) -> tuple[dict, tuple[int, int, int]]:
+    """Run one alphabet size's child (`run_size`) and return its run beside its payload's `counts`. With `keep`, nothing stands at the payload's path, so the child writes the payload as a file, which stays there, and it is counted after the child exits. Without it, a FIFO stands there and the payload is counted as the child writes it (`kernel_exec.stream_payloads`), and nothing is left at the path."""
+    payload = kernel_exec.windows_payload(out_dir, "default")
+    if keep:
+        run = run_size(binary, spec_path, out_dir, stamp)
+        with payload.open("rb") as source:
+            return run, counts(scan(source), payload)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    run, scanned = kernel_exec.stream_payloads(
+        {"default": payload},
+        lambda _config, source: scan(source),
+        lambda: run_size(binary, spec_path, out_dir, stamp),
+    )
+    return run, counts(scanned["default"], payload)
 
 
 def font_figures(spec: ResolvedSpec, out_dir: Path) -> dict[str, int | None]:
@@ -198,11 +233,9 @@ def main() -> int:
             spec_path = root / f"spec-r{runes}.json"
             out_dir = root / f"r{runes}"
             kernel_io.write_spec(sub, spec_path)
-            run = run_size(binary, spec_path, out_dir, f"scaling-r{runes}")
-            payload = out_dir / "windows-default.tsv"
-            windows, rules, cells = counts(payload)
-            if not dump:
-                payload.unlink()
+            run, (windows, rules, cells) = measure(
+                binary, spec_path, out_dir, f"scaling-r{runes}", bool(dump)
+            )
             figures: dict[str, int | None] = dict.fromkeys(FONT_FIGURES)
             if build_fonts:
                 font_dir = root / f"font-r{runes}"

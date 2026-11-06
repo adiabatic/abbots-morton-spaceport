@@ -1,7 +1,11 @@
-"""Tests for the end of `run_m1.run`: the table-only branch (the string replay, the witness stage, the shipped-order walks) running beside the glyph chain, the window packing that runs after the head reads, and the join that decides the gate. The build reports the first failure in serial order, whatever the glyph chain made of the tables. The witness stage runs after the replay that fills the settle memo it loads. The oracle starts once the replay has returned, but writes the settle memo only once the witness stage's writes are on disk. Every stage that runs the crate, spawns a process or compiles a font is stubbed with a barrier or a recorder; the packing tests build the mini fixture's real tables, because the packer is what they test."""
+"""Tests for the end of `run_m1.run`: the table-only branch (the string replay, the witness stage, the shipped-order walks) running beside the glyph chain, the window packing, which reads each payload through a FIFO while the crate writes it and renames it into place after the crate's clean exit, and the join that decides the gate. The build reports the first failure in serial order, whatever the glyph chain made of the tables. The witness stage runs after the replay that fills the settle memo it loads. The oracle starts once the replay has returned, but writes the settle memo only once the witness stage's writes are on disk. Every stage that runs the crate, spawns a process or compiles a font is stubbed with a barrier or a recorder; the packing tests build the mini fixture's real tables, because the packer is what they test."""
 
 import functools
+import gzip
+import itertools
 import json
+import shutil
+import stat
 import threading
 import time
 from types import SimpleNamespace
@@ -515,23 +519,52 @@ class TestMain:
 
 
 def _gated_pack(monkeypatch, release):
-    """Wraps `_pack_windows` so a window payload's pack waits on `release[config]` while a memo's pack runs at once. Both then pack for real."""
-    real = run_m1._pack_windows
+    """Wraps `_pack_config` so each configuration's pack after the crate's exit, the staged window artifact's rename and the memo's pack, waits on `release[config]` and then runs for real."""
+    real = run_m1._pack_config
 
-    def pack(payload, path):
-        family, _, rest = payload.name.partition("-")
-        if family == "windows":
-            assert release[rest.removesuffix(".tsv")].wait(timeout=120)
-        real(payload, path)
+    def pack(tables_dir, config, staged):
+        assert release[config].wait(timeout=120)
+        real(tables_dir, config, staged)
 
-    monkeypatch.setattr(run_m1, "_pack_windows", pack)
+    monkeypatch.setattr(run_m1, "_pack_config", pack)
+
+
+def _outcome_within(seconds, call):
+    """Run `call` on a thread and return what it raised, or None when it returned, failing instead of hanging when it has not finished within `seconds`."""
+    raised: list[BaseException] = []
+
+    def target():
+        try:
+            call()
+        except BaseException as error:
+            raised.append(error)
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(seconds)
+    assert not thread.is_alive(), f"no answer within {seconds} seconds"
+    return raised[0] if raised else None
+
+
+def _reference_pack(payload: bytes, path) -> bytes:
+    """Pack `payload` from a plain file in one stream with the artifact's gzip settings (no file name, mtime 0, level 1), the reference a FIFO reader's artifact must match, and return its bytes."""
+    plain = path.with_name(path.name + ".plain")
+    plain.write_bytes(payload)
+    with (
+        plain.open("rb") as source,
+        path.open("wb") as raw,
+        gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1) as packed,
+    ):
+        shutil.copyfileobj(source, packed, length=1 << 20)
+    plain.unlink()
+    return path.read_bytes()
 
 
 class TestThePacking:
     def test_build_tables_returns_before_the_packing_and_the_deferred_bytes_match_the_blocking_ones(
         self, monkeypatch, tmp_path
     ):
-        """With a `Packing` passed, `build_tables` returns while every window pack is still blocked, `close` waits until each `.gz` is on disk, and the packed files are byte-identical to what the blocking form writes."""
+        """With a `Packing` passed, `build_tables` returns while every configuration's pack is still blocked, so no staged window artifact has been renamed into place, `close` waits until each `.gz` is on disk, and the packed files are byte-identical to what the blocking form writes."""
         blocking = tmp_path / "blocking"
         run_m1.build_tables(SPEC, blocking, inputs=STAMP)
         release = {config: threading.Event() for config in CONFIGS}
@@ -560,12 +593,16 @@ class TestThePacking:
         assert not [
             path.name for path in deferred.glob("*.tsv") if path.name.startswith(("windows-", "memo-"))
         ]
+        assert not list(deferred.glob("*.tmp"))
 
     def test_close_raises_a_pack_failure_rather_than_swallowing_it(self, monkeypatch, tmp_path):
-        """`close` raises the failure of a pack that raised, and a second `close` returns. Every pack refuses, so each plain window payload and memo file stays on disk, and the build runs on the mini fixture narrowed to ·Tea, ·May and ·It (`spec_load.narrowed`), whose files are a small fraction of the whole fixture's."""
+        """`close` raises the failure of a pack that raised, and a second `close` returns. Every memo pack refuses, so each plain memo file stays on disk, and the build runs on the mini fixture narrowed to ·Tea, ·May and ·It (`spec_load.narrowed`), whose files are a small fraction of the whole fixture's."""
+        real = run_m1._pack_windows
 
-        def refuse(payload, path):
-            raise OSError(f"no room for {path.name}")
+        def refuse(source, path, head=b""):
+            if path.name.startswith("memo-"):
+                raise OSError(f"no room for {path.name}")
+            real(source, path, head)
 
         monkeypatch.setattr(run_m1, "_pack_windows", refuse)
         packing = run_m1.Packing(2)
@@ -574,6 +611,93 @@ class TestThePacking:
         with pytest.raises(OSError, match="no room"):
             packing.close()
         packing.close()
+
+    def test_each_payload_reaches_its_artifact_through_a_fifo_and_leaves_no_plain_file(
+        self, monkeypatch, tmp_path
+    ):
+        """When the crate starts, a FIFO stands at each configuration's payload path, so the plain payload never reaches the disk. Once the build returns, each configuration's packed artifact is in place under the build's stamp, and nothing else is left under a `windows-` name: no FIFO, no plain payload and no staged file."""
+        real = kernel_exec.build_table_files
+        fifos = {}
+
+        def build_table_files(spec_path, out_dir, configs, **rest):
+            for config in configs:
+                fifos[config] = stat.S_ISFIFO(kernel_exec.windows_payload(out_dir, config).lstat().st_mode)
+            return real(spec_path, out_dir, configs, **rest)
+
+        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
+        assert fifos == dict.fromkeys(CONFIGS, True)
+        packed = [table_module.windows_path(tmp_path, config) for config in CONFIGS]
+        for path in packed:
+            assert table_module.read_windows(path, windows=False)[0] == STAMP, path.name
+        assert sorted(path.name for path in tmp_path.glob("windows-*")) == sorted(
+            path.name for path in packed
+        )
+
+    @pytest.mark.parametrize("failure", ["a reader fails", "the crate dies mid-write", "an interrupt"])
+    def test_a_failed_or_interrupted_build_leaves_the_previous_packed_payload(
+        self, monkeypatch, tmp_path, failure
+    ):
+        """A build that fails, or is interrupted before the crate's clean exit, renames nothing over the artifacts: each configuration's packed payload is the previous build's, byte for byte, and no FIFO or staged file is left. The failures are a reader whose pack raises once it has the head, which breaks the real crate's pipe, so the crate's failure names the reader's as its cause; a crate that writes half of `default`'s payload, opens no other FIFO and fails; and an interrupt before the crate opens any FIFO. A reader left waiting on a FIFO would hang the build, so the build runs on a thread that must finish in time."""
+        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
+        packed = {config: table_module.windows_path(tmp_path, config) for config in CONFIGS}
+        before = {config: path.read_bytes() for config, path in packed.items()}
+        if failure == "a reader fails":
+            real = run_m1._pack_windows
+
+            def pack(source, path, head=b""):
+                if path.name.startswith("windows-default"):
+                    raise OSError("no room for the pack")
+                real(source, path, head)
+
+            monkeypatch.setattr(run_m1, "_pack_windows", pack)
+        else:
+            payload = gzip.decompress(before["default"])
+
+            def build_table_files(spec_path, out_dir, configs, **_rest):
+                if failure == "an interrupt":
+                    raise KeyboardInterrupt
+                with kernel_exec.windows_payload(out_dir, "default").open("wb") as sink:
+                    sink.write(payload[: len(payload) // 2])
+                raise kernel_exec.KernelRunError("the kernel exited 1 on build-tables: killed")
+
+            monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        error = _outcome_within(120, lambda: run_m1.build_tables(SPEC, tmp_path, inputs=STAMP))
+        if failure == "an interrupt":
+            assert isinstance(error, KeyboardInterrupt)
+        else:
+            assert isinstance(error, kernel_exec.KernelRunError), error
+        if failure == "a reader fails":
+            assert isinstance(error.__cause__, OSError) and "no room" in str(error.__cause__), error
+        assert {config: path.read_bytes() for config, path in packed.items()} == before
+        assert sorted(path.name for path in tmp_path.glob("windows-*")) == sorted(
+            path.name for path in packed.values()
+        )
+
+    def test_the_packed_artifact_is_the_reference_packing_of_its_payload(self, tmp_path):
+        """Each artifact a payload's FIFO reader packs is byte for byte the reference packing of the same payload from a plain file (`_reference_pack`), and so is the payload written into a FIFO in ragged pieces, so how the payload arrives changes no artifact."""
+        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
+        for config in CONFIGS:
+            packed = table_module.windows_path(tmp_path, config).read_bytes()
+            reference = _reference_pack(gzip.decompress(packed), tmp_path / f"reference-{config}")
+            assert packed == reference, config
+        payload = gzip.decompress(table_module.windows_path(tmp_path, "ss04").read_bytes())
+        reference = _reference_pack(payload, tmp_path / "reference")
+        fifo, staged = tmp_path / "ragged.tsv", tmp_path / "ragged.tsv.gz"
+
+        def write():
+            with fifo.open("wb", buffering=0) as sink:
+                offset = 0
+                for size in itertools.cycle((1, 511, 65_537, 3, 1 << 20, 4_093)):
+                    if offset >= len(payload):
+                        break
+                    offset += sink.write(payload[offset : offset + size])
+
+        _ran, heads = kernel_exec.stream_payloads(
+            {"ss04": fifo}, lambda _config, source: run_m1._take_windows(source, staged), write
+        )
+        assert heads["ss04"] == payload[: payload.index(b"\n") + 1]
+        assert staged.read_bytes() == reference
 
     def test_each_walk_waits_on_its_own_pack(self, monkeypatch, tmp_path):
         """The packs are released one at a time in reverse order, and each walk must find its own configuration's pack released and its `.gz` on disk when it calls `kernel_exec.replay_emitted`."""
