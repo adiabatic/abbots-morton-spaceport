@@ -6,6 +6,8 @@ On a pass that lands, the only kind that takes a snapshot of the store, the cycl
 
 The standing fill runs with `--open-only --require-reach`, its persistent memo, and the cycle's `--standing-fill-jobs` width. Each step opens with a `[phase]` line and closes with a `[t]` line; the failure and completion lines use the `[verdict-update]` prefix. A duplicate fill proposes every blank member of an agreeing group at once, so the initial fill and the final fill after standing seeds groups are sufficient. Completion names this schedule, not acceptance of every proposal: a newer clear in the store can refuse a fill. The duplicate-fill output file holds the union of both passes' proposals, retaining the first proposal for each unit. The fill files go to --duplicate-out and --standing-out, or else to verdicts-duplicate-fill.json and verdicts-standing-fill.json beside --autosave, which only a store named verdicts-autosave.json has by default (`journal.beside_store`), so a hand run on a copy writes no verdicts file at the repo root, where `rebuild.review.status` counts every verdicts-*.json but the live store as a carry candidate. The complaint list (--complaints-out) and the standing fill's memo (--standing-memo) keep their defaults whatever --autosave names, because the cycle's verdict update, which runs on a copy of the store, writes the complaint list at its default and the memo beside the served corpus, the complaint list is not a verdicts file, and no memo decision depends on the store.
 
+The accepted list (`rebuild.review.accepted`; `--accepted`, by default rebuild/accepted-units.txt beside --autosave, which only a store named verdicts-autosave.json has, so the cycle names it for its prepared store) is read once and handed to every step: in process to the carry and the merges, and by path to the fills and the complaint list. The served corpus (`--served-corpus`) is where the carry counts the list's units among the prior verdicts. Every carry of the store, through --verdicts or --store-snapshot, hands the merge the store's skips as tombstones (`skip_clears`), since the carry drops every skip. The store's override section, its records and tombstones on listed units (`accepted.Overrides`), travels in neither the carried file nor those tombstones: the merge keeps the section of the store it merges into, which is the store the carry read or the cycle's copy of it, whole, a stamp move turning its skips into tombstones (`merge_verdicts`), so an override or a clear on an accepted unit survives the pass whatever corpus its unit is on. With nothing to merge, a store that does not pair with the list is refused before the first fill, as one the carry cannot read is.
+
 The update refuses before it parses its command line while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
 """
 
@@ -22,8 +24,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.review import unit_index  # noqa: E402
+from rebuild.review import accepted, unit_index  # noqa: E402
+from rebuild.review.accepted import Accepted  # noqa: E402
 from rebuild.review.journal import AUTOSAVE_NAME, JOURNAL_NAME, beside_store, journal_path_for  # noqa: E402
+from rebuild.review.landing import SNAPSHOT_NAME  # noqa: E402
 from rebuild.review.verdict_store import parse_autosave_payload  # noqa: E402
 from rebuild.tools import (  # noqa: E402
     carry_verdicts,
@@ -53,7 +57,7 @@ def merge_sets_store_aside(snapshot: pathlib.Path, stamp: str) -> bool:
 
 
 def skip_clears(snapshot: pathlib.Path, human_ids: set[str]) -> dict[str, str]:
-    """Return a tombstone at the skip's `at` for each of `human_ids` whose newest record in the snapshot is a skip, as the land leaves for a skip made on another corpus (`landing.overlay`). The store carry hands them to the merge, because the carry drops every skip and the merge keeps none of the records of a store it sets aside, so without them a master record no newer than the reviewer's deferral would land. It reads the snapshot after the carry has read it, so the file is a readable verdicts list."""
+    """Return a tombstone at the skip's `at` for each of `human_ids` whose newest record among the snapshot's own is a skip, as the land leaves for a skip made on another corpus (`landing.overlay`). Every carry of the store hands them to the merge, because the carry drops every skip and the merge keeps none of the records of a store it sets aside, so without them a master record no newer than the reviewer's deferral would land. A skip in the snapshot's override section needs none, since the merge keeps that section and turns its skips into tombstones itself (`accepted.Overrides.moved`). It reads the snapshot after the carry has read it, so the file is a readable verdicts list."""
     records = carry_verdicts.latest_verdicts(json.loads(snapshot.read_text()))
     return {
         unit: record["at"]
@@ -62,10 +66,13 @@ def skip_clears(snapshot: pathlib.Path, human_ids: set[str]) -> dict[str, str]:
     }
 
 
-def refuse_unreadable_store(store: pathlib.Path) -> None:
-    """Raise a `SystemExit` naming `store` and why when the carry cannot read it (`carry_verdicts.read_verdicts_file`) or it is not an ams-review-verdicts/1 document (`parse_autosave_payload`), which the merges after the fills would set aside, keeping none of its verdicts. A hand run with nothing to merge calls it before the first fill, which reads the store as it stands."""
+def refuse_unreadable_store(store: pathlib.Path, listed: Accepted) -> None:
+    """Raise a `SystemExit` naming `store` and why when the carry cannot read it (`carry_verdicts.read_verdicts_file`), it is not an ams-review-verdicts/1 document (`parse_autosave_payload`), which the merges after the fills would set aside, keeping none of its verdicts, or it does not pair with the accepted list `listed` (`accepted.pair`). A hand run with nothing to merge calls it before the first fill, which reads the store as it stands."""
     try:
-        carry_verdicts.read_verdicts_file(store)
+        payload = carry_verdicts.read_verdicts_file(store)
+        accepted.pair(payload, listed, store=store)
+    except accepted.Mismatch as mismatch:
+        raise SystemExit(f"verdict update refused: {mismatch}, and nothing was written.") from None
     except carry_verdicts.UnreadableVerdicts as unreadable:
         raise SystemExit(
             f"verdict update refused: the store {unreadable}, and nothing was written. "
@@ -116,12 +123,19 @@ def _merge(
     autosave: pathlib.Path,
     corpus: pathlib.Path,
     journal: pathlib.Path,
+    listed: Accepted,
     clears: Mapping[str, str] | None = None,
 ) -> int:
     return _run(
         name,
         lambda: merge_verdicts.run_merge(
-            list(paths), autosave=autosave, corpus=corpus, journal_path=journal, dry_run=False, clears=clears
+            list(paths),
+            autosave=autosave,
+            corpus=corpus,
+            journal_path=journal,
+            dry_run=False,
+            clears=clears,
+            listed=listed,
         ),
     )
 
@@ -161,6 +175,17 @@ def main(argv: list[str] | None = None) -> int:
         help="with --carry-out, and --verdicts or --merge-master: the snapshot of the store that --autosave copies, as the snapshot step left it, so it may be missing. With --verdicts alone it is carried beside them when it exists. With --merge-master it is carried only when the merge would set that store aside, because the snapshot is stamped for an older corpus or is not an ams-review-verdicts/1 document: a snapshot stamped for an older corpus, or one that is not such a document but holds a readable `verdicts` list, is carried onto the corpus by unit id, its skips kept as tombstones, and the master merged into the result, so the store's verdicts are kept, and one the carry cannot read is refused by the carry, which names it (`carry_verdicts.resolve_prior`). A missing snapshot, or an ams-review-verdicts/1 document stamped for the corpus or a newer one, is not carried",
     )
     parser.add_argument("--autosave", type=pathlib.Path, default=AUTOSAVE)
+    parser.add_argument(
+        "--accepted",
+        type=pathlib.Path,
+        help=f"the accepted list the store pairs with, read once for every step (default: rebuild/accepted-units.txt beside --autosave; a store not named {AUTOSAVE_NAME} needs --accepted)",
+    )
+    parser.add_argument(
+        "--served-corpus",
+        type=pathlib.Path,
+        default=CORPUS,
+        help="the corpus the review server serves, on whose human units the carry counts the accepted list's units among the prior verdicts (default: %(default)s)",
+    )
     parser.add_argument(
         "--journal",
         type=pathlib.Path,
@@ -213,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         journal = args.journal or journal_path_for(args.autosave)
+        accepted_path = args.accepted or accepted.path_for(args.autosave)
         if not args.no_merge:
             args.duplicate_out = args.duplicate_out or beside_store(
                 args.autosave, DUPLICATE_FILL_NAME, "--duplicate-out"
@@ -222,6 +248,10 @@ def main(argv: list[str] | None = None) -> int:
             )
     except ValueError as error:
         parser.error(str(error))
+    try:
+        listed = accepted.read(accepted_path)
+    except accepted.Malformed as malformed:
+        raise SystemExit(f"verdict update refused: {malformed}, and nothing was written.") from None
     corpus = args.corpus
     started = time.perf_counter()
     unit_ids: set[str] = set()
@@ -249,14 +279,21 @@ def main(argv: list[str] | None = None) -> int:
         carry_argv: list[str] = []
         for verdicts in carried:
             carry_argv += ["--verdicts", str(verdicts)]
-        carry_argv += ["--out", str(args.carry_out), "--current-corpus", str(corpus)]
+        carry_argv += [
+            "--out",
+            str(args.carry_out),
+            "--current-corpus",
+            str(corpus),
+            "--served-corpus",
+            str(args.served_corpus),
+        ]
         if args.allow_orphans:
             carry_argv.append("--allow-orphans")
 
         def carry() -> int | None:
             if store_carried:
                 print(STORE_CARRIED_NOTE, flush=True)
-            return carry_verdicts.main(carry_argv, current_units=units, current_ids=unit_ids)
+            return carry_verdicts.main(carry_argv, current_units=units, current_ids=unit_ids, listed=listed)
 
         code = _run("carry", carry)
         if code:
@@ -266,28 +303,57 @@ def main(argv: list[str] | None = None) -> int:
 
     master = args.merge_master
     clears = None
+    stores = [path for path in args.verdicts if path.name == SNAPSHOT_NAME]
+    if carry_snapshot:
+        assert snapshot is not None
+        stores.append(snapshot)
+    if stores:
+        human_ids = {unit["id"] for unit in units}
+        clears = {}
+        for store in stores:
+            for unit, at in skip_clears(store, human_ids).items():
+                clears[unit] = max(at, clears.get(unit, at))
     if store_carried:
         assert snapshot is not None
-        clears = skip_clears(snapshot, {unit["id"] for unit in units})
         if master is not None and master.resolve() == snapshot.resolve():
             master = None
-    to_merge = [path for path in (args.carry_out if carried else None, master) if path is not None]
+    carry_out = args.carry_out if carried else None
+    to_merge = [path for path in (carry_out, master) if path is not None]
     if to_merge or not args.autosave.exists():
         code = _merge(
-            "merge", *to_merge, autosave=args.autosave, corpus=corpus, journal=journal, clears=clears
+            "merge",
+            *to_merge,
+            autosave=args.autosave,
+            corpus=corpus,
+            journal=journal,
+            listed=listed,
+            clears=clears,
         )
     else:
-        code = _run("store", lambda: refuse_unreadable_store(args.autosave))
+        code = _run("store", lambda: refuse_unreadable_store(args.autosave, listed))
     if code:
         return code
 
-    duplicate_argv = [str(args.autosave), "--corpus", str(corpus), "--out", str(args.duplicate_out)]
+    listed_argv = ["--accepted", str(accepted_path)]
+    duplicate_argv = [
+        str(args.autosave),
+        "--corpus",
+        str(corpus),
+        "--out",
+        str(args.duplicate_out),
+        *listed_argv,
+    ]
     code = _run("duplicate-fill", lambda: duplicate_verdicts.main(duplicate_argv, units=units))
     if code:
         return code
     fills = json.loads(args.duplicate_out.read_text())["verdicts"]
     code = _merge(
-        "duplicate-merge", args.duplicate_out, autosave=args.autosave, corpus=corpus, journal=journal
+        "duplicate-merge",
+        args.duplicate_out,
+        autosave=args.autosave,
+        corpus=corpus,
+        journal=journal,
+        listed=listed,
     )
     if code:
         return code
@@ -306,6 +372,7 @@ def main(argv: list[str] | None = None) -> int:
         str(args.standing_memo or corpus.parent / standing_verdicts.MEMO_NAME),
         "--jobs",
         str(args.standing_fill_jobs),
+        *listed_argv,
     ]
     if args.fresh_standing_memo:
         standing_argv.append("--fresh-memo")
@@ -317,7 +384,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     if code:
         return code
-    code = _merge("standing-merge", args.standing_out, autosave=args.autosave, corpus=corpus, journal=journal)
+    code = _merge(
+        "standing-merge",
+        args.standing_out,
+        autosave=args.autosave,
+        corpus=corpus,
+        journal=journal,
+        listed=listed,
+    )
     if code:
         return code
 
@@ -332,7 +406,12 @@ def main(argv: list[str] | None = None) -> int:
     ]
     _write_fills(args.duplicate_out, stamp, fills)
     code = _merge(
-        "duplicate-merge-2", args.duplicate_out, autosave=args.autosave, corpus=corpus, journal=journal
+        "duplicate-merge-2",
+        args.duplicate_out,
+        autosave=args.autosave,
+        corpus=corpus,
+        journal=journal,
+        listed=listed,
     )
     if code:
         return code
@@ -347,6 +426,7 @@ def main(argv: list[str] | None = None) -> int:
                     str(corpus),
                     "--data-out",
                     str(args.complaints_out),
+                    *listed_argv,
                 ],
                 units=unit_index.iter_human_units(corpus),
                 unit_ids=unit_ids,

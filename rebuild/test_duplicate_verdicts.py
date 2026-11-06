@@ -4,7 +4,9 @@ import json
 
 import pytest
 
+from rebuild.review import accepted
 from rebuild.tools import duplicate_verdicts as dv
+from rebuild.tools import merge_verdicts as mv
 from rebuild.tools import review_queue as rq
 
 STAMP = "2026-07-10T00:00:00Z"
@@ -49,7 +51,7 @@ def corpus_with(tmp_path, units, classes=()):
     return corpus
 
 
-def verdicts_file(tmp_path, records, name="verdicts.json"):
+def verdicts_file(tmp_path, records, name="verdicts-autosave.json"):
     path = tmp_path / name
     path.write_text(json.dumps({"manifest_generated_at": STAMP, "verdicts": list(records)}))
     return path
@@ -95,6 +97,76 @@ def test_an_approve_identical_group_fills_its_blanks_from_the_newest_member(tmp_
     assert fills[0]["verdict"] == "identical"
     assert fills[0]["note"] == "[duplicate-fill from u-0002] no visible change"
     assert "no duplicate group holds disagreeing verdicts" in capsys.readouterr().out
+
+
+def test_an_accepted_member_is_judged_under_its_mark_with_no_note_at_the_close_out(tmp_path):
+    """A member the accepted list names, with no override in the store, is judged under its mark with an empty note and the list's `closed_at`: a blank member is filled from it with the fill's marker alone and that time, a store record dated after the close-out is the newer source, and a listed member the store holds an override tombstone for is blank and filled."""
+    closed_at = "2026-11-05T18:00:00Z"
+    a, b, c, d, e = (f"u-1{letter * 10}" for letter in "ABCDE")
+    corpus = corpus_with(
+        tmp_path,
+        [unit(a, "e-0001"), unit(b, "e-0001"), unit(c, "e-0002"), unit(d, "e-0002"), unit(e, "e-0002")],
+    )
+    listed = tmp_path / "rebuild" / "accepted-units.txt"
+    listed.parent.mkdir()
+    listed.write_bytes(accepted.render(closed_at, {a: "approve", c: "identical", d: "identical"}))
+    newer = v(e, "approve", note="the join reads as one stroke", at="2026-11-06T09:00:00.000Z")
+    store = tmp_path / "verdicts-autosave.json"
+    store.write_text(
+        json.dumps(
+            {
+                "manifest_generated_at": STAMP,
+                "verdicts": [newer],
+                "overrides": {"verdicts": [], "cleared": [{"unit": d, "at": "2026-11-06T08:00:00.000Z"}]},
+                "accepted": accepted.read(listed).field(),
+            }
+        )
+    )
+    out = tmp_path / "fill.json"
+    dv.main([str(store), "--corpus", str(corpus), "--out", str(out)])
+
+    assert json.loads(out.read_text())["verdicts"] == [
+        {"unit": b, "verdict": "approve", "note": f"[duplicate-fill from {a}]", "at": closed_at},
+        {
+            "unit": d,
+            "verdict": "approve",
+            "note": f"[duplicate-fill from {e}] the join reads as one stroke",
+            "at": newer["at"],
+        },
+    ]
+
+
+def test_a_fill_chained_from_an_accepted_member_leaves_a_member_cleared_before_the_close_out_blank(tmp_path):
+    """A fill copied from an accepted member carries the close-out's time, and so does a fill copied from that fill, which the store holds as an ordinary record: when the filled member comes first in corpus order, the next round's source is that record, tied with the accepted member at `closed_at`, and the member cleared before the close-out is still left out, so the merge keeps it blank."""
+    closed_at = "2026-11-05T18:00:00Z"
+    first, listed_unit, cleared = "u-1CCCCCCCCCC", "u-1AAAAAAAAAA", "u-1BBBBBBBBBB"
+    corpus = corpus_with(
+        tmp_path, [unit(first, "e-0001"), unit(listed_unit, "e-0001"), unit(cleared, "e-0001")]
+    )
+    path = tmp_path / "rebuild" / "accepted-units.txt"
+    path.parent.mkdir()
+    path.write_bytes(accepted.render(closed_at, {listed_unit: "approve"}))
+    listed = accepted.read(path)
+    records: dict = {}
+    tombstones = {cleared: "2026-11-01T09:00:00.000Z"}
+    store = tmp_path / "verdicts-autosave.json"
+    out = tmp_path / "fill.json"
+    for _round in range(2):
+        store.write_text(
+            json.dumps(
+                {
+                    "manifest_generated_at": STAMP,
+                    "verdicts": list(records.values()),
+                    "cleared": [{"unit": unit_id, "at": at} for unit_id, at in tombstones.items()],
+                    "accepted": listed.field(),
+                }
+            )
+        )
+        dv.main([str(store), "--corpus", str(corpus), "--out", str(out)])
+        mv.merge_into(records, json.loads(out.read_text())["verdicts"], tombstones, listed)
+
+    assert records[first]["at"] == closed_at
+    assert cleared not in records and tombstones == {cleared: "2026-11-01T09:00:00.000Z"}
 
 
 @pytest.mark.parametrize("note", ["missing", None], ids=["missing-note", "null-note"])

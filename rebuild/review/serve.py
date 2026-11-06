@@ -1,6 +1,6 @@
 """Dev server for the generated review app. It serves rebuild/out/review/ with livereload on port 7294, as tools/serve.py serves site/ on port 7293, so the two can run at the same time.
 
-The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. POSTs accept only deltas; a whole-store export gets a 400 with recovery instructions and changes nothing. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/, which a pass's land replaces as a whole. Each delta POST is applied with the served corpus (`served_corpus`: the manifest's stamp and human unit ids), so a delta from a tab loaded on another corpus is carried onto the store by unit id when the store is on the served corpus, and its conflicts and orphans are kept in var/verdict-orphans/ and reported back to the tab (`verdict_store` gives the rules). A delta stamped for the served corpus while the store is on another stamp carries the store onto the served corpus by unit id, keeping the old file as verdicts-autosave-<stamp>.json; a delta made on neither corpus gets a retryable 503. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file records only as tombstones. Each POST is applied under the verdict store's lock (rebuild.review.store_lock), which every writer of the store and the journal holds, and reads the served corpus under it, because a land swaps the corpus under the same lock. The server never waits for it, because a POST runs on the IOLoop and waiting would stall every other request: while another writer holds it, a POST gets a 503 with `Retry-After: 1`. The app keeps every unconfirmed save in its outbox in the browser's storage and retries a 503 with backoff, but the save a closing tab sends (the pagehide beacon) is retried only when the app is next opened, so a hand-run merge or restore refuses to write the live store while a server listens, and a hand-run re-key refuses to rewrite its store while the listening server's /capabilities answer names that store or names none, unless --yes is passed on the merge_verdicts or rekey_verdicts command line; a hand-run verdict update's merges refuse as a merge does, with no override, so the server must be stopped first. An artifact-cycle pass holds the lock beside a running server only for its store snapshot, its land and its retention's journal tail, a few seconds each.
+The app saves its verdicts to the server through /autosave, and the server keeps the store in memory (rebuild.review.verdict_store). At boot the app GETs the whole store with a sync token. After that it GETs `?since=<token>` to fetch only what other tabs changed, and after each debounced change it POSTs a delta of the verdicts it set or cleared. POSTs accept only deltas; a whole-store export gets a 400 with recovery instructions and changes nothing. The store's file is verdicts-autosave.json at the repo root, which the `/verdicts-*.json` pattern in .gitignore covers. It is kept outside rebuild/out/review/, which a pass's land replaces as a whole. The store answers for each unit through the accepted list beside it, rebuild/accepted-units.txt (`rebuild.review.accepted`, the units a close-out folded out of the store): the full GET carries an `accepted` field after the token, the list's sha256 and `closed_at` and, by verdict, the listed units of the served corpus that hold no record or tombstone, which the tab shows as accepted; every applied save's reply names the list's sha256 too, so a tab that loaded another list moves. At boot, with no store file beside a list, the server writes an empty store stamped for the served corpus (`VerdictStore.stamp_empty_store`), so a fresh clone, a worktree or a machine whose store was deleted shows its accepted units. Each delta POST is applied with the served corpus (`served_corpus`: the manifest's stamp and human unit ids), so a delta from a tab loaded on another corpus is carried onto the store by unit id when the store is on the served corpus, and its conflicts and orphans are kept in var/verdict-orphans/ and reported back to the tab (`verdict_store` gives the rules). A delta stamped for the served corpus while the store is on another stamp carries the store onto the served corpus by unit id, keeping the old file as verdicts-autosave-<stamp>.json; a delta made on neither corpus gets a retryable 503. The sets and clears of every accepted save are appended to verdicts-journal.ndjson (rebuild.review.journal), so every verdict change can be replayed, including clears, which the store file records only as tombstones. Each POST is applied under the verdict store's lock (rebuild.review.store_lock), which every writer of the store and the journal holds, and reads the served corpus under it, because a land swaps the corpus under the same lock. The server never waits for it, because a POST runs on the IOLoop and waiting would stall every other request: while another writer holds it, a POST gets a 503 with `Retry-After: 1`. The app keeps every unconfirmed save in its outbox in the browser's storage and retries a 503 with backoff, but the save a closing tab sends (the pagehide beacon) is retried only when the app is next opened, so a hand-run merge or restore refuses to write the live store while a server listens, and a hand-run re-key refuses to rewrite its store while the listening server's /capabilities answer names that store or names none, unless --yes is passed on the merge_verdicts or rekey_verdicts command line; a hand-run verdict update's merges refuse as a merge does, with no override, so the server must be stopped first. An artifact-cycle pass holds the lock beside a running server only for its store snapshot, its land and its retention's journal tail, a few seconds each.
 
 The server keeps running through every artifact-cycle pass. A pass builds its corpus beside the served one and runs the verdict update on scratch copies of the store, then lands the corpus and the store together under the lock (rebuild.review.landing). A land killed inside that section leaves its intent file (`landing.intent_path_for`); before it answers /autosave or /status, the server finishes such a land when the lock is free, in its executor, and any request to either made while a land still holds the lock gets the retryable 503, so no tab reads the new corpus beside the old store. While that recovery refuses (`landing.LandUnrecoverable`), every such request gets the refusal under the reason it names, a GET of /autosave as a 404 and the others as a 422, which the app shows the reader, keeping its outbox (`orphaned_land_reply`). At boot the server waits for the lock, finishing an interrupted land first, before it loads the store, and a recovery that refuses stops it with the refusal. /capabilities names the land protocol the server speaks, the digest of its protocol and freshness modules as it loaded them (`landing.code_digest`), its repo root and its store (`capabilities_payload`); the cycle keeps the server running only when that root is its own checkout and that digest is the working tree's, and restarts a server whose code is older.
 
@@ -14,7 +14,7 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from rebuild.review import app_index, journal, landing
+from rebuild.review import accepted, app_index, journal, landing
 from rebuild.review.store_lock import LockBusy, store_lock
 from rebuild.review.verdict_store import (
     DELTA_FORMAT,
@@ -43,6 +43,7 @@ M1_OUT = REPO_ROOT / "rebuild" / "out" / "m1"
 CYCLE_SUMMARY_PATH = REPO_ROOT / "rebuild" / "out" / "cycle_summary.json"
 AUTOSAVE_PATH = REPO_ROOT / "verdicts-autosave.json"
 JOURNAL_PATH = REPO_ROOT / journal.JOURNAL_NAME
+ACCEPTED_PATH = accepted.path_for(AUTOSAVE_PATH)
 NDJSON_SUFFIX = ".ndjson.gz"
 PORT = 7294
 STATUS_TTL_S = 10.0
@@ -125,10 +126,19 @@ def orphaned_land_reply(path: Path, refused_status: int) -> tuple[int, dict] | N
 
 
 def missing_autosave_reply(store: VerdictStore) -> dict:
-    """Return the body of the 404 a GET of /autosave gets while `store` holds no stamped store: its refusal under `reason: store-malformed` while the file holds a record `verdict_store.well_formed` refuses (`VerdictStore.refusal`), so the app tells the reader why it shows no verdict, and "no autosave yet" otherwise."""
+    """Return the body of the 404 a GET of /autosave gets while `store` holds no stamped store: its refusal under its reason (`VerdictStore.refusal_reason`) while one stands, `store-malformed` for a file holding a record `verdict_store.well_formed` refuses and `accepted-malformed` or `accepted-mismatch` for an accepted list it cannot read or that does not pair with the store, so the app tells the reader why it shows no verdict, and "no autosave yet" otherwise."""
     if store.refusal is not None:
-        return {"ok": False, "reason": "store-malformed", "error": store.refusal}
+        return {"ok": False, "reason": store.refusal_reason, "error": store.refusal}
     return {"ok": False, "error": "no autosave yet"}
+
+
+def served_stamp(review_dir: Path) -> str | None:
+    """Return the served manifest's `generated_at`, or None when it cannot be read."""
+    try:
+        stamp = json.loads((review_dir / "manifest.json").read_text()).get("generated_at")
+    except OSError, ValueError:
+        return None
+    return stamp if isinstance(stamp, str) else None
 
 
 def main() -> None:
@@ -146,9 +156,15 @@ def main() -> None:
     code = landing.code_digest(Path(__file__).resolve().parent)
     try:
         with landing.locked_store(AUTOSAVE_PATH):
-            store = VerdictStore(AUTOSAVE_PATH, JOURNAL_PATH)
+            store = VerdictStore(AUTOSAVE_PATH, JOURNAL_PATH, accepted_path=ACCEPTED_PATH)
+            stamp = served_stamp(REVIEW_DIR)
+            written = store.stamp_empty_store(stamp) if stamp is not None else None
     except landing.LandUnrecoverable as refused:
         raise SystemExit(f"The review server did not start: {refused}") from None
+    if written is not None:
+        print(f"wrote an empty store stamped {stamp} beside {ACCEPTED_PATH.name}", flush=True)
+        if "journal_error" in written:
+            print(f"the journal append failed: {written['journal_error']}", flush=True)
 
     async def answered_for_land(handler: RequestHandler, refused_status: int) -> bool:
         """Finish a land whose holder died before this request is answered, in the executor so the IOLoop keeps serving, and return whether the request was answered instead (`orphaned_land_reply`): with the retryable 503 while a land still holds the store's lock, since it may already have swapped the corpus in and not yet replaced the store, and with `refused_status` and the refusal while the recovery refuses."""
@@ -227,6 +243,7 @@ def main() -> None:
         return {
             "human_ids": cached_human_ids(),
             "autosave": store.payload_dict() if store.stamp is not None else None,
+            "listed": store.accepted,
         }
 
     def compute_status_now(inputs: dict) -> dict:
@@ -238,6 +255,7 @@ def main() -> None:
             CYCLE_SUMMARY_PATH,
             human_ids=inputs["human_ids"],
             autosave=inputs["autosave"],
+            listed=inputs["listed"] if inputs["autosave"] is not None else None,
         )
 
     class StatusHandler(RequestHandler):
@@ -292,7 +310,7 @@ def main() -> None:
             if changes is not None:
                 self.finish(json.dumps(changes, ensure_ascii=False))
                 return
-            self.finish(store.payload_bytes(token=True))
+            self.finish(store.payload_bytes(token=True, within=cached_human_ids()))
 
         async def post(self) -> None:
             if await answered_for_land(self, 422):

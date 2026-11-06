@@ -1,4 +1,4 @@
-"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`, which a marker that the journal may lack a store write and a last base with no `cleared` list also make due), the diff would be no shorter than a base, or there is no previous store or journal, the seed event that opens a journal over an existing store, its tombstones included, the clear lines that record a change to the tombstones alone, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, and the cut back to the length a dead land recorded, made only while the journal is the same file."""
+"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`, which a marker that the journal may lack a store write and a last base with no `cleared` list also make due), the diff would be no shorter than a base, or there is no previous store or journal, the seed event that opens a journal over an existing store, its tombstones included, the clear lines that record a change to the tombstones alone, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, the cut back to the length a dead land recorded, made only while the journal is the same file, and the store's `accepted` field, which every event line carries and replay gives back."""
 
 import json
 import os
@@ -1201,3 +1201,51 @@ def test_compaction_floors_at_a_base_and_replays_the_stamp_changes_journaled_aft
     ]
     assert {as_of: journal.replay(path, as_of=as_of) for as_of in as_ofs} == before
     assert before[None] == ("S4", {"u-2": v("u-2"), "u-3": v("u-3")})
+
+
+def test_every_event_line_carries_the_stores_accepted_field_and_replay_gives_it_back(tmp_path):
+    """A writer passes the store's `accepted` field, the list it pairs with, and every event line it appends carries it, a seed and a diff as well as a base, so `replay_with_list` gives back the field the store named at any moment, even when the first event naming it is not a base: a base starts the field over from its own, none when it names none, and a diff that names one sets it while one that names none keeps it."""
+    path = tmp_path / "journal.ndjson"
+    first = {"sha256": "1" * 64, "closed_at": "2026-11-05T18:00:00Z"}
+    second = {"sha256": "2" * 64, "closed_at": "2026-11-07T18:00:00Z"}
+    journal.record_delta(
+        path,
+        source="autosave",
+        stamp="S1",
+        sets=[v("u-2")],
+        clears={},
+        seed_records={"u-1": v("u-1")},
+        at="2026-11-06T00:00:00Z",
+        accepted=first,
+    )
+    assert [line.get("accepted") for line in read_lines(path) if line["kind"] == "event"] == [first, first]
+    journal.record_delta(
+        path, source="autosave", stamp="S1", sets=[v("u-3")], clears={}, at="2026-11-06T01:00:00Z"
+    )
+    assert journal.replay_with_list(path)[3] == first
+    journal.record_transition(
+        path,
+        source="close-out",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[],
+        at="2026-11-07T18:00:00Z",
+        base=True,
+        accepted=second,
+    )
+    assert journal.replay_with_list(path) == ("S1", {}, {}, second)
+    assert journal.replay_with_list(path, as_of="2026-11-06T01:00:00Z")[3] == first
+    journal.record_transition(
+        path,
+        source="restore",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-4")],
+        at="2026-11-08T00:00:00Z",
+        base=True,
+    )
+    assert journal.replay_with_list(path)[3] is None
+    assert journal.payload_for("S1", {}, accepted=second)["accepted"] == second
+    assert "accepted" not in journal.payload_for("S1", {})

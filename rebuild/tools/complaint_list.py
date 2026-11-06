@@ -4,6 +4,8 @@ A reject with a policy draft is grouped by its draft target (file and keypath). 
 
 Deferring uses skip verdicts. A defer file holds one skip verdict per defer candidate, with `at` set to the manifest's `generated_at`, so any verdict the user records on this corpus is newer and wins. The duplicate fill ignores skips, and the review queue counts a skipped unit as blank but defers its duplicate group. The user imports the file through the app's Import dialog. The carry drops skip verdicts, so deferred units return to the blank queue on the first cycle that rebuilds the corpus.
 
+The verdicts file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is never a defer candidate and counts among a group's approved units at risk under its mark, while the warning about records on units absent from the corpus counts the file's records, its overrides among them, and no accepted unit.
+
 Writes tmp/complaints-data.json. `--defer g-XXXXXXXX` also writes a verdicts-deferred-*.json for that group.
 """
 
@@ -22,8 +24,11 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from rebuild.review.accepted import Accepted  # noqa: E402
 from rebuild.tools.review_queue import (  # noqa: E402
     ACCEPTING_VERDICTS,
+    accepted_list,
+    add_accepted_argument,
     latest_verdicts,
     ruled_class_ids,
 )
@@ -260,10 +265,16 @@ def emit_defer(group, marker_target, *, stamp, defer_dir, note_text):
     return path
 
 
-def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_ids: set[str] | None = None):
+def main(
+    argv=None,
+    *,
+    units: Iterable[Mapping[str, Any]] | None = None,
+    unit_ids: set[str] | None = None,
+    listed: Accepted | None = None,
+):
     """Write the complaint list data, and defer files for any `--defer` groups.
 
-    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and at-risk units are kept from the stream.
+    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and at-risk units are kept from the stream. `listed` is the accepted list when the caller already holds the one `--accepted` names, as the verdict update does; without it the list is read here (`review_queue.accepted_list`).
     """
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
@@ -290,9 +301,12 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
     parser.add_argument(
         "--note", default="", help="verbatim reviewer text appended after the marker in every deferred record"
     )
+    add_accepted_argument(parser)
     args = parser.parse_args(argv)
     if (units is None) != (unit_ids is None):
         parser.error("units and unit_ids are handed over together or not at all")
+    if listed is None:
+        listed = accepted_list(parser, args.accepted, args.verdicts)
 
     corpus = pathlib.Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text())
@@ -310,7 +324,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
             file=sys.stderr,
         )
         return 1
-    records = latest_verdicts(verdicts_path)
+    records = latest_verdicts(verdicts_path, listed, document=data)
 
     if units is None or unit_ids is None:
         unit_ids = set()
@@ -339,7 +353,12 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None, unit_id
                     "provenance": frozenset(unit.get("provenance") or []),
                 }
             )
-    unknown = sum(1 for unit_id in records if unit_id not in unit_ids)
+    unknown = sum(
+        1
+        for held in (records.records, records.overrides.records)
+        for unit_id in held
+        if unit_id not in unit_ids
+    )
     if unknown:
         print(f"warning: {unknown} verdict records name units absent from this corpus", file=sys.stderr)
     complaints.sort(key=lambda item: (_triage_position(item[0]), item[0]["id"]))

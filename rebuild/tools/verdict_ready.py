@@ -1,6 +1,6 @@
 """Print whether the review corpus is ready to adjudicate now.
 
-It runs `rebuild.review.status.compute_status` over the production paths, adds a check that a review server for this checkout is listening on port 7294 (one that names another checkout as its root fails it), and prints a checklist, or the status dict as JSON under `--json`. It exits 0 only when every blocking check passes and this checkout's server is up, so it can serve as a Makefile guard. The artifact cycle calls `readiness` and `checklist` to print the same checklist at the end of every green pass that is not a staging pass, so this CLI is for asking the question between passes.
+It runs `rebuild.review.status.compute_status` over the production paths, adds a warning once the verdict journal's first event is old enough that a close-out is due (`rebuild.review.journal.close_out_due`), adds a check that a review server for this checkout is listening on port 7294 (one that names another checkout as its root fails it), and prints a checklist, or the status dict as JSON under `--json`. It exits 0 only when every blocking check passes and this checkout's server is up, so it can serve as a Makefile guard. The artifact cycle calls `readiness` and `checklist` to print the same checklist at the end of every green pass that is not a staging pass, so this CLI is for asking the question between passes.
 """
 
 import argparse
@@ -9,7 +9,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from rebuild.review import status
+from rebuild.review import journal, status
 from rebuild.tools.review_server import other_checkout_root, server_listening
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,7 +19,16 @@ CYCLE_SUMMARY_PATH = ROOT / "rebuild" / "out" / "cycle_summary.json"
 AUTOSAVE_PATH = ROOT / "verdicts-autosave.json"
 QUEUE_URL = "http://localhost:7294/#view=queue"
 
-CHECK_ORDER = ("corpus", "freshness", "gates", "verdict_store", "fullest_verdicts", "blanks", "server")
+CHECK_ORDER = (
+    "corpus",
+    "freshness",
+    "gates",
+    "verdict_store",
+    "fullest_verdicts",
+    "blanks",
+    "journal",
+    "server",
+)
 
 
 def readiness(
@@ -34,10 +43,13 @@ def readiness(
     listening: Callable[[], bool] = server_listening,
     other_root: Callable[[Path], str | None] = other_checkout_root,
 ) -> tuple[dict, bool]:
-    """Return the status dict and whether the whole checklist passes. `with_server=False` leaves out the server row. The artifact cycle passes it at the end of a `make review-cycle` pass, because the recipe restarts the server afterwards, or reports that it left it down, and a row read earlier would report as absent a server that is about to start."""
+    """Return the status dict and whether the whole checklist passes. A journal row warns, without blocking, once the verdict journal beside the store needs a close-out (`journal.close_out_due`). `with_server=False` leaves out the server row. The artifact cycle passes it at the end of a `make review-cycle` pass, because the recipe restarts the server afterwards, or reports that it left it down, and a row read earlier would report as absent a server that is about to start."""
     result = status.compute_status(
         repo_root, review_dir, m1_out, autosave_path, cycle_summary_path, recompute=recompute
     )
+    due = journal.close_out_due(Path(autosave_path).with_name(journal.JOURNAL_NAME))
+    if due is not None:
+        result["checks"]["journal"] = {"level": "warn", "detail": due, "remedy": "make close-out"}
     if not with_server:
         return result, bool(result["ready"])
     up = listening()

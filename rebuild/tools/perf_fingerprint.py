@@ -1,4 +1,4 @@
-"""The output fingerprint #618's acceptance bar compares on the live tree, read before a change's first build and again after its landing pass: every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the verdict store and the complaint list after the pass, the two corpus stores apart, and the review-facts pins the pass rewrote.
+"""The output fingerprint #618's acceptance bar compares on the live tree, read before a change's first build and again after its landing pass: every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the verdict store with its accepted list and the complaint list after the pass, the two corpus stores apart, and the review-facts pins the pass rewrote.
 
 Run it with the tree under test's own interpreter and code, never the harness's:
 
@@ -12,7 +12,8 @@ The output is one `ams-perf-fingerprint/1` document:
 - `fonts`: `fingerprint.font_content_digest` of `rebuild/out/m1/M1.otf`, the corpus's `fonts/{before,after}.otf` and the six site fonts, null for a font that is missing.
 - `corpus`: one digest per file under `rebuild/out/review/` but the two stores, and a digest over the sorted `path<TAB>digest` lines. `manifest.json` and `review-facts.json` are digested as canonical JSON without the keys `MANIFEST_STAMPS` names (for the facts file, inside its `corpus` block), and without each manifest font's raw `sha256`; a gzip sidecar as its decompressed stream, with a JSON header line re-serialized without the keys `SIDECAR_STAMPS` names; a corpus font by its content digest; every other file raw.
 - `stores`: the same header projection applied to the stores `STORES` names. A difference there is an intermediate format differing, which a report names apart.
-- `verdicts`: the store after the pass, projected to its `format`, the sorted `(unit, verdict, note)` of its records and the sorted unit ids it cleared, without the keys `STORE_STAMPS` names and without any record's `at`, since the fills stamp `at` with the corpus stamp.
+- `verdicts`: the store after the pass, projected to its `format`, the sorted `(unit, verdict, note)` of its records and the sorted unit ids it cleared, its override section's among them, as one store, without the keys `STORE_STAMPS` names and without any record's `at`, since the fills stamp `at` with the corpus stamp.
+- `accepted`: the raw digest of the accepted list beside the store, `rebuild/accepted-units.txt`, null when there is none. Every reader of the store reads the units the list names as accepted and no pass writes it, so a pass that did shows up here and not in `verdicts`.
 - `complaints`: the complaint list as canonical JSON without the keys `COMPLAINT_STAMPS` names and without any `at` inside `groups`.
 - `review_facts_pins`: the raw digest of `rebuild/review-facts-pins.json` as the pass rewrote it.
 
@@ -51,6 +52,7 @@ FONTS = (
 M1 = Path("rebuild/out/m1")
 REVIEW = Path("rebuild/out/review")
 AUTOSAVE = Path("verdicts-autosave.json")
+ACCEPTED = Path("rebuild/accepted-units.txt")
 COMPLAINTS = Path("tmp/complaints-data.json")
 FACTS_PINS = Path("rebuild/review-facts-pins.json")
 _CHUNK = 1 << 22
@@ -148,19 +150,23 @@ def _without_at(value: object) -> object:
 
 
 def store_digest(path: Path) -> str | None:
-    """Digest a verdict store's projection: its format, the sorted (unit, verdict, note) of its records and the sorted unit ids it cleared. The `cleared` list holds `{unit, at}` entries, or bare unit ids in an older file."""
+    """Digest a verdict store's projection: its format, the sorted (unit, verdict, note) of its records and the sorted unit ids it cleared, those of its override section (`overrides`, the records and tombstones on accepted units) listed with its own, so a store with no section keeps the digest it had before the section existed. The `cleared` list holds `{unit, at}` entries, or bare unit ids in an older file."""
     if not path.is_file():
         return None
     document = json.loads(path.read_bytes())
     for key in STORE_STAMPS:
         document.pop(key, None)
+    section = document.get("overrides")
+    parts = [document, section] if isinstance(section, dict) else [document]
     records = sorted(
         (str(record.get("unit")), record.get("verdict"), record.get("note") or "")
-        for record in document.get("verdicts") or []
+        for part in parts
+        for record in part.get("verdicts") or []
     )
     cleared = sorted(
         str(entry.get("unit")) if isinstance(entry, dict) else str(entry)
-        for entry in document.get("cleared") or []
+        for part in parts
+        for entry in part.get("cleared") or []
     )
     return sha256_bytes(
         canonical(
@@ -202,6 +208,7 @@ def fingerprint_tree(root: Path, *, table: ModuleType, font_digest: Callable[[Pa
         "fonts": {rel: font_digest(root / rel) if (root / rel).is_file() else None for rel in FONTS},
         "corpus": corpus,
         "verdicts": store_digest(root / AUTOSAVE),
+        "accepted": file_sha256(root / ACCEPTED) if (root / ACCEPTED).is_file() else None,
         "complaints": complaints_digest(root / COMPLAINTS),
         "stores": stores,
         "review_facts_pins": file_sha256(pins) if pins.is_file() else None,

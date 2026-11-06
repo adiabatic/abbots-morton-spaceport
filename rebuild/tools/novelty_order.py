@@ -1,4 +1,4 @@
-"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one representative per duplicate group among the human units with no record, since the app copies a verdict on the representative to the group's members that have no record. A unit whose latest verdict is a skip is blank too, but the duplicate fill never reaches it, so each skipped unit is its own representative. The distance between two representatives is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed junctions, configuration set, unit kinds, deciding provenance and window length. The walk starts at a representative of the rarest class and then picks, each time, the representative whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
+"""Order the blank review queue for novelty, so consecutive units in a review session differ as much as possible instead of following the shard order's near-identical neighbors. It takes one representative per duplicate group among the human units with no record, since the app copies a verdict on the representative to the group's members that have no record. A unit whose latest verdict is a skip is blank too, but the duplicate fill never reaches it, so each skipped unit is its own representative. The verdicts file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is not blank. The distance between two representatives is a weighted sum over `DIMENSIONS`: divergence class, left and right family, letter set, settled stances, changed junctions, configuration set, unit kinds, deciding provenance and window length. The walk starts at a representative of the rarest class and then picks, each time, the representative whose smallest distance to the last `RECENT_WINDOW` shown is largest, breaking ties toward rarer classes and then earlier triage position, so one-off questions are not buried behind the large classes. It prints the worklist URL to paste into the review app, `#units=…&order=given`, which the app keeps in the given order instead of sorting by family pair."""
 
 import argparse
 import collections
@@ -12,7 +12,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.review.serve import PORT  # noqa: E402
-from rebuild.tools.review_queue import latest_verdicts, load_human_units  # noqa: E402
+from rebuild.tools.review_queue import (  # noqa: E402
+    accepted_list,
+    add_accepted_argument,
+    latest_verdicts,
+    load_human_units,
+)
 
 CORPUS = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
@@ -133,7 +138,9 @@ def main(clipboard_write: Callable[[str], None] | None = None, *, units=None):
         default=40,
         help="emit only the first N worklist entries (0 for the whole queue; default 40)",
     )
+    add_accepted_argument(parser)
     args = parser.parse_args()
+    listed = accepted_list(parser, args.accepted, args.verdicts)
 
     corpus = pathlib.Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text())
@@ -147,7 +154,7 @@ def main(clipboard_write: Callable[[str], None] | None = None, *, units=None):
             "fills a cycle runs on this corpus; a cycle pass (make artifact-cycle) leaves the store carried "
             "onto the live corpus"
         )
-    records = latest_verdicts(verdicts_path)
+    records = latest_verdicts(verdicts_path, listed, document=data)
 
     representatives, blank_count = blank_representatives(
         units if units is not None else load_human_units(corpus)[0], records

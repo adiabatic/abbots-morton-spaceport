@@ -176,8 +176,8 @@ export function planOutboxReplay(
   return { drop, replay, stale };
 }
 
-// The reasons the server gives when it refuses the store it holds until a person replaces a file: a store holding a verdict record the carry refuses, and a dead land whose recovery cannot finish or undo it (`landing.LandUnrecoverable`).
-const STORE_REFUSALS = new Set(['store-malformed', 'land-unrecoverable']);
+// The reasons the server gives when it refuses the store it holds until a person replaces a file: a store holding a verdict record the carry refuses, a dead land whose recovery cannot finish or undo it (`landing.LandUnrecoverable`), a malformed accepted list, and a store that does not name the accepted list beside it (`rebuild.review.accepted.Malformed` and `Mismatch`).
+const STORE_REFUSALS = new Set(['store-malformed', 'land-unrecoverable', 'accepted-malformed', 'accepted-mismatch']);
 
 // The error of a reply `body` in which the server refuses the store it holds (`STORE_REFUSALS`), or null for any other body.
 export function storeRefusalOf(body) {

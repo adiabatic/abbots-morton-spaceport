@@ -1,6 +1,6 @@
 """Compute the review corpus's readiness: whether the served corpus exists, whether it matches the runes and code on disk (its after font is the M1 font on disk, and its per-unit index and both app sidecars are stamped for its manifest), whether a green artifact cycle produced it, and whether the verdict store (the autosave) is stamped for it. The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs.
 
-An effective verdict is a unit's latest verdict when that verdict is not skip. The only state kept between calls is `_MEMO`, keyed on each verdicts file's stat. It records the file's stamp and, once the file has been parsed, its effective count, so a long-lived server checks an unchanged file with one stat.
+An effective verdict is a unit's latest verdict when that verdict is not skip, a store's override records on listed units (`rebuild.review.accepted.Overrides`) counted with its own. The store's count also takes the accepted list beside it (`rebuild.review.accepted`): each listed unit of the served corpus's human units that holds no override is an effective verdict of the store's, under its mark, so a store a close-out emptied counts the units it folded and no verdicts file at the root outranks it. A root file's count takes no listed unit, or a ten-record export would outrank the store. A list the readers cannot read, or a store that does not pair with it (`accepted.pair`), fails the verdict-store check, as the review server and every pass refuse it. The only state kept between calls is `_MEMO`, keyed on each verdicts file's stat. It records the file's stamp and, once the file has been parsed, its effective count, so a long-lived server checks an unchanged file with one stat.
 """
 
 from __future__ import annotations
@@ -14,10 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import app_index, store_lock, unit_index
+from rebuild.review import accepted, app_index, store_lock, unit_index
+from rebuild.review.accepted import Accepted, Overrides, View
 from rebuild.review.serve import parse_autosave_payload
 from rebuild.review.verdict_store import (
     MalformedStore,
+    accepted_path_for,
     orphans_dir_for,
     read_store_document,
     summarize_orphans,
@@ -54,8 +56,9 @@ def _verdict_paths(repo_root) -> list[Path]:
 
 
 def _effective_count(data) -> int | None:
+    """Return how many records other than skips the verdicts document `data` holds, its override section's among them (`accepted.records_of`), or None when one cannot be counted."""
     try:
-        return count_effective(_latest_from_list(data["verdicts"]))
+        return count_effective(_latest_from_list(accepted.records_of(data)))
     except KeyError, TypeError:
         return None
 
@@ -156,12 +159,35 @@ def _read_candidate(path: Path, manifest_stamp, *, counts: bool) -> tuple[_StatK
         return None
 
 
-def _read_autosave(autosave_path: Path) -> _Candidate | None:
+def _listed_count(data: dict, listed: Accepted, human_ids) -> int:
+    """Return how many units the store document `data` reads as accepted: listed, among `human_ids` (every listed id when they are None), and holding no override in it."""
+    if not listed.verdicts:
+        return 0
+    return sum(1 for _ in View({}, {}, listed, Overrides.of(data)).from_list(human_ids))
+
+
+def _read_autosave(
+    autosave_path: Path, listed_path: Path | None, review_dir: Path, manifest_stamp
+) -> _Candidate | None:
+    """Read the store as a carry candidate: its stamp, and its effective count with its accepted units on the served corpus's human units (`_listed_count`; none when no corpus is served), after `accepted.pair` has checked that it pairs with the list at `listed_path`, which raises `accepted.Refused` for a list it cannot read or a store that does not pair with it."""
     try:
         raw = autosave_path.read_bytes() if autosave_path.exists() else None
     except OSError:
         raw = None
-    return _summarize(raw) if raw is not None else None
+    if raw is None:
+        return None
+    data = parse_autosave_payload(raw)
+    if data is None:
+        return _Candidate(None, None, True)
+    candidate = _Candidate(data["manifest_generated_at"], _effective_count(data), True)
+    if candidate.count is None or listed_path is None:
+        return candidate
+    listed = accepted.read(listed_path)
+    accepted.pair(data, listed, store=autosave_path)
+    if manifest_stamp is None or not listed.verdicts:
+        return candidate
+    count = _listed_count(data, listed, load_human_unit_ids(review_dir))
+    return _Candidate(candidate.stamp, candidate.count + count, True)
 
 
 def _survey(repo_root, manifest_stamp, *, counts: bool) -> list[tuple[Path, _Candidate]]:
@@ -207,16 +233,22 @@ def pick_fullest_verdicts(repo_root, manifest_stamp) -> tuple[Path, int] | None:
     return best
 
 
-def resolve_carry_source(repo_root, manifest_stamp, autosave_path) -> dict | None:
+def resolve_carry_source(
+    repo_root, manifest_stamp, autosave_path, *, review_dir=None, accepted_path=None
+) -> dict | None:
     """Return the verdicts file the artifact cycle carries forward when the caller names none, as a dict of `path`, `stamp`, `count`, and `aligned`, or None when no candidate has an effective verdict.
 
-    The candidates are the live autosave and every verdicts-*.json at the repo root. Among those stamped manifest_stamp, the one with the most effective verdicts wins, and the autosave wins a tie because it is the live store. When none is stamped manifest_stamp, the candidates with the newest stamp compete the same way and `aligned` is False. That happens when the served corpus was restamped outside a recorded cycle, or when a pass stopped between its corpus build and its carry. The cycle uses `aligned` in the line that names the master and to choose between the direct merge and the full carry. When the corpus build is skipped, an aligned master that is another file is merged straight into the store, or, when the snapshot of the store the verdict update reads is stamped for an older corpus or is not an ams-review-verdicts/1 document, into that snapshot carried onto the served corpus; an aligned master that is the store is merged from its snapshot, or, when that snapshot is either, carried onto the served corpus in its own place (`verdict_update.merge_sets_store_aside`; the carry refuses a snapshot it cannot read, naming it, and the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update). An unaligned master is always carried by unit id. A verdict names its unit by content id, so a carried verdict reaches the unit with that id on the live corpus or none.
+    The candidates are the live autosave and every verdicts-*.json at the repo root. The autosave's count takes its accepted units on the human units of the corpus at `review_dir` (the served corpus, rebuild/out/review under `repo_root`, by default), read from the list at `accepted_path` (by default the one beside the autosave, `verdict_store.accepted_path_for`), and a list it cannot read or an autosave that does not pair with it raises `accepted.Refused`. Among those stamped manifest_stamp, the one with the most effective verdicts wins, and the autosave wins a tie because it is the live store. When none is stamped manifest_stamp, the candidates with the newest stamp compete the same way and `aligned` is False. That happens when the served corpus was restamped outside a recorded cycle, or when a pass stopped between its corpus build and its carry. The cycle uses `aligned` in the line that names the master and to choose between the direct merge and the full carry. When the corpus build is skipped, an aligned master that is another file is merged straight into the store, or, when the snapshot of the store the verdict update reads is stamped for an older corpus or is not an ams-review-verdicts/1 document, into that snapshot carried onto the served corpus; an aligned master that is the store is merged from its snapshot, or, when that snapshot is either, carried onto the served corpus in its own place (`verdict_update.merge_sets_store_aside`; the carry refuses a snapshot it cannot read, naming it, and the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update). An unaligned master is always carried by unit id. A verdict names its unit by content id, so a carried verdict reaches the unit with that id on the live corpus or none.
 
     Every export is counted whatever its stamp, through the memo shared with pick_fullest_verdicts, so a file pick_fullest_verdicts read by its head alone is parsed whole here. The autosave is read whole on every call and is not memoized.
     """
     entries: list[tuple[Path, str, int, bool]] = []
     autosave_path = Path(autosave_path)
-    autosave = _read_autosave(autosave_path)
+    review_dir = (
+        Path(review_dir) if review_dir is not None else Path(repo_root) / "rebuild" / "out" / "review"
+    )
+    listed_path = Path(accepted_path) if accepted_path is not None else accepted_path_for(autosave_path)
+    autosave = _read_autosave(autosave_path, listed_path, review_dir, manifest_stamp)
     if autosave is not None and autosave.stamp is not None and autosave.count:
         entries.append((autosave_path, autosave.stamp, autosave.count, True))
     for path, candidate in _survey(repo_root, manifest_stamp, counts=True):
@@ -430,9 +462,31 @@ def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> d
     }
 
 
+@dataclass(frozen=True, slots=True)
+class _Aligned:
+    """The store as the checks after the verdict-store check read it: its latest record by unit, its override records among them, and `listed`, how many accepted units of the corpus's human units it holds no override for, which count as its effective verdicts."""
+
+    records: dict[str, dict]
+    listed: int
+
+    @property
+    def effective(self) -> int:
+        return count_effective(self.records) + self.listed
+
+
 def _verdict_store_check(
-    autosave_path, generated_at, artifact_cycle_remedy, fullest_hit, fullest_rel, autosave=None
-) -> tuple[dict, dict | None]:
+    autosave_path,
+    generated_at,
+    artifact_cycle_remedy,
+    fullest_hit,
+    fullest_rel,
+    autosave=None,
+    *,
+    listed: Accepted | None = None,
+    listed_path: Path | None = None,
+    human_ids_of=lambda: None,
+) -> tuple[dict, _Aligned | None]:
+    """Check the store. `autosave` and `listed` are the parsed store and the list the review server already paired; without them the store and the list at `listed_path` are read here and paired (`accepted.pair`), and a list that cannot be read or a store that does not pair with it fails the check. `human_ids_of` returns the corpus's human unit ids, or None when they cannot be read, for the store's accepted units."""
     if autosave is None:
         path = Path(autosave_path)
         try:
@@ -447,17 +501,30 @@ def _verdict_store_check(
                 "detail": f"{malformed}, so the review server serves no verdict from it and refuses every save, and a pass refuses to land over it.",
                 "remedy": f"Restore a readable store from its journal: {MERGE_TOOL} --list names the recorded times, and {MERGE_TOOL} --restore-as-of <time> --apply restores one.",
             }, None
+        try:
+            listed = accepted.read(listed_path) if listed_path is not None else None
+            if listed is not None:
+                accepted.pair(autosave, listed, store=path.name)
+        except accepted.Refused as refused:
+            return {
+                "level": "fail",
+                "detail": f"{refused}. Until then the review server serves no verdict and refuses every save, and a pass refuses to run its verdict update or land.",
+                "remedy": "Pair the store and the accepted list again, as the detail says.",
+            }, None
+    if listed is None:
+        listed = Accepted.empty(listed_path or accepted.RELATIVE_PATH)
     if autosave is None:
         return {
             "level": "warn",
             "detail": "There is no autosave yet, so no in-progress verdicts are loaded.",
             "remedy": f"If the store was lost, restore it from its journal: {MERGE_TOOL} --list names the recorded times, and {MERGE_TOOL} --restore-as-of <time> --apply restores one.",
         }, None
+    listed_count = _listed_count(autosave, listed, human_ids_of()) if listed.verdicts else 0
     if autosave["manifest_generated_at"] != generated_at:
         try:
-            stale_effective = count_effective(_latest_from_list(autosave["verdicts"]))
+            stale_effective = count_effective(_latest_from_list(accepted.records_of(autosave))) + listed_count
         except KeyError, TypeError:
-            stale_effective = 0
+            stale_effective = listed_count
         if stale_effective == 0 and fullest_hit and fullest_hit[1] > 0:
             remedy = f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}); the stale autosave is empty and is stashed automatically when it is stamped for an older corpus, and the merge refuses one stamped for a newer corpus."
         else:
@@ -471,26 +538,32 @@ def _verdict_store_check(
             "remedy": remedy,
         }, None
     try:
-        records = _latest_from_list(autosave["verdicts"])
+        records = _latest_from_list(accepted.records_of(autosave))
     except KeyError, TypeError:
         records = {}
-    effective = count_effective(records)
+    aligned = _Aligned(records, listed_count)
+    effective = aligned.effective
     if effective == 0 and fullest_hit and fullest_hit[1] > 0:
         return {
             "level": "warn",
             "detail": "The autosave is aligned with this corpus but empty; the verdicts in the fullest verdicts file are not yet merged in.",
             "remedy": f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}).",
-        }, records
+        }, aligned
+    from_list = (
+        f", {listed_count:,} of them accepted units from the list closed at {listed.closed_at}"
+        if listed_count
+        else ""
+    )
     return {
         "level": "ok",
-        "detail": f"The autosave is aligned with this corpus and holds {effective:,} effective verdicts.",
+        "detail": f"The autosave is aligned with this corpus and holds {effective:,} effective verdicts{from_list}.",
         "remedy": None,
-    }, records
+    }, aligned
 
 
-def _fullest_verdicts_check(fullest_hit, fullest_rel, store_rel, store_records) -> dict:
-    """Name the fullest verdicts file: the store when it is stamped for this corpus and holds at least as many effective verdicts as `fullest_hit`, the stamp-matching root file with the most, which otherwise wins. The store wins a tie, as in `resolve_carry_source`."""
-    store_count = count_effective(store_records) if store_records is not None else None
+def _fullest_verdicts_check(fullest_hit, fullest_rel, store_rel, aligned: _Aligned | None) -> dict:
+    """Name the fullest verdicts file: the store when it is stamped for this corpus and holds at least as many effective verdicts as `fullest_hit`, its accepted units counted, the stamp-matching root file with the most, which otherwise wins. The store wins a tie, as in `resolve_carry_source`."""
+    store_count = aligned.effective if aligned is not None else None
     if store_count is not None and (not fullest_hit or store_count >= fullest_hit[1]):
         return {
             "level": "ok",
@@ -517,25 +590,30 @@ def _fullest_verdicts_check(fullest_hit, fullest_rel, store_rel, store_records) 
     }
 
 
-def _blanks_check(aligned_records, review_dir, human_ids) -> dict:
-    if aligned_records is None:
+def _blanks_check(aligned: _Aligned | None, human_ids) -> dict:
+    """Count the human units that read blank: neither an effective record, an override record among them, nor an accepted unit the store holds no override for (`_Aligned.listed`, counted over the same `human_ids`)."""
+    if aligned is None:
         return {
             "level": "ok",
             "detail": "The blank count needs an autosave aligned with this corpus.",
             "count": None,
         }
     if human_ids is None:
-        try:
-            human_ids = load_human_unit_ids(review_dir)
-        except OSError, ValueError, KeyError, TypeError:
-            return {
-                "level": "ok",
-                "detail": "The corpus manifest's human unit ids could not be read, so the blank count is unavailable.",
-                "count": None,
-            }
-    effective_ids = {unit for unit, record in aligned_records.items() if record.get("verdict") != "skip"}
-    remaining = len(set(human_ids) - effective_ids)
+        return {
+            "level": "ok",
+            "detail": "The corpus manifest's human unit ids could not be read, so the blank count is unavailable.",
+            "count": None,
+        }
+    effective_ids = {unit for unit, record in aligned.records.items() if record.get("verdict") != "skip"}
+    remaining = len(set(human_ids) - effective_ids) - aligned.listed
     return {"level": "ok", "detail": f"{remaining:,} blanks remaining.", "count": remaining}
+
+
+def _human_ids_or_none(review_dir) -> frozenset[str] | None:
+    try:
+        return load_human_unit_ids(review_dir)
+    except OSError, ValueError, KeyError, TypeError:
+        return None
 
 
 def compute_status(
@@ -548,8 +626,10 @@ def compute_status(
     human_ids=None,
     recompute=None,
     autosave=None,
+    listed: Accepted | None = None,
+    accepted_path=None,
 ) -> dict:
-    """Return the readiness dict. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name `make artifact-cycle` as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), and None to read `autosave_path`. A store file that holds a record `verdict_store.well_formed` refuses fails the verdict-store check, naming the first such record (`verdict_store.read_store_document`), since the review server serves no verdict from it and refuses every save (`VerdictStore.reload`); serve.py passes None while its store is refused."""
+    """Return the readiness dict. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name `make artifact-cycle` as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), with `listed`, the accepted list it paired with, and None to read `autosave_path` and the list at `accepted_path`, by default the one beside it (`verdict_store.accepted_path_for`), and pair them. The store's accepted units count among its effective verdicts and leave the blanks. A store file that holds a record `verdict_store.well_formed` refuses fails the verdict-store check, naming the first such record (`verdict_store.read_store_document`), since the review server serves no verdict from it and refuses every save (`VerdictStore.reload`); serve.py passes None while its store is refused."""
     if recompute is None:
         recompute = fingerprint.compute_all
     repo_root = Path(repo_root)
@@ -570,8 +650,27 @@ def compute_status(
 
     summary = _load_json_dict(cycle_summary_path)
 
-    verdict_store, aligned_records = _verdict_store_check(
-        autosave_path, generated_at, artifact_cycle_remedy, fullest_hit, fullest_rel, autosave
+    loaded: list[frozenset[str] | None] = []
+
+    def human_ids_of() -> frozenset[str] | None:
+        if human_ids is not None:
+            return human_ids
+        if not loaded:
+            loaded.append(_human_ids_or_none(review_dir))
+        return loaded[0]
+
+    verdict_store, aligned = _verdict_store_check(
+        autosave_path,
+        generated_at,
+        artifact_cycle_remedy,
+        fullest_hit,
+        fullest_rel,
+        autosave,
+        listed=listed if autosave is not None else None,
+        listed_path=(
+            Path(accepted_path) if accepted_path is not None else accepted_path_for(Path(autosave_path))
+        ),
+        human_ids_of=human_ids_of,
     )
     checks = {
         "corpus": _corpus_check(manifest),
@@ -581,9 +680,9 @@ def compute_status(
         "gates": _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy),
         "verdict_store": verdict_store,
         "fullest_verdicts": _fullest_verdicts_check(
-            fullest_hit, fullest_rel, _rel(repo_root, autosave_path), aligned_records
+            fullest_hit, fullest_rel, _rel(repo_root, autosave_path), aligned
         ),
-        "blanks": _blanks_check(aligned_records, review_dir, human_ids),
+        "blanks": _blanks_check(aligned, human_ids_of() if aligned is not None else None),
     }
     ready = all(checks[name]["level"] != "fail" for name in ("corpus", "freshness", "gates", "verdict_store"))
     kept_aside = summarize_orphans(orphans_dir_for(Path(autosave_path)))

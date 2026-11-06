@@ -4,18 +4,20 @@ The file is one ams-review-verdicts/1 document holding every verdict on the corp
 
 A set may carry `base_at`, the `at` of the record the tab last saw the server hold for that unit (null when it saw none). A clear is a unit id (the form older tabs send) or `{unit, base_at, at}`, where `at` is when the tab cleared it. The store keeps a tombstone for each cleared unit (unit → the clear's `at`), in memory and as a top-level `cleared` list in the file, which readers that use only `verdicts` ignore; a set removes its unit's tombstone.
 
+The store reads a unit through the accepted list beside it (`accepted_path_for`; `rebuild.review.accepted` gives the list, the rule and the override section): an unlisted unit's record, else blank, and for a listed unit its override, a record or a tombstone, which blanks it, else the accepted record a close-out folded into the list, dated the close-out's `closed_at` (`accepted.verdict_of`). Every rule below reads a unit's verdict that way, so a set or clear on an accepted unit with no override meets the accepted record. Every set, clear and undo on a listed unit is applied to the store's override section (`accepted.Overrides`, the file's `overrides`) and never to its own records and tombstones, which name only unlisted units. A clear of a listed unit, and a stale skip rule 2 drops on one, leaves an override tombstone, which blanks it, and a set equal to the unit's accepted record (`Accepted.matches`: its verdict and an empty note) dated the close-out's `closed_at`, which is what a tab's undo back to the accepted record sends, removes the unit's override instead of being stored, so the unit reads as the list names it again; the journal records that as a clear line with a null `at`. Any other set on an accepted unit, the accepted mark picked again with an empty note among them, is stored as an override dated by the tab, so every other tab adopts it as newer than what it holds. A reply reports a unit's verdict as `reported` reads it, an accepted record flagged `accepted: true`. The full GET hands a tab the store's own records and tombstones and its override section as one list of each, as the journal records them, since a tab knows no section. The file's top-level `accepted` field names the list the store pairs with, and a list the store cannot read (`accepted-malformed`) or a store that does not pair with the list (`accepted-mismatch`, `accepted.pair`) is refused as a store holding a malformed record is, below.
+
 Which stamp a delta carries decides how it is applied. The served corpus (`ServedCorpus`, the served manifest's stamp and human unit ids) is what the caller says the server is serving.
 
 1. A delta on the store's stamp is applied last-writer-wins. One marked `replay: true`, which a tab sends from its outbox for saves it could not confirm before it closed, takes rule 2's per-unit test instead.
-2. A delta on another stamp, while the store is on the served corpus, is carried by unit id, because a unit id is a content key and names the same unit on every corpus where its content is unchanged. A set applies when the store holds no record for the unit and no newer tombstone, when the store's record has the `at` the set names as `base_at`, or when the set's `at` is not older than the store's record's (an equal `at` is the same act, whose note an edit or the carry's provenance prefix may have changed); a clear applies on the same tests with its own `at`. Anything else is a conflict: the store keeps its record, the incoming set or clear goes to the orphan document with `reason: conflict`, and the response hands back the store's record for the unit. A set on a unit outside the served corpus's human units, and a clear with no `at`, go to the orphan document with `reason: orphan`. A skip is dropped, as the carry drops every skip, so the unit is asked again on the served corpus: when the store holds a record for the unit, the skip clears it under the same tests (a skip that fails them is a conflict), and the response lists the unit under `dropped`.
-3. A delta stamped for the served corpus while the store is on another stamp moves the store onto the served corpus by unit id: the file is kept under its stash name (`stash_path_for`), the store keeps its records and tombstones on the served corpus's human units, less its skips (as the carry drops every skip), which invalidates every token, the delta is applied under rule 1, and the journal records the move as a transition naming the stash. This is how a store left on another corpus than the served one (by a first pass, which builds the missing corpus in place and lands no store, or by a restore under --yes) follows the corpus the tabs load without leaving its verdicts behind in the stash.
+2. A delta on another stamp, while the store is on the served corpus, is carried by unit id, because a unit id is a content key and names the same unit on every corpus where its content is unchanged. A set applies when the unit has no verdict and no newer tombstone, when its verdict has the `at` the set names as `base_at`, or when the set's `at` is not older than its verdict's (an equal `at` is the same act, whose note an edit or the carry's provenance prefix may have changed); a clear applies on the same tests with its own `at`. Anything else is a conflict: the store keeps its state, the incoming set or clear goes to the orphan document with `reason: conflict`, and the response hands back the unit's verdict. A set on a unit outside the served corpus's human units, and a clear with no `at`, go to the orphan document with `reason: orphan`. A skip is dropped, as the carry drops every skip, so the unit is asked again on the served corpus: when the unit has a verdict, the skip clears it under the same tests (a skip that fails them is a conflict), and the response lists the unit under `dropped`.
+3. A delta stamped for the served corpus while the store is on another stamp moves the store onto the served corpus by unit id: the file is kept under its stash name (`stash_path_for`), the store keeps its own records and tombstones on the served corpus's human units, less its skips (as the carry drops every skip), each of which leaves a tombstone at its `at`, and its override section whole, on the served corpus or off it, each skip there becoming a tombstone at its `at` (`Overrides.moved`), so a skipped accepted unit stays blank and an override or clear on an accepted unit outlasts the move, which invalidates every token, the delta is applied under rule 1, and the journal records the move as a transition naming the stash. This is how a store left on another corpus than the served one (by a first pass, which builds the missing corpus in place and lands no store, or by a restore under --yes) follows the corpus the tabs load without leaving its verdicts behind in the stash.
 4. Any other delta on another stamp, one made on neither the store's corpus nor the served one, or one arriving while the served corpus is unknown, gets a 503 with `retry: true`, and nothing is written; the tab keeps the verdicts and saves them again. An unstamped or missing store takes the served corpus's stamp first, or the delta's when the served corpus is unknown.
 
-The orphan documents live in `var/verdict-orphans/` beside the store (`orphans_dir_for`), one per stamp the verdicts were made on (`orphan_path`). Each is an ams-review-verdicts/1 document stamped for that corpus, whose records carry `reason` and `recorded_at` (a clear is a record with a null verdict), so nothing a tab sends is dropped, and none of them can become a master, because `status` surveys only the repo root. Every accepted delta's response carries `corpus_stamp` (the store's stamp), `carried` (the units a delta on another stamp changed), `orphaned` (the unit ids sent to the orphan document as orphans), `dropped` (the units whose skip was dropped under rule 2), and `conflicts` (each unit with the store's record, or null when the store holds none).
+The orphan documents live in `var/verdict-orphans/` beside the store (`orphans_dir_for`), one per stamp the verdicts were made on (`orphan_path`). Each is an ams-review-verdicts/1 document stamped for that corpus, whose records carry `reason` and `recorded_at` (a clear is a record with a null verdict), so nothing a tab sends is dropped, and none of them can become a master, because `status` surveys only the repo root. Every applied delta's response carries `corpus_stamp` (the store's stamp), `accepted` (the list's sha256 and `closed_at`, both null with no list), `carried` (the units a delta on another stamp changed), `orphaned` (the unit ids sent to the orphan document as orphans), `dropped` (the units whose skip was dropped under rule 2), and `conflicts` (each unit with its verdict, or null when it reads blank).
 
 A full-store POST gets a 400 with `reason: whole-store-post-unsupported` and recovery instructions, regardless of its stamp or the file's state, and writes nothing. A 409 tells legacy readers to reload rather than download pending verdicts, and `corpus_stamp` can prompt newer clients to reload automatically, so the refusal uses neither. When the store writes the file itself, it writes an ams-review-verdicts/1 document with one record per line, which `parse_autosave_payload`, the merge tool, the status check and the carry all read; GETs and export files use that format too.
 
-The file holds the verdicts between server runs, and another writer (a pass's land, `rebuild.review.landing`, or the merge tool or a journal restore under --yes) can replace it while the server runs; each holds the store's lock (`rebuild.review.store_lock`) for its write, as the server does for each POST. So every request first compares the file's mtime, size and inode with what the store last read or wrote, and reloads on a mismatch. A reload onto the same stamp diffs the new records against the ones in memory and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, or onto a file that is missing or unreadable, invalidates every token. A file holding a verdict record `well_formed` refuses is read as an unreadable one is, so the store serves no verdict from it, but unlike an unreadable one it is never written over: while it stays, every delta `parse_delta_payload` accepts gets a 422 and a GET a 404 (`serve.missing_autosave_reply`), both with `reason: store-malformed` and an error naming the file and the first such record (`malformed_record`), which the app shows the reader, and nothing is written until another writer replaces the file. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were. A delta whose write fails reloads the file before the error propagates, so memory never holds a record the file lacks and a resend of the same delta is written. The orphan document is written before the store, so a delta whose orphan write fails changes nothing.
+The file holds the verdicts between server runs, and another writer (a pass's land, `rebuild.review.landing`, or the merge tool or a journal restore under --yes) can replace it while the server runs; each holds the store's lock (`rebuild.review.store_lock`) for its write, as the server does for each POST. So every request first compares the file's mtime, size and inode, and the accepted list's, with what the store last read or wrote, and reloads on a mismatch. A reload onto the same stamp diffs the new records and overrides against the ones in memory and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, onto a file that is missing or unreadable, or beside another accepted list, invalidates every token. A file holding a verdict record `well_formed` refuses is read as an unreadable one is, so the store serves no verdict from it, but unlike an unreadable one it is never written over: while it stays, every delta `parse_delta_payload` accepts gets a 422 and a GET a 404 (`serve.missing_autosave_reply`), both with `reason: store-malformed` and an error naming the file and the first such record (`malformed_record`), which the app shows the reader, and nothing is written until another writer replaces the file. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were. A delta whose write fails reloads the file before the error propagates, so memory never holds a record the file lacks and a resend of the same delta is written. The orphan document is written before the store, so a delta whose orphan write fails changes nothing.
 
 Before a store write the journal will record, the store writes the marker that says the journal may lack a write (`journal.mark_unjournaled`), and it removes the marker once the journal append succeeds, unless the marker was already there. A marker that cannot be written fails the save as a failed store write does, so no store write goes unmarked. An append that fails (reported as `journal_error`), is cut short, or never runs because the server was killed leaves it, so the next land that moves the stamp journals a base (`journal.base_due`).
 """
@@ -31,7 +33,8 @@ from collections import Counter, deque
 from dataclasses import dataclass
 from pathlib import Path
 
-from rebuild.review import journal
+from rebuild.review import accepted, journal
+from rebuild.review.accepted import Accepted, Overrides, View
 from rebuild.review.journal import parse_cleared
 
 EXPORT_FORMAT = "ams-review-verdicts/1"
@@ -111,11 +114,24 @@ class MalformedStore(ValueError):
 
 
 def read_store_document(raw: bytes, name: str) -> dict | None:
-    """Return the ams-review-verdicts/1 document in `raw` as `parse_autosave_payload` reads it, or None when it is not one, and raise `MalformedStore`, calling the document `name`, when it holds a record `well_formed` refuses, before anything compares its records' `at` values: `journal.latest_by_unit` compares them with `>`, so a record whose `at` is not a string beside one whose `at` is a string on the same unit raises TypeError. These readers read their store here: the land's reads of the snapshot, the prepared store and the live store, the snapshot step's and a dead land's recovery's (`landing.read_store`), the review server's (`VerdictStore.reload`), the readiness check's (`status._verdict_store_check`), and the re-key's of its `--autosave` store (`rebuild.tools.rekey_verdicts`). The merge reads its store itself, refusing one stamped for the corpus that holds such a record with `malformed_record` and setting an older-stamped one aside whatever it holds (`merge_verdicts`), the carry refuses such a record in any file it reads (`carry_verdicts`), and status's count of the carry candidates gives a file whose records it cannot compare no count (`status._effective_count`)."""
+    """Return the ams-review-verdicts/1 document in `raw` as `parse_autosave_payload` reads it, or None when it is not one, and raise `MalformedStore`, calling the document `name`, when it holds a record `well_formed` refuses, before anything compares its records' `at` values: `journal.latest_by_unit` compares them with `>`, so a record whose `at` is not a string beside one whose `at` is a string on the same unit raises TypeError. These readers read their store here: the land's reads of the snapshot, the prepared store and the live store, the snapshot step's and a dead land's recovery's (`landing.read_store`), the review server's (`VerdictStore.reload`), the readiness check's (`status._verdict_store_check`), and the re-key's of its `--autosave` store (`rebuild.tools.rekey_verdicts`). The merge reads its store itself, refusing one stamped for the corpus that holds such a record (`malformed_in`) and setting an older-stamped one aside whatever its own records hold, though not one whose override section holds such a record (`malformed_override`), since it keeps that section (`merge_verdicts`), the carry refuses such a record in any file it reads (`carry_verdicts`), and status's count of the carry candidates gives a file whose records it cannot compare no count (`status._effective_count`)."""
     data = parse_autosave_payload(raw)
-    if data is not None and (malformed := malformed_record(data["verdicts"], name)) is not None:
+    if data is not None and (malformed := malformed_in(data, name)) is not None:
         raise MalformedStore(malformed)
     return data
+
+
+def malformed_in(document: dict, name: str) -> str | None:
+    """Return `malformed_record`'s clause for the document called `name`, over its own `verdicts` and then over its override section's (`accepted.Overrides`), so a store holding a malformed override is refused as one holding a malformed record is; None when every record passes."""
+    return malformed_record(document["verdicts"], name) or malformed_override(document, name)
+
+
+def malformed_override(document: dict, name: str) -> str | None:
+    """Return `malformed_record`'s clause for the override section of the document called `name`, and None when it has none or every record there passes. The merge checks a store it sets aside with it alone, since it keeps that store's section and none of its own records (`merge_verdicts`)."""
+    section = document.get(accepted.OVERRIDES)
+    if isinstance(section, dict) and isinstance(section.get("verdicts"), list):
+        return malformed_record(section["verdicts"], f"the override section of {name}")
+    return None
 
 
 class MalformedSet(ValueError):
@@ -294,6 +310,12 @@ def _signature(record: dict) -> tuple:
     return (record.get("verdict"), note_of(record), record.get("at") or "")
 
 
+def accepted_path_for(store: Path) -> Path | None:
+    """Return the accepted list beside the store at `store` (`accepted.path_for`), which for the live store is the tracked rebuild/accepted-units.txt, or None for a store under any other name, which reads no list. The review server's store and the readiness check take the list this way when no caller names one; the tools that run on a store under another name, the cycle's prepared store among them, take `--accepted`."""
+    store = Path(store)
+    return accepted.path_for(store) if store.name == accepted.AUTOSAVE_NAME else None
+
+
 def _stat_signature(stat: os.stat_result) -> tuple[int, int, int]:
     return (stat.st_mtime_ns, stat.st_size, stat.st_ino)
 
@@ -309,34 +331,68 @@ def file_signature(path: Path) -> tuple[int, int, int] | None:
 
 @dataclass(slots=True)
 class _Plan:
-    """What one delta does, decided before anything is written: the records to set, the clears to apply (unit → the tombstone's `at`), the conflicts and orphans to report, and the units whose skip was dropped."""
+    """What one delta does, decided before anything is written: the records to set, the clears to apply (unit → the tombstone's `at`), the units a set returns to their accepted record (`restores`), the conflicts and orphans to report, and the units whose skip was dropped."""
 
     sets: list[dict]
     clears: dict[str, str]
+    restores: list[str]
     conflicts: list[dict]
     orphans: list[dict]
     dropped: list[str]
 
 
 class VerdictStore:
-    def __init__(self, path, journal_path=None, orphans_dir=None):
+    def __init__(self, path, journal_path=None, orphans_dir=None, accepted_path=None):
         self.path = Path(path)
         self.journal_path = Path(journal_path) if journal_path is not None else None
         self.orphans_dir = Path(orphans_dir) if orphans_dir is not None else orphans_dir_for(self.path)
+        self.accepted_path = (
+            Path(accepted_path) if accepted_path is not None else accepted_path_for(self.path)
+        )
+        self.accepted: Accepted = Accepted.empty(self.accepted_path or accepted.RELATIVE_PATH)
         self.stamp: str | None = None
         self.records: dict[str, dict] = {}
         self.cleared: dict[str, str] = {}
+        self.overrides = Overrides()
         self.refusal: str | None = None
+        self.refusal_reason: str | None = None
         self._lines: dict[str, str] = {}
         self._order: list[str] = []
+        self._override_order: list[str] = []
         self._signature: tuple[int, int, int] | None = None
+        self._accepted_signature: tuple[int, int, int] | None = None
+        self._accepted_read = False
+        self._accepted_error: accepted.Refused | None = None
+        self._paired_sha: str | None = None
+        self._field_cache: tuple[tuple, object, str] | None = None
         self._boot = secrets.token_hex(4)
         self._seq = 0
         self._changes: deque[tuple[int, str]] = deque(maxlen=CHANGE_LOG_CAP)
         self.reload()
 
+    @property
+    def view(self) -> View:
+        """The store's own records and tombstones and its override section read with the accepted list through `accepted.verdict_of`, as every reader of the store reads a unit."""
+        return View(self.records, self.cleared, self.accepted, self.overrides)
+
+    def _read_accepted(self) -> None:
+        """Read the accepted list again when its file's signature moved since the last read, keeping a malformed one's refusal (`accepted.Malformed`) for `reload` to raise. The signature is taken before the read, so a list renamed into place during the read is read again on the next refresh."""
+        if self.accepted_path is None:
+            return
+        signature = file_signature(self.accepted_path)
+        if self._accepted_read and signature == self._accepted_signature:
+            return
+        self._accepted_signature = signature
+        self._accepted_read = True
+        try:
+            self.accepted = accepted.read(self.accepted_path)
+            self._accepted_error = None
+        except accepted.Malformed as malformed:
+            self.accepted = Accepted.empty(self.accepted_path)
+            self._accepted_error = malformed
+
     def reload(self) -> None:
-        """Replace the store's content with the file's. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it. A file holding a verdict record `well_formed` refuses leaves the store empty and unstamped too, but sets `refusal`, which names the file and the first such record (`read_store_document`, which refuses it before anything compares its records' `at` values), and `receive` refuses every delta with it until a reload of another file clears it, so no save writes over the file. When the file holds the stamp the store already has, the units whose records differ are recorded as changes and every token stays valid; otherwise every token is invalidated.
+        """Replace the store's content with the file's, and read the accepted list again when it moved. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it. A file holding a verdict record `well_formed` refuses leaves the store empty and unstamped too, but sets `refusal`, which names the file and the first such record (`read_store_document`, which refuses it before anything compares its records' `at` values), and `refusal_reason`, `store-malformed`, and `receive` refuses every delta with it until a reload of another file clears it, so no save writes over the file. A malformed list (`accepted-malformed`) and a store that does not pair with the list (`accepted-mismatch`, `accepted.pair`) are refused the same way, until the list or the store is replaced. When the file holds the stamp the store already has and the list is the one the store last paired with, the units whose answer can differ (`_diff_units`) are recorded as changes and every token stays valid; otherwise every token is invalidated, since a new list changes the answer for every unit it names.
 
         The signature comes from the open handle, so it describes the bytes the store parsed even when another writer renames a new file over the path mid-read; the next `refresh_if_changed` then sees the new file and reloads. When the file cannot be opened or read, the signature is None, so a file renamed into place after the failed open leaves a mismatch, and an existing file the store could not read is reloaded on the next refresh.
         """
@@ -350,9 +406,12 @@ class VerdictStore:
             self._signature = None
         data = None
         self.refusal = None
+        self.refusal_reason = None
+        self._read_accepted()
         try:
             data = read_store_document(raw, f"the store {self.path}") if raw is not None else None
         except MalformedStore as malformed:
+            self.refusal_reason = "store-malformed"
             self.refusal = (
                 f"{malformed}. The review server serves no verdict from it and refuses every save, writing neither "
                 "the store nor the journal, until the file is replaced: it reads a store holding a record the carry "
@@ -360,19 +419,37 @@ class VerdictStore:
                 "Restore a readable store from the journal with "
                 "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`."
             )
+        if self.refusal is None:
+            try:
+                if self._accepted_error is not None:
+                    raise self._accepted_error
+                accepted.pair(data, self.accepted, store=self.path)
+            except accepted.Refused as refused:
+                data = None
+                self.refusal_reason = refused.reason
+                self.refusal = (
+                    f"{refused}. Until then the review server serves no verdict and refuses every save, writing "
+                    "neither the store nor the journal."
+                )
         stamp = data["manifest_generated_at"] if data else None
         new_records = journal.latest_by_unit(data["verdicts"]) if data else {}
         cleared = parse_cleared(data)
-        if stamp is not None and stamp == self.stamp:
-            changed = self._diff_units(new_records)
-            self._replace(stamp, new_records, cleared)
+        overrides = Overrides.of(data)
+        same_list = self._paired_sha == self.accepted.sha256
+        self._paired_sha = self.accepted.sha256
+        if stamp is not None and stamp == self.stamp and same_list:
+            changed = self._diff_units(new_records, overrides)
+            self._replace(stamp, new_records, cleared, overrides)
             self._note_changes(changed)
             return
-        self._replace(stamp, new_records, cleared)
+        self._replace(stamp, new_records, cleared, overrides)
         self._invalidate_tokens()
 
     def refresh_if_changed(self) -> bool:
-        if file_signature(self.path) == self._signature:
+        """Reload when the store's file or the accepted list's moved since the store last read it (`reload`), and return whether it reloaded."""
+        if file_signature(self.path) == self._signature and (
+            self.accepted_path is None or file_signature(self.accepted_path) == self._accepted_signature
+        ):
             return False
         self.reload()
         return True
@@ -386,35 +463,70 @@ class VerdictStore:
         self._seq = 0
         self._changes.clear()
 
-    def _replace(self, stamp: str | None, new_records: dict[str, dict], cleared: dict[str, str]) -> None:
+    def _replace(
+        self, stamp: str | None, new_records: dict[str, dict], cleared: dict[str, str], overrides: Overrides
+    ) -> None:
         self.stamp = stamp
         self.records = {unit: _normalize(record) for unit, record in new_records.items()}
         self.cleared = {unit: at for unit, at in cleared.items() if unit not in self.records}
-        self._lines = {unit: json.dumps(record, ensure_ascii=False) for unit, record in self.records.items()}
+        self.overrides = Overrides(
+            {unit: _normalize(record) for unit, record in overrides.records.items()}, dict(overrides.cleared)
+        )
+        held = (*self.records.items(), *self.overrides.records.items())
+        self._lines = {unit: json.dumps(record, ensure_ascii=False) for unit, record in held}
         self._order = sorted(self.records)
+        self._override_order = sorted(self.overrides.records)
+
+    def _record(self, unit: str) -> dict | None:
+        """Return the unit's record in the part of the store that holds its entries: its override record for a listed unit, its own record otherwise."""
+        return (self.overrides.records if unit in self.accepted.verdicts else self.records).get(unit)
 
     def _set(self, record: dict) -> bool:
+        """Store `record`, in the override section for a listed unit and among the store's own records otherwise, replacing the unit's record and tombstone there, and return whether it changed anything."""
         record = _normalize(record)
         unit = record["unit"]
-        existing = self.records.get(unit)
+        listed = unit in self.accepted.verdicts
+        existing = self._record(unit)
         if existing is not None and _signature(existing) == _signature(record):
             return False
         if existing is None:
-            insort(self._order, unit)
-        self.records[unit] = record
+            insort(self._override_order if listed else self._order, unit)
+        if listed:
+            self.overrides.set(record)
+        else:
+            self.records[unit] = record
+            self.cleared.pop(unit, None)
         self._lines[unit] = json.dumps(record, ensure_ascii=False)
-        self.cleared.pop(unit, None)
+        return True
+
+    def _drop_record(self, unit: str) -> bool:
+        listed = unit in self.accepted.verdicts
+        records = self.overrides.records if listed else self.records
+        if unit not in records:
+            return False
+        del records[unit]
+        del self._lines[unit]
+        order = self._override_order if listed else self._order
+        del order[bisect_left(order, unit)]
         return True
 
     def _clear(self, unit: str, at: str) -> bool:
-        if unit not in self.records:
+        """Clear `unit`, leaving a tombstone at `at`: an unlisted unit's record goes and its tombstone stays, and a listed unit that does not already read blank takes an override tombstone in place of its override record or its accepted record. A unit that already reads blank changes nothing."""
+        if unit in self.accepted.verdicts:
+            if unit in self.overrides.cleared:
+                return False
+            self._drop_record(unit)
+            self.overrides.cleared[unit] = at
+            return True
+        if not self._drop_record(unit):
             return False
-        del self.records[unit]
-        del self._lines[unit]
-        index = bisect_left(self._order, unit)
-        del self._order[index]
         self.cleared[unit] = at
         return True
+
+    def _restore(self, unit: str) -> bool:
+        """Return `unit`, a listed one, to its accepted record: its override record or tombstone goes and nothing is left, so it reads as the list names it."""
+        dropped = self._drop_record(unit)
+        return self.overrides.cleared.pop(unit, None) is not None or dropped
 
     def _note_changes(self, units) -> None:
         for unit in units:
@@ -425,18 +537,38 @@ class VerdictStore:
         return [{"unit": unit, "at": at} for unit, at in sorted(self.cleared.items())]
 
     def payload_dict(self) -> dict:
+        """Return the store as its file holds it, as one document: its `accepted` field, its own records and tombstones, and its override section when it holds one."""
         payload = {
             "format": EXPORT_FORMAT,
             "manifest_generated_at": self.stamp,
             "exported_at": journal.now_stamp(),
-            "verdicts": [self.records[unit] for unit in self._order],
         }
+        if (field := self.accepted.field()) is not None:
+            payload["accepted"] = field
+        payload["verdicts"] = [self.records[unit] for unit in self._order]
         if self.cleared:
             payload["cleared"] = self._cleared_list()
+        if (section := self.overrides.field()) is not None:
+            payload[accepted.OVERRIDES] = section
         return payload
 
-    def payload_bytes(self, *, token: bool = False) -> bytes:
-        """Return the whole store as one ams-review-verdicts/1 document, one record per line, with the tombstones after the records when there are any. With `token`, the sync token is added as an extra top-level field for the app."""
+    def list_stamp(self) -> dict:
+        """Return the accepted list's sha256 and `closed_at` (both None with no list), which every reply that applies a save carries, so a tab that loaded another list moves."""
+        return {"sha256": self.accepted.sha256, "closed_at": self.accepted.closed_at}
+
+    def _app_field(self, within: frozenset[str] | None) -> str:
+        """Return the review app's `accepted` field as JSON (`View.app_field` over `within`, the served corpus's human unit ids, or every listed id when they are unknown), rebuilt only when the list, `within` or a record or tombstone moved, since every change moves the token."""
+        key = (self._boot, self._seq, self.accepted.sha256)
+        cached = self._field_cache
+        if cached is not None and cached[0] == key and cached[1] is within:
+            return cached[2]
+        field = self.view.app_field(within if within is not None else self.accepted.verdicts)
+        text = json.dumps(field, ensure_ascii=False)
+        self._field_cache = (key, within, text)
+        return text
+
+    def payload_bytes(self, *, token: bool = False, within: frozenset[str] | None = None) -> bytes:
+        """Return the whole store as one ams-review-verdicts/1 document, one record per line, with the tombstones after the records when there are any. Without `token` it is the store file, whose `accepted` field names the list the store pairs with when there is one and whose override section follows the tombstones when the store holds one. With `token` it is the full GET a tab reads: the sync token and the review app's `accepted` field are added after the head (the list's sha256 and `closed_at` and, by verdict, the listed ids among `within`, the served corpus's human unit ids, that hold no override, `View.app_field`), and the override section's records and tombstones are listed with the store's own, as one store (`accepted.joined`), since a tab knows no section."""
         head = {
             "format": EXPORT_FORMAT,
             "manifest_generated_at": self.stamp,
@@ -444,13 +576,40 @@ class VerdictStore:
         }
         if token:
             head["token"] = self.token
+        elif (field := self.accepted.field()) is not None:
+            head["accepted"] = field
         prefix = json.dumps(head, ensure_ascii=False)[:-1]
-        body = ",\n".join(self._lines[unit] for unit in self._order)
+        if token:
+            prefix += f', "accepted": {self._app_field(within)}'
+        own = ",\n".join(self._lines[unit] for unit in self._order)
+        overridden = ",\n".join(self._lines[unit] for unit in self._override_order)
+        if token:
+            body = ",\n".join(part for part in (own, overridden) if part)
+            cleared = {**self.cleared, **self.overrides.cleared}
+            tombstones = [{"unit": unit, "at": at} for unit, at in sorted(cleared.items())]
+            tail = f', "cleared": {json.dumps(tombstones, ensure_ascii=False)}' if tombstones else ""
+            return f'{prefix}, "verdicts": [\n{body}\n]{tail}}}\n'.encode()
         tail = f', "cleared": {json.dumps(self._cleared_list(), ensure_ascii=False)}' if self.cleared else ""
-        return f'{prefix}, "verdicts": [\n{body}\n]{tail}}}\n'.encode()
+        if self.overrides:
+            section_cleared = [
+                {"unit": unit, "at": at} for unit, at in sorted(self.overrides.cleared.items())
+            ]
+            tail += (
+                f', "{accepted.OVERRIDES}": {{"verdicts": [\n{overridden}\n], '
+                f'"cleared": {json.dumps(section_cleared, ensure_ascii=False)}}}'
+            )
+        return f'{prefix}, "verdicts": [\n{own}\n]{tail}}}\n'.encode()
+
+    def reported(self, unit: str) -> dict | None:
+        """Return `unit`'s verdict as a reply reports it to a tab: `accepted.verdict_of`'s answer, with `accepted: true` on an accepted record, so the tab keeps it out of its count since the close-out and out of Export, or None when the unit reads blank."""
+        view = self.view
+        record = view.verdict_of(unit)
+        if record is not None and view.is_accepted(unit):
+            return {**record, "accepted": True}
+        return record
 
     def changes_since(self, token: str | None) -> dict | None:
-        """Return the records set or cleared after `token`, or None when the token is malformed, from another boot, ahead of the current sequence, or older than the retained changes, so the caller sends the whole store."""
+        """Return what changed after `token`, or None when the token is malformed, from another boot, ahead of the current sequence, or older than the retained changes, so the caller sends the whole store. Each changed unit is reported as `reported` reads it: a set for a unit that reads verdicted, its accepted record among them, so a removed override or tombstone on an accepted unit comes back as the accepted record, and a clear for one that reads blank."""
         if not isinstance(token, str) or ":" not in token:
             return None
         boot, _, seq_text = token.partition(":")
@@ -462,8 +621,14 @@ class VerdictStore:
         if self._changes and seq < self._changes[0][0] - 1:
             return None
         units = {unit for change_seq, unit in self._changes if change_seq > seq}
-        sets = [self.records[unit] for unit in sorted(units) if unit in self.records]
-        clears = sorted(unit for unit in units if unit not in self.records)
+        sets = []
+        clears = []
+        for unit in sorted(units):
+            record = self.reported(unit)
+            if record is None:
+                clears.append(unit)
+            else:
+                sets.append(record)
         return {
             "format": DELTA_FORMAT,
             "manifest_generated_at": self.stamp,
@@ -491,7 +656,7 @@ class VerdictStore:
             return 400, {"ok": False, "error": str(malformed)}
         if delta is not None:
             if self.refusal is not None:
-                return 422, {"ok": False, "reason": "store-malformed", "error": self.refusal}
+                return 422, {"ok": False, "reason": self.refusal_reason, "error": self.refusal}
             return self._receive_delta(delta, served)
         if parse_autosave_payload(raw) is not None:
             return 400, {
@@ -507,33 +672,48 @@ class VerdictStore:
             }
         return 400, {"ok": False, "error": f"not an {DELTA_FORMAT} document"}
 
-    def _diff_units(self, new_records: dict[str, dict]) -> list[str]:
+    def _diff_units(self, new_records: dict[str, dict], new_overrides: Overrides) -> list[str]:
+        """Return the units whose answer a same-stamp reload onto `new_records` and `new_overrides` can change: each unit whose own record changed, came or went, and each unit whose override record or tombstone changed, came or went, which changes its answer, blanks it or returns it to its accepted record (`accepted.verdict_of`). A change to an unlisted unit's tombstone alone changes no answer."""
         changed = [
             unit
             for unit, record in new_records.items()
             if unit not in self.records or _signature(self.records[unit]) != _signature(record)
         ]
         changed.extend(unit for unit in self.records if unit not in new_records)
+        held, now = self.overrides, new_overrides
+        for unit in sorted(
+            held.records.keys() | held.cleared.keys() | now.records.keys() | now.cleared.keys()
+        ):
+            before, after = held.records.get(unit), now.records.get(unit)
+            if (_signature(before) if before is not None else None) != (
+                _signature(after) if after is not None else None
+            ) or held.cleared.get(unit) != now.cleared.get(unit):
+                changed.append(unit)
         return changed
 
     def _admits(self, unit: str, at: str, base_at: str | None) -> bool:
-        """Return whether a set or clear whose `at` and `base_at` are given may replace the store's state for `unit` under rule 2: no record and no newer tombstone, a record whose `at` is `base_at`, or a record not newer than `at`."""
-        current = self.records.get(unit)
+        """Return whether a set or clear whose `at` and `base_at` are given may replace the store's state for `unit` under rule 2, read through `accepted.verdict_of`: no verdict and no newer tombstone, an override tombstone on a listed unit among them, or a verdict, an accepted record dated `closed_at` among them, whose `at` is `base_at` or is not newer than `at`."""
+        view = self.view
+        current = view.verdict_of(unit)
         if current is None:
-            tombstone = self.cleared.get(unit)
+            tombstone = view.tombstone(unit)
             return tombstone is None or tombstone <= at
         return current["at"] == base_at or at >= current["at"]
 
     def _plan(self, delta: dict, *, tested: bool, members: frozenset[str] | None) -> _Plan:
-        plan = _Plan(sets=[], clears={}, conflicts=[], orphans=[], dropped=[])
+        plan = _Plan(sets=[], clears={}, restores=[], conflicts=[], orphans=[], dropped=[])
+        view = self.view
         for raw_record in delta["sets"]:
             record = _normalize(raw_record)
             unit = record["unit"]
             if members is not None and unit not in members:
                 plan.orphans.append({**record, "reason": "orphan"})
                 continue
-            current = self.records.get(unit)
-            if current is not None and _signature(current) == _signature(record):
+            current = view.verdict_of(unit)
+            restore = self.accepted.matches(record) and record["at"] == self.accepted.closed_at
+            if restore and view.is_accepted(unit):
+                continue
+            if not restore and current is not None and _signature(current) == _signature(record):
                 continue
             skip = members is not None and record["verdict"] == "skip"
             if skip and current is None:
@@ -546,6 +726,9 @@ class VerdictStore:
                 plan.dropped.append(unit)
                 plan.clears[unit] = record["at"] or journal.now_stamp()
                 continue
+            if restore:
+                plan.restores.append(unit)
+                continue
             plan.sets.append(record)
         for clear in delta["clears"]:
             unit = clear["unit"]
@@ -554,7 +737,7 @@ class VerdictStore:
             if tested and at is None:
                 plan.orphans.append({**gone, "reason": "orphan"})
                 continue
-            if unit not in self.records:
+            if unit not in view:
                 continue
             if tested and not self._admits(unit, at, clear["base_at"]):
                 plan.conflicts.append({**gone, "reason": "conflict"})
@@ -594,8 +777,8 @@ class VerdictStore:
             append_orphans(self.orphans_dir, stamp, rejected)
         if adopted is not None:
             self.stamp = adopted
-        sets, clears = self._apply(plan)
-        changed = [record["unit"] for record in sets] + clears
+        sets, clears, restores = self._apply(plan)
+        changed = [record["unit"] for record in sets] + clears + restores
         marked = False
         if changed or adopted is not None:
             try:
@@ -606,19 +789,20 @@ class VerdictStore:
                 raise
         body = {
             "ok": True,
-            "saved": len(self.records),
+            "saved": len(self.records) + len(self.overrides.records),
             "token": self.token,
             "corpus_stamp": self.stamp,
+            "accepted": self.list_stamp(),
             "carried": changed if source == "autosave-carried" else [],
             "orphaned": [entry["unit"] for entry in plan.orphans],
             "dropped": plan.dropped,
             "conflicts": [
-                {"unit": entry["unit"], "server": self.records.get(entry["unit"])} for entry in plan.conflicts
+                {"unit": entry["unit"], "server": self.reported(entry["unit"])} for entry in plan.conflicts
             ],
         }
         if self.journal_path is not None and changed:
             seed_records, seed_cleared = (
-                (None, None) if self.journal_path.exists() else self._store_before(sets, clears)
+                (None, None) if self.journal_path.exists() else self._store_before(sets, clears + restores)
             )
             self._journal(
                 body,
@@ -626,26 +810,27 @@ class VerdictStore:
                 journal.record_delta,
                 source=source,
                 stamp=target,
-                sets=[self.records[record["unit"]] for record in sets],
-                clears={unit: self.cleared[unit] for unit in clears},
+                sets=[self._record(record["unit"]) for record in sets],
+                clears={**{unit: self.view.tombstone(unit) for unit in clears}, **dict.fromkeys(restores)},
                 seed_records=seed_records,
                 seed_cleared=seed_cleared,
+                accepted=self.accepted.field(),
             )
         return 200, body
 
-    def _apply(self, plan: _Plan) -> tuple[list[dict], list[str]]:
-        """Apply the plan's sets and clears to memory, record the changed units, and return the sets and clears that changed something."""
+    def _apply(self, plan: _Plan) -> tuple[list[dict], list[str], list[str]]:
+        """Apply the plan's sets, restores and clears to memory, record the changed units, and return the sets, clears and restores that changed something."""
         sets = [record for record in plan.sets if self._set(record)]
+        restores = [unit for unit in plan.restores if self._restore(unit)]
         clears = [unit for unit, at in plan.clears.items() if self._clear(unit, at)]
-        self._note_changes([record["unit"] for record in sets] + clears)
-        return sets, clears
+        self._note_changes([record["unit"] for record in sets] + clears + restores)
+        return sets, clears, restores
 
     def _receive_delta_onto_served_stamp(self, delta: dict, served: ServedCorpus) -> tuple[int, dict]:
-        """Apply a delta stamped for the served corpus to a store on another stamp (rule 3 in the module docstring): keep the file under its stash name, carry the store's records and tombstones on the served corpus's human units onto the served stamp by unit id, less its skips, apply the delta under rule 1, and journal the move as one transition that names the stash. The stash is a second name for the old file (a copy where the filesystem refuses a hard link), and the new store is renamed over it, so a failed write leaves the old store in place."""
+        """Apply a delta stamped for the served corpus to a store on another stamp (rule 3 in the module docstring): keep the file under its stash name, carry the store's own records and tombstones on the served corpus's human units onto the served stamp by unit id, less its skips, each of which leaves a tombstone at its `at`, keep its override section whole (`Overrides.moved`), apply the delta under rule 1, and journal the move as one transition that names the stash. The stash is a second name for the old file (a copy where the filesystem refuses a hard link), and the new store is renamed over it, so a failed write leaves the old store in place."""
         stamp = delta["manifest_generated_at"]
         old_stamp = self.stamp
-        old_verdicts = list(self.records.values())
-        old_cleared = dict(self.cleared)
+        old_verdicts, old_cleared = accepted.joined(self.records, self.cleared, self.overrides)
         stash = stash_path_for(self.path, old_stamp) if old_stamp is not None else None
         if stash is not None and self.path.exists():
             _link_or_copy(self.path, stash)
@@ -657,7 +842,10 @@ class VerdictStore:
             if unit in served.ids and record["verdict"] != "skip"
         }
         cleared = {unit: at for unit, at in self.cleared.items() if unit in served.ids}
-        self._replace(stamp, kept, cleared)
+        for unit, record in self.records.items():
+            if unit in served.ids and record["verdict"] == "skip":
+                cleared[unit] = record["at"] or journal.now_stamp()
+        self._replace(stamp, kept, cleared, self.overrides.moved(journal.now_stamp()))
         self._invalidate_tokens()
         self._apply(self._plan(delta, tested=delta["replay"], members=None))
         try:
@@ -666,11 +854,13 @@ class VerdictStore:
         except BaseException:
             self.reload()
             raise
+        new_verdicts, new_cleared = accepted.joined(self.records, self.cleared, self.overrides)
         body = {
             "ok": True,
-            "saved": len(self.records),
+            "saved": len(new_verdicts),
             "token": self.token,
             "corpus_stamp": stamp,
+            "accepted": self.list_stamp(),
             "carried": [],
             "orphaned": [],
             "dropped": [],
@@ -684,19 +874,49 @@ class VerdictStore:
                 source="autosave",
                 stamp=stamp,
                 old_stamp=old_stamp,
-                old_verdicts=old_verdicts,
-                new_verdicts=list(self.records.values()),
+                old_verdicts=list(old_verdicts.values()),
+                new_verdicts=list(new_verdicts.values()),
                 old_cleared=old_cleared,
-                new_cleared=dict(self.cleared),
+                new_cleared=new_cleared,
                 stashed=stash.name if stash is not None else None,
+                accepted=self.accepted.field(),
             )
         return 200, body
 
+    def stamp_empty_store(self, stamp: str) -> dict | None:
+        """With no store file beside an accepted list, write an empty store stamped `stamp`, the served corpus's, that names the list, and journal it as a base event, so the review app shows every accepted unit of a fresh clone, a worktree or a machine whose store was deleted instead of a 404 that restores nothing. Return the write's report, which holds `journal_error` when the append failed, or None when a store file exists, a refusal stands, or there is no list. The review server calls it at boot under the store's lock."""
+        field = self.accepted.field()
+        if self.path.exists() or self.refusal is not None or field is None or self.stamp is not None:
+            return None
+        self.stamp = stamp
+        try:
+            marked = self._mark_unjournaled()
+            self.write()
+        except BaseException:
+            self.reload()
+            raise
+        report: dict = {"stamp": stamp, "accepted": field}
+        if self.journal_path is not None:
+            self._journal(
+                report,
+                marked,
+                journal.record_transition,
+                source="autosave",
+                stamp=stamp,
+                old_stamp=None,
+                old_verdicts=[],
+                new_verdicts=[],
+                new_cleared={},
+                accepted=field,
+            )
+        return report
+
     def _store_before(self, sets, clears) -> tuple[dict[str, dict], dict[str, str]]:
-        """Return the store's records and tombstones minus the units this delta touched, to seed a journal that does not exist yet. The touched units are left out, not reverted, because the delta's own journal lines record them."""
+        """Return the store's records and tombstones, its override section's among them (`accepted.joined`), minus the units this delta touched (`clears` names the cleared and restored units), to seed a journal that does not exist yet. The touched units are left out, not reverted, because the delta's own journal lines record them."""
         touched = {record["unit"] for record in sets} | set(clears)
-        records = {unit: record for unit, record in self.records.items() if unit not in touched}
-        cleared = {unit: at for unit, at in self.cleared.items() if unit not in touched}
+        every, tombstones = accepted.joined(self.records, self.cleared, self.overrides)
+        records = {unit: record for unit, record in every.items() if unit not in touched}
+        cleared = {unit: at for unit, at in tombstones.items() if unit not in touched}
         return records, cleared
 
     def _mark_unjournaled(self) -> bool:

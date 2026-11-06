@@ -1,19 +1,24 @@
 """Tests for the forward re-key of verdicts from the unit ids of an old review corpus to the ids its units have under the current carry projection. The old and new corpora are built from the shipped review fixtures: the old one names each unit by an id of its own, and the new one by the id its fragment hashes to now, so every id changes whatever key set the fixtures were stamped under."""
 
+import contextlib
+import gzip
 import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
-from rebuild.review import journal, unit_index
+from rebuild.review import accepted, journal, unit_index
+from rebuild.review.store_lock import hold_flock
 from rebuild.review.unit_cache import carry_content_hash, unit_id_for
-from rebuild.tools import carry_verdicts, merge_verdicts, rekey_verdicts
+from rebuild.tools import carry_verdicts, close_out, merge_verdicts, rekey_verdicts
 
 FIXTURE_CORPUS = Path(__file__).resolve().parent / "review" / "fixtures"
 OLD_STAMP = "2026-10-01T00:00:00Z"
 NEW_STAMP = "2026-10-02T00:00:00Z"
 STRAY = "u-3333333333A"
+LIST_CLOSED = "2026-10-01T12:00:00Z"
+EARLIER_CLOSED = "2026-09-01T00:00:00Z"
 
 
 def _fragments() -> list[dict]:
@@ -861,3 +866,165 @@ def test_a_journal_restores_rekey_counts_a_tombstone_a_newer_verdict_drops_as_dr
     }
     counts = rekey_verdicts.rekey_payload(payload, renamed, set())[1]
     assert (counts["rekeyed"], counts["tombstones_rekeyed"], counts["records_cleared"]) == (1, 0, 0)
+
+
+def _listed_root(tmp_path: Path, marks: list[tuple[int, str]] | None = None):
+    """Write a root whose store, stamped for the old corpus, holds a reject on the fourth old unit and names the root's accepted list, beside a close-out archive whose list after is that list, whose list before holds the first old unit and the stray, and whose store as found holds the records that close-out folded and a tombstone. The list holds `marks` (pairs of a unit index, a negative index naming a new unit, and a verdict), or the first three old units and the stray. Return the root, the map, the old and new fragments, and the new corpus."""
+    fragments = _fragments()
+    olds = [_old(fragment) for fragment in fragments]
+    news = [_new(fragment) for fragment in fragments]
+    old_corpus = _corpus(tmp_path / "old", OLD_STAMP, olds)
+    new_corpus = _corpus(tmp_path / "new", NEW_STAMP, news)
+    root = tmp_path / "root"
+    root.mkdir()
+    map_path = tmp_path / "map.json"
+    assert (
+        rekey_verdicts.main(
+            ["--root", str(root), "--from-corpus", str(old_corpus), "--map-out", str(map_path)]
+        )
+        == 0
+    )
+    listed = {olds[0]["id"]: "approve", olds[1]["id"]: "either", olds[2]["id"]: "identical", STRAY: "approve"}
+    if marks is not None:
+        listed = {(olds[index] if index >= 0 else news[~index])["id"]: verdict for index, verdict in marks}
+    list_path = root / accepted.RELATIVE_PATH
+    list_path.parent.mkdir()
+    list_bytes = accepted.render(LIST_CLOSED, listed)
+    list_path.write_bytes(list_bytes)
+    autosave = root / journal.AUTOSAVE_NAME
+    store = {
+        "format": "ams-review-verdicts/1",
+        "manifest_generated_at": OLD_STAMP,
+        "verdicts": [
+            {"unit": olds[3]["id"], "verdict": "reject", "note": "", "at": "2026-10-01T13:00:00.000Z"}
+        ],
+        "accepted": accepted.read(list_path).field(),
+    }
+    autosave.write_text(json.dumps(store, indent=2) + "\n", encoding="utf-8")
+    _seed_journal(root / journal.JOURNAL_NAME, [olds[3]["id"]])
+    archive = close_out.archive_root_for(autosave) / LIST_CLOSED.replace(":", ".")
+    archive.mkdir(parents=True)
+    before = accepted.render(EARLIER_CLOSED, {olds[0]["id"]: "approve", STRAY: "approve"})
+    found = {
+        "format": "ams-review-verdicts/1",
+        "manifest_generated_at": OLD_STAMP,
+        "verdicts": [
+            {
+                "unit": olds[1]["id"],
+                "verdict": "either",
+                "note": "kept in the archive",
+                "at": "2026-09-15T00:00:00.000Z",
+            },
+            {"unit": olds[2]["id"], "verdict": "identical", "note": "", "at": "2026-09-15T00:00:01.000Z"},
+        ],
+        "cleared": [{"unit": olds[4]["id"], "at": "2026-09-16T00:00:00.000Z"}],
+        "accepted": {"sha256": hashlib.sha256(before).hexdigest(), "closed_at": EARLIER_CLOSED},
+    }
+    close_out.write_archive_member(archive / close_out.ARCHIVE_STORE, json.dumps(found).encode())
+    close_out.write_archive_member(archive / close_out.ARCHIVE_BEFORE, before)
+    close_out.write_archive_member(archive / close_out.ARCHIVE_AFTER, list_bytes)
+    return root, map_path, olds, news, new_corpus
+
+
+def _rooted(root: Path) -> dict[Path, bytes]:
+    return {
+        path: path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and path.suffix != ".lock"
+    }
+
+
+def test_a_rekey_moves_the_accepted_list_and_the_close_out_archive_with_the_store_and_its_undo_puts_them_back(
+    tmp_path, capsys
+):
+    """The re-key moves each listed id the map lands, keeps the marks and the header, and drops the stray, which is in neither the map nor the new corpus; the store's `accepted` field and the base event it journals name the re-keyed list. The latest close-out archive's lists and store are re-keyed the same way, its list after byte for byte the re-keyed list, so `close_out --undo` lands after the re-key with the archived verdicts on their new ids. backup.json records the list's field before and after, and the re-key's undo puts back the list, the store and the archive."""
+    root, map_path, olds, news, new_corpus = _listed_root(tmp_path)
+    autosave, list_path = root / journal.AUTOSAVE_NAME, root / accepted.RELATIVE_PATH
+    original = _rooted(root)
+    field_before = accepted.read(list_path).field()
+
+    assert (
+        rekey_verdicts.main(["--root", str(root), "--map", str(map_path), "--corpus", str(new_corpus)]) == 0
+    )
+    out = capsys.readouterr().out
+    assert (
+        "rebuild/accepted-units.txt: 4 listed ids, 3 re-keyed, 0 already current, 1 dropped as off the map's corpus"
+        in out
+    )
+    relisted = {news[0]["id"]: "approve", news[1]["id"]: "either", news[2]["id"]: "identical"}
+    assert list_path.read_bytes() == accepted.render(LIST_CLOSED, relisted)
+    field = accepted.read(list_path).field()
+    store = json.loads(autosave.read_text(encoding="utf-8"))
+    assert store["accepted"] == field
+    assert [record["unit"] for record in store["verdicts"]] == [news[3]["id"]]
+    events = [json.loads(line) for line in (root / journal.JOURNAL_NAME).read_text().splitlines()]
+    last = [line for line in events if line["kind"] == "event"][-1]
+    assert (last["source"], last["base"], last["accepted"]) == ("rekey", True, field)
+
+    (archive,) = close_out.archive_root_for(autosave).iterdir()
+    members = close_out.read_archive(archive)
+    assert members.after == list_path.read_bytes()
+    before = accepted.render(EARLIER_CLOSED, {news[0]["id"]: "approve"})
+    assert members.before == before
+    assert members.store is not None
+    found = json.loads(members.store)
+    assert {record["unit"] for record in found["verdicts"]} == {news[1]["id"], news[2]["id"]}
+    assert journal.parse_cleared(found) == {news[4]["id"]: "2026-09-16T00:00:00.000Z"}
+    assert found["accepted"] == {"sha256": hashlib.sha256(before).hexdigest(), "closed_at": EARLIER_CLOSED}
+    (backup,) = [path for path in (root / rekey_verdicts.KEEP).iterdir() if path.is_dir()]
+    record = json.loads((backup / rekey_verdicts.BACKUP_RECORD).read_text(encoding="utf-8"))
+    assert record["accepted"] == {"path": str(accepted.RELATIVE_PATH), "before": field_before, "after": field}
+
+    assert close_out.run(store=autosave, corpus=new_corpus, undo=True, serving=lambda _store: False) == 0
+    capsys.readouterr()
+    assert list_path.read_bytes() == before
+    undone = json.loads(autosave.read_text(encoding="utf-8"))
+    assert undone["accepted"] == found["accepted"]
+    assert {
+        unit: record["verdict"] for unit, record in journal.latest_by_unit(undone["verdicts"]).items()
+    } == {
+        news[1]["id"]: "either",
+        news[2]["id"]: "identical",
+        news[3]["id"]: "reject",
+    }
+
+    assert rekey_verdicts.main(["--root", str(root), "--undo", str(backup)]) == 0
+    capsys.readouterr()
+    assert {path: data for path, data in _rooted(root).items() if path in original} == original
+    assert gzip.decompress((archive / close_out.ARCHIVE_AFTER).read_bytes()) == original[list_path]
+
+
+@pytest.mark.parametrize("case", ["clash", "record", "tombstone", "mismatch", "pass"])
+def test_a_rekey_refuses_a_listed_clash_an_unpaired_store_and_a_running_pass_writing_nothing(
+    tmp_path, capsys, case
+):
+    """Two listed ids with different marks that land on one unit, a listed id that lands on one unit with the store's record on another id, or with its tombstone dated at or before the close-out, which says nothing of which of the two is newer, a store whose `accepted` field names another list, and a pass holding the pass lock each stop the re-key before it writes anything, and no backup is kept."""
+    marks = {
+        "clash": [(0, "approve"), (-1, "either")],
+        "record": [(-4, "approve")],
+        "tombstone": [(-5, "approve")],
+    }
+    root, map_path, olds, _news, new_corpus = _listed_root(tmp_path, marks.get(case))
+    autosave = root / journal.AUTOSAVE_NAME
+    store = json.loads(autosave.read_text(encoding="utf-8"))
+    if case == "mismatch":
+        store["accepted"] = {"sha256": "0" * 64, "closed_at": LIST_CLOSED}
+    if case == "tombstone":
+        store["cleared"] = [{"unit": olds[4]["id"], "at": "2026-09-20T00:00:00.000Z"}]
+    autosave.write_text(json.dumps(store), encoding="utf-8")
+    before = _rooted(root)
+    argv = ["--root", str(root), "--map", str(map_path), "--corpus", str(new_corpus)]
+    held = hold_flock(close_out.pass_lock_path_for(autosave)) if case == "pass" else contextlib.nullcontext()
+    with held:
+        assert rekey_verdicts.main(argv) == 1
+    out = capsys.readouterr().out
+    named = {
+        "clash": "land on one unit with different marks",
+        "record": f"lands on one unit with the store's record on {olds[3]['id']}",
+        "tombstone": f"lands on one unit with the store's tombstone on {olds[4]['id']}",
+        "mismatch": "names the accepted list 000",
+        "pass": "a pass holds",
+    }[case]
+    assert named in out and "Nothing was written" in out
+    assert _rooted(root) == before
+    assert not any(path.is_dir() for path in (root / rekey_verdicts.KEEP).glob("*"))

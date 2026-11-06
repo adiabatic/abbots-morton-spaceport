@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import {
+  NO_LIST,
   RELOAD_EVENT,
   VIEW_EXTRAS_MAX_AGE_MS,
   movesPage,
+  namedList,
   pageIdentity,
   parseReloadPath,
   readMoveGuard,
@@ -68,6 +70,7 @@ test('parseReloadPath reads the two ams: kinds and nothing else', () => {
   assert.deepEqual(parseReloadPath('ams:assets/abc'), { kind: 'assets', value: 'abc' });
   assert.equal(parseReloadPath('ams:corpus/'), null);
   assert.equal(parseReloadPath('ams:other/x'), null);
+  assert.equal(parseReloadPath('ams:accepted/abc'), null);
   assert.equal(parseReloadPath('/review/app.js'), null);
   assert.equal(parseReloadPath(null), null);
 });
@@ -80,6 +83,17 @@ test('a page moves only for a target that differs from what it loaded', () => {
   assert.equal(movesPage({ kind: 'assets', value: identity.assets }, page), false);
   assert.equal(movesPage({ kind: 'assets', value: 'static-bbb' }, page), true);
   assert.equal(movesPage(null, page), false);
+  const listed = { ...page, accepted: 'sha-a' };
+  assert.equal(movesPage({ kind: 'accepted', value: 'sha-a' }, listed), false);
+  assert.equal(movesPage({ kind: 'accepted', value: 'sha-b' }, listed), true);
+  assert.equal(movesPage({ kind: 'accepted', value: NO_LIST }, listed), true);
+});
+
+test('a full GET of /autosave or a save reply names the accepted list by its sha256, or no list, and a body without the field names none', () => {
+  assert.equal(namedList({ accepted: { sha256: 'sha-a', closed_at: '2026-11-05T18:00:00Z', approve: [] } }), 'sha-a');
+  assert.equal(namedList({ accepted: { sha256: null, closed_at: null } }), NO_LIST);
+  assert.equal(namedList({ format: 'ams-review-verdicts-delta/1', sets: [], clears: [] }), null);
+  assert.equal(namedList(null), null);
 });
 
 test('the moved-from guard blocks a target only when the reload left the page where it was', () => {
@@ -91,6 +105,11 @@ test('the moved-from guard blocks a target only when the reload left the page wh
   assert.equal(readMoveGuard(null, identity), null);
   assert.equal(readMoveGuard('not json', identity), null);
   assert.equal(targetKey(target), 'corpus/2026-09-30T11:00:00Z');
+  const list = { kind: 'accepted', value: 'sha-b' };
+  const fromList = writeMoveGuard({ ...identity, accepted: 'sha-a' }, list);
+  assert.equal(readMoveGuard(fromList, identity), null, 'the page has not yet named its list');
+  assert.deepEqual(readMoveGuard(fromList, { ...identity, accepted: 'sha-a' }), list);
+  assert.equal(readMoveGuard(fromList, { ...identity, accepted: 'sha-b' }), null);
 });
 
 test('view extras come back only for the same hash and only shortly after they were saved', () => {

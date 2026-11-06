@@ -2,13 +2,13 @@
 
 A corpus-changing pass builds its corpus beside the served one, at rebuild/out/review.next (a copy-on-write clone of the served tree, `clone_tree`), or promotes a staged one, and runs the verdict update against scratch copies of the store: `snapshot` copies the live store to the pass's run directory as the snapshot S and the prepared store R, under the store's lock, and the verdict update carries, merges and fills into R. `land` then moves both into place in one short section under the store's lock (`rebuild.review.store_lock`), which every writer of the store and its journal holds, the review server included, so a save is never applied between the two moves. A pass whose corpus did not move but whose store did lands the store alone.
 
-The land first reads S, R and the new corpus's stamp and human unit ids without the lock, and, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`). Under it, it reads the live store C and aborts, keeping the staged tree, when C is on another stamp than S, or, under the orphan guard the command line sets unless `--allow-orphans` is passed, when the stamp moves and more than `ORPHAN_SHARE_LIMIT` of C's verdicts name a unit outside the new corpus's triage index. It aborts the same way, before it writes anything, when S, R or C holds a verdict record `verdict_store.well_formed` refuses, naming the store and the first such record (`read_store`), so it never lands one. Every unit whose record in C differs from S's, or that C cleared since S (a tombstone in C that S lacks or holds at another `at`), is the reviewer's act after the snapshot, so it is laid over R and beats any fill: a clear removes R's record for its unit, whether a fill, a carry or a merge put it there, and leaves C's tombstone. On a stamp change only the new corpus's human units are laid over: a set or skip C made since S on any other unit goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), a clear on one is dropped, and a skip on one of the human units is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. A tombstone C shares unchanged with S is kept only for a unit the result holds neither a record nor a tombstone for (on a stamp change, only for the new corpus's human units), whatever its age. The result is written to the run directory, and the intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
+The land first reads S, R and the new corpus's stamp and human unit ids without the lock, and, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`). Under it, it reads the live store C and aborts, keeping the staged tree, when C is on another stamp than S; when C does not pair with the accepted list beside it (`rebuild.review.accepted`: `--accepted`, by default rebuild/accepted-units.txt beside the store) or the list cannot be read; when S or R does not pair with the list, since a close-out or a re-key then changed it during the pass; or, under the orphan guard the command line sets unless `--allow-orphans` is passed, when the stamp moves and more than `ORPHAN_SHARE_LIMIT` of C's verdicts other than skips, its override records on the live corpus's human units among them, and its accepted units name a unit outside the new corpus's triage index; an override on a unit the live corpus lacks counts in neither term, since the section keeps it until the next close-out and it would count as orphaned on every pass. Its accepted units are the listed units of the live corpus's human units that C holds no override for, which it counts in both terms, streaming the list, so a wholesale id move is refused on a store a close-out emptied and on a pass that carried nothing. The result names the list in its `accepted` field. It aborts the same way, before it writes anything, when S, R or C holds a verdict record `verdict_store.well_formed` refuses, naming the store and the first such record (`read_store`), so it never lands one. Every unit whose record in C differs from S's, or that C cleared since S (a tombstone in C that S lacks or holds at another `at`), is the reviewer's act after the snapshot, so it is laid over R and beats any fill: a clear removes R's record for its unit, whether a fill, a carry or a merge put it there, and leaves C's tombstone. The store's override section, its records and tombstones on listed units (`accepted.Overrides`), is laid over R's the same way, on a stamp change too, whatever corpus its units are on: an override C set, changed or cleared since S replaces R's for its unit, a skip among them becoming a tombstone at its `at` on a stamp change, and an override C removed, a set back to the accepted record (`verdict_store`), removes R's and leaves none, so the unit reads as the list names it; R's other overrides, S's carried through the pass whole (`merge_verdicts`), stay, and an override C shares unchanged with S is kept for a unit R holds none for, a skip becoming a tombstone on a stamp change, so the empty store a pass with no prepared store starts from keeps the section whole. On a stamp change only the new corpus's human units are laid over among the store's own records and tombstones: a set or skip C made since S on any other unit goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), a clear on one is dropped, and a skip on one of the human units is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. A tombstone C shares unchanged with S is kept only for a unit the result holds neither a record nor a tombstone for (on a stamp change, only for the new corpus's human units), whatever its age. The result is written to the run directory, and the intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
 
 A land killed inside the section leaves the intent file, and the kernel releases the lock. The next holder of the lock finishes it first (`recover_interrupted_land`, and `locked_store` for the writers that take the lock): it cuts the journal back to the length the intent recorded, then reads where the land stopped. A corpus not yet swapped drops the intent, and the staged tree stays for the next pass. A swapped corpus with the old store finishes the land from the result it wrote, or is swapped back out when that result is gone, and a store already replaced gets its journal event. A store or result holding a verdict record `verdict_store.well_formed` refuses stops the recovery, naming that file, before it replaces the store, swaps a corpus back or discards one, or appends to the journal, and the intent stays (`LandUnrecoverable`), as it does for a land whose result and old corpus are both gone; every caller reports that refusal as its own (`locked_store`). The review server runs the recovery on its next request (`recover_if_orphaned`), so a recovery that can finish or drop the land needs nobody to run a command.
 
-`LAND_PROTOCOL` and `code_digest` are what the review server advertises on /capabilities, and what the artifact cycle compares with the working tree before it keeps a listening server running through a pass. This module imports only the journal, the store and its lock, never the cycle driver; its command line also imports the spec loader, whose refusal it runs first, so the land refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
+`LAND_PROTOCOL` and `code_digest` are what the review server advertises on /capabilities, and what the artifact cycle compares with the working tree before it keeps a listening server running through a pass. This module imports only the journal, the store, its lock and the accepted list's reader, never the cycle driver; its command line also imports the spec loader, whose refusal it runs first, so the land refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
 
-Usage: uv run python -m rebuild.review.landing --autosave FILE --journal FILE --run-dir DIR --corpus DIR [--prepared FILE] [--staged DIR --live DIR [--keep-discard]] [--scan-state FILE] [--allow-orphans]
+Usage: uv run python -m rebuild.review.landing --autosave FILE --journal FILE --run-dir DIR --corpus DIR [--prepared FILE] [--staged DIR --live DIR [--keep-discard]] [--scan-state FILE] [--allow-orphans] [--accepted FILE]
 """
 
 from __future__ import annotations
@@ -28,8 +28,10 @@ import time
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
 
-from rebuild.review import journal
+from rebuild.review import accepted, journal
+from rebuild.review.accepted import Overrides
 from rebuild.review.store_lock import LockBusy, store_lock
 from rebuild.review.verdict_store import (
     EXPORT_FORMAT,
@@ -50,6 +52,7 @@ PROTOCOL_MODULES = (
     "status.py",
     "store_lock.py",
     "landing.py",
+    "accepted.py",
 )
 FRESHNESS_MODULES = (
     "pipeline/fingerprint.py",
@@ -99,11 +102,28 @@ def intent_path_for(store: Path) -> Path:
 
 @dataclass
 class Store:
-    """A verdicts document as the land reads it: its stamp, its records by unit, and its tombstones (unit to the clear's `at`)."""
+    """A verdicts document as the land reads it: its stamp, its own records by unit, its own tombstones (unit to the clear's `at`), its `accepted` field, the accepted list it pairs with (`rebuild.review.accepted`), None when it names none, and its override section (`accepted.Overrides`)."""
 
     stamp: str | None
     records: dict[str, dict] = field(default_factory=dict)
     cleared: dict[str, str] = field(default_factory=dict)
+    accepted: Any = None
+    overrides: Overrides = field(default_factory=Overrides)
+
+    def document(self) -> dict:
+        """Return the store as `accepted.pair` reads a store document: its field, its records, its tombstones and its override section."""
+        document = {
+            "accepted": self.accepted,
+            "verdicts": list(self.records.values()),
+            "cleared": [{"unit": unit, "at": at} for unit, at in self.cleared.items()],
+        }
+        if (section := self.overrides.field()) is not None:
+            document[accepted.OVERRIDES] = section
+        return document
+
+    def joined(self) -> tuple[dict[str, dict], dict[str, str]]:
+        """Return the store's records and tombstones and its override section's as one store, as the journal records it (`accepted.joined`)."""
+        return accepted.joined(self.records, self.cleared, self.overrides)
 
 
 def _normalize(record: dict) -> dict:
@@ -132,18 +152,30 @@ def read_store(path: Path, name: str | None = None) -> Store | None:
         return None
     records = {unit: _normalize(record) for unit, record in journal.latest_by_unit(data["verdicts"]).items()}
     cleared = {unit: at for unit, at in parse_cleared(data).items() if unit not in records}
-    return Store(data["manifest_generated_at"], records, cleared)
+    section = Overrides.of(data)
+    overrides = Overrides(
+        {unit: _normalize(record) for unit, record in section.records.items()}, section.cleared
+    )
+    return Store(data["manifest_generated_at"], records, cleared, data.get("accepted"), overrides)
 
 
 def document_bytes(store: Store) -> bytes:
-    """Return `store` as the review server writes a store: one ams-review-verdicts/1 document with one record per line, and the tombstones after the records when there are any."""
+    """Return `store` as the review server writes a store: one ams-review-verdicts/1 document with one record per line, its `accepted` field in the head when it names a list, the tombstones after the records when there are any, and the override section after them when the store holds one."""
     head = {"format": EXPORT_FORMAT, "manifest_generated_at": store.stamp, "exported_at": journal.now_stamp()}
+    if store.accepted is not None:
+        head["accepted"] = store.accepted
     prefix = json.dumps(head, ensure_ascii=False)[:-1]
     body = ",\n".join(json.dumps(store.records[unit], ensure_ascii=False) for unit in sorted(store.records))
     tail = ""
     if store.cleared:
         cleared = [{"unit": unit, "at": at} for unit, at in sorted(store.cleared.items())]
         tail = f', "cleared": {json.dumps(cleared, ensure_ascii=False)}'
+    if (section := store.overrides.field()) is not None:
+        overridden = ",\n".join(json.dumps(record, ensure_ascii=False) for record in section["verdicts"])
+        tail += (
+            f', "{accepted.OVERRIDES}": {{"verdicts": [\n{overridden}\n], '
+            f'"cleared": {json.dumps(section["cleared"], ensure_ascii=False)}}}'
+        )
     return f'{prefix}, "verdicts": [\n{body}\n]{tail}}}\n'.encode()
 
 
@@ -319,9 +351,13 @@ class LandResult:
 
 
 def overlay(
-    result: Store, before: Store, now: Store, *, new_ids: frozenset[str] | None
+    result: Store,
+    before: Store,
+    now: Store,
+    *,
+    new_ids: frozenset[str] | None,
 ) -> tuple[int, list[dict], int]:
-    """Lay the live store's changes since the snapshot (`now` against `before`) over `result` in place: a record `now` set, changed or removed, and a clear since the snapshot, a tombstone in `now` that `before` lacks or holds at another `at`, which removes `result`'s record for its unit and leaves the tombstone at `now`'s `at`. A tombstone `now` shares unchanged with `before` is kept only for a unit `result` holds neither a record nor a tombstone for. `new_ids` is the new corpus's human unit ids on a stamp change, and None on a land that keeps the stamp; on a stamp change only those units are laid over or keep a tombstone, a set on any other unit becomes an orphan entry, and a skip made since the snapshot clears its unit in `result`, leaving a tombstone at the skip's `at`. Returns the count of units overlaid, the orphan entries, and the count of skips dropped."""
+    """Lay the live store's changes since the snapshot (`now` against `before`) over `result` in place: a record `now` set, changed or removed, and a clear since the snapshot, a tombstone in `now` that `before` lacks or holds at another `at`, which removes `result`'s record for its unit and leaves the tombstone at `now`'s `at`. A tombstone `now` shares unchanged with `before` is kept only for a unit `result` holds neither a record nor a tombstone for. `new_ids` is the new corpus's human unit ids on a stamp change, and None on a land that keeps the stamp; on a stamp change only those units are laid over or keep a tombstone, a set on any other unit becomes an orphan entry, and a skip made since the snapshot clears its unit in `result`, leaving a tombstone at the skip's `at`. The override section is laid over `result`'s whole, on a stamp change too, and its entries `now` shares unchanged with `before` are kept for the units `result` holds none for (`_overlay_overrides`). Returns the count of units overlaid, the orphan entries, and the count of skips dropped."""
     overlaid = 0
     skips = 0
     orphans: list[dict] = []
@@ -356,7 +392,37 @@ def overlay(
             result.cleared[unit] = at
         elif unit not in result.records and unit not in result.cleared:
             result.cleared[unit] = at
-    return overlaid, orphans, skips
+    laid, skipped = _overlay_overrides(
+        result.overrides, before.overrides, now.overrides, moved=new_ids is not None
+    )
+    return overlaid + laid, orphans, skips + skipped
+
+
+def _overlay_overrides(
+    result: Overrides, before: Overrides, now: Overrides, *, moved: bool
+) -> tuple[int, int]:
+    """Lay the live store's override changes since the snapshot (`now` against `before`) over `result` in place, whatever corpus each unit is on: a unit whose override record or tombstone `now` set, changed or removed takes `now`'s, none when `now` removed it, a set back to the unit's accepted record, and on a stamp change (`moved`) a skip `now` set becomes a tombstone at its `at`, as the merge's `Overrides.moved` makes of the skips the snapshot held. An entry `now` shares unchanged with `before` is kept for a unit `result` holds none for, a skip becoming a tombstone the same way, as `overlay` keeps an unchanged tombstone, so a land with no prepared store, which starts from an empty one, keeps the section whole. Return how many units it laid over and how many of them were skips it turned into tombstones."""
+    laid = skips = 0
+    for unit in sorted(
+        before.records.keys() | before.cleared.keys() | now.records.keys() | now.cleared.keys()
+    ):
+        record = now.records.get(unit)
+        changed = _signature(record) != _signature(before.records.get(unit)) or now.cleared.get(
+            unit
+        ) != before.cleared.get(unit)
+        if not changed and unit in result:
+            continue
+        laid += changed
+        if record is not None and moved and record["verdict"] == "skip":
+            skips += changed
+            result.clear(unit, record["at"] or journal.now_stamp())
+        elif record is not None:
+            result.set(record)
+        elif unit in now.cleared:
+            result.clear(unit, now.cleared[unit])
+        else:
+            result.drop(unit)
+    return laid, skips
 
 
 def land(
@@ -372,9 +438,11 @@ def land(
     keep_discard: bool = False,
     scan_state: Path | None = None,
     guard_orphans: bool = False,
+    accepted_path: Path | None = None,
 ) -> LandResult:
-    """Land the prepared store, and the staged corpus when `staged` is given, as the module docstring describes. `corpus` is the directory whose manifest names the landed stamp and human unit ids: the staged tree, or the live one for a store-only land. With no `prepared` store, or none on disk, the land writes an empty store stamped for that corpus. The swapped-out tree is renamed to its discard name after the lock is released and deleted, or with `keep_discard` left for the caller to delete, its path in the result's `discard`, so the caller can tell the open tabs to move first. `scan_state` is the journal scan state retention saves (`journal.save_scan_state`); a land that moves the stamp resumes its read of the journal's events from it, and reads them from the start without it. The land only reads it. With `guard_orphans` set, a land that moves the stamp aborts, before it writes anything, when more than `ORPHAN_SHARE_LIMIT` of the live store's verdicts other than skips name a unit outside the new corpus's triage index (`orphan_share`); the command line sets it unless `--allow-orphans` is passed. A land whose snapshot, prepared store or live store holds a record `verdict_store.well_formed` refuses aborts before it writes anything, and its reason names that store and the first such record. A land that finds a dead land's intent whose recovery refuses (`LandUnrecoverable`) aborts with that refusal as its reason."""
+    """Land the prepared store, and the staged corpus when `staged` is given, as the module docstring describes. `corpus` is the directory whose manifest names the landed stamp and human unit ids: the staged tree, or the live one for a store-only land. With no `prepared` store, or none on disk, the land writes an empty store stamped for that corpus, which the overlay gives the live store's override section whole. The swapped-out tree is renamed to its discard name after the lock is released and deleted, or with `keep_discard` left for the caller to delete, its path in the result's `discard`, so the caller can tell the open tabs to move first. `scan_state` is the journal scan state retention saves (`journal.save_scan_state`); a land that moves the stamp resumes its read of the journal's events from it, and reads them from the start without it. The land only reads it. With `guard_orphans` set, a land that moves the stamp aborts, before it writes anything, when more than `ORPHAN_SHARE_LIMIT` of the live store's verdicts other than skips name a unit outside the new corpus's triage index (`orphan_share`); the command line sets it unless `--allow-orphans` is passed. A land whose snapshot, prepared store or live store holds a record `verdict_store.well_formed` refuses aborts before it writes anything, and its reason names that store and the first such record. A land that finds a dead land's intent whose recovery refuses (`LandUnrecoverable`) aborts with that refusal as its reason. `accepted_path` is the accepted list, by default the one beside `autosave` (`accepted.path_for`); the land aborts, writing nothing, when the live store does not pair with it or it cannot be read (`accepted.Refused`), and when the snapshot or the prepared store does not pair with it, since the list then changed during the pass, writes the list's field into its result, and counts the listed units of the live corpus's human units that the live store holds no override for in both terms of its orphan guard."""
     autosave, journal_path, run_dir = Path(autosave), Path(journal_path), Path(run_dir)
+    listed_path = Path(accepted_path) if accepted_path is not None else accepted.path_for(autosave)
     new_stamp, new_ids = read_manifest(corpus)
     try:
         before = read_store(run_dir / SNAPSHOT_NAME, f"the snapshot {run_dir / SNAPSHOT_NAME}")
@@ -390,9 +458,12 @@ def land(
     if staged is not None and live is None:
         raise ValueError("a staged corpus needs the live path it replaces")
     journal_scan = None
+    live_ids = None
     if before is None or before.stamp != new_stamp:
         resume = journal.load_scan_state(scan_state) if scan_state is not None else None
         journal_scan = journal.scan(journal_path, resume=resume).state
+        if guard_orphans and listed_path.exists():
+            live_ids = _live_ids(live) if staged is not None and live is not None else new_ids
 
     try:
         with locked_store(autosave, quiet=True), _signals_blocked():
@@ -410,6 +481,8 @@ def land(
                 atomic=atomic,
                 journal_scan=journal_scan,
                 guard_orphans=guard_orphans,
+                listed_path=listed_path,
+                live_ids=live_ids,
             )
             result.locked_s = time.perf_counter() - started
     except LandUnrecoverable as refused:
@@ -421,6 +494,14 @@ def land(
         else:
             shutil.rmtree(discard, ignore_errors=True)
     return result
+
+
+def _live_ids(live: Path) -> frozenset[str]:
+    """Return the served corpus's human unit ids, which the orphan guard counts the accepted units on, or none when no corpus is served."""
+    try:
+        return read_manifest(live)[1]
+    except FileNotFoundError:
+        return frozenset()
 
 
 def _refuse_malformed(malformed: MalformedStore) -> LandResult:
@@ -446,6 +527,8 @@ def _land_locked(
     atomic: bool,
     journal_scan: journal.ScanState | None,
     guard_orphans: bool,
+    listed_path: Path,
+    live_ids: frozenset[str] | None,
 ) -> LandResult:
     try:
         now = read_store(autosave, f"the live store {autosave}")
@@ -466,16 +549,53 @@ def _land_locked(
         )
     old_stamp = now.stamp
     moved = old_stamp != new_stamp
+    try:
+        listed = accepted.read_stamp(listed_path)
+        accepted.pair(now.document(), listed, store=autosave)
+        for name, held in (("snapshot", before), ("prepared store", ready)):
+            try:
+                accepted.pair(held.document(), listed, store=f"the pass's {name}")
+            except accepted.Mismatch as mismatch:
+                return LandResult(
+                    False,
+                    f"the accepted list changed since the pass's snapshot ({mismatch}); the next pass prepares the store against the list as it stands",
+                    old_stamp=old_stamp,
+                    new_stamp=new_stamp,
+                )
+        guarded = live_ids if moved and guard_orphans else None
+        listed_prior, listed_orphaned = _listed_units(listed, now, guarded, new_ids)
+    except accepted.Refused as refused:
+        return LandResult(
+            False, f"{refused}; the land moved nothing", old_stamp=old_stamp, new_stamp=new_stamp
+        )
     if moved and guard_orphans:
-        prior = [unit for unit, record in now.records.items() if record["verdict"] != "skip"]
-        share = orphan_share(sum(1 for unit in prior if unit not in new_ids), len(prior))
+        overridden = {
+            unit: record
+            for unit, record in now.overrides.records.items()
+            if unit in (live_ids or ()) and unit not in now.records
+        }
+        prior = [
+            unit
+            for held in (now.records, overridden)
+            for unit, record in held.items()
+            if record["verdict"] != "skip"
+        ]
+        orphaned = sum(1 for unit in prior if unit not in new_ids) + listed_orphaned
+        share = orphan_share(orphaned, len(prior) + listed_prior)
         if share is not None:
             return LandResult(
                 False,
-                f"{share} of the live store's verdicts name no unit in the new corpus's triage index; pass --allow-orphans to land anyway",
+                f"{share} of the live store's verdicts name no unit in the new corpus's triage index"
+                + (
+                    f", counting {listed_prior:,} accepted units of the served corpus among them"
+                    if listed_prior
+                    else ""
+                )
+                + "; pass --allow-orphans to land anyway",
                 old_stamp=old_stamp,
                 new_stamp=new_stamp,
             )
+    ready.accepted = listed.field()
     overlaid, orphans, skips = overlay(ready, before, now, new_ids=new_ids if moved else None)
     landing = run_dir / LANDING_NAME
     _write_file(landing, document_bytes(ready))
@@ -513,18 +633,21 @@ def _land_locked(
     with contextlib.suppress(OSError):
         os.link(landing, run_dir / LANDED_NAME)
     os.replace(landing, autosave)
+    old_records, old_cleared = now.joined()
+    new_records, new_cleared = ready.joined()
     journaled = journal.record_transition(
         journal_path,
         source="land",
         stamp=new_stamp,
         old_stamp=old_stamp,
-        old_verdicts=list(now.records.values()),
-        new_verdicts=list(ready.records.values()),
-        old_cleared=now.cleared,
-        new_cleared=ready.cleared,
+        old_verdicts=list(old_records.values()),
+        new_verdicts=list(new_records.values()),
+        old_cleared=old_cleared,
+        new_cleared=new_cleared,
         stashed=stash.name if stash is not None else None,
         at=at,
         base=base,
+        accepted=ready.accepted,
     )
     if journaled["base"]:
         marker.unlink(missing_ok=True)
@@ -533,7 +656,7 @@ def _land_locked(
         True,
         old_stamp=old_stamp,
         new_stamp=new_stamp,
-        records=len(ready.records),
+        records=len(new_records),
         overlaid=overlaid,
         orphaned=len(orphans),
         skips_dropped=skips,
@@ -542,6 +665,23 @@ def _land_locked(
         journal_sets=journaled["sets"],
         journal_clears=journaled["clears"],
     )
+
+
+def _listed_units(
+    listed: accepted.ListStamp,
+    now: Store,
+    live_ids: frozenset[str] | None,
+    new_ids: frozenset[str],
+) -> tuple[int, int]:
+    """Stream the list once, when `live_ids` is given, and return how many listed units of the live corpus's human units the live store holds no override for and how many of those the new corpus lacks, the orphan guard's two terms. `accepted.Malformed` comes from a line the stream reaches."""
+    prior = orphaned = 0
+    if listed.sha256 is None or live_ids is None:
+        return prior, orphaned
+    for unit, _verdict in accepted.iter_lines(listed.path):
+        if unit in live_ids and unit not in now.overrides:
+            prior += 1
+            orphaned += unit not in new_ids
+    return prior, orphaned
 
 
 def _stat(path: Path) -> os.stat_result | None:
@@ -618,15 +758,17 @@ def recover_interrupted_land(store: Path) -> Recovery | None:
             link_stash(store, store.with_name(intent["stash"]))
         os.replace(landing, store)
     if landed is not None and landed.stamp is not None:
+        records, cleared = landed.joined()
         journal.record_transition(
             journal_path,
             source="land",
             stamp=landed.stamp,
             old_stamp=None,
             old_verdicts=[],
-            new_verdicts=list(landed.records.values()),
-            new_cleared=landed.cleared,
+            new_verdicts=list(records.values()),
+            new_cleared=cleared,
             stashed=intent.get("stash"),
+            accepted=landed.accepted,
         )
         journal.unjournaled_marker_for(store).unlink(missing_ok=True)
     intent_path.unlink()
@@ -719,9 +861,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--allow-orphans",
         action="store_true",
-        help=f"land a stamp change even when more than {ORPHAN_SHARE_LIMIT:.0%}% of the live store's verdicts name no unit in the new corpus's triage index",
+        help=f"land a stamp change even when more than {ORPHAN_SHARE_LIMIT:.0%}% of the live store's verdicts and its accepted units on the served corpus name no unit in the new corpus's triage index",
+    )
+    parser.add_argument(
+        "--accepted",
+        type=Path,
+        help="the accepted list the live store pairs with (default: rebuild/accepted-units.txt beside --autosave, which only a store named verdicts-autosave.json has)",
     )
     args = parser.parse_args(argv)
+    try:
+        listed_path = args.accepted or accepted.path_for(args.autosave)
+    except ValueError as error:
+        parser.error(str(error))
     result = land(
         autosave=args.autosave,
         journal_path=args.journal,
@@ -733,6 +884,7 @@ def main(argv: list[str] | None = None) -> int:
         keep_discard=args.keep_discard,
         scan_state=args.scan_state,
         guard_orphans=not args.allow_orphans,
+        accepted_path=listed_path,
     )
     _write_file(args.run_dir / REPORT_NAME, (json.dumps(result.as_dict(), indent=1) + "\n").encode())
     if not result.landed:

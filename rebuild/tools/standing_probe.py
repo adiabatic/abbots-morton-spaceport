@@ -20,6 +20,7 @@ import collections
 import json
 import pathlib
 import sys
+from collections.abc import Mapping
 from functools import cache
 from typing import NamedTuple
 
@@ -33,7 +34,7 @@ from rebuild.review.ink import features_for  # noqa: E402
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools import standing_client, standing_daemon  # noqa: E402
 from rebuild.tools import standing_verdicts as sv  # noqa: E402
-from rebuild.tools.review_queue import latest_verdicts  # noqa: E402
+from rebuild.tools.review_queue import accepted_list, add_accepted_argument, latest_verdicts  # noqa: E402
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
@@ -81,9 +82,9 @@ def _cell_glyph_name(cell):
 
 
 class Blankness(NamedTuple):
-    """What the verdicts file says about this corpus: the latest record per unit, and whether the file is stamped for another manifest. A file stamped for another manifest has not been carried onto this corpus: the carry drops its skips and the cycle's fills can fill units it leaves blank, so every verdict reads as `UNKNOWN_VERDICT` instead of BLANK."""
+    """What the verdicts file says about this corpus: each unit's verdict read through the file's accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted reads as its mark, and whether the file is stamped for another manifest. A file stamped for another manifest has not been carried onto this corpus: the carry drops its skips and the cycle's fills can fill units it leaves blank, so every verdict reads as `UNKNOWN_VERDICT` instead of BLANK."""
 
-    records: dict
+    records: Mapping
     stale: bool
 
     def of(self, unit_id):
@@ -604,6 +605,7 @@ def main(argv=None, *, units=None, context=None):
     parser.add_argument(
         "--shapes", action="store_true", help="print the symptom-to-shape menu and, with no unit named, stop"
     )
+    add_accepted_argument(parser)
     standing_client.add_arguments(parser)
     args = parser.parse_args(argv)
     if args.survey and len(args.survey) > 2:
@@ -621,21 +623,17 @@ def main(argv=None, *, units=None, context=None):
     corpus = pathlib.Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text())
     verdicts = pathlib.Path(args.verdicts)
-    records = {}
-    stale = False
-    if verdicts.is_file():
-        data = json.loads(verdicts.read_text())
-        if data.get("manifest_generated_at") == manifest["generated_at"]:
-            records = latest_verdicts(verdicts)
-        else:
-            stale = True
-            print(
-                f"{verdicts.name} is stamped for another manifest, so it has not been carried onto this "
-                "corpus: the carry drops its skips and the cycle's fills can fill units it leaves blank, so "
-                f"every verdict below reads {UNKNOWN_VERDICT} rather than BLANK; a cycle pass "
-                "(make artifact-cycle) leaves the store carried onto the live corpus"
-            )
-    blankness = Blankness(records, stale)
+    held = accepted_list(parser, args.accepted, verdicts)
+    data = json.loads(verdicts.read_text()) if verdicts.is_file() else None
+    stale = data is not None and data.get("manifest_generated_at") != manifest["generated_at"]
+    if stale:
+        print(
+            f"{verdicts.name} is stamped for another manifest, so it has not been carried onto this "
+            "corpus: the carry drops its skips and the cycle's fills can fill units it leaves blank, so "
+            f"every verdict below reads {UNKNOWN_VERDICT} rather than BLANK; a cycle pass "
+            "(make artifact-cycle) leaves the store carried onto the live corpus"
+        )
+    blankness = Blankness(latest_verdicts(verdicts, held, document=data), stale)
     rules = sv.load_rules(pathlib.Path(args.rules))
     human = _human(iter_human_units(corpus, fields=standing_daemon.UNIT_FIELDS) if units is None else units)
     listed = False

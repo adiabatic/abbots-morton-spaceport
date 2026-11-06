@@ -3009,7 +3009,7 @@ def _invoke_main(tmp_path, monkeypatch, units, verdicts, rules_list=(RULE,), fon
     """Run the CLI over a fixture corpus, rules file and verdicts file, and return its exit code and the fill file it wrote. `_run_main` returns only the fills."""
     corpus = _corpus(tmp_path, units, fonts)
     rules = _write_rules(tmp_path / "rules.yaml", list(rules_list))
-    verdicts_path = tmp_path / "verdicts.json"
+    verdicts_path = tmp_path / "verdicts-autosave.json"
     verdicts_path.write_text(
         json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": STAMP, "verdicts": verdicts})
     )
@@ -3042,7 +3042,7 @@ def _target_main(tmp_path, monkeypatch, units, verdicts, flags, rules_list=(RULE
     """Run the CLI with `flags` and no --out, the form a targeted run takes, and return its exit code. It also asserts that the run wrote no fill file at the default `OUT` (redirected into tmp_path) or at tmp_path/out.json, and no `*.ndjson.gz` memo directly in tmp_path."""
     corpus = _corpus(tmp_path, units, fonts)
     rules = _write_rules(tmp_path / "rules.yaml", list(rules_list))
-    verdicts_path = tmp_path / "verdicts.json"
+    verdicts_path = tmp_path / "verdicts-autosave.json"
     verdicts_path.write_text(
         json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": STAMP, "verdicts": verdicts})
     )
@@ -3168,7 +3168,7 @@ def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
     corpus = _corpus(tmp_path, [canonical("u-1")])
     rules = tmp_path / "rules.yaml"
     rules.write_text(json.dumps({"format": sv.FORMAT, "rules": [RULE]}))
-    verdicts_path = tmp_path / "verdicts.json"
+    verdicts_path = tmp_path / "verdicts-autosave.json"
     verdicts_path.write_text(
         json.dumps(
             {
@@ -8210,7 +8210,7 @@ def _run_over_mini(tmp_path, monkeypatch, corpus, rules, verdicts, extra, writes
     """Runs the CLI over the mini corpus and returns its exit code and the fills file's bytes. With `writes` off (the targeted run's form), the run gets no --out, the test checks that it wrote nothing, and the bytes are None."""
     stamp = json.loads((corpus / "manifest.json").read_text())["generated_at"]
     tmp_path.mkdir(parents=True, exist_ok=True)
-    verdicts_path = tmp_path / "verdicts.json"
+    verdicts_path = tmp_path / "verdicts-autosave.json"
     verdicts_path.write_text(
         json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": verdicts})
     )
@@ -8799,7 +8799,7 @@ def test_one_shot_source_preserves_reports_fills_and_cold_warm_memos(tmp_path, m
     units = _keyed_units(6)
     corpus = _corpus(tmp_path, units)
     rules = _write_rules(tmp_path / "rules.yaml", [RULE])
-    verdicts = tmp_path / "verdicts.json"
+    verdicts = tmp_path / "verdicts-autosave.json"
     verdicts.write_text(
         json.dumps(
             {
@@ -8874,7 +8874,7 @@ def test_missing_delta_stream_writes_neither_fills_nor_memo(tmp_path, monkeypatc
     units = [tea_i("u-1")]
     corpus = _corpus(tmp_path, units)
     rules = _write_rules(tmp_path / "rules.yaml", [EXT_RULE, COMBINED_EXT_RULE])
-    verdicts = tmp_path / "verdicts.json"
+    verdicts = tmp_path / "verdicts-autosave.json"
     verdicts.write_text(json.dumps({"manifest_generated_at": STAMP, "verdicts": []}))
     out, memo = tmp_path / "out.json", tmp_path / "memo.gz"
     monkeypatch.setattr(sv, "memo_environment", lambda corpus: ("fixture", {}))

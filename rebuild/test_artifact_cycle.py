@@ -465,7 +465,7 @@ def test_dry_run_plan_skip_conform():
 
 
 def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
-    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and is handed the snapshot of the store, which it carries beside another master when the snapshot step found a store, and merges and fills into the prepared copy of the store in the pass's scratch directory, journaling there, so it never writes the live store. The carried file and both fill files go in the scratch directory too, so the pass leaves none of them at the repository root."""
+    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and is handed the snapshot of the store, which it carries beside another master when the snapshot step found a store, and merges and fills into the prepared copy of the store in the pass's scratch directory, journaling there, so it never writes the live store. The carried file and both fill files go in the scratch directory too, so the pass leaves none of them at the repository root. The prepared copy has no accepted list beside it, so the pass names the one beside the live store."""
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
     assert names.index("store-snapshot") == names.index("corpus-build") + 1
@@ -500,6 +500,7 @@ def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
         "--standing-out",
         str(plan.scratch_dir / ac.STANDING_FILL_NAME),
     ]
+    assert argv[argv.index("--accepted") + 1] == str(ac.AUTOSAVE.parent / "rebuild" / "accepted-units.txt")
     assert "--no-merge" not in argv
     assert plan.do_merge is True
 
@@ -690,7 +691,7 @@ def test_the_verdict_update_row_adds_what_the_store_holds_after_the_merge_when_t
     carry = (
         "carry",
         [
-            "carry counts: human=19 matched=1 unmatched=18 orphaned=0",
+            "carry counts: human=21 matched=1 unmatched=18 orphaned=0 accepted=2",
             "wrote verdicts-carried-testid.json: 1 carried onto manifest S1",
             "human queue: 19 -> 18 still needing fresh verdicts",
         ],
@@ -711,7 +712,7 @@ def test_the_verdict_update_row_adds_what_the_store_holds_after_the_merge_when_t
         ),
     )
     assert failures == [] and report.store_carried
-    assert report.carry_counts == {"human": 19, "matched": 1, "unmatched": 18, "orphaned": 0}
+    assert report.carry_counts == {"human": 21, "matched": 1, "unmatched": 18, "orphaned": 0, "accepted": 2}
     assert (
         ac.step_detail(report, "verdict-update")
         == "1 carried, queue 19 -> 18; store holds 2 verdicts after the merge; no open complaints"
@@ -1068,7 +1069,7 @@ _FULL_VERDICT_UPDATE = (
         [
             "wrote verdicts-carried-abc.json: 51946 carried onto manifest S1",
             "kinds: {'approve': 5}",
-            "carry counts: human=60000 matched=51946 unmatched=8054 orphaned=12",
+            "carry counts: human=60000 matched=51946 unmatched=8054 orphaned=12 accepted=0",
         ],
     ),
     (
@@ -1418,7 +1419,13 @@ def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
     assert report.standing_merge_status == "unchanged"
     assert any(line.startswith("nothing changed") for line in report.standing_merge_lines)
     assert any("carried onto manifest" in line for line in report.carry_lines)
-    assert report.carry_counts == {"human": 60000, "matched": 51946, "unmatched": 8054, "orphaned": 12}
+    assert report.carry_counts == {
+        "human": 60000,
+        "matched": 51946,
+        "unmatched": 8054,
+        "orphaned": 12,
+        "accepted": 0,
+    }
     assert ac.cycle_summary_payload(report, [], _plan(), "ok")["carry"] == report.carry_counts
     assert report.complaints_status == "no open complaints"
     assert report.verdict_update_complete is True
@@ -7403,6 +7410,11 @@ def test_verdict_update_skip_fingerprint_moves_with_every_input(tmp_path):
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) == base
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, None) is None
 
+    listed = tmp_path / "rebuild" / "accepted-units.txt"
+    listed.write_text("# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\n")
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
+    listed.unlink()
+
     master.write_text('{"verdicts": []}')
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
 
@@ -7440,7 +7452,7 @@ def test_verdict_update_skip_fingerprint_moves_with_every_input(tmp_path):
 
 
 def test_verdict_update_skip_fingerprint_covers_its_own_code(tmp_path):
-    """The verdict-update key covers the verdict update's own code, which lives in rebuild/tools/, where no other fingerprint reads it. Without it, a fix to a fill's matcher would be skipped as already checked. artifact_cycle.py, cycle_timings.py, memory_budget.py and peak_rss.py share that directory but run no step of the verdict update, so editing one leaves the key unchanged; serve.py and review_server.py, which the verdict update imports, move it, and so does landing.py, which puts the prepared store in place."""
+    """The verdict-update key covers the verdict update's own code, which lives in rebuild/tools/, where no other fingerprint reads it. Without it, a fix to a fill's matcher would be skipped as already checked. artifact_cycle.py, cycle_timings.py, memory_budget.py and peak_rss.py share that directory but run no step of the verdict update, so editing one leaves the key unchanged; serve.py and review_server.py, which the verdict update imports, move it, and so do landing.py, which puts the prepared store in place, and accepted.py, through which every step reads the accepted list."""
     corpus = tmp_path / "review"
     corpus.mkdir()
     (corpus / "manifest.json").write_text(
@@ -7491,6 +7503,12 @@ def test_verdict_update_skip_fingerprint_covers_its_own_code(tmp_path):
     landed = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
     landing_module.write_text("z = 2\n")
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != landed
+
+    accepted_module = tmp_path / "rebuild" / "review" / "accepted.py"
+    accepted_module.write_text("z = 1\n")
+    read = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
+    accepted_module.write_text("z = 2\n")
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != read
 
 
 def test_verdict_update_skip_fingerprint_sees_a_master_that_is_not_the_autosave(tmp_path):
@@ -8958,7 +8976,7 @@ def test_retention_compacts_the_journal_and_sweeps_stashes_under_the_store_lock(
 
 
 def test_retention_keeps_ninety_days_of_journal_history(tmp_path, monkeypatch):
-    """The compaction starts the journal at the newest base event at least ninety days old, so a base from 89 days ago, and every moment from the floor on, stays restorable."""
+    """The compaction starts the journal at the newest base event at least ninety days old, so a base from 89 days ago, and every moment from the floor on, stays restorable. A journal whose first event is that old ends the report with the warning that a close-out is due."""
     from datetime import datetime, timedelta, timezone
 
     plan = _plan()
@@ -8986,6 +9004,7 @@ def test_retention_keeps_ninety_days_of_journal_history(tmp_path, monkeypatch):
     assert f"restore floor now {ats['S2']}" in out
     assert [event["stamp"] for event in journal.iter_events(journal_path)] == ["S2", "S3", "S4"]
     assert journal.replay(journal_path, as_of=ats["S3"])[0] == "S3"
+    assert f"close-out : the verdict journal's first event, at {ats['S2']}, is 91 days old, and since" in out
 
 
 @pytest.mark.parametrize("floored", [True, False])
@@ -9354,6 +9373,26 @@ def test_main_stops_with_the_refusal_when_a_stopped_lands_recovery_refuses(tmp_p
     assert out.startswith(f"ERROR: the result {result} holds a verdict record on u-1 that is not an object")
     assert "The pass stops before it starts." in out
     assert cycles == [] and {path: path.read_bytes() for path in kept} == before
+
+
+def test_main_stops_with_the_refusal_when_the_store_does_not_pair_with_the_accepted_list(
+    tmp_path, monkeypatch, capsys
+):
+    """A store whose `accepted` field names a list the tree does not hold, as a checkout that separates the two leaves it, stops the carry source's resolution (`accepted.Mismatch`). The pass then prints the refusal with its remedy and exits 1 before its first step instead of ending in a traceback, and the store is left byte for byte as it was."""
+    _settled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    cycles: list[object] = []
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, *_, **__: cycles.append(plan) or 0)
+    store = json.loads(ac.AUTOSAVE.read_text())
+    store["accepted"] = {"sha256": "0" * 64, "closed_at": "2026-07-17T21:00:00Z"}
+    ac.AUTOSAVE.write_text(json.dumps(store))
+    before = ac.AUTOSAVE.read_bytes()
+    for argv in (["--dry-run"], []):
+        assert ac.main(argv) == 1
+        out = capsys.readouterr().out
+        assert out.startswith(f"ERROR: {ac.AUTOSAVE} names the accepted list {'0' * 64}")
+        assert "make close-out ARGS=--undo" in out and "The pass stops before it starts." in out
+    assert cycles == [] and ac.AUTOSAVE.read_bytes() == before
 
 
 def test_a_dry_run_skips_the_recovery_while_a_pass_holds_the_lock(tmp_path, monkeypatch, capsys):

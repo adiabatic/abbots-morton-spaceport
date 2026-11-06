@@ -100,7 +100,7 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from rebuild.review import app_index, facts, journal, landing, store_lock, unit_index  # noqa: E402
+from rebuild.review import accepted, app_index, facts, journal, landing, store_lock, unit_index  # noqa: E402
 from rebuild.review.audit import load_ledger  # noqa: E402
 from rebuild.tools import console, cycle_paths  # noqa: E402
 from rebuild.tools import contracts_closure as contracts  # noqa: E402
@@ -199,7 +199,7 @@ COMPILE_CODE_FILES = (
     "rebuild/pipeline/pack_gsub.py",
     "rebuild/pipeline/compile_font.py",
 )
-JOURNAL_HISTORY_DAYS = 90
+JOURNAL_HISTORY_DAYS = journal.HISTORY_DAYS
 # How long retention waits for the verdict store's lock before it leaves the stashes or the journal for a later pass. A merge of the whole store holds the lock for seconds, and a server POST for milliseconds.
 RETENTION_LOCK_TIMEOUT_S = 60.0
 
@@ -1023,7 +1023,7 @@ def verdict_update_code_paths(root: Path = ROOT) -> list[Path]:
 
 
 def verdicts_records_digest(path: Path) -> str:
-    """Return a digest of a verdicts document's content: every top-level field but `exported_at`, and the records sorted by their canonical JSON. The review server rewrites the store with a new `exported_at` on every save, and the merge and the server lay records out differently, so neither a save that changes no record nor a rewrite in another layout moves it. A file that is not a JSON object with a `verdicts` list is hashed by its bytes, and one that cannot be read is "absent", as `_sha256_path` reports it. The parse holds the whole store in memory once, in the cycle's own process. `verdict_update_skip_fingerprint` parses the store once per call, and the cycle calls it at plan time, before any gate or pool starts, and after the verdict update exits, inside the memory the build lane reserved for that step (`_conform_build_lane`)."""
+    """Return a digest of a verdicts document's content: every top-level field but `exported_at`, and the records sorted by their canonical JSON, the override section's records and tombstones (`accepted.Overrides`) each sorted the same way apart from the store's own. The review server rewrites the store with a new `exported_at` on every save, and the merge and the server lay records out differently, so neither a save that changes no record nor a rewrite in another layout moves it. A file that is not a JSON object with a `verdicts` list is hashed by its bytes, and one that cannot be read is "absent", as `_sha256_path` reports it. The parse holds the whole store in memory once, in the cycle's own process. `verdict_update_skip_fingerprint` parses the store once per call, and the cycle calls it at plan time, before any gate or pool starts, and after the verdict update exits, inside the memory the build lane reserved for that step (`_conform_build_lane`)."""
     try:
         with open(path, "rb") as handle:
             document = json.load(handle)
@@ -1035,10 +1035,21 @@ def verdicts_records_digest(path: Path) -> str:
         return _sha256_path(path)
     records = document.pop("verdicts")
     document.pop("exported_at", None)
+    section = document.pop(accepted.OVERRIDES, None)
     digest = hashlib.sha256()
     digest.update(json.dumps(document, sort_keys=True, ensure_ascii=False).encode() + b"\n")
     for line in sorted(json.dumps(record, sort_keys=True, ensure_ascii=False) for record in records):
         digest.update(line.encode() + b"\n")
+    if section is not None:
+        digest.update(b"overrides\n")
+        held = section if isinstance(section, dict) else {}
+        for name in ("verdicts", "cleared"):
+            entries = held.get(name)
+            for line in sorted(
+                json.dumps(entry, sort_keys=True, ensure_ascii=False)
+                for entry in (entries if isinstance(entries, list) else [])
+            ):
+                digest.update(f"{name}\t{line}\n".encode())
     return digest.hexdigest()
 
 
@@ -1052,7 +1063,7 @@ def _master_key_line(root: Path, master: Path, autosave_digest: str) -> str:
 def verdict_update_skip_fingerprint(
     root: Path = ROOT, corpus: Path | None = None, master: Path | None = None, store: Path | None = None
 ) -> str | None:
-    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The live store is hashed by its records (`verdicts_records_digest`), not its bytes, because the review server rewrites the file with a new `exported_at` on every save, and when the master resolved to the store, the master line names it `autosave` instead of by its path (`_master_key_line`). The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, status.py and journal.py, which the merge and the readiness check run, store_lock.py, which the merge holds around its write, and landing.py, which puts the store the verdict update prepared in place. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. `store` is the store whose records stand for the live store, the live store when None: after a pass the cycle keys the record on the store its land wrote (`landing.LANDED_NAME`), so the next plan, which reads the live store, finds the same key only when no save has changed the store since. None when the corpus has no fingerprinted manifest or no master was resolved."""
+    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The live store is hashed by its records (`verdicts_records_digest`), not its bytes, because the review server rewrites the file with a new `exported_at` on every save, and when the master resolved to the store, the master line names it `autosave` instead of by its path (`_master_key_line`). The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, status.py and journal.py, which the merge and the readiness check run, store_lock.py, which the merge holds around its write, landing.py, which puts the store the verdict update prepared in place, and accepted.py, through which every step reads the accepted list. The list itself, `rebuild/accepted-units.txt` beside the live store, is hashed by its bytes, since every step reads the units it names as accepted and a close-out rewrites it. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. `store` is the store whose records stand for the live store, the live store when None: after a pass the cycle keys the record on the store its land wrote (`landing.LANDED_NAME`), so the next plan, which reads the live store, finds the same key only when no save has changed the store since. None when the corpus has no fingerprinted manifest or no master was resolved."""
     if master is None:
         return None
     corpus_dir = corpus if corpus is not None else REVIEW_OUT
@@ -1083,6 +1094,8 @@ def verdict_update_skip_fingerprint(
         f"journal\t{_sha256_path(root / 'rebuild' / 'review' / 'journal.py')}",
         f"store_lock\t{_sha256_path(root / 'rebuild' / 'review' / 'store_lock.py')}",
         f"landing\t{_sha256_path(root / 'rebuild' / 'review' / 'landing.py')}",
+        f"accepted\t{_sha256_path(root / 'rebuild' / 'review' / 'accepted.py')}",
+        f"accepted_units\t{_sha256_path(accepted.path_for(root / AUTOSAVE.name))}",
     ]
     return _digest_lines(lines)
 
@@ -2422,6 +2435,7 @@ def build_plan(
                 "--standing-out",
                 str(prepared.parent / STANDING_FILL_NAME),
             ]
+        verdict_update_argv += ["--accepted", str(accepted.path_for(AUTOSAVE))]
         if do_merge and update_corpus.parent != REVIEW_OUT.parent:
             from rebuild.tools.standing_verdicts import MEMO_NAME
 
@@ -2495,7 +2509,7 @@ def build_plan(
             store_part = (
                 "the prepared store"
                 if do_merge
-                else "an empty store stamped for it (the old one is stashed, as this pass carries nothing)"
+                else "an empty store stamped for it that keeps the override section (the old one is stashed, as this pass carries nothing)"
             )
             land_note = f"swaps {next_corpus} in for rebuild/out/review and puts {store_part} in place with it, under the verdict store's lock, with the saves made during the pass laid over it; the review server keeps running"
         plan.steps.append(Step("land", land_argv, land_note, lane="build"))
@@ -4586,16 +4600,20 @@ INFORMATIONAL_STEPS = ("review-facts", "job-costs")
 
 _CARRY_WROTE = re.compile(r"^wrote \S+: (\d+) carried onto manifest")
 _CARRY_QUEUE = re.compile(r"^human queue: (\d+) -> (\d+)")
-_CARRY_COUNTS = re.compile(r"^carry counts: human=(\d+) matched=(\d+) unmatched=(\d+) orphaned=(\d+)$")
+_CARRY_COUNTS = re.compile(
+    r"^carry counts: human=(\d+) matched=(\d+) unmatched=(\d+) orphaned=(\d+) accepted=(\d+)$"
+)
 _MERGE_HOLDS = re.compile(r"\bholds (?:all )?(\d+) verdicts\b")
 
 
 def carry_counts(lines: list[str]) -> dict[str, int] | None:
-    """Parse the carry's `carry counts:` line: the human units on the new corpus, how many a prior verdict matched, how many none matched, and how many prior verdicts matched no unit. The counts are written to the cycle summary and to the run line in the timings journal. On a pass that carries the store's snapshot before a direct merge (`CycleReport.store_carried`), they count that carry alone, not any master the verdict update merges into its result afterward. Returns None when the carry printed no such line (a direct merge that carries no snapshot of the store, a verdict update that failed before the carry, or a carry that refused one of its verdicts files, which `carry_verdicts.resolve_prior` does before counting)."""
+    """Parse the carry's `carry counts:` line: the human units on the new corpus, how many a prior verdict matched, how many none matched, how many prior verdicts matched no unit, and how many human units the accepted list answers for. The counts are written to the cycle summary and to the run line in the timings journal. On a pass that carries the store's snapshot before a direct merge (`CycleReport.store_carried`), they count that carry alone, not any master the verdict update merges into its result afterward. Returns None when the carry printed no such line (a direct merge that carries no snapshot of the store, a verdict update that failed before the carry, or a carry that refused one of its verdicts files, which `carry_verdicts.resolve_prior` does before counting)."""
     for line in lines:
         match = _CARRY_COUNTS.match(line)
         if match is not None:
-            return dict(zip(("human", "matched", "unmatched", "orphaned"), map(int, match.groups())))
+            return dict(
+                zip(("human", "matched", "unmatched", "orphaned", "accepted"), map(int, match.groups()))
+            )
     return None
 
 
@@ -5214,7 +5232,7 @@ def _retention_detail(removed: list[str], intact: list[str], journal_state: str)
 
 
 def run_retention(plan: Plan) -> RetentionResult:
-    """Prune build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. The stash sweep and the compaction share one scan of the journal, made without the verdict store's lock and resumed from the state the last pass saved (`journal_scan_path`), so a pass parses only what was appended since the last one. They take the lock only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (the review server, a merge, a re-key) waits for at most that long; the server answers a save made in that window with a retryable 503, as it does during a land. Every append holds the lock, so no line can fall between the scan and the replacement. A lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass. A review server from before the land protocol (`Plan.legacy_server`) appends to the journal and moves stashes without the lock, so while one listens the stashes and the journal are left for a later pass."""
+    """Prune build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. The stash sweep and the compaction share one scan of the journal, made without the verdict store's lock and resumed from the state the last pass saved (`journal_scan_path`), so a pass parses only what was appended since the last one. They take the lock only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (the review server, a merge, a re-key) waits for at most that long; the server answers a save made in that window with a retryable 503, as it does during a land. Every append holds the lock, so no line can fall between the scan and the replacement. A lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass. A review server from before the land protocol (`Plan.legacy_server`) appends to the journal and moves stashes without the lock, so while one listens the stashes and the journal are left for a later pass. Once the journal's first event is `journal.CLOSE_OUT_DUE_DAYS` days old, the report ends with a line that warns of the compaction ahead and names `make close-out` (`journal.close_out_due`)."""
 
     def rel(path: Path) -> str:
         try:
@@ -5228,6 +5246,13 @@ def run_retention(plan: Plan) -> RetentionResult:
     lines = ["Retention (skip with --keep-history):"]
     removed_counts: list[str] = []
     intact: list[str] = []
+    journal_path = ROOT / journal.JOURNAL_NAME
+
+    def reported(journal_state: str) -> RetentionResult:
+        due = journal.close_out_due(journal_path)
+        if due is not None:
+            lines.append(f"  close-out : {due}")
+        return RetentionResult(lines, _retention_detail(removed_counts, intact, journal_state))
 
     dropped_logs = prune_build_logs(cycle_paths.BUILD_LOGS_ROOT, cycle_paths.BUILD_LOGS_KEEP)
     removed_counts.append(swept(len(dropped_logs), "build log", "build logs"))
@@ -5235,7 +5260,6 @@ def run_retention(plan: Plan) -> RetentionResult:
         f"  build logs: removed {console.fmt_count(len(dropped_logs))}; kept the last {cycle_paths.BUILD_LOGS_KEEP} runs under {rel(cycle_paths.BUILD_LOGS_ROOT)}"
     )
 
-    journal_path = ROOT / journal.JOURNAL_NAME
     if plan.legacy_server and server_listening():
         lines.append(
             "  stashes   : left intact (a review server from before the land protocol is listening, and it moves stashes and appends to the journal without the verdict store's lock)"
@@ -5244,7 +5268,7 @@ def run_retention(plan: Plan) -> RetentionResult:
             "  journal   : left intact (the same server's appends could fall between the compaction's tail copy and its replacement of the journal)"
         )
         intact.extend(["stashes", "journal"])
-        return RetentionResult(lines, _retention_detail(removed_counts, intact, ""))
+        return reported("")
     store = ROOT / "verdicts-autosave.json"
 
     def locked() -> contextlib.AbstractContextManager:
@@ -5276,7 +5300,7 @@ def run_retention(plan: Plan) -> RetentionResult:
     except store_lock.LockBusy:
         journal.save_scan_state(state_path, prepared.read)
         lines.append(f"  journal   : {busy}")
-        return RetentionResult(lines, _retention_detail(removed_counts, intact, "journal intact"))
+        return reported("journal intact")
     journal.save_scan_state(state_path, result["resume"])
     if result["compacted"]:
         total = result["dropped_lines"] + result["kept_lines"]
@@ -5297,7 +5321,7 @@ def run_retention(plan: Plan) -> RetentionResult:
             f"  journal   : left intact (no complete base event older than {JOURNAL_HISTORY_DAYS} days)"
         )
         journal_state = "journal intact"
-    return RetentionResult(lines, _retention_detail(removed_counts, intact, journal_state))
+    return reported(journal_state)
 
 
 def pass_lock_path() -> Path:
@@ -5372,7 +5396,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-merge",
         action="store_true",
-        help="carry only, merging neither the carry nor the fills into the store; a pass that moves the corpus still lands it, with an empty store stamped for it in place of verdicts-autosave.json, which is kept as verdicts-autosave-<old stamp>.json, so the store is left untouched only on a pass whose corpus does not move",
+        help="carry only, merging neither the carry nor the fills into the store; a pass that moves the corpus still lands it, with an empty store stamped for it that keeps the store's override section (its verdicts on accepted units since the close-out) in place of verdicts-autosave.json, which is kept as verdicts-autosave-<old stamp>.json, so the store is left untouched only on a pass whose corpus does not move",
     )
     parser.add_argument(
         "--carry-out",
@@ -5461,7 +5485,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
-    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory and whose refusal stops the pass with exit 1, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`)."""
+    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory and whose refusal stops the pass with exit 1, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`). A store that does not pair with the accepted list, or a malformed list, stops the pass with exit 1 at the carry source's resolution (`accepted.Refused`), before any step runs."""
     try:
         landed = recover_land(dry_run=args.dry_run) if recover else None
     except landing.LandUnrecoverable as refused:
@@ -5561,7 +5585,11 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
 
     master_aligned: bool | None = None
     if not args.no_carry and args.verdicts is None and not first_run:
-        resolved = resolve_carry_source()
+        try:
+            resolved = resolve_carry_source()
+        except accepted.Refused as refused:
+            print(f"ERROR: {refused}. The pass stops before it starts.")
+            return 1
         if resolved is None:
             args.no_carry = True
             announce(

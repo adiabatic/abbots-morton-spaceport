@@ -1,11 +1,11 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, of a store stamped for the corpus, or of a restore's replay holding a record the carry refuses, the base event a restore applied over a store holding one journals, the set-aside of a stale store holding one, whose tombstones the merge keeps on the corpus's human units except those its records name, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, and the restore preview beside it when no `--out` does, the refusal of a store under any other name without them, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, of a store stamped for the corpus, or of a restore's replay holding a record the carry refuses, the base event a restore applied over a store holding one journals, the set-aside of a stale store holding one, whose tombstones the merge keeps on the corpus's human units except those its records name, and the refusal of one holding such a record in its override section, which the merge keeps, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, and the restore preview beside it when no `--out` does, the refusal of a store under any other name without them, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back. Last, the accepted list beside the store: an input's record on an accepted unit is met as a store record dated the close-out would meet it, except in the carried file the verdict update names as the store's own; a store that does not pair with the list is refused; the auto-pick counts the store's accepted units; and a restore writes the field its events recorded, moved through a re-key's backup, refuses to apply a store that does not pair, and names the close-out's archive for a moment before the journal a close-out started."""
 
 import json
 import threading
 
 import pytest
 
-from rebuild.review import journal
+from rebuild.review import accepted, journal
 from rebuild.review import store_lock as store_lock_module
 from rebuild.review.store_lock import store_lock
 from rebuild.review.verdict_store import DELTA_FORMAT, VerdictStore
@@ -61,6 +61,10 @@ def run(repo, *args):
 
 def store_records(repo):
     return journal.latest_by_unit(json.loads(repo["autosave"].read_text())["verdicts"])
+
+
+def store_overrides(repo):
+    return accepted.Overrides.of(json.loads(repo["autosave"].read_text()))
 
 
 def test_merge_into_missing_autosave_writes_and_journals(repo, tmp_path):
@@ -258,8 +262,8 @@ def test_a_merge_onto_a_stale_store_keeps_its_tombstones_on_the_corpus_human_uni
     ]
 
 
-def test_a_merge_sets_aside_a_stale_store_holding_a_record_the_carry_refuses(repo, tmp_path):
-    """The merge keeps none of a stale store's verdicts and reads of them only which units they name, so a record whose `at` is not a string, beside another record on its unit, neither stops the merge nor is checked: the store is stashed as it was, its tombstone on a human unit still refuses an incoming record older than the clear, and one on a unit only such a record names is dropped like one on any unit the stale store holds a record for."""
+def test_a_merge_sets_aside_a_stale_store_holding_a_record_the_carry_refuses(repo, tmp_path, capsys):
+    """The merge keeps none of a stale store's verdicts and reads of them only which units they name, so a record whose `at` is not a string, beside another record on its unit, neither stops the merge nor is checked: the store is stashed as it was, its tombstone on a human unit still refuses an incoming record older than the clear, and one on a unit only such a record names is dropped like one on any unit the stale store holds a record for. The merge keeps a stale store's override section, though, so one holding such a record there is refused before anything is written, naming the store and the record, as a store stamped for the corpus is."""
     (repo["corpus"] / "manifest.json").write_text(
         json.dumps({"generated_at": "S2", "human_unit_ids": ["u-A", "u-B", "u-C", "u-D"]})
     )
@@ -289,6 +293,20 @@ def test_a_merge_sets_aside_a_stale_store_holding_a_record_the_carry_refuses(rep
     assert written["manifest_generated_at"] == "S2"
     assert set(store_records(repo)) == {"u-A"}
     assert written["cleared"] == [{"unit": "u-C", "at": "2026-07-09T00:00:00Z"}]
+
+    unit = "u-1AAAAAAAAAA"
+    field = write_list(repo, {unit: "approve"})
+    malformed = {"unit": unit, "verdict": "reject", "at": 5}
+    section = {"verdicts": [v(unit, "reject", at=AFTER), malformed], "cleared": []}
+    repo["autosave"].write_text(json.dumps({**doc("S1", []), "overrides": section, "accepted": field}))
+    store, journaled = repo["autosave"].read_bytes(), repo["journal"].read_bytes()
+    assert run(repo, str(export)) == 1
+    out = capsys.readouterr().out
+    assert (
+        f"ERROR: the override section of the store {mv._rel(repo['autosave'])} holds a verdict record on {unit}"
+        in out
+    )
+    assert repo["autosave"].read_bytes() == store and repo["journal"].read_bytes() == journaled
 
 
 def test_refuses_to_merge_onto_an_outdated_corpus(repo, tmp_path, capsys):
@@ -889,3 +907,142 @@ def test_a_merge_or_a_restore_refuses_by_name_when_the_dead_lands_recovery_refus
     assert out.rstrip().endswith("Nothing was merged." if how == "merge" else "Nothing was restored.")
     assert {path: path.read_bytes() for path in before} == before
     assert sorted(tmp_path.glob("verdicts-*.json")) == [repo["autosave"]]
+
+
+CLOSED_AT = "2026-07-09T12:00:00Z"
+BEFORE, AFTER = "2026-07-09T00:00:00Z", "2026-07-10T00:00:00Z"
+
+
+def write_list(repo, verdicts, closed_at=CLOSED_AT) -> dict:
+    """Write the list beside the repo's store and return the `accepted` field that names it."""
+    listed = accepted.path_for(repo["autosave"])
+    listed.parent.mkdir(parents=True, exist_ok=True)
+    listed.write_bytes(accepted.render(closed_at, verdicts))
+    field = accepted.read(listed).field()
+    assert field is not None
+    return field
+
+
+def write_named(path, stamp, verdicts, field):
+    path.write_text(json.dumps({**doc(stamp, verdicts), "accepted": field}))
+
+
+def test_an_input_record_on_an_accepted_unit_meets_it_as_a_store_record_dated_the_close_out(
+    repo, tmp_path, capsys
+):
+    """On a listed unit the store holds no override for, an input record equal to the accepted record by value adds nothing, one dated at or before the close-out is kept out, and one dated after it with another verdict or a note becomes an override, in the store's override section and not among its own records; the store written names the list."""
+    accept, either, reject, note = "u-1AAAAAAAAAA", "u-1BBBBBBBBBB", "u-1CCCCCCCCCC", "u-1DDDDDDDDDD"
+    field = write_list(repo, {accept: "approve", either: "either", reject: "approve", note: "approve"})
+    write_named(repo["autosave"], "S2", [], field)
+    export = write_doc(
+        tmp_path / "verdicts-export.json",
+        "S2",
+        [
+            v(accept, at=AFTER),
+            v(either, "reject", at=BEFORE),
+            v(reject, "reject", at=AFTER),
+            v(note, note="typed", at=AFTER),
+        ],
+    )
+    assert run(repo, str(export)) == 0
+    assert "2 added, 0 replaced, 1 kept newer, 1 already accepted" in capsys.readouterr().out
+    assert store_records(repo) == {}
+    assert {unit: record["verdict"] for unit, record in store_overrides(repo).records.items()} == {
+        reject: "reject",
+        note: "approve",
+    }
+    assert json.loads(repo["autosave"].read_text())["accepted"] == field
+
+
+def test_a_stamp_move_keeps_the_stores_override_section_so_an_override_before_the_close_out_survives(
+    repo, tmp_path
+):
+    """A save queued while the server was stopped for the close-out reaches the store as an override dated before it. On a pass that moves the stamp the merge sets the older-stamped store aside and keeps its override section whole, so the override stays whether the carried file holds nothing on its unit or holds it again, met as an input record no newer than the override."""
+    unit = "u-1AAAAAAAAAA"
+    (repo["corpus"] / "manifest.json").write_text(
+        json.dumps({"generated_at": "S2", "human_unit_ids": [unit]})
+    )
+    field = write_list(repo, {unit: "approve"})
+    for held in ([], [v(unit, "reject", at=BEFORE)]):
+        carried = write_doc(tmp_path / "carried.json", "S2", held)
+        repo["autosave"].write_text(
+            json.dumps(
+                {
+                    **doc("S1", []),
+                    "overrides": {"verdicts": [v(unit, "reject", at=BEFORE)], "cleared": []},
+                    "accepted": field,
+                }
+            )
+        )
+        assert (
+            mv.run_merge(
+                [carried],
+                autosave=repo["autosave"],
+                corpus=repo["corpus"],
+                journal_path=repo["journal"],
+                dry_run=False,
+            )
+            == 0
+        )
+        assert store_records(repo) == {} and store_overrides(repo).records == {
+            unit: v(unit, "reject", at=BEFORE)
+        }
+
+
+def test_a_merge_refuses_a_store_that_does_not_pair_with_the_list(repo, tmp_path, capsys):
+    field = write_list(repo, {"u-1AAAAAAAAAA": "approve"})
+    write_named(repo["autosave"], "S2", [v("u-1")], field)
+    write_list(repo, {"u-1BBBBBBBBBB": "approve"}, closed_at=AFTER)
+    before = repo["autosave"].read_bytes()
+    assert run(repo, str(write_doc(tmp_path / "x.json", "S2", [v("u-2")]))) == 1
+    assert "verdicts-autosave.json names the accepted list" in capsys.readouterr().out
+    assert repo["autosave"].read_bytes() == before and not repo["journal"].exists()
+
+
+def test_the_auto_pick_counts_the_stores_accepted_units(repo, tmp_path, monkeypatch, capsys):
+    """A store a close-out emptied holds its units in the list, so a root export made before the close-out holds no more effective verdicts than it and is not picked."""
+    monkeypatch.setattr(mv, "ROOT", tmp_path)
+    units = ["u-1AAAAAAAAAA", "u-1BBBBBBBBBB"]
+    (repo["corpus"] / "manifest.json").write_text(json.dumps({"generated_at": "S2", "human_unit_ids": units}))
+    field = write_list(repo, dict.fromkeys(units, "approve"))
+    write_named(repo["autosave"], "S2", [], field)
+    write_doc(tmp_path / "verdicts-export.json", "S2", [v(unit, at=BEFORE) for unit in units])
+    assert run(repo) == 0
+    assert "nothing to merge" in capsys.readouterr().out
+
+
+def test_a_restore_names_its_list_and_applies_only_beside_it(repo, capsys):
+    """A restore writes the `accepted` field the journal recorded, moved through each re-key's backup since when `--rekey-map` is given, and `--apply` refuses a restored store that does not pair with the list. A moment before the journal a close-out started is refused, naming the close-out's archive."""
+    old_id, new_id = "u-1AAAAAAAAAA", "u-1BBBBBBBBBB"
+    before = write_list(repo, {old_id: "approve"})
+    journal.record_transition(
+        repo["journal"],
+        source="close-out",
+        stamp="S2",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v(old_id, "reject", at=AFTER)],
+        at=AFTER,
+        accepted=before,
+    )
+    out = repo["root"] / "restored.json"
+    assert run(repo, "--restore-as-of", AFTER, "--out", str(out)) == 0
+    assert json.loads(out.read_text())["accepted"] == before
+    assert run(repo, "--restore-as-of", BEFORE, "--out", str(out)) == 1
+    refusal = capsys.readouterr().out.splitlines()[-1]
+    assert "starts at the close-out of" in refusal and str(repo["root"] / mv.CLOSE_OUT_ARCHIVES) in refusal
+
+    after = write_list(repo, {new_id: "approve"}, closed_at="2026-07-11T00:00:00Z")
+    assert run(repo, "--restore-as-of", AFTER, "--apply") == 1
+    assert not repo["autosave"].exists()
+    keep = repo["root"] / "keep"
+    (keep / "run").mkdir(parents=True)
+    rekey_map = keep / "unit-id-map.json"
+    rekey_map.write_text(json.dumps({"renamed": {old_id: new_id}}))
+    (keep / "run" / mv.REKEY_BACKUP_RECORD).write_text(
+        json.dumps({"accepted": {"before": before, "after": after}})
+    )
+    assert run(repo, "--restore-as-of", AFTER, "--rekey-map", str(rekey_map), "--apply") == 0
+    restored = json.loads(repo["autosave"].read_text())
+    assert restored["accepted"] == after and restored["verdicts"] == []
+    assert [record["unit"] for record in restored["overrides"]["verdicts"]] == [new_id]

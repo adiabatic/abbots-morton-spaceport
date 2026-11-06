@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 import json
 import subprocess
 import sys
@@ -147,6 +148,8 @@ def test_the_tables_are_digested_with_the_trees_own_code(tmp_path):
     (m1 / "windows-default.tsv.gz").write_bytes(b"not read by the stub")
     (m1 / "joins-default.tsv").write_text("joins\n")
     (m1 / "M1.otf").write_bytes(b"font")
+    listed = root / "rebuild" / "accepted-units.txt"
+    listed.write_bytes(b"# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\n")
     out = tmp_path / "fingerprint.json"
     subprocess.run(
         [sys.executable, "-P", str(SCRIPT), "--root", str(root), "--out", str(out)], check=True, cwd=root
@@ -156,3 +159,4 @@ def test_the_tables_are_digested_with_the_trees_own_code(tmp_path):
     assert document["tables"] == {"default": "sentinel windows-default.tsv.gz joins"}
     assert document["fonts"]["rebuild/out/m1/M1.otf"] == "the tree’s font digest"
     assert document["fonts"]["site/AbbotsMortonSpaceportMono-Regular.otf"] is None
+    assert document["accepted"] == hashlib.sha256(listed.read_bytes()).hexdigest()

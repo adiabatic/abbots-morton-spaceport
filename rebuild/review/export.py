@@ -1,19 +1,22 @@
 """Write a triage YAML from an exported verdicts.json (rebuild/REVIEW-PLAN.md §4.2). The CLI joins the verdicts to the built review directory's units, re-parses the expect strings of the selected pin and any-of drafts, and writes five draft sections (pins, policy_edits, any_of, neither, identical) after the review and machine_approved records. A person places the drafts; nothing is applied to the corpus or the rune files.
 
-Usage: uv run python -m rebuild.review.export verdicts.json --out tmp/review-triage.yaml
+The export reads its verdicts beside the accepted list `--accepted` names, which defaults to the one beside a file named verdicts-autosave.json (`accepted.path_for`), so any other file needs the flag. It reads the file through the list (`accepted.view_of_file`): the file's own records on unlisted ids, its overrides on listed ids (the store's override section, or an Export's records on listed ids), and each id the list names on the corpus that the file holds no override for, which counts under its mark and drafts with an empty note (`accepted.View.from_list`), since an Export from the review app holds the store's records alone. The store, and a file whose `accepted` field names a list, must pair with the one given (`accepted.pair`); an Export names none and holds no tombstones, so it is read beside the tombstones of the store beside the list, its override tombstones among them, and an accepted unit cleared since the close-out is left out as the store leaves it.
+
+Usage: uv run python -m rebuild.review.export verdicts.json --accepted rebuild/accepted-units.txt --out tmp/review-triage.yaml
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime
+import itertools
 import json
 import sys
 from pathlib import Path
 
 import yaml
 
-from rebuild.review import unit_index
+from rebuild.review import accepted, unit_index
 from rebuild.review.audit import SLIM_OMITTED_KEYS, machine_approved, slim_fragment
 from rebuild.review.verdict_store import note_of
 
@@ -131,7 +134,10 @@ def machine_approved_section(manifest: dict, units: dict[str, dict]) -> dict:
     }
 
 
-def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict:
+def build_triage(
+    manifest: dict, units: dict[str, dict], verdicts: dict, view: accepted.View | None = None
+) -> dict:
+    """Return the triage document for the verdicts document `verdicts` on the corpus `units`. With `view`, the document read through the accepted list (`accepted.view_of_file`), it reads the view's own records on unlisted ids, its override records, and the accepted record of each id on the corpus that the view answers from the list; without one, the document's own records."""
     counts = {"approve": 0, "reject": 0, "either": 0, "identical": 0, "neither": 0, "skip": 0}
     covered = 0
     pins: list[dict] = []
@@ -150,7 +156,15 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
             file=sys.stderr,
         )
 
-    for record in verdicts.get("verdicts", ()):
+    records = verdicts.get("verdicts", ())
+    if view is not None:
+        listed = view.accepted.verdicts
+        records = itertools.chain(
+            (record for unit, record in view.records.items() if unit not in listed),
+            view.overrides.records.values(),
+            (view[unit] for unit, _verdict in view.from_list(units)),
+        )
+    for record in records:
         unit = units.get(record.get("unit", ""))
         if unit is None:
             missing.append(record.get("unit", "<missing>"))
@@ -306,11 +320,25 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("verdicts", type=Path)
     parser.add_argument("--review-dir", type=Path, default=DEFAULT_REVIEW_DIR)
     parser.add_argument("--out", type=Path, default=REPO_ROOT / "tmp" / "review-triage.yaml")
+    parser.add_argument(
+        "--accepted",
+        type=Path,
+        metavar="PATH",
+        help=f"the accepted list the verdicts are read beside (default: the {accepted.RELATIVE_PATH} beside a verdicts file named {accepted.AUTOSAVE_NAME}; any other verdicts file needs this flag)",
+    )
     args = parser.parse_args(argv)
+    try:
+        listed_path = args.accepted or accepted.path_for(args.verdicts)
+    except ValueError as error:
+        parser.error(str(error))
 
-    manifest, units = load_units(args.review_dir)
     verdicts = load_verdicts(args.verdicts)
-    triage = build_triage(manifest, units, verdicts)
+    try:
+        view = accepted.view_of_file(verdicts, accepted.read(listed_path), path=args.verdicts)
+    except accepted.Refused as refusal:
+        raise SystemExit(str(refusal)) from None
+    manifest, units = load_units(args.review_dir)
+    triage = build_triage(manifest, units, verdicts, view)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
         yaml.safe_dump(triage, sort_keys=False, allow_unicode=True, width=10**6), encoding="utf-8"

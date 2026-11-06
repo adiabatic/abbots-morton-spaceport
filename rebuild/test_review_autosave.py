@@ -7,6 +7,8 @@ The POST path takes the verdict store's lock without waiting, and answers a retr
 The headers every static file is served with. `static_headers_for` is a pure function so it can be tested without a server.
 
 The reloads: the server's one livereload watch never fires, and `force_reload` sends an `ams:` path to /forcereload on the port it is given and returns False for anything but a server that took it.
+
+The accepted list beside the store (`rebuild.review.accepted`): the full GET's `accepted` field, which the shared samples pin, and the store file's, which names the list; a set on an accepted unit stored as an override, a clear of one kept as a tombstone, and a set equal to its accepted record returning it to the list, journaled as a removal and reported back flagged; a stale save that differs from the mark answered with the accepted record; a stale skip on one leaving a tombstone; a move onto the served corpus leaving a tombstone on each accepted unit it lacks that the store held a record or tombstone for; a new list invalidating every token; a malformed or unpaired list refusing every save and GET; and the empty store the server writes at boot beside a list.
 """
 
 import json
@@ -20,7 +22,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from rebuild.review import app_index, journal, landing
+from rebuild.review import accepted, app_index, journal, landing
 from rebuild.review.serve import (
     DELTA_FORMAT,
     EXPORT_FORMAT,
@@ -49,6 +51,7 @@ VERDICT_RECORD_SAMPLES = (
     Path(__file__).resolve().parent / "review" / "fixtures" / "verdict-record-samples.json"
 )
 DELTA_SET_SAMPLES = Path(__file__).resolve().parent / "review" / "fixtures" / "delta-set-samples.json"
+ACCEPTED_SAMPLES = Path(__file__).resolve().parent / "review" / "fixtures" / "accepted-samples.json"
 
 
 def payload(stamp, verdicts=(), fmt=EXPORT_FORMAT):
@@ -1018,7 +1021,7 @@ def test_a_stale_clear_follows_the_same_tests_and_a_bare_clear_is_orphaned(tmp_p
 
 
 def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_it(tmp_path):
-    """A first pass over a deleted corpus builds it in place and lands no store, and a restore under --yes can put back a store stamped for an earlier corpus, so the store can sit on another stamp than the served corpus. The first save from a tab on the served corpus carries the store onto it by unit id, keeping its verdicts and tombstones on the served corpus's human units, less its skips, keeps the old file as the stash, and then applies the save and journals the move, the kept tombstones included, so the tab keeps saving and no verdict is left behind in the stash."""
+    """A first pass over a deleted corpus builds it in place and lands no store, and a restore under --yes can put back a store stamped for an earlier corpus, so the store can sit on another stamp than the served corpus. The first save from a tab on the served corpus carries the store onto it by unit id, keeping its verdicts and tombstones on the served corpus's human units, less its skips, each of which leaves a tombstone at its `at` so that a skipped accepted unit stays blank, keeps the old file as the stash, and then applies the save and journals the move, the kept tombstones included, so the tab keeps saving and no verdict is left behind in the stash."""
     journal_path = tmp_path / "verdicts-journal.ndjson"
     path = tmp_path / "verdicts-autosave.json"
     path.write_bytes(
@@ -1049,11 +1052,11 @@ def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_
     written = on_disk(path)
     assert written["manifest_generated_at"] == newer
     assert [record["unit"] for record in written["verdicts"]] == ["u-1", "u-9"]
-    assert written["cleared"] == [{"unit": "u-4", "at": "t2"}]
+    assert written["cleared"] == [{"unit": "u-3", "at": "t1"}, {"unit": "u-4", "at": "t2"}]
     event = list(journal.iter_events(journal_path))[-1]
     assert event["stamp"] == newer and event["stashed"] == stash_path_for(path, NEW).name
     _, records, cleared = journal.replay_store(journal_path)
-    assert set(records) == {"u-1", "u-9"} and cleared == {"u-4": "t2"}
+    assert set(records) == {"u-1", "u-9"} and cleared == {"u-3": "t1", "u-4": "t2"}
     status, body = store.receive(
         delta(OLD, [verdict("u-9", at="t95")]), served("u-1", "u-3", "u-4", "u-9", stamp=newer)
     )
@@ -1114,3 +1117,214 @@ def test_an_unstamped_store_takes_the_served_stamp(tmp_path):
     other = VerdictStore(tmp_path / "other.json")
     assert other.receive(delta(NEW, [verdict("u-1")]), served("u-1"))[0] == 200
     assert other.stamp == NEW
+
+
+CLOSED_AT = "2026-11-05T18:00:00Z"
+AFTER = "2026-11-06T09:00:00Z"
+ACCEPT_A, ACCEPT_B, ACCEPT_C = "u-1AAAAAAAAAA", "u-1BBBBBBBBBB", "u-1CCCCCCCCCC"
+
+
+def write_list(store_path, verdicts, closed_at=CLOSED_AT) -> Path:
+    listed = accepted.path_for(store_path)
+    listed.parent.mkdir(parents=True, exist_ok=True)
+    listed.write_bytes(accepted.render(closed_at, verdicts))
+    return listed
+
+
+def listed_store(tmp_path, journal_path=None):
+    """A store stamped NEW, holding nothing, beside a list that accepts ACCEPT_A as approve, ACCEPT_B as either and ACCEPT_C as identical; its first write records the list in its `accepted` field."""
+    path = tmp_path / "verdicts-autosave.json"
+    write_list(path, {ACCEPT_A: "approve", ACCEPT_B: "either", ACCEPT_C: "identical"})
+    store = VerdictStore(path, journal_path)
+    assert store.receive(delta(NEW))[0] == 200
+    assert on_disk(path)["accepted"] == store.accepted.field() is not None
+    return path, store
+
+
+def flagged(unit, verdict_kind):
+    return {"unit": unit, "verdict": verdict_kind, "note": "", "at": CLOSED_AT, "accepted": True}
+
+
+def test_the_full_get_lists_the_served_accepted_units_and_the_file_names_the_list(tmp_path):
+    """The shared sample's store and list: the full GET's `accepted` field lists, by verdict, the listed units of the served corpus's human units that hold no record or tombstone, as the sample's `field` says, and the server reports each as the record the review app makes of it; the store file names the list and lists no unit."""
+    sample = json.loads(ACCEPTED_SAMPLES.read_text(encoding="utf-8"))["view"]
+    path = tmp_path / "verdicts-autosave.json"
+    path.write_text(json.dumps(sample["store"]))
+    listed = accepted.path_for(path)
+    listed.parent.mkdir()
+    listed.write_bytes(sample["list"].encode("ascii"))
+    store = VerdictStore(path)
+    get = json.loads(store.payload_bytes(token=True, within=frozenset(sample["human_unit_ids"])))
+    assert get["token"] == store.token and get["accepted"] == sample["field"]
+    reported = [
+        store.reported(unit) for verdict_kind in accepted.MARKS for unit in sample["field"][verdict_kind]
+    ]
+    assert reported == sample["records"]
+    file = json.loads(store.payload_bytes())
+    assert file["accepted"] == sample["store"]["accepted"] and "token" not in file
+
+
+def test_a_set_clear_and_return_to_the_list_on_accepted_units_are_stored_journaled_and_reported(tmp_path):
+    """A set on an accepted unit is stored as an override record, a clear of one with no override leaves an override tombstone, which blanks it, both in the store's override section and never among its own records and tombstones, and a set equal to a unit's accepted record dated `closed_at`, a tab's undo back to it, removes its override and stores nothing, so it reads as the list names it; the journal records that as a removal with no tombstone, a sync reports each unit as it reads, the accepted ones flagged, and every reply names the list. The accepted mark picked again with an empty note and the tab's own time is stored as an override, so another tab holding an older override adopts it."""
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    path, store = listed_store(tmp_path, journal_path)
+    token = store.token
+    status, body = store.receive(
+        delta(NEW, [{**verdict(ACCEPT_A, "reject", at=AFTER), "base_at": CLOSED_AT}])
+    )
+    assert status == 200 and body["accepted"] == {"sha256": store.accepted.sha256, "closed_at": CLOSED_AT}
+    assert store.overrides.records[ACCEPT_A]["verdict"] == "reject"
+    store.receive(delta(NEW, clears=[{"unit": ACCEPT_B, "base_at": CLOSED_AT, "at": AFTER}]))
+    assert store.overrides.cleared == {ACCEPT_B: AFTER} and ACCEPT_B not in store.view
+    written = on_disk(path)
+    assert (written["verdicts"], "cleared" in written) == ([], False)
+    assert written["overrides"] == {
+        "verdicts": [store.overrides.records[ACCEPT_A]],
+        "cleared": [{"unit": ACCEPT_B, "at": AFTER}],
+    }
+    synced = changes(store, token)
+    assert (synced["sets"], synced["clears"]) == ([store.overrides.records[ACCEPT_A]], [ACCEPT_B])
+    store.receive(delta(NEW, [verdict(ACCEPT_A, at=CLOSED_AT), verdict(ACCEPT_B, "either", at=CLOSED_AT)]))
+    assert store.records == {} and store.cleared == {} and not store.overrides
+    assert (
+        on_disk(path)["verdicts"] == []
+        and "cleared" not in on_disk(path)
+        and "overrides" not in on_disk(path)
+    )
+    synced = changes(store, token)
+    assert (
+        synced["sets"] == [flagged(ACCEPT_A, "approve"), flagged(ACCEPT_B, "either")]
+        and synced["clears"] == []
+    )
+    assert journal.replay_with_list(journal_path) == (NEW, {}, {}, store.accepted.field())
+    later = "2026-11-06T12:05:00.000Z"
+    store.receive(delta(NEW, [verdict(ACCEPT_A, "reject", at=AFTER)]))
+    token = store.token
+    store.receive(delta(NEW, [verdict(ACCEPT_A, at=later)]))
+    assert store.overrides.records[ACCEPT_A] == verdict(ACCEPT_A, at=later)
+    assert changes(store, token)["sets"] == [verdict(ACCEPT_A, at=later)]
+
+
+def test_a_stale_save_that_differs_from_an_accepted_mark_is_answered_with_the_accepted_record(tmp_path):
+    """A save made before the close-out that never reached the store meets the accepted record, dated the close-out, under rule 2: a replay that differs from the mark is a conflict, answered with the accepted record flagged, and kept in the orphan document, while one made after the close-out applies. A stale skip on an accepted unit leaves a tombstone at the skip's `at`, so the unit is asked again."""
+    path, store = listed_store(tmp_path)
+    before = "2026-11-04T12:00:00.000Z"
+    status, body = store.receive(
+        delta(
+            NEW, [{**verdict(ACCEPT_A, "reject", at=before), "base_at": "2026-11-01T00:00:00Z"}], replay=True
+        )
+    )
+    assert status == 200 and body["conflicts"] == [{"unit": ACCEPT_A, "server": flagged(ACCEPT_A, "approve")}]
+    assert ACCEPT_A not in store.overrides
+    assert [record["reason"] for record in orphan_records(path, NEW)] == ["conflict"]
+    store.receive(delta(NEW, [{**verdict(ACCEPT_A, "reject", at=AFTER), "base_at": None}], replay=True))
+    assert store.overrides.records[ACCEPT_A]["verdict"] == "reject"
+    status, body = store.receive(
+        delta(OLD, [{**verdict(ACCEPT_C, "skip", at=AFTER), "base_at": CLOSED_AT}]),
+        served(ACCEPT_A, ACCEPT_C),
+    )
+    assert body["dropped"] == [ACCEPT_C] and store.overrides.cleared == {ACCEPT_C: AFTER}
+
+
+def test_a_move_onto_the_served_corpus_keeps_the_override_section_whole_on_the_accepted_units_it_lacks(
+    tmp_path,
+):
+    """The store holds a reject override on one accepted unit, a tombstone on a second and a skip on a third, and nothing on a fourth. A tab's save on a served corpus that lacks all four moves the store onto it (rule 3): the move drops the store's own records off the corpus but keeps its override section whole, the skip there becoming a tombstone at its `at`, so when a later move brings the windows back before the next close-out the first reads as the reject, the second and third blank, and the fourth as its accepted record."""
+    path = tmp_path / "verdicts-autosave.json"
+    write_list(
+        path, {ACCEPT_A: "approve", ACCEPT_B: "either", ACCEPT_C: "identical", "u-1DDDDDDDDDD": "approve"}
+    )
+    store = VerdictStore(path)
+    store.receive(delta(NEW, [verdict(ACCEPT_A, "reject", at=AFTER), verdict(ACCEPT_C, "skip", at=AFTER)]))
+    cleared_at = "2026-11-06T12:10:00.000Z"
+    store.receive(delta(NEW, clears=[{"unit": ACCEPT_B, "base_at": CLOSED_AT, "at": cleared_at}]))
+    newer = "2026-11-07T00:00:00Z"
+    status, _body = store.receive(delta(newer, [verdict("u-9", at=AFTER)]), served("u-9", stamp=newer))
+    assert status == 200
+    written = on_disk(path)
+    assert written["manifest_generated_at"] == newer and [
+        record["unit"] for record in written["verdicts"]
+    ] == ["u-9"]
+    assert journal.parse_cleared(written) == {}
+    assert written["overrides"] == {
+        "verdicts": [verdict(ACCEPT_A, "reject", at=AFTER)],
+        "cleared": [{"unit": ACCEPT_B, "at": cleared_at}, {"unit": ACCEPT_C, "at": AFTER}],
+    }
+    back = "2026-11-08T00:00:00Z"
+    status, _body = store.receive(
+        delta(back, [verdict("u-9", at=back)]),
+        served("u-9", ACCEPT_A, ACCEPT_B, ACCEPT_C, "u-1DDDDDDDDDD", stamp=back),
+    )
+    assert status == 200
+    kinds = {
+        unit: (store.view.verdict_of(unit) or {}).get("verdict") for unit in (ACCEPT_A, ACCEPT_B, ACCEPT_C)
+    }
+    assert kinds == {ACCEPT_A: "reject", ACCEPT_B: None, ACCEPT_C: None}
+    assert store.reported("u-1DDDDDDDDDD") == flagged("u-1DDDDDDDDDD", "approve")
+
+
+def test_a_same_stamp_rewrite_that_moves_only_a_tombstone_on_an_accepted_unit_is_reported(tmp_path):
+    """Another writer, a land among them, can add or remove an override tombstone on an accepted unit, which blanks it or returns it to its accepted record. The same-stamp reload keeps the token and reports the unit as it now reads, so a tab's sync and a new tab's `accepted` field both follow it."""
+    path, store = listed_store(tmp_path)
+    token = store.token
+    document = on_disk(path)
+    document["overrides"] = {"verdicts": [], "cleared": [{"unit": ACCEPT_A, "at": AFTER}]}
+    path.write_text(json.dumps(document))
+    assert store.refresh_if_changed()
+    synced = changes(store, token)
+    assert (synced["sets"], synced["clears"]) == ([], [ACCEPT_A])
+    assert json.loads(store.payload_bytes(token=True, within=None))["accepted"]["approve"] == []
+    token = store.token
+    del document["overrides"]
+    path.write_text(json.dumps(document))
+    assert store.refresh_if_changed()
+    synced = changes(store, token)
+    assert (synced["sets"], synced["clears"]) == ([flagged(ACCEPT_A, "approve")], [])
+    assert json.loads(store.payload_bytes(token=True, within=None))["accepted"]["approve"] == [ACCEPT_A]
+
+
+def test_a_new_list_beside_the_store_invalidates_every_token(tmp_path):
+    """A close-out or a re-key changes the answer for every unit the list names, more than the change log holds, so a reload beside another list sends every tab the whole store and the new field, even on the same stamp."""
+    path, store = listed_store(tmp_path)
+    token = store.token
+    write_list(path, {ACCEPT_A: "approve"}, closed_at="2026-11-07T00:00:00Z")
+    document = on_disk(path)
+    document["accepted"] = accepted.read(accepted.path_for(path)).field()
+    path.write_text(json.dumps(document))
+    assert store.refresh_if_changed()
+    assert store.stamp == NEW and store.refusal is None and store.changes_since(token) is None
+    assert json.loads(store.payload_bytes(token=True, within=None))["accepted"]["approve"] == [ACCEPT_A]
+
+
+@pytest.mark.parametrize("how", ["malformed", "mismatch"])
+def test_a_list_the_store_cannot_read_or_pair_with_refuses_every_save_and_get(tmp_path, how):
+    """A list that is not in the format (`accepted-malformed`), or one the store was not folded against (`accepted-mismatch`), as a checkout, stash or revert leaves, serves no verdict and refuses every save under its reason, writing nothing, until the two pair again."""
+    path, store = listed_store(tmp_path)
+    listed = accepted.path_for(path)
+    if how == "malformed":
+        listed.write_bytes(listed.read_bytes() + b"<<<<<<< HEAD\n")
+    else:
+        write_list(path, {ACCEPT_A: "approve"}, closed_at="2026-11-07T00:00:00Z")
+    before = path.read_bytes()
+    status, body = store.receive(delta(NEW, [verdict(ACCEPT_A, "reject", at=AFTER)]))
+    reason = f"accepted-{how}"
+    assert status == 422 and body["reason"] == reason and str(listed) in body["error"]
+    assert store.stamp is None and missing_autosave_reply(store)["reason"] == reason
+    assert path.read_bytes() == before
+
+
+def test_the_server_writes_an_empty_store_naming_the_list_where_there_is_no_store(tmp_path):
+    """A fresh clone, a worktree or a machine whose store was deleted has a list and no store: at boot the server writes an empty store stamped for the served corpus that names the list and journals it as a base, so the full GET lists the accepted units instead of a 404. Beside an existing store, or with no list, it writes nothing."""
+    path = tmp_path / "verdicts-autosave.json"
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    assert VerdictStore(path, journal_path).stamp_empty_store(NEW) is None and not path.exists()
+    write_list(path, {ACCEPT_A: "approve", ACCEPT_B: "either"})
+    store = VerdictStore(path, journal_path)
+    assert store.stamp_empty_store(NEW) == {"stamp": NEW, "accepted": store.accepted.field()}
+    assert (
+        on_disk(path)["manifest_generated_at"] == NEW and on_disk(path)["accepted"] == store.accepted.field()
+    )
+    assert journal.replay_with_list(journal_path) == (NEW, {}, {}, store.accepted.field())
+    field = json.loads(store.payload_bytes(token=True, within=frozenset({ACCEPT_A})))["accepted"]
+    assert (field["approve"], field["either"]) == ([ACCEPT_A], [])
+    assert VerdictStore(path, journal_path).stamp_empty_store(NEW) is None

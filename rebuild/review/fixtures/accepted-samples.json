@@ -1,0 +1,495 @@
+{
+  "lists": [
+    {
+      "why": "a header and no id: a close-out that accepted nothing",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\n",
+      "verdicts": {}
+    },
+    {
+      "why": "approve takes no mark, either ` e` and identical ` i`",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "verdicts": { "u-1AAAAAAAAAA": "approve", "u-1BBBBBBBBBB": "either", "u-1CCCCCCCCCC": "identical" }
+    },
+    { "why": "an empty file", "text": "", "refusal": "accepted-malformed", "line": 1 },
+    {
+      "why": "no header: the first line is an id",
+      "text": "u-1AAAAAAAAAA\n",
+      "refusal": "accepted-malformed",
+      "line": 1
+    },
+    {
+      "why": "another format version",
+      "text": "# ams-accepted-units/2 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\n",
+      "refusal": "accepted-malformed",
+      "line": 1
+    },
+    {
+      "why": "a header field beyond closed_at",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z stamp=2026-10-30T20:58:10Z\n",
+      "refusal": "accepted-malformed",
+      "line": 1
+    },
+    {
+      "why": "a stamp with milliseconds",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00.000Z\n",
+      "refusal": "accepted-malformed",
+      "line": 1
+    },
+    {
+      "why": "a stamp that is no date",
+      "text": "# ams-accepted-units/1 closed_at=2026-13-05T18:00:00Z\n",
+      "refusal": "accepted-malformed",
+      "line": 1
+    },
+    {
+      "why": "a header with no newline",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z",
+      "refusal": "accepted-malformed",
+      "line": 1
+    },
+    {
+      "why": "CRLF line ends",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\r\nu-1AAAAAAAAAA\r\n",
+      "refusal": "accepted-malformed",
+      "line": 1
+    },
+    {
+      "why": "a merge conflict",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\n<<<<<<< HEAD\nu-1BBBBBBBBBB\n=======\nu-1BBBBBBBBBB e\n>>>>>>> close-out\n",
+      "refusal": "accepted-malformed",
+      "line": 3
+    },
+    {
+      "why": "a bare id without `u-`",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\n1AAAAAAAAAA\n",
+      "refusal": "accepted-malformed",
+      "line": 2
+    },
+    {
+      "why": "a duplicate-group id",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\ne-1AAAAAAAAAA\n",
+      "refusal": "accepted-malformed",
+      "line": 2
+    },
+    {
+      "why": "an id with a symbol outside base58",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAA0\n",
+      "refusal": "accepted-malformed",
+      "line": 2
+    },
+    {
+      "why": "an id one symbol short",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAA\n",
+      "refusal": "accepted-malformed",
+      "line": 2
+    },
+    {
+      "why": "an empty line",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\n\nu-1BBBBBBBBBB\n",
+      "refusal": "accepted-malformed",
+      "line": 3
+    },
+    {
+      "why": "an unknown mark",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA a\n",
+      "refusal": "accepted-malformed",
+      "line": 2
+    },
+    {
+      "why": "a space and no mark",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA \n",
+      "refusal": "accepted-malformed",
+      "line": 2
+    },
+    {
+      "why": "ids out of order",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1BBBBBBBBBB\nu-1AAAAAAAAAA\n",
+      "refusal": "accepted-malformed",
+      "line": 3
+    },
+    {
+      "why": "an id repeated under another mark",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1AAAAAAAAAA e\n",
+      "refusal": "accepted-malformed",
+      "line": 3
+    },
+    {
+      "why": "a byte outside ASCII",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA é\n",
+      "refusal": "accepted-malformed",
+      "line": 2
+    },
+    {
+      "why": "a last line with no newline",
+      "text": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA",
+      "refusal": "accepted-malformed",
+      "line": 2
+    }
+  ],
+  "pairings": [
+    {
+      "why": "no store file pairs with any list",
+      "store": null,
+      "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "pairs": true
+    },
+    { "why": "no store and no list", "store": null, "list": null, "pairs": true },
+    {
+      "why": "an empty store that names no list pairs with the tree's list",
+      "store": { "verdicts": [], "cleared": [] },
+      "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "pairs": true
+    },
+    {
+      "why": "a store that names no list beside no list, as before the first close-out",
+      "store": {
+        "verdicts": [{ "unit": "u-1AAAAAAAAAA", "verdict": "reject", "note": "", "at": "2026-11-06T09:15:02.417Z" }]
+      },
+      "list": null,
+      "pairs": true
+    },
+    {
+      "why": "a store that names the list beside it",
+      "store": {
+        "verdicts": [{ "unit": "u-1AAAAAAAAAA", "verdict": "reject", "note": "", "at": "2026-11-06T09:15:02.417Z" }],
+        "accepted": {
+          "sha256": "66b602ac322d04d62f898fa6330a7bbfa42493c1f497273bc340462b67590d7c",
+          "closed_at": "2026-11-05T18:00:00Z"
+        }
+      },
+      "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "pairs": true
+    },
+    {
+      "why": "an empty store that names the list beside it",
+      "store": {
+        "verdicts": [],
+        "accepted": {
+          "sha256": "66b602ac322d04d62f898fa6330a7bbfa42493c1f497273bc340462b67590d7c",
+          "closed_at": "2026-11-05T18:00:00Z"
+        }
+      },
+      "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "pairs": true
+    },
+    {
+      "why": "a store that names another list",
+      "store": {
+        "verdicts": [{ "unit": "u-1AAAAAAAAAA", "verdict": "reject", "note": "", "at": "2026-11-06T09:15:02.417Z" }],
+        "accepted": {
+          "sha256": "f633ed7f530df0c898eccba97936f59811bb727afeeb919b7d6cd07093ce9172",
+          "closed_at": "2026-11-05T18:00:00Z"
+        }
+      },
+      "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "pairs": false
+    },
+    {
+      "why": "a store that names the list's sha256 under another closed_at",
+      "store": {
+        "verdicts": [{ "unit": "u-1AAAAAAAAAA", "verdict": "reject", "note": "", "at": "2026-11-06T09:15:02.417Z" }],
+        "accepted": {
+          "sha256": "66b602ac322d04d62f898fa6330a7bbfa42493c1f497273bc340462b67590d7c",
+          "closed_at": "2026-11-05T18:00:01Z"
+        }
+      },
+      "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "pairs": false
+    },
+    {
+      "why": "a store that names a list where none exists",
+      "store": {
+        "verdicts": [{ "unit": "u-1AAAAAAAAAA", "verdict": "reject", "note": "", "at": "2026-11-06T09:15:02.417Z" }],
+        "accepted": {
+          "sha256": "66b602ac322d04d62f898fa6330a7bbfa42493c1f497273bc340462b67590d7c",
+          "closed_at": "2026-11-05T18:00:00Z"
+        }
+      },
+      "list": null,
+      "pairs": false
+    },
+    {
+      "why": "an empty store that names a list where none exists",
+      "store": {
+        "verdicts": [],
+        "accepted": {
+          "sha256": "66b602ac322d04d62f898fa6330a7bbfa42493c1f497273bc340462b67590d7c",
+          "closed_at": "2026-11-05T18:00:00Z"
+        }
+      },
+      "list": null,
+      "pairs": false
+    },
+    {
+      "why": "an empty store that names another list",
+      "store": {
+        "verdicts": [],
+        "accepted": {
+          "sha256": "f633ed7f530df0c898eccba97936f59811bb727afeeb919b7d6cd07093ce9172",
+          "closed_at": "2026-11-05T18:00:00Z"
+        }
+      },
+      "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "pairs": false
+    },
+    {
+      "why": "a list beside a store with records that names none",
+      "store": {
+        "verdicts": [{ "unit": "u-1AAAAAAAAAA", "verdict": "reject", "note": "", "at": "2026-11-06T09:15:02.417Z" }]
+      },
+      "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "pairs": false
+    },
+    {
+      "why": "a list beside a store with only a tombstone that names none",
+      "store": { "verdicts": [], "cleared": [{ "unit": "u-1AAAAAAAAAA", "at": "2026-11-06T09:20:31.904Z" }] },
+      "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "pairs": false
+    },
+    {
+      "why": "a field that is not an object with `sha256` and `closed_at`",
+      "store": {
+        "verdicts": [{ "unit": "u-1AAAAAAAAAA", "verdict": "reject", "note": "", "at": "2026-11-06T09:15:02.417Z" }],
+        "accepted": "66b602ac322d04d62f898fa6330a7bbfa42493c1f497273bc340462b67590d7c"
+      },
+      "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\n",
+      "pairs": false
+    }
+  ],
+  "view": {
+    "list": "# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\nu-1BBBBBBBBBB e\nu-1CCCCCCCCCC i\nu-1DDDDDDDDDD\nu-1EEEEEEEEEE\nu-1FFFFFFFFFF e\nu-1GGGGGGGGGG\nu-1MMMMMMMMMM i\n",
+    "store": {
+      "format": "ams-review-verdicts/1",
+      "manifest_generated_at": "2026-11-01T07:30:00Z",
+      "verdicts": [
+        { "unit": "u-1HHHHHHHHHH", "verdict": "approve", "note": "", "at": "2026-11-06T09:18:00.000Z" }
+      ],
+      "cleared": [{ "unit": "u-1JJJJJJJJJJ", "at": "2026-11-06T09:21:05.118Z" }],
+      "overrides": {
+        "verdicts": [
+          { "unit": "u-1DDDDDDDDDD", "verdict": "approve", "note": "", "at": "2026-11-06T08:59:59.000Z" },
+          {
+            "unit": "u-1DDDDDDDDDD",
+            "verdict": "reject",
+            "note": "the join is a pixel too long",
+            "at": "2026-11-06T09:15:02.417Z"
+          },
+          {
+            "unit": "u-1FFFFFFFFFF",
+            "verdict": "approve",
+            "note": "either was too cautious",
+            "at": "2026-11-06T09:16:40.003Z"
+          },
+          { "unit": "u-1GGGGGGGGGG", "verdict": "skip", "note": "", "at": "2026-11-06T09:17:11.250Z" }
+        ],
+        "cleared": [{ "unit": "u-1EEEEEEEEEE", "at": "2026-11-06T09:20:31.904Z" }]
+      },
+      "accepted": {
+        "sha256": "f4f0b2cf4f2774e9af7fbac95d8902dcd0d84912fa285d9610230abc3cdbe2af",
+        "closed_at": "2026-11-05T18:00:00Z"
+      }
+    },
+    "human_unit_ids": [
+      "u-1AAAAAAAAAA",
+      "u-1BBBBBBBBBB",
+      "u-1CCCCCCCCCC",
+      "u-1DDDDDDDDDD",
+      "u-1EEEEEEEEEE",
+      "u-1FFFFFFFFFF",
+      "u-1GGGGGGGGGG",
+      "u-1HHHHHHHHHH",
+      "u-1JJJJJJJJJJ",
+      "u-1KKKKKKKKKK"
+    ],
+    "answers": {
+      "u-1AAAAAAAAAA": { "unit": "u-1AAAAAAAAAA", "verdict": "approve", "note": "", "at": "2026-11-05T18:00:00Z" },
+      "u-1BBBBBBBBBB": { "unit": "u-1BBBBBBBBBB", "verdict": "either", "note": "", "at": "2026-11-05T18:00:00Z" },
+      "u-1CCCCCCCCCC": { "unit": "u-1CCCCCCCCCC", "verdict": "identical", "note": "", "at": "2026-11-05T18:00:00Z" },
+      "u-1DDDDDDDDDD": {
+        "unit": "u-1DDDDDDDDDD",
+        "verdict": "reject",
+        "note": "the join is a pixel too long",
+        "at": "2026-11-06T09:15:02.417Z"
+      },
+      "u-1EEEEEEEEEE": null,
+      "u-1FFFFFFFFFF": {
+        "unit": "u-1FFFFFFFFFF",
+        "verdict": "approve",
+        "note": "either was too cautious",
+        "at": "2026-11-06T09:16:40.003Z"
+      },
+      "u-1GGGGGGGGGG": { "unit": "u-1GGGGGGGGGG", "verdict": "skip", "note": "", "at": "2026-11-06T09:17:11.250Z" },
+      "u-1HHHHHHHHHH": { "unit": "u-1HHHHHHHHHH", "verdict": "approve", "note": "", "at": "2026-11-06T09:18:00.000Z" },
+      "u-1JJJJJJJJJJ": null,
+      "u-1KKKKKKKKKK": null,
+      "u-1MMMMMMMMMM": { "unit": "u-1MMMMMMMMMM", "verdict": "identical", "note": "", "at": "2026-11-05T18:00:00Z" }
+    },
+    "field": {
+      "sha256": "f4f0b2cf4f2774e9af7fbac95d8902dcd0d84912fa285d9610230abc3cdbe2af",
+      "closed_at": "2026-11-05T18:00:00Z",
+      "approve": ["u-1AAAAAAAAAA"],
+      "either": ["u-1BBBBBBBBBB"],
+      "identical": ["u-1CCCCCCCCCC"]
+    },
+    "records": [
+      { "unit": "u-1AAAAAAAAAA", "verdict": "approve", "note": "", "at": "2026-11-05T18:00:00Z", "accepted": true },
+      { "unit": "u-1BBBBBBBBBB", "verdict": "either", "note": "", "at": "2026-11-05T18:00:00Z", "accepted": true },
+      { "unit": "u-1CCCCCCCCCC", "verdict": "identical", "note": "", "at": "2026-11-05T18:00:00Z", "accepted": true }
+    ]
+  },
+  "folds": [
+    {
+      "why": "the first fold: a store with every kind of record and a tombstone, beside no list",
+      "off_corpus": [],
+      "before": {
+        "list": null,
+        "verdicts": [
+          {
+            "unit": "u-HLeS39nnjSM",
+            "verdict": "approve",
+            "note": "the join matches the Manual",
+            "at": "2026-10-20T10:00:00.000Z"
+          },
+          { "unit": "u-LhDRYppbBuN", "verdict": "either", "note": "", "at": "2026-10-21T11:12:13.141Z" },
+          { "unit": "u-D6rjFJxbdV6", "verdict": "identical", "note": "", "at": "2026-10-21T11:15:00.500Z" },
+          {
+            "unit": "u-5NP1CPJxyNT",
+            "verdict": "reject",
+            "note": "the exit stroke is a pixel short",
+            "at": "2026-10-22T09:00:00.000Z"
+          },
+          {
+            "unit": "u-BLyK6Z13RtN",
+            "verdict": "neither",
+            "note": "neither rendering is right",
+            "at": "2026-10-22T09:05:00.000Z"
+          },
+          { "unit": "u-Nc3wVLJaPHB", "verdict": "skip", "note": "", "at": "2026-10-22T09:06:00.000Z" },
+          { "unit": "u-SupLKT1ijWn", "verdict": "approve", "note": "", "at": "2026-10-23T16:40:00.250Z" }
+        ],
+        "cleared": [{ "unit": "u-6VFDHaMNgCP", "at": "2026-10-24T08:00:00.000Z" }]
+      },
+      "after": {
+        "list": {
+          "closed_at": "2026-11-05T18:00:00Z",
+          "verdicts": {
+            "u-HLeS39nnjSM": "approve",
+            "u-LhDRYppbBuN": "either",
+            "u-D6rjFJxbdV6": "identical",
+            "u-SupLKT1ijWn": "approve"
+          }
+        },
+        "verdicts": [
+          {
+            "unit": "u-5NP1CPJxyNT",
+            "verdict": "reject",
+            "note": "the exit stroke is a pixel short",
+            "at": "2026-10-22T09:00:00.000Z"
+          },
+          {
+            "unit": "u-BLyK6Z13RtN",
+            "verdict": "neither",
+            "note": "neither rendering is right",
+            "at": "2026-10-22T09:05:00.000Z"
+          },
+          { "unit": "u-Nc3wVLJaPHB", "verdict": "skip", "note": "", "at": "2026-10-22T09:06:00.000Z" }
+        ],
+        "cleared": [{ "unit": "u-6VFDHaMNgCP", "at": "2026-10-24T08:00:00.000Z" }]
+      },
+      "kinds": {
+        "u-HLeS39nnjSM": "approve",
+        "u-WT2Pjqw8CKB": null,
+        "u-LhDRYppbBuN": "either",
+        "u-D6rjFJxbdV6": "identical",
+        "u-5NP1CPJxyNT": "reject",
+        "u-BLyK6Z13RtN": "neither",
+        "u-Nc3wVLJaPHB": "skip",
+        "u-6VFDHaMNgCP": null,
+        "u-SupLKT1ijWn": "approve",
+        "u-Xp5KzYAPYK7": null
+      }
+    },
+    {
+      "why": "a fold over an earlier close-out's list: overrides of every kind, a tombstone on a listed id, and a listed id off the corpus",
+      "off_corpus": ["u-1ZZZZZZZZZZ"],
+      "before": {
+        "list": {
+          "closed_at": "2026-10-25T12:00:00Z",
+          "verdicts": {
+            "u-HLeS39nnjSM": "approve",
+            "u-WT2Pjqw8CKB": "approve",
+            "u-LhDRYppbBuN": "either",
+            "u-D6rjFJxbdV6": "identical",
+            "u-SupLKT1ijWn": "approve",
+            "u-Xp5KzYAPYK7": "identical",
+            "u-1ZZZZZZZZZZ": "approve"
+          }
+        },
+        "verdicts": [
+          {
+            "unit": "u-HLeS39nnjSM",
+            "verdict": "reject",
+            "note": "the joins collide at the x-height",
+            "at": "2026-10-28T14:00:00.000Z"
+          },
+          {
+            "unit": "u-LhDRYppbBuN",
+            "verdict": "approve",
+            "note": "either was too cautious",
+            "at": "2026-10-28T14:05:00.000Z"
+          },
+          { "unit": "u-D6rjFJxbdV6", "verdict": "skip", "note": "", "at": "2026-10-28T14:06:00.000Z" },
+          { "unit": "u-5NP1CPJxyNT", "verdict": "approve", "note": "", "at": "2026-10-29T10:00:00.000Z" },
+          {
+            "unit": "u-BLyK6Z13RtN",
+            "verdict": "neither",
+            "note": "neither rendering is right",
+            "at": "2026-10-29T10:01:00.000Z"
+          },
+          { "unit": "u-6VFDHaMNgCP", "verdict": "either", "note": "", "at": "2026-10-29T10:02:00.000Z" }
+        ],
+        "cleared": [{ "unit": "u-SupLKT1ijWn", "at": "2026-10-30T08:30:00.000Z" }]
+      },
+      "after": {
+        "list": {
+          "closed_at": "2026-11-05T18:00:00Z",
+          "verdicts": {
+            "u-WT2Pjqw8CKB": "approve",
+            "u-LhDRYppbBuN": "approve",
+            "u-5NP1CPJxyNT": "approve",
+            "u-6VFDHaMNgCP": "either",
+            "u-Xp5KzYAPYK7": "identical"
+          }
+        },
+        "verdicts": [
+          {
+            "unit": "u-HLeS39nnjSM",
+            "verdict": "reject",
+            "note": "the joins collide at the x-height",
+            "at": "2026-10-28T14:00:00.000Z"
+          },
+          { "unit": "u-D6rjFJxbdV6", "verdict": "skip", "note": "", "at": "2026-10-28T14:06:00.000Z" },
+          {
+            "unit": "u-BLyK6Z13RtN",
+            "verdict": "neither",
+            "note": "neither rendering is right",
+            "at": "2026-10-29T10:01:00.000Z"
+          }
+        ],
+        "cleared": [{ "unit": "u-SupLKT1ijWn", "at": "2026-10-30T08:30:00.000Z" }]
+      },
+      "kinds": {
+        "u-HLeS39nnjSM": "reject",
+        "u-WT2Pjqw8CKB": "approve",
+        "u-LhDRYppbBuN": "approve",
+        "u-D6rjFJxbdV6": "skip",
+        "u-5NP1CPJxyNT": "approve",
+        "u-BLyK6Z13RtN": "neither",
+        "u-Nc3wVLJaPHB": null,
+        "u-6VFDHaMNgCP": "either",
+        "u-SupLKT1ijWn": null,
+        "u-Xp5KzYAPYK7": "identical"
+      }
+    }
+  ]
+}

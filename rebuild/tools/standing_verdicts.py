@@ -64,7 +64,7 @@ A rule's except_left guard refuses the whole unit, never one position, so a guar
 
 Standing fills complement duplicate_verdicts.py. The duplicate fill copies the user's verdicts to units whose change is pixel-identical, while a standing rule applies a recorded decision to units the user has never seen, such as windows with new left letters created by later migrations, so those units never wait for human review.
 
-Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A deferred unit carries a skip verdict, so it is not blank and is never filled. The verdict update (rebuild/tools/verdict_update.py) runs this after the duplicate fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its combined-match count; the totals do not sum across rules, because a window two rules explain counts toward both.
+Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A deferred unit carries a skip verdict, so it is not blank and is never filled. The verdicts file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is verdicted under its mark: never filled, counted in the already-verdicted column and in `--explain`'s lists, and outside `--open-only`'s domain, while an override on it that is a reject stays open and the disputed-match warning reports it. The verdict update (rebuild/tools/verdict_update.py) runs this after the duplicate fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its combined-match count; the totals do not sum across rules, because a window two rules explain counts toward both.
 
 Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider.decide` computes the decision and `_decision_reach` aggregates a run from the decisions. The memo (`Memo`, the `--memo` flag, which the verdict update passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. When the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` decides them across a spawn pool at the width `--jobs` gives. The tool derives no width of its own; the verdict update forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, so its pass over the whole domain costs no second evaluation.
 
@@ -97,7 +97,14 @@ from rebuild.review.ink import IDENTITY_DIFF, InkComparator, delta_digest, featu
 from rebuild.validation.classify import PIXEL_SIZE  # noqa: E402
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.tools import standing_client  # noqa: E402
-from rebuild.tools.review_queue import ACCEPTING_VERDICTS, latest_verdicts, load_human_units  # noqa: E402
+from rebuild.review.accepted import Accepted  # noqa: E402
+from rebuild.tools.review_queue import (  # noqa: E402
+    ACCEPTING_VERDICTS,
+    accepted_list,
+    add_accepted_argument,
+    latest_verdicts,
+    load_human_units,
+)
 
 CORPUS = ROOT / "rebuild/out/review"
 RULES = ROOT / "rebuild/standing-approvals.yaml"
@@ -107,6 +114,7 @@ MEMO_FORMAT = "ams-standing-fill-memo/2"
 MEMO_NAME = "standing-fill-memo.ndjson.gz"
 # The repo code a fill decision depends on, hashed into the memo stamp: this module's import closure without rebuild/pipeline/, whose modules change the unit keys or the stamp itself rather than a decision. test_the_memo_code_roster_is_this_modules_import_closure checks the list.
 MEMO_CODE_MODULES = (
+    "rebuild/review/accepted.py",
     "rebuild/review/ink.py",
     "rebuild/review/unit_index.py",
     "rebuild/tools/review_queue.py",
@@ -3413,7 +3421,9 @@ def main(
     units=None,
     context=None,
     unit_source: Callable[[], Iterable[Mapping[str, Any]]] | None = None,
+    listed: Accepted | None = None,
 ):
+    """Run the standing fill. `units`, `context` and `unit_source` hand over the corpus's human records and the font pair's shaping context when the caller holds them (the verdict update, the daemon and the tests), and `listed` the accepted list `--accepted` names, as the verdict update does; a caller that passes none of the first three may be served by the standing daemon."""
     argv = sys.argv[1:] if argv is None else list(argv)
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
@@ -3439,6 +3449,7 @@ def main(
         default=[],
         help="with --targeted: also evaluate this unit and say what the run decided about it; repeatable",
     )
+    add_accepted_argument(parser)
     parser.add_argument(
         "--open-only",
         action="store_true",
@@ -3501,7 +3512,9 @@ def main(
     rules = load_rules(pathlib.Path(args.rules))
     if args.explain is not None and not any(rule["id"] == args.explain for rule in rules):
         raise SystemExit(f"--explain names {args.explain!r}, which is not a rule id in {args.rules}")
-    records = latest_verdicts(pathlib.Path(args.verdicts))
+    if listed is None:
+        listed = accepted_list(parser, args.accepted, args.verdicts)
+    records = latest_verdicts(args.verdicts, listed, document=data)
     source = (
         unit_source() if unit_source is not None else (iter_human_units(corpus) if units is None else units)
     )

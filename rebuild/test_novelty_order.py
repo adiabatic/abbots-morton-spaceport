@@ -114,7 +114,7 @@ def repo(tmp_path):
     (corpus / "manifest.json").write_text(
         json.dumps({"generated_at": STAMP, "classes": [{"id": "all", "shards": ["units/all.json"]}]})
     )
-    return {"corpus": corpus, "verdicts": tmp_path / "verdicts.json"}
+    return {"corpus": corpus, "verdicts": tmp_path / "verdicts-autosave.json"}
 
 
 def write_corpus(repo, units):

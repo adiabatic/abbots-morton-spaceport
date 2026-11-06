@@ -29,6 +29,8 @@ import {
   machineFoldTotal,
   noVerdictTotal,
   formatCount,
+  verdictAtText,
+  sinceCloseOutText,
   machineChecks,
   corpusChipLabel,
   corpusAlphabetLabel,
@@ -71,6 +73,8 @@ import {
   duplicateChip,
   duplicateFillTargets,
 } from '../static/render.js';
+import { applyAccepted, createStore, importVerdicts, EXPORT_FORMAT } from '../static/verdicts.js';
+import { queueCounts } from '../static/queue.js';
 
 const fixtureDir = new URL('../fixtures/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', fixtureDir), 'utf8'));
@@ -971,6 +975,48 @@ test('classVerdictTallies counts done, skipped, and rejected units per class in 
   assert.deepEqual(tallies.get('b'), { done: 1, skipped: 0, rejected: 0 });
   assert.equal(classVerdictTallies(rows, () => undefined).size, 0);
   assert.equal(classLeft({ no_verdict: false, unit_count: 3, machine_approved_count: 0 }, tallies.get('a')), 1);
+});
+
+test("a row's date slot names the day a verdict was recorded, or the close-out that accepted it, and the Overall line counts the verdicts since that close-out only beside a list", () => {
+  const closedAt = '2026-11-05T18:00:00Z';
+  assert.equal(verdictAtText({ verdict: 'approve', note: '', at: '2026-11-06T09:15:02.417Z' }), 'verdicted 2026-11-06');
+  assert.equal(
+    verdictAtText({ verdict: 'identical', note: '', at: closedAt, accepted: true }),
+    'accepted at the 2026-11-05 close-out',
+  );
+  assert.equal(verdictAtText(undefined), '');
+  assert.equal(sinceCloseOutText(1234, closedAt), '1,234 since the 2026-11-05 close-out');
+  assert.equal(sinceCloseOutText(1234, null), null);
+});
+
+test('the app gives each human unit the verdict kind every reader gives it, and the same class tallies and queue counts, before and after each sample close-out', async () => {
+  const { folds } = JSON.parse(await readFile(new URL('accepted-samples.json', fixtureDir), 'utf8'));
+  const human = new Set(manifest.human_unit_ids);
+  const rows = allUnits.filter((unit) => human.has(unit.id)).map((unit) => ({ ...unit, batch: 0 }));
+  // The tab's records for one side of a fold: the store's records, and the `accepted` field the server's full GET gives beside them (`View.app_field`).
+  const recordOf = (side) => {
+    const store = createStore();
+    importVerdicts(store, { format: EXPORT_FORMAT, manifest_generated_at: 's', verdicts: side.verdicts }, 's');
+    if (side.list) {
+      const held = new Set([...side.verdicts, ...side.cleared].map((entry) => entry.unit));
+      const field = { sha256: 'x', closed_at: side.list.closed_at, approve: [], either: [], identical: [] };
+      for (const [unit, verdict] of Object.entries(side.list.verdicts).sort()) {
+        if (human.has(unit) && !held.has(unit)) field[verdict].push(unit);
+      }
+      applyAccepted(store, field);
+    }
+    return (id) => store.records.get(id);
+  };
+  for (const fold of folds) {
+    const before = recordOf(fold.before);
+    const after = recordOf(fold.after);
+    for (const [unit, kind] of Object.entries(fold.kinds)) {
+      assert.equal(before(unit)?.verdict ?? null, kind, `${fold.why}: ${unit} before the fold`);
+      assert.equal(after(unit)?.verdict ?? null, kind, `${fold.why}: ${unit} after the fold`);
+    }
+    assert.deepEqual(classVerdictTallies(rows, after), classVerdictTallies(rows, before), fold.why);
+    assert.deepEqual(queueCounts(rows, after), queueCounts(rows, before), fold.why);
+  }
 });
 
 test('nextUnverdictedIndex advances, wraps, and reports exhaustion', () => {

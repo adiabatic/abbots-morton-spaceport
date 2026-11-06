@@ -1,6 +1,6 @@
 """Append-only log of changes to the review app's verdict store.
 
-After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed unit. A set line holds the unit's new record, which removes any tombstone the store kept for it. A clear line names a unit the store holds no record for after the change, either because the record went or because the unit's tombstone changed, and its `at` is the tombstone the store keeps for the unit (the time of the clear, the store's `cleared` list), or null when it keeps none. A base event carries the full store instead of a diff: its set lines hold the records, and the event line's `cleared` list holds the tombstones. One seeds a new journal when the store it starts from is not empty, every writer but the land writes one at each corpus-stamp change, and a restore writes one at the same stamp too when the store it replaces holds a record `verdict_store.well_formed` refuses (`merge_verdicts._apply_restore`). The land (`rebuild.review.landing`) writes one only when the journal is due a new one (`base_due`) or a diff would be at least as long (`record_transition`), and otherwise journals a stamp change as the sets and clears against the store it replaces, because a unit's id is its content key and names the same unit on either stamp. So `replay_store(as_of=...)` can reconstruct the store, its records and its tombstones, at any recorded moment from the journal alone. Journal lines without those fields record the tombstones only in part, and their replay can differ from the store. A clear line with no `at` field takes its event's `at` as the tombstone, which is when the writer journaled the change, not when the unit was cleared: for a clear a closed tab's outbox sent when the app next opened, it can be days after the store's own tombstone, so its replay keeps out a record dated between the two that the store's own would let in, and for a line from a land or a restore that names a record the writer dropped without a clear (a unit a land that moved the stamp dropped off the new corpus, a skip its carry dropped, or a record a restore left out), its replay lays a tombstone the store never held. A base event with no `cleared` list holds no tombstones, so a replay from it on lacks the tombstones of the clears made before it, and while the journal's last base is one, the land is due a base (`base_due`). Lines in that form record a tombstone only where a record went, so their replay lacks one the store gained on a unit holding no record (as a merge's `clears` add them) and keeps one the store dropped (as a land drops those off its corpus). `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
+After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed unit. A set line holds the unit's new record, which removes any tombstone the store kept for it. A clear line names a unit the store holds no record for after the change, either because the record went or because the unit's tombstone changed, and its `at` is the tombstone the store keeps for the unit (the time of the clear, the store's `cleared` list), or null when it keeps none. A base event carries the full store instead of a diff: its set lines hold the records, and the event line's `cleared` list holds the tombstones. Every event line a writer appends also carries the store's `accepted` field, the accepted list the store pairs with (`rebuild.review.accepted`), whenever the store names one, so `replay_with_list` gives back the field with the store and a restore writes a store that names its list. The journal holds the store's own records and tombstones and its override section, the records and tombstones on listed ids, as one store, whichever part a set or clear line's unit is in (`accepted.joined`), since the list partitions the ids; a restore splits a replayed store by the list again (`accepted.split`). The close-out (`rebuild.tools.close_out`) replaces the journal with a new one that starts at one base event of the store it leaves, `source: close-out`. One seeds a new journal when the store it starts from is not empty, every writer but the land writes one at each corpus-stamp change, and a restore writes one at the same stamp too when the store it replaces holds a record `verdict_store.well_formed` refuses (`merge_verdicts._apply_restore`). The land (`rebuild.review.landing`) writes one only when the journal is due a new one (`base_due`) or a diff would be at least as long (`record_transition`), and otherwise journals a stamp change as the sets and clears against the store it replaces, because a unit's id is its content key and names the same unit on either stamp. So `replay_store(as_of=...)` can reconstruct the store, its records and its tombstones, at any recorded moment from the journal alone. Journal lines without those fields record the tombstones only in part, and their replay can differ from the store. A clear line with no `at` field takes its event's `at` as the tombstone, which is when the writer journaled the change, not when the unit was cleared: for a clear a closed tab's outbox sent when the app next opened, it can be days after the store's own tombstone, so its replay keeps out a record dated between the two that the store's own would let in, and for a line from a land or a restore that names a record the writer dropped without a clear (a unit a land that moved the stamp dropped off the new corpus, a skip its carry dropped, or a record a restore left out), its replay lays a tombstone the store never held. A base event with no `cleared` list holds no tombstones, so a replay from it on lacks the tombstones of the clears made before it, and while the journal's last base is one, the land is due a base (`base_due`). Lines in that form record a tombstone only where a record went, so their replay lacks one the store gained on a unit holding no record (as a merge's `clears` add them) and keeps one the store dropped (as a land drops those off its corpus). `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
 
 Those sets and clears replay to the landed store only while the journal replays to the store the land replaces, so a marker beside the store (`unjournaled_marker_for`) says when the journal may lack a store write. The review server writes it before each save's store write and removes it once that save's append succeeds unless it was already there, so a save whose append fails, is cut short, or never runs leaves it, and `rebuild.tools.rekey_verdicts --undo` of a re-key that appended to a journal leaves one for the store the re-key journaled, its `--autosave`, whether it puts that store back or asks to have it put back by hand. While it exists `base_due` says a base is due, and the land removes it once it has journaled a base.
 
@@ -30,6 +30,8 @@ _TAIL_BLOCK = 1 << 16
 _RESUME_CHECK_BYTES = 1 << 16
 _COPY_BLOCK = 1 << 20
 BASE_INTERVAL = timedelta(days=1)
+HISTORY_DAYS = 90
+CLOSE_OUT_DUE_DAYS = 60
 
 
 def now_stamp() -> str:
@@ -83,7 +85,7 @@ def _set_line(record: dict) -> dict:
     }
 
 
-def _event_line(*, source, at, stamp, base, stashed, sets, clears, cleared=None) -> dict:
+def _event_line(*, source, at, stamp, base, stashed, sets, clears, cleared=None, accepted=None) -> dict:
     line = {
         "kind": "event",
         "source": source,
@@ -96,6 +98,8 @@ def _event_line(*, source, at, stamp, base, stashed, sets, clears, cleared=None)
     }
     if cleared is not None:
         line["cleared"] = _cleared_list(cleared)
+    if accepted is not None:
+        line["accepted"] = dict(accepted)
     return line
 
 
@@ -112,8 +116,9 @@ def record_transition(
     stashed: str | None = None,
     at: str | None = None,
     base: bool | None = None,
+    accepted: Mapping[str, str] | None = None,
 ) -> dict:
-    """Append the change from the store's previous content to its new content. `old_cleared` and `new_cleared` are the two stores' tombstones (unit → the clear's `at`, as `parse_cleared` reads them), and a tombstone on a unit its store holds a record for is passed over, as the verdict store passes it over. A same-stamp change is written as a diff unless `base` is True: a set line for each record that is new or changed, and a clear line for each unit the new store holds no record for whose record went or whose tombstone changed, naming the new store's tombstone for it or null. A stamp change is written as a base event holding the full new store, its tombstones included, unless `base` is False: the land passes False when the journal is not due a base (`base_due`), and the stamp change is then written as a diff against `old_verdicts` and `old_cleared`, which must be the store the journal replays to, with its event line written even when the diff is empty, so replay moves to the new stamp. A stamp change from no previous store, or onto a journal that does not exist yet, is always a base, and so is one whose sets and clears reach the new store's record count, since its diff would be no shorter than the base. `base` True writes a base event on any change, the same stamp included, without reading `old_verdicts` or `old_cleared`: a restore passes it when the store it replaces holds a record `verdict_store.well_formed` refuses (`merge_verdicts._apply_restore`). When the journal file does not exist yet and the previous store has the same stamp and holds a record or a tombstone, a diff is preceded by a seed base event holding the previous store, so replay is complete from the journal's first line. The result says whether a base was written and how many set and clear lines followed the event line."""
+    """Append the change from the store's previous content to its new content. `old_cleared` and `new_cleared` are the two stores' tombstones (unit → the clear's `at`, as `parse_cleared` reads them), and a tombstone on a unit its store holds a record for is passed over, as the verdict store passes it over. A same-stamp change is written as a diff unless `base` is True: a set line for each record that is new or changed, and a clear line for each unit the new store holds no record for whose record went or whose tombstone changed, naming the new store's tombstone for it or null. A stamp change is written as a base event holding the full new store, its tombstones included, unless `base` is False: the land passes False when the journal is not due a base (`base_due`), and the stamp change is then written as a diff against `old_verdicts` and `old_cleared`, which must be the store the journal replays to, with its event line written even when the diff is empty, so replay moves to the new stamp. A stamp change from no previous store, or onto a journal that does not exist yet, is always a base, and so is one whose sets and clears reach the new store's record count, since its diff would be no shorter than the base. `base` True writes a base event on any change, the same stamp included, without reading `old_verdicts` or `old_cleared`: a restore passes it when the store it replaces holds a record `verdict_store.well_formed` refuses (`merge_verdicts._apply_restore`). `accepted` is the new store's `accepted` field, which every event line it writes carries. When the journal file does not exist yet and the previous store has the same stamp and holds a record or a tombstone, a diff is preceded by a seed base event holding the previous store, so replay is complete from the journal's first line. The result says whether a base was written and how many set and clear lines followed the event line."""
     journal_path = Path(journal_path)
     at = at or now_stamp()
     moved = old_stamp != stamp
@@ -162,6 +167,7 @@ def record_transition(
         cleared=new_tombstones,
         seed=seed,
         moved=moved,
+        accepted=accepted,
     )
     return {"base": base, "sets": len(sets), "clears": len(clears), "recorded": recorded}
 
@@ -176,8 +182,9 @@ def record_delta(
     seed_records: Mapping[str, dict] | None = None,
     seed_cleared: Mapping[str, str] | None = None,
     at: str | None = None,
+    accepted: Mapping[str, str] | None = None,
 ) -> dict:
-    """Append a same-stamp change given as the records set and the units cleared, without diffing two whole stores. `clears` maps each cleared unit to the tombstone the store keeps for it, or None when it keeps none. `seed_records` and `seed_cleared` are the store's records and tombstones before the change, without the changed units. They are written as a seed base event only when the journal file does not exist yet and they hold a record or a tombstone, as in `record_transition`; a caller that knows the file exists passes None."""
+    """Append a same-stamp change given as the records set and the units cleared, without diffing two whole stores. `clears` maps each cleared unit to the tombstone the store keeps for it, or None when it keeps none, as for a unit returned to its accepted record. `accepted` is the store's `accepted` field, which every event line it writes carries. `seed_records` and `seed_cleared` are the store's records and tombstones before the change, without the changed units. They are written as a seed base event only when the journal file does not exist yet and they hold a record or a tombstone, as in `record_transition`; a caller that knows the file exists passes None."""
     journal_path = Path(journal_path)
     at = at or now_stamp()
     sets = [record for record in sets if isinstance(record, dict) and isinstance(record.get("unit"), str)]
@@ -199,6 +206,7 @@ def record_delta(
         clears=clears,
         cleared=None,
         seed=seed,
+        accepted=accepted,
     )
     return {"base": False, "sets": len(sets), "clears": len(clears), "recorded": recorded}
 
@@ -216,6 +224,7 @@ def _append(
     cleared: Mapping[str, str] | None,
     seed: tuple[Mapping[str, dict], Mapping[str, str]] | None,
     moved=False,
+    accepted: Mapping[str, str] | None = None,
 ) -> bool:
     lines: list[dict] = []
     if seed is not None:
@@ -230,6 +239,7 @@ def _append(
                 sets=len(seed_records),
                 clears=0,
                 cleared=seed_cleared,
+                accepted=accepted,
             )
         )
         lines.extend(_set_line(record) for _, record in sorted(seed_records.items()))
@@ -244,6 +254,7 @@ def _append(
                 sets=len(sets),
                 clears=len(clears),
                 cleared=(cleared or {}) if base else None,
+                accepted=accepted,
             )
         )
         lines.extend(_set_line(record) for record in sets)
@@ -368,6 +379,37 @@ def iter_events(journal_path):
             yield entry
 
 
+def first_event_at(journal_path) -> str | None:
+    """Return the `at` of the journal's first event, reading the file only up to that event's line, or None when there is no journal or its first event has no string `at`."""
+    events = iter_events(journal_path)
+    try:
+        first = next(events, None)
+    finally:
+        events.close()
+    at = first.get("at") if first is not None else None
+    return at if isinstance(at, str) else None
+
+
+def close_out_due(journal_path, now: datetime | None = None) -> str | None:
+    """Return the warning retention's report and `make verdict-ready` give once the journal's first event is `CLOSE_OUT_DUE_DAYS` days old, or None before then or with no event to date. It names the day that event turns `HISTORY_DAYS` days old, from which retention's compaction (`compact_prepare`, under `artifact_cycle.journal_history_cutoff`) can copy the journal's kept history whole, and `make close-out`, which starts the journal again at one base event."""
+    first = first_event_at(journal_path)
+    try:
+        began = datetime.fromisoformat(first.replace("Z", "+00:00")) if first is not None else None
+    except ValueError:
+        began = None
+    if began is None or began.tzinfo is None:
+        return None
+    age = (now or datetime.now(timezone.utc)) - began
+    if age < timedelta(days=CLOSE_OUT_DUE_DAYS):
+        return None
+    due = (began + timedelta(days=HISTORY_DAYS)).date().isoformat()
+    when = "since" if age >= timedelta(days=HISTORY_DAYS) else "from"
+    return (
+        f"the verdict journal's first event, at {first}, is {age.days} days old, and {when} {due} retention's "
+        "compaction can copy the journal's kept history whole; `make close-out` starts the journal again"
+    )
+
+
 class JournalGap(ValueError):
     """Raised by `replay` for a moment the journal cannot reconstruct: at or after a torn base event and before the next complete base event, or the journal's end when none follows."""
 
@@ -389,10 +431,19 @@ def replay(journal_path, as_of: str | None = None) -> tuple[str | None, dict[str
 def replay_store(
     journal_path, as_of: str | None = None
 ) -> tuple[str | None, dict[str, dict], dict[str, str]]:
-    """Return (stamp, records, cleared), the store as of the last event whose `at` is lexicographically <= `as_of`: its stamp, its records by unit, and its tombstones (unit → the clear's `at`). Events are appended in time order, so a truncated ISO prefix works as `as_of`. A None stamp with empty records means the journal holds no event at or before that moment. A base event starts the store over from its set lines and its `cleared` list, a set line removes its unit's tombstone, and a clear line removes its unit's record and leaves the tombstone its `at` names (none for a null `at`, and the event's own `at` for a line with no `at` field). A base event followed by fewer set lines than it names is torn, and the store from it until the next complete base is unknown, so for an `as_of` in that span replay raises `JournalGap`, naming where the span ends; replay is exact again from the next complete base on. A replay whose `as_of` falls in a gap reads on to the gap's end to name it."""
+    """Return the stamp, records and tombstones `replay_with_list` gives, without the store's `accepted` field."""
+    stamp, records, cleared, _ = replay_with_list(journal_path, as_of)
+    return stamp, records, cleared
+
+
+def replay_with_list(
+    journal_path, as_of: str | None = None
+) -> tuple[str | None, dict[str, dict], dict[str, str], dict | None]:
+    """Return (stamp, records, cleared, accepted), the store as of the last event whose `at` is lexicographically <= `as_of`: its stamp, its records by unit, its tombstones (unit → the clear's `at`), and its `accepted` field, the accepted list it pairs with (`rebuild.review.accepted`), or None when it names none. Events are appended in time order, so a truncated ISO prefix works as `as_of`. A None stamp with empty records means the journal holds no event at or before that moment. A base event starts the store over from its set lines, its `cleared` list and its `accepted` field, an event that is not a base sets the field when it carries one and keeps it otherwise, a set line removes its unit's tombstone, and a clear line removes its unit's record and leaves the tombstone its `at` names (none for a null `at`, and the event's own `at` for a line with no `at` field). A base event followed by fewer set lines than it names is torn, and the store from it until the next complete base is unknown, so for an `as_of` in that span replay raises `JournalGap`, naming where the span ends; replay is exact again from the next complete base on. A replay whose `as_of` falls in a gap reads on to the gap's end to name it."""
     stamp: str | None = None
     records: dict[str, dict] = {}
     cleared: dict[str, str] = {}
+    accepted: dict | None = None
     event_at = ""
     base: tuple[str, int] | None = None
     base_sets = 0
@@ -421,8 +472,11 @@ def replay_store(
                     stamp = entry.get("stamp")
                     records = {}
                     cleared = parse_cleared(entry)
+                    accepted = _accepted_field(entry)
             elif gap_from is None:
                 stamp = entry.get("stamp")
+                if "accepted" in entry:
+                    accepted = _accepted_field(entry)
             event_at = at
             continue
         if kind == "set" and base is not None:
@@ -458,7 +512,12 @@ def replay_store(
     gap = crossed or gap_from
     if gap is not None:
         raise JournalGap(gap, None)
-    return stamp, records, cleared
+    return stamp, records, cleared, accepted
+
+
+def _accepted_field(entry: dict) -> dict | None:
+    field = entry.get("accepted")
+    return dict(field) if isinstance(field, dict) else None
 
 
 @dataclass(frozen=True)
@@ -853,8 +912,10 @@ def payload_for(
     records: dict[str, dict],
     cleared: Mapping[str, str] | None = None,
     exported_at: str | None = None,
+    accepted: Mapping[str, str] | None = None,
+    overrides: Mapping | None = None,
 ) -> dict:
-    """Return `records` as an ams-review-verdicts/1 document stamped `stamp`, with `cleared`, the tombstones on units it holds no record for, as its `cleared` list when there are any."""
+    """Return `records` as an ams-review-verdicts/1 document stamped `stamp`, with `cleared`, the tombstones on units it holds no record for, as its `cleared` list when there are any, `accepted`, the list the store pairs with (`rebuild.review.accepted`), as its `accepted` field when it names one, and `overrides`, the store's override section as a document holds it (`accepted.Overrides.field`), as its `overrides` section when it holds one."""
     verdicts = [
         {
             "unit": record["unit"],
@@ -864,13 +925,17 @@ def payload_for(
         }
         for _, record in sorted(records.items())
     ]
-    payload = {
+    payload: dict = {
         "format": EXPORT_FORMAT,
         "manifest_generated_at": stamp,
         "exported_at": exported_at or now_stamp(),
-        "verdicts": verdicts,
     }
+    if accepted is not None:
+        payload["accepted"] = dict(accepted)
+    payload["verdicts"] = verdicts
     tombstones = _tombstones(cleared, records)
     if tombstones:
         payload["cleared"] = _cleared_list(tombstones)
+    if overrides is not None:
+        payload["overrides"] = dict(overrides)
     return payload

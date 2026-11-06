@@ -43,7 +43,7 @@ test('an error field folds the server message into the text', () => {
 });
 
 test('a reply refusing the verdict store shows the refusal with no restart remedy, which a reply with any other error keeps', () => {
-  for (const reason of ['store-malformed', 'land-unrecoverable']) {
+  for (const reason of ['store-malformed', 'land-unrecoverable', 'accepted-malformed', 'accepted-mismatch']) {
     const error = 'the result run-1/verdicts-landing.json holds a verdict record on u-1 …';
     const model = bannerModel({ ok: false, reason, error }, 'gen-1');
     assert.equal(model.level, 'error');

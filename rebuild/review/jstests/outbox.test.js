@@ -22,7 +22,7 @@ import {
   loadConflicts,
   CONFLICTS_KEY,
 } from '../static/outbox.js';
-import { createStore, importVerdicts, replayDelta, unsavedFiles } from '../static/verdicts.js';
+import { acceptedRecords, createStore, importVerdicts, replayDelta, unsavedFiles } from '../static/verdicts.js';
 
 function memoryStorage() {
   const items = new Map();
@@ -105,6 +105,23 @@ test('a reload drops what the server holds, replays recent entries by stamp, and
   assert.deepEqual(plan.stale.map((item) => item.unit), ['u-old']);
 });
 
+test("a reload sorts the outbox against the accepted records among the server's: an entry equal to one by value was saved, and a clear or another verdict of an accepted unit replays", () => {
+  const closedAt = '2026-11-05T18:00:00Z';
+  const field = { sha256: 'x', closed_at: closedAt, approve: ['u-1', 'u-2', 'u-3'], either: [], identical: [] };
+  const server = new Map();
+  for (const record of acceptedRecords(field)) server.set(record.unit, record);
+  const recent = '2026-11-06T11:00:00.000Z';
+  const outbox = {
+    'u-1': entry({ unit: 'u-1', verdict: 'approve', note: '', at: closedAt }, { written_at: recent }),
+    'u-2': entry(null, { written_at: recent, base_at: closedAt }),
+    'u-3': entry({ unit: 'u-3', verdict: 'reject', note: '', at: '2026-11-06T10:00:00.000Z' }, { written_at: recent }),
+  };
+  const plan = planOutboxReplay(outbox, server, { now: Date.parse('2026-11-06T12:00:00.000Z') });
+  assert.deepEqual(plan.drop, ['u-1']);
+  assert.deepEqual(plan.replay.get('s1').map((item) => item.unit), ['u-2', 'u-3']);
+  assert.deepEqual(plan.stale, []);
+});
+
 test('a reload leaves an entry whose set the server refuses for the download, one with a good record and a base_at the server refuses included, and replays a body holding only the good entry', () => {
   const now = Date.parse('2026-09-30T12:00:00.000Z');
   const recent = '2026-09-30T11:00:00.000Z';
@@ -125,7 +142,7 @@ test('a reload leaves an entry whose set the server refuses for the download, on
 
 test('the plan for a 404 refusing the store leaves a pending clear in the outbox, which the plan for the 404 for no store drops as saved', () => {
   const clear = entry(null, { base_at: 't0', written_at: new Date().toISOString() });
-  for (const reason of ['store-malformed', 'land-unrecoverable']) {
+  for (const reason of ['store-malformed', 'land-unrecoverable', 'accepted-malformed', 'accepted-mismatch']) {
     const storage = memoryStorage();
     writeOutbox(storage, [['u-1', clear]]);
     const refused = { ok: false, reason, error: 'the store verdicts-autosave.json holds a verdict record on u-2 …' };

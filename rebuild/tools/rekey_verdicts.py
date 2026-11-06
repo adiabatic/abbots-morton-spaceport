@@ -6,12 +6,14 @@
 
 The files it rewrites are the store `--autosave` names (the live autosave by default), every other verdicts-*.json at the repository root stamped for a corpus the map was computed from (exports, stashes, and the carried file of a --no-merge or staging pass among them) when that store is the root's verdicts-autosave.json, and any file passed with `--verdicts`, such as a stash or an orphan document still on old ids. A re-key of any other store leaves the root's files out (`verdict_files`), because it holds only that store's lock and the root's files are written under the root store's, which retention holds while it deletes the root's stashes. A file named verdicts-autosave.json, in any letter case, that `--autosave` does not name is a journaled store, not an export or a stash, and the re-key journals only the `--autosave` store (`another_store`), so one passed with `--verdicts` or `--references` is a usage error, refused before anything is written; a re-key of a copy of the store in another directory therefore touches neither the live store nor its journal. Each record naming a landed old id moves to the unit it lands on, a record already naming a unit of NEW keeps its id, and either is dropped when a clear at or after the newest record on its unit lands there (below); one naming neither keeps its id and is counted as unmatched. The store's tombstones (its `cleared` list) land the same way, by the rule a journal restore's re-key follows (`merge_verdicts.rekey_cleared`): two that land on one unit keep the later clear, and where a tombstone and a record land on one unit the newer stays, as in a merge, so a clear at or after the record's `at` drops the record and a record strictly newer than the clear drops the tombstone. A tombstone on an id one of the file's records names is passed over, as the verdict store passes it over. A file is rewritten when it holds a record or a tombstone on an id the re-key moves, a tombstone the rule drops included, so a store in which only tombstones move is rewritten too, and so is every file in which the rule drops a record, since a record and a tombstone meet on one unit only where the re-key moves one of them. Stamps, notes and `at` times are kept, the tombstones' included, so the carry that follows moves the verdicts onto NEW as it does any other store, and a unit the store cleared at or after another file's verdict on it, and at or after every record of the store's own that lands on it, stays cleared. Verdict records carry no duplicate-group or cluster id, and notes are kept as written, so a `[carried u-…@file]` marker in an older note keeps the id it was written with until the carry drops it. `--references` rewrites old unit ids in text files too, such as the unit ids rebuild/standing-approvals.yaml quotes in its notes.
 
-Every file is copied to a new directory in the keep directory before it is rewritten, with the `--autosave` store's path, the journal's length and whether the re-key appends to the journal (a re-key that appends first ends the journal on a newline, `journal.repair_tail`, so the length marks where its base event begins), and `--undo DIR` puts those copies back under that store's lock and, when it appended, truncates the journal to that length and leaves the marker beside that store that makes the next land that moves the stamp journal a base (`journal.mark_unjournaled`), as it does when it refuses and asks for the copies to be put back by hand. The keep directory is `--keep`, or else the var/keep/class-rejig-rekey/ beside `--autosave`, which only a store named verdicts-autosave.json has by default (`journal.beside_store`), so a re-key of a copy in another directory keeps its backups and its id map beside the copy and leaves the root's keep directory alone. The rewritten autosave is appended to the journal --journal names, or else to the verdicts-journal.ndjson beside it, which only a store named verdicts-autosave.json takes by default (`journal.journal_path_for`), as a base event holding its records and its tombstones (`journal.record_transition` with no previous stamp), because journal lines before it name old ids. The applied map, with each pair the codepoints-and-configs join landed in place of its computed one, is merged into the keep directory's unit-id-map.json (`merge_id_maps`), which may be PATH itself: a run adds its entries to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run applied, `--map` takes it again for a file still on old ids, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one old id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run writes nothing, because every verdict and tombstone the map lands is already on its new id; a tombstone whose unit lands nowhere blocks no write and keeps its old id. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N collided=N tombstones_rekeyed=N records_cleared=N` over all the files, where `tombstones_rekeyed` counts the tombstones (a unit with its clear's `at`) the re-key puts in a file that the file did not hold, so not one the rule drops, `records_cleared` the records the rule drops for a clear at or after them, which the file's copy and, for the autosave, the journal before the re-key's base event still hold, and the others count the records the files hold. From reading the verdict files through the journal append it holds the `--autosave` store's lock (`rebuild.review.store_lock`, through `landing.locked_store`, which first finishes a land whose holder died, and while that recovery refuses, `landing.LandUnrecoverable`, the re-key and `--undo` print its refusal and write nothing), which every writer of the store and its journal holds, and `--undo` holds, from just after it reads backup.json, the lock of the store backup.json names (the root's verdicts-autosave.json when it names none). It refuses to rewrite the autosave while a review server that may write it is listening (its /capabilities answer names that store, or names none), unless --yes is passed, because the re-keyed ids would replace the ones the open tabs hold; such a run, and a dry run, reads without the lock, so a run that ends up writing nothing never makes the server refuse a save.
+The accepted list (`rebuild.review.accepted`), `--accepted` or the rebuild/accepted-units.txt beside `--autosave` (`accepted.path_for`), moves with the store. The re-key refuses a malformed list, and a store and list that do not pair (`accepted.pair`), before anything is written. Each listed id joins the ids the files name, so one the map holds that lands nowhere blocks every write as a verdicted id does, and `--allow-unmatched` drops it from the list. A listed id the re-key moves takes its new id, one already on NEW keeps its own, and one neither in the map nor on NEW, which an earlier pass left behind and the next close-out would drop, is dropped and counted (`rekey_list`). Two listed ids that land on one unit keep one line when their marks agree and block every write, naming both, when they differ. A listed id that lands on one unit with the store's record on another id, or with its tombstone dated at or before the list's `closed_at`, blocks every write too, naming both (`listed_collisions`), since before the close-out the two were store records, which the re-key refuses to put on one unit, and a tombstone that old says nothing of which of the two is newer; a later tombstone keeps the unit blank beside the listed id. The list is written sorted again under its own header (`accepted.render`), and the store's `accepted` field, when it has one, is rewritten to name it in the same locked section, so the store is rewritten whenever the list is. A file that names an accepted list, the store and a stash of it, is re-keyed as one store, its override section's records and tombstones (`accepted.Overrides`) with its own, by the rules above, and written with those on the re-keyed list's ids as its override section again and the rest as its own (`joined_payload`, `split_payload`), so an override moves with its listed id, one whose id the list drops becomes an ordinary record, and a tombstone that lands on a listed id beside it becomes an override tombstone. The latest close-out archive beside the store (`close_out.latest_archive`) is re-keyed the same way, its two lists and its store, the store split by its re-keyed list from before, so `close_out --undo` still lands after the re-key; none of its ids blocks a write. The base event the re-key journals carries the store's `accepted` field. A re-key that writes, and its `--undo`, hold the artifact cycle's pass lock beside the store (`close_out.pass_lock`), taken without waiting, and refuse while a pass holds it, so no pass runs across them.
+
+Every file is copied to a new directory in the keep directory before it is rewritten, the list and the archive's files among them, with the `--autosave` store's path, the journal's length and whether the re-key appends to the journal (a re-key that appends first ends the journal on a newline, `journal.repair_tail`, so the length marks where its base event begins), and, when the list is rewritten, its `accepted` field before and after the re-key (`accepted` in backup.json), so a journal restore from before the re-key can point a replayed field at the re-keyed list. `--undo DIR` puts those copies back under that store's lock and, when it appended, truncates the journal to that length and leaves the marker beside that store that makes the next land that moves the stamp journal a base (`journal.mark_unjournaled`), as it does when it refuses and asks for the copies to be put back by hand. The keep directory is `--keep`, or else the var/keep/class-rejig-rekey/ beside `--autosave`, which only a store named verdicts-autosave.json has by default (`journal.beside_store`), so a re-key of a copy in another directory keeps its backups and its id map beside the copy and leaves the root's keep directory alone. The rewritten autosave is appended to the journal --journal names, or else to the verdicts-journal.ndjson beside it, which only a store named verdicts-autosave.json takes by default (`journal.journal_path_for`), as a base event holding its records and its tombstones (`journal.record_transition` with no previous stamp), because journal lines before it name old ids. The applied map, with each pair the codepoints-and-configs join landed in place of its computed one, is merged into the keep directory's unit-id-map.json (`merge_id_maps`), which may be PATH itself: a run adds its entries to the ones already there instead of replacing them, and first copies the previous map beside it as unit-id-map-<time>.json. So the one map holds every pair any run applied, `--map` takes it again for a file still on old ids, and `merge_verdicts --restore-as-of TIME --rekey-map` applies it to a store it replays from before the re-key. Where two runs pair one old id with different units, the later run's unit wins and the tool names the clash; the earlier pair stays in the copy. A second run writes nothing, because every verdict and tombstone the map lands is already on its new id; a tombstone whose unit lands nowhere blocks no write and keeps its old id. It prints `rekey counts: seen=N rekeyed=N current=N unmatched=N collided=N tombstones_rekeyed=N records_cleared=N` over all the files, where `tombstones_rekeyed` counts the tombstones (a unit with its clear's `at`) the re-key puts in a file that the file did not hold, so not one the rule drops, `records_cleared` the records the rule drops for a clear at or after them, which the file's copy and, for the autosave, the journal before the re-key's base event still hold, and the others count the records the files hold. From reading the verdict files through the journal append it holds the `--autosave` store's lock (`rebuild.review.store_lock`, through `landing.locked_store`, which first finishes a land whose holder died, and while that recovery refuses, `landing.LandUnrecoverable`, the re-key and `--undo` print its refusal and write nothing), which every writer of the store and its journal holds, and `--undo` holds, from just after it reads backup.json, the lock of the store backup.json names (the root's verdicts-autosave.json when it names none). It refuses to rewrite the autosave while a review server that may write it is listening (its /capabilities answer names that store, or names none), unless --yes is passed, because the re-keyed ids would replace the ones the open tabs hold; such a run, and a dry run, reads without the lock, so a run that ends up writing nothing never makes the server refuse a save.
 
 Usage:
   uv run python -m rebuild.tools.rekey_verdicts --from-corpus rebuild/out/review --map-out var/keep/class-rejig-rekey/unit-id-map.json
   uv run python -m rebuild.tools.rekey_verdicts --map var/keep/class-rejig-rekey/unit-id-map.json --corpus NEW [--references rebuild/standing-approvals.yaml] --dry-run
-  uv run python -m rebuild.tools.rekey_verdicts --map var/keep/class-rejig-rekey/unit-id-map.json --corpus NEW [--references FILE] [--verdicts FILE] [--allow-unmatched] [--yes]
+  uv run python -m rebuild.tools.rekey_verdicts --map var/keep/class-rejig-rekey/unit-id-map.json --corpus NEW [--references FILE] [--verdicts FILE] [--accepted FILE] [--allow-unmatched] [--yes]
   uv run python -m rebuild.tools.rekey_verdicts --undo var/keep/class-rejig-rekey/<time>
 """
 
@@ -35,8 +37,9 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.review import journal, unit_cache, unit_index  # noqa: E402
+from rebuild.review import accepted, journal, unit_cache, unit_index  # noqa: E402
 from rebuild.review.landing import LandUnrecoverable, locked_store  # noqa: E402
+from rebuild.review.store_lock import LockBusy  # noqa: E402
 from rebuild.review.unit_cache import (  # noqa: E402
     CARRY_PRESENTATION_KEYS,
     base58_64,
@@ -45,6 +48,7 @@ from rebuild.review.unit_cache import (  # noqa: E402
     unit_id_for,
 )
 from rebuild.review.verdict_store import MalformedStore, parse_cleared, read_store_document  # noqa: E402
+from rebuild.tools import close_out  # noqa: E402
 from rebuild.tools.merge_verdicts import UntimedRecord, rekey_cleared  # noqa: E402
 from rebuild.tools.review_server import capabilities, server_listening  # noqa: E402
 
@@ -385,6 +389,105 @@ def rekey_payload(
     return result, counts, unmatched_content
 
 
+def joined_payload(payload: dict) -> dict:
+    """Return a verdicts file's payload with its override section's records and tombstones listed after its own (`accepted.Overrides`) and no section, so the re-key moves the two as one store, as the journal records it; a payload with no section as it is."""
+    section = payload.get(accepted.OVERRIDES)
+    if not isinstance(section, dict):
+        return payload
+    joined = {key: value for key, value in payload.items() if key != accepted.OVERRIDES}
+    joined["verdicts"] = [*payload["verdicts"], *(section.get("verdicts") or [])]
+    cleared = [*(payload.get("cleared") or []), *(section.get("cleared") or [])]
+    if cleared:
+        joined["cleared"] = cleared
+    return joined
+
+
+def split_payload(payload: dict, listed: Container[str]) -> dict:
+    """Return a re-keyed payload with its records and tombstones on `listed` ids, the re-keyed list's, as its override section and the rest as its own, each list in the order the re-key wrote it, and no section when it holds no entry on a listed id."""
+
+    def on_list(entry: object) -> bool:
+        return isinstance(entry, dict) and isinstance(unit := entry.get("unit"), str) and unit in listed
+
+    records, cleared = payload["verdicts"], payload.get("cleared") or []
+    result = {key: value for key, value in payload.items() if key != accepted.OVERRIDES}
+    result["verdicts"] = [record for record in records if not on_list(record)]
+    own_cleared = [entry for entry in cleared if not on_list(entry)]
+    if own_cleared:
+        result["cleared"] = own_cleared
+    else:
+        result.pop("cleared", None)
+    section = {
+        "verdicts": [record for record in records if on_list(record)],
+        "cleared": [entry for entry in cleared if on_list(entry)],
+    }
+    if section["verdicts"] or section["cleared"]:
+        result[accepted.OVERRIDES] = section
+    return result
+
+
+def rekey_list(
+    verdicts: Mapping[str, str], moves: Mapping[str, str], present: Container[str], mapped: Container[str]
+) -> tuple[dict[str, str], dict[str, int], list[tuple[str, str]]]:
+    """Return an accepted list's verdicts (id to verdict) re-keyed, its counts and its clashes. A listed id in `moves` takes its new id (`rekeyed`), and one in `present`, a unit of the new corpus, keeps its own (`current`). Any other is dropped: one the map holds (`mapped`) that lands nowhere (`unlanded`), which reaches here only under --allow-unmatched, and one the map does not hold (`left`), which an earlier pass left behind and the next close-out would drop. Two listed ids that land on one unit keep one line when their marks agree, and are returned as a clash when they differ."""
+    result: dict[str, str] = {}
+    sources: dict[str, str] = {}
+    counts = {"listed": 0, "rekeyed": 0, "current": 0, "unlanded": 0, "left": 0}
+    clashes: list[tuple[str, str]] = []
+    for unit, verdict in verdicts.items():
+        counts["listed"] += 1
+        if unit in moves:
+            target = moves[unit]
+            counts["rekeyed"] += 1
+        elif unit in present:
+            target = unit
+            counts["current"] += 1
+        else:
+            counts["unlanded" if unit in mapped else "left"] += 1
+            continue
+        if target in result:
+            if result[target] != verdict:
+                clashes.append((sources[target], unit))
+            continue
+        result[target] = verdict
+        sources[target] = unit
+    return result, counts, clashes
+
+
+def listed_collisions(
+    listed: accepted.Accepted,
+    payload: dict[str, Any] | None,
+    moves: Mapping[str, str],
+    present: Container[str],
+) -> list[tuple[str, str, str]]:
+    """Return each `(listed ids, kind, unit)` where the store `payload`'s record on `unit`, or its tombstone on a unit it holds no record for dated at or before the list's `closed_at`, lands on one unit with listed ids other than `unit`, which block the re-key. Before the close-out the listed ids were store records too, so a record beside them is two records on one unit, which the re-key refuses (`collided`), and such a tombstone says nothing of whether the clear or the folded verdict, dated at or before `closed_at`, is newer. A tombstone dated after `closed_at` is the newer, and it keeps the unit blank beside the listed id as it would have kept it beside the record."""
+    if payload is None or listed.closed_at is None:
+        return []
+    sources: dict[str, set[str]] = {}
+    for unit in listed.verdicts:
+        target = moves.get(unit, unit if unit in present else None)
+        if target is not None:
+            sources.setdefault(target, set()).add(unit)
+    held = {
+        record["unit"]
+        for record in payload["verdicts"]
+        if isinstance(record, dict) and isinstance(record.get("unit"), str)
+    }
+    found: list[tuple[str, str, str]] = []
+    for unit in sorted(held):
+        if others := sources.get(moves.get(unit, unit), set()) - {unit}:
+            found.append((", ".join(sorted(others)), "record", unit))
+    for unit, at in sorted(parse_cleared(payload).items()):
+        if unit in held or at > listed.closed_at:
+            continue
+        if others := sources.get(moves.get(unit, unit), set()) - {unit}:
+            found.append((", ".join(sorted(others)), "tombstone", unit))
+    return found
+
+
+def _list_field(raw: bytes, closed_at: str) -> dict[str, str]:
+    return {"sha256": hashlib.sha256(raw).hexdigest(), "closed_at": closed_at}
+
+
 def rekey_text(text: str, renamed: Mapping[str, str]) -> tuple[str, int]:
     count = 0
 
@@ -408,6 +511,12 @@ def _write_json(path: Path, payload: dict) -> None:
 def _write_text(path: Path, text: str) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _write_bytes(path: Path, data: bytes) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
     os.replace(tmp, path)
 
 
@@ -481,7 +590,14 @@ def _save_previous_map(map_path: Path, keep: Path) -> Path:
 
 
 def _backup(
-    root: Path, keep: Path, paths: list[Path], autosave: Path, journal_path: Path, *, journaled: bool
+    root: Path,
+    keep: Path,
+    paths: list[Path],
+    autosave: Path,
+    journal_path: Path,
+    *,
+    journaled: bool,
+    listed: dict[str, Any] | None = None,
 ) -> Path:
     target = keep / _time_name()
     target.mkdir(parents=True, exist_ok=False)
@@ -493,7 +609,7 @@ def _backup(
     if journaled:
         journal.repair_tail(journal_path)
     size = journal_path.stat().st_size if journal_path.exists() else None
-    record = {
+    record: dict[str, Any] = {
         "files": files,
         "autosave": _rel(autosave, root),
         "journal": {
@@ -503,17 +619,22 @@ def _backup(
             "tail_sha256": _journal_tail(journal_path, size) if size is not None else None,
         },
     }
+    if listed is not None:
+        record["accepted"] = listed
     (target / BACKUP_RECORD).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     return target
 
 
 def undo(root: Path, backup_dir: Path) -> int:
-    """Put back every file a re-key rewrote from its copy in `backup_dir`, under the lock of the store the re-key took as `--autosave`, which backup.json names as `autosave`, or the root's verdicts-autosave.json when it names none. When the re-key appended its base event to the journal (it rewrote that store), also truncate the journal to the length it had before the re-key, which drops every event appended after it, or remove the journal when the re-key created it. A journal compacted since the re-key is left alone, because the recorded length no longer marks the re-key in it, and nothing is put back; the person copies the files back by hand. When the re-key did not append to the journal, the journal is left as it is, because every event after the recorded length belongs to a store the undo does not put back. When the re-key rewrote that store, the undo first leaves the marker beside it that says the journal may lack a store write (`journal.mark_unjournaled`), whether it puts the store back or asks for it to be copied back by hand, so the next land that moves the stamp journals its store as a base (`journal.base_due`)."""
+    """Put back every file a re-key rewrote from its copy in `backup_dir`, the accepted list and the close-out archive's files among them, holding the pass lock beside the store the re-key took as `--autosave` (`close_out.pass_lock`) and that store's lock; backup.json names the store as `autosave`, or the root's verdicts-autosave.json when it names none. When the re-key appended its base event to the journal (it rewrote that store), also truncate the journal to the length it had before the re-key, which drops every event appended after it, or remove the journal when the re-key created it. A journal compacted since the re-key is left alone, because the recorded length no longer marks the re-key in it, and nothing is put back; the person copies the files back by hand. When the re-key did not append to the journal, the journal is left as it is, because every event after the recorded length belongs to a store the undo does not put back. When the re-key rewrote that store, the undo first leaves the marker beside it that says the journal may lack a store write (`journal.mark_unjournaled`), whether it puts the store back or asks for it to be copied back by hand, so the next land that moves the stamp journals its store as a base (`journal.base_due`)."""
     record = json.loads((backup_dir / BACKUP_RECORD).read_text(encoding="utf-8"))
     autosave = root / record.get("autosave", journal.AUTOSAVE_NAME)
     try:
-        with locked_store(autosave):
+        with close_out.pass_lock(autosave), locked_store(autosave):
             return _undo_locked(root, backup_dir, record, autosave)
+    except LockBusy:
+        print(f"ERROR: {close_out.pass_refusal(autosave)}. Nothing was put back.")
+        return 1
     except LandUnrecoverable as refused:
         print(f"ERROR: {refused}. Nothing was put back.")
         return 1
@@ -574,6 +695,7 @@ def run(
     keep: Path,
     extra: list[Path],
     references: list[Path],
+    accepted_path: Path,
     dry_run: bool,
     yes: bool,
     allow_unmatched: bool = False,
@@ -609,14 +731,21 @@ def run(
         keep=keep,
         extra=extra,
         references=references,
+        accepted_path=accepted_path,
         dry_run=dry_run,
         allow_unmatched=allow_unmatched,
     )
-    if dry_run or guarded:
-        return rekey(refuse_live_store=guarded, write_lock=lambda: locked_store(autosave))
+    if dry_run:
+        return rekey(refuse_live_store=False, write_lock=lambda: locked_store(autosave))
     try:
-        with locked_store(autosave):
-            return rekey(refuse_live_store=False, write_lock=contextlib.nullcontext)
+        with close_out.pass_lock(autosave):
+            if guarded:
+                return rekey(refuse_live_store=True, write_lock=lambda: locked_store(autosave))
+            with locked_store(autosave):
+                return rekey(refuse_live_store=False, write_lock=contextlib.nullcontext)
+    except LockBusy:
+        print(f"ERROR: {close_out.pass_refusal(autosave)}. Nothing was written.")
+        return 1
     except LandUnrecoverable as refused:
         print(f"ERROR: {refused}. Nothing was written.")
         return 1
@@ -642,12 +771,13 @@ def _rekey_files(
     keep: Path,
     extra: list[Path],
     references: list[Path],
+    accepted_path: Path,
     dry_run: bool,
     allow_unmatched: bool,
     refuse_live_store: bool,
     write_lock: Callable[[], contextlib.AbstractContextManager],
 ) -> int:
-    """Land the ids the verdict files and references name, and re-key them. `run` calls it under the store's lock, from the reads through the writes and the journal append, unless the run is a dry run or a review server that may write the store (`_served`) is listening without --yes. It then reads without the lock, `refuse_live_store` stops it before it rewrites the `--autosave` store, and `write_lock` takes the lock for the writes that include the store and its journal."""
+    """Land the ids the verdict files, the references, the accepted list and the latest close-out archive name, and re-key them. `run` calls it under the store's lock, from the reads through the writes and the journal append, unless the run is a dry run or a review server that may write the store (`_served`) is listening without --yes. It then reads without the lock, `refuse_live_store` stops it before it rewrites the `--autosave` store or the list, and `write_lock` takes the lock for the writes that include the store and its journal."""
     from_stamps = {stamp for stamp in id_map["from_corpora"] if isinstance(stamp, str)}
     read: list[tuple[Path, dict]] = []
     for path in verdict_files(root, from_stamps, autosave, extra):
@@ -670,6 +800,16 @@ def _rekey_files(
             print(f"ERROR: {_rel(path, root)} is not a readable verdicts file. Nothing was written.")
             return 1
         read.append((path, payload))
+    sectioned = {path for path, payload in read if payload.get("accepted") is not None}
+    read = [(path, joined_payload(payload) if path in sectioned else payload) for path, payload in read]
+    store_payload = next((payload for path, payload in read if path.resolve() == autosave.resolve()), None)
+    try:
+        listed = accepted.read(accepted_path)
+        accepted.pair(store_payload, listed, store=_rel(autosave, root))
+        archive = _read_close_out_archive(autosave)
+    except (accepted.Refused, close_out.Refused, MalformedStore) as refused:
+        print(f"ERROR: {refused}. Nothing was written.")
+        return 1
     quoted = [(path, path.read_text(encoding="utf-8")) for path in references]
     verdicted = {
         record["unit"]
@@ -678,8 +818,10 @@ def _rekey_files(
         if isinstance(record, dict) and isinstance(record.get("unit"), str)
     }
     verdicted.update(match for _, text in quoted for match in UNIT_ID.findall(text))
+    verdicted.update(listed.verdicts)
     cleared = {unit for _, payload in read for unit in parse_cleared(payload)}
-    landing = land(id_map, owners, corpus, verdicted | cleared)
+    archived = _archived_ids(archive) if archive is not None else set()
+    landing = land(id_map, owners, corpus, verdicted | cleared | archived)
     asked = sum(1 for unit in verdicted | cleared if unit in id_map["units"])
     print(
         f"corpus {_rel(corpus, root)} ({corpus_stamp}): {landing.units} units; of the {asked} ids of the map the files "
@@ -698,6 +840,7 @@ def _rekey_files(
         "records_cleared": 0,
     }
     payloads: list[tuple[Path, dict, dict]] = []
+    store_rekeyed: dict | None = None
     stray: list[tuple[Path, list[str]]] = []
     collided: list[Path] = []
     for path, payload in read:
@@ -706,6 +849,8 @@ def _rekey_files(
         except UntimedRecord as untimed:
             print(f"ERROR: in {_rel(path, root)}, {untimed}. Nothing was written.")
             return 1
+        if path.resolve() == autosave.resolve():
+            store_rekeyed = rekeyed
         strays = [unit for unit in unmatched_content if unit not in id_map["units"]]
         if strays and _stamp(payload) in from_stamps:
             stray.append((path, strays))
@@ -726,6 +871,13 @@ def _rekey_files(
         print(f"{_rel(path, root)}: {count} unit id references re-keyed")
         if count:
             texts.append((path, rewritten))
+    relisted, list_counts, list_clashes = rekey_list(listed.verdicts, moves, landing.present, id_map["units"])
+    if listed.closed_at is not None:
+        print(
+            f"{_rel(accepted_path, root)}: {list_counts['listed']} listed ids, {list_counts['rekeyed']} re-keyed, "
+            f"{list_counts['current']} already current, {list_counts['left']} dropped as off the map's corpus, "
+            f"{list_counts['unlanded']} landing nowhere dropped"
+        )
     print(
         f"rekey counts: seen={totals['seen']} rekeyed={totals['rekeyed']} current={totals['current']} "
         f"unmatched={totals['unmatched']} collided={totals['collided']} "
@@ -736,7 +888,7 @@ def _rekey_files(
     if (unlanded or stray) and not allow_unmatched:
         if unlanded:
             print(
-                f"ERROR: {len(unlanded)} verdicted or quoted id(s) of the map land on no unit of {_rel(corpus, root)}:"
+                f"ERROR: {len(unlanded)} verdicted, listed or quoted id(s) of the map land on no unit of {_rel(corpus, root)}:"
             )
             for unit in unlanded[:10]:
                 print(f"  {unit}: {landing.unlanded[unit]}")
@@ -758,11 +910,62 @@ def _rekey_files(
             "settle which record stands and run again."
         )
         return 1
+    try:
+        archive_writes, archive_clashes = (
+            _rekey_archive(archive, moves, landing.present, id_map["units"])
+            if archive is not None
+            else ([], [])
+        )
+    except UntimedRecord as untimed:
+        print(f"ERROR: in the close-out archive, {untimed}. Nothing was written.")
+        return 1
+    clashes = [
+        f"in {_rel(accepted_path, root)}, {first} ({listed.verdicts[first]}) and {second} "
+        f"({listed.verdicts[second]})"
+        for first, second in list_clashes
+    ] + archive_clashes
+    if clashes:
+        for clash in clashes:
+            print(f"ERROR: {clash} land on one unit with different marks")
+        print(
+            "Nothing was written: the map pairs units the accepted list marks differently with one unit of the new "
+            "corpus, so check the map before re-keying."
+        )
+        return 1
+    if collisions := listed_collisions(listed, store_payload, moves, landing.present):
+        for ids, kind, unit in collisions:
+            print(
+                f"ERROR: in {_rel(accepted_path, root)}, {ids} lands on one unit with the store's {kind} on {unit}"
+            )
+        print(
+            "Nothing was written: before the close-out each listed id was a store record, and a store record, or a "
+            "tombstone dated at or before the close-out, on another id that lands on the same unit leaves nothing to "
+            "say which of the two stands. Settle it in the store (re-verdict or clear the unit under its old id, or "
+            "remove the record or tombstone by hand) and run again."
+        )
+        return 1
+    payloads = [
+        (path, before, split_payload(after, relisted) if path in sectioned else after)
+        for path, before, after in payloads
+    ]
+    if store_rekeyed is not None and autosave in sectioned:
+        store_rekeyed = split_payload(store_rekeyed, relisted)
+    list_bytes: bytes | None = None
+    listed_record: dict[str, Any] | None = None
+    if listed.closed_at is not None and relisted != dict(listed.verdicts):
+        list_bytes = accepted.render(listed.closed_at, relisted)
+        field = _list_field(list_bytes, listed.closed_at)
+        listed_record = {"path": _rel(accepted_path, root), "before": listed.field(), "after": field}
+        if store_payload is not None and store_rekeyed is not None and "accepted" in store_payload:
+            payloads = [entry for entry in payloads if entry[0].resolve() != autosave.resolve()]
+            payloads.insert(0, (autosave, store_payload, {**store_rekeyed, "accepted": field}))
     targets = [path for path, _, _ in payloads] + [path for path, _ in texts]
+    targets += ([accepted_path] if list_bytes is not None else []) + [path for path, _ in archive_writes]
     if dry_run:
         print(f"dry run: nothing written; {len(targets)} file(s) would be rewritten")
         return 0
-    rewrites_live_store = any(path.resolve() == autosave.resolve() for path in targets)
+    live = (autosave.resolve(), accepted_path.resolve())
+    rewrites_live_store = any(path.resolve() in live for path in targets)
     if rewrites_live_store and refuse_live_store:
         store = _rel(autosave, root)
         print(
@@ -779,25 +982,122 @@ def _rekey_files(
         return 0
     journaled = any(path.resolve() == autosave.resolve() for path, _, _ in payloads)
     with write_lock() if journaled else contextlib.nullcontext():
-        backup_dir = _backup(root, keep, targets, autosave, journal_path, journaled=journaled)
+        backup_dir = _backup(
+            root, keep, targets, autosave, journal_path, journaled=journaled, listed=listed_record
+        )
         print(f"backed up {len(targets)} file(s) to {_rel(backup_dir, root)}")
+        if list_bytes is not None:
+            _write_bytes(accepted_path, list_bytes)
+            print(f"rewrote {_rel(accepted_path, root)}")
         for path, before, after in payloads:
             _write_json(path, after)
             if path.resolve() == autosave.resolve():
+                journaled_store = joined_payload(after)
                 journal.record_transition(
                     journal_path,
                     source="rekey",
                     stamp=after["manifest_generated_at"],
                     old_stamp=None,
                     old_verdicts=before["verdicts"],
-                    new_verdicts=after["verdicts"],
-                    new_cleared=parse_cleared(after),
+                    new_verdicts=journaled_store["verdicts"],
+                    new_cleared=parse_cleared(journaled_store),
+                    accepted=after.get("accepted"),
                 )
+            print(f"rewrote {_rel(path, root)}")
+        for path, raw in archive_writes:
+            close_out.write_archive_member(path, raw)
             print(f"rewrote {_rel(path, root)}")
         for path, text in texts:
             _write_text(path, text)
             print(f"rewrote {_rel(path, root)}")
     return 0
+
+
+@dataclass(frozen=True)
+class ClosedArchive:
+    """The latest close-out archive as the re-key reads it: its store as found (None when it holds none), and its lists before (None when it holds none) and after, each read as the path of its member."""
+
+    path: Path
+    store: dict | None
+    before: accepted.Accepted | None
+    after: accepted.Accepted
+
+
+def _read_close_out_archive(autosave: Path) -> ClosedArchive | None:
+    """Return the latest close-out archive beside `autosave` (`close_out.latest_archive`), or None when there is none. A member that is not what the close-out writes raises `close_out.Refused`, `accepted.Malformed` or `verdict_store.MalformedStore`."""
+    path = close_out.latest_archive(autosave)
+    if path is None:
+        return None
+    members = close_out.read_archive(path)
+    store = None
+    if members.store is not None:
+        store = read_store_document(members.store, f"the archived store {path / close_out.ARCHIVE_STORE}")
+        if store is None:
+            raise close_out.Refused(
+                f"{path / close_out.ARCHIVE_STORE} is not an ams-review-verdicts/1 document"
+            )
+    before = (
+        accepted.parse(members.before, path / close_out.ARCHIVE_BEFORE)
+        if members.before is not None
+        else None
+    )
+    return ClosedArchive(path, store, before, accepted.parse(members.after, path / close_out.ARCHIVE_AFTER))
+
+
+def _archived_ids(archive: ClosedArchive) -> set[str]:
+    ids = {unit for held in (archive.before, archive.after) if held is not None for unit in held.verdicts}
+    if archive.store is not None:
+        store = joined_payload(archive.store)
+        ids.update(
+            record["unit"]
+            for record in store["verdicts"]
+            if isinstance(record, dict) and isinstance(record.get("unit"), str)
+        )
+        ids.update(parse_cleared(store))
+    return ids
+
+
+def _rekey_archive(
+    archive: ClosedArchive, moves: Mapping[str, str], present: Container[str], mapped: Container[str]
+) -> tuple[list[tuple[Path, bytes]], list[str]]:
+    """Return the archive's members the re-key rewrites, each with its new bytes before compression, and the clashes that block the re-key: listed ids with different marks, or store records naming different ids, that land on one unit. Its lists are re-keyed as the live list is (`rekey_list`), so its list after stays byte for byte the re-keyed live list while the two were equal, and its store as one store, its override section with its own records and tombstones (`joined_payload`), written split by the re-keyed list from before (`split_payload`), with its `accepted` field naming that list."""
+    writes: list[tuple[Path, bytes]] = []
+    clashes: list[str] = []
+    before_field: dict[str, str] | None = None
+    before_ids: Container[str] = {}
+    for held in (archive.before, archive.after):
+        if held is None or held.closed_at is None:
+            continue
+        relisted, _counts, pairs = rekey_list(held.verdicts, moves, present, mapped)
+        if held is archive.before:
+            before_ids = relisted
+        clashes += [
+            f"in {held.path}, {first} ({held.verdicts[first]}) and {second} ({held.verdicts[second]})"
+            for first, second in pairs
+        ]
+        if relisted != dict(held.verdicts):
+            raw = accepted.render(held.closed_at, relisted)
+            writes.append((held.path, raw))
+            if held is archive.before:
+                before_field = _list_field(raw, held.closed_at)
+    if archive.store is not None:
+        store = joined_payload(archive.store)
+        rekeyed, counts, _unmatched = rekey_payload(store, moves, present)
+        rekeyed = split_payload(rekeyed, before_ids)
+        if counts["collided"]:
+            clashes.append(f"in {archive.path / close_out.ARCHIVE_STORE}, records naming different ids")
+        moved = counts["rekeyed"] or moves.keys() & parse_cleared(store).keys()
+        if before_field is not None and "accepted" in archive.store:
+            rekeyed["accepted"] = before_field
+            moved = True
+        if moved:
+            writes.append(
+                (
+                    archive.path / close_out.ARCHIVE_STORE,
+                    (json.dumps(rekeyed, ensure_ascii=False) + "\n").encode(),
+                )
+            )
+    return writes, clashes
 
 
 def _merge_map(
@@ -879,6 +1179,11 @@ def main(argv: list[str] | None = None) -> int:
         help=f"where the merged id map and the backups go (default: the {KEEP} beside --autosave; a store not named {journal.AUTOSAVE_NAME} needs --keep)",
     )
     parser.add_argument(
+        "--accepted",
+        type=Path,
+        help=f"the accepted list that moves with --autosave (default: the {accepted.RELATIVE_PATH} beside --autosave; a store not named {journal.AUTOSAVE_NAME} needs --accepted)",
+    )
+    parser.add_argument(
         "--verdicts",
         type=Path,
         action="append",
@@ -937,6 +1242,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         journal_path = args.journal or journal.journal_path_for(autosave)
         keep = args.keep or journal.beside_store(autosave, KEEP, "--keep")
+        accepted_path = args.accepted or accepted.path_for(autosave)
     except ValueError as error:
         parser.error(str(error))
     return run(
@@ -948,6 +1254,7 @@ def main(argv: list[str] | None = None) -> int:
         keep=keep,
         extra=args.verdicts,
         references=args.references,
+        accepted_path=accepted_path,
         dry_run=args.dry_run,
         yes=args.yes,
         allow_unmatched=args.allow_unmatched,

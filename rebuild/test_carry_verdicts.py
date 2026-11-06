@@ -1,6 +1,8 @@
 """Tests for the carry: the content key a unit's id is derived from, and the join of prior verdicts onto a new corpus by that id.
 
 The key leaves out `CARRY_PRESENTATION_KEYS`, the fields a rebuild changes without changing what the reviewer judged, so adding or changing one cannot change a unit's id and orphan its verdicts. Every judged field stays in the key, so a real change to the window drops the old verdict. The key tests use the shipped review fixtures, which `rebuild/test_review_build.py` also runs through the §7 contract checker.
+
+The join reads the accepted list beside the store: another file's record that the list keeps out is passed over and the store's own records are carried as they are, the listed units count as accepted and among the prior verdicts, and a store that does not pair with the list stops the carry.
 """
 
 import hashlib
@@ -9,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import unit_cache
+from rebuild.review import accepted, unit_cache
 from rebuild.review.unit_cache import CARRY_PRESENTATION_KEYS as PRESENTATION_KEYS
 from rebuild.review.unit_cache import carry_content_hash as content_hash
 from rebuild.review.unit_cache import carry_projection as content_key
@@ -135,7 +137,9 @@ def _record(unit, verdict, at="2026-07-01T01:00:00Z", note=""):
     return {"unit": unit["id"], "verdict": verdict, "note": note, "at": at}
 
 
-def _carry(tmp_path, corpus_units, *verdict_files, machine=(), allow_orphans=False, **held):
+def _carry(
+    tmp_path, corpus_units, *verdict_files, machine=(), allow_orphans=False, served_corpus=None, **held
+):
     current = tmp_path / "current"
     _write_corpus(current, "2026-07-02T00:00:00Z", corpus_units, machine)
     out = tmp_path / "out.json"
@@ -144,6 +148,8 @@ def _carry(tmp_path, corpus_units, *verdict_files, machine=(), allow_orphans=Fal
         argv += ["--verdicts", str(path)]
     if allow_orphans:
         argv.append("--allow-orphans")
+    if served_corpus is not None:
+        argv += ["--served-corpus", str(served_corpus)]
     main([*argv, "--out", str(out), "--current-corpus", str(current)], **held)
     return json.loads(out.read_text())
 
@@ -250,16 +256,22 @@ def test_only_the_stores_clear_at_or_after_the_newest_verdict_keeps_a_unit_from_
         own["id"]: "approve",
         foreign["id"]: "approve",
     }
-    assert "carry counts: human=4 matched=3 unmatched=1 orphaned=0" in capsys.readouterr().out.splitlines()
+    assert (
+        "carry counts: human=4 matched=3 unmatched=1 orphaned=0 accepted=0"
+        in capsys.readouterr().out.splitlines()
+    )
 
 
-def test_the_carry_prints_its_four_counts_whatever_it_matched(tmp_path, capsys):
-    """The `carry counts:` line, which the cycle records: the human units on the new corpus, how many matched a prior verdict, how many did not, and how many prior verdicts matched no unit."""
+def test_the_carry_prints_its_five_counts_whatever_it_matched(tmp_path, capsys):
+    """The `carry counts:` line, which the cycle records: the human units on the new corpus, how many matched a prior verdict, how many did not, how many prior verdicts matched no unit, and how many human units read as accepted from the list."""
     kept, gone, fresh = _content_unit("E650:E652"), _content_unit("E652:E653"), _content_unit("E653:E654")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(gone, "reject")])
     _carry(tmp_path, [kept, fresh], verdicts, allow_orphans=True)
-    assert "carry counts: human=2 matched=1 unmatched=1 orphaned=1" in capsys.readouterr().out.splitlines()
+    assert (
+        "carry counts: human=2 matched=1 unmatched=1 orphaned=1 accepted=0"
+        in capsys.readouterr().out.splitlines()
+    )
 
 
 def test_a_prior_verdict_on_a_machine_unit_is_not_orphaned(tmp_path, capsys):
@@ -268,13 +280,19 @@ def test_a_prior_verdict_on_a_machine_unit_is_not_orphaned(tmp_path, capsys):
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(machine, "reject")])
     _carry(tmp_path, [kept], verdicts, machine=[machine])
-    assert "carry counts: human=1 matched=1 unmatched=0 orphaned=0" in capsys.readouterr().out.splitlines()
+    assert (
+        "carry counts: human=1 matched=1 unmatched=0 orphaned=0 accepted=0"
+        in capsys.readouterr().out.splitlines()
+    )
 
     held = [{"id": kept["id"], "batch": 0}]
     _carry(
         tmp_path / "held", [kept], verdicts, current_units=iter(held), current_ids={kept["id"], machine["id"]}
     )
-    assert "carry counts: human=1 matched=1 unmatched=0 orphaned=0" in capsys.readouterr().out.splitlines()
+    assert (
+        "carry counts: human=1 matched=1 unmatched=0 orphaned=0 accepted=0"
+        in capsys.readouterr().out.splitlines()
+    )
 
 
 def test_the_human_records_without_the_id_set_are_refused(tmp_path):
@@ -298,7 +316,10 @@ def test_a_carry_that_orphans_more_than_the_limit_refuses_unless_allowed(tmp_pat
     assert len(_carry(tmp_path / "ten", units[:90], verdicts)["verdicts"]) == 90
     with pytest.raises(SystemExit) as refused:
         _carry(tmp_path / "eleven", units[:89], verdicts)
-    assert "carry counts: human=89 matched=89 unmatched=0 orphaned=11" in capsys.readouterr().out.splitlines()
+    assert (
+        "carry counts: human=89 matched=89 unmatched=0 orphaned=11 accepted=0"
+        in capsys.readouterr().out.splitlines()
+    )
     assert str(refused.value).startswith(
         "carry refused: 11 of 100 (11.00%, more than the 10% limit) prior verdicts name no unit on "
     )
@@ -308,3 +329,73 @@ def test_a_carry_that_orphans_more_than_the_limit_refuses_unless_allowed(tmp_pat
     )
     assert not (tmp_path / "eleven" / "out.json").exists()
     assert len(_carry(tmp_path / "allowed", units[:89], verdicts, allow_orphans=True)["verdicts"]) == 89
+
+
+def test_the_carry_reads_the_accepted_list_beside_the_store(tmp_path, capsys):
+    """The list names units a close-out folded out of the store. Another file's record on one that the store holds no override for is passed over when it equals the accepted record by value or is dated at or before the close-out, and carried when it holds a note typed since; the store's override section, an override dated before the close-out among them, is not carried, since the merge keeps it whole, but an override record counts as matched; an override tombstone blanks a listed unit and keeps out an older record of another file's. The line counts the units that read as accepted apart from the matched and unmatched ones, and the orphaned count takes the listed units of the served corpus the new corpus lacks and the override records on the served corpus with the store's own, while an override on a unit the served corpus lacks, whose window an earlier pass redrew, counts on neither side of the share, since the override section keeps it until the next close-out. Past the limit, the refusal offers no `--no-carry` while the list names a unit of the served corpus, and a store that names another list is refused."""
+    closed_at = "2026-07-05T00:00:00Z"
+    override, folded, typed, cleared, plain, dated, gone, redrawn = (
+        _content_unit(codepoints)
+        for codepoints in (
+            "E650:E652",
+            "E652:E653",
+            "E653:E654",
+            "E654:E655",
+            "E655:E656",
+            "E656:E657",
+            "E657:E658",
+            "E658:E659",
+        )
+    )
+    listed = {unit["id"]: "approve" for unit in (override, typed, cleared, dated, gone, redrawn)} | {
+        folded["id"]: "either"
+    }
+    store = tmp_path / "verdicts-autosave.json"
+    list_path = accepted.path_for(store)
+    list_path.parent.mkdir()
+    list_path.write_bytes(accepted.render(closed_at, listed))
+    _write_verdicts(store, "S0", [])
+    document = json.loads(store.read_text())
+    section = {
+        "verdicts": [
+            _record(override, "reject", at="2026-07-04T00:00:00Z"),
+            _record(redrawn, "reject", at="2026-07-06T00:00:00Z"),
+        ],
+        "cleared": [{"unit": cleared["id"], "at": "2026-07-06T00:00:00Z"}],
+    }
+    store.write_text(
+        json.dumps({**document, "overrides": section, "accepted": accepted.read(list_path).field()})
+    )
+    export = tmp_path / "verdicts-export.json"
+    _write_verdicts(
+        export,
+        "S0",
+        [
+            _record(folded, "either", at="2026-07-06T00:00:00Z"),
+            _record(typed, "approve", at="2026-07-06T00:00:00Z", note="typed since"),
+            _record(cleared, "approve", at="2026-07-03T00:00:00Z"),
+            _record(plain, "reject"),
+            _record(dated, "approve", at="2026-07-04T00:00:00Z", note="an older note"),
+        ],
+    )
+    served = tmp_path / "served"
+    _write_corpus(served, "S0", [override, folded, typed, cleared, dated, gone])
+    current = [override, folded, typed, cleared, plain, dated]
+    payload = _carry(tmp_path, current, export, store, served_corpus=served, allow_orphans=True)
+    assert {record["unit"]: record["verdict"] for record in payload["verdicts"]} == {
+        typed["id"]: "approve",
+        plain["id"]: "reject",
+    }
+    out = capsys.readouterr().out.splitlines()
+    assert "carry counts: human=6 matched=3 unmatched=1 orphaned=1 accepted=2" in out
+    assert "human queue: 6 -> 1 still needing fresh verdicts" in out
+
+    with pytest.raises(SystemExit) as refused:
+        _carry(tmp_path / "moved", [plain], export, store, served_corpus=served)
+    assert "orphaned=5 accepted=0" in capsys.readouterr().out
+    assert str(refused.value).startswith("carry refused: 5 of 6 ") and "--no-carry" not in str(refused.value)
+
+    list_path.write_bytes(accepted.render("2026-07-07T00:00:00Z", listed))
+    with pytest.raises(SystemExit) as refused:
+        _carry(tmp_path / "unpaired", current, export, store, served_corpus=served)
+    assert str(refused.value).startswith("carry refused: ") and str(list_path) in str(refused.value)

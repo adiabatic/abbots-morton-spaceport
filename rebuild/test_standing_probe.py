@@ -186,7 +186,7 @@ def _run(tmp_path, capsys, units, argv, *, rules=(EXT_RULE,), records=(), stamp=
     corpus = _corpus(tmp_path, units)
     rules_path = tmp_path / "rules.yaml"
     rules_path.write_text(json.dumps({"format": sv.FORMAT, "rules": list(rules)}))
-    verdicts_path = tmp_path / "verdicts.json"
+    verdicts_path = tmp_path / "verdicts-autosave.json"
     verdicts_path.write_text(
         json.dumps(
             {

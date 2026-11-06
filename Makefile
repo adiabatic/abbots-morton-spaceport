@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep replay-deep fault-kit memory-series standing-daemon standing-daemon-stop prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready close-out cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep replay-deep fault-kit memory-series standing-daemon standing-daemon-stop prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -132,6 +132,10 @@ standing-daemon-stop:
 verdict-ready:
 	uv run python -m rebuild.tools.verdict_ready $(ARGS)
 
+# Folds the verdict store's approve, either and identical verdicts into rebuild/accepted-units.txt, which goes into the "Close the ·X batch" commit, and leaves the store and a new journal holding only the rejects, neithers, skips and tombstones. Bare `make close-out` is a dry run that prints the report and every refusal and writes nothing; ARGS=--apply writes, keeping the store as found and both lists under var/keep/close-outs/; ARGS=--undo puts back that archive's list and store with the verdicts made since laid over it. Run it by hand with the review server stopped, never beside a pass. rebuild/tools/close_out.py's module docstring gives the fold, its checks, its archive and its recovery.
+close-out:
+	uv run python -m rebuild.tools.close_out $(ARGS)
+
 # Reports what the cycle's steps and the checks cost on this machine and how the checks came out, from the journal rebuild/tools/cycle_timings.py describes; ARGS takes that tool's flags, and ARGS=--help lists them.
 cycle-timings:
 	uv run python -m rebuild.tools.cycle_timings $(ARGS)
@@ -144,7 +148,7 @@ job-costs:
 complaint-list:
 	uv run python rebuild/tools/complaint_list.py $(ARGS)
 
-# Orders the blank queue for novelty and prints the worklist URL to paste into the review app. It takes one representative per duplicate group and picks each next unit to differ most from the last few shown, by class, families, letters, stances, junctions, configs, and provenance. Reads the live autosave unless ARGS names a verdicts file. Emits the first 40 entries by default; ARGS='--limit 0' emits the whole queue.
+# Orders the blank queue for novelty and prints the worklist URL to paste into the review app. It takes one representative per duplicate group and picks each next unit to differ most from the last few shown, by class, families, letters, stances, junctions, configs, and provenance. Reads the live autosave unless ARGS names a verdicts file; any file but the store, such as an Export from the review app, also needs `--accepted rebuild/accepted-units.txt`. Emits the first 40 entries by default; ARGS='--limit 0' emits the whole queue.
 novelty-order:
 	uv run python rebuild/tools/novelty_order.py $(ARGS)
 

@@ -19,6 +19,7 @@ import {
   acknowledgeDelta,
   noteServerRecords,
   adoptServerRecord,
+  applyAccepted,
   DELTA_FORMAT,
   EXPORT_FORMAT,
 } from '../static/verdicts.js';
@@ -29,6 +30,16 @@ const verdictRecordSamples = JSON.parse(
 const deltaSetSamples = JSON.parse(
   await readFile(new URL('../fixtures/delta-set-samples.json', import.meta.url), 'utf8'),
 );
+const acceptedSamples = JSON.parse(
+  await readFile(new URL('../fixtures/accepted-samples.json', import.meta.url), 'utf8'),
+);
+const acceptedField = acceptedSamples.view.field;
+
+function acceptedStore() {
+  const store = createStore();
+  applyAccepted(store, acceptedField);
+  return store;
+}
 
 test('recordVerdict stores the whole-unit record shape', () => {
   const store = createStore();
@@ -75,16 +86,18 @@ test('undo restores the previous record, not just deletes', () => {
   assert.equal(store.records.has('u-0001'), false);
 });
 
-test('groupApprove only touches unverdicted units and undoes as one action', () => {
-  const store = createStore();
+test('groupApprove only touches unverdicted units, an accepted one counting as verdicted, and undoes as one action', () => {
+  const store = acceptedStore();
+  const [accepted] = acceptedField.identical;
   recordVerdict(store, 'u-0002', 'reject', { at: 't1' });
-  const applied = groupApprove(store, ['u-0001', 'u-0002', 'u-0003'], { at: 't2' });
+  const applied = groupApprove(store, ['u-0001', 'u-0002', accepted, 'u-0003'], { at: 't2' });
   assert.deepEqual(applied, ['u-0001', 'u-0003']);
   assert.equal(store.records.get('u-0002').verdict, 'reject');
+  assert.equal(store.records.get(accepted).accepted, true);
   const result = undo(store);
   assert.deepEqual(result.units, ['u-0001', 'u-0003']);
   assert.equal(result.cursor, 'u-0001');
-  assert.equal(store.records.size, 1);
+  assert.equal(store.records.size, 4);
 });
 
 test('groupApprove with nothing to do pushes no undo action', () => {
@@ -94,16 +107,18 @@ test('groupApprove with nothing to do pushes no undo action', () => {
   assert.equal(store.undoStack.length, 1);
 });
 
-test('recordVerdictWithDuplicates fills unverdicted duplicate siblings as one undo step', () => {
-  const store = createStore();
+test('recordVerdictWithDuplicates fills unverdicted duplicate siblings as one undo step, passing over an accepted one', () => {
+  const store = acceptedStore();
+  const [accepted] = acceptedField.either;
   recordVerdict(store, 'u-0003', 'reject', { at: 't0' });
-  const applied = recordVerdictWithDuplicates(store, 'u-0001', 'approve', ['u-0002', 'u-0003', 'u-0001'], {
+  const applied = recordVerdictWithDuplicates(store, 'u-0001', 'approve', ['u-0002', accepted, 'u-0003', 'u-0001'], {
     note: 'same change',
     at: 't1',
   });
   assert.deepEqual(applied, ['u-0001', 'u-0002']);
   assert.deepEqual(store.records.get('u-0002'), { unit: 'u-0002', verdict: 'approve', note: 'same change', at: 't1' });
   assert.equal(store.records.get('u-0003').verdict, 'reject');
+  assert.equal(store.records.get(accepted).verdict, 'either');
   const result = undo(store);
   assert.deepEqual(result.units, ['u-0001', 'u-0002']);
   assert.equal(result.cursor, 'u-0001');
@@ -339,7 +354,15 @@ test('markExported clears the dirty set and counts stay accurate', () => {
   recordVerdict(store, 'u-0005', 'identical');
   markExported(store);
   assert.equal(store.unexported.size, 0);
-  assert.deepEqual(verdictCounts(store), { approve: 1, reject: 0, either: 1, identical: 1, neither: 1, skip: 1 });
+  assert.deepEqual(verdictCounts(store), {
+    approve: 1,
+    reject: 0,
+    either: 1,
+    identical: 1,
+    neither: 1,
+    skip: 1,
+    accepted: 0,
+  });
 });
 
 test('neither is a first-class verdict kind: recordable, countable, undoable', () => {
@@ -681,4 +704,99 @@ test('a sync keeps a clear or an undo waiting to be sent over an older record an
   };
   assert.deepEqual(importVerdicts(store, newer, 'gen-1', { pendingAt }).units, ['u-1']);
   assert.equal(store.records.get('u-1').verdict, 'reject');
+});
+
+test("applyAccepted makes the shared sample's field into its records, as what the server holds, dirtying nothing, and passes over a unit the tab holds a record for", () => {
+  const { records } = acceptedSamples.view;
+  const store = createStore();
+  assert.deepEqual(
+    applyAccepted(store, acceptedField),
+    records.map((record) => record.unit),
+  );
+  assert.deepEqual([...store.records.values()], records);
+  for (const record of records) assert.equal(store.serverAt.get(record.unit), acceptedField.closed_at);
+  assert.equal(store.dirty.size, 0);
+  assert.equal(store.unexported.size, 0);
+  const held = createStore();
+  recordVerdict(held, records[0].unit, 'reject', { at: 't1' });
+  assert.deepEqual(
+    applyAccepted(held, acceptedField),
+    records.slice(1).map((record) => record.unit),
+  );
+  assert.equal(held.records.get(records[0].unit).verdict, 'reject');
+  const none = { sha256: null, closed_at: null, approve: [], either: [], identical: [] };
+  assert.deepEqual(applyAccepted(createStore(), none), []);
+});
+
+test('an accepted record counts under its verdict and apart from the verdicts recorded since the close-out, and Export leaves it out', () => {
+  const store = acceptedStore();
+  recordVerdict(store, 'u-0009', 'reject', { at: 't1' });
+  assert.deepEqual(verdictCounts(store), {
+    approve: 1,
+    reject: 1,
+    either: 1,
+    identical: 1,
+    neither: 0,
+    skip: 0,
+    accepted: 3,
+  });
+  assert.deepEqual(
+    assembleExport(store, 's', 'x').verdicts.map((record) => record.unit),
+    ['u-0009'],
+  );
+});
+
+test('another verdict on an accepted unit is sent over the close-out as an override, and undo puts the accepted record back and sends it by value', () => {
+  const store = acceptedStore();
+  const [unit] = acceptedField.approve;
+  const at = '2026-11-06T10:00:00.000Z';
+  recordVerdict(store, unit, 'reject', { at });
+  assert.deepEqual(assembleDelta(store, 's', [unit]).sets, [
+    { unit, verdict: 'reject', note: '', at, base_at: acceptedField.closed_at },
+  ]);
+  undo(store);
+  assert.equal(store.records.get(unit).accepted, true);
+  assert.deepEqual(assembleDelta(store, 's', [unit]).sets, [
+    { unit, verdict: 'approve', note: '', at: acceptedField.closed_at, base_at: acceptedField.closed_at },
+  ]);
+});
+
+test('clearing an accepted unit sends a dated clear over the close-out, which the server keeps as a tombstone', () => {
+  const store = acceptedStore();
+  const [unit] = acceptedField.identical;
+  recordVerdict(store, unit, null);
+  assert.equal(store.records.has(unit), false);
+  const delta = assembleDelta(store, 's', [unit]);
+  assert.deepEqual(delta.sets, []);
+  assert.deepEqual(delta.clears, [{ unit, base_at: acceptedField.closed_at, at: store.clearedAt.get(unit) }]);
+});
+
+test('a note typed on an accepted unit makes a record of its verdict stamped now, which is sent as an override', () => {
+  const store = acceptedStore();
+  const [unit] = acceptedField.either;
+  const before = new Date().toISOString();
+  assert.equal(updateNote(store, unit, 'the join is fine'), true);
+  const record = store.records.get(unit);
+  assert.deepEqual({ ...record, at: null }, { unit, verdict: 'either', note: 'the join is fine', at: null });
+  assert.ok(record.at >= before);
+  assert.ok(store.dirty.has(unit));
+  assert.equal(verdictCounts(store).accepted, 2);
+});
+
+test('a sync or an Import replaces an accepted record only with one dated after the close-out, and a record the server reports as accepted keeps its flag', () => {
+  const store = acceptedStore();
+  const [unit] = acceptedField.approve;
+  const document = (verdicts) => ({ format: EXPORT_FORMAT, manifest_generated_at: 's', verdicts });
+  const older = { unit, verdict: 'reject', note: 'from before the close-out', at: '2026-11-05T17:59:59.999Z' };
+  assert.equal(importVerdicts(store, document([older]), 's', { strict: true }).keptNewer, 1);
+  assert.equal(store.records.get(unit).accepted, true);
+  const newer = { unit, verdict: 'reject', note: '', at: '2026-11-06T09:00:00.000Z' };
+  assert.deepEqual(importVerdicts(store, document([newer]), 's').units, [unit]);
+  assert.deepEqual(store.records.get(unit), newer);
+  const accepted = { unit, verdict: 'approve', note: '', at: acceptedField.closed_at, accepted: true };
+  adoptServerRecord(store, unit, accepted);
+  assert.deepEqual(store.records.get(unit), accepted);
+  const synced = createStore();
+  importVerdicts(synced, document([accepted]), 's');
+  assert.deepEqual(synced.records.get(unit), accepted);
 });

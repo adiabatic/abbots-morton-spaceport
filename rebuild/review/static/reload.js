@@ -1,15 +1,24 @@
-// How the page moves onto a changed corpus or a refreshed set of app files. The server never reloads a tab on its own: the cycle sends `ams:corpus/<generated_at>` when the served corpus changes and `ams:assets/<static hash>` after an assets refresh, through livereload's /forcereload, and `reload-plugin.js` hands those paths to the app, which flushes its saves and reloads when the reader is not typing. The page's identity is the corpus stamp and the app-files hash it loaded with. Before reloading, the app records where it moved from (MOVED_FROM_KEY) and what the view held beyond its URL hash (VIEW_EXTRAS_KEY), both in sessionStorage, so the reloaded page can restore the view and never loops on a move that did not happen.
+// How the page moves onto a changed corpus or a refreshed set of app files. The server never reloads a tab on its own: the cycle sends `ams:corpus/<generated_at>` when the served corpus changes and `ams:assets/<static hash>` after an assets refresh, through livereload's /forcereload, and `reload-plugin.js` hands those paths to the app, which flushes its saves and reloads when the reader is not typing. The page's identity is the corpus stamp and the app-files hash it loaded with, and the accepted list (`rebuild/accepted-units.txt`) whose ids it shows, which the first full GET of /autosave on its stamp names (`namedList`): a later full GET or a save's reply naming another list moves the page too, since a close-out has folded the store the page loaded into that list. Before reloading, the app records where it moved from (MOVED_FROM_KEY) and what the view held beyond its URL hash (VIEW_EXTRAS_KEY), both in sessionStorage, so the reloaded page can restore the view and never loops on a move that did not happen.
 
 export const RELOAD_EVENT = 'ams-reload';
 export const MOVED_FROM_KEY = 'ams-review-moved-from';
 export const VIEW_EXTRAS_KEY = 'ams-review-view-extras';
 export const VIEW_EXTRAS_MAX_AGE_MS = 60_000;
-const KINDS = new Set(['corpus', 'assets']);
+export const NO_LIST = 'none';
+const RELOAD_KINDS = new Set(['corpus', 'assets']);
+const KINDS = new Set([...RELOAD_KINDS, 'accepted']);
 
 export function parseReloadPath(path) {
   if (typeof path !== 'string') return null;
   const match = /^ams:([^/]+)\/(.+)$/u.exec(path);
-  return match && KINDS.has(match[1]) ? { kind: match[1], value: match[2] } : null;
+  return match && RELOAD_KINDS.has(match[1]) ? { kind: match[1], value: match[2] } : null;
+}
+
+// The accepted list the `accepted` field of a full GET of /autosave or of a save's reply names: its sha256, NO_LIST when the server holds no list, or null when the body carries no such field (a sync's delta, a refusal), which names none.
+export function namedList(body) {
+  if (body === null || typeof body !== 'object' || !Object.hasOwn(body, 'accepted')) return null;
+  const sha = body.accepted?.sha256;
+  return typeof sha === 'string' ? sha : NO_LIST;
 }
 
 export function pageIdentity(manifest) {

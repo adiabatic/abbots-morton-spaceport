@@ -92,7 +92,7 @@ def _fill(capsys, argv):
 
 
 def _probe_argv(corpus, tmp_path, sock, *units):
-    verdicts = _verdicts(tmp_path / "verdicts.json", corpus, [])
+    verdicts = _verdicts(tmp_path / "verdicts-autosave.json", corpus, [])
     return [*units, "--corpus", str(corpus), "--verdicts", str(verdicts), "--socket", str(sock)]
 
 
@@ -102,7 +102,7 @@ def test_a_served_probe_is_byte_identical_to_the_in_process_one(daemon, mini_cor
     human = _human_units(mini_corpus)
     ids = [unit["id"] for unit in human[:3]]
     verdicts = _verdicts(
-        tmp_path / "verdicts.json",
+        tmp_path / "verdicts-autosave.json",
         mini_corpus,
         [{"unit": ids[0], "verdict": "reject", "note": "", "at": _stamp(mini_corpus)}],
     )
@@ -149,7 +149,7 @@ def test_a_served_dry_run_is_byte_identical_to_the_in_process_one(
     human = [unit["id"] for unit in _human_units(mini_corpus)]
     stamp = _stamp(mini_corpus)
     verdicts = _verdicts(
-        tmp_path / "verdicts.json",
+        tmp_path / "verdicts-autosave.json",
         mini_corpus,
         [
             {"unit": human[0], "verdict": "reject", "note": "", "at": stamp},
@@ -192,7 +192,7 @@ def test_the_fallback_engages_when_no_daemon_answers(mini_corpus, tmp_path, caps
     human = _human_units(mini_corpus)
     unit_id = human[0]["id"]
     rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
-    verdicts = _verdicts(tmp_path / "verdicts.json", mini_corpus, [])
+    verdicts = _verdicts(tmp_path / "verdicts-autosave.json", mini_corpus, [])
     probe_argv = [unit_id, "--corpus", str(mini_corpus), "--verdicts", str(verdicts), "--rules", str(rules)]
     fill_argv = [
         str(verdicts),
@@ -369,7 +369,7 @@ def test_a_caller_that_injects_units_is_never_served(mini_corpus, tmp_path, caps
     unbound = tmp_path / "nothing" / "daemon.sock"
     units = _human_units(mini_corpus)
     rules = _mini_rules(mini_corpus, tmp_path / "rules.yaml")
-    verdicts = _verdicts(tmp_path / "verdicts.json", mini_corpus, [])
+    verdicts = _verdicts(tmp_path / "verdicts-autosave.json", mini_corpus, [])
     flags = ["--daemon", "always", "--socket", str(unbound)]
     assert (
         sv.main(

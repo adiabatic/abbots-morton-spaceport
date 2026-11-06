@@ -71,7 +71,7 @@ def repo(tmp_path):
     return {
         "root": tmp_path,
         "corpus": corpus,
-        "verdicts": tmp_path / "verdicts.json",
+        "verdicts": tmp_path / "verdicts-autosave.json",
         "data_out": tmp_path / "complaints-data.json",
     }
 

@@ -1,4 +1,7 @@
-"""Write a machine-readable snapshot of the review queue for the live corpus: cluster the blank human units by the build's `cluster` signature (the duplicate-group key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the classes outside Open questions (the manifest's `section`, which `rebuild.review.audit.class_section` decides) that still have blank units, and list the duplicate groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=queue` computes the same clustering live from the in-memory verdict store. This tool writes tmp/queue-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file."""
+"""Write a machine-readable snapshot of the review queue for the live corpus: cluster the blank human units by the build's `cluster` signature (the duplicate-group key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the classes outside Open questions (the manifest's `section`, which `rebuild.review.audit.class_section` decides) that still have blank units, and list the duplicate groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=queue` computes the same clustering live from the in-memory verdict store. This tool writes tmp/queue-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file.
+
+This module is also the read path's loader of a verdicts file: `latest_verdicts` reads it through the accepted list it pairs with (`rebuild.review.accepted`), so a unit a close-out accepted reads as its mark and not as a blank in this tool, the duplicate and standing fills, the complaint list, the novelty order and the standing probe, and each of them takes the list's `--accepted` flag from `add_accepted_argument` and reads it through `accepted_list`.
+"""
 
 import argparse
 import collections
@@ -12,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.review import unit_index  # noqa: E402
+from rebuild.review import accepted, unit_index  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
 DATA_OUT = ROOT / "tmp/queue-data.json"
@@ -52,13 +55,61 @@ def ruled_class_ids(manifest):
     return {entry["id"] for entry in classes if entry["section"] != QUEUE_SECTION}
 
 
-def latest_verdicts(path):
-    best = {}
-    for record in json.loads(path.read_text())["verdicts"]:
-        unit = record["unit"]
-        if unit not in best or record["at"] > best[unit]["at"]:
-            best[unit] = record
-    return best
+def add_accepted_argument(parser: argparse.ArgumentParser) -> None:
+    """Add `--accepted`, the accepted list a verdicts file pairs with, which every reader of a verdicts file takes. With no flag `accepted_list` takes the list beside a file named verdicts-autosave.json (`accepted.path_for`), and any other file needs the flag, so a run on a store in a temporary directory never reads the live list and the cycle names the list for its prepared store."""
+    parser.add_argument(
+        "--accepted",
+        type=pathlib.Path,
+        metavar="PATH",
+        help=f"the accepted list the verdicts file pairs with (default: the {accepted.RELATIVE_PATH} beside a verdicts file named {accepted.AUTOSAVE_NAME}; any other verdicts file needs this flag)",
+    )
+
+
+_HELD: dict[tuple, accepted.Accepted] = {}
+
+
+def read_accepted(path: str | pathlib.Path) -> accepted.Accepted:
+    """Return the accepted list at `path` as `accepted.read` reads it, the empty list when there is no file, and exit with the list's `accepted-malformed` refusal. The list read last is held on its resolved path and its file's device, inode, size and modification time, so the standing daemon, which runs a reader's `main` for each request, reads a list again only when the file changes, and a close-out or a re-key, which replace it by a rename, always changes it."""
+    path = pathlib.Path(path)
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return accepted.Accepted.empty(path)
+    key = (str(path.resolve()), stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+    held = _HELD.get(key)
+    if held is not None:
+        return held
+    try:
+        held = accepted.read(path)
+    except accepted.Refused as refusal:
+        raise SystemExit(str(refusal)) from None
+    _HELD.clear()
+    _HELD[key] = held
+    return held
+
+
+def accepted_list(
+    parser: argparse.ArgumentParser, given: pathlib.Path | None, verdicts: str | pathlib.Path
+) -> accepted.Accepted:
+    """Return the accepted list a reader of the verdicts file `verdicts` reads: the one `--accepted` names (`given`), or else the one beside the file (`accepted.path_for`), through `read_accepted`. A file with no list beside it and no `--accepted` is a usage error naming the flag."""
+    if given is None:
+        try:
+            given = accepted.path_for(verdicts)
+        except ValueError as error:
+            parser.error(str(error))
+    return read_accepted(given)
+
+
+def latest_verdicts(
+    path: str | pathlib.Path, listed: accepted.Accepted, *, document: Mapping | None = None
+) -> accepted.View:
+    """Return what the verdicts file at `path` says of each unit, read through the accepted list `listed`: a read-only mapping from unit to `accepted.verdict_of`'s answer (`accepted.view_of_file`). A unit maps to the file's latest record for it, a later `at` winning; otherwise it is absent when the file holds a tombstone for it, or, for an Export from the review app, which holds none, when the store beside the list does; otherwise it maps to its accepted record when the list names it. The view's `records` are the file's own latest records. `document` is the file's parsed content when the caller already holds it; otherwise the file is read, and a missing file is no store, which pairs with any list. It exits naming both when the store, or a file that names a list, does not pair with the list (`accepted.pair`)."""
+    if document is None and pathlib.Path(path).is_file():
+        document = json.loads(pathlib.Path(path).read_text())
+    try:
+        return accepted.view_of_file(document, listed, path=path)
+    except accepted.Mismatch as refusal:
+        raise SystemExit(str(refusal)) from None
 
 
 def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
@@ -70,7 +121,9 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     )
     parser.add_argument("--corpus", "--surface", default=str(CORPUS))
     parser.add_argument("--data-out", default=str(DATA_OUT))
+    add_accepted_argument(parser)
     args = parser.parse_args(argv)
+    listed = accepted_list(parser, args.accepted, args.verdicts)
 
     corpus = pathlib.Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text())
@@ -85,7 +138,7 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
             "fills a cycle runs on this corpus; a cycle pass (make artifact-cycle) leaves the store carried "
             "onto the live corpus"
         )
-    records = latest_verdicts(verdicts_path)
+    records = latest_verdicts(verdicts_path, listed, document=data)
 
     units = load_human_units(corpus)[0] if units is None else units
     # Sorted by the index record's `order`, the order the app pages through and queue.js reads, so each cluster's exemplar and evidence samples are its earliest units in that order.

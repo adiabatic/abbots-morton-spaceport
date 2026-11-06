@@ -111,14 +111,14 @@ The app is a tool for one person triaging the whole divergence corpus over sever
 
 ### 3.3 URL state (and what stays out of it)
 
-View state lives in `location.hash` (`parseHash`, `writeHash`, and `STATE_KEYS` in `state.js`), so every view can be bookmarked and a reload mid-batch returns to the same cursor. **Verdicts are not in the URL, and localStorage holds only the outbox of changes the server has not yet acknowledged** (`outbox.js`). The page holds them in memory keyed by unit id, the server's `/autosave` endpoint keeps them across reloads and journals every write (the README's triage flow and the docstring of `serve.py` describe both), and a downloaded export in the §4.1 format is the durable copy.
+View state lives in `location.hash` (`parseHash`, `writeHash`, and `STATE_KEYS` in `state.js`), so every view can be bookmarked and a reload mid-batch returns to the same cursor. **Verdicts are not in the URL, and localStorage holds only the outbox of changes the server has not yet acknowledged** (`outbox.js`). The page holds them in memory keyed by unit id, the server's `/autosave` endpoint keeps them across reloads and journals every write (the README's triage flow and the docstring of `serve.py` describe both), a downloaded export in the §4.1 format is the durable copy of the verdicts recorded since the last close-out, and the tracked `rebuild/accepted-units.txt` is the durable copy of the verdicts that close-out accepted (§4.1).
 
 ## 4. Verdict exports — turning approvals into pins
 
 `drafts.py` computes all three drafts per unit at build time and they ship in the shard JSON; the browser only selects among them. The export has two stages:
 
-1. **The page** exports `verdicts.json` (download or copy), the re-importable record of the reviewer's work.
-2. **The CLI** (`uv run python -m rebuild.review.export verdicts.json --out tmp/review-triage.yaml`) joins the verdicts to the units, re-parses the expect strings of the selected pin and any-of drafts, and writes **one triage YAML with five sections** for a human to place. Nothing is applied to the corpus or the rune files automatically.
+1. **The page** exports `verdicts.json` (download or copy), the re-importable record of the reviewer's work since the last close-out.
+2. **The CLI** (`uv run python -m rebuild.review.export verdicts.json --accepted rebuild/accepted-units.txt --out tmp/review-triage.yaml`) joins the verdicts, and the accepted units the file holds no record for, to the units, re-parses the expect strings of the selected pin and any-of drafts, and writes **one triage YAML with five sections** for a human to place. Nothing is applied to the corpus or the rune files automatically.
 
 ### 4.1 `verdicts.json`
 
@@ -135,6 +135,8 @@ View state lives in `location.hash` (`parseHash`, `writeHash`, and `STATE_KEYS` 
 ```
 
 `verdict` is one of `approve`, `reject`, `either`, `identical`, `neither`, or `skip`. A verdict covers all of the unit's configs; the import ignores a `configs` field if a record has one.
+
+The store, `verdicts-autosave.json`, is a document of the same format with two more top-level fields, which a reader of `verdicts` alone passes over: `cleared`, its tombstones, and `accepted`, the sha256 and `closed_at` of the accepted list it pairs with. That list, `rebuild/accepted-units.txt`, holds the units a close-out folded out of the store, one id a line with its verdict's mark, and every reader of the store reads a unit through it (`rebuild/review/accepted.py` gives the format and the rule, and `doc/review-cycle.md` § The accepted list and the close-out the close-out). An Export carries neither field and holds none of the accepted units.
 
 ### 4.2 The triage YAML (five sections)
 

@@ -1,0 +1,48 @@
+---
+name: close-out
+description: Close out the verdict store with `make close-out`, folding its accepted verdicts (approve, either, identical) into the tracked rebuild/accepted-units.txt, at a letter batch's close or with no letter to close. Check that the batch is closed, stop the review server, show the dry run's report, get the user's go-ahead for `make close-out ARGS=--apply`, record the close in WHATNEXT.md, restart the server through a cycle pass, and present the "Close the ·X batch" commit with the list in it. Also undoes the last close-out. Use when the user closes a batch, asks for a close-out or the fold of the store, or asks to undo one.
+argument-hint: "[letter]"
+---
+
+A close-out folds the verdict store's accepted verdicts into `rebuild/accepted-units.txt`, the tracked list that every reader of the store reads a unit through, and leaves the store and a new journal holding only its rejects, neithers, skips and tombstones. `doc/review-cycle.md` § The accepted list and the close-out describes it for an operator, the module docstring of `rebuild/tools/close_out.py` is the authority on the fold, its checks, its archive and its recovery, and that of `rebuild/review/accepted.py` on the list and the rule every reader follows. Read them instead of restating them.
+
+A close-out runs:
+
+- when a letter batch's review session closes, with its list in the "Close the ·X batch" commit;
+- with no letter to close, when the user asks: the first close-out, which folds the whole store (`WHATNEXT.md` gives its window), and those after ·Owe's batch, which no later letter closes;
+- at least once every `HISTORY_DAYS` days (`rebuild/review/journal.py`), with a letter or without: a close-out starts the journal again, and once the journal's first base is older than that, retention compacts it by copying it from a newer base. Retention's report and `make verdict-ready` warn once the journal's first event is `CLOSE_OUT_DUE_DAYS` days old (`journal.close_out_due`); when that warning shows and no batch is about to close, say so and offer a close-out with no letter.
+
+When a close-out and the next Add come together, the close-out goes first, so the Add's first pass reads the new list.
+
+## Hard rules
+
+- `make close-out ARGS=--apply` and `make close-out ARGS=--undo` run only on the user's explicit go-ahead for that run, given after they have seen its dry run's report. The apply discards the notes and provenance markers of every verdict it folds, each one's own time, the journal's history before it, which no archive keeps, and the previous close-out's archive; the close-out's archive under `var/keep/close-outs/` keeps the store as found, with those notes, markers and times, only until the next close-out replaces it.
+- Never pass `--apply` over a refusal the dry run reports. Clear its cause by the remedy the refusal names, or stop and show it to the user. Never get around a check by moving the list, the store, the journal or a lock.
+- Never edit `rebuild/accepted-units.txt` by hand, never merge it or resolve a conflict in it, and never undo a close-out by reverting it or checking out another version: the store names the list's sha256, and a list the store was not folded against stops the server's saves, every pass and every tool until the two pair again. `make close-out ARGS=--undo` is the undo.
+- Never write the store, the journal or any `verdicts-*.json` by hand.
+- Never run a close-out beside a pass or with this checkout's review server listening; the tool refuses both. Wait for a running pass to end rather than stopping it.
+- Never commit without approval. At the commit point, spawn a fresh sub-agent for commit-message suggestions.
+
+## Steps
+
+1. **Check that the batch is closed.** With a letter to close, the batch is closed when its progress file (`rebuild/M1-BATCH<n>-PROGRESS.md`) has its Parked list resolved or moved to `WHATNEXT.md`, no `# DRAFT — pending author sign-off` marker is left on the batch's runes (`grep -rn '# DRAFT' glyph_data/runes/`), and every new complaint (`make complaint-list`) is consumed by a rune change or tied to an open decision in `WHATNEXT.md`. Report what is still open and ask; the user decides whether the batch closes with it. With no letter to close, this step has nothing to check. The close-out refuses nothing for rejects or blank units, which stay in the store and in the queue.
+2. **Stop the review server.** If a pass holds `var/cycle/pass.lock`, wait for it to end. Then tell the user that the review server is stopping: an open tab keeps any save made while it is down in its outbox and sends it after the restart, and the restart moves every tab onto the new list. Stop it the way `doc/review-cycle.md` § The commands stops a detached server; step 3's dry run then names no listening server among its refusals. A server whose `/capabilities` names another checkout's store writes that store, and the close-out runs beside it.
+3. **Dry run.** Run `make close-out` and show its report whole: the store's records and tombstones, the ids the fold adds to the list, keeps, takes out and drops, what the store keeps, the blank human units after it, the note bytes it discards, the orphan and conflict documents, the stashes it deletes, the other root verdicts files it leaves, and the progress files. It exits 1 when the apply would refuse, and prints every refusal. Clear each one and run the dry run again:
+   - **Readiness.** `make verdict-ready`'s blocking checks must pass, so the human units the fold reads belong to a corpus built from the tree the list is committed beside. The remedy is the cycle pass the check names; run it detached as `doc/running-long-steps.md` § Detach says, and wait for it.
+   - **The list differs from `HEAD`'s.** An uncommitted list is usually a re-key's or the last close-out's, and belongs in that change's commit. Ask the user; never put `HEAD`'s copy back over a list the store names.
+   - **The store does not pair with the list.** The refusal names both and the remedy. Show it and ask.
+   - **A left intent.** A close-out killed partway leaves `var/cycle/close-out.json`, and the dry run refuses until `make close-out ARGS=--apply` finishes or drops it (step 5).
+   - **Nothing to fold.** With no accepting record in the store and no listed id off the corpus, it says so and writes nothing, so a close-out minutes after another adds no list change to the commit.
+4. **Ask for the go-ahead.** Name what `make close-out ARGS=--apply` discards (the notes and markers of the verdicts it folds, their own times, the journal before it with the size the report gives, which no archive keeps, the older close-out archive the report names, and the stashes) and where the archive goes, and wait for an explicit yes.
+5. **Apply.** Run `make close-out ARGS=--apply` and show its output. When a run dies partway, run `make close-out ARGS=--apply` again: it finishes a close-out that had renamed the list, which is then done, or drops one that had not, which starts again at step 3. The run that finishes or drops one folds nothing.
+6. **Record the close.** With a letter to close, edit `WHATNEXT.md` in place, so its next-step paragraph says the batch is closed and any remaining pointer from the progress file is there, and delete the progress file. With no letter, edit only what `WHATNEXT.md` says about the close-out that ran. Make these edits before step 7's pass starts, so the pass runs on the final tree.
+7. **Restart the server through a cycle pass.** Launch `make review-cycle SERVE=bg` detached as `doc/running-long-steps.md` § Detach says, and watch `var/build-logs/latest/`. The pass runs the verdict update once, since its key hashes the list, and `SERVE=bg` starts the server when the pass ends; the open tabs then fetch the store with the new list, move onto it, and send what their outboxes kept. Change nothing under `rebuild/` or `glyph_data/` while it runs. When it refuses or fails, show the user why; never pass an override. The session ends when `make verdict-ready` reads READY and the user has approved or declined the commit.
+8. **Commit.** While the pass runs, present the diff (`rebuild/accepted-units.txt`, `WHATNEXT.md`, the deleted progress file) and a fresh sub-agent's commit-message candidates: `Close the ·X batch` with a letter (`git log --oneline --grep='^Close the'` lists the earlier ones), and a subject in reader terms without one. Wait for the go-ahead. A commit changes no file a pass digests, so it can land while the pass runs.
+
+## Undoing the last close-out
+
+`make close-out ARGS=--undo` puts back the archive's list from before the close-out and lays the live store's records and tombstones over the archive's store, so the verdicts recorded since the close-out survive. It needs the same go-ahead, the review server stopped and no pass running, as steps 2 and 4 say, and it refuses unless the list and the store's field are the archive's list from before or after the close-out, so an undo cut short runs again. The list it puts back is a tracked change: commit it, unless the close-out's own commit was never made, in which case the tree matches `HEAD` again. Then restart the server as step 7 does. Only the last close-out has an archive, so only it can be undone.
+
+## The other machine
+
+The M4 Pro Mac mini makes no verdicts but keeps a store of its own. When it pulls a close-out commit, its store does not pair with the new list, and every reader there refuses, naming the remedy: stop that machine's review server, delete its `verdicts-autosave.json` and `verdicts-journal.ndjson` by hand, and start the server again, which writes an empty store for the list at boot. Tell the user so once the commit is pushed.

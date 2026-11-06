@@ -16,6 +16,8 @@ import {
   acknowledgeDelta,
   noteServerRecords,
   adoptServerRecord,
+  acceptedRecords,
+  applyAccepted,
   DELTA_FORMAT,
   EXPORT_FORMAT,
   markExported,
@@ -69,6 +71,8 @@ import {
   noVerdictTotal,
   NO_VERDICT_BADGE,
   formatCount,
+  verdictAtText,
+  sinceCloseOutText,
   corpusChipLabel,
   corpusAlphabetLabel,
   corpusStampLine,
@@ -147,9 +151,11 @@ import {
 } from './queue.js';
 import {
   MOVED_FROM_KEY,
+  NO_LIST,
   RELOAD_EVENT,
   VIEW_EXTRAS_KEY,
   movesPage,
+  namedList,
   pageIdentity,
   parseReloadPath,
   readMoveGuard,
@@ -189,6 +195,8 @@ const titleOf = (classId) => classTitle(classInfoById.get(classId), classId);
 const sidebarModel = sidebarSections(manifest);
 const queueLeftOut = ruledClassIds(manifest.classes);
 const store = createStore();
+// The close-out time of the accepted list the page shows (`showAcceptedList`), null when it shows none.
+let acceptedClosedAt = null;
 // The only memory in the tab that grows with the queue: one app-index row per unit awaiting a verdict, holding what the queue view, search, filters and progress read. A card's sample text, pair band and settled cells, and its explain table when the panel opens, are Range-fetched from the shard record into fullRecords, which is bounded. Units that take no verdict are never loaded a class at a time. A show-machine fold reads its class's locator rows a block at a time and draws a window at a time, keeping the records of the rows on screen (foldRecords, cleared on each re-render). A worklist keeps its own machine records while it is the view (worklist.records), and a deep link keeps the one unit it revealed (transientMachineUnit). On the machine side only the locator's block table stays loaded, with one entry per block of machine units.
 const humanRows = new Map();
 const humanList = [];
@@ -1270,7 +1278,7 @@ function syncRowVerdict(unitId, row = rowFor(unitId)) {
   const note = row.querySelector('.note');
   if (record && record.note && note.value !== record.note && document.activeElement !== note) note.value = record.note;
   const verdictedAt = row.querySelector('.verdict-at');
-  verdictedAt.textContent = record?.at ? `verdicted ${record.at.slice(0, 10)}` : '';
+  verdictedAt.textContent = verdictAtText(record);
   verdictedAt.dateTime = record?.at ?? '';
 }
 
@@ -1367,11 +1375,13 @@ function tallyOf(tallies, classId) {
 
 function updateProgress() {
   const counts = verdictCounts(store);
+  const since = sinceCloseOutText(store.records.size - counts.accepted, acceptedClosedAt);
   setText(
     document.getElementById('overall-progress'),
     `Overall: ${formatCount(store.records.size)}/${formatCount(humanTotal(manifest))} ` +
       `(→${formatCount(counts.skip)} ✗${formatCount(counts.reject)} ≡${formatCount(counts.identical)} ` +
-      `≈${formatCount(counts.either)} ∅${formatCount(counts.neither)} ✓${formatCount(counts.approve)})`,
+      `≈${formatCount(counts.either)} ∅${formatCount(counts.neither)} ✓${formatCount(counts.approve)})` +
+      (since ? ` · ${since}` : ''),
   );
   const tallies = verdictTallies();
   updateClassProgress(tallies);
@@ -2477,10 +2487,6 @@ function copyToClipboard(text, button) {
   }
 }
 
-function exportPayload() {
-  return JSON.stringify(assembleExport(store, manifest.generated_at), null, 2);
-}
-
 // The autosave sends changes, not the store. A flush POSTs a set or a clear for each unit in store.dirty, so its size follows what the reader just did, not the store, which holds every carried and filled verdict on the corpus. The server keeps the store in memory, applies the delta, and returns a sync token. syncVerdictsFromServer sends the token back and receives only the changes since, so the focus re-merge and the queue poll get an empty delta while nothing changes. Flushes run one at a time, because two deltas in flight could arrive out of order and a clear could lose to the set it undid.
 // Every change is also written to the outbox (outbox.js) the moment it is scheduled, and stays there until the server's reply acknowledges that write, so a save that a 503, a network error, a server restart, or a closed tab interrupted is not lost: a flush retries on a timer, and the next page load sends what an earlier one left. A reply can hand back conflicts (the server kept a newer record), orphans (units outside the served corpus's human units), and dropped skips (a skip made on an earlier corpus, which leaves its unit blank); the page adopts the server's record for a conflict and offers to reapply its own, keeping that offer in the tab's sessionStorage so it outlives the reload onto a rebuilt corpus that usually follows. The outbox is kept per checkout (`scopeOutbox`), keyed by the repo root the server names on /capabilities.
 const AUTOSAVE_DEBOUNCE_MS = 800;
@@ -2707,6 +2713,7 @@ async function sendReplays() {
       if (typeof reply.token === 'string') autosaveToken = reply.token;
       noteServedCorpus(reply.corpus_stamp);
     }
+    noteServedList(reply);
     const refused = new Set(Array.isArray(reply.orphaned) ? reply.orphaned : []);
     for (const conflict of Array.isArray(reply.conflicts) ? reply.conflicts : []) refused.add(conflict?.unit);
     for (const unit of Array.isArray(reply.dropped) ? reply.dropped : []) refused.add(unit);
@@ -2764,6 +2771,7 @@ async function flushAutosave() {
       const reply = await response.json();
       if (typeof reply.token === 'string') autosaveToken = reply.token;
       noteServedCorpus(reply.corpus_stamp);
+      noteServedList(reply);
       acknowledgeDelta(store, payload);
       const sent = sentRecordsOf(payload);
       handleSaveOutcome(reply, sent, (unit) => !sameRecord(store.records.get(unit) ?? null, sent.get(unit) ?? null));
@@ -2898,7 +2906,10 @@ async function restoreAutosave() {
       const body = await replyBody(response);
       const refusal = storeRefusalOf(body);
       if (refusal) toast(`Autosave is off — download verdicts.json to be safe: ${refusal}`);
-      else autosaveWorks = true;
+      else {
+        autosaveWorks = true;
+        showAcceptedList(null);
+      }
       planReplayFromOutbox(missingStoreRecords(body));
       return;
     }
@@ -2915,6 +2926,7 @@ async function restoreAutosave() {
   }
   const result = importVerdicts(store, data, manifest.generated_at);
   if (!result.ok) {
+    for (const record of acceptedRecords(data.accepted)) serverRecords.set(record.unit, record);
     planReplayFromOutbox(serverRecords);
     if (result.mismatch) {
       await refreshStatus({ force: true });
@@ -2927,13 +2939,14 @@ async function restoreAutosave() {
   }
   if (typeof data.token === 'string') autosaveToken = data.token;
   noteServerRecords(store, serverRecords.values());
+  for (const unit of showAcceptedList(data)) serverRecords.set(unit, store.records.get(unit));
   markExported(store);
   for (const id of result.units) store.dirty.delete(id);
   if (result.added > 0) toast(`Restored ${formatCount(result.added)} autosaved verdicts`);
   planReplayFromOutbox(serverRecords);
 }
 
-// The store lives in this page and is restored from the server only at boot, so a copy open in another tab goes stale as verdicts are recorded elsewhere. When the page regains focus it merges the server's changes, the newer `at` winning as in an import. With a token the server returns only the records changed since; without one, or when the server does not recognize it (after a restart or an external rewrite of the file onto another stamp), it returns the whole store and a new token. A clear made in another session is not applied: clears are rare and visible, and a copy that keeps the record sends it back only when the reader changes it again. Each record the server sends becomes the unit's `serverAt`, and each clear sets it to null, so this copy's next change to the unit is sent over what the server holds.
+// The store lives in this page and is restored from the server only at boot, so a copy open in another tab goes stale as verdicts are recorded elsewhere. When the page regains focus it merges the server's changes, the newer `at` winning as in an import. With a token the server returns only the records changed since; without one, or when the server does not recognize it (after a restart or an external rewrite of the file onto another stamp), it returns the whole store and a new token. A clear made in another session is not applied: clears are rare and visible, and a copy that keeps the record sends it back only when the reader changes it again. Each record the server sends becomes the unit's `serverAt`, and each clear sets it to null, so this copy's next change to the unit is sent over what the server holds. A whole store that names another accepted list than the one this page shows moves the page instead (`noteServedList`), since a close-out has folded the records it holds.
 let verdictSyncInFlight = false;
 let verdictSyncLastAt = 0;
 let bootRestoreDone = false;
@@ -2946,6 +2959,7 @@ async function syncVerdictsFromServer() {
     const response = await fetch(`autosave${query}`);
     if (!response.ok) return;
     const data = await response.json();
+    if (noteServedList(data)) return;
     const incoming = data.format === DELTA_FORMAT ? { ...data, format: EXPORT_FORMAT, verdicts: data.sets } : data;
     const pendingAt = (unit) =>
       store.dirty.has(unit) || outboxMirror.has(unit) || inFlight.has(unit) ? store.changedAt.get(unit) : undefined;
@@ -2958,6 +2972,10 @@ async function syncVerdictsFromServer() {
     noteServerRecords(store, incoming.verdicts);
     if (data.format === DELTA_FORMAT) {
       for (const unit of Array.isArray(data.clears) ? data.clears : []) store.serverAt.set(unit, null);
+    } else if (PAGE_IDENTITY.accepted === undefined) {
+      const listed = showAcceptedList(data);
+      for (const id of listed) syncRowVerdict(id);
+      if (listed.length > 0) updateProgress();
     }
     if (result.units.length === 0) return;
     for (const id of result.units) {
@@ -3125,6 +3143,22 @@ function noteServedCorpus(stamp) {
   if (typeof stamp === 'string' && stamp !== '') requestMove({ kind: 'corpus', value: stamp });
 }
 
+// Puts the accepted records of a full GET of /autosave on this page's stamp into the store (`applyAccepted`), null for a 404 that says the server holds no store and so no list, and makes the list the page's identity for moves, `PAGE_IDENTITY.accepted`, which stays undefined until then: a page whose boot GET failed or was on another stamp takes the list from its first sync that gets the whole store. Returns the units it added.
+function showAcceptedList(data) {
+  PAGE_IDENTITY.accepted = namedList(data) ?? NO_LIST;
+  acceptedClosedAt = typeof data?.accepted?.closed_at === 'string' ? data.accepted.closed_at : null;
+  blockMoveNotReached();
+  return applyAccepted(store, data?.accepted);
+}
+
+// A full GET of /autosave or a save's reply naming another accepted list than the one the page shows moves the page. Returns whether a move to a list is pending, so a sync does not merge a store the page is about to reload.
+function noteServedList(body) {
+  const list = namedList(body);
+  if (list === null || PAGE_IDENTITY.accepted === undefined) return false;
+  requestMove({ kind: 'accepted', value: list });
+  return pendingMove?.kind === 'accepted';
+}
+
 async function settleAndReload() {
   if (!pendingMove || moveStarted || autosaveInFlight) return;
   if (document.hidden) {
@@ -3159,10 +3193,17 @@ function reportMovedRecords(message) {
   });
 }
 
-// What a reload for a move left behind: a move that did not change this page's identity is not tried again, and the view extras saved for this URL hash are returned for restoreViewExtras.
-function takeMoveState() {
-  const blocked = readMoveGuard(takeSessionItem(MOVED_FROM_KEY), PAGE_IDENTITY);
+// What a reload for a move left behind: a move that did not change this page's identity is not tried again, and the view extras saved for this URL hash are returned for restoreViewExtras. The page knows its accepted list only once a full GET of /autosave has named it, so `showAcceptedList` reads the guard again then.
+let movedFrom = null;
+
+function blockMoveNotReached() {
+  const blocked = readMoveGuard(movedFrom, PAGE_IDENTITY);
   if (blocked) blockedMoves.add(targetKey(blocked));
+}
+
+function takeMoveState() {
+  movedFrom = takeSessionItem(MOVED_FROM_KEY);
+  blockMoveNotReached();
   return readViewExtras(takeSessionItem(VIEW_EXTRAS_KEY), location.hash);
 }
 
@@ -3190,7 +3231,8 @@ function verdictsFilename(now = new Date()) {
 }
 
 function downloadVerdicts() {
-  const blob = new Blob([exportPayload()], { type: 'application/json' });
+  const payload = assembleExport(store, manifest.generated_at);
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -3199,7 +3241,7 @@ function downloadVerdicts() {
   URL.revokeObjectURL(url);
   markExported(store);
   updateProgress();
-  toast(`Exported ${formatCount(store.records.size)} verdicts`);
+  toast(`Exported ${formatCount(payload.verdicts.length)} verdicts`);
 }
 
 function runImport(text) {
@@ -3610,9 +3652,15 @@ function wireEvents() {
     const note = event.target.closest('.note');
     if (!note) return;
     const row = note.closest('.row');
+    const accepted = store.records.get(row.dataset.unit)?.accepted === true;
     if (updateNote(store, row.dataset.unit, note.value)) {
-      // A note changes no verdict and no count, so only the unexported tally needs updating; a full updateProgress per keystroke would redo work for an unchanged display.
-      updateUnexportedNudge();
+      // A note changes no verdict and no count, so only the unexported tally needs updating; a full updateProgress per keystroke would redo work for an unchanged display. The first note typed on an accepted unit makes it a verdict recorded now, which moves its date and the count since the close-out.
+      if (accepted) {
+        syncRowVerdict(row.dataset.unit, row);
+        updateProgress();
+      } else {
+        updateUnexportedNudge();
+      }
       scheduleAutosave();
     }
   });

@@ -288,6 +288,21 @@ export function unitCount(value) {
   return `${formatCount(value)} ${value === 1 ? 'unit' : 'units'}`;
 }
 
+function closeOutName(closedAt) {
+  return `the ${closedAt.slice(0, 10)} close-out`;
+}
+
+// A row's date slot: the day its verdict was recorded, or for an accepted record (`applyAccepted` in verdicts.js), whose `at` is the close-out's time, the close-out that accepted it.
+export function verdictAtText(record) {
+  if (!record?.at) return '';
+  return record.accepted ? `accepted at ${closeOutName(record.at)}` : `verdicted ${record.at.slice(0, 10)}`;
+}
+
+// The Overall line's count of the verdicts recorded since the last close-out, or null when the page shows no accepted list.
+export function sinceCloseOutText(count, closedAt) {
+  return typeof closedAt === 'string' ? `${formatCount(count)} since ${closeOutName(closedAt)}` : null;
+}
+
 export function machineChecks(manifest) {
   const machine = manifest.machine_approved ?? {};
   const checks = machine.checks ?? {};

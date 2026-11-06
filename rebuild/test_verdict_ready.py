@@ -1,4 +1,4 @@
-"""Tests for `rebuild.review.status.compute_status` and its helpers, which build the readiness dict that the review server's /status handler and the `verdict_ready` CLI render. Fixtures build a fake repo tree (corpus manifest and its sidecars, cycle summary, autosave, repo-root verdicts files) and stub the fingerprint recompute, so no real build inputs are read."""
+"""Tests for `rebuild.review.status.compute_status` and its helpers, which build the readiness dict that the review server's /status handler and the `verdict_ready` CLI render. Fixtures build a fake repo tree (corpus manifest and its sidecars, cycle summary, autosave, repo-root verdicts files, the accepted list) and stub the fingerprint recompute, so no real build inputs are read. The store's accepted units count among its effective verdicts and leave the blanks, a root file's never do, and a store that does not pair with its list fails the verdict-store check."""
 
 import hashlib
 import json
@@ -6,12 +6,13 @@ import os
 import time
 import weakref
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
-from rebuild.review import app_index, status, store_lock, unit_index
+from rebuild.review import accepted, app_index, journal, status, store_lock, unit_index
 from rebuild.review.status import (
     compute_status,
     count_effective,
@@ -1367,3 +1368,109 @@ def test_readiness_without_the_server_row_answers_for_the_corpus_alone(tmp_path)
     lines = verdict_ready.checklist(result, ready)
     assert not any("server" in line for line in lines)
     assert lines[-1] == f"READY - adjudicate at {verdict_ready.QUEUE_URL}"
+
+
+def test_readiness_warns_that_a_close_out_is_due_once_the_journals_first_event_is_sixty_days_old(tmp_path):
+    """Retention's compaction can copy the journal once its first event is `journal.HISTORY_DAYS` days old, so from `journal.CLOSE_OUT_DUE_DAYS` days the checklist warns, naming that day and `make close-out`, without blocking."""
+    setup_green(tmp_path)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    for days, warned in ((59, False), (61, True)):
+        (tmp_path / journal.JOURNAL_NAME).unlink(missing_ok=True)
+        first = (now - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+        journal.record_transition(
+            tmp_path / journal.JOURNAL_NAME,
+            source="merge",
+            stamp=STAMP,
+            old_stamp=None,
+            old_verdicts=[],
+            new_verdicts=[verdict("u-1")],
+            at=first,
+        )
+        result, ready = _readiness(tmp_path, listening=lambda: True)
+        assert ready is True
+        if not warned:
+            assert "journal" not in result["checks"]
+            continue
+        due = (now - timedelta(days=days) + timedelta(days=journal.HISTORY_DAYS)).date().isoformat()
+        assert result["checks"]["journal"] == {
+            "level": "warn",
+            "detail": f"the verdict journal's first event, at {first}, is 61 days old, and from {due} retention's compaction can copy the journal's kept history whole; `make close-out` starts the journal again",
+            "remedy": "make close-out",
+        }
+        assert "      remedy: make close-out" in verdict_ready.checklist(result, ready)
+
+
+LISTED = ["u-1AAAAAAAAAA", "u-1BBBBBBBBBB", "u-1CCCCCCCCCC"]
+UNLISTED = "u-1DDDDDDDDDD"
+CLOSED_AT = "2026-07-17T00:00:00Z"
+
+
+def write_list(repo, units=LISTED, closed_at=CLOSED_AT) -> dict:
+    """Write the list beside the repo's store, accepting `units` as approve, and return the field that names it."""
+    listed = accepted.path_for(repo / "verdicts-autosave.json")
+    listed.parent.mkdir(parents=True, exist_ok=True)
+    listed.write_bytes(accepted.render(closed_at, dict.fromkeys(units, "approve")))
+    field = accepted.read(listed).field()
+    assert field is not None
+    return field
+
+
+def write_named_autosave(repo, field, records=(), cleared=None, stamp=STAMP):
+    """Write the repo's store naming the list `field`, its records and tombstones (`cleared`, unit to the clear's `at`) on the ids of the list beside it as its override section and the rest as its own."""
+    store = repo / "verdicts-autosave.json"
+    own, tombstones, overrides = accepted.split(
+        {record["unit"]: record for record in records},
+        cleared or {},
+        accepted.read(accepted.path_for(store)).verdicts,
+    )
+    document = {**verdicts_doc(stamp, list(own.values())), "accepted": field}
+    if tombstones:
+        document["cleared"] = [{"unit": unit, "at": at} for unit, at in tombstones.items()]
+    if (section := overrides.field()) is not None:
+        document["overrides"] = section
+    _write(store, document)
+
+
+def test_the_stores_accepted_units_count_as_its_verdicts_and_leave_the_blanks(tmp_path):
+    """A listed unit the store holds no override for is one of the store's effective verdicts and no blank, so a store a close-out emptied neither warns that it is empty nor yields to an export made before the close-out; an override record and an override tombstone on a listed unit read as the store holds them."""
+    setup_green(tmp_path)
+    human = frozenset([*LISTED, UNLISTED])
+    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict(unit) for unit in LISTED[:2]]))
+    write_named_autosave(tmp_path, write_list(tmp_path))
+    result = call(tmp_path, human_ids=human)
+    assert result["checks"]["verdict_store"]["level"] == "ok"
+    assert "3 effective verdicts, 3 of them accepted units" in result["checks"]["verdict_store"]["detail"]
+    assert (result["checks"]["fullest_verdicts"]["path"], result["checks"]["blanks"]["count"]) == (
+        "verdicts-autosave.json",
+        1,
+    )
+    write_named_autosave(
+        tmp_path, write_list(tmp_path), [verdict(LISTED[0], "reject")], {LISTED[1]: "2026-07-18T00:00:00Z"}
+    )
+    result = call(tmp_path, human_ids=human)
+    assert result["checks"]["fullest_verdicts"]["count"] == 2 and result["checks"]["blanks"]["count"] == 2
+
+
+def test_a_store_that_does_not_pair_with_its_list_fails_the_verdict_store_check(tmp_path):
+    setup_green(tmp_path)
+    write_named_autosave(tmp_path, write_list(tmp_path), [verdict(LISTED[0], "reject")])
+    write_list(tmp_path, LISTED[:1], closed_at="2026-07-18T00:00:00Z")
+    result = call(tmp_path)
+    store = result["checks"]["verdict_store"]
+    assert store["level"] == "fail" and not result["ready"]
+    assert "names the accepted list" in store["detail"] and result["checks"]["blanks"]["count"] is None
+
+
+def test_resolve_carry_source_counts_the_stores_accepted_units_on_the_served_corpus(tmp_path):
+    """An export made before the close-out holds every folded record, but the store's count takes its accepted units on the served corpus's human units, so the store stays the master; a store that does not pair with its list raises the pairing refusal."""
+    _write(
+        tmp_path / "rebuild" / "out" / "review" / "manifest.json",
+        {"generated_at": STAMP, "human_unit_ids": LISTED},
+    )
+    write_named_autosave(tmp_path, write_list(tmp_path))
+    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict(unit) for unit in LISTED]))
+    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+    assert hit is not None and hit["path"].name == "verdicts-autosave.json" and hit["count"] == 3
+    write_list(tmp_path, LISTED[:1], closed_at="2026-07-18T00:00:00Z")
+    with pytest.raises(accepted.Mismatch):
+        resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
