@@ -22,8 +22,8 @@ use crate::fold;
 use crate::hash::HashSet;
 use crate::index::SpecIndex;
 use crate::memo::{
-    Exclusion, MemoFile, MemoHead, MemoSnapshot, SharedMemo, memo_path, read_memo, unlocking_runes,
-    write_memo,
+    Exclusion, MemoFile, MemoHead, MemoSnapshot, OutputSink, SharedMemo, memo_path, read_memo,
+    unlocking_runes,
 };
 use crate::model::Sym;
 use crate::options::WindowOptions;
@@ -41,6 +41,7 @@ pub struct Configuration<'a> {
 /// - `default_memo_sharing`: `default` enumerates first, and every other configuration but those `scratch_beside_default` starts beside it then reads `default`'s finished memo for the windows that name none of its own unlocking runes. When it is off, no configuration reads `default`'s in-process memo; `tests/cli.rs` checks that both settings write the same tables.
 /// - `previous_memos`: a previous build's memo files, each read as a shared memo for its own configuration behind an exclusion of `edited` (the runes whose content changed since that build) and `moved_classes` (the predicate classes whose membership changed). A configuration with no file there reads nothing.
 /// - `memo_stamp`: the stamp this build writes its own memo files under, beside its tables. With no stamp, no memo files are written.
+/// - `output_sink`: whether those memo files go to their paths or to the null sink, which makes the same bytes and writes none of them ([`OutputSink`]). The tables are the same bytes either way.
 /// - `overlap_memo_writes`: in a build that shares `default`'s memo, each delta's memo file and `default`'s are written on a thread of their own from the configuration's release point, beside its drain, sort and fold and the rest of the wave, instead of on the configuration's own thread ahead of them ([`run_configs_tables`]). The files are the same bytes either way. A configuration enumerated from scratch writes its file ahead of its drain whatever this says.
 /// - `scratch_beside_default`: in a build that shares `default`'s memo, at most how many of the deltas, taken heaviest first from [`delta_worklist`], enumerate from scratch instead, starting at the same moment as `default` rather than after it. They are taken in whole tiers of equal unlocking-rune count ([`scratch_tiers`]), and the count is capped at the delta count and at one less than the worker slots, so `default`'s enumeration and theirs never run more than the width at once. The tables are the same bytes either way.
 /// - `verdict_sharing`: in a build where at least one delta reads `default`'s memo, `default` also publishes its liveness verdicts in that memo, for each distinct unlocking-rune set among those deltas ([`verdict_groups`]), and each delta is served the ones its exclusion admits, rerunning only the asks that name one of its unlocking runes ([`crate::liveness`]). A build whose deltas all enumerate from scratch publishes none, since the capture costs `default` time. The tables and memo files are the same bytes either way.
@@ -51,6 +52,7 @@ pub struct MemoSharing {
     pub edited: Vec<Sym>,
     pub moved_classes: Vec<Sym>,
     pub memo_stamp: Option<String>,
+    pub output_sink: OutputSink,
     pub overlap_memo_writes: bool,
     pub scratch_beside_default: usize,
     pub verdict_sharing: bool,
@@ -64,6 +66,7 @@ impl Default for MemoSharing {
             edited: Vec::new(),
             moved_classes: Vec::new(),
             memo_stamp: None,
+            output_sink: OutputSink::File,
             overlap_memo_writes: false,
             scratch_beside_default: 0,
             verdict_sharing: true,
@@ -110,6 +113,7 @@ fn memo_file(
             stamp: stamp.clone(),
         },
         carried,
+        sink: sharing.output_sink,
     })
 }
 
@@ -1074,8 +1078,7 @@ fn enumerate_config_tables<'i: 's, 's>(
             Box::new(|file: MemoFile, memo: Arc<MemoSnapshot>| {
                 writer = Some(scope.spawn(move || {
                     let started = Instant::now();
-                    write_memo(index, &file.path, &file.head, &memo, &file.carried)
-                        .map(|()| started.elapsed())
+                    file.write(index, &memo).map(|()| started.elapsed())
                 }));
             }),
         ),

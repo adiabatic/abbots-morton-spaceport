@@ -492,6 +492,79 @@ fn a_table_build_writing_its_memos_beside_the_wave_files_the_bytes_one_writing_t
     }
 }
 
+/// Sending the memo files to the null sink changes no table and writes no memo file: a table build with `--output-sink=null` writes the same tables and digests as one writing its memo files, whether it would write them ahead of the wave or beside it, and leaves no `memo-<config>.tsv` behind. The flag takes only `null`, once, and only beside a stamp.
+#[test]
+fn a_table_build_sending_its_memos_to_the_null_sink_files_the_tables_and_no_memo_file() {
+    let root = scratch("cli-memo-output-sink");
+    let spec = spec_at(&root);
+    let outdirs = ["filed", "null", "null-beside"].map(|arm| root.join(arm));
+    let mut answers: Vec<String> = Vec::new();
+    for (outdir, extra) in outdirs.iter().zip([
+        &[][..],
+        &["--output-sink=null"][..],
+        &["--output-sink=null", "--overlap-memo-writes"][..],
+    ]) {
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(outdir),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            "--threads=2",
+            "--memo-stamp=cli-memo",
+        ];
+        arguments.extend(extra);
+        let output = run(&arguments);
+        assert!(output.status.success(), "{}", stderr_of(&output));
+        answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
+    }
+    let [filed, null, beside] = &outdirs;
+    assert_eq!(answers[0], answers[1]);
+    assert_eq!(answers[0], answers[2]);
+    for (token, _) in CONFIGS {
+        for family in ["settlement", "joins", "windows"] {
+            let name = format!("{family}-{token}.tsv");
+            for other in [null, beside] {
+                assert_eq!(
+                    std::fs::read(filed.join(&name)).expect("the build filing its memos wrote it"),
+                    std::fs::read(other.join(&name)).expect("and so did the null sink's"),
+                    "{name}"
+                );
+            }
+        }
+        let memo = format!("memo-{token}.tsv");
+        assert!(filed.join(&memo).is_file(), "{memo}");
+        assert!(!null.join(&memo).exists(), "{memo}");
+        assert!(!beside.join(&memo).exists(), "{memo}");
+    }
+    for extra in [
+        &["--memo-stamp=cli-memo", "--output-sink=file"][..],
+        &[
+            "--memo-stamp=cli-memo",
+            "--output-sink=null",
+            "--output-sink=null",
+        ][..],
+        &["--output-sink=null"][..],
+    ] {
+        let misuse = root.join("misuse");
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(&misuse),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+        ];
+        arguments.extend(extra);
+        let output = run(&arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{extra:?}: {}",
+            stderr_of(&output)
+        );
+    }
+}
+
 /// Starting the heaviest delta from scratch beside `default` changes no table: a build with `--scratch-beside-default=1` writes the tables and digests of a build that runs it as a delta, and writes for it the memo file a `--no-default-memo-sharing` build writes rather than the delta's, since a configuration enumerated from scratch memoizes every window it settles. A count of zero is a usage error, since leaving the flag out asks for none.
 #[test]
 fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a_sharing_one_files()

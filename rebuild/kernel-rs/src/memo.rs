@@ -624,11 +624,27 @@ fn pool_id(index: usize) -> u32 {
     u32::try_from(index).expect("a memo pool holds fewer than 2^32 records")
 }
 
-/// The memo file one configuration's build writes: its path, its head, and the shared memos whose admitted windows are written with its own, so the file is the union a later build reads. [`crate::fixpoint::enumerate_for_tables`] writes it at the enumeration's release point, from the finished snapshot the engine returns after freeing its other memos and before that snapshot is dropped, so a configuration that does not keep its memo for other enumerations (`keep_memo`) holds none past its enumeration; or it hands the file and the snapshot there to a writer that runs beside the rest of the build ([`crate::fixpoint::MemoWrite::Beside`]), which holds the snapshot until the write ends.
+/// Where a build's memo files go. `File` writes each to its path. `Null`, which `build-tables --output-sink=null` names, makes the same bytes, with every check the writer makes, and writes none of them, for a caller none of whose later steps reads a memo file (`rebuild/pipeline/output_sink.py` decides when).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OutputSink {
+    #[default]
+    File,
+    Null,
+}
+
+/// The memo file one configuration's build writes: its path, its head, where its bytes go, and the shared memos whose admitted windows are written with its own, so the file is the union a later build reads. [`crate::fixpoint::enumerate_for_tables`] writes it at the enumeration's release point, from the finished snapshot the engine returns after freeing its other memos and before that snapshot is dropped, so a configuration that does not keep its memo for other enumerations (`keep_memo`) holds none past its enumeration; or it hands the file and the snapshot there to a writer that runs beside the rest of the build ([`crate::fixpoint::MemoWrite::Beside`]), which holds the snapshot until the write ends.
 pub struct MemoFile {
     pub path: PathBuf,
     pub head: MemoHead,
     pub carried: Vec<SharedMemo>,
+    pub sink: OutputSink,
+}
+
+impl MemoFile {
+    /// Writes this file from `own` and the shared memos it carries, as [`write_memo`] does, to the place its sink names.
+    pub fn write(&self, index: &SpecIndex, own: &MemoSnapshot) -> Result<(), String> {
+        write_memo_to(index, &self.path, self.sink, &self.head, own, &self.carried)
+    }
 }
 
 /// Writes one configuration's memo as `memo-<config>.tsv`: the head line, then five tables, then one `E` line per window. The tables are `Y` for every symbol the file names, `S` for the settled records, `N` for the notes lists, `D` for the fired deltas and `R` for the read sets, each interned in file order, with list members separated by [`LIST_SEPARATOR`]. An `E` line names its key by symbol ids, then its four record ids, its prospect, its joint flag and its stage.
@@ -639,6 +655,18 @@ pub struct MemoFile {
 pub fn write_memo(
     index: &SpecIndex,
     path: &Path,
+    head: &MemoHead,
+    own: &MemoSnapshot,
+    carried: &[SharedMemo],
+) -> Result<(), String> {
+    write_memo_to(index, path, OutputSink::File, head, own, carried)
+}
+
+/// [`write_memo`] with the sink its bytes go to: the file at `path`, or, under [`OutputSink::Null`], nowhere, with `path` still naming the file in an error.
+fn write_memo_to(
+    index: &SpecIndex,
+    path: &Path,
+    sink: OutputSink,
     head: &MemoHead,
     own: &MemoSnapshot,
     carried: &[SharedMemo],
@@ -728,9 +756,13 @@ pub fn write_memo(
         })?;
         row.ids = [settled_id, notes_id, delta_id, reads_id];
     }
-    let file =
-        std::fs::File::create(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
+    let target: Box<dyn std::io::Write> = match sink {
+        OutputSink::File => Box::new(
+            std::fs::File::create(path).map_err(|error| format!("{}: {error}", path.display()))?,
+        ),
+        OutputSink::Null => Box::new(std::io::sink()),
+    };
+    let mut out = std::io::BufWriter::with_capacity(1 << 20, target);
     let fail = |error: std::io::Error| format!("{}: {error}", path.display());
     writeln!(
         out,
@@ -1882,6 +1914,46 @@ mod tests {
                 .expect_err("a union past the range is refused");
             assert!(refusal.contains(expected), "{refusal}");
         }
+    }
+
+    /// A memo file whose sink is a file writes the bytes [`write_memo`] writes, and one whose sink is null writes nothing at its path but still refuses what the file refuses.
+    #[test]
+    fn a_memo_file_sent_to_the_null_sink_writes_nothing_and_refuses_what_a_file_refuses() {
+        let index = fixtures::mini();
+        let (_, mut memo) = enumerate_keeping(&index, &[], Vec::new());
+        let directory = scratch("memo-null-sink");
+        let file = |name: &str, sink: OutputSink| MemoFile {
+            path: directory.join(name),
+            head: head("default"),
+            carried: Vec::new(),
+            sink,
+        };
+        let direct = directory.join("direct.tsv");
+        write_memo(&index, &direct, &head("default"), &memo, &[]).expect("the file writes");
+        file("filed.tsv", OutputSink::File)
+            .write(&index, &memo)
+            .expect("the file writes");
+        assert_eq!(
+            std::fs::read(directory.join("filed.tsv")).expect("the file sink wrote it"),
+            std::fs::read(&direct).expect("and so did write_memo")
+        );
+        file("null.tsv", OutputSink::Null)
+            .write(&index, &memo)
+            .expect("the null sink takes the memo");
+        assert!(!directory.join("null.tsv").exists());
+        for list in &mut memo.notes {
+            list.push(format!("a{LIST_SEPARATOR}b"));
+        }
+        for sink in [OutputSink::File, OutputSink::Null] {
+            let refusal = file("refused.tsv", sink)
+                .write(&index, &memo)
+                .expect_err("a note the format cannot carry is refused");
+            assert!(
+                refusal.contains("a note the memo format cannot carry"),
+                "{refusal}"
+            );
+        }
+        assert!(!directory.join("refused.tsv").exists());
     }
 
     /// A settled record naming a cell no left of this spec keys drops the windows that name it while the rest read. Here the record's stance id points at a rune's name, which the spec interns but which has no stance ordinal.

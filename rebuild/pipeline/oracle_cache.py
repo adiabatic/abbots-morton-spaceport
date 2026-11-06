@@ -114,6 +114,7 @@ ORACLE_ROW_CODE_PATHS = (
     "rebuild/pipeline/labels.py",
     "rebuild/pipeline/model.py",
     "rebuild/pipeline/oracle_cache.py",
+    "rebuild/pipeline/output_sink.py",
     "rebuild/pipeline/position_record.py",
     "rebuild/pipeline/settle.py",
     "rebuild/pipeline/shapers.py",
@@ -258,7 +259,7 @@ def settle_family_keys(inputs: SettleMemoInputs, spec: ResolvedSpec) -> dict[str
 def settle_memo_stamp(
     inputs: SettleMemoInputs, spec: ResolvedSpec, config: str, features: Collection[str]
 ) -> EnvironmentStamp:
-    """Return the stamp over everything that can change a memoized settlement without changing a named family's key. It is `environment_stamp` without the lines only the comparison reads (the subset table and the alias map's boundary heads) and without the store format, which the memo file records in its own header. It uses `settlement_flags` and not `kernel_exec.enumeration_tokens`, because the walk settles windows one at a time and never enumerates, so deep-class grain cannot affect it."""
+    """Return the stamp over everything that can change a memoized settlement without changing a named family's key. It is `environment_stamp` without the lines only the comparison reads (the subset table and the alias map's boundary heads) and without the store format, which the memo file records in its own header. It uses `settlement_flags` and not `kernel_exec.enumeration_tokens`, because the walk settles windows one at a time and never enumerates, so deep-class grain cannot affect it. While the alphabet switch is set, the lines end with its token (`spec_load.alphabet_lines`), so a memo over the whole alphabet never serves a small one, nor the reverse; with it unset no line is added."""
     lines = (
         f"config\t{config}",
         "features\t" + json.dumps(sorted(features)),
@@ -267,6 +268,7 @@ def settle_memo_stamp(
         f"spec_structure\t{spec_load.spec_structure_digest(spec)}",
         "capability_features\t" + json.dumps(spec_load.capability_features(spec)),
         "settlement_flags\t" + json.dumps(kernel_exec.settlement_flags()),
+        *spec_load.alphabet_lines(),
     )
     return EnvironmentStamp(lines=lines)
 

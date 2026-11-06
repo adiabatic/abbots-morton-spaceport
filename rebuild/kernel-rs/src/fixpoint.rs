@@ -20,7 +20,7 @@ use crate::fiber::DeepFiberDeriver;
 use crate::hash::{HashMap, HashSet, ShardedMap};
 use crate::index::SpecIndex;
 use crate::liveness::ProspectLiveness;
-use crate::memo::{MemoFile, MemoSnapshot, SharedMemo, write_memo};
+use crate::memo::{MemoFile, MemoSnapshot, SharedMemo};
 use crate::model::Sym;
 use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
@@ -899,13 +899,10 @@ fn enumerate_from_seeds<'i>(
     match file {
         Some(MemoWrite::Inline(file)) => {
             let started = Instant::now();
-            write_memo(
+            file.write(
                 index,
-                &file.path,
-                &file.head,
                 memo.as_ref()
                     .expect("a memo file is written from a kept memo"),
-                &file.carried,
             )?;
             memo_write = Some(started.elapsed());
         }
@@ -1604,7 +1601,7 @@ mod tests {
 
     use super::*;
     use crate::index::fixtures;
-    use crate::memo::{Exclusion, MemoHead, memo_path, read_memo, unlocking_runes};
+    use crate::memo::{Exclusion, MemoHead, OutputSink, memo_path, read_memo, unlocking_runes};
     use crate::stream::emit_transitions;
 
     /// A scratch directory of this module's own under `target/`, cleared first.
@@ -2674,6 +2671,7 @@ mod tests {
                 path: path.clone(),
                 head: head.clone(),
                 carried: Vec::new(),
+                sink: OutputSink::File,
             })),
         )
         .expect("ss03 closes over a shared memo");

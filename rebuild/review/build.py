@@ -1,4 +1,4 @@
-"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The build assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts. It writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into rebuild/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at rebuild/out/review.next.
+"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The build assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts. It writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into rebuild/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at rebuild/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
 
 Usage:
     uv run python -m rebuild.review.build
@@ -37,7 +37,7 @@ from itertools import batched, chain, combinations
 from pathlib import Path
 from typing import BinaryIO, cast
 
-from rebuild.pipeline import fingerprint
+from rebuild.pipeline import fingerprint, spec_load
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
 from rebuild.review import app_index, facts, tablediff, unit_cache, unit_index, unit_store
 from rebuild.review.audit import (
@@ -4237,6 +4237,9 @@ def refuse_the_served_corpus(out: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    refusal = spec_load.small_alphabet_refusal("the review build")
+    if refusal is not None:
+        raise SystemExit(refusal)
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "refresh-assets":
         parser = argparse.ArgumentParser(

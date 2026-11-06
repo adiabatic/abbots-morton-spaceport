@@ -1,12 +1,15 @@
 """Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, no prefer `over:` without a `cell:`, the right-side `then:` chain depth cap, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, ligature outgoing inheritance, and left-facing ligature expansion.
 
 Schema validation uses a cached Draft 2020-12 validator over the JSON Schema files under rebuild/schema/, with strict YAML integers and a closed schema vocabulary. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
+
+The alphabet switch, `AMS_M1_RUNES` (`M1_RUNES_ENV`), narrows `load_default_spec` to a small alphabet for the fault kit (`narrowed`). Everything that reads the alphabet reads it from the spec, `baseline_subset.M1_ALPHABET` included, every stamp over a build carries the switch's token while it is set (`alphabet_token`), and the entry points that write the live tree refuse it outside the kit (`small_alphabet_refusal`).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import warnings
 from dataclasses import dataclass, replace
@@ -50,6 +53,10 @@ _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 DEFAULT_RUNES_DIR = REPO_ROOT / "glyph_data" / "runes"
 DEFAULT_REGISTRY_PATH = REPO_ROOT / "rebuild" / "script.yaml"
 DEFAULT_SCHEMA_DIR = REPO_ROOT / "rebuild" / "schema"
+M1_RUNES_ENV = "AMS_M1_RUNES"
+CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
+FAULT_KIT_RUN = "fault-kit"
+ALPHABET_LABEL = "alphabet"
 
 FORBIDDEN_ID_PATTERN = re.compile(r"(before|after|noentry|noexit|nonjoining|ss[0-9])")
 
@@ -1722,8 +1729,60 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
     return ResolvedSpec(runes=runes, registry=registry)
 
 
+def m1_runes() -> tuple[str, ...] | None:
+    """Return the rune names the alphabet switch (`M1_RUNES_ENV`) lists, sorted and without repeats, or None when it is unset. The value is a comma-separated list of rune names, and blanks around a name are dropped. A set value that names nothing gives an empty tuple, which `narrowed` refuses."""
+    value = os.environ.get(M1_RUNES_ENV)
+    if value is None:
+        return None
+    return tuple(sorted({name.strip() for name in value.split(",") if name.strip()}))
+
+
+def alphabet_token() -> str | None:
+    """Return the alphabet token, the switch's rune names (`m1_runes`) joined by commas, or None when the switch is unset. While the switch is set, the token joins every stamp over an M1 build's enumeration or the artifacts beside it: the tables' stamp (`run_m1.tables_inputs`), the run_m1 skip key (`artifact_cycle.run_m1_skip_lines`), the Stage A record (`fingerprint.stage_a`), the settle memo's stamp (`oracle_cache.settle_memo_stamp`) and the review unit store's (`unit_cache.environment_stamp`), so an enumeration or record made over the whole alphabet never reads current to a process on a small one, nor the reverse. While it is unset, no stamp carries anything for it."""
+    runes = m1_runes()
+    return None if runes is None else ",".join(runes)
+
+
+def alphabet_lines() -> list[str]:
+    """Return the `label\\tvalue` line a stamp built from such lines appends while the switch is set, `ALPHABET_LABEL` and `alphabet_token`, or no line while it is unset."""
+    token = alphabet_token()
+    return [] if token is None else [f"{ALPHABET_LABEL}\t{token}"]
+
+
+def narrowed(spec: ResolvedSpec, names: Iterable[str]) -> ResolvedSpec:
+    """Return `spec` holding only the runes `names` lists, in its own rune order, with its registry, predicate classes and every rune's resolved records as the whole store left them, which is `scaling_series.sub_spec`'s rule. A ligature is kept only when it is named, and naming one is refused unless every component it names is named too, as is naming no rune or a rune the store does not hold, so the alphabet a build runs on is exactly the one named."""
+    wanted = frozenset(names)
+    if not wanted:
+        raise SpecError(M1_RUNES_ENV, "", "names no runes")
+    unknown = sorted(wanted - spec.runes.keys())
+    if unknown:
+        raise SpecError(M1_RUNES_ENV, "", f"names runes the store does not hold: {', '.join(unknown)}")
+    stranded = sorted(
+        name for name in wanted if (sequence := spec.runes[name].sequence) and not set(sequence) <= wanted
+    )
+    if stranded:
+        raise SpecError(
+            M1_RUNES_ENV, "", f"names ligatures without every component they name: {', '.join(stranded)}"
+        )
+    return replace(spec, runes={name: rune for name, rune in spec.runes.items() if name in wanted})
+
+
+def small_alphabet_refusal(what: str) -> str | None:
+    """Return why `what`, an entry point that writes the live tree's builds, corpus or verdict store, refuses to run, or None when it may. It refuses while the alphabet switch (`M1_RUNES_ENV`) is set, unless `CYCLE_RUN_ENV` says the fault kit started it (`FAULT_KIT_RUN`), so a shell that leaks the switch cannot build a small alphabet into the live tree. The artifact cycle, run_m1's command line, the subset refilter's command line (`baseline_subset.main`), the review build, the verdict update and the land each call it first. `CYCLE_RUN_ENV` restates `cycle_timings.CYCLE_RUN_ENV` and `FAULT_KIT_RUN` `fault_kit.CYCLE_RUN_VALUE`, because this module is in the oracle row cache's code closure, whose walk stops only at modules that import nothing outside its stop-set, and cycle_timings does."""
+    if M1_RUNES_ENV not in os.environ or os.environ.get(CYCLE_RUN_ENV) == FAULT_KIT_RUN:
+        return None
+    return (
+        f"{what} refuses: {M1_RUNES_ENV} is set ({os.environ[M1_RUNES_ENV]!r}), which narrows the M1 alphabet, "
+        f"and only the fault kit ({CYCLE_RUN_ENV}={FAULT_KIT_RUN}) builds a small alphabet, in a tree of its own; "
+        f"unset {M1_RUNES_ENV} to run {what} on the whole alphabet"
+    )
+
+
 def load_default_spec() -> ResolvedSpec:
-    return load_spec(DEFAULT_RUNES_DIR, DEFAULT_REGISTRY_PATH, DEFAULT_SCHEMA_DIR)
+    """Load the rune files, the registry and the schemas this checkout holds. When the alphabet switch (`M1_RUNES_ENV`) is set, the whole store loads and resolves first, so `against:` targets and the predicate classes resolve against every rune, and the result is `narrowed` to the runes the switch names (`m1_runes`)."""
+    spec = load_spec(DEFAULT_RUNES_DIR, DEFAULT_REGISTRY_PATH, DEFAULT_SCHEMA_DIR)
+    runes = m1_runes()
+    return spec if runes is None else narrowed(spec, runes)
 
 
 def spec_structure_digest(spec: ResolvedSpec) -> str:

@@ -2,13 +2,15 @@
 
 Streams each `rebuild/out/baseline-<config>.tsv.gz` once through `rebuild.validation.rowmodel.open_table`, keeps the rows whose code points are all in `M1_ALPHABET`, and writes `rebuild/out/m1/baseline-<config>.subset.tsv.gz` with the header lines and the source's (length, codepoints) row order unchanged.
 
+`M1_ALPHABET` is the set written out below, the alphabet a letter batch extends. While the alphabet switch (`spec_load.M1_RUNES_ENV`) is set, it is instead the alphabet of the spec `spec_load.load_default_spec` narrows to, computed when this module is imported, so the name other modules import and `filter_table`'s default argument both take the narrowed set, and the stamp key below moves with it.
+
 Each refilter also checks two facts that only a refilter can change. First, every `DEFAULT_COVERED_CONFIGS` sub-table must be row-identical to the `IDENTITY_REFERENCE` sub-table, because the acceptance gate covers ss06, ss07 and ss06+ss07 by running default alone. The check compares the digests the filter pass computes over the kept rows, so no table is read a second time. A mismatch or a missing table raises `SubsetIdentityError` before the stamp is written, so the tables are never stamped fresh and every later run fails the same way. Second, `refresh` writes the distinct old glyph names of each configuration's kept rows to `subset-names.json`. The oracle's alias-completeness check reads that file instead of streaming every subset row, which keeps the check cheap on the `--gates-only` path.
 
 `ensure_fresh` checks a third fact on every call, fresh or stale: that each source table was extracted from the site font on disk. `make all` rewrites that font without changing any key this module stamps, so only a check that runs on every call can catch a rebuilt font. A header whose `font_sha256` matches the font on disk passes. A version bump's `make all` rewrites only the font's `head` and `name` tables, so a header whose digest does not match still passes when the font it was extracted from and the font on disk are identical outside those two tables (`fingerprint.font_content_digest`). The header records only the raw digest, so this module records the extraction font's `head`- and `name`-blind content digest in `rebuild/out/baseline-font-content-digests.json`, keyed by font path and raw digest, on each call where every table passes. When that file is absent, the digests are read from `rebuild/out/baseline-font-projections.json` in its place, and the first passing call writes the content digests file and removes that one. A machine that never checked the tables before the font changed has no such entry and fails with the re-extract remedy.
 
 `run_m1` calls `ensure_fresh` before its gates, so an `M1_ALPHABET` edit cannot feed the oracle stale subset tables. `subset_stamp.json` records a key over the alphabet, the source tables, and this module's code, plus each output's content hash, each output's kept-row count (see `subset_row_counts`), and the names sidecar's hash. The refilter is skipped only when the key matches and the outputs on disk are the stamped set with the stamped bytes. A truncated or edited table, a missing or edited names sidecar, and an orphan left by a removed source all read as stale, and `refresh` deletes orphans. Subset gzip members are written with mtime=0, so refiltering unchanged sources reproduces each table byte for byte.
 
-Run by hand (unconditional refilter) as: uv run python -m rebuild.pipeline.baseline_subset
+Run by hand (unconditional refilter) as `uv run python -m rebuild.pipeline.baseline_subset`. The command line refuses before it checks or writes anything while the alphabet switch is set outside the fault kit (`spec_load.small_alphabet_refusal`), since it writes the live tree's subset tables.
 """
 
 from __future__ import annotations
@@ -23,7 +25,8 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from rebuild.pipeline import fingerprint
+from rebuild.pipeline import fingerprint, spec_load
+from rebuild.pipeline.labels import spec_alphabet
 from rebuild.validation.rowmodel import open_table, read_header
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -40,7 +43,15 @@ EARLIER_FONT_DIGESTS_FORMAT = "ams-baseline-font-projections/1"
 DEFAULT_COVERED_CONFIGS = ("ss06", "ss07", "ss06+ss07")
 IDENTITY_REFERENCE = "default"
 
-M1_ALPHABET = frozenset(
+
+def _switch_alphabet() -> frozenset[int] | None:
+    """Return the alphabet of the spec `spec_load.load_default_spec` narrows to while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set, the code points `labels.spec_alphabet` reads from it, or None when the switch is unset."""
+    if spec_load.m1_runes() is None:
+        return None
+    return frozenset(ord(symbol) for symbol in spec_alphabet(spec_load.load_default_spec()))
+
+
+M1_ALPHABET = _switch_alphabet() or frozenset(
     {
         0x0020,
         0x00B7,
@@ -398,6 +409,9 @@ def ensure_fresh(repo_root: Path = REPO_ROOT, before_refilter: Callable[[], None
 
 
 def main() -> None:
+    refusal = spec_load.small_alphabet_refusal("the subset refilter")
+    if refusal is not None:
+        raise SystemExit(refusal)
     check_font_provenance(REPO_ROOT)
     refresh(REPO_ROOT)
 

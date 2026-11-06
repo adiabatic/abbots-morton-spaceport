@@ -8,10 +8,6 @@ The rebuild migrates the cursive-join engine rune by rune and checks each batch 
 
 **Where the state lives:** `make verdict-ready` and the app’s banner report whether the corpus, the gates, and the verdict store are ready, `rebuild/out/cycle_summary.json` is the last cycle’s record, and `doc/note-taking.md` § Counts and drifting state and `doc/review-cycle.md` name the other records.
 
-## The fault kit
-
-**The fault kit is withdrawn until #618's change 0k.** Each kit row builds the whole alphabet, so a run refuses (`doc/perf-check.md`); change 0k runs the rows on small alphabets, each run under a 1 GB write cap.
-
 ## Open forks in the gates
 
 **How should a gate see a rule that matches across a ZWNJ?** HarfBuzz skips a ZWNJ that a context class does not name, and the ZWNJ lock leaves a rune without an entry (·She and some ligatures) raw after a ZWNJ, so for those windows the emitted rule order is the only protection. The shipped-order walk matches `uni200C` literally and cannot see the skip, so such a fault surfaces only in the conformance sweep or the deep sweep, and not at all when it needs a text longer than the deep sweep's maximum length. The candidates are an emit-time scan that first-matches every real window containing a ZWNJ under the skip, with each raw-after-ZWNJ glyph placed after it, and moving the crate's third-slot boundary row ahead of its block's fourth-slot rows (`rulefold.rs`), as the other slots already do.

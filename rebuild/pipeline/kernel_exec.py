@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO
 
-from rebuild.pipeline import kernel_io, labels, settle, table
+from rebuild.pipeline import kernel_io, labels, output_sink, settle, table
 from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Settled, feature_config_token
 from rebuild.pipeline.table import DecisionTable, FixpointProduct, JoinTable
 from rebuild.tools import memory_budget
@@ -582,7 +582,7 @@ def build_table_files(
 
     One process handles every named configuration because the configurations after `default` are enumerated as deltas over it. `default` enumerates first and keeps its trace memo. Each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and settles only the rest, `threads` worker slots at a time, with `default`'s fold preparation in one of them. `rebuild/kernel-rs/src/memo.rs` gives the argument; the window locality rule, applied across configurations, makes the shared results exact. `default_memo_sharing=False` enumerates every configuration from scratch, and `rebuild/test_kernel_exec.py` checks that it writes the same tables as the delta build. `scratch_beside_default` starts up to that many of the heaviest deltas from scratch beside `default` instead, in whole tiers of equal unlocking-rune count, which writes the same tables and holds what `table_build_booking_bytes` books for it (`deltas_from_scratch` decides it); a configuration enumerated from scratch memoizes every window it settles, so its memo file holds the windows a delta's leaves to `default`'s. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts beside it, and a delta served one reruns only the probe's asks that name one of its own unlocking runes (`rebuild/kernel-rs/src/liveness.rs`); `verdict_sharing=False` runs every probe whole, and `rebuild/test_kernel_exec.py` checks that it writes the same tables and memo files.
 
-    The memo is also carried across builds. `previous_memos` is a directory of a previous build's plain `memo-<config>.tsv` files. They are read with `edited` (the runes whose content changed since) and `moved_classes` (the predicate classes whose membership changed) excluded, so a window whose settlement read none of them settles as it did then. The crate's read journal records what each entry read (`rebuild/kernel-rs/src/index.rs`). `memo_stamp` is the stamp this build writes its own plain `memo-<config>.tsv` files under, beside the tables; `run_m1.build_tables` packs them into `.gz` artifacts. `overlap_memo_writes` writes each of those files on a thread of its own beside the delta wave and the folds instead of ahead of them, which writes the same bytes and holds what `MEMO_WRITE_OVERLAP_BYTES` books (`memo_writes_overlap` decides it). Python decides which files may be read and which runes count as edited (`run_m1.previous_memos`), from the stamp in each head; the crate checks only that a file matches its configuration and mode set.
+    The memo is also carried across builds. `previous_memos` is a directory of a previous build's plain `memo-<config>.tsv` files. They are read with `edited` (the runes whose content changed since) and `moved_classes` (the predicate classes whose membership changed) excluded, so a window whose settlement read none of them settles as it did then. The crate's read journal records what each entry read (`rebuild/kernel-rs/src/index.rs`). `memo_stamp` is the stamp this build writes its own plain `memo-<config>.tsv` files under, beside the tables; `run_m1.build_tables` packs them into `.gz` artifacts. Under the fault kit the crate sends those files to a null sink instead and writes none of them (`output_sink.memo_sink_flags`), with the same tables. `overlap_memo_writes` writes each of those files on a thread of its own beside the delta wave and the folds instead of ahead of them, which writes the same bytes and holds what `MEMO_WRITE_OVERLAP_BYTES` books (`memo_writes_overlap` decides it). Python decides which files may be read and which runes count as edited (`run_m1.previous_memos`), from the stamp in each head; the crate checks only that a file matches its configuration and mode set.
 
     `symbols` is the size of the spec's alphabet (`labels.spec_alphabet`), which sets how long the call is waited for (`build_tables_timeout`).
 
@@ -612,6 +612,7 @@ def build_table_files(
             arguments.append(f"--moved-classes={','.join(moved_classes)}")
     if memo_stamp is not None:
         arguments.append(f"--memo-stamp={memo_stamp}")
+        arguments.extend(output_sink.memo_sink_flags())
     if overlap_memo_writes:
         arguments.append("--overlap-memo-writes")
     if scratch_beside_default:

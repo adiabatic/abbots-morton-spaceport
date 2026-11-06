@@ -10,7 +10,7 @@ Settlement-lookup outcomes are `settle.cell_label` names, so the decision-table 
 
 The split-buffer check runs inside gate:conform's sweep, at maximum length 4 on every build and at maximum length 5 or more through `make conform-deep`. Read-back's boundary-glyphs stage checks the ZWNJ glyph's zero advance and empty outline on the written font bytes, so the conformance sweep does not check them at every shaped slot.
 
-Run as `uv run python -m rebuild.pipeline.run_m1`. The entry hands the command line to `run_m1_gates.main`, which parses it and calls `full_run` for a bare run. `--conform-only` runs only the conformance sweep against the M1.otf on disk. `--gates-only` re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font already on disk, without rebuilding anything. It is the fast way to re-check an edit to a comparison-side input: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the code `fingerprint.COMPARISON_CODE_MODULES` names. The tables' stamp leaves all of these out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py checks that the build never reaches that code). A `--gates-only` pass records run_m1's green when a prior green exists and everything that changed since is comparison-side, so the artifact cycle plans this gates-only rerun itself and the pass after it skips run_m1.
+Run as `uv run python -m rebuild.pipeline.run_m1`. The entry (`cli`) refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit, and otherwise hands the command line to `run_m1_gates.main`, which parses it and calls `full_run` for a bare run. `--conform-only` runs only the conformance sweep against the M1.otf on disk. `--gates-only` re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font already on disk, without rebuilding anything. It is the fast way to re-check an edit to a comparison-side input: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the code `fingerprint.COMPARISON_CODE_MODULES` names. The tables' stamp leaves all of these out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py checks that the build never reaches that code). A `--gates-only` pass records run_m1's green when a prior green exists and everything that changed since is comparison-side, so the artifact cycle plans this gates-only rerun itself and the pass after it skips run_m1.
 
 A full run and a `--gates-only` rerun both serve what they can from the per-row verdict stores that rebuild/pipeline/oracle_cache.py keeps beside the tables. A ledger edit changes no family key and no stamp line, so every row and position verdict is served and only the ledger match and the audit run. An alias edit changes the family keys of the families it names, so only the rows that reach them are re-derived. An edit to the kern sidecar or to the position comparison's code closure keeps the row verdicts and re-shapes the positions, an edit to the comparison's code outside that closure (the walk, the crate, the store) re-derives every row and keeps each position whose settled cells did not change, and a classifier edit serves both. `--fresh-oracle-cache` ignores the stores, and `--gates-only` may read them but never writes one.
 """
@@ -49,6 +49,7 @@ from rebuild.pipeline import (
     kernel_io,
     oracle_cache,
     readback,
+    spec_load,
     surface,
     witness,
 )
@@ -263,6 +264,7 @@ TABLE_BUILD_CODE_MODULES = frozenset(
         "rebuild/pipeline/kernel_io.py",
         "rebuild/pipeline/labels.py",
         "rebuild/pipeline/model.py",
+        "rebuild/pipeline/output_sink.py",
         "rebuild/pipeline/settle.py",
         "rebuild/pipeline/table.py",
     }
@@ -1342,13 +1344,16 @@ def serialized_tables(out_dir: Path, inputs: str) -> dict[str, DecisionTable] | 
 
 
 def tables_inputs() -> str:
-    """Return the stamp serialized windows carry: `fingerprint.tables_value` plus one token for each semantics mode that is on by default (`kernel_exec.enumeration_tokens`: the simulated prospect, the shifted follower prefer slots, the class-grain deep slots). These environment flags change settlement semantics or enumeration grain without changing any hashed source, so without the tokens an enumeration made with a flag on would look current to a process with it off, and the reverse, and the sweep would replay tables the in-process kernel no longer produces.
+    """Return the stamp serialized windows carry: `fingerprint.tables_value` plus one token for each semantics mode that is on by default (`kernel_exec.enumeration_tokens`: the simulated prospect, the shifted follower prefer slots, the class-grain deep slots), then, while the alphabet switch is set, `alphabet=` and its token (`spec_load.alphabet_token`). These environment settings change settlement semantics, enumeration grain or the alphabet without changing any hashed source, so without the tokens an enumeration made with a flag on, or over a small alphabet, would look current to a process with it off, or over the whole alphabet, and the reverse, and the sweep would replay tables the in-process kernel no longer produces.
 
     The stamp covers what the fixpoint reads, so its data half is `fingerprint.table_data_value`, not `fingerprint.data_value`. The alias map, the divergence ledger and the kern sidecar are the baseline oracle's comparison inputs, and the contact allow-list, which is in no fingerprint component, is the defect gate's. All of them are read against tables that are already built, so editing one leaves every enumeration on disk as current as it was, and `--gates-only` can re-check over the tables and font on disk. The same holds for the comparison-side code `fingerprint.COMPARISON_CODE_MODULES` names: the stamp's code half is `fingerprint.table_code_paths`, the pipeline code without those modules, and rebuild/test_build_code_closure.py checks that the build never reaches them. These edits are still checked: every one of those labels is in the artifact cycle's run_m1 key (`artifact_cycle.run_m1_skip_lines`), so the green record no longer matches and the gates they feed, the defect gate included, re-run over the artifacts on disk.
     """
     inputs = fingerprint.tables_value(REPO_ROOT)
     for token in kernel_exec.enumeration_tokens():
         inputs = f"{inputs}+{token}"
+    alphabet = spec_load.alphabet_token()
+    if alphabet is not None:
+        inputs = f"{inputs}+{spec_load.ALPHABET_LABEL}={alphabet}"
     return inputs
 
 
@@ -1458,10 +1463,18 @@ def full_run(
         raise SystemExit("; ".join(gate.failures) + "; see oracle_summary.json and divergence-audit.tsv")
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """Run `python -m rebuild.pipeline.run_m1`: refuse while the alphabet switch is set outside the fault kit (`spec_load.small_alphabet_refusal`), before anything is read or written, and otherwise hand the command line to `run_m1_gates`, so a bare run, `--gates-only` and `--conform-only` all refuse."""
     from rebuild.pipeline import run_m1_gates
 
+    refusal = spec_load.small_alphabet_refusal("run_m1")
+    if refusal is not None:
+        raise SystemExit(refusal)
     # This batch is short-lived, and its large live heap contains almost no cyclic garbage worth scanning.
     gc.freeze()
     gc.disable()
     run_m1_gates._run_cli()
+
+
+if __name__ == "__main__":
+    cli()

@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep replay-deep standing-daemon standing-daemon-stop prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep replay-deep fault-kit standing-daemon standing-daemon-stop prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -168,6 +168,10 @@ conform-deep:
 # The cheaper form of the deep sweep: the crate's string replay at one letter past the build's maximum length, over the texts that name the runes whose content changed since the last recorded walk. ARGS='--families qsPea,qsTea' names the runes, ARGS='--all' walks every text, ARGS='--max-length 6' goes deeper, ARGS='--status' asks whether it is due, and ARGS='--threads N' states how many units walk at once. rebuild/tools/deep_replay.py's module docstring says which texts a walk covers, what its record holds, and why it is not a cycle gate.
 replay-deep:
 	uv run python -m rebuild.tools.deep_replay $(ARGS)
+
+# Runs the fault kit (rebuild/tools/fault_kit.py) as a one-shot launchd job (rebuild/tools/job_launch.py), under its meter gate, following its log in tmp/fault-kit.log and exiting with its status; ARGS takes the kit's flags, and ARGS=--help lists them. The job runs the venv's interpreter, which the `uv run` that starts the launcher has synced, rather than `uv run`, so that the kit is the job's own process: the kit refuses unless the write meter's first reading is in the own basis, and under `uv run` the child that `caffeinate` forks to hold the job's sleep assertion would be uv's other child, outside the kit's tree. doc/perf-check.md § The fault kit describes the gate.
+fault-kit:
+	uv run python -m rebuild.tools.job_launch --kind fault-kit --log tmp/fault-kit.log -- .venv/bin/python -m rebuild.tools.fault_kit $(ARGS)
 
 # Compresses the built OTFs in site/ into WOFF2 files beside them. The compressions are independent, so they run in parallel, one per usable core. The count comes from `usable_cores`, which respects an affinity mask and a cgroup CPU quota that `getconf` and `sysctl` ignore. xargs's own `-P 0` would start as many processes as possible, with no limit.
 woff2: all

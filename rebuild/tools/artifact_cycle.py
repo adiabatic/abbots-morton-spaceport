@@ -8,6 +8,8 @@ The job-costs step never fails the pass, for the same reason the review-facts pi
 
 The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, merges the carried file into the store (--no-merge opts out), runs duplicate-fill, standing-fill from the rules in rebuild/standing-approvals.yaml, and duplicate-fill again, merges each fill as it is written, and clusters the open complaints. The carry and the land each refuse a pass that would orphan more than `landing.ORPHAN_SHARE_LIMIT` of the prior verdicts, and --allow-orphans passes both their override. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] complete:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
 
+A pass refuses before it parses its command line while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`), so a shell that leaks it cannot build a small alphabet into the live tree.
+
 run_m1's exit status is its own gate's result, but this driver evaluates the three summary JSONs it writes, so a build that died before its evaluator is reported by what it left behind. The gates are defect_errors, the Manual-pin gate (including its scope, so a gate that replayed nothing cannot pass), and multi_matched == 0.
 
 The pass reads the write meter (`rebuild.tools.write_meter`) as it starts, once `_preflight` has settled the review server, at each child's spawn and reap, and after every step has joined, with the review server's pid named when the server is this checkout's (`review_server_pid`). `cycle_timings.CycleTimings` puts each child's window on its step line and the pass's total, its basis and its write class on the run line; the summary table shows each window and the summary one line for the pass, with a warning when the pass wrote more than its class's ceiling (`cycle_timings.PASS_WRITE_CEILING_BYTES`). A reading never fails the pass.
@@ -416,8 +418,10 @@ def run_m1_skip_lines(root: Path = ROOT) -> list[str]:
     """Return the per-file `label\\tdigest` lines behind `run_m1_skip_fingerprint`: every data input and pipeline module individually (each data input by its prose-insensitive digest, `fingerprint.data_lines`), the contact allow-list by its own prose-insensitive digest, the full baselines as one value, the oracle's subset tables, and uv.lock by its dependency pins (`fingerprint.lock_digest`, which ignores the project's own version block, so a version bump leaves the line unchanged and a fontTools or uharfbuzz bump changes it). The green record stores these lines, so a skip miss can name which input changed, and the pass can check whether every changed label is comparison-side (`comparison_side_label`) and rerun the gates over the artifacts on disk instead of rebuilding them.
 
     The allow-list is here and in no fingerprint component. Only the defect gate reads it, so a bless must change this key and should not change the corpus's stamp or drop the unit cache. A missing allow-list contributes no line, as `path_lines` drops a missing file.
+
+    While the alphabet switch is set, the lines end with its token (`spec_load.alphabet_lines`), so a green over the whole alphabet never covers a small one, nor the reverse; the label is build-side (`comparison_side_label`), so a moved token rebuilds. With the switch unset no line is added.
     """
-    from rebuild.pipeline import fingerprint
+    from rebuild.pipeline import fingerprint, spec_load
 
     lines = fingerprint.data_lines(root)
     allow = root / fingerprint.CONTACT_ALLOW_LABEL
@@ -427,6 +431,7 @@ def run_m1_skip_lines(root: Path = ROOT) -> list[str]:
     lines += fingerprint.path_lines(root, fingerprint.pipeline_code_paths(root))
     lines += [f"{path.name}\t{_sha256_path(path)}" for path in _subset_tables(root)]
     lines.append(f"uv.lock\t{_lock_line_digest(root / 'uv.lock')}")
+    lines += spec_load.alphabet_lines()
     return lines
 
 
@@ -5350,6 +5355,11 @@ def sweep_run_dirs() -> list[Path]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from rebuild.pipeline import spec_load
+
+    refusal = spec_load.small_alphabet_refusal("the artifact cycle")
+    if refusal is not None:
+        raise SystemExit(refusal)
     parser = argparse.ArgumentParser(
         description="Drive the commit-time artifact cycle: run_m1, corpus rebuild, carry, review-facts pins, gates."
     )

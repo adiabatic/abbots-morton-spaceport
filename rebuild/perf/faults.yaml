@@ -1,4 +1,4 @@
-# The fault kit's manifest: every row of doc/rebuild-design.md §10 that some gate catches, as a patch against the current head, with the gates that catch it and the steps that reach them. rebuild/tools/fault_kit.py's docstring describes the format and how a row runs; §10 describes each fault.
+# The fault kit's manifest: every row of doc/rebuild-design.md §10 that some gate catches, as a patch against the current head, with the gates that catch it and the steps that reach them. rebuild/tools/fault_kit.py's docstring describes the format and how a row runs; §10 describes each fault. Each row's alphabet is the smallest the kit, run on the row, found to keep the row's rule shape and what every unfaulted build needs (doc/perf-check.md § The fault kit).
 format: ams-fault-kit/1
 gates:
   enumeration: {modules: [rebuild.pipeline.kernel_exec], crate: true, files: [rebuild/pipeline/run_m1.py, rebuild/pipeline/run_m1_gates.py]}
@@ -14,6 +14,7 @@ rows:
     section10: 1
     slug: third-slot-forced-dead-ah-before-gay-no
     patch: faults/01.patch
+    alphabet: [qsPea, qsTea, qsGay, qsSee, qsNo, qsAh, qsOy, qsUtter, qsSee_qsUtter]
     effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
     unreached: [witness]
     steps:
@@ -33,6 +34,7 @@ rows:
     section10: 2
     slug: product-row-dropped-awe-after-ah-before-at-may
     patch: faults/02.patch
+    alphabet: [qsPea, qsTea, qsSee, qsMay, qsAt, qsAh, qsAwe, qsUtter, qsSee_qsUtter]
     effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
@@ -51,6 +53,7 @@ rows:
     section10: 3
     slug: right1-unpinned-ye-loop-before-see
     patch: faults/03.patch
+    alphabet: [qsPea, qsTea, qsSee, qsYe, qsUtter, qsSee_qsUtter]
     effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
@@ -62,6 +65,7 @@ rows:
     section10: 4
     slug: member-settles-apart-bay-after-extended-utter
     patch: faults/04.patch
+    alphabet: [qsPea, qsBay, qsTea, qsDay, qsGay, qsSee, qsIt, qsUtter, qsDay_qsUtter]
     effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
@@ -75,6 +79,7 @@ rows:
     section10: 5
     slug: settle-rules-swapped-in-fea-text-alone
     patch: faults/05.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
     effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
@@ -94,6 +99,7 @@ rows:
     section10: 6
     slug: settle-rules-swapped-in-plan-text-and-mirror
     patch: faults/06.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
     effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
@@ -112,6 +118,7 @@ rows:
     section10: 7
     slug: lookahead-glyph-moved-between-packed-classes
     patch: faults/07.patch
+    alphabet: [qsPea, qsTea, qsSee, qsAh, qsUtter, qsOoze, qsSee_qsUtter]
     effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
@@ -131,6 +138,7 @@ rows:
     section10: 8
     slug: zwnj-boundary-row-omitted-ah-before-fee
     patch: faults/08.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
     effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
@@ -145,6 +153,7 @@ rows:
     section10: 9
     slug: third-lookahead-emitted-as-boundary-class
     patch: faults/09.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
     effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
@@ -159,6 +168,7 @@ rows:
     section10: 10
     slug: curs-anchor-dropped-ah-sole-ex-y5
     patch: faults/10.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
     effect: [rebuild/out/m1/M1.fea, rebuild/out/m1/M1.otf]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
@@ -178,6 +188,7 @@ rows:
     section10: 13
     slug: right1-unpinned-pea-full-before-roe
     patch: faults/13.patch
+    alphabet: [qsPea, qsTea, qsSee, qsRoe, qsOy, qsUtter, qsSee_qsUtter]
     effect: [rebuild/out/m1/settlement-default.tsv]
     unreached: [witness]
     steps:
