@@ -4,11 +4,11 @@ The journal is rebuild/out/cycle-timings.ndjson. It is gitignored with the rest 
 
 A "check" line records one evaluated check invocation: the check's name, the outcome (green, red, or skipped), the status string the evaluator printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it evaluates with its run id. The interactive entry points (rebuild.tools.rebuild_gate, rebuild.tools.make_test_gate, rebuild.tools.deep_replay, rebuild.tools.deep_sweep, and run_m1's CLI) record their checks with no run. Each invocation is recorded by one process: run_m1's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead, taking run_m1's red from the `[check]` line the child prints (`console.CHECK`) when the summaries it left do not say why it stopped. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. `make conform-deep`'s check line also carries each configuration's highest unit peak footprint beside the per-unit need its width was derived from. The outcome is what the evaluator decided, never the process's return code, so a run that died before its evaluator and a run the evaluator failed can be told apart. run_m1's CLI also records an invocation that refused before any gate ran, such as a pre-gate guard's refusal, as red with the status `REFUSED_STATUS`, so a refusal stays apart from both. run_m1's own check line, from an invocation that built tables, also carries that build's phase lines as `inner`, in a step line's form: the crate's lines, the `kernel_build_tables` line with its record, and the `readback` line with the settlement lookup's figures, both described below.
 
-A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. A step line from a metered pass also carries `written_bytes`, what the pass wrote from the step's spawn to its reap by the write meter (`write_meter`, read without the device at both ends), and `written_overlap`, the names of the steps whose windows overlapped it, empty for a window of its own. The build lane's steps run one after another, so a build step with no overlap reads its own writes, while a gate step, and a build step beside one, read the whole window's. A window that lost a reading, or whose figure fell to the device basis, carries neither field. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`), a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`) and a peak-footprint token `footprint_gb=<n>` (`peak_rss.footprint_token`), all in decimal GB, which are stored as `rss_gb`, `rss_now_gb` and `footprint_gb`. run_m1's `[t] kernel_build_tables` line ends with the table build's record (`run_m1.TableBuildRecord`) as `key=value` tokens, each stored under its key with the reader `TABLE_BUILD_TOKENS` names: the memo structure stamp (`structure`, `run_m1.memo_structure_stamp`, which hashes the code `code` covers beside what else the crate reads apart from the runes' content and the classes' membership, so two builds with one `code` and different `structure`s differ in their spec, their mode set, or the stamp's own code in run_m1.py or `spec_load.capability_features`), the digest of the code the table build runs (`code`, over `run_m1.table_build_code_paths`, which a letter batch's `M1_ALPHABET` edit does not touch), how many configurations read a previous build's memo (`memos_read`, 0 for a fresh build), the runes and predicate classes those memos excluded (`edited`, `classes`), the build's width (`width`), and the alphabet's rune count (`runes`), then with the `build-tables` process's own resident peak and peak footprint as `rss_gb` and `footprint_gb`, which the kernel-build row of `make job-costs` reads beside the step's peak. The journal is per machine, so two fresh builds in one machine's journal with the same code digest and width, one on each side of a letter batch, measure that batch's growth in the table build. run_m1's `[t] readback` line ends with the settlement lookup's size figures, each stored under its key with the reader `READBACK_TOKENS` names: HEAD's short commit id when the build ran (`commit`), the format-2 and format-3 subtable counts whose sum N the subtable-offset headroom is spent on (`settle_format2`, `settle_format3`), that headroom (`subtable_offset_headroom`), the GSUB lookup count (`gsub_lookups`), the merged rule count (`settle_rules`), and the largest packed group's rule bytes (`largest_group_rule_bytes`). The figures are the ones `readback_summary.json` holds, and they do not depend on the machine. The corpus build's `[t] review.build units` line opens its note with the width its units pool ran at, stored as `jobs` (`CORPUS_BUILD_TOKENS`): under a gated cycle that is the plan's `corpus_jobs` or, when the gate lane was idle as the pool started, its `corpus_gates_idle_jobs`. Its `[t] review.build manifest+check` line opens with the width its write ran at under the same key, the number of processes that wrote the shards (`build._write_corpus`). run_m1's `[t] replay_strings` line names the string replay's scope, `scope=full` when it walked every text and `scope=narrowed` when it walked only the texts of the changed runes, or none (`REPLAY_TOKENS`), and its `[t] baseline_subset` line says whether the subset refresh ran, `refreshed=true` or `refreshed=false`, and whether that refresh filtered to an M1 alphabet other than the one the previous subset stamp records, `alphabet_changed=true` or `alphabet_changed=false`, with no such token when that stamp predates the field and cannot say (`baseline_subset.Refresh`), each stored as a boolean (`BASELINE_SUBSET_TOKENS`). Older lines lack some or all of these tokens, and their phase entries lack those keys. A step line has a return code and no outcome, and no reader here derives an outcome from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
+A "step" line records one subprocess the cycle spawned: the driver's step name (run_m1, gate:conform, merge, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. A step line from a metered pass also carries `written_bytes`, what the pass wrote from the step's spawn to its reap by the write meter (`write_meter`, read without the device at both ends), and `written_overlap`, the names of the steps whose windows overlapped it, empty for a window of its own. The build lane's steps run one after another, so a build step with no overlap reads its own writes, while a gate step, and a build step beside one, read the whole window's. A window that lost a reading, or whose figure fell to the device basis, carries neither field. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_m1's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`), a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`) and a peak-footprint token `footprint_gb=<n>` (`peak_rss.footprint_token`), all in decimal GB, which are stored as `rss_gb`, `rss_now_gb` and `footprint_gb`. run_m1's `[t] kernel_build_tables` line ends with the table build's record (`run_m1.TableBuildRecord`) as `key=value` tokens, each stored under its key with the reader `TABLE_BUILD_TOKENS` names: the memo structure stamp (`structure`, `run_m1.memo_structure_stamp`, which hashes the code `code` covers beside what else the crate reads apart from the runes' content and the classes' membership, so two builds with one `code` and different `structure`s differ in their spec, their mode set, or the stamp's own code in run_m1.py or `spec_load.capability_features`), the digest of the code the table build runs (`code`, over `run_m1.table_build_code_paths`, which a letter batch's `M1_ALPHABET` edit does not touch), how many configurations read a previous build's memo (`memos_read`, 0 for a fresh build), the runes and predicate classes those memos excluded (`edited`, `classes`), the build's width (`width`), and the alphabet's rune count (`runes`), then with the `build-tables` process's own resident peak and peak footprint as `rss_gb` and `footprint_gb`, which the kernel-build row of `make job-costs` reads beside the step's peak. The journal is per machine, so two fresh builds in one machine's journal with the same code digest and width, one on each side of a letter batch, measure that batch's growth in the table build. run_m1's `[t] readback` line ends with the settlement lookup's size figures, each stored under its key with the reader `READBACK_TOKENS` names: HEAD's short commit id when the build ran (`commit`), the format-2 and format-3 subtable counts whose sum N the subtable-offset headroom is spent on (`settle_format2`, `settle_format3`), that headroom (`subtable_offset_headroom`), the GSUB lookup count (`gsub_lookups`), the merged rule count (`settle_rules`), and the largest packed group's rule bytes (`largest_group_rule_bytes`). The figures are the ones `readback_summary.json` holds, and they do not depend on the machine. The corpus build's `[t] review.build units` line opens its note with the width its units pool ran at, stored as `jobs` (`CORPUS_BUILD_TOKENS`): under a gated cycle that is the plan's `corpus_jobs` or, when the gate lane was idle as the pool started, its `corpus_gates_idle_jobs`. Its `[t] review.build manifest+check` line opens with the width its write ran at under the same key, the number of processes that wrote the shards (`build._write_corpus`). run_m1's `[t] replay_strings` line names the string replay's scope, `scope=full` when it walked every text and `scope=narrowed` when it walked only the texts of the changed runes, or none (`REPLAY_TOKENS`), and its `[t] baseline_subset` line says whether the subset refresh ran, `refreshed=true` or `refreshed=false`, stored as a boolean (`BASELINE_SUBSET_TOKENS`). Older lines carry neither token, and their phase entries lack the key. A step line has a return code and no outcome, and no reader here derives an outcome from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
 
 A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv, and the carry's counts (`artifact_cycle.carry_counts` parses them from the carry's own output line). The plan block names the width of each pooled step (`sweep_jobs`, `corpus_jobs`, `corpus_gates_idle_jobs`, `signature_jobs`, `standing_fill_jobs`, `make_test_workers`, `contracts_workers` and `conform_jobs`), null for a step the pass skipped, and `corpus_gates_idle_jobs` also null on a pass that offers the corpus build no wider width; its `kernel_threads` and `replay_threads` are null only on a gates-only rerun. The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
 
-A metered pass's run line also carries a `written` block, from the write meter's readings as the pass started and after every step had joined (`write_meter.delta`): `basis` (`own`, `shared` or `device`; the meter's docstring says what each means), `bytes` (the pass's writes, an upper bound in the shared basis and the device's in the device one), `diskio_bytes` (the coalition's `byteswritten`, which misses what the kernel flushes on its own), `outsiders_bytes` and `outsiders_unread` in the shared basis only, `review_server_bytes` (the review server's own writes over the pass, which `bytes` leaves out), `device_bytes` and `swap_bytes`, which `machine_wide` names as the whole machine's and neither of which is netted, `class`, the pass's write class (`write_class`), and in the device basis the `warning` that says why. The block is null on a pass whose first or last reading failed, and older run lines lack it. Each write class has a ceiling on each host (`PASS_WRITE_CEILING_BYTES`, `write_ceiling`), and a pass over its class's ceiling prints a `[warn]` line and a summary line and never fails.
+A metered pass's run line also carries a `written` block, from the write meter's readings as the pass started and after every step had joined (`write_meter.delta`): `basis` (`own`, `shared` or `device`; the meter's docstring says what each means), `bytes` (the pass's writes, an upper bound in the shared basis and the device's in the device one), `diskio_bytes` (the coalition's `byteswritten`, which misses what the kernel flushes on its own), `outsiders_bytes` and `outsiders_unread` in the shared basis only, `review_server_bytes` (the review server's own writes over the pass, which `bytes` leaves out), `device_bytes` and `swap_bytes`, which `machine_wide` names as the whole machine's and neither of which is netted, `class`, the pass's write class (`write_class`), and in the device basis the `warning` that says why. The block is null on a pass whose first or last reading failed, and older run lines lack it. Beside the block, the cycle's run line carries `alphabet`, the M1 alphabet the subset stamp (`SUBSET_STAMP`) records once every step has joined, which is the alphabet the subset tables were last filtered to: `sha256`, a digest of its code points, and `codepoints`, how many it holds (`alphabet_record`). It is null when the stamp is missing or records no alphabet, and older run lines lack it. It sits beside the block so that a pass whose first or last reading failed still records it, since `write_class` compares it with the one the latest pass on this host that finished ok records (`previous_pass_alphabet`) to find a letter batch. Each write class has a ceiling on each host (`PASS_WRITE_CEILING_BYTES`, `write_ceiling`), and a pass over its class's ceiling prints a `[warn]` line and a summary line and never fails.
 
 A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's rebuild-lane spawns do. run_m1's conformance sweep and oracle shards and the review build's signature and corpus pools write them too. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
 
@@ -20,6 +20,7 @@ The file, the module, and the `make cycle-timings` target keep the "cycle-timing
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -40,6 +41,8 @@ from rebuild.tools.peak_rss import format_gb
 
 ROOT = Path(__file__).resolve().parents[2]
 JOURNAL = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
+# The stamp `baseline_subset.refresh` writes, restated here because this module must not import rebuild/pipeline (`alphabet_record` says why).
+SUBSET_STAMP = ROOT / "rebuild" / "out" / "m1" / "subset_stamp.json"
 FORMAT = "ams-cycle-timings/2"
 # The variable a pytest controller reads for its pool's unit name. Both gate wrappers and the root conftest import the name from here, so they agree with the journal's `unit` field and the units `make job-costs` checks.
 POOL_UNIT_ENV = "AMS_POOL_UNIT"
@@ -115,10 +118,7 @@ READBACK_TOKENS: dict[str, Callable[[str], object]] = {
 }
 CORPUS_BUILD_TOKENS: dict[str, Callable[[str], object]] = {"jobs": int}
 REPLAY_TOKENS: dict[str, Callable[[str], object]] = {"scope": _replay_scope}
-BASELINE_SUBSET_TOKENS: dict[str, Callable[[str], object]] = {
-    "refreshed": _true_or_false,
-    "alphabet_changed": _true_or_false,
-}
+BASELINE_SUBSET_TOKENS: dict[str, Callable[[str], object]] = {"refreshed": _true_or_false}
 PHASE_TOKENS: dict[str, Callable[[str], object]] = {
     **TABLE_BUILD_TOKENS,
     **READBACK_TOKENS,
@@ -263,7 +263,7 @@ def record_check(
 
 
 def parse_inner_timings(text: str) -> list[dict]:
-    """Return every `[t]` line in `text` as a phase entry: its label and seconds, the two RSS tokens and the peak-footprint token, and each `key=value` token `PHASE_TOKENS` names (the table build's record, the read-back's figures, the corpus build's units-pool and write widths, the string replay's scope, and whether the subset refresh ran and whether it changed the alphabet), read by that key's reader. A token whose value its reader rejects is left out, and every other part of the tail is dropped."""
+    """Return every `[t]` line in `text` as a phase entry: its label and seconds, the two RSS tokens and the peak-footprint token, and each `key=value` token `PHASE_TOKENS` names (the table build's record, the read-back's figures, the corpus build's units-pool and write widths, the string replay's scope and whether the subset refresh ran), read by that key's reader. A token whose value its reader rejects is left out, and every other part of the tail is dropped."""
     entries: list[dict] = []
     for match in INNER_LINE.finditer(text):
         entry: dict = {"label": match.group(1), "elapsed_s": float(match.group(2))}
@@ -290,29 +290,53 @@ def parse_inner_timings(text: str) -> list[dict]:
     return entries
 
 
-def write_class(run: Mapping, steps: Iterable[Mapping]) -> str | None:
-    """Return the write class of one cycle pass, the first of `PASS_WRITE_CEILING_BYTES`'s classes that applies, from its run line and its step lines, or None when none does. A pass is checked against the class of change it is, because a pass writes in proportion to what it changes.
+def alphabet_record(stamp: Path) -> dict | None:
+    """Return a run line's `alphabet` record from the subset stamp at `stamp`, which `baseline_subset.refresh` writes: `sha256`, a digest of the code points its `alphabet` field lists, and `codepoints`, how many it lists. None when the stamp is missing or malformed, or records no alphabet or one that does not parse. The stamp is read as JSON rather than through `baseline_subset`, because both conftests import this module and must not reach rebuild/pipeline (`rebuild/test_contracts_closure.py`), and because importing that module while the alphabet switch is set loads the spec."""
+    try:
+        payload = json.loads(stamp.read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return None
+    codes = payload.get("alphabet") if isinstance(payload, dict) else None
+    if not isinstance(codes, list):
+        return None
+    try:
+        codepoints = sorted({int(code, 16) for code in codes})
+    except TypeError, ValueError:
+        return None
+    text = ",".join(f"{codepoint:04X}" for codepoint in codepoints)
+    return {"sha256": hashlib.sha256(text.encode()).hexdigest(), "codepoints": len(codepoints)}
 
-    The step lines' phase entries come first. `letter-batch`: a `[t] baseline_subset` line says the subset refresh ran (`refreshed`) and filtered to an alphabet other than the one the previous subset stamp records (`alphabet_changed`), as a letter batch's `M1_ALPHABET` edit does. A refresh that keeps the alphabet, as one that a source table or the filter's code brings on does, and a line without the `alphabet_changed` token, which a refresh over a stamp that records no alphabet prints and which says nothing about the alphabet, fall through to the classes below as a pass without a refresh does. `full-replay`: a `[t] replay_strings` line says the string replay walked every text (`scope=full`), as after a crate or structure edit. `narrowed`: it walked only the changed runes' texts (`scope=narrowed`), as after a rune edit. The run line's plan block decides the rest. `gates-only`: a gates-only rerun (`rerun_gates_only`). On a pass that skipped run_m1, `corpus-only` when the corpus moved (a corpus build, a promotion or an assets refresh), `verdict-only` when a verdict-update step ran, `tests-only` when the only heavy work was a test gate (`HEAVY_GATE_STEPS`), and `nothing` when no heavy gate ran either (gate:js, review-facts and the job-costs steps run on every pass). None: a run line without a plan block, or a pass that ran run_m1 whose lines name neither a letter batch nor a replay scope, because it stopped before the replay or predates the tokens.
+
+def _alphabet_digest(record: object) -> str | None:
+    digest = record.get("sha256") if isinstance(record, Mapping) else None
+    return digest if isinstance(digest, str) else None
+
+
+def previous_pass_alphabet(host: str, runs: Iterable[Mapping]) -> Mapping | None:
+    """Return the `alphabet` record of the latest run line in `runs`, in journal order, from `host` that finished `ok` and records an alphabet, or None when there is none. A pass that failed or was interrupted is passed over, because it can stop short of a letter batch's work, and the pass that finishes that work is then classed against the alphabet from before the batch."""
+    previous: Mapping | None = None
+    for run in runs:
+        record = run.get("alphabet")
+        if run.get("host") == host and run.get("exit") == "ok" and _alphabet_digest(record) is not None:
+            previous = record
+    return previous
+
+
+def write_class(run: Mapping, steps: Iterable[Mapping], previous: Mapping | None = None) -> str | None:
+    """Return the write class of one cycle pass, the first of `PASS_WRITE_CEILING_BYTES`'s classes that applies, from its run line, its step lines and `previous`, the `alphabet` record of this host's latest pass that finished ok (`previous_pass_alphabet`), or None when none does. A pass is checked against the class of change it is, because a pass writes in proportion to what it changes.
+
+    `letter-batch` comes first: the run line's `alphabet` record (`alphabet_record`) and `previous` name different alphabets, as they do across a letter batch's `M1_ALPHABET` edit. The record is the alphabet the subset tables were last filtered to, so a batch whose refilter ran in a run_m1 before the pass is one too. A pass without a record, or without a `previous`, takes its class from the rules below. The step lines' phase entries come next. `full-replay`: a `[t] replay_strings` line says the string replay walked every text (`scope=full`), as after a crate or structure edit. `narrowed`: it walked only the changed runes' texts (`scope=narrowed`), as after a rune edit. The run line's plan block decides the rest. `gates-only`: a gates-only rerun (`rerun_gates_only`). On a pass that skipped run_m1, `corpus-only` when the corpus moved (a corpus build, a promotion or an assets refresh), `verdict-only` when a verdict-update step ran, `tests-only` when the only heavy work was a test gate (`HEAVY_GATE_STEPS`), and `nothing` when no heavy gate ran either (gate:js, review-facts and the job-costs steps run on every pass). None: a run line without a plan block, or a pass that is no letter batch and ran run_m1 whose lines name no replay scope, because it stopped before the replay or predates the token.
     """
+    current = _alphabet_digest(run.get("alphabet"))
+    if current is not None and _alphabet_digest(previous) not in (None, current):
+        return "letter-batch"
     names: set[object] = set()
-    letter_batch = False
     scopes: set[object] = set()
     for step in steps:
         names.add(step.get("name"))
         for item in step.get("inner") or ():
-            if not isinstance(item, Mapping):
-                continue
-            if (
-                item.get("label") == "baseline_subset"
-                and item.get("refreshed") is True
-                and item.get("alphabet_changed") is True
-            ):
-                letter_batch = True
-            if item.get("label") == "replay_strings":
+            if isinstance(item, Mapping) and item.get("label") == "replay_strings":
                 scopes.add(item.get("scope"))
-    if letter_batch:
-        return "letter-batch"
     if "full" in scopes:
         return "full-replay"
     if "narrowed" in scopes:
@@ -408,11 +432,19 @@ def _written_block(change: write_meter.WriteDelta, write_class_name: str | None)
 class CycleTimings:
     """The journal writer for one cycle run. `wrap_spawn` wraps the driver's spawn callable so each subprocess that ran records a step line when it completes; `record_check` records a check result under this run; `finish` records the run line from the built cycle summary. Appends are serialized by the module lock, because the gate tasks spawn from pool threads, and an unwritable journal warns once and never fails the cycle. Any other keyword argument a caller passes to a spawn, such as a per-child environment, is passed through unchanged.
 
+    `subset_stamp`, when given, names the subset stamp `finish` reads the run line's `alphabet` record from (`alphabet_record`); the cycle names `SUBSET_STAMP`.
+
     `meter`, when given, takes one write-meter reading (`write_meter.read`, with the review server's pid named) and is called with whether to read the device: once here, as the pass starts, without the device at each step's spawn and reap, and with it in `finish`, after every step has joined. `wrap_spawn` sets each window's figure on the step's result as `written_bytes`, with the sorted names of the steps whose windows overlapped it as `written_overlap`, where `record_step` and the driver's summary table read them. The open windows are tracked across threads, because the gate pool's steps run beside the build lane's. A reading never fails the pass: one that raises is dropped and the first such raise prints a `[warn]` line, so a window that lost a reading has no figure and a pass that lost its first or last reading has no `written` block.
     """
 
-    def __init__(self, path: Path, meter: Callable[[bool], write_meter.WriteReading] | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        meter: Callable[[bool], write_meter.WriteReading] | None = None,
+        subset_stamp: Path | None = None,
+    ) -> None:
         self.path = path
+        self._subset_stamp = subset_stamp
         self.run_id = uuid.uuid4().hex[:12]
         self.host = socket.gethostname()
         self.started_at = _utc_stamp()
@@ -473,8 +505,9 @@ class CycleTimings:
         record_check(result, run=self.run_id, path=self.path, **kw)
 
     def finish(self, summary: dict) -> PassWrites | None:
-        """Record the run line from the built cycle summary, with the pass's `written` block when a meter is set, and return what the meter read, or None without a meter. The block is null when the pass's first or last reading failed. A figure that fell to the device basis prints its reason as a `[warn]` line, and so does a pass over its class's ceiling."""
-        writes = self._pass_writes(summary.get("plan"))
+        """Record the run line from the built cycle summary, with the pass's `alphabet` record when a subset stamp is named and its `written` block when a meter is set, and return what the meter read, or None without a meter. The block is null when the pass's first or last reading failed. A figure that fell to the device basis prints its reason as a `[warn]` line, and so does a pass over its class's ceiling."""
+        alphabet = None if self._subset_stamp is None else alphabet_record(self._subset_stamp)
+        writes = self._pass_writes(summary.get("plan"), alphabet)
         self._append(
             {
                 "format": FORMAT,
@@ -494,26 +527,32 @@ class CycleTimings:
                 "argv": summary.get("argv"),
                 "carry": summary.get("carry"),
                 "written": None if writes is None else writes.block,
+                "alphabet": alphabet,
             }
         )
         return writes
 
-    def _pass_writes(self, plan: object) -> PassWrites | None:
+    def _pass_writes(self, plan: object, alphabet: dict | None) -> PassWrites | None:
         if self._meter is None:
             return None
         end = self._read(device=True)
-        write_class_name = write_class({"plan": plan}, self._steps)
+        runs: list[dict] | None
+        try:
+            runs = load_runs(self.path)
+        except (OSError, ValueError) as exc:
+            warn(
+                f"write meter: the journal could not be read for the previous pass's alphabet and the class's ceiling ({exc!r})"
+            )
+            runs = None
+        previous = None if runs is None else previous_pass_alphabet(self.host, runs)
+        write_class_name = write_class({"plan": plan, "alphabet": alphabet}, self._steps, previous)
         if self._start is None or end is None:
             warn("write meter: the pass's first or last reading failed, so its run line has no written block")
             return PassWrites(None, write_class_name, None)
         change = write_meter.delta(self._start, end)
         if change.warning is not None:
             warn(change.warning)
-        try:
-            ceiling = write_ceiling(write_class_name, self.host, load_runs(self.path))
-        except (OSError, ValueError) as exc:
-            warn(f"write meter: the journal could not be read for the class's ceiling ({exc!r})")
-            ceiling = None
+        ceiling = None if runs is None else write_ceiling(write_class_name, self.host, runs)
         writes = PassWrites(_written_block(change, write_class_name), write_class_name, ceiling)
         if writes.over:
             warn(

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -179,24 +180,22 @@ def test_parse_inner_timings_reads_the_readback_figures():
 
 
 def test_parse_inner_timings_reads_the_replay_scope_and_the_subset_refresh():
-    """run_m1's `replay_strings` line names the replay's scope and its `baseline_subset` line whether the refresh ran and whether it changed the alphabet, kept as text and as booleans. A line written before a token existed, the subset line's old parenthetical included, still parses and lacks the key, and a value no reader knows is left out."""
+    """run_m1's `replay_strings` line names the replay's scope and its `baseline_subset` line whether the refresh ran, kept as text and as a boolean. A line written before either token existed, the subset line's old parenthetical included, still parses and lacks the key, and a value neither reader knows is left out."""
     text = "\n".join(
         [
-            "[t] baseline_subset 0.4s refreshed=true alphabet_changed=true",
-            "[t] baseline_subset 0.1s refreshed=false alphabet_changed=false",
             "[t] baseline_subset 0.4s refreshed=true",
+            "[t] baseline_subset 0.1s refreshed=false",
             "[t] replay_strings 26.0s scope=full rss_gb=3.10",
             "[t] replay_strings 2.0s scope=narrowed rss_gb=1.20",
             "[t] baseline_subset 0.1s (refiltered)",
             "[t] replay_strings 25.0s rss_gb=3.00",
-            "[t] baseline_subset 0.1s refreshed=yes alphabet_changed=no",
+            "[t] baseline_subset 0.1s refreshed=yes",
             "[t] replay_strings 1.0s scope=partial",
         ]
     )
     assert ct.parse_inner_timings(text) == [
-        {"label": "baseline_subset", "elapsed_s": 0.4, "refreshed": True, "alphabet_changed": True},
-        {"label": "baseline_subset", "elapsed_s": 0.1, "refreshed": False, "alphabet_changed": False},
         {"label": "baseline_subset", "elapsed_s": 0.4, "refreshed": True},
+        {"label": "baseline_subset", "elapsed_s": 0.1, "refreshed": False},
         {"label": "replay_strings", "elapsed_s": 26.0, "rss_gb": 3.1, "scope": "full"},
         {"label": "replay_strings", "elapsed_s": 2.0, "rss_gb": 1.2, "scope": "narrowed"},
         {"label": "baseline_subset", "elapsed_s": 0.1},
@@ -331,7 +330,17 @@ def test_finish_defaults_missing_summary_keys_to_null(tmp_path):
     (entry,) = _lines(path)
     assert all(
         entry[key] is None
-        for key in ("exit", "interrupted", "failures", "gates", "plan", "argv", "carry", "written")
+        for key in (
+            "exit",
+            "interrupted",
+            "failures",
+            "gates",
+            "plan",
+            "argv",
+            "carry",
+            "written",
+            "alphabet",
+        )
     )
 
 
@@ -431,39 +440,11 @@ def _phases(*lines):
     [
         (
             {"skip_run_m1": False},
-            _phases(
-                "[t] baseline_subset 0.4s refreshed=true alphabet_changed=true",
-                "[t] replay_strings 26.0s scope=full",
-            ),
-            "letter-batch",
-        ),
-        (
-            {"skip_run_m1": False},
-            _phases(
-                "[t] baseline_subset 0.4s refreshed=true alphabet_changed=false",
-                "[t] replay_strings 26.0s scope=full",
-            ),
+            _phases("[t] baseline_subset 0.4s refreshed=true", "[t] replay_strings 26.0s scope=full"),
             "full-replay",
-        ),
-        (
-            {"skip_run_m1": False},
-            _phases(
-                "[t] baseline_subset 0.1s refreshed=false alphabet_changed=false",
-                "[t] replay_strings 26.0s scope=full",
-            ),
-            "full-replay",
-        ),
-        (
-            {"skip_run_m1": False},
-            _phases("[t] baseline_subset 0.4s refreshed=true", "[t] replay_strings 2.0s scope=narrowed"),
-            "narrowed",
         ),
         ({"skip_run_m1": False}, _phases("[t] replay_strings 2.0s scope=narrowed"), "narrowed"),
-        (
-            {"rerun_gates_only": True},
-            _phases("[t] baseline_subset 0.1s refreshed=false alphabet_changed=false"),
-            "gates-only",
-        ),
+        ({"rerun_gates_only": True}, _phases("[t] baseline_subset 0.1s refreshed=false"), "gates-only"),
         ({"skip_run_m1": True, "skip_corpus": False}, [], "corpus-only"),
         ({"skip_run_m1": True, "skip_corpus": True, "refresh_assets": True}, [], "corpus-only"),
         ({"skip_run_m1": True, "skip_corpus": True}, [{"name": "verdict-update"}], "verdict-only"),
@@ -478,8 +459,43 @@ def _phases(*lines):
     ],
 )
 def test_write_class_takes_the_first_class_that_applies(plan, steps, expected):
-    """The run_m1 tokens decide first, in the order letter batch, full replay, narrowed replay; the plan flags decide the rest. A letter batch is a subset refresh that changed the alphabet: a refresh over the same alphabet, as a code edit brings on, and a refresh line without the `alphabet_changed` token, as a refresh over a stamp that records no alphabet prints, fall through to the replay's scope. A pass that ran run_m1 without a letter batch or a replay scope, such as one that stopped before the replay, has no class. A pass whose only heavy work was a test gate is `tests-only`."""
+    """Without an alphabet to compare, the run_m1 tokens decide first, full replay before narrowed replay, and the plan flags decide the rest. A subset refresh is not a letter batch by itself, since a code edit brings one on too. A pass that ran run_m1 without a replay scope, such as one that stopped before the replay, has no class. A pass whose only heavy work was a test gate is `tests-only`."""
     assert ct.write_class({"plan": plan}, steps) == expected
+
+
+def test_a_pass_whose_alphabet_differs_from_the_previous_finished_passs_is_a_letter_batch(tmp_path):
+    """The run line records the alphabet the subset stamp holds once the pass's steps have joined (`alphabet_record`), so a letter batch whose refilter ran in a run_m1 before the pass, which then skips run_m1, still shows. The pass is a letter batch, ahead of the class its plan gives it, when that alphabet differs from the one the latest run line from this host that finished ok records (`previous_pass_alphabet`); a failed pass, another host's and a run line with no record are passed over. With no such run line, or no alphabet of its own, the pass takes its class from the other rules."""
+    stamp = tmp_path / "subset_stamp.json"
+    path = tmp_path / "j.ndjson"
+
+    def stamped(codes):
+        stamp.write_text(json.dumps({"format": "ams-baseline-subset-stamp/2", "alphabet": codes}))
+        return ct.alphabet_record(stamp)
+
+    def finish():
+        timings = ct.CycleTimings(path, meter=_Meter(), subset_stamp=stamp)
+        timings.finish({"exit": "ok", "plan": {"skip_run_m1": True, "skip_corpus": False}})
+        run = _lines(path)[-1]
+        return run["alphabet"], run["written"]["class"]
+
+    before = stamped(["0020", "E650"])
+    assert before == {"sha256": hashlib.sha256(b"0020,E650").hexdigest(), "codepoints": 2}
+    assert finish() == (before, "corpus-only")
+    after = stamped(["0020", "E650", "E651"])
+    host = socket.gethostname()
+    _write_journal(
+        path,
+        [
+            *_lines(path),
+            {"kind": "run", "run": "failed", "host": host, "exit": "failed", "alphabet": after},
+            {"kind": "run", "run": "elsewhere", "host": "elsewhere", "exit": "ok", "alphabet": after},
+            {"kind": "run", "run": "unrecorded", "host": host, "exit": "ok", "alphabet": None},
+        ],
+    )
+    assert finish() == (after, "letter-batch")
+    assert finish() == (after, "corpus-only")
+    stamp.unlink()
+    assert finish() == (None, "corpus-only")
 
 
 def test_write_ceiling_is_this_hosts_first_three_metered_passes_plus_a_quarter(monkeypatch):

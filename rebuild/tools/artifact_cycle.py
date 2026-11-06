@@ -5678,10 +5678,14 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
 
         report = CycleReport()
         from rebuild.tools import write_meter
-        from rebuild.tools.cycle_timings import CycleTimings
+        from rebuild.tools.cycle_timings import SUBSET_STAMP, CycleTimings
 
         server_pid = review_server_pid() if probe.kind in ("current", "stale") else None
-        timings = CycleTimings(CYCLE_TIMINGS, meter=functools.partial(write_meter.read, named=server_pid))
+        timings = CycleTimings(
+            CYCLE_TIMINGS,
+            meter=functools.partial(write_meter.read, named=server_pid),
+            subset_stamp=SUBSET_STAMP,
+        )
         # run_m1's CLI and the make_test_gate wrapper skip writing their own check line to the timings journal when this is set, because the cycle records it. It goes in the environment because the wrapper runs as a grandchild, under the `make test` recipe, where an argv flag would not reach it.
         os.environ[CYCLE_RUN_ENV] = timings.run_id
 

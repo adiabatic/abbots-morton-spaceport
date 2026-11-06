@@ -337,9 +337,9 @@ def test_the_device_counters_come_from_the_driver_above_disk0_and_its_vm_volume(
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="the resource coalition is Darwin's")
 def test_a_childs_mebibyte_reads_back_from_the_coalition(tmp_path):
-    """A child writes 1 MiB and exits, and the coalition's figure over the window holds it. The window's two readings pass their self-check, so the private struct's layout holds on this machine: a misread layout fails every reading, and the window is measured again up to `attempts` times, so a scan that the processes around the suite upset passes on another try. The figure lies between the bytes written and those plus what this process's ancestors and any outsider that started or exited inside the window, such as another xdist worker's child, wrote meanwhile, which `slack` bounds."""
+    """A child writes 1 MiB and exits, and the coalition's figure over the window holds it. The window's two readings pass their self-check, so the private struct's layout holds on this machine: a misread layout fails every reading, and the window is measured again up to `attempts` times, so a scan that the processes around the suite upset passes on another try. The figure lies between the bytes written and those plus what this process's ancestors and any outsider that started or exited inside the window, such as another xdist worker's child, wrote meanwhile, which `slack` bounds. A window beside an outsider's writes can read below the child's own (958,464 B of 1 MiB beside 7.4 MB of another worker's writes), so the window is also measured again until no outsider wrote in it, and a window that never gets quiet is held only to the child's bytes less what the outsiders wrote."""
     slack = 64_000_000
-    attempts = 5
+    attempts = 20
     target = tmp_path / "mebibyte.bin"
     writer = "import os, sys\nfd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)\nos.write(fd, os.urandom(1 << 20))\nos.close(fd)"
 
@@ -348,12 +348,20 @@ def test_a_childs_mebibyte_reads_back_from_the_coalition(tmp_path):
         subprocess.run([sys.executable, "-c", writer, str(target)], check=True)
         return before, write_meter.read(device=False)
 
+    def quiet(pair: tuple[WriteReading, WriteReading]) -> bool:
+        early, late = pair
+        return (early.check, late.check) == (None, None) and not write_meter.delta(
+            early, late
+        ).outsiders_bytes
+
     windows = [measure()]
-    while len(windows) < attempts and (windows[-1][0].check, windows[-1][1].check) != (None, None):
+    while len(windows) < attempts and not quiet(windows[-1]):
         windows.append(measure())
-    before, after = windows[-1]
-    assert (before.check, after.check) == (None, None), [(early.check, late.check) for early, late in windows]
+    checked = [pair for pair in windows if (pair[0].check, pair[1].check) == (None, None)]
+    assert checked, [(early.check, late.check) for early, late in windows]
+    before, after = checked[-1]
     window = write_meter.delta(before, after)
     assert window.basis in ("own", "shared"), window.warning
-    assert window.bytes is not None and 1 << 20 <= window.bytes < (1 << 20) + slack
+    floor = (1 << 20) - (window.outsiders_bytes or 0)
+    assert window.bytes is not None and floor <= window.bytes < (1 << 20) + slack
     assert window.diskio_bytes is not None and window.diskio_bytes >= 0

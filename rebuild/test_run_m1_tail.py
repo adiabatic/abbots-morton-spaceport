@@ -360,11 +360,7 @@ def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None
     )
     monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(
-        run_m1_gates.baseline_subset,
-        "ensure_fresh",
-        lambda repo_root, before_refilter: run_m1_gates.baseline_subset.Refresh(
-            refreshed=False, alphabet_changed=False
-        ),
+        run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root, before_refilter: False
     )
     monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)
     monkeypatch.setattr(run_m1, "settle_memo_inputs", lambda: None)
