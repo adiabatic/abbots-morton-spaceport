@@ -1960,6 +1960,46 @@ class TestTheReplayStage:
             (run_m1.REPLAY_POOL_UNIT, 3, {"per walk": 3_000_000_000})
         ]
 
+    def test_each_absorb_that_answers_records_its_workers_peak_footprint(self, monkeypatch, tmp_path):
+        """After a full replay, each settle-memo absorb that answers records its worker's peak footprint as one `<config> absorb` reading of a `replay-absorb` pool record, the row `make job-costs` reads it under; an absorb whose dump the crate never wrote warns and records nothing. The pool is stubbed with threads, so the stubbed absorb and footprint reach the workers."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        from rebuild.tools import calibrate_budgets, cycle_timings
+
+        def replay_strings(
+            spec,
+            out_dir,
+            configs,
+            *,
+            max_length,
+            families,
+            threads,
+            timings=False,
+            memo_dir=None,
+            on_peak=None,
+        ):
+            for config in configs:
+                if config != "ss08":
+                    kernel_exec.replay_memo_dump(out_dir, config).write_bytes(b"")
+            return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
+
+        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs, units: ThreadPoolExecutor(max_workers=units))
+        monkeypatch.setattr(run_m1.conform, "absorb_replay_memo", lambda dump, memo, spec, config: 7)
+        monkeypatch.setattr(run_m1, "peak_footprint_bytes", lambda: 315_000_000)
+        digests = {name: f"d-{name}" for name in SPEC.runes}
+        inputs = oracle_cache.SettleMemoInputs(rune_digests=dict(digests), oracle_code="code", data="data")
+        run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)
+        records = [
+            record
+            for record in cycle_timings.load_pool_records(cycle_timings.JOURNAL)
+            if record["unit"] == run_m1.REPLAY_ABSORB_POOL_UNIT
+        ]
+        assert [record["worker_peak_rss_bytes"] for record in records] == [
+            {f"{config} absorb": 315_000_000 for config in conform.SETTLEMENT_CONFIGS if config != "ss08"}
+        ]
+        assert any(run_m1.REPLAY_ABSORB_POOL_UNIT in unit.pool_units for unit in calibrate_budgets.UNITS)
+
     def test_the_stage_walks_at_its_own_width_and_a_stated_one_is_only_ever_narrowed(
         self, monkeypatch, tmp_path
     ):

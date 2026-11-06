@@ -6,7 +6,7 @@
 
 Resident set under-reads a process under memory pressure: on Darwin the pages the compressor holds and the pages swapped out count in neither the resident set nor `ru_maxrss`. `footprint_bytes` and `peak_footprint_bytes` read what the process costs the machine instead, for any live pid this user owns. On Darwin that is `proc_pid_rusage`'s `rusage_info_v4` through `ctypes`: `ri_phys_footprint` now and `ri_lifetime_max_phys_footprint` over the process's life, the figures Activity Monitor and `top` report as memory. On Linux the current figure is `/proc/<pid>/status`'s `VmRSS` plus `VmSwap` and the peak is its `VmHWM`, a resident peak that leaves out what was swapped out. Elsewhere the current figure is None and the peak falls back to `ru_maxrss` for this process and None for another. Another process's peak footprint is readable until it is reaped, so `reap_peaks_bytes` reads a child's between its exit and its reap and returns it beside the resident peak `reap_peak_rss_bytes` reads; `footprint_token` writes it on a `[t]` line beside `rss_token`.
 
-`swap_used_bytes` is the machine's swap in use, for a report to show beside a pool's footprint so a run short of memory is visible in its log: Darwin's `vm.swapusage` through `sysctlbyname`, or `/proc/meminfo`'s `SwapTotal` less `SwapFree` on Linux. It lags and does not fall back when the pressure ends, which is why `memory_budget` never sizes a pool from it. `parse_compressor_bytes` reads the memory Darwin's compressor occupies from a `vm_stat` text, for the memory series to log beside it.
+`swap_used_bytes` is the machine's swap in use, for a report to show beside a pool's footprint so a run short of memory is visible in its log: Darwin's `vm.swapusage` through `sysctlbyname`, or `/proc/meminfo`'s `SwapTotal` less `SwapFree` on Linux. It lags and does not fall back when the pressure ends, which is why `memory_budget` never sizes a pool from it. `parse_compressor_bytes` reads the memory Darwin's compressor occupies from a `vm_stat` text, and `parse_swapouts` the pages it has written to swap since boot, for the memory series (`rebuild/tools/memory_series.py`) to log beside it; a swapout delta, unlike `vm.swapusage`, counts what a step sent to swap whatever the swap held before.
 
 The module imports only the standard library, so the pipeline, the corpus build and `tools/build_font.py` (through `memory_budget`) can import it without adding any other module to their import closures.
 """
@@ -101,6 +101,15 @@ def _linux_status_bytes(pid: int) -> dict[str, int]:
     return {name: int(kib) * 1024 for name, kib in _STATUS_KIB.findall(text)}
 
 
+def resident_bytes(pid: int | None = None, platform: str = sys.platform) -> int | None:
+    """Return the resident set of `pid` (this process when None) now, in bytes, or None when it cannot be read: `proc_pid_rusage`'s `ri_resident_size` on Darwin and `/proc/<pid>/status`'s `VmRSS` on Linux. It leaves out the compressed and swapped pages `footprint_bytes` counts, so the two side by side show what the compressor holds of a process under pressure."""
+    target = os.getpid() if pid is None else pid
+    if platform == "darwin":
+        info = _darwin_rusage(target)
+        return None if info is None else int(info.ri_resident_size)
+    return _linux_status_bytes(target).get("VmRSS")
+
+
 def footprint_bytes(pid: int | None = None, platform: str = sys.platform) -> int | None:
     """Return the memory `pid` (this process when None) costs the machine now, in bytes, or None when it cannot be read: the process is gone or belongs to another user, or the platform has no source. Unlike a resident set it counts compressed and swapped pages, so it does not fall when the machine is under pressure. The module docstring names the source on each platform."""
     target = os.getpid() if pid is None else pid
@@ -157,6 +166,12 @@ def parse_compressor_bytes(vm_stat: str | None) -> int | None:
     page = re.search(r"page size of (\d+) bytes", vm_stat or "")
     pages = re.search(r"Pages occupied by compressor:\s+(\d+)", vm_stat or "")
     return int(page.group(1)) * int(pages.group(1)) if page and pages else None
+
+
+def parse_swapouts(vm_stat: str | None) -> int | None:
+    """Return the swapout count a `vm_stat` text states, the pages Darwin has written to swap since boot, or None when the text lacks the line."""
+    found = re.search(r"^Swapouts:\s+(\d+)", vm_stat or "", re.MULTILINE)
+    return int(found.group(1)) if found else None
 
 
 def maxrss_to_bytes(ru_maxrss: int, platform: str = sys.platform) -> int:

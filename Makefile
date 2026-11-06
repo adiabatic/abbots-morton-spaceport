@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep replay-deep fault-kit standing-daemon standing-daemon-stop prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep replay-deep fault-kit memory-series standing-daemon standing-daemon-stop prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -172,6 +172,10 @@ replay-deep:
 # Runs the fault kit (rebuild/tools/fault_kit.py) as a one-shot launchd job (rebuild/tools/job_launch.py), under its meter gate, following its log in tmp/fault-kit.log and exiting with its status; ARGS takes the kit's flags, and ARGS=--help lists them. The job runs the venv's interpreter, which the `uv run` that starts the launcher has synced, rather than `uv run`, so that the kit is the job's own process: the kit refuses unless the write meter's first reading is in the own basis, and under `uv run` the child that `caffeinate` forks to hold the job's sleep assertion would be uv's other child, outside the kit's tree. doc/perf-check.md § The fault kit describes the gate.
 fault-kit:
 	uv run python -m rebuild.tools.job_launch --kind fault-kit --log tmp/fault-kit.log -- .venv/bin/python -m rebuild.tools.fault_kit $(ARGS)
+
+# Runs the memory series (rebuild/tools/memory_series.py) as a one-shot launchd job (rebuild/tools/job_launch.py), following its log in tmp/memory-series.log and exiting with its status; it rewrites rebuild/memory-series.txt one line a step. ARGS takes the series' arguments, such as the rune counts to cut at, and ARGS=--help lists them. The job runs the venv's interpreter rather than `uv run`, as fault-kit's does, so that the series is the job's own process and the write meter reads each line's writes in the own basis. Each step reads the meter a minute before and five minutes after its build, so the waits alone add six minutes a step.
+memory-series:
+	uv run python -m rebuild.tools.job_launch --kind memory-series --log tmp/memory-series.log -- .venv/bin/python -m rebuild.tools.memory_series $(ARGS)
 
 # Compresses the built OTFs in site/ into WOFF2 files beside them. The compressions are independent, so they run in parallel, one per usable core. The count comes from `usable_cores`, which respects an affinity mask and a cgroup CPU quota that `getconf` and `sysctl` ignore. xargs's own `-P 0` would start as many processes as possible, with no limit.
 woff2: all

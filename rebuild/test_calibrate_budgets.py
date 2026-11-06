@@ -589,6 +589,21 @@ def test_a_signature_pool_record_goes_to_the_cores_bound_row(tmp_path, capsys):
     assert "40.00 GB" not in corpus_block
 
 
+@pytest.mark.parametrize("name", ["run-m1-parent", "replay-absorb"])
+def test_run_m1s_parent_and_the_replay_absorbs_are_reported_by_footprint_and_never_checked(
+    tmp_path, capsys, name
+):
+    """run_m1's own process and the string replay's settle-memo absorbs record their peak footprints under units of their own, and only their own rows read them. No constant books either, so `--check` passes at any reading and the row reports the figure."""
+    assert _unit(name).constant is None
+    assert [unit.name for unit in cb.UNITS if name in unit.pool_units] == [name]
+    path = _journal(tmp_path, [_pool(name, [40_000_000_000])])
+    code, out = _run(capsys, path, "--check")
+    assert code == 0
+    block = out.split(f"{name}  (no constant")[1].split("\n\n")[0]
+    assert "max 40.00 GB" in block
+    assert _unit(name).note in block
+
+
 def test_tolerance_admits_a_peak_that_only_just_exceeds_the_constant(tmp_path, capsys):
     peak = int(CONSTANTS["font-suite"] * 1.05)
     path = _journal(tmp_path, [_pool("font-suite", [peak])])

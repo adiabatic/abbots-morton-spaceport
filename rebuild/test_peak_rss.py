@@ -70,6 +70,24 @@ def test_the_current_reading_is_a_resident_set_under_the_peak():
 
 
 @pytest.mark.skipif(
+    sys.platform != "darwin" and not sys.platform.startswith("linux"), reason="no resident source here"
+)
+def test_another_live_processs_resident_set_reads_until_it_is_reaped():
+    """`resident_bytes` reads a live process this user owns, rising by the pages it touched, and None once it is reaped."""
+    touch = "import sys, time\nb = bytearray(64 * 1024 * 1024)\nfor i in range(0, len(b), 4096): b[i] = 1\nprint(flush=True)\ntime.sleep(30)"
+    child = subprocess.Popen([sys.executable, "-c", touch], stdout=subprocess.PIPE)
+    try:
+        assert child.stdout is not None
+        child.stdout.readline()
+        resident = peak_rss.resident_bytes(child.pid)
+        assert resident is not None and resident > 64 * 1024 * 1024
+    finally:
+        child.kill()
+        child.wait()
+    assert peak_rss.resident_bytes(child.pid) is None
+
+
+@pytest.mark.skipif(
     sys.platform != "darwin" and not sys.platform.startswith("linux"), reason="no footprint source here"
 )
 def test_the_footprint_counts_what_a_process_touches_and_reads_another_live_process():
@@ -111,6 +129,14 @@ def test_the_compressor_occupancy_is_its_pages_times_the_page_size():
     assert peak_rss.parse_compressor_bytes(vm_stat) == 236789 * 16384
     assert peak_rss.parse_compressor_bytes("Pages occupied by compressor:   5.\n") is None
     assert peak_rss.parse_compressor_bytes(None) is None
+
+
+def test_the_swapout_count_is_the_pages_vm_stat_states():
+    """`vm_stat`'s swapout count, in pages, and None when the text lacks the line."""
+    vm_stat = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nSwapins:     42967.\nSwapouts:    78296.\n"
+    assert peak_rss.parse_swapouts(vm_stat) == 78296
+    assert peak_rss.parse_swapouts("Swapins:   5.\n") is None
+    assert peak_rss.parse_swapouts(None) is None
 
 
 def test_reap_returns_the_child_peak_and_sets_returncode():

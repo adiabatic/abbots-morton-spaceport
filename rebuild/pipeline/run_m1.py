@@ -73,6 +73,7 @@ from rebuild.tools.memory_budget import usable_cores
 from rebuild.tools.peak_rss import (
     ReapedPeaks,
     footprint_token,
+    peak_footprint_bytes,
     peak_rss_self_bytes,
     process_peak_rss_bytes,
     rss_token,
@@ -1016,6 +1017,10 @@ REPLAY_FORMAT = "ams-m1-replay/1"
 REPLAY_SUMMARY = "replay_summary.json"
 # The pool unit a replay that walked any text records its per-walk peak under (`_record_replay_walk`), which the replay-walk row of `make job-costs` holds against `kernel_exec.REPLAY_PEAK_BYTES`.
 REPLAY_POOL_UNIT = "replay-walk"
+# The pool unit a full replay's settle-memo absorbs record their peak footprints under (`run_replay_strings`), one reading each, which the replay-absorb row of `make job-costs` reports without a constant.
+REPLAY_ABSORB_POOL_UNIT = "replay-absorb"
+# The pool unit a bare run records its own process's peak footprint under (`full_run`), which the run-m1-parent row of `make job-costs` reports without a constant.
+PARENT_POOL_UNIT = "run-m1-parent"
 RUNE_LABEL_PREFIX = "glyph_data/runes/"
 
 
@@ -1102,7 +1107,7 @@ def run_replay_strings(
 
     The walk also produces the settle memo. With `memo_inputs` (`settle_memo_inputs`, computed before the spec was loaded), every full replay asks the crate to write its window memo for each walked configuration beside the tables (`kernel_exec.replay_memo_dump`) and absorbs each one into the configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` computes. So the witness stage, the oracle and the conformance sweep load what the replay settled instead of settling it again. Only the walked configurations' files are touched, so a narrowed walk never dumps, reads, absorbs or deletes a configuration it did not walk. Every dump is deleted in this function whatever the walk or the absorb did, and a failed absorb is a warning, not a failure, since every reader settles what the file lacks. When any configuration's file is missing or fails `conform.settle_memo_standing`, every text is walked to refill it, which can widen the walk beyond what the structure stamp requires. The code `oracle_cache.settle_memo_stamp` hashes (`oracle_cache.oracle_code_paths`: the modules `oracle_cache.ORACLE_ROW_CODE_PATHS` names and the crate) is inside the build-side code `locality_lines` hashes, so an edit that moves that stamp's `oracle_code` line also moves the structure stamp. A narrowed walk (a rune edit) writes no memo and leaves the existing files to drop their own stale entries.
 
-    The record written beside the tables is what the next build's walk is narrowed against, so it carries the structure stamp and every rune digest as well as the counts. It is written whether the walk passed or failed: a disagreement is recorded with the crate's message, and `_run_table_gates` raises it as `SystemExit`. The width is `_replay_threads`: `replay_threads` when given, else the machine's memory divided by `kernel_exec.REPLAY_PEAK_BYTES` (what one configuration's walk holds: the trace memo over the windows its texts reach, plus the window memo's inverse label map and block buffer), capped at the configuration count and the cores, so every text replays in one round on both fleet machines. The absorbs run after the crate has exited, one spawn process per walked configuration at that same width. Each holds one configuration's dump, columns and probe index while it builds the file, a fraction of what `REPLAY_PEAK_BYTES` allows for one configuration, so they use the replay's width and have no constant of their own. A walk that answers records what one walk held (`_record_replay_walk`).
+    The record written beside the tables is what the next build's walk is narrowed against, so it carries the structure stamp and every rune digest as well as the counts. It is written whether the walk passed or failed: a disagreement is recorded with the crate's message, and `_run_table_gates` raises it as `SystemExit`. The width is `_replay_threads`: `replay_threads` when given, else the machine's memory divided by `kernel_exec.REPLAY_PEAK_BYTES` (what one configuration's walk holds: the trace memo over the windows its texts reach, plus the window memo's inverse label map and block buffer), capped at the configuration count and the cores, so every text replays in one round on both fleet machines. The absorbs run after the crate has exited, one spawn process per walked configuration at that same width. Each holds one configuration's dump, columns and probe index while it builds the file, a fraction of what `REPLAY_PEAK_BYTES` allows for one configuration, so they use the replay's width and have no constant of their own; each that answers records its worker's peak footprint as one reading of a `REPLAY_ABSORB_POOL_UNIT` pool record. A walk that answers records what one walk held (`_record_replay_walk`).
     """
     configs = tuple(configs)
     if inputs is not None and set(configs) != set(conform.SETTLEMENT_CONFIGS):
@@ -1159,17 +1164,27 @@ def run_replay_strings(
                 summary["pass"] = False
                 summary["error"] = str(error)
         if emitting and summary["pass"]:
+            peaks: dict[str, int] = {}
             with _spawn_pool(threads, len(memos)) as pool:
                 absorbs = {
                     config: pool.submit(_absorb_replay_memo, out_dir, config, memo, spec)
                     for config, memo in memos.items()
                 }
                 for config, future in absorbs.items():
-                    entries, seconds, error = future.result()
+                    entries, seconds, error, peak = future.result()
                     if error is not None:
                         console.warn(error)
                     else:
                         console.timing(f"settle_memo_emit {config}", seconds, f"entries={entries}")
+                    if peak is not None:
+                        peaks[f"{config} absorb"] = peak
+            if peaks:
+                record_pool(
+                    REPLAY_ABSORB_POOL_UNIT,
+                    width=min(threads, len(memos)),
+                    worker_peaks=peaks,
+                    controller_peak_bytes=peak_rss_self_bytes(),
+                )
     finally:
         for config in memos:
             with suppress(FileNotFoundError):
@@ -1191,17 +1206,19 @@ def _record_replay_walk(peak: int, *, walks: int) -> None:
 
 def _absorb_replay_memo(
     out_dir: Path, config: str, memo: conform.SettleMemoFile, spec: ResolvedSpec
-) -> tuple[int | None, float, str | None]:
-    """Absorb one configuration's window memo into its settle memo file, in a pool worker. Return the row count and the seconds the absorb took, which the parent reports as `[t] settle_memo_emit <config>`, or else a warning to print instead. A dump the crate never wrote, or one `conform.absorb_replay_memo` rejects, is only a warning, since the readers settle what the file lacks."""
+) -> tuple[int | None, float, str | None, int | None]:
+    """Absorb one configuration's window memo into its settle memo file, in a pool worker. Return the row count and the seconds the absorb took, which the parent reports as `[t] settle_memo_emit <config>`, and the worker's peak footprint (`peak_rss.peak_footprint_bytes`, or its resident peak where the footprint cannot be read), which the parent records (`REPLAY_ABSORB_POOL_UNIT`), or else a warning to print instead and no peak. A dump the crate never wrote, or one `conform.absorb_replay_memo` rejects, is only a warning, since the readers settle what the file lacks."""
     dump = kernel_exec.replay_memo_dump(out_dir, config)
     started = time.perf_counter()
     if not dump.is_file():
-        return None, 0.0, f"settle memo: the replay wrote no window memo for {config} at {dump}"
+        return None, 0.0, f"settle memo: the replay wrote no window memo for {config} at {dump}", None
     try:
         entries = conform.absorb_replay_memo(dump, memo, spec, config)
     except (kernel_exec.KernelRunError, OSError) as error:
-        return None, 0.0, f"settle memo: {dump} not absorbed ({error}); the readers settle instead"
-    return entries, time.perf_counter() - started, None
+        return None, 0.0, f"settle memo: {dump} not absorbed ({error}); the readers settle instead", None
+    seconds = time.perf_counter() - started
+    peak = peak_footprint_bytes()
+    return entries, seconds, None, peak if peak is not None else peak_rss_self_bytes()
 
 
 def run_rule_witnesses(
@@ -1398,7 +1415,7 @@ def full_run(
     scratch_beside_default: int | None = None,
     fresh_oracle_cache: bool = False,
 ) -> None:
-    """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the Stage A capture, the pre-gate guards, `run_ligature_outgoing`, the deletion of the Stage A record immediately before the run's first write (`run_m1_gates._retract_stage_a`; that write is the guards' refilter when the subset tables are stale, and the build otherwise), the build (`run`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the run_m1 gate, the Stage A record once that gate passes (`run_m1_gates._settle_stage_a`), the green record and the check line (timed from `started`). The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
+    """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the Stage A capture, the pre-gate guards, `run_ligature_outgoing`, the deletion of the Stage A record immediately before the run's first write (`run_m1_gates._retract_stage_a`; that write is the guards' refilter when the subset tables are stale, and the build otherwise), the build (`run`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the record of this process's own peak footprint (`PARENT_POOL_UNIT`, one reading, `run_m1_gates._peak_footprint`), then the run_m1 gate, the Stage A record once that gate passes (`run_m1_gates._settle_stage_a`), the green record and the check line (timed from `started`). The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
     from rebuild.pipeline import run_m1_gates
     from rebuild.tools.artifact_cycle import (
         _defect_gate_failure,
@@ -1478,6 +1495,12 @@ def full_run(
     finally:
         if gates is not None:
             gates.close()
+    record_pool(
+        PARENT_POOL_UNIT,
+        width=1,
+        worker_peaks={"parent": run_m1_gates._peak_footprint()},
+        controller_peak_bytes=peak_rss_self_bytes(),
+    )
     gate = evaluate_run_m1_gate(summary, pin_gate, oracle_summary)
     if gate.ok:
         run_m1_gates._settle_stage_a(OUT_DIR, stage)

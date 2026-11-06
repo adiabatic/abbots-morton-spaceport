@@ -20,13 +20,13 @@ A Python wrapper that calls M1 guards its entry point with `if __name__ == "__ma
 
 ## Launching the fault kit and the memory series
 
-`rebuild/tools/job_launch.py` runs a command as a one-shot launchd job. Launchd gives the job a resource coalition of its own, which every process the command starts joins, so the write meter (`rebuild/tools/write_meter.py`) counts the job's writes and no one else's. It is the launcher for the fault kit (`make fault-kit`, `doc/perf-check.md`) and the memory series, which has no harness yet. A cycle pass never launches through it: it runs where it is started, and the `nohup caffeinate -i …` recipe above is how to detach one.
+`rebuild/tools/job_launch.py` runs a command as a one-shot launchd job. Launchd gives the job a resource coalition of its own, which every process the command starts joins, so the write meter (`rebuild/tools/write_meter.py`) counts the job's writes and no one else's. It is the launcher for the fault kit (`make fault-kit`, `doc/perf-check.md`) and the memory series (`make memory-series`, `rebuild/tools/memory_series.py`). A cycle pass never launches through it: it runs where it is started, and the `nohup caffeinate -i …` recipe above is how to detach one.
 
 ```zsh
 uv run python -m rebuild.tools.job_launch --kind KIND --log tmp/KIND.log -- COMMAND …
 ```
 
-The fault kit launches through `make fault-kit ARGS='…'`, which runs the kit as the job's own process rather than under `uv run`, because its meter gate refuses unless the meter's first reading is in the own basis (the Makefile's comment on the target says why `uv run` would fail it).
+The fault kit launches through `make fault-kit ARGS='…'`, which runs the kit as the job's own process rather than under `uv run`, because its meter gate refuses unless the meter's first reading is in the own basis (the Makefile's comment on the target says why `uv run` would fail it). The memory series launches the same way through `make memory-series ARGS='…'`, so its lines' writes read in the own basis; run any other way, it still runs, and each line names the basis it read.
 
 - The launcher follows the log to the terminal and forwards SIGINT, SIGTERM and SIGHUP to the job, so Ctrl-C stops the job as it would stop the command run directly. Once the job exits, the launcher unloads it, deletes its plist from `var/jobs/`, and exits with the job's exit status, or with 125 and the reason when the launch itself failed.
 - `--detach` returns once the job runs and prints its label and pid. The job outlives the shell and the agent harness that launched it, since launchd runs it, and the `caffeinate -i` the launcher puts ahead of the command keeps idle sleep from suspending it.

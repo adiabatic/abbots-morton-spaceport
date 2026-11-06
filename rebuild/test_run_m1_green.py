@@ -344,6 +344,22 @@ def test_a_multi_matched_oracle_row_fails_the_run_and_clears_the_record(monkeypa
     assert _checks()[0]["outcome"] == "red"
 
 
+def test_a_bare_run_records_its_own_peak_footprint_once_its_oracle_and_branch_have_finished(
+    monkeypatch, tmp_path
+):
+    """A bare run whose oracle ran and whose table-only branch joined records run_m1's own process's peak footprint as the one reading of a `run-m1-parent` pool record, the row `make job-costs` reads it under, whatever its gate then decides: here the gate is red."""
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    _stub_full_run(monkeypatch, tmp_path, multi_matched=2)
+    monkeypatch.setattr(run_m1_gates, "_peak_footprint", lambda: 1_540_000_000)
+    with pytest.raises(SystemExit):
+        run_m1_gates.main([])
+    records = ct.load_pool_records(ct.JOURNAL)
+    assert [(r["unit"], r["width"], r["worker_peak_rss_bytes"]) for r in records] == [
+        (run_m1.PARENT_POOL_UNIT, 1, {"parent": 1_540_000_000})
+    ]
+    assert any(run_m1.PARENT_POOL_UNIT in unit.pool_units for unit in cb.UNITS)
+
+
 def test_an_interactive_run_files_the_gates_result(monkeypatch, tmp_path):
     """The check line records the gate's green despite the unmatched rows. It has no `run` field because no cycle started this run."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")

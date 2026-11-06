@@ -114,6 +114,15 @@ UNITS: tuple[Unit, ...] = (
         footprint_phase="kernel_build_tables",
     ),
     Unit(
+        name="run-m1-parent",
+        constant=None,
+        source=None,
+        pool_units=("run-m1-parent",),
+        step_names=(),
+        step_caveat="",
+        note="These pool records come from `run_m1.full_run`: one record per bare run_m1 that ran its oracle and joined its table-only branch, whatever its gate decided, with one observation, run_m1's own process's lifetime peak footprint (`run_m1_gates._peak_footprint`), never a child's. No constant books it: it runs beside the table build's crate, the string replay's crate and absorbs, and the oracle's pool, and none of their widths subtracts it, so it comes out of the reserve. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row reads. A `--gates-only` or `--conform-only` run writes nothing here, since its process holds a different collection. The figure follows the spec and the merged rules, so read it beside the alphabet a pass ran at.",
+    ),
+    Unit(
         name="replay-walk",
         constant="REPLAY_PEAK_BYTES",
         source=KERNEL_SOURCE,
@@ -123,6 +132,15 @@ UNITS: tuple[Unit, ...] = (
         note="These pool records come from `run_m1.run_replay_strings`: one record per replay that walked any text, at whatever width run_m1 ran it, with one observation, the `replay-strings` crate process's own peak RSS (`kernel_exec.replay_strings` reaps it with `os.wait4`) divided by the walks it ran at once. The walks are threads of that one process, so no reading per walk exists, and the share is the wide run's figure the constant's comment takes beside the solo walk's. A narrowed replay after a rune edit walks fewer texts and reads lower. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row measures. Nothing subtracts this constant or divides by it beside the replay, because the replay starts after the table build's process has exited.",
         headroom=1.25,
         quantum=100_000_000,
+    ),
+    Unit(
+        name="replay-absorb",
+        constant=None,
+        source=None,
+        pool_units=("replay-absorb",),
+        step_names=(),
+        step_caveat="",
+        note="These pool records come from `run_m1.run_replay_strings`: one record per full replay whose settle-memo absorbs ran, with one observation per absorb that answered, labeled `<config> absorb`, its worker's peak footprint (`peak_rss.peak_footprint_bytes`, or the resident peak where the footprint cannot be read). The absorbs run on a spawn pool at the replay's width once the crate has exited, one per walked configuration, and the pool reuses its workers: at the fleet's widths it has a worker for every absorb, so a reading is nearly always one absorb's own, while a worker that ran two reports the larger of their peaks. No constant books them: they hold a fraction of what `kernel_exec.REPLAY_PEAK_BYTES` allows a walk, which the replay-walk row checks, and run at its width. A narrowed replay writes no memo and so no record. The oracle's part absorbs are the oracle-absorb row's, and the conformance sweep's are among the conform-sweep row's readings.",
     ),
     Unit(
         name="corpus-parent",
