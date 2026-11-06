@@ -2509,7 +2509,7 @@ def build_plan(
             store_part = (
                 "the prepared store"
                 if do_merge
-                else "an empty store stamped for it that keeps the override section (the old one is stashed, as this pass carries nothing)"
+                else "an empty store stamped for it that keeps the override section (the old one is stashed, as this pass carries nothing), or the live store itself when the corpus keeps its stamp"
             )
             land_note = f"swaps {next_corpus} in for rebuild/out/review and puts {store_part} in place with it, under the verdict store's lock, with the saves made during the pass laid over it; the review server keeps running"
         plan.steps.append(Step("land", land_argv, land_note, lane="build"))
@@ -5396,7 +5396,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--no-merge",
         action="store_true",
-        help="carry only, merging neither the carry nor the fills into the store; a pass that moves the corpus still lands it, with an empty store stamped for it that keeps the store's override section (its verdicts on accepted units since the close-out) in place of verdicts-autosave.json, which is kept as verdicts-autosave-<old stamp>.json, so the store is left untouched only on a pass whose corpus does not move",
+        help="carry only, merging neither the carry nor the fills into the store; a pass that moves the corpus still lands it, with an empty store stamped for it that keeps the store's override section (its verdicts on accepted units since the close-out) in place of verdicts-autosave.json, which is kept as verdicts-autosave-<old stamp>.json; a corpus that moves but keeps its stamp keeps the store as it is",
     )
     parser.add_argument(
         "--carry-out",

@@ -464,6 +464,38 @@ def test_a_land_that_keeps_its_discard_leaves_the_old_tree_for_the_caller(repo):
     assert (repo["live"] / "units-000.json").read_text() == "new"
 
 
+def test_a_land_with_no_prepared_store_on_an_unchanged_stamp_keeps_the_live_stores_verdicts(repo):
+    """A `--no-merge` or `--no-carry` pass whose corpus moves but keeps its stamp (a rune `why:` reworded, which only Stage B reads) lands with no prepared store; the live store's own records, its skips and the saves made during the pass all stay, no stash is made, and the journal replays to the landed store."""
+    reject = record("u-1", "reject", at="2026-11-06T00:00:00Z")
+    skipped = record("u-2", "skip", at="2026-11-06T00:10:00Z")
+    journal.record_transition(
+        repo["journal"],
+        source="merge",
+        stamp="A",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[reject, skipped],
+    )
+    write(repo["autosave"], document("A", [reject, skipped]))
+    corpus(repo["next"], "A", ["u-1", "u-2", "u-3"])
+    landing.snapshot(repo["autosave"], repo["run"])
+    during = record("u-3", at="2026-11-06T00:20:00Z")
+    journal.record_transition(
+        repo["journal"],
+        source="merge",
+        stamp="A",
+        old_stamp="A",
+        old_verdicts=[reject, skipped],
+        new_verdicts=[reject, skipped, during],
+    )
+    write(repo["autosave"], document("A", [reject, skipped, during]))
+    result = land(repo, prepared=None)
+    assert result.landed
+    assert units(repo["autosave"]) == {entry["unit"]: entry for entry in (reject, skipped, during)}
+    assert not (repo["root"] / "verdicts-autosave-A.json").exists()
+    assert journal.replay(repo["journal"]) == ("A", units(repo["autosave"]))
+
+
 def test_a_land_with_no_prepared_store_lands_an_empty_store_on_the_new_stamp(repo):
     """A pass that carries nothing still lands its corpus with a store stamped for it, so saves keep working; the old store is stashed, and of the store's own records only a save made during the pass on a surviving unit is kept. The override section is kept whole, its skip becoming a tombstone at its `at`, so an accepted unit rejected or cleared since the close-out does not read as its accepted mark. No base is due, but a clear line for each unit the result drops would outnumber the result's records, so the land journals the result as a base."""
     field = write_list(repo, dict.fromkeys((ACCEPT_A, ACCEPT_B, ACCEPT_C), "approve"))

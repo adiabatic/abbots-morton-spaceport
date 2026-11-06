@@ -15,7 +15,7 @@ make close-out                   # the close-out's dry run; ARGS=--apply folds, 
 make cycle-timings               # what each step and check costs on this machine; ARGS=--help lists its flags
 ```
 
-Flags are passed to the cycle through `ARGS`. `--verdicts <file>` names the master to carry, `--fresh` runs every stage, `--force-make-test` forces that one gate, `--skip-gates` and `--no-merge` narrow a pass (a `--no-merge` or `--no-carry` pass that moves the corpus still lands it, with an empty store that keeps the override section in place of `verdicts-autosave.json`, which is kept as its stash), `--keep-history` skips retention, and `--stop-server` (which `make review-cycle` passes) permits the pass to stop a review server from before the land protocol, which is the only kind a pass ever stops.
+Flags are passed to the cycle through `ARGS`. `--verdicts <file>` names the master to carry, `--fresh` runs every stage, `--force-make-test` forces that one gate, `--skip-gates` and `--no-merge` narrow a pass (a `--no-merge` or `--no-carry` pass that moves the corpus still lands it, with an empty store that keeps the override section in place of `verdicts-autosave.json`, which is kept as its stash, or with the store as it is when the corpus keeps its stamp), `--keep-history` skips retention, and `--stop-server` (which `make review-cycle` passes) permits the pass to stop a review server from before the land protocol, which is the only kind a pass ever stops.
 
 `make review-cycle` serves in the foreground and never exits, so a caller that waits for the command to finish, such as an agent harness, uses `SERVE=0` or `SERVE=bg`. Stop a detached server the way the cycle does:
 
