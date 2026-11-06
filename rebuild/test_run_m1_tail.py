@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebuild.pipeline import conform, defects, fixtures, kernel_exec, run_m1, run_m1_gates
+from rebuild.pipeline import conform, defects, fixtures, kernel_exec, run_m1, run_m1_gates, spec_load
 from rebuild.pipeline import table as table_module
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import console, cycle_paths
@@ -562,12 +562,15 @@ class TestThePacking:
         ]
 
     def test_close_raises_a_pack_failure_rather_than_swallowing_it(self, monkeypatch, tmp_path):
+        """`close` raises the failure of a pack that raised, and a second `close` returns. Every pack refuses, so each plain window payload and memo file stays on disk, and the build runs on the mini fixture narrowed to ·Tea, ·May and ·It (`spec_load.narrowed`), whose files are a small fraction of the whole fixture's."""
+
         def refuse(payload, path):
             raise OSError(f"no room for {path.name}")
 
         monkeypatch.setattr(run_m1, "_pack_windows", refuse)
         packing = run_m1.Packing(2)
-        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, packing=packing)
+        spec = spec_load.narrowed(SPEC, ("qsTea", "qsMay", "qsIt"))
+        run_m1.build_tables(spec, tmp_path, inputs=STAMP, packing=packing)
         with pytest.raises(OSError, match="no room"):
             packing.close()
         packing.close()

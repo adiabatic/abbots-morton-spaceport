@@ -6,12 +6,12 @@ import ast
 from collections.abc import Iterator
 from pathlib import Path
 
-from rebuild.pipeline import conform, fixtures, kernel_exec, kernel_io, run_m1
+from rebuild.pipeline import conform, fixtures, kernel_exec, kernel_io, run_m1, spec_load
 from rebuild.tools import fault_kit
 from rebuild.tools.cycle_timings import CYCLE_RUN_ENV
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SPEC = fixtures.mini_spec()
+SPEC = spec_load.narrowed(fixtures.mini_spec(), ("qsTea", "qsMay", "qsIt"))
 MEMO_READ = "rebuild.pipeline.run_m1:previous_memos"
 MEMO_FILE_NAMES = frozenset(
     {"rebuild.pipeline.kernel_exec:memo_path", "rebuild.pipeline.kernel_exec:read_memo_head"}
@@ -20,7 +20,7 @@ MEMO_READERS = frozenset({MEMO_READ, *MEMO_FILE_NAMES, "rebuild.pipeline.kernel_
 
 
 def test_only_the_fault_kit_sends_the_memo_files_to_the_null_sink(monkeypatch, tmp_path):
-    """A stamped table build under the kit's step environment (`fault_kit.step_env`) writes the tables and digests a cycle pass's build writes and no memo file, where the cycle pass's build writes one per configuration. Under the kit an unstamped build passes no sink, which the crate would refuse."""
+    """A stamped table build under the kit's step environment (`fault_kit.step_env`) writes the tables and digests a cycle pass's build writes and no memo file, where the cycle pass's build writes one per configuration. Under the kit an unstamped build passes no sink, which the crate would refuse. The builds run on the mini fixture narrowed to ·Tea, ·May and ·It (`spec_load.narrowed`), whose tables and memo files are a small fraction of the whole fixture's and still span `default` and its deltas."""
     spec_path = tmp_path / "spec.json"
     kernel_io.write_spec(SPEC, spec_path)
     kernel_exec.ensure_built()

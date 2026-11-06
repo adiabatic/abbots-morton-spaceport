@@ -1009,9 +1009,10 @@ class TestTheKernelInvocation:
         assert code() != before
 
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
-        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The mini fixture's `ss03` unlocks a half-·Tea x-height entry, so the delta has windows to share and windows to settle itself. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration. So must those of a run three wide that starts the two heaviest deltas from scratch beside `default` and runs `ss04` and `ss05` as deltas: in the mini fixture `ss03` and `ss03+ss05` unlock the same runes, so they form the top tier the crate takes whole (`fanout::scratch_tiers`). Its memo files show that schedule ran, because a configuration enumerated from scratch memoizes every window it settles, while a delta memoizes only what `default`'s memo could not answer. A run that serves the deltas none of `default`'s liveness verdicts writes the sharing run's tables and memo files, byte for byte."""
+        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The four runs build the mini fixture narrowed to ·Tea, ·Day, ·May and ·It (`spec_load.narrowed`), whose window enumerations and memo files are a small fraction of the whole fixture's. There `ss03` allows `·May ~x~ ·Tea.half` and `ss04` allows `·Day ~b~ ·It ~b~ ·May`, so those deltas have windows to share and windows to settle themselves. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration. So must those of a run three wide that starts the two heaviest deltas from scratch beside `default` and runs `ss04` and `ss05` as deltas: `ss03` and `ss03+ss05` unlock the same two runes, ·Tea and ·May, where `ss04` and `ss05` unlock one each, so the first two form the top tier the crate takes whole (`fanout::scratch_tiers`). Its memo files show that schedule ran, because a configuration enumerated from scratch memoizes every window it settles, while a delta memoizes only what `default`'s memo could not answer. A run that serves the deltas none of `default`'s liveness verdicts writes the sharing run's tables and memo files, byte for byte."""
+        spec = spec_load.narrowed(SPEC, ("qsTea", "qsDay", "qsMay", "qsIt"))
         spec_path = tmp_path / "spec.json"
-        kernel_io.write_spec(SPEC, spec_path)
+        kernel_io.write_spec(spec, spec_path)
         kernel_exec.ensure_built()
         answers = {}
         for name, default_memo_sharing, threads, beside, verdict_sharing in (
@@ -1026,9 +1027,9 @@ class TestTheKernelInvocation:
                 conform.SETTLEMENT_CONFIGS,
                 inputs=STAMP,
                 threads=threads,
-                symbols=len(conform.spec_alphabet(SPEC)),
+                symbols=len(conform.spec_alphabet(spec)),
                 default_memo_sharing=default_memo_sharing,
-                memo_stamp=run_m1.memo_stamp(SPEC),
+                memo_stamp=run_m1.memo_stamp(spec),
                 scratch_beside_default=beside,
                 verdict_sharing=verdict_sharing,
             ).digests
