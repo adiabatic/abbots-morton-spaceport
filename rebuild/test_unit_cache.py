@@ -183,7 +183,7 @@ def _out_of_order_audit(tmp_path: Path) -> tuple[Path, dict[str, list[str]]]:
 
 @pytest.fixture(scope="module")
 def edited_scratch(build_once, mini_bundle) -> tuple[Path, Path]:
-    """Return the edited mini audit (`_edited_audit`) and a from-scratch build of it, built once a run (`build_once`) for both seeds of the incremental-rebuild test, which only read them."""
+    """Return the edited mini audit (`_edited_audit`) and a from-scratch build of it, built once a run (`build_once`) for every case of the incremental-rebuild test, which only read them."""
 
     def build(directory: Path) -> None:
         _build(directory / "scratch", mini_bundle, audit_path=_edited_audit(directory), jobs=1)
@@ -192,12 +192,21 @@ def edited_scratch(build_once, mini_bundle) -> tuple[Path, Path]:
     return directory / "audit-edited.tsv", directory / "scratch"
 
 
-@pytest.mark.parametrize("seed", ["copy", "clone"])
+@pytest.mark.parametrize(("seed", "cloning"), [("copy", True), ("clone", True), ("copy", False)])
 def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
-    mini_corpus, mini_bundle, edited_scratch, tmp_path, capfd, seed
+    mini_corpus, mini_bundle, edited_scratch, tmp_path, capfd, monkeypatch, seed, cloning
 ):
-    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves at least one shard part the edit did not reach untouched on disk, and writes a corpus, store included, byte-identical to a from-scratch build of the edited audit. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was. Both seeds compare against the one from-scratch build `edited_scratch` makes."""
+    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves at least one shard part the edit did not reach untouched on disk, and writes a corpus, store included, byte-identical to a from-scratch build of the edited audit. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was. The shard writer starts each part the edit touched from a clone of the previous part (`build._clone`), and where the volume cannot clone, from a copy, to the same bytes. Every case compares against the one from-scratch build `edited_scratch` makes."""
     edited, scratch = edited_scratch
+    clones: list[tuple[str, bool]] = []
+    clone = review_build._clone
+
+    def spy(source: Path, target: Path) -> bool:
+        made = cloning and clone(source, target)
+        clones.append((sys._getframe(1).f_code.co_name, made))
+        return made
+
+    monkeypatch.setattr(review_build, "_clone", spy)
     served = _copy(mini_corpus, tmp_path)
     before = _tree(served)
     if seed == "clone":
@@ -215,6 +224,10 @@ def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
     assert 0 < byte_copied <= cached
     kept = {name for name, stamp in _part_mtimes(incremental).items() if mtimes.get(name) == stamp}
     assert kept, "a class the edit never reached must keep its shard part on disk"
+    started = ("_materialize", cloning)
+    assert (
+        started in clones
+    ), f"the edit must touch a part the writer starts from the previous one, by a clone only where cloning is on: {clones}"
     assert _tree(incremental) == _tree(scratch)
     if seed == "clone":
         assert _tree(served) == before
@@ -538,7 +551,7 @@ def test_a_shard_rewritten_underneath_the_store_is_walked_rather_than_trusted(
 def test_an_edit_in_place_under_a_trusted_address_is_refused_at_the_write(
     mini_corpus, mini_bundle, tmp_path, monkeypatch, write_jobs
 ):
-    """The size check cannot see an edit that leaves a part the same length, so such a fragment is trusted into the plan. The reader catches it at the write, where every cached fragment is checked against its record, and the build fails instead of reusing bytes the store does not describe. The write fails the same way in this process and in a write worker, which hands the parent its message, and either way it leaves no staged part, spooled sidecar line or columns file behind. The width is set because the mini bundle's largest class would bound it below three (`_write_width`)."""
+    """The size check cannot see an edit that leaves a part the same length, so such a fragment is trusted into the plan. The reader catches it at the write, where every cached fragment is checked against its record, and the build fails instead of reusing bytes the store does not describe. The write fails the same way in this process and in a write worker, which hands the parent its message, and either way it leaves no staged part or spooled sidecar line behind. The width is set because the mini bundle's largest class would bound it below three (`_write_width`)."""
     monkeypatch.setattr("rebuild.review.build._write_width", lambda classes, fit: fit)
     corpus = _copy(mini_corpus, tmp_path)
     path = next(path for path in _shard_paths(corpus) if json.loads(path.read_text(encoding="utf-8")))
@@ -643,24 +656,32 @@ def test_serial_and_parallel_builds_are_byte_identical(mini_corpus, mini_bundle,
     assert _tree(parallel) == _tree(mini_corpus)
 
 
-def test_a_pooled_write_is_byte_identical_to_the_serial_one(
-    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
-):
-    """The write cuts the classes into runs of shard order (`_write_runs`) and, wider than one, writes the runs in worker processes, each from its own copy of the workload table and the unit store, with its own shard writer, sidecar spool and copy-forward cursors, and the parent folds the results back in shard order. So a cold build and a cached rebuild whose write runs three wide match the serial mini corpus byte for byte. The cold build reads, patches and serializes every fragment in the workers. The cached rebuild copies every fragment and every sidecar row forward, each run's cursors reading past the lines of the runs before it. Each pass files one `corpus-write` pool record in the journal the autouse fixture redirects. The width is set because the mini bundle's largest class would bound it below three (`_write_width`)."""
+def test_a_pooled_write_is_byte_identical_to_the_serial_one(mini_bundle, tmp_path, capfd, monkeypatch):
+    """The write cuts the classes into runs of shard order (`_write_runs`) and, wider than one, writes the runs in worker processes, each fed its run a chunk at a time from the parent's columns (`_write_chunks`), with its own shard writer, sidecar spool and copy-forward cursors, while the parent writes each chunk's results into the store and folds its checker's facts as they arrive. So a cold build and a cached rebuild whose write runs three wide match a serial build byte for byte. The chunk width is lowered so the larger classes span many chunks, some ending on a chunk's last unit. The cold build reads, patches and serializes every fragment in the workers. The cached rebuild copies every fragment and every sidecar row forward, each run's cursors reading past the lines of the runs before it. Each pooled pass files one `corpus-write` pool record in the journal the autouse fixture redirects. The width is set because the mini bundle's largest class would bound it below three (`_write_width`).
+
+    The one value the write reads at another unit is the id of a secondary junction's primary unit, which a chunk carries as an id word (`ChunkStore.primary_units`). The mini bundle's junctions find no primary unit under the real matcher, since their two-letter windows are not units, so every build here accepts any containing window (`enrich._junction_outcomes_match`). That names a visible primary unit for some junctions and an ink-identical one, suppressing the junction, for others, and the corpus checks still pass. A missing word then changes the cold build's bytes, and keeps the cached rebuild from copying those units as they are.
+    """
     from rebuild.tools import cycle_timings
 
     monkeypatch.setattr("rebuild.review.build._write_width", lambda classes, fit: fit)
+    monkeypatch.setattr("rebuild.review.build.WRITE_CHUNK_UNITS", 11)
+    monkeypatch.setattr("rebuild.review.enrich._junction_outcomes_match", lambda *_args: True)
+    serial = tmp_path / "serial"
+    _build(serial, mini_bundle, jobs=1, write_jobs=1)
+    counts = json.loads((serial / "manifest.json").read_text(encoding="utf-8"))["secondary_junctions"]
+    assert counts["junctions_with_primary_unit"] and counts["junctions_suppressed_invisible"], counts
     cold = tmp_path / "cold"
+    capfd.readouterr()
     _build(cold, mini_bundle, jobs=1, write_jobs=3)
     assert "review.build manifest+check" in capfd.readouterr().err
-    assert _tree(cold) == _tree(mini_corpus)
-    cached = _copy(mini_corpus, tmp_path)
+    assert _tree(cold) == _tree(serial)
+    cached = _copy(serial, tmp_path)
     _build(cached, mini_bundle, jobs=1, write_jobs=3)
     err = capfd.readouterr().err
     assert re.search(r"jobs=3 \(byte-copied", err), err
     byte_copied, total, copied_forward = _counts(err, BYTE_COPIED)
     assert byte_copied == total == copied_forward
-    assert _tree(cached) == _tree(mini_corpus)
+    assert _tree(cached) == _tree(serial)
     records = [json.loads(line) for line in cycle_timings.JOURNAL.read_text(encoding="utf-8").splitlines()]
     assert [(record["unit"], record["width"]) for record in records] == [("corpus-write", 3)] * 2
 

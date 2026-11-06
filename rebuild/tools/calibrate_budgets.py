@@ -176,7 +176,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("corpus-write",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from the corpus build's write (`_WritePool` in rebuild/review/build.py), one per pass whose write ran in more than one worker, with one observation per worker that answered: its peak footprint (`peak_rss.peak_footprint_self_bytes`) as it answered the stop, which counts its copy of the workload table and of the unit store less the columns the write never reads (`unit_store.WRITE_UNREAD_COLUMNS`) and the per-unit results of the heaviest run of classes it wrote, the one with the most human units. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures. The row is quiet on a pass whose write ran in the parent, as a width of one gives.",
+        note="These pool records come from the corpus build's write (`_WritePool` in rebuild/review/build.py), one per pass whose write ran in more than one worker, with one observation per worker that answered: its peak footprint (`peak_rss.peak_footprint_self_bytes`) as it answered the stop, which counts the string table and pools it receives once, one chunk of the columns the write reads (`build._write_chunks`) with that chunk's results, and one fragment, none of which grows with the corpus. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures. The row is quiet on a pass whose write ran in the parent, as a width of one gives.",
         headroom=1.25,
         quantum=10_000_000,
         worker_reading="footprint",
@@ -845,7 +845,9 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
             memory_budget.how_many_fit(worker, coresident_bytes=parent, cap=cap, total_bytes=total_bytes)
             for cap in _corpus_caps(cores)
         )
-        hand, cycle = (max(1, units * worker // constant_bytes) for units in (solo, gated))
+        hand, cycle = (
+            1 if units <= 1 else max(1, units * worker // constant_bytes) for units in (solo, gated)
+        )
         return f"the write's pool starts once the units pool has stopped and fits in the memory a units pool would hold as it starts: at most {hand} at {format_gb(constant_bytes)} GB each in place of a hand build's {solo} units workers at {format_gb(worker)} GB, and at most {cycle} in place of a gated cycle's {gated} while the gate lane still has work as the write starts, and the hand build's figure once it has none (`artifact_cycle.corpus_write_job_budget`); the build then caps it at the unit total over its largest class's units, rounded up (`build._write_width`)"
     if unit.name == "standing-fill-parent":
         worker = _int_constant(root / CORPUS_SOURCE, STANDING_FILL_WORKER_NAME)

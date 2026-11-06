@@ -1076,14 +1076,13 @@ def test_a_pooled_corpus_build_files_its_per_worker_peaks(tmp_path, monkeypatch)
 
 
 def test_a_write_pool_files_its_workers_and_its_parents_peak_footprints(tmp_path, monkeypatch):
-    """A write worker answers the stop with its peak footprint (`peak_rss.peak_footprint_self_bytes`), and the write pool's `corpus-write` record carries each worker's beside the parent's own as the controller's, the readings the corpus-write-worker row of `make job-costs` reads. The worker runs in a thread over a pipe with its columns stubbed, because the pool is spawn-only and a monkeypatch does not reach a spawned worker."""
+    """A write worker answers the stop with its peak footprint (`peak_rss.peak_footprint_self_bytes`), and the write pool's `corpus-write` record carries each worker's beside the parent's own as the controller's, the readings the corpus-write-worker row of `make job-costs` reads. The worker runs in a thread over a pipe, because the pool is spawn-only and a monkeypatch does not reach a spawned worker."""
     journal = tmp_path / "cycle-timings.ndjson"
     monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
-    monkeypatch.setattr(review_build, "_load_columns", lambda path: (None, None))
     readings = iter([740_000_000, 2_300_000_000])
     monkeypatch.setattr("rebuild.tools.peak_rss.peak_footprint_bytes", lambda: next(readings))
     parent, child = multiprocessing.Pipe()
-    worker = threading.Thread(target=review_build._write_worker, args=(child, tmp_path, None), daemon=True)
+    worker = threading.Thread(target=review_build._write_worker, args=(child, None, ()), daemon=True)
     worker.start()
     pool = object.__new__(review_build._WritePool)
     pool._conns = [parent]

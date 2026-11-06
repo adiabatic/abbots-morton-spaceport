@@ -380,6 +380,64 @@ def test_a_cached_record_reads_back_and_its_cached_unit_is_the_store_line(tmp_pa
         store.set_primary_units(0, [(5, False)])
 
 
+def test_a_chunk_answers_by_position_as_the_store_answers_by_ordinal_and_refuses_the_rest(tmp_path):
+    """A write worker reads a chunk of a class (`UnitStore.gather`), its units in the order the chunk was cut. Each unit answers at its position every read the write makes as the full store answers at its ordinal, its runs of ink deltas and junctions included, and a primary unit outside the chunk is answered from the id word the gather resolved, so `cached_as_is` holds as it does on the full store. A position past the chunk, a withheld column, the mismatch lines and the primary-unit ordinals, which name units outside the chunk, refuse the read."""
+    primary_unit = _cached_record("primary_unit", [[None, False]], ("units/small.json", 1, 5))
+    with_primary = _cached_record(
+        "with_primary", [[primary_unit.prior_id, False]], ("units/small.json", 7, 5)
+    )
+    plain = replace(
+        _cached_record("plain", [], ("units/small.json", 13, 5)),
+        junctions=[],
+        ink_deltas={"ss03": "d-0123456789ab", "default": "d-ba9876543210"},
+    )
+    loaded = _load(tmp_path, [primary_unit, with_primary, plain])
+    store = UnitStore(3)
+    for ordinal, record in enumerate((plain, with_primary, primary_unit)):
+        store.load_cached(ordinal, loaded[record.key], codepoints=(0xE652, 0xE670 + ordinal))
+    store.set_primary_units(1, [(primary_unit.prior_id, False)])
+    store.set_primary_units(2, [(None, False)])
+    chunk = store.gather([1, 0])
+    reads = (
+        "unit_id",
+        "content_key_hex",
+        "input_key_hex",
+        "loaded",
+        "flags",
+        "machine_flags",
+        "source",
+        "policy_file",
+        "ledger_class",
+        "cell_pair",
+        "ink_deltas",
+        "junction_rects",
+        "cached_class",
+        "cached_duplicate_group",
+        "cached_primary_units",
+        "primary_units",
+    )
+    for position, ordinal in enumerate((1, 0)):
+        for read in reads:
+            assert getattr(chunk, read)(position) == getattr(store, read)(ordinal), read
+    assert chunk.primary_units(0) == ((primary_unit.prior_id, False),)
+    assert chunk.cached_as_is(
+        0,
+        class_id="split-by-space-or-zwnj",
+        duplicate_group="e-2WvdGAWe6bX",
+        exemplar=False,
+        no_verdict=False,
+    )
+    for read in ("unit_id", "content_key_hex", "flags", "junction_rects"):
+        with pytest.raises(IndexError):
+            getattr(chunk, read)(2)
+    with pytest.raises(RuntimeError, match="_primary_unit"):
+        chunk.primary_unit_ordinals(0)
+    with pytest.raises(RuntimeError, match="_diffs_digest"):
+        chunk.diffs_digest(0)
+    with pytest.raises(RuntimeError, match="_mismatches"):
+        chunk.mismatches(0)
+
+
 def test_a_cached_record_is_loaded_with_the_fragment_the_plan_located(tmp_path):
     """A record without an address is loaded with the fragment the walk found. That fragment becomes the source and is not byte-copied, so `cached_as_is` is false. Loading the record with no fragment, or with another unit's fragment, raises."""
     record = _cached_record("walked", [[None, False]], None)

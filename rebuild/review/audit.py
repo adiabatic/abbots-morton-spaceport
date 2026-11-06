@@ -20,7 +20,7 @@ from typing import NamedTuple, Protocol
 import yaml
 
 from rebuild.review import change_groups
-from rebuild.review.columns import MappingPool, StringTable, TuplePool
+from rebuild.review.columns import MappingPool, StringTable, TuplePool, Withheld, gather, gather_runs
 
 # Restate `conform.ORACLE_CONFIGS` and `conform.M1_ONLY_CONFIGS`, not `conform.ACCEPTANCE_CONFIGS`: importing conform would pull it into the corpus code closure. `rebuild/test_review_tablediff.py` ties them.
 ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
@@ -814,6 +814,41 @@ class UnitTable:
     def units(self, store: UnitStoreView | None = None) -> list[Unit]:
         """Every live row materialized, in row order, for the tests. The build's parent does not call this."""
         return [self.unit(ordinal, store) for ordinal in range(self.n) if self._flags[ordinal] & LIVE]
+
+    def gather(self, ordinals: Sequence[int]) -> UnitTable:
+        """Return a table over the units at `ordinals`, each answered by its position in that sequence: one chunk of a class for a write worker (`build._write_chunks`). Every column the write reads is copied for those rows, the window's values with its offsets rebased, and the string table and the pools are this table's own, which the worker holds once (`build._SharedPickler`). The name tuples are left out as `release_names` leaves them, so `baseline` and `new` read empty, and `survivor` and `config_rank`, which the write never reads, are `Withheld`. A read past the chunk's last position raises, as any array read past its end does."""
+        chunk = UnitTable.__new__(UnitTable)
+        chunk.n = len(ordinals)
+        chunk.strings = self.strings
+        chunk.names = None
+        chunk.tuples = self.tuples
+        chunk.groups = self.groups
+        chunk.mappings = self.mappings
+        for name in (
+            "_class",
+            "_group",
+            "_unmatched_group",
+            "_duplicate_group",
+            "_cluster",
+            "_configs",
+            "_kinds",
+            "_render_groups",
+            "_config_classes",
+            "_flags",
+            "_window_n",
+            "_rows_start",
+            "_row_count",
+            "_order",
+            "_batch",
+        ):
+            setattr(chunk, name, gather(getattr(self, name), ordinals))
+        chunk._baseline = chunk._new = None
+        chunk._window_start, (chunk._window_values,) = gather_runs(
+            self._window_start, self._window_n, ordinals, (self._window_values, 1)
+        )
+        for name in ("_survivor", "_ranks"):
+            setattr(chunk, name, Withheld(name))
+        return chunk
 
 
 def load_table(

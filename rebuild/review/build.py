@@ -10,14 +10,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import copy
+import ctypes
 import datetime
+import errno
 import hashlib
 import http.client
 import io
 import json
 import math
 import multiprocessing.connection
+import os
 import pickle
 import random
 import shutil
@@ -39,7 +41,7 @@ from typing import BinaryIO, cast
 
 from rebuild.pipeline import fingerprint, spec_load
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
-from rebuild.review import app_index, facts, tablediff, unit_cache, unit_index, unit_store
+from rebuild.review import app_index, facts, tablediff, unit_cache, unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
@@ -674,6 +676,31 @@ def _write_json(path: Path, payload) -> None:
         staging.unlink(missing_ok=True)
 
 
+@lru_cache(maxsize=1)
+def _clonefile():
+    """Return libc's `clonefile(2)`, or None on a platform without it."""
+    if sys.platform != "darwin":
+        return None
+    call = getattr(ctypes.CDLL(None, use_errno=True), "clonefile", None)
+    if call is not None:
+        call.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint32]
+        call.restype = ctypes.c_int
+    return call
+
+
+def _clone(source: Path, target: Path) -> bool:
+    """Make `target`, which must not exist, a copy-on-write clone of `source` (`clonefile(2)`, the call `landing.clone_tree`'s `cp -c` makes) and return True, or return False, having written nothing, where the platform or the volume cannot clone. A clone writes no data: on APFS the two files share every block until one of them is written."""
+    call = _clonefile()
+    if call is None:
+        return False
+    if call(os.fsencode(source), os.fsencode(target), 0) == 0:
+        return True
+    code = ctypes.get_errno()
+    if code in (errno.ENOTSUP, errno.EXDEV):
+        return False
+    raise OSError(code, os.strerror(code), str(source), None, str(target))
+
+
 class _ShardWriter:
     """Write classes into byte-capped shard parts one fragment at a time, in the order the build passes them. `open` a class, `add` each fragment (or `add_byte_copied` the bytes of one the previous corpus already holds) and receive its (part index, byte start, byte length), `close` the class to get the relative paths the manifest lists in part order, and `commit` once every class is written. Between calls it holds only the open file handle and the running byte count, so no shard is assembled in the writing process's memory.
 
@@ -685,9 +712,9 @@ class _ShardWriter:
 
     The returned spans are byte addresses. The review app's explain panel Range-fetches them, the unit store records them so the next build can read its cached units back, and `unit_cache.locate_prior_fragments` recomputes them from a written part for a record that lacks one. No punctuation falls inside a fragment's own bytes, and `ensure_ascii=True` makes the character count equal the byte offset, so `bytes[start:start + length]` is a standalone JSON value. Changing the `indent`, `ensure_ascii` or `separators` of the dump below breaks this without any error; `rebuild/test_app_index.py` slices every fragment back out to catch it.
 
-    A class opened with the previous corpus's part list is written against it. Each part is assumed to be the previous corpus's part, unchanged, for as long as every fragment passed is a byte copy of a fragment already at the offset the writer would put it at, which is the case for a cached unit whose content and patched fields did not change. The first fragment that breaks this, a recomputed one or one at a different offset, turns the part into a staging file holding the same prefix copied from the previous file, and writing continues from there. A part whose fragments all match and whose previous file ends where this one would end is not written at all. So a class with no changes costs one read of its bytes and no write, and a class with a recomputed unit costs a copy from that unit on, without parsing or serializing any other fragment.
+    A class opened with the previous corpus's part list is written against it. Each part is assumed to be the previous corpus's part, unchanged, for as long as every fragment passed is a byte copy of a fragment already at the offset the writer would put it at, which is the case for a cached unit whose content and patched fields did not change. The first fragment that breaks this, a recomputed one or one at a different offset, turns the part into a staging file holding the same prefix: a clone of the previous file (`_clone`) cut to the prefix, or on a volume that cannot clone, a copy of the prefix. Writing continues from there. A part whose fragments all match and whose previous file ends where this one would end is not written at all. So a class with no changes costs one read of its bytes and no write, and a part with a recomputed unit costs a write from that unit on, plus a copy of the bytes before it where the volume cannot clone, without parsing or serializing any other fragment.
 
-    Every staged part is written under a `.partial` name and renamed only at `commit`, after the last class closes. The build reads its cached units out of the previous corpus's shards by address while it writes this one, so replacing shards class by class could change a file before a later class reads from it. Deferring the renames keeps the previous corpus intact until this one is fully written, and a failed encode or a killed build leaves the previous units in place; `abort` deletes the staging files. A kept part is already in place under its name. One whose name changes because the class's part count changed is copied to the new name and renamed with the rest. The m1 write runs one writer per run of classes (`_write_run`), possibly in a worker process, so it does not commit: `take_pending` hands the parent the renames, which it makes once every run has written, and a staging name carries its class id, so writers over different classes never share one.
+    Every staged part is written under a `.partial` name and renamed only at `commit`, after the last class closes. The build reads its cached units out of the previous corpus's shards by address while it writes this one, so replacing shards class by class could change a file before a later class reads from it. Deferring the renames keeps the previous corpus intact until this one is fully written, and a failed encode or a killed build leaves the previous units in place; `abort` deletes the staging files. A kept part is already in place under its name. One whose name changes because the class's part count changed is cloned, or copied where the volume cannot clone, to a staging file and renamed with the rest. The m1 write runs one writer per run of classes (`_write_run`), possibly in a worker process, so it does not commit: `take_pending` hands the parent the renames, which it makes once every run has written, and a staging name carries its class id, so writers over different classes never share one.
     """
 
     _CLOSING = b"\n]\n"
@@ -732,19 +759,27 @@ class _ShardWriter:
         self._open = True
 
     def _materialize(self, prefix: int) -> None:
-        """Turn the open kept part into a staging file holding the first `prefix` bytes of the previous file, which are the bytes the writer would have written so far."""
+        """Turn the open kept part into a staging file holding the first `prefix` bytes of the previous file, which are the bytes the writer would have written so far: a clone of the previous file cut to the prefix, which writes no data, or where the volume cannot clone, a copy of the prefix."""
         index = len(self._parts) - 1
         prior = self._parts[index]
         assert isinstance(prior, str)
         path = self._staging(index)
-        with (self._out_dir / prior).open("rb") as source, path.open("wb") as target:
-            remaining = prefix
-            while remaining:
-                chunk = source.read(min(remaining, 1 << 20))
-                if not chunk:
-                    raise ValueError(f"{prior} is shorter than the {prefix} bytes this build read out of it")
-                target.write(chunk)
-                remaining -= len(chunk)
+        path.unlink(missing_ok=True)
+        if _clone(self._out_dir / prior, path):
+            if path.stat().st_size < prefix:
+                raise ValueError(f"{prior} is shorter than the {prefix} bytes this build read out of it")
+            os.truncate(path, prefix)
+        else:
+            with (self._out_dir / prior).open("rb") as source, path.open("wb") as target:
+                remaining = prefix
+                while remaining:
+                    chunk = source.read(min(remaining, 1 << 20))
+                    if not chunk:
+                        raise ValueError(
+                            f"{prior} is shorter than the {prefix} bytes this build read out of it"
+                        )
+                    target.write(chunk)
+                    remaining -= len(chunk)
         self._handle = path.open("ab")
         self._parts[index] = path
 
@@ -811,7 +846,9 @@ class _ShardWriter:
                 if part == f"units/{name}":
                     continue
                 staging = self._staging(index)
-                shutil.copyfile(self._out_dir / part, staging)
+                staging.unlink(missing_ok=True)
+                if not _clone(self._out_dir / part, staging):
+                    shutil.copyfile(self._out_dir / part, staging)
                 self._parts[index] = part = staging
             self._pending.append((part, self._units_dir / name))
         self._class_id = None
@@ -1816,49 +1853,61 @@ class _WriteSettings:
     primary_units: frozenset[str]
 
 
-@dataclass(frozen=True)
-class _ClassWritten:
-    """What writing one class leaves for the parent: the class's manifest record, its checker (`_CorpusCheck`, fed this class only), and per unit, in the class's order, its shard address as a part index into the record's `shards` with a byte start and length, its config note and its policy-draft file, which the parent writes into the unit store. `byte_copied` counts the units written without parsing."""
+@dataclass(frozen=True, slots=True)
+class _ClassHeader:
+    """What the write receives as a class opens: its id, its manifest record, which the parent computes from its full columns (`_class_meta`) and the class's checks read (`_CorpusCheck.class_start`, `class_end`), and the previous corpus's parts for it, which the shard writer writes it against. The record's `shards` stays empty here; the parent fills it from the class's last chunk."""
 
     id: str
     meta: dict
-    check: _CorpusCheck
+    prior_parts: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _Chunk:
+    """A stretch of one class's units in the class's order, as the write receives it: a table and a store to read them from at `ordinals`, the class's header on its first chunk, and whether it is the class's last. The serial write takes each class as one chunk over the full table and store at the class's ordinals. A write worker takes chunks of `WRITE_CHUNK_UNITS` units, each over a table and a store gathered for its units alone (`UnitTable.gather`, `UnitStore.gather`) and read at positions 0 onward."""
+
+    header: _ClassHeader | None
+    table: UnitTable
+    store: UnitStore
+    ordinals: Sequence[int]
+    last: bool
+
+
+@dataclass(frozen=True)
+class _ChunkWritten:
+    """What writing one chunk leaves for the parent, which places it by its class and the offset of its first unit in the class's order. Per unit, in that order: its shard address as a part index into the class's parts with a byte start and length, and its config note and policy-draft file as ids into `names`, the chunk's distinct values with None at id 0. Then the facts the chunk's units gave the class's checker (`_CorpusCheck.take_facts`), how many units were written without parsing, and on the class's last chunk the class's parts (`_ShardWriter.close`), which the part indices name."""
+
+    class_id: str
+    offset: int
     parts: array
     starts: array
     lengths: array
-    config_notes: list[str | None]
-    policy_files: list[str | None]
+    names: list[str | None]
+    notes: array
+    policy_files: array
+    facts: _CorpusCheck
     byte_copied: int
+    shards: list[str] | None
 
 
 @dataclass(frozen=True)
 class _RunWritten:
-    """What writing one run of classes leaves for the parent: the run's index in shard order, each class's result in order, the renames of its staged shard parts (`_ShardWriter.take_pending`), and its spooled sidecar lines."""
+    """What writing one run of classes leaves for the parent once its chunks are written: the run's index in shard order, the renames of its staged shard parts (`_ShardWriter.take_pending`), and its spooled sidecar lines."""
 
     index: int
-    classes: list[_ClassWritten]
     pending: list[tuple[Path, Path]]
     sidecars: _SidecarRun
 
 
-def _write_class(
-    entry: _ClassToWrite,
-    settings: _WriteSettings,
-    table: UnitTable,
-    store: UnitStore,
-    writer: _ShardWriter,
-    sidecars: _SidecarSpool,
-    spool: unit_cache.PriorFragmentReader,
-    prior: unit_cache.PriorFragmentReader,
-) -> _ClassWritten:
-    """Write one class: its manifest record from the table's and the store's columns, each unit's fragment into the class's shard parts through `writer`, its sidecar lines onto `sidecars`, and each fragment through a checker of its own at `PATCHED`. Each fragment is written, checked, projected and released before the next is read, so the process holds one fragment at a time beside the class's per-unit results. A fragment's content key must equal the one the store already holds for its unit, since the fragment was drafted or cached under it. Nothing is written into the table or the store, so a worker can write from its own copy of both."""
+def _class_meta(entry: _ClassToWrite, table: UnitTable, store: UnitStore) -> dict:
+    """Return a class's manifest record, its `shards` left empty for the write to fill, from the full table's and store's columns over every unit of the class. The parent computes it, since a write worker holds one chunk of the class at a time."""
     ordinals = entry.ordinals
     checks = {check_id: 0 for check_id in MACHINE_CHECKS}
     for ordinal in ordinals:
         check_id = store.machine_check(ordinal)
         if check_id is not None:
             checks[check_id] += 1
-    meta = {
+    return {
         "id": entry.id,
         "title": entry.title,
         "summary": entry.summary,
@@ -1876,6 +1925,118 @@ def _write_class(
         "shards": [],
         "batches": sorted({batch for batch in map(table.batch, ordinals) if batch is not None}),
     }
+
+
+# The units in one chunk of the write (`_write_chunks`), the units pool's hand-out width (`PHASE1_HANDOUT_UNITS`). A write worker holds one chunk's columns at a time, under 2 MB at this width, and a chunk takes it long enough to write that the parent's turn between chunks is a small share of it. It is read through the module global at call time so a test can lower it.
+WRITE_CHUNK_UNITS = PHASE1_HANDOUT_UNITS
+
+
+def _write_chunks(
+    run: Sequence[_ClassToWrite],
+    table: UnitTable,
+    store: UnitStore,
+    metas: dict[str, dict],
+    width: int | None = None,
+) -> Iterator[_Chunk]:
+    """Yield a run's classes as the write receives them, computing each class's manifest record as its first chunk is made (`_class_meta`) and keeping it in `metas` for the manifest. Without a `width`, each class is one chunk over the full table and store at the class's ordinals, which is the serial write. With one, each class is cut into chunks of `width` units in its order, a class with no units into one empty chunk, each over a table and a store gathered for its units alone, which a write worker reads by position."""
+    for entry in run:
+        meta = metas[entry.id] = _class_meta(entry, table, store)
+        header = _ClassHeader(entry.id, meta, entry.prior_parts)
+        ordinals = entry.ordinals
+        if width is None:
+            yield _Chunk(header, table, store, ordinals, True)
+            continue
+        for offset in range(0, max(len(ordinals), 1), width):
+            members = ordinals[offset : offset + width]
+            yield _Chunk(
+                header if offset == 0 else None,
+                table.gather(members),
+                store.gather(members),
+                range(len(members)),
+                offset + width >= len(ordinals),
+            )
+
+
+def _write_chunk(
+    chunk: _Chunk,
+    class_id: str,
+    offset: int,
+    check: _CorpusCheck,
+    writer: _ShardWriter,
+    sidecars: _SidecarSpool,
+    spool: unit_cache.PriorFragmentReader,
+    prior: unit_cache.PriorFragmentReader,
+) -> _ChunkWritten:
+    """Write one chunk of the open class: each unit's fragment into the class's shard parts through `writer`, its sidecar lines onto `sidecars`, and each fragment through `check` at `PATCHED`. Each fragment is written, checked, projected and released before the next is read, so the process holds one fragment at a time beside the chunk's per-unit results. A fragment's content key must equal the one the store already holds for its unit, since the fragment was drafted or cached under it. The class's last chunk closes the class, which names its parts and runs its class-level checks. Nothing is written into the table or the store, so a worker can write from a chunk of both."""
+    table, store, ordinals = chunk.table, chunk.store, chunk.ordinals
+    parts = array("H")
+    starts = array("Q")
+    lengths = array("I")
+    names: list[str | None] = [None]
+    ids: dict[str | None, int] = {None: 0}
+    notes = array("I")
+    policy_files = array("I")
+
+    def name_id(value: str | None) -> int:
+        found = ids.get(value)
+        if found is None:
+            found = ids[value] = len(names)
+            names.append(value)
+        return found
+
+    byte_copied = 0
+    for ordinal, emission in zip(ordinals, _emissions(ordinals, table, store, spool, prior), strict=True):
+        assert emission.unit_id == store.unit_id(ordinal), (emission.unit_id, ordinal)
+        if emission.fragment is not None:
+            fragment = emission.fragment
+            span = writer.add(fragment)
+            check.unit(fragment, cached=store.flags(ordinal).cached)
+            sidecars.unit(fragment, span, table.order(ordinal), table.batch(ordinal))
+            note = fragment["config_note"]
+        else:
+            assert emission.body is not None and emission.source is not None
+            assert emission.identity is not None
+            span = writer.add_byte_copied(emission.body, emission.source)
+            check.unit(emission.identity, cached=True)
+            sidecars.cached(emission, span, table.order(ordinal), table.batch(ordinal))
+            note = config_note(table.configs(ordinal), ACCEPTANCE_CONFIGS)
+            byte_copied += 1
+        assert emission.content_key == store.content_key_hex(ordinal), emission.unit_id
+        parts.append(span[0])
+        starts.append(span[1])
+        lengths.append(span[2])
+        notes.append(name_id(note))
+        policy_files.append(name_id(emission.policy_file))
+    shards = None
+    if chunk.last:
+        shards = writer.close()
+        check.class_end()
+    return _ChunkWritten(
+        class_id,
+        offset,
+        parts,
+        starts,
+        lengths,
+        names,
+        notes,
+        policy_files,
+        check.take_facts(),
+        byte_copied,
+        shards,
+    )
+
+
+def _write_run(
+    index: int,
+    chunks: Iterable[_Chunk],
+    settings: _WriteSettings,
+    keep: Callable[[_ChunkWritten], None],
+) -> _RunWritten:
+    """Write one run of classes (`_write_runs`), in shard order, from its chunks, with a shard writer, a sidecar spool, a checker and two fragment readers of its own: one over the recomputed spool and one over the previous corpus. A chunk with a header opens its class. Each chunk's results go to `keep` as soon as the chunk is written, and the chunk is dropped before the next is drawn, so the run holds one chunk and one chunk's results at a time. The shard parts stay staged and the sidecar lines spooled for the parent, which commits and writes them once every run has written. A run that raises deletes what it staged and spooled."""
+    writer = _ShardWriter(settings.out_dir)
+    sidecars = _SidecarSpool(settings.out_dir, index, copy_forward=settings.copy_forward)
+    spool = unit_cache.PriorFragmentReader(settings.spool_dir)
+    prior = unit_cache.PriorFragmentReader(settings.out_dir)
     check = _CorpusCheck(
         mode="m1-audit",
         descriptions=FEATURE_DESCRIPTIONS,
@@ -1885,59 +2046,18 @@ def _write_class(
         at=(PATCHED,),
         identity_for=settings.primary_units,
     )
-    check.class_start(meta)
-    writer.open(entry.id, entry.prior_parts)
-    parts = array("H")
-    starts = array("Q")
-    lengths = array("I")
-    config_notes: list[str | None] = []
-    policy_files: list[str | None] = []
-    byte_copied = 0
-    for ordinal, emission in zip(ordinals, _emissions(ordinals, table, store, spool, prior), strict=True):
-        assert emission.unit_id == store.unit_id(ordinal), (emission.unit_id, ordinal)
-        if emission.fragment is not None:
-            fragment = emission.fragment
-            span = writer.add(fragment)
-            check.unit(fragment, cached=store.flags(ordinal).cached)
-            sidecars.unit(fragment, span, table.order(ordinal), table.batch(ordinal))
-            config_notes.append(fragment["config_note"])
-        else:
-            assert emission.body is not None and emission.source is not None
-            assert emission.identity is not None
-            span = writer.add_byte_copied(emission.body, emission.source)
-            check.unit(emission.identity, cached=True)
-            sidecars.cached(emission, span, table.order(ordinal), table.batch(ordinal))
-            config_notes.append(config_note(table.configs(ordinal), ACCEPTANCE_CONFIGS))
-            byte_copied += 1
-        assert emission.content_key == store.content_key_hex(ordinal), emission.unit_id
-        parts.append(span[0])
-        starts.append(span[1])
-        lengths.append(span[2])
-        policy_files.append(emission.policy_file)
-    meta["shards"] = writer.close()
-    check.class_end()
-    return _ClassWritten(
-        entry.id, meta, check, parts, starts, lengths, config_notes, policy_files, byte_copied
-    )
-
-
-def _write_run(
-    index: int,
-    classes: Sequence[_ClassToWrite],
-    settings: _WriteSettings,
-    table: UnitTable,
-    store: UnitStore,
-) -> _RunWritten:
-    """Write one run of classes (`_write_runs`), in shard order, with a shard writer, a sidecar spool and two fragment readers of its own: one over the recomputed spool and one over the previous corpus. The shard parts stay staged and the sidecar lines spooled for the parent, which commits and writes them once every run has written. A run that raises deletes what it staged and spooled."""
-    writer = _ShardWriter(settings.out_dir)
-    sidecars = _SidecarSpool(settings.out_dir, index, copy_forward=settings.copy_forward)
-    spool = unit_cache.PriorFragmentReader(settings.spool_dir)
-    prior = unit_cache.PriorFragmentReader(settings.out_dir)
+    class_id = ""
+    offset = 0
     try:
-        written = [
-            _write_class(entry, settings, table, store, writer, sidecars, spool, prior) for entry in classes
-        ]
-        return _RunWritten(index, written, writer.take_pending(), sidecars.close())
+        for chunk in chunks:
+            if chunk.header is not None:
+                class_id, offset = chunk.header.id, 0
+                writer.open(class_id, chunk.header.prior_parts)
+                check.class_start(chunk.header.meta)
+            keep(_write_chunk(chunk, class_id, offset, check, writer, sidecars, spool, prior))
+            offset += len(chunk.ordinals)
+            del chunk
+        return _RunWritten(index, writer.take_pending(), sidecars.close())
     except BaseException:
         writer.abort()
         sidecars.discard()
@@ -1967,102 +2087,45 @@ def _write_runs(classes: Sequence[_ClassToWrite], width: int) -> list[list[_Clas
 
 
 def _write_width(classes: Sequence[_ClassToWrite], fit: int) -> int:
-    """Return how many processes the write runs on: the most that fit the memory (`fit`, `artifact_cycle.corpus_write_job_budget`), but no more than it takes for the largest class to bound the phase. A class is written by one process from start to end, because its part boundaries fall where its bytes reach `SHARD_PART_BYTES`, so the phase takes at least as long as its largest class. With the unit total over the largest class's units, rounded up, as the width, the even share `_write_runs` cuts at is no larger than that class, and a wider pool would only hold more copies of the columns."""
+    """Return how many processes the write runs on: the most that fit the memory (`fit`, `artifact_cycle.corpus_write_job_budget`), but no more than it takes for the largest class to bound the phase. A class is written by one process from start to end, because its part boundaries fall where its bytes reach `SHARD_PART_BYTES`, so the phase takes at least as long as its largest class. With the unit total over the largest class's units, rounded up, as the width, the even share `_write_runs` cuts at is no larger than that class, and a wider pool would only start more workers without shortening the phase."""
     sizes = [len(entry.ordinals) for entry in classes]
     largest = max(sizes, default=0)
     bound = -(-sum(sizes) // largest) if largest else 1
     return max(1, min(fit, bound))
 
 
-WRITE_COLUMNS_NAME = "write-columns.partial"
+class _SharedPickler(pickle.Pickler):
+    """Pickle a message to a write worker with the objects in `shared` left out, each replaced by its index there. Those are the string table and the workload table's pools, which every chunk's table and store refer to: a worker receives them once, as it starts, and `_SharedUnpickler` puts its own copies back, so a chunk carries only its rows."""
 
-
-class _Withheld:
-    """What a write worker's copy of the unit store holds in place of a column the write never reads (`unit_store.WRITE_UNREAD_COLUMNS`). Any read raises, so a write that starts reading one of them fails in the worker instead of reading an empty column."""
-
-    __slots__ = ("name",)
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-    def _refuse(self, *_args) -> None:
-        raise RuntimeError(
-            f"the corpus write read the unit store's {self.name}, which unit_store.WRITE_UNREAD_COLUMNS leaves out of a write worker's copy"
-        )
-
-    __getitem__ = __len__ = __iter__ = _refuse
-
-
-class _ColumnPickler(pickle.Pickler):
-    """Pickle the write's workload table and unit store with every `array` and `bytearray` column left out of the stream, each replaced by a token naming its type, length and offset among the raw buffers that follow the stream (`_dump_columns`)."""
-
-    def __init__(self, handle: BinaryIO) -> None:
+    def __init__(self, handle: BinaryIO, shared: Sequence[object]) -> None:
         super().__init__(handle, protocol=pickle.HIGHEST_PROTOCOL)
-        self.buffers: list[array | bytearray] = []
-        self._tokens: dict[int, tuple] = {}
-        self._offset = 0
+        self._shared = {id(value): index for index, value in enumerate(shared)}
 
-    def persistent_id(self, obj: object) -> tuple | None:
-        if not isinstance(obj, (array, bytearray)):
-            return None
-        token = self._tokens.get(id(obj))
-        if token is None:
-            typecode = obj.typecode if isinstance(obj, array) else None
-            token = (typecode, len(obj), self._offset)
-            self._tokens[id(obj)] = token
-            self.buffers.append(obj)
-            self._offset += memoryview(obj).nbytes
-        return token
+    def persistent_id(self, obj: object) -> int | None:
+        return self._shared.get(id(obj))
 
 
-class _ColumnUnpickler(pickle.Unpickler):
-    """Read back what `_ColumnPickler` wrote: each column is allocated at its full length and filled straight from the file, so loading the columns holds them once, where a plain unpickle holds each column's bytes beside the array built from them."""
-
-    def __init__(self, stream: BinaryIO, raw: io.FileIO, base: int) -> None:
+class _SharedUnpickler(pickle.Unpickler):
+    def __init__(self, stream: BinaryIO, shared: Sequence[object]) -> None:
         super().__init__(stream)
-        self._raw = raw
-        self._base = base
-        self._columns: dict[int, array | bytearray] = {}
+        self._shared = shared
 
-    def persistent_load(self, pid: tuple) -> array | bytearray:
-        typecode, length, offset = pid
-        column = self._columns.get(offset)
-        if column is not None:
-            return column
-        column = bytearray(length) if typecode is None else array(typecode, [0]) * length
-        view = memoryview(column).cast("B")
-        self._raw.seek(self._base + offset)
-        while view:
-            count = self._raw.readinto(view)
-            if not count:
-                raise EOFError(f"the write's columns end before the column at byte {offset}")
-            view = view[count:]
-        self._columns[offset] = column
-        return column
+    def persistent_load(self, pid: int) -> object:
+        return self._shared[pid]
 
 
-def _dump_columns(path: Path, table: UnitTable, store: UnitStore) -> None:
-    """Write the workload table and the unit store to `path` for the write's workers: an eight-byte length, the pickle of both objects without their columns (`_ColumnPickler`), then every column's bytes in the order the pickle names them. The columns go out as their own buffers, without a copy. The store goes out without the columns the write never reads (`unit_store.WRITE_UNREAD_COLUMNS`), each replaced by a `_Withheld`; `CORPUS_WRITE_WORKER_BYTES` in rebuild/tools/artifact_cycle.py says how much that leaves."""
-    shipped = copy.copy(store)
-    for name in unit_store.WRITE_UNREAD_COLUMNS:
-        setattr(shipped, name, _Withheld(name))
-    skeleton = io.BytesIO()
-    pickler = _ColumnPickler(skeleton)
-    pickler.dump((table, shipped))
-    with path.open("wb") as handle:
-        handle.write(len(skeleton.getbuffer()).to_bytes(8, "little"))
-        handle.write(skeleton.getbuffer())
-        for column in pickler.buffers:
-            handle.write(memoryview(column).cast("B"))
+def _pickled(message: tuple, shared: Sequence[object]) -> bytes:
+    buffer = io.BytesIO()
+    _SharedPickler(buffer, shared).dump(message)
+    return buffer.getvalue()
 
 
-def _load_columns(path: Path) -> tuple[UnitTable, UnitStore]:
-    """Load the workload table and the unit store `_dump_columns` wrote."""
-    with path.open("rb", buffering=0) as raw:
-        size = int.from_bytes(raw.read(8), "little")
-        skeleton = raw.read(size)
-        loaded = _ColumnUnpickler(io.BytesIO(skeleton), raw, 8 + size).load()
-    return loaded
+def _send(conn, message: tuple, shared: Sequence[object]) -> None:
+    conn.send_bytes(_pickled(message, shared))
+
+
+def _receive(conn, shared: Sequence[object]) -> tuple:
+    return _SharedUnpickler(io.BytesIO(conn.recv_bytes()), shared).load()
 
 
 def _send_quietly(conn, message: tuple) -> None:
@@ -2072,16 +2135,30 @@ def _send_quietly(conn, message: tuple) -> None:
         pass
 
 
-def _write_worker(conn, columns: Path, settings: _WriteSettings) -> None:
-    """Run one persistent write worker, answering the parent's messages on `conn` until `stop`. It loads the workload table and the unit store once (`_load_columns`), then writes each run it is handed (`_write_run`) and replies with the run's result. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`). A `SystemExit` raised by the write, such as a fragment that does not read back, replies `exit` with its message, and any other exception replies `error` with its traceback; either ends the worker. Workers are started with spawn only, as the units pool's are (`_corpus_worker`)."""
-    try:
-        table, store = _load_columns(columns)
+def _write_worker(conn, settings: _WriteSettings, shared: tuple) -> None:
+    """Run one persistent write worker, answering the parent's messages on `conn` until `stop`. `shared` holds the string table and the workload table's pools, which the parent sends once, as the worker starts; every message after that comes through `_SharedPickler` and refers to them. A `run` message carries a run's index and its first chunk, and the worker writes the run (`_write_run`) a chunk at a time, holding only the chunk it is writing, since neither it nor the run keeps a chunk once written: it replies `written` with each chunk's results, the parent answers with the run's next chunk or, after its last, with `end`, and the worker then replies `run` with the run's renames and sidecar spools. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`). A `SystemExit` raised by the write, such as a fragment that does not read back, replies `exit` with its message, and any other exception replies `error` with its traceback; either ends the worker. Workers are started with spawn only, as the units pool's are (`_corpus_worker`)."""
+
+    def chunks(held: list[_Chunk]) -> Iterator[_Chunk]:
+        yield held.pop()
         while True:
-            message = conn.recv()
+            message = _receive(conn, shared)
+            if message[0] == "end":
+                return
+            chunk = message[1]
+            del message
+            yield chunk
+            del chunk
+
+    try:
+        while True:
+            message = _receive(conn, shared)
             if message[0] == "stop":
                 conn.send(("peak", peak_footprint_self_bytes()))
                 return
-            conn.send(("run", _write_run(message[1], message[2], settings, table, store)))
+            index, held = message[1], [message[2]]
+            del message
+            run = _write_run(index, chunks(held), settings, lambda written: conn.send(("written", written)))
+            conn.send(("run", run))
     except SystemExit as stop:
         _send_quietly(conn, ("exit", str(stop.code)))
     except Exception:
@@ -2091,39 +2168,63 @@ def _write_worker(conn, columns: Path, settings: _WriteSettings) -> None:
 
 
 class _WritePool:
-    """The write's worker processes, each holding its own copy of the workload table and the unit store. The parent writes the two once to a file beside the corpus (`_dump_columns`), and each worker loads it as it starts. `write` hands out the runs largest first, one per worker at a time, each worker taking the next as it replies, and passes each result to the caller as it arrives, in whatever order the runs finish. `close` stops the workers and writes the pool record of their peak footprints and the parent's, or, after a failure, terminates them."""
+    """The write's worker processes. Each receives the string table and the workload table's pools once, as it starts, and then the units it writes one chunk at a time, gathered by the parent (`_write_chunks`), so no worker holds the corpus's columns. `write` hands out the runs largest first, one per worker at a time, each worker taking the next as it finishes one. Within a run the parent keeps each worker's next chunk gathered ahead and held only as its pickled message, so no chunk outlives its gather: a worker that replies with a chunk's results receives the next at once, and the parent gathers and pickles the one after while the worker writes. Each chunk's results and each run's go to the caller as they arrive, in whatever order the workers finish them. `close` stops the workers and writes the pool record of their peak footprints and the parent's, or, after a failure, terminates them."""
 
-    def __init__(self, width: int, columns: Path, settings: _WriteSettings) -> None:
+    def __init__(self, width: int, settings: _WriteSettings, shared: tuple) -> None:
         ctx = multiprocessing.get_context("spawn")
+        self._shared = shared
         self._procs: list = []
         self._conns: list = []
         for _ in range(width):
             parent_conn, child_conn = ctx.Pipe()
-            proc = ctx.Process(target=_write_worker, args=(child_conn, columns, settings))
+            proc = ctx.Process(target=_write_worker, args=(child_conn, settings, shared))
             proc.start()
             child_conn.close()
             self._procs.append(proc)
             self._conns.append(parent_conn)
 
-    def write(self, runs: Sequence[Sequence[_ClassToWrite]], keep: Callable[[_RunWritten], None]) -> None:
+    def write(
+        self,
+        runs: Sequence[Sequence[_ClassToWrite]],
+        chunks: Callable[[Sequence[_ClassToWrite]], Iterator[_Chunk]],
+        keep: Callable[[_ChunkWritten], None],
+        keep_run: Callable[[_RunWritten], None],
+    ) -> None:
         queue = iter(
             sorted(range(len(runs)), key=lambda index: -sum(len(entry.ordinals) for entry in runs[index]))
         )
+        feeds: dict[object, tuple[Iterator[_Chunk], bytes | None]] = {}
+
+        def ahead(feed: Iterator[_Chunk]) -> bytes | None:
+            chunk = next(feed, None)
+            return None if chunk is None else _pickled(("chunk", chunk), self._shared)
 
         def hand(conn) -> bool:
             index = next(queue, None)
             if index is None:
                 return False
-            conn.send(("run", index, list(runs[index])))
+            feed = chunks(runs[index])
+            conn.send_bytes(_pickled(("run", index, next(feed)), self._shared))
+            feeds[conn] = (feed, ahead(feed))
             return True
 
         waiting = [conn for conn in self._conns if hand(conn)]
         while waiting:
             for conn in cast(list, multiprocessing.connection.wait(waiting)):
                 reply = conn.recv()
-                if reply[0] == "run":
+                if reply[0] == "written":
+                    feed, message = feeds[conn]
+                    ended = message is None
+                    conn.send_bytes(_pickled(("end",), self._shared) if message is None else message)
+                    feeds[conn] = (feed, None)
+                    del message
                     keep(reply[1])
                     del reply
+                    if not ended:
+                        feeds[conn] = (feed, ahead(feed))
+                elif reply[0] == "run":
+                    keep_run(reply[1])
+                    del feeds[conn]
                     if not hand(conn):
                         waiting.remove(conn)
                 elif reply[0] == "exit":
@@ -2139,7 +2240,7 @@ class _WritePool:
         else:
             for index, conn in enumerate(self._conns):
                 try:
-                    conn.send(("stop",))
+                    _send(conn, ("stop",), ())
                     if conn.poll(30):
                         reply = conn.recv()
                         if reply[0] == "peak":
@@ -2170,23 +2271,21 @@ def _write_pooled(
     runs: Sequence[Sequence[_ClassToWrite]],
     width: int,
     settings: _WriteSettings,
-    table: UnitTable,
-    store: UnitStore,
-    keep: Callable[[_RunWritten], None],
+    shared: tuple,
+    chunks: Callable[[Sequence[_ClassToWrite]], Iterator[_Chunk]],
+    keep: Callable[[_ChunkWritten], None],
+    keep_run: Callable[[_RunWritten], None],
 ) -> None:
-    """Write the runs across a `_WritePool` of `width` workers, passing each result to `keep` as it arrives. The columns file is deleted and the workers have exited by the time this returns or raises."""
-    columns = settings.out_dir / WRITE_COLUMNS_NAME
+    """Write the runs across a `_WritePool` of `width` workers, from the chunks `chunks` makes of each run, passing each chunk's results to `keep` and each run's to `keep_run` as they arrive. The workers have exited by the time this returns or raises."""
     pool: _WritePool | None = None
     failed = True
     try:
-        _dump_columns(columns, table, store)
-        pool = _WritePool(width, columns, settings)
-        pool.write(runs, keep)
+        pool = _WritePool(width, settings, shared)
+        pool.write(runs, chunks, keep, keep_run)
         failed = False
     finally:
         if pool is not None:
             pool.close(failed=failed)
-        columns.unlink(missing_ok=True)
 
 
 def _discard_runs(out_dir: Path, runs: Sequence[Sequence[_ClassToWrite]]) -> None:
@@ -2235,15 +2334,14 @@ def _write_corpus(
 ) -> _WrittenCorpus:
     """Write the per-unit fragments into shards, copy the fonts, and write the manifest and the sidecars. The manifest's triage index, `human_unit_ids`, is the human units taken in `order`, the permutation `audit.sort_for_triage` returned; a batch is a slice of it. Every per-unit value read here is a column of `table` or `store`, indexed by ordinal. `classes` arrive in manifest order and `sections` holds the section `build_m1` computed for each; `ledger` is every ledger entry, reached or not, for the manifest's `ledger_classes` lookup.
 
-    Fragments are written in shard order: classes in `unit_index.class_shard_key` order, which is also the sidecars' order, and each class's units by id (`store.id_word`, which sorts like the id strings). So a class's fragments and its locator rows ascend together, and a recomputed unit is placed by its content, not by its queue position. The classes are cut into runs, contiguous stretches of that order (`_write_runs`), and each run is written by `_write_run` with its own shard writer, sidecar spool and fragment readers, so runs can be written at once. The width is `write_jobs`, the most workers that fit, narrowed by `_write_width` and to the number of runs. Above one, a pool of that many worker processes writes the runs (`_WritePool`), each worker from its own copy of the table and the store; at one, this process writes the one run, which is the whole corpus. Either way the parent receives each class's manifest record, staged parts, per-unit addresses, config notes and policy files, and its checker, and writes the per-unit values into the store as each run arrives. Once every run is in, it folds the classes' checkers together in shard order (`_CorpusCheck.absorb`), renames the staged parts, and writes the manifest and then the sidecars from the runs' spools in shard order, so every output file is byte for byte what a single serial pass over the corpus writes. Nothing is committed until every run has written, and a failed run deletes what any run staged (`_discard_runs`), so the previous corpus stays intact.
+    Fragments are written in shard order: classes in `unit_index.class_shard_key` order, which is also the sidecars' order, and each class's units by id (`store.id_word`, which sorts like the id strings). So a class's fragments and its locator rows ascend together, and a recomputed unit is placed by its content, not by its queue position. The classes are cut into runs, contiguous stretches of that order (`_write_runs`), and each run is written by `_write_run` with its own shard writer, sidecar spool and fragment readers, so runs can be written at once. The width is `write_jobs`, the most workers that fit, narrowed by `_write_width` and to the number of runs. Above one, a pool of that many worker processes writes the runs (`_WritePool`), each worker from chunks of `WRITE_CHUNK_UNITS` units that the parent gathers from the table and the store for it (`_write_chunks`); at one, this process writes the one run, which is the whole corpus, from the full table and store. Either way the parent computes each class's manifest record from its columns, receives each chunk's per-unit addresses, config notes and policy files and its checker's facts, and as each chunk arrives writes the per-unit values into the store, holding each unit's part index until its class closes and names its parts, and folds the facts in (`_CorpusCheck.absorb`). Once every run is in, it renames the staged parts, and writes the manifest and then the sidecars from the runs' spools in shard order, so every output file is byte for byte what a single serial pass over the corpus writes. Nothing is committed until every run has written, and a failed run deletes what any run staged (`_discard_runs`), so the previous corpus stays intact.
 
-    `check_shards`' predicates run over the fragments as they pass, through the same `_CorpusCheck` the whole-corpus form uses, at `PATCHED` only plus every cross-unit predicate (`check_unit` describes the two subsets): each class's per-unit and class-level predicates in the process that writes it, and the cross-unit predicates once over the folded checker. `unit_errors` holds what the drafting-time check found, and those errors fail the build here in the same `contract check failed` list as the write's own. `cached_count` is the number of units the cache supplied, and decides whether the shards are written against the previous corpus and whether the previous sidecars may be copied forward.
+    `check_shards`' predicates run over the fragments as they pass, through the same `_CorpusCheck` the whole-corpus form uses, at `PATCHED` only plus every cross-unit predicate (`check_unit` describes the two subsets): each class's per-unit and class-level predicates in the process that writes it, and the cross-unit predicates once over the folded checker. A failing build's errors follow the order the chunks arrive in, so in a pooled write their order, and which of two clusters a duplicate group is reported against, can differ from a serial write's. `unit_errors` holds what the drafting-time check found, and those errors fail the build here in the same `contract check failed` list as the write's own. `cached_count` is the number of units the cache supplied, and decides whether the shards are written against the previous corpus and whether the previous sidecars may be copied forward.
 
     The manifest predicates (`check_manifest`) and the output-file predicates (`_check_output_files`) do not run here: every field they read is written by this function from its own inputs, and the fonts are checked against the digests taken at load in `_copy_font`. `check_output_dir` runs them over a real build in the contracts lane (`rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff), and `refresh_assets` runs the file predicates over the corpus it restamps.
     """
     out_dir = Path(out_dir)
-    # Delete what a killed build's write left behind: its columns file and spooled sidecar lines, whose names a write with fewer runs would not reuse.
-    (out_dir / WRITE_COLUMNS_NAME).unlink(missing_ok=True)
+    # Delete what a killed build's write left behind: its spooled sidecar lines, whose names a write with fewer runs would not reuse.
     for name in SIDECAR_SPOOL_NAMES:
         for stale in out_dir.glob(f"{name}.*spool.partial"):
             stale.unlink(missing_ok=True)
@@ -2287,40 +2385,52 @@ def _write_corpus(
     if tally:
         tally.hold("checker.identity", check._identity)
     written: dict[int, _RunWritten] = {}
-    by_ordinals = {entry.id: entry.ordinals for entry in to_write}
+    by_id = {entry.id: entry for entry in to_write}
+    metas: dict[str, dict] = {}
+    held: dict[str, array] = {}
+    byte_copied = 0
 
-    def keep(run: _RunWritten) -> None:
+    def keep(result: _ChunkWritten) -> None:
+        nonlocal byte_copied
+        entry = by_id[result.class_id]
+        names = result.names
+        for ordinal, start, length, note, policy in zip(
+            entry.ordinals[result.offset : result.offset + len(result.starts)],
+            result.starts,
+            result.lengths,
+            result.notes,
+            result.policy_files,
+            strict=True,
+        ):
+            store.set_written_span(ordinal, start, length)
+            store.set_config_note(ordinal, names[note])
+            store.set_policy_file(ordinal, names[policy])
+        held.setdefault(result.class_id, array("H")).extend(result.parts)
+        check.absorb(result.facts)
+        byte_copied += result.byte_copied
+        if result.shards is not None:
+            metas[result.class_id]["shards"] = result.shards
+            for ordinal, part in zip(entry.ordinals, held.pop(result.class_id), strict=True):
+                store.set_written_part(ordinal, result.shards[part])
+
+    def keep_run(run: _RunWritten) -> None:
         written[run.index] = run
-        for result in run.classes:
-            shards = result.meta["shards"]
-            for ordinal, part, start, length, note, policy in zip(
-                by_ordinals[result.id],
-                result.parts,
-                result.starts,
-                result.lengths,
-                result.config_notes,
-                result.policy_files,
-                strict=True,
-            ):
-                store.set_written_address(ordinal, (shards[part], start, length))
-                store.set_config_note(ordinal, note)
-                store.set_policy_file(ordinal, policy)
 
     committed = False
     try:
         if jobs > 1:
-            _write_pooled(runs, jobs, settings, table, store, keep)
+            _write_pooled(
+                runs,
+                jobs,
+                settings,
+                (table.strings, table.tuples, table.groups, table.mappings),
+                partial(_write_chunks, table=table, store=store, metas=metas, width=WRITE_CHUNK_UNITS),
+                keep,
+                keep_run,
+            )
         else:
             for index, run in enumerate(runs):
-                keep(_write_run(index, run, settings, table, store))
-        meta_by_id: dict[str, dict] = {}
-        byte_copied = 0
-        for index in range(len(runs)):
-            for result in written[index].classes:
-                meta_by_id[result.id] = result.meta
-                check.absorb(result.check)
-                byte_copied += result.byte_copied
-            written[index].classes.clear()
+                keep_run(_write_run(index, _write_chunks(run, table, store, metas), settings, keep))
         for index in range(len(runs)):
             for staging, target in written[index].pending:
                 staging.replace(target)
@@ -2367,7 +2477,7 @@ def _write_corpus(
             },
             "machine_approved": _machine_approved_meta(machine_units, junior_font, repo_root),
             "secondary_junctions": secondary_junction_counts,
-            "classes": [meta_by_id[entry.id] for entry in classes],
+            "classes": [metas[entry.id] for entry in classes],
             "ledger_classes": _ledger_classes_meta(ledger),
             "build_command": BUILD_COMMAND,
             "serve_command": SERVE_COMMAND,
@@ -3412,7 +3522,7 @@ CONTRACT_ERRORS_SHOWN = 20
 def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHECKED_AT) -> list[str]:
     """The per-unit half of the §7 contract check. `at` selects which of its two subsets run. `DRAFTED` covers every field settled when `unit_to_json` builds the fragment: the identity and its stamp, the machine flags and `ink_deltas`, the class, the ledger class and the group, the table-diff row key, the window, the junctions, the highlight, the notation, the summary and explain, the config badge, and the drafts. `PATCHED` covers the fields `patch_fragment` assigns after the parent's whole-corpus passes: `duplicate_group`, `cluster`, and the secondary junctions with their primary units.
 
-    The m1 build runs `DRAFTED` in the process that drafts the fragment (`_phase1_unit`) and `PATCHED` in the process that writes the fragment's class (`_write_class`). This is sound because `check_scaffold` checks at the write that every scaffold field outside `PATCHED` (`_CHECKED_SCAFFOLD_KEYS`) still has the value the drafting-time check read, and because only the scaffold and the secondary junctions are written after drafting. Either subset may read a checked field, but only `PATCHED` may read an unchecked one. A new fragment field must be assigned to one subset here. `rebuild/test_corpus_checks.py` checks that every scaffold key is either checked by `check_scaffold` or one of the keys `PATCHED` checks, and that `DRAFTED` and `PATCHED` together equal the full check. `check_shards` and `check_output_dir` run both subsets, so a corpus read back from disk gets every predicate.
+    The m1 build runs `DRAFTED` in the process that drafts the fragment (`_phase1_unit`) and `PATCHED` in the process that writes the fragment's class (`_write_chunk`). This is sound because `check_scaffold` checks at the write that every scaffold field outside `PATCHED` (`_CHECKED_SCAFFOLD_KEYS`) still has the value the drafting-time check read, and because only the scaffold and the secondary junctions are written after drafting. Either subset may read a checked field, but only `PATCHED` may read an unchecked one. A new fragment field must be assigned to one subset here. `rebuild/test_corpus_checks.py` checks that every scaffold key is either checked by `check_scaffold` or one of the keys `PATCHED` checks, and that `DRAFTED` and `PATCHED` together equal the full check. `check_shards` and `check_output_dir` run both subsets, so a corpus read back from disk gets every predicate.
     """
     errors: list[str] = []
     identifier = unit.get("id", "<missing>")
@@ -3828,7 +3938,7 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
 
 
 class _CorpusCheck:
-    """The per-unit and cross-unit parts of the §7 contract check as an accumulator fed one fragment at a time: `class_start` with the manifest's class record, `unit` for each fragment in shard order, `class_end` after the class's last fragment, and `finish` with the manifest for the predicates that read its totals. The m1 build uses it to check fragments it releases as it writes them, so per unit it keeps only what the cross-unit predicates read (its id, the grouping keys of a human unit, and, for a unit in a secondary-junction relation, its codepoints, whether there is a primary pair, and whether anything visible changed), never the fragment. Those three identity fields are read only for a unit that names a primary unit and for the primary unit it names, so a checker given `identity_for`, the ids some unit names as its primary unit, keeps them for those units alone; without it, it keeps them for every unit. The primary-unit predicates skip a pair whose identity was not kept, so `identity_for` must hold every primary unit a fed fragment names; the m1 write takes it from the same unsuppressed store assignments its fragments' junctions come from (`UnitStore.primary_unit_ids`). The m1 write feeds each class to a checker of its own in the process that writes the class, and `absorb` folds those into one checker in shard order before `finish`. `check_shards` feeds one checker from a mapping held in memory. `unit` runs `check_unit` on every fragment the unit cache did not supply, at the subsets `at` names: both by default, and `PATCHED` alone in the m1 write, where `DRAFTED` already ran when each fragment was drafted. Per-unit errors are recorded as each fragment is fed in, and cross-unit errors at `finish`."""
+    """The per-unit and cross-unit parts of the §7 contract check as an accumulator fed one fragment at a time: `class_start` with the manifest's class record, `unit` for each fragment in shard order, `class_end` after the class's last fragment, and `finish` with the manifest for the predicates that read its totals. The m1 build uses it to check fragments it releases as it writes them, so per unit it keeps only what the cross-unit predicates read (its id, the grouping keys of a human unit, and, for a unit in a secondary-junction relation, its codepoints, whether there is a primary pair, and whether anything visible changed), never the fragment. Those three identity fields are read only for a unit that names a primary unit and for the primary unit it names, so a checker given `identity_for`, the ids some unit names as its primary unit, keeps them for those units alone; without it, it keeps them for every unit. The primary-unit predicates skip a pair whose identity was not kept, so `identity_for` must hold every primary unit a fed fragment names; the m1 write takes it from the same unsuppressed store assignments its fragments' junctions come from (`UnitStore.primary_unit_ids`). The m1 write feeds each run's classes to a checker in the process that writes the run, which hands over what it has accumulated a chunk at a time (`take_facts`), and `absorb` folds each chunk's facts into one checker as they arrive, before `finish`. `check_shards` feeds one checker from a mapping held in memory. `unit` runs `check_unit` on every fragment the unit cache did not supply, at the subsets `at` names: both by default, and `PATCHED` alone in the m1 write, where `DRAFTED` already ran when each fragment was drafted. Per-unit errors are recorded as each fragment is fed in, and cross-unit errors at `finish`."""
 
     def __init__(
         self,
@@ -3867,6 +3977,35 @@ class _CorpusCheck:
         self._class_units = 0
         self._machine_count = 0
         self._check_counts: dict[str, int] = {}
+
+    _FACTS = (
+        "errors",
+        "_seen_units",
+        "_seen_rows",
+        "_seen_ids",
+        "_seen_machine_by_class",
+        "_primary_units",
+        "_junction_units",
+        "_junctions_with_primary_unit",
+        "_junctions_without_primary_unit",
+        "_duplicate_group_keys",
+        "_cluster_keys",
+        "_duplicate_group_cluster",
+        "_human_units",
+        "_identity",
+        "_policy_files",
+    )
+
+    def take_facts(self) -> _CorpusCheck:
+        """Return what this checker has accumulated since it was made or last asked, as a checker of its own to `absorb`, and go on from nothing. The open class's record and its counters stay, so `class_end` still compares the whole class with its record. The m1 write's worker hands its facts to the parent a chunk at a time this way, so it holds one chunk's ids, keys and identities, and a repeated id or a two-cluster duplicate group whose units fall in different chunks of one class is reported by `absorb` instead of `unit`."""
+        facts = _CorpusCheck(
+            mode=self._mode, descriptions={}, batch_size=None, repo_root=None, cached_ids=(), at=self._at
+        )
+        for name in self._FACTS:
+            kept = getattr(self, name)
+            setattr(self, name, getattr(facts, name))
+            setattr(facts, name, kept)
+        return facts
 
     def class_start(self, meta: Mapping) -> None:
         self._meta = meta
@@ -3973,7 +4112,7 @@ class _CorpusCheck:
         self._seen_rows += meta.get("row_count", 0)
 
     def absorb(self, other: _CorpusCheck) -> None:
-        """Fold in a checker that was fed the classes that follow this one's in shard order, as the m1 write feeds each class to a checker of its own. Each class's per-unit and class-end errors keep their order. The two predicates `unit` checks against units fed before it in stream order, a repeated id and a duplicate group whose cluster differs from the one an earlier unit gave it, are checked here against everything absorbed before, which is every class before `other`'s in shard order, so on a failing build such an error follows that class's own instead of sitting at the unit's place among them. The rest is unions and sums, so `finish` runs the cross-unit predicates over the union as over one checker fed every unit."""
+        """Fold in a checker fed other units, as the m1 write folds in each chunk's facts (`take_facts`) as they arrive. The chunk's per-unit and class-end errors keep their order. The two predicates `unit` checks against units fed before it in stream order, a repeated id and a duplicate group whose cluster differs from the one an earlier unit gave it, are checked here against everything absorbed before, so on a failing build such an error follows the chunk's own instead of sitting at the unit's place among them, and of a duplicate group's two clusters the one absorbed first is kept. The rest is unions and sums, so `finish` runs the cross-unit predicates over the union as over one checker fed every unit."""
         errors = self.errors
         errors.extend(other.errors)
         for unit_id in sorted(self._seen_ids & other._seen_ids, key=str):

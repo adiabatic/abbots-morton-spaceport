@@ -1,12 +1,15 @@
 """Interning tables for the corpus build's column-packed collections: `StringTable` for the strings every id column names, `TuplePool` for the name-tuple columns, and `MappingPool` for the per-config class maps. The module imports nothing from the repository, so `audit.RowColumns`, `audit.UnitTable`, and `unit_store.UnitStore` can all build on it, and the verdict update, which imports `audit` through `status`, does not import the memory tally through it. `memory_tally.column_sizes` estimates the memory of a collection built on these tables.
 
 Every table assigns ids in first-seen order and reserves id 0 for the empty value. Each keeps a running total of its members' size (UTF-8 bytes for strings, elements for tuples, two ids per entry for mappings), so the tally reports the tables exactly instead of by sampling.
+
+`gather`, `gather_slices` and `gather_runs` copy some rows of a collection's columns into columns of their own, in the order given, and `Withheld` stands in for a column such a copy leaves out. `UnitTable.gather` and `UnitStore.gather` build the corpus write's chunks from them.
 """
 
 from __future__ import annotations
 
 import sys
-from collections.abc import Hashable, Mapping
+from array import array
+from collections.abc import Hashable, Mapping, Sequence
 from typing import Generic, TypeVar
 
 _T = TypeVar("_T", bound=Hashable)
@@ -113,3 +116,46 @@ class MappingPool:
 
     def __len__(self) -> int:
         return len(self._mappings) - 1
+
+
+class Withheld:
+    """What a chunk of a column-packed collection holds in place of a column it was not sent. Any read raises, so a reader that starts reading such a column fails where it reads instead of reading an empty or stale one."""
+
+    __slots__ = ("name",)
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def _refuse(self, *_args) -> None:
+        raise RuntimeError(
+            f"the corpus write read {self.name}, which a write worker's chunk is not sent (`unit_store.WRITE_UNREAD_COLUMNS`, `audit.UnitTable.gather`)"
+        )
+
+    __getitem__ = __len__ = __iter__ = get = _refuse
+
+
+def gather(column: array, ordinals: Sequence[int]) -> array:
+    """Return the column's values at `ordinals`, in that order, as a column of the same type."""
+    return array(column.typecode, map(column.__getitem__, ordinals))
+
+
+def gather_slices(column: bytearray, width: int, ordinals: Sequence[int]) -> bytearray:
+    """Return the `width`-byte slices a fixed-width byte column holds for `ordinals`, in that order, as a byte column of their own."""
+    return bytearray().join(column[ordinal * width : (ordinal + 1) * width] for ordinal in ordinals)
+
+
+def gather_runs(
+    starts: array, counts: array, ordinals: Sequence[int], *sides: tuple[array, int]
+) -> tuple[array, list[array]]:
+    """Return the runs of side-array entries that `starts` and `counts` give `ordinals`, copied in that order into side arrays of their own, beside the starts rebased onto them. Each side array comes with its stride, the entries it holds for each counted item (two for a junction's pair, six for its rect edges), so one start and one count address every side array of a group. The counts move with their rows; `gather` copies them."""
+    rebased = array(starts.typecode)
+    gathered = [array(side.typecode) for side, _stride in sides]
+    position = 0
+    for ordinal in ordinals:
+        start, count = starts[ordinal], counts[ordinal]
+        rebased.append(position)
+        if count:
+            for (side, stride), into in zip(sides, gathered):
+                into.extend(side[start * stride : (start + count) * stride])
+        position += count
+    return rebased, gathered

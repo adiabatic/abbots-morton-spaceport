@@ -410,8 +410,8 @@ def _nothing_to_see(shards: dict[str, list[dict]]) -> None:
 
 
 @pytest.mark.parametrize("breaks", [None, _not_a_substring, _no_primary_pair, _nothing_to_see])
-def test_the_writes_per_class_checkers_folded_together_find_what_one_checker_finds(breaks):
-    """The m1 write feeds each class to a checker of its own, keeping identities only for the units in a secondary-junction relation (`identity_for`, the ids some unit names as its primary unit), and folds the checkers together in shard order (`_CorpusCheck.absorb`) before the cross-unit predicates run. Over the fixture corpus with a resolver-shaped primary unit, as shipped and with each primary-unit predicate broken, the folded checkers report the same errors as `check_shards`' one checker that keeps every unit's identity."""
+def test_the_writes_chunk_facts_folded_together_find_what_one_checker_finds(breaks):
+    """The m1 write feeds a run's classes to a checker, keeping identities only for the units in a secondary-junction relation (`identity_for`, the ids some unit names as its primary unit), and hands what it accumulates to the parent a chunk at a time (`_CorpusCheck.take_facts`), keeping each class's counters until the class ends. The parent folds each chunk's facts in as they arrive (`_CorpusCheck.absorb`), which in a pooled write is no fixed order, before the cross-unit predicates run. Over the fixture corpus with a resolver-shaped primary unit, as shipped and with each primary-unit predicate broken, chunks of two units folded in the reverse of the order they were written report the same errors as `check_shards`' one checker that keeps every unit's identity."""
     manifest, shards = _corpus_with_primary_unit()
     if breaks is not None:
         breaks(shards)
@@ -426,14 +426,21 @@ def test_the_writes_per_class_checkers_folded_together_find_what_one_checker_fin
             identity_for=frozenset({PRIMARY_UNIT}),
         )
 
-    folded = checker()
+    run = checker()
+    chunks: list[review_build._CorpusCheck] = []
     for meta in sorted(manifest["classes"], key=lambda meta: unit_index.class_shard_key(meta["id"])):
-        one = checker()
-        one.class_start(meta)
-        for unit in shards[meta["id"]]:
-            one.unit(unit)
-        one.class_end()
-        folded.absorb(one)
+        run.class_start(meta)
+        units = shards[meta["id"]]
+        for index, unit in enumerate(units, start=1):
+            run.unit(unit)
+            if index % 2 == 0 and index < len(units):
+                chunks.append(run.take_facts())
+        run.class_end()
+        chunks.append(run.take_facts())
+    assert len(chunks) > len(manifest["classes"])
+    folded = checker()
+    for facts in reversed(chunks):
+        folded.absorb(facts)
     assert len(folded._identity) == 2
     expected = check_shards(manifest, shards)
     assert bool(expected) == (breaks is not None)

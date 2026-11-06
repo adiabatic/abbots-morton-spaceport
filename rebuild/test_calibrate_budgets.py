@@ -111,7 +111,7 @@ def test_a_corpus_pool_record_calibrates_the_worker_constant():
 
 
 def test_a_corpus_write_pool_record_calibrates_the_write_worker_constant_only():
-    """The corpus build's write runs a pool of its own after the units pool has stopped, whose workers each hold a copy of the corpus's columns, so it writes its records under the unit `corpus-write`. Only the corpus-write-worker row reads them, and the corpus-worker row reads none of them."""
+    """The corpus build's write runs a pool of its own after the units pool has stopped, whose workers each hold one chunk of the corpus's columns at a time, so it writes its records under the unit `corpus-write`. Only the corpus-write-worker row reads them, and the corpus-worker row reads none of them."""
     record = _pool("corpus-write", [800_000_000, 600_000_000], reading="footprint")
     observed, _, _, _ = cb.observations(_unit("corpus-write-worker"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [800_000_000, 600_000_000]

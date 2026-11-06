@@ -8,6 +8,8 @@ Every string (a digest, a cluster, a change group, a ledger class, a config name
 
 The accessors build one unit's values on demand, in the shapes the build writes: `primary_unit_projection` is the `enrich.PrimaryUnitProjection` the primary-unit resolution pass compares, `primary_unit_projection_record` the `proj` dict of a store record, `junction_rects` the `[{"pair", "before", "after"}]` list `patch_fragment` reads, `primary_units_record` the `[[primary_unit, suppressed]]` list, `cached_unit` the `unit_cache.CachedUnit` for `record_line`, and `source` the `unit_cache.PriorFragment` the fragment is read back through. JSON key order is part of the shipped bytes, so each accessor builds its dicts in the order the writer reads them, and the load raises on input it could not rebuild byte for byte: rect dicts whose keys are not `x_min`, `x_max`, `advance_total` in that order, and rows whose spans, names and junctions disagree in length. The store is also the primary-unit resolution pass's `enrich.PrimaryUnitSource` (`windows`, `junction_count`, `projection`, `id_word`, `invisible` and `set_primary_units`), so `enrich.resolve_primary_unit_assignments` skips units with no secondary junction without building anything and writes its result straight into the junction side column.
 
+`gather` copies the rows of one chunk of a class into a `ChunkStore`, which a corpus write worker reads by position (`build._write_chunks`).
+
 `sizes` reports the store to the debug tally (`memory_tally.column_sizes`). The packed figure is the arrays' bytes plus the mismatch lines, with the string table printed beside it. The walked figure adds the table only when the store owns it; a store built over the workload table's strings reports its rows alone, because the workload table's tally line already counts the table.
 """
 
@@ -20,7 +22,7 @@ from typing import NamedTuple, Protocol
 
 from rebuild.review import enrich, unit_cache
 from rebuild.review.audit import MACHINE_CHECKS, format_codepoints
-from rebuild.review.columns import StringTable
+from rebuild.review.columns import StringTable, Withheld, gather, gather_runs, gather_slices
 from rebuild.tools import memory_tally
 
 KEY_BYTES = 32
@@ -39,7 +41,7 @@ BYTE_COPIED = 128
 
 _ALPHABET_INDEX = {symbol: index for index, symbol in enumerate(unit_cache.BASE58_ALPHABET)}
 
-# The columns the corpus write (`build._write_class`) never reads: the primary-unit projection and the store's copy of the window, which the whole-corpus passes before the write read; the diff digest, cluster, change group and judged pair, which the plan, those passes and the cache write read; the shard address and config note, which the write produces and the parent stores; and the id index. `build._dump_columns` leaves them out of the copy each write worker loads.
+# The columns the corpus write (`build._write_chunk`) never reads: the primary-unit projection and the store's copy of the window, which the whole-corpus passes before the write read; the diff digest, cluster, change group and judged pair, which the plan, those passes and the cache write read; the shard address and config note, which the write produces and the parent stores; and the id index. `UnitStore.gather` leaves them out of the chunk a write worker reads, with the mismatch lines, which only the parent reads.
 WRITE_UNREAD_COLUMNS = (
     "_diffs_digest",
     "_cluster",
@@ -665,9 +667,16 @@ class UnitStore:
 
     def set_written_address(self, ordinal: int, address: Address) -> None:
         part, start, length = address
-        self._out_part[ordinal] = self._table.id(part)
+        self.set_written_part(ordinal, part)
+        self.set_written_span(ordinal, start, length)
+
+    def set_written_span(self, ordinal: int, start: int, length: int) -> None:
+        """Record the unit's byte start and length in its shard part, ahead of the part's name: the write learns a class's part names only when the class closes."""
         self._out_start[ordinal] = start
         self._out_len[ordinal] = length
+
+    def set_written_part(self, ordinal: int, part: str) -> None:
+        self._out_part[ordinal] = self._table.id(part)
 
     def _spans(self, column: array, start: int, count: int) -> tuple[tuple[int, int], ...]:
         flat = column[2 * start : 2 * (start + count)]
@@ -862,6 +871,60 @@ class UnitStore:
             policy_file=self.policy_file(ordinal),
         )
 
+    def gather(self, ordinals: Sequence[int]) -> ChunkStore:
+        """Return a store over the units at `ordinals`, each answered by its position in that sequence: one chunk of a class for a write worker (`build._write_chunks`). Every column the write reads is copied for those rows, each side array's runs with their offsets rebased, and the string table is this store's own, which the worker holds once (`build._SharedPickler`). The columns `WRITE_UNREAD_COLUMNS` names, the mismatch lines and the primary-unit ordinals are `Withheld`. Each primary unit is resolved here to its id word, the one value the write reads at another unit (`ChunkStore.primary_units`)."""
+        chunk = ChunkStore.__new__(ChunkStore)
+        chunk.n = len(ordinals)
+        chunk._table = self._table
+        chunk._holds_table = False
+        chunk._loaded = gather_slices(self._loaded, 1, ordinals)
+        chunk._content_keys = gather_slices(self._content_keys, KEY_BYTES, ordinals)
+        chunk._input_keys = gather_slices(self._input_keys, KEY_BYTES, ordinals)
+        for name in (
+            "_flags",
+            "_ledger_class",
+            "_cell_pair_l",
+            "_cell_pair_r",
+            "_src_part",
+            "_src_start",
+            "_src_len",
+            "_prior_class",
+            "_duplicate_group",
+            "_policy_file",
+            "_deltas_n",
+            "_junction_n",
+        ):
+            setattr(chunk, name, gather(getattr(self, name), ordinals))
+        chunk._deltas_start, (chunk._delta_config, chunk._delta_digest) = gather_runs(
+            self._deltas_start, self._deltas_n, ordinals, (self._delta_config, 1), (self._delta_digest, 1)
+        )
+        chunk._junction_start, junctions = gather_runs(
+            self._junction_start,
+            self._junction_n,
+            ordinals,
+            (self._junction_pairs, 2),
+            (self._rect_edges, 6),
+            (self._primary_unit, 1),
+            (self._primary_unit_suppressed, 1),
+            (self._cached_primary_unit, 1),
+            (self._cached_primary_unit_suppressed, 1),
+        )
+        (
+            chunk._junction_pairs,
+            chunk._rect_edges,
+            targets,
+            chunk._primary_unit_suppressed,
+            chunk._cached_primary_unit,
+            chunk._cached_primary_unit_suppressed,
+        ) = junctions
+        chunk._primary_unit_word = array(
+            "Q", (0 if target == NO_PRIMARY_UNIT else self.id_word(target) for target in targets)
+        )
+        chunk._primary_unit_named = bytearray(target != NO_PRIMARY_UNIT for target in targets)
+        for name in (*WRITE_UNREAD_COLUMNS, "_mismatches", "_primary_unit"):
+            setattr(chunk, name, Withheld(name))
+        return chunk
+
     def _columns(self) -> Iterator[array | bytearray]:
         for value in vars(self).values():
             if isinstance(value, (array, bytearray)):
@@ -876,4 +939,43 @@ class UnitStore:
         )
         return memory_tally.column_sizes(
             self.n, self._columns(), self._table, lines, holds_table=self._holds_table
+        )
+
+
+class ChunkStore(UnitStore):
+    """A write worker's store over one chunk of a class (`UnitStore.gather`): the rows of the chunk's units, each answered by its position in the chunk, holding only the columns the write reads. A withheld column refuses every read (`columns.Withheld`), and a read at a position past the chunk raises, through an array's own bounds check or, for the keys, which are slices of one byte column, through `_at`. So a read the chunk was not sent fails in the worker instead of answering for another unit. The primary-unit ordinals are withheld too, because an ordinal there names a unit outside the chunk; `primary_units` reads each one's id word instead."""
+
+    _primary_unit_word: array
+    _primary_unit_named: bytearray
+
+    def _at(self, ordinal: int) -> None:
+        if not 0 <= ordinal < self.n:
+            raise IndexError(f"position {ordinal} is outside a chunk of {self.n} units")
+
+    def id_word(self, ordinal: int) -> int:
+        self._at(ordinal)
+        return super().id_word(ordinal)
+
+    def unit_id(self, ordinal: int) -> str:
+        self._at(ordinal)
+        return super().unit_id(ordinal)
+
+    def content_key_hex(self, ordinal: int) -> str:
+        self._at(ordinal)
+        return super().content_key_hex(ordinal)
+
+    def input_key_hex(self, ordinal: int) -> str:
+        self._at(ordinal)
+        return super().input_key_hex(ordinal)
+
+    def primary_units(self, ordinal: int) -> tuple[tuple[str | None, bool], ...]:
+        """Return the unit's primary unit assignments, as `UnitStore.primary_units` does, with each primary unit's id spelled from the word the gather resolved."""
+        start, count = self._junction_start[ordinal], self._junction_n[ordinal]
+        return tuple(
+            (unit_cache.unit_id_for(f"{word:016x}") if named else None, bool(suppressed))
+            for word, named, suppressed in zip(
+                self._primary_unit_word[start : start + count],
+                self._primary_unit_named[start : start + count],
+                self._primary_unit_suppressed[start : start + count],
+            )
         )
