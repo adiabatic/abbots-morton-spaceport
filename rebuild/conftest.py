@@ -4,7 +4,7 @@ Every test reads only checked-in inputs and what it builds itself, so the suite 
 
 A `sys.addaudithook` guard enforces that boundary. It is installed once per process and is active only during the setup, call, and teardown of an item this conftest governs. While it is active, any audited file operation on a path under the live trees (`rebuild/out/`, all of `tmp/` and `var/`, the gate's exempt prefixes that are not source, and the root `verdicts-*` stores) raises `ContractsLaneViolation`, naming the test and the path. A phase that catches that exception still fails through `pytest_runtest_makereport`. The guard does not see subprocess children or `Path.exists()` and `os.stat`; `_audit` describes both gaps.
 
-The same hook records each contracts item's input closure. `rebuild.tools.contracts_closure` reads the record and decides when a closure lets a test be skipped. The recorder adds to an item's closure every repo file the item opens, including a font `uharfbuzz` maps (`_wrap_blob_reads` reports that read as an `open` event), and every module the item imports for the first time in this process. A child process leaves the item's inputs untraced, with two exceptions: the git commands `closure_record.hermetic_child` accepts, and the kernel or its cargo build (`closure_record.kernel_child`), which flags the item so the crate's sources are added to its closure. A multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to report it. A file a module opens while its body is being imported is credited to that module (`_attribute_import_read`), so every test whose closure includes the module gets the read. What a fixture scoped wider than a function reads during its setup is credited to the fixture and added to every item that requests it, because the fixture sets up once, under a single item. A fixture built once a run (`build_once`) sets up in every worker but builds in one, so the worker that builds it records what the build added to the closure and every other worker adds that record to its own. `--closure-record PATH` makes the controller write every worker's closures to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names. The gate passes both options, and a bare `uv run pytest rebuild/` neither records nor skips.
+The same hook records each contracts item's input closure. `rebuild.tools.contracts_closure` reads the record and decides when a closure lets a test be skipped. The recorder adds to an item's closure every repo file the item opens, including a font `uharfbuzz` maps (`_wrap_blob_reads` reports that read as an `open` event), and every module the item imports for the first time in this process. A child process leaves the item's inputs untraced, with two exceptions: the git commands `closure_record.hermetic_child` accepts, and the kernel or its cargo build (`closure_record.kernel_child`), which flags the item so the crate's sources are added to its closure. A multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to report it. A file a module opens while its body is being imported is credited to that module (`_attribute_import_read`), so every test whose closure includes the module gets the read. What a fixture scoped wider than a function reads during its setup is credited to the fixture and added to every item that requests it, because the fixture sets up once, under a single item. The hook that records that setup is a plugin of its own (`_FixtureRecorder`), because pytest sets up a session fixture through a hook proxy that leaves this conftest out. A fixture built once a run (`build_once`) sets up in every worker but builds in one, so the worker that builds it records what the build added to the closure and every other worker adds that record to its own. `--closure-record PATH` makes the controller write every worker's closures to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names. The gate passes both options, and a bare `uv run pytest rebuild/` neither records nor skips.
 
 The autouse fixture `_redirect_cycle_writes` points every cycle write under `tmp_path` for every test under rebuild/, so running the suite never changes a file in the working repo.
 
@@ -326,6 +326,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     global _guard_installed
+    config.pluginmanager.register(_FixtureRecorder(), "rebuild-fixture-recorder")
     if _guard_installed:
         return
     _guard_installed = True
@@ -373,17 +374,20 @@ def pytest_runtest_setup(item: pytest.Item):
     return (yield)
 
 
-@pytest.hookimpl(wrapper=True)
-def pytest_fixture_setup(fixturedef, request):
-    """Record the setup of a fixture scoped wider than a function into its own sink as well as the item's, so what it reads during its one setup can be credited to every later item that requests it. A cached fixture value does not re-enter this hook. A function-scoped fixture sets up inside each requesting item's window and gets no sink, because one would pool its reads across items, which for a parametrized fixture means every parameter's file in every test."""
-    if not _guard.active or fixturedef.scope == "function":
-        return (yield)
-    sink = _fixture_sinks.setdefault(fixturedef.argname, _Sink())
-    _guard.fixtures.append(sink)
-    try:
-        return (yield)
-    finally:
-        _guard.fixtures.remove(sink)
+class _FixtureRecorder:
+    """The fixture-setup hook, which `pytest_configure` registers as a plugin of its own. pytest calls a fixture's setup through the hook proxy of the node its scope names: the session for a session fixture, and also for a package fixture defined outside a Python package, as one in this file would be. The session's proxy leaves out every conftest below the rootdir, this one among them, so a hook defined here never sees those setups. A plugin is in every proxy."""
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(self, fixturedef, request):
+        """Record the setup of a fixture scoped wider than a function into its own sink as well as the item's, so what it reads during its one setup can be credited to every later item that requests it. A cached fixture value does not re-enter this hook. A function-scoped fixture sets up inside each requesting item's window and gets no sink, because one would pool its reads across items, which for a parametrized fixture means every parameter's file in every test."""
+        if not _guard.active or fixturedef.scope == "function":
+            return (yield)
+        sink = _fixture_sinks.setdefault(fixturedef.argname, _Sink())
+        _guard.fixtures.append(sink)
+        try:
+            return (yield)
+        finally:
+            _guard.fixtures.remove(sink)
 
 
 @pytest.hookimpl(wrapper=True)

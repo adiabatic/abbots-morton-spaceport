@@ -1,9 +1,10 @@
-"""Tests for the contracts lane's per-test closures: the static import walk over a synthetic tree, the selection rule over a hand-written record, the merge of a run's sidecar into the previous record, the gate's narrowing and recording, the leaf-only imports of both conftests, and, end to end in a child pytest under `-p rebuild.conftest`, that the audit guard records reads, imports, fixture setups, spawns, and a fixture's announced import, and applies a selection file, and that a fixture built once a run is built by one of two workers and credited to both. The child runs as a subprocess because the guard is a `sys.addaudithook`, which cannot be uninstalled."""
+"""Tests for the contracts lane's per-test closures: the static import walk over a synthetic tree, the selection rule over a hand-written record, the merge of a run's sidecar into the previous record, the gate's narrowing and recording, the leaf-only imports of both conftests, and, end to end in a child pytest under `-p rebuild.conftest`, that the audit guard records reads, imports, fixture setups, spawns, and a fixture's announced import, and applies a selection file, and that a fixture built once a run is built by one of two workers and credited to both; and, in a child pytest from the repository root, where pytest loads `rebuild/conftest.py` as a conftest and not as a plugin, that a session fixture's setup is credited to every test that requests it. Each child runs as a subprocess because the guard is a `sys.addaudithook`, which cannot be uninstalled."""
 
 from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from concurrent.futures import Future
 from pathlib import Path
 
@@ -964,6 +965,41 @@ class TestTheRecorderEndToEnd:
         result = _child(pytester, monkeypatch, "-n", "0")
         result.assert_outcomes(passed=9)
         assert not list(tmp_path.glob("*.json"))
+
+
+SESSION_FIXTURE_PROBE = "rebuild/fixtures/session_fixture_probe.py"
+
+
+def test_the_real_suite_credits_a_session_fixtures_setup_to_every_requester(tmp_path):
+    """The other child runs load `rebuild/conftest.py` with `-p`, as a plugin, which every hook proxy calls. The real suite loads it as the conftest of rebuild/, below the rootdir, and pytest sets up a session fixture through the session's hook proxy, which leaves such a conftest out (`_FixtureRecorder` in rebuild/conftest.py). So this child runs from the repository root against `SESSION_FIXTURE_PROBE`, whose two tests share one session fixture, and the second requester's closure must show the fixture's read, its kernel child, and its ordinary child, as the first requester's does."""
+    sidecar = tmp_path / "closures.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            SESSION_FIXTURE_PROBE,
+            "-p",
+            "no:cacheprovider",
+            "-n",
+            "0",
+            "--basetemp",
+            str(tmp_path / "child"),
+            "--closure-record",
+            str(sidecar),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    payload = cc.read_sidecar(sidecar)
+    assert payload is not None
+    for name in ("test_first_requester", "test_second_requester"):
+        closure = payload["tests"][f"{SESSION_FIXTURE_PROBE}::{name}"]
+        assert MANIFEST in closure["reads"], name
+        assert closure["kernel"], name
+        assert closure["untraced_inputs"], name
 
 
 # Every repo file each conftest imports directly. Both conftests are in every test's closure, so a new conftest import adds an input to every test. The sets are literals so that adding one shows up as a diff to review.
