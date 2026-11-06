@@ -105,7 +105,13 @@ from rebuild.review.subset_pack import ensure_pack, is_junction_token, table_dig
 from rebuild.review.unit_store import UnitStore
 from rebuild.tools import console, memory_tally
 from rebuild.tools.cycle_timings import record_pool
-from rebuild.tools.peak_rss import current_rss_bytes, peak_rss_self_bytes, rss_now_token, rss_token
+from rebuild.tools.peak_rss import (
+    current_rss_bytes,
+    peak_footprint_self_bytes,
+    peak_rss_self_bytes,
+    rss_now_token,
+    rss_token,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUT = REPO_ROOT / "rebuild" / "out" / "review"
@@ -1175,7 +1181,7 @@ class _SignatureWrite:
 def _corpus_worker(conn, init: dict) -> None:
     """Run one persistent corpus worker, answering the parent's messages on `conn` until `stop`. Workers are started with spawn only, because uharfbuzz and fontTools C objects are not fork-safe and `drafts._import_test_shaping` sets a module-global singleton.
 
-    A `phase1` message carries one batch of units from the parent's queue and the spool's class name. For each unit the worker runs config_diff, enrichment, drafting and the drafting-time contract check, releasing the shape memo after each settlement batch (`_phase1_batches`). It spools each fragment as it is drafted (`_FragmentSpool`, opened on the first batch and kept across batches), so no EnrichedUnit outlives its batch. It replies `batch` with the batch's projections, each carrying its fragment's spool address and the unit's ordinal, and the check's errors (`check_unit` at `DRAFTED`, capped at `CONTRACT_ERRORS_SHOWN`), and keeps nothing after the reply, so it holds one batch's units and projections at a time. `phase1-done` closes the spool and replies `ok`; the parent reads the fragments back by address itself. `verify` recomputes phase 1 and the patch for cached units, which this worker never enriched, and replies with each one's content key and freshly computed ink deltas. `stop` replies with the worker's peak RSS.
+    A `phase1` message carries one batch of units from the parent's queue and the spool's class name. For each unit the worker runs config_diff, enrichment, drafting and the drafting-time contract check, releasing the shape memo after each settlement batch (`_phase1_batches`). It spools each fragment as it is drafted (`_FragmentSpool`, opened on the first batch and kept across batches), so no EnrichedUnit outlives its batch. It replies `batch` with the batch's projections, each carrying its fragment's spool address and the unit's ordinal, and the check's errors (`check_unit` at `DRAFTED`, capped at `CONTRACT_ERRORS_SHOWN`), and keeps nothing after the reply, so it holds one batch's units and projections at a time. `phase1-done` closes the spool and replies `ok`; the parent reads the fragments back by address itself. `verify` recomputes phase 1 and the patch for cached units, which this worker never enriched, and replies with each one's content key and freshly computed ink deltas. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`).
 
     Each `batch` reply is sent as its batch finishes, so the parent can print progress while the pool is still working. `verify` sends no progress, since it covers only a couple of hundred units.
     """
@@ -1209,7 +1215,7 @@ def _corpus_worker(conn, init: dict) -> None:
         while True:
             message = conn.recv()
             if message[0] == "stop":
-                conn.send(("peak", peak_rss_self_bytes()))
+                conn.send(("peak", peak_footprint_self_bytes()))
                 return
             if message[0] == "phase1":
                 if spool is None:
@@ -1276,10 +1282,16 @@ def _keep_contract_errors(kept: list[str], found: Sequence[str]) -> None:
 
 
 def _record_corpus_pool(width: int, peaks: dict[str, int]) -> None:
-    """Write one kind:"pool" record for a finished corpus pool under its own unit name, so `make job-costs` can compare CORPUS_WORKER_BYTES with the workers that ran. It never raises, because failing to write the journal is not a reason to fail a corpus build. A build without a pool writes nothing; the parent's own peak is the `corpus-build` step peak the cycle already records."""
+    """Write one kind:"pool" record for a finished corpus pool under its own unit name, so `make job-costs` can compare CORPUS_WORKER_BYTES with the workers that ran. Every reading is a peak footprint (`peak_rss.peak_footprint_self_bytes`): each worker's as it answered the stop, and the parent's own as the controller's. It never raises, because failing to write the journal is not a reason to fail a corpus build. A build without a pool writes nothing; the parent's resident peak is the `corpus-build` step peak the cycle already records."""
     if not peaks:
         return
-    record_pool("corpus", width=width, worker_peaks=peaks, controller_peak_bytes=peak_rss_self_bytes())
+    record_pool(
+        "corpus",
+        width=width,
+        worker_peaks=peaks,
+        controller_peak_bytes=peak_footprint_self_bytes(),
+        worker_reading="footprint",
+    )
 
 
 PHASE1_UNITS = "units enriched"
@@ -2061,13 +2073,13 @@ def _send_quietly(conn, message: tuple) -> None:
 
 
 def _write_worker(conn, columns: Path, settings: _WriteSettings) -> None:
-    """Run one persistent write worker, answering the parent's messages on `conn` until `stop`. It loads the workload table and the unit store once (`_load_columns`), then writes each run it is handed (`_write_run`) and replies with the run's result. `stop` replies with the worker's peak RSS. A `SystemExit` raised by the write, such as a fragment that does not read back, replies `exit` with its message, and any other exception replies `error` with its traceback; either ends the worker. Workers are started with spawn only, as the units pool's are (`_corpus_worker`)."""
+    """Run one persistent write worker, answering the parent's messages on `conn` until `stop`. It loads the workload table and the unit store once (`_load_columns`), then writes each run it is handed (`_write_run`) and replies with the run's result. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`). A `SystemExit` raised by the write, such as a fragment that does not read back, replies `exit` with its message, and any other exception replies `error` with its traceback; either ends the worker. Workers are started with spawn only, as the units pool's are (`_corpus_worker`)."""
     try:
         table, store = _load_columns(columns)
         while True:
             message = conn.recv()
             if message[0] == "stop":
-                conn.send(("peak", peak_rss_self_bytes()))
+                conn.send(("peak", peak_footprint_self_bytes()))
                 return
             conn.send(("run", _write_run(message[1], message[2], settings, table, store)))
     except SystemExit as stop:
@@ -2079,7 +2091,7 @@ def _write_worker(conn, columns: Path, settings: _WriteSettings) -> None:
 
 
 class _WritePool:
-    """The write's worker processes, each holding its own copy of the workload table and the unit store. The parent writes the two once to a file beside the corpus (`_dump_columns`), and each worker loads it as it starts. `write` hands out the runs largest first, one per worker at a time, each worker taking the next as it replies, and passes each result to the caller as it arrives, in whatever order the runs finish. `close` stops the workers and writes the pool record, or, after a failure, terminates them."""
+    """The write's worker processes, each holding its own copy of the workload table and the unit store. The parent writes the two once to a file beside the corpus (`_dump_columns`), and each worker loads it as it starts. `write` hands out the runs largest first, one per worker at a time, each worker taking the next as it replies, and passes each result to the caller as it arrives, in whatever order the runs finish. `close` stops the workers and writes the pool record of their peak footprints and the parent's, or, after a failure, terminates them."""
 
     def __init__(self, width: int, columns: Path, settings: _WriteSettings) -> None:
         ctx = multiprocessing.get_context("spawn")
@@ -2149,7 +2161,8 @@ class _WritePool:
                 "corpus-write",
                 width=len(self._procs),
                 worker_peaks=peaks,
-                controller_peak_bytes=peak_rss_self_bytes(),
+                controller_peak_bytes=peak_footprint_self_bytes(),
+                worker_reading="footprint",
             )
 
 

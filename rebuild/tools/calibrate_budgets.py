@@ -2,7 +2,7 @@
 
 Several fan-out widths are the machine's memory divided by a measured per-unit peak, such as what one pytest worker or one kernel configuration holds. Each peak is a checked-in constant, and `UNITS` lists the ones this module checks, beside the constants no width divides by whose argument a width rests on (`LAND_BYTES`, `TABLE_BUILD_PEAK_BYTES`). Three sets of width terms have no row of their own. The kernel's (`DELTA_SLOT_BYTES`, `SCRATCH_PEAK_BYTES`, `DEFAULT_MEMO_BYTES`, `PARKED_FOLD_BYTES` and `FOLD_PREPARATION_BYTES`) and `MEMO_WRITE_OVERLAP_BYTES`, which sets no width but decides the memo-write order, are watched only together, through the kernel-build row (below). The deep sweep's `DEEP_SWEEP_WINDOW_BYTES` and `DEEP_SWEEP_BASE_BYTES` have none: `make conform-deep`'s own check line records each configuration's highest unit peak beside the estimate they give, and nothing checks one against the other. `STANDING_FILL_WORKER_BYTES` has none because the refill pool writes no pool record (its comment in `rebuild/tools/artifact_cycle.py` says why). A memory saving or a heavier fixture can move a real peak away from its constant without failing any test. A constant that is too low shows up as a machine in swap, and one that is too high holds a pool to a fraction of the width it has room for. The measurements that catch this are already recorded on every run: each xdist controller's per-worker peaks, the pools run_m1 and the corpus build record, and the peak RSS the cycle records for every step it spawns. This module compares those measurements with the constants. It builds nothing and imports none of the code whose constants it checks.
 
-It reads measurements only from the cycle-timings journal. A `kind:"pool"` record gives one observation per worker, because the unit is one worker. The string replay's records give one observation each, the crate process's peak divided by the walks it ran at once, because the walks are threads of that one process. The deep replay's records give one observation per settlement configuration, the highest peak among its units' crate processes, because each unit is one walk in a process of its own. A named `kind:"step"` record gives its `peak_rss_bytes`, which is the largest single process in the step's tree, because `peak_rss.reap_peak_rss_bytes` takes the max over the tree instead of the sum. That reading measures one unit only for some steps. For `run_m1` the widest process is the table-build child, which the kernel-build row checks, and for `corpus-build` it is the parent, which the corpus-parent row checks. The kernel-build row also reads the table build's peak footprint off the same record's `[t] kernel_build_tables` phase, and its observation is the higher of the two lines, because the resident line leaves out what the memory compressor holds of the build; a record without a footprint gives its `peak_rss_bytes` alone. It does not measure one unit for `gate:make-test`, whose tree also holds `make all` and `uv run pyright` beside the pool. Each `UNITS` entry states which sources count for it and why.
+It reads measurements only from the cycle-timings journal. A `kind:"pool"` record gives one observation per worker, because the unit is one worker. Its readings sit under the record's `worker_peak_rss_bytes` field whichever line the writer reads, and its `worker_reading` names that line (`cycle_timings.record_pool`). The notes of the rows whose readings are peak footprints (`peak_rss.peak_footprint_self_bytes`) say so, and every other row's pool readings are resident peaks. A row whose `Unit` names a `worker_reading` counts only the records that name the same one, because its unit's journal holds both lines under one constant, and the report counts the records it sets aside. The string replay's records give one observation each, the crate process's peak divided by the walks it ran at once, because the walks are threads of that one process. The deep replay's records give one observation per settlement configuration, the highest peak among its units' crate processes, because each unit is one walk in a process of its own. A named `kind:"step"` record gives its `peak_rss_bytes`, which is the largest single process in the step's tree, because `peak_rss.reap_peak_rss_bytes` takes the max over the tree instead of the sum. That reading measures one unit only for some steps. For `run_m1` the widest process is the table-build child, which the kernel-build row checks, and for `corpus-build` it is the parent, which the corpus-parent row checks. The kernel-build row also reads the table build's peak footprint off the same record's `[t] kernel_build_tables` phase, and its observation is the higher of the two lines, because the resident line leaves out what the memory compressor holds of the build; a record without a footprint gives its `peak_rss_bytes` alone. It does not measure one unit for `gate:make-test`, whose tree also holds `make all` and `uv run pyright` beside the pool. Each `UNITS` entry states which sources count for it and why.
 
 Constants are read from their source files with `ast`, never imported. pytest loads every conftest under the module name `conftest`, so from under `rebuild/` a plain `import conftest` gets the wrong file, and `import rebuild.conftest` would execute a second copy of a file pytest has already loaded and installed its lane-audit hook from. `ast` executes nothing, and it keeps this tool from importing pytest or inheriting that file's `sys.path` edits. The width clauses read their other inputs the same way, so each prints the width its pool actually takes: the corpus rows read each other's constant and compute both of the build's caps, every core less the parent by hand and the build lane's share less the parent under a gated cycle (`memory_budget.split_cores`), and the conform-sweep row reads the floor of its cap beside a corpus build, the acceptance-configuration count, from the lengths of the configuration tuples in `rebuild/pipeline/conform.py` (`_acceptance_config_count`), along with the corpus constants its second width needs. The kernel row's width is narrowed by the configuration count and the cores in `run_m1._table_build_threads`, which this module does not compute, so that clause prints the memory arithmetic and names the narrowing in words.
 
@@ -10,7 +10,7 @@ A peak above its constant means the constant is out of date. It does not mean an
 
 Each checked constant's comment but TABLE_BUILD_PEAK_BYTES's states the rule that sets it from its highest reading: a headroom it multiplies the reading by (none for FONT_SUITE_WORKER_BYTES, whose `headroom` is 1) and a multiple it rounds up to, which the unit's `headroom` and `quantum` restate. A row whose highest reading, put through that rule (`proposed_constant`), comes out above the constant prints a proposal: the raised value, how the rule reached it, and the width it gives here, and under `--host all` the width it gives on each host in the window, read from that host's newest run record. The proposal appears on every overrun, and before one, marked as headroom used, once the readings have used the headroom the rule leaves. The tool only proposes raises and writes nothing: a documented worst case can lie outside the recent window, so a lower reading is no case for lowering a constant, and a person edits the constant and the comment that argues it together and commits them. The kernel-build row has no rule and proposes no value: its reading is the whole table build, which DEFAULT_MEMO_BYTES, PARKED_FOLD_BYTES per configuration, DELTA_SLOT_BYTES per delta in flight, FOLD_PREPARATION_BYTES for a slot that runs only default's fold preparation and MEMO_WRITE_OVERLAP_BYTES for the memo writers beside the wave bound together, so no reading of it sets any kernel constant, and an overrun names them and SCRATCH_PEAK_BYTES to re-measure instead. For the same reason it reads every record since its constant's commit rather than the newest `--recent`: a high reading the window dropped would only hide the warning.
 
-Observations are filtered to this host by default, because a per-unit peak is a property of one machine's working set, and a journal concatenated from several machines mixes machines running different versions of the code. Records that finished before the commit that set a constant's current value are set aside before anything is counted (the measurement cutoff), so that after a re-measure lowers a constant, the older, higher peaks from the same host do not trip the check. `git blame` on the constant's line finds that commit, so a re-measure clears its row on the next pass. A constant that is edited but not yet committed has no such commit and keeps every record until it is committed. Within that cutoff, `--recent` keeps only the newest records per unit and host, so an old high peak stops counting once newer runs replace it, and its default is long enough that one anomalous run cannot hide a regression. The journal records which machine measured a peak but not which machine a constant was sized on, so a unit with no rows from this host is reported as unverified on this host. A unit whose rows from this host all predate the constant's commit is reported as unverified too, with the reason that nothing on this host has measured the constant's current value yet.
+Observations are filtered to this host by default, because a per-unit peak is a property of one machine's working set, and a journal concatenated from several machines mixes machines running different versions of the code. Records that finished before the commit that set a constant's current value are set aside before anything is counted (the measurement cutoff), so that after a re-measure lowers a constant, the older, higher peaks from the same host do not trip the check. `git blame` on the constant's line finds that commit, so a re-measure clears its row on the next pass. A constant that is edited but not yet committed has no such commit and keeps every record until it is committed. Within that cutoff, `--recent` keeps only the newest records per unit and host, so an old high peak stops counting once newer runs replace it, and its default is long enough that one anomalous run cannot hide a regression. The journal records which machine measured a peak but not which machine a constant was sized on, so a unit with no rows from this host is reported as unverified on this host. A unit whose rows from this host all predate the constant's commit is reported as unverified too, with the reason that nothing on this host has measured the constant's current value yet, and so is one whose rows from this host all name another `worker_reading`, with that reason.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from fractions import Fraction
 from pathlib import Path
+from typing import Literal
 
 from rebuild.tools import memory_budget
 from rebuild.tools.cycle_timings import JOURNAL, load_journal, load_pool_records
@@ -56,6 +57,8 @@ class Unit:
     """One unit that a fan-out width divides the machine's memory by, or that a width's argument rests on: its constant and the file that holds it (both None for a row that is reported without a constant), the journal records that measure it, the text printed with its figures, and the rule the constant's comment sets it by from its highest reading: `headroom` to multiply the reading by and `quantum`, in bytes, to round the product up to a multiple of. Both are None for a row whose reading does not set its constant.
 
     `absorbs` picks readings out of a pool record by label: None keeps every reading, True only the `<config> absorb` ones, and False every other one, so two rows can split one pool's records. `recency_bound` False reads every record since the constant's commit, where `--recent` would keep only the newest. `footprint_phase` names the `[t]` phase whose `footprint_gb` token gives a step record a second line, a peak footprint, beside its `peak_rss_bytes`: the observation is then the higher of the two, and the report prints both (`_lines_line`). None reads `peak_rss_bytes` alone.
+
+    `worker_reading` names the line a pool record's worker readings must be for the record to count, by the record's own `worker_reading`: a record that names the other line, or names none as an older record does, is set aside before the recency bound and counted (`_reading_line`), so a unit whose journal holds both lines under one constant never puts them under one max. None counts every pool record.
     """
 
     name: str
@@ -70,6 +73,7 @@ class Unit:
     absorbs: bool | None = None
     recency_bound: bool = True
     footprint_phase: str | None = None
+    worker_reading: Literal["resident", "footprint"] | None = None
 
 
 # The kernel's constants live in one file: DELTA_SLOT_BYTES divides the delta fan-out width, DEFAULT_MEMO_BYTES and PARKED_FOLD_BYTES per settlement configuration are subtracted from the machine's memory before that division, FOLD_PREPARATION_BYTES books the slot default's fold preparation takes once every delta has one, MEMO_WRITE_OVERLAP_BYTES books the memo writers that run beside the wave when that still fits, SCRATCH_PEAK_BYTES bounds a slot in a build without default's memo and each delta started from scratch beside default, and the kernel-build row checks the higher of the run_m1 step peak and the table build's peak footprint against TABLE_BUILD_PEAK_BYTES.
@@ -120,7 +124,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("run-m1-parent",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from `run_m1.full_run`: one record per bare run_m1 that ran its oracle and joined its table-only branch, whatever its gate decided, with one observation, run_m1's own process's lifetime peak footprint (`run_m1_gates._peak_footprint`), never a child's. No constant books it: it runs beside the table build's crate, the string replay's crate and absorbs, and the oracle's pool, and none of their widths subtracts it, so it comes out of the reserve. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row reads. A `--gates-only` or `--conform-only` run writes nothing here, since its process holds a different collection. The figure follows the spec and the merged rules, so read it beside the alphabet a pass ran at.",
+        note="These pool records come from `run_m1.full_run`: one record per bare run_m1 that ran its oracle and joined its table-only branch, whatever its gate decided, with one observation, run_m1's own process's lifetime peak footprint (`peak_rss.peak_footprint_self_bytes`), never a child's. No constant books it: it runs beside the table build's crate, the string replay's crate and absorbs, and the oracle's pool, and none of their widths subtracts it, so it comes out of the reserve. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row reads. A `--gates-only` or `--conform-only` run writes nothing here, since its process holds a different collection. The figure follows the spec and the merged rules, so read it beside the alphabet a pass ran at.",
     ),
     Unit(
         name="replay-walk",
@@ -140,7 +144,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("replay-absorb",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from `run_m1.run_replay_strings`: one record per full replay whose settle-memo absorbs ran, with one observation per absorb that answered, labeled `<config> absorb`, its worker's peak footprint (`peak_rss.peak_footprint_bytes`, or the resident peak where the footprint cannot be read). The absorbs run on a spawn pool at the replay's width once the crate has exited, one per walked configuration, and the pool reuses its workers: at the fleet's widths it has a worker for every absorb, so a reading is nearly always one absorb's own, while a worker that ran two reports the larger of their peaks. No constant books them: they hold a fraction of what `kernel_exec.REPLAY_PEAK_BYTES` allows a walk, which the replay-walk row checks, and run at its width. A narrowed replay writes no memo and so no record. The oracle's part absorbs are the oracle-absorb row's, and the conformance sweep's are among the conform-sweep row's readings.",
+        note="These pool records come from `run_m1.run_replay_strings`: one record per full replay whose settle-memo absorbs ran, with one observation per absorb that answered, labeled `<config> absorb`, its worker's peak footprint (`peak_rss.peak_footprint_self_bytes`). The absorbs run on a spawn pool at the replay's width once the crate has exited, one per walked configuration, and the pool reuses its workers: at the fleet's widths it has a worker for every absorb, so a reading is nearly always one absorb's own, while a worker that ran two reports the larger of their peaks. No constant books them: they hold a fraction of what `kernel_exec.REPLAY_PEAK_BYTES` allows a walk, which the replay-walk row checks, and run at its width. A narrowed replay writes no memo and so no record. The oracle's part absorbs are the oracle-absorb row's, and the conformance sweep's are among the conform-sweep row's readings.",
     ),
     Unit(
         name="corpus-parent",
@@ -149,7 +153,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=(),
         step_names=("corpus-build",),
         step_caveat="reap_peak_rss_bytes maxes over the child's whole tree rather than summing it, and under this step that tree is one parent holding the whole corpus beside workers each holding one batch of it, so the max reads the parent — which is this unit exactly. What the same reading cannot see is the sum: parent plus every worker is the build's real footprint, and no step peak has ever been able to report it, which is why the divisor beside this row is measured by the corpus pool records instead of here.",
-        note="A row whose constant is subtracted from the machine's memory rather than divided into it: the parent's collections move with the width only through the one batch reply in flight per worker, so it is corpus_job_budget's co-resident term. Phase 2 streams into the shards, so the collections are the workload table, the packed unit store, the write's folded checker and the pre-merge snapshot rather than every fragment, but they are still corpus-shaped — every migrated letter moves them — so expect to re-measure it per batch. The constant's comment in rebuild/tools/artifact_cycle.py argues which phase holds the step's peak and which readings make up its measurement set: the load boundary makes the mark on a fully recomputed pass and on a cached one alike, the row columns and both ink-signature tables standing beside the workload table there, and the cached plan loads each store record as it is parsed, so the two kinds of pass read within a few hundredths of a gigabyte of each other. A cycle-driven pass of either kind writes a row here, a hand build writes pool records alone and its step peak is read off its `[t] review.build` lines, and the figure a re-measure sets it from is whichever of a fully recomputed and a cached pass reads higher on a pair taken with nothing edited between them.",
+        note="A row whose constant is subtracted from the machine's memory rather than divided into it: the parent's collections move with the width only through the one batch reply in flight per worker, so it is corpus_job_budget's co-resident term. Phase 2 streams into the shards, so the collections are the workload table, the packed unit store, the write's folded checker and the pre-merge snapshot rather than every fragment, but they are still corpus-shaped — every migrated letter moves them — so expect to re-measure it per batch. The constant's comment in rebuild/tools/artifact_cycle.py argues which phase holds the step's peak and which readings make up its measurement set: the load boundary makes the mark on a fully recomputed pass and on a cached one alike, the row columns and both ink-signature tables standing beside the workload table there, and the cached plan loads each store record as it is parsed, so the two kinds of pass read within a few hundredths of a gigabyte of each other. A cycle-driven pass of either kind writes a row here, a hand build writes pool records alone and its step peak is read off its `[t] review.build` lines, and the figure a re-measure sets it from is whichever of a fully recomputed and a cached pass reads higher on a pair taken with nothing edited between them. The corpus and corpus-write pool records carry the parent's peak footprint as their controller reading, which no row reads: this row reads the step's resident peak.",
         headroom=1.25,
         quantum=1_000_000_000,
     ),
@@ -160,9 +164,10 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("corpus",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from rebuild/review/build.py's own runner rather than from a pytest controller — cycle_timings.record_pool is deliberately not a pytest entry point — and each supplies one observation per worker that answered. The row is legitimately quiet on a machine the arithmetic has already narrowed to a single worker, because a serial build starts no pool to measure; a deliberate `--jobs N` hand run is what puts an observation on the record there, and the row's unverified-here line is the honest reading until one does.",
+        note="These pool records come from rebuild/review/build.py's own runner rather than from a pytest controller — cycle_timings.record_pool is deliberately not a pytest entry point — and each supplies one observation per worker that answered: its peak footprint (`peak_rss.peak_footprint_self_bytes`) as it answered the stop, which leaves out the clean pages of the subset pack the worker maps, since the page cache holds those once however many workers map the pack. The row is legitimately quiet on a machine the arithmetic has already narrowed to a single worker, because a serial build starts no pool to measure; a deliberate `--jobs N` hand run is what puts an observation on the record there, and the row's unverified-here line is the honest reading until one does.",
         headroom=1.25,
         quantum=10_000_000,
+        worker_reading="footprint",
     ),
     Unit(
         name="corpus-write-worker",
@@ -171,9 +176,10 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("corpus-write",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from the corpus build's write (`_WritePool` in rebuild/review/build.py), one per pass whose write ran in more than one worker, with one observation per worker that answered: its peak RSS, which counts its copy of the workload table and of the unit store less the columns the write never reads (`unit_store.WRITE_UNREAD_COLUMNS`) and the per-unit results of the heaviest run of classes it wrote, the one with the most human units. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures. The row is quiet on a pass whose write ran in the parent, as a width of one gives.",
+        note="These pool records come from the corpus build's write (`_WritePool` in rebuild/review/build.py), one per pass whose write ran in more than one worker, with one observation per worker that answered: its peak footprint (`peak_rss.peak_footprint_self_bytes`) as it answered the stop, which counts its copy of the workload table and of the unit store less the columns the write never reads (`unit_store.WRITE_UNREAD_COLUMNS`) and the per-unit results of the heaviest run of classes it wrote, the one with the most human units. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures. The row is quiet on a pass whose write ran in the parent, as a width of one gives.",
         headroom=1.25,
         quantum=10_000_000,
+        worker_reading="footprint",
     ),
     Unit(
         name="signature-worker",
@@ -191,10 +197,11 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("oracle-shard",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from `run_m1_gates.run_oracle`'s own fan-in rather than from a pytest controller: one record per oracle fan-out, one observation per row range that ran, each the range's worker's own peak as it returned it to the parent process. The same records carry one `<config> absorb` reading per settle-memo absorb, which the oracle-absorb row reads instead: an absorb holds its configuration's settle memo file, which grows with the alphabet and not with the width this constant divides. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row measures, and it would read a build's footprint as a shard's. The row is quiet on a machine the arithmetic narrows to `--jobs 1`, since the serial oracle starts no pool; a hand `run_m1 --gates-only` at any wider width puts an observation on the record.",
+        note="These pool records come from `run_m1_gates.run_oracle`'s own fan-in rather than from a pytest controller: one record per oracle fan-out, one observation per row range that ran, each the range's worker's own peak footprint (`peak_rss.peak_footprint_self_bytes`) as it returned it to the parent process, which leaves out the clean pages of the settle memo file the range maps: the page cache holds those once however many ranges map the file. The same records carry one `<config> absorb` reading per settle-memo absorb, which the oracle-absorb row reads instead: an absorb holds its configuration's settle memo file, which grows with the alphabet and not with the width this constant divides. The run_m1 step peak is deliberately not admitted: that step's widest process is the table build's child, which the kernel-build row measures, and it would read a build's footprint as a shard's. The row is quiet on a machine the arithmetic narrows to `--jobs 1`, since the serial oracle starts no pool; a hand `run_m1 --gates-only` at any wider width puts an observation on the record.",
         headroom=1.25,
         quantum=100_000_000,
         absorbs=False,
+        worker_reading="footprint",
     ),
     Unit(
         name="oracle-absorb",
@@ -203,10 +210,11 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("oracle-shard",),
         step_names=(),
         step_caveat="",
-        note="These are the `<config> absorb` readings of the oracle's pool records: each settlement configuration's merge of its ranges' settle-memo parts into its file (`run_m1_gates._absorb_settle_memo_parts`), run on the oracle's pool once every range has finished, one per configuration. A worker reports its process peak and the pool reuses its workers, so an absorb reads at or above the range its worker ran before it: a reading at a range's level may be that range's peak, and a reading above every range of its record is the absorb's own. At most one absorb per settlement configuration runs at once, whatever the width, so `artifact_cycle.sweep_job_budget` prices them as that many slots at this figure in place of ORACLE_SHARD_BYTES.",
+        note="These are the `<config> absorb` readings of the oracle's pool records: each settlement configuration's merge of its ranges' settle-memo parts into its file (`run_m1_gates._absorb_settle_memo_parts`), run on the oracle's pool once every range has finished, one per configuration. A worker reports its peak footprint over its whole life (`peak_rss.peak_footprint_self_bytes`) and the pool reuses its workers, so an absorb reads at or above the range its worker ran before it: a reading at a range's level may be that range's peak, and a reading above every range of its record is the absorb's own. At most one absorb per settlement configuration runs at once, whatever the width, so `artifact_cycle.sweep_job_budget` prices them as that many slots at this figure in place of ORACLE_SHARD_BYTES.",
         headroom=1.25,
         quantum=100_000_000,
         absorbs=True,
+        worker_reading="footprint",
     ),
     Unit(
         name="conform-sweep",
@@ -215,7 +223,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("conform-sweep",),
         step_names=(),
         step_caveat="",
-        note="These pool records come from `run_m1_gates.run_font_conformance`'s own fan-in rather than from a pytest controller: one record per pooled conformance sweep at `conform.SWEEP_MAX_LENGTH`, one observation per acceptance configuration, the highest peak footprint among its units as `run_m1_gates._conformance_unit` returned them to the parent process beside the results, plus one per settle-memo absorb that ran (`<config> absorb`). The pool runs one unit or absorb per process (`max_tasks_per_child=1`), so every reading is one task's own and the record measures a unit's cost rather than the pool's shape. The readings are footprints (`peak_rss.peak_footprint_bytes`, or the resident peak where the footprint cannot be read), which leave out the clean pages of the mapped settle memo file: the page cache holds those once per machine, and the reserve covers them; the pool-record field keeps its `worker_peak_rss_bytes` name. A hand sweep at a `--conform-max-length` past the per-edit sweep's runs the same pooled branch and writes nothing here, since its units build a memo over every text up to its maximum length in process and hold a different collection from the per-edit sweep's. `make conform-deep` runs its own pool and records each unit's peak footprint beside its estimate on its check line instead (`rebuild/tools/deep_sweep.py`). The gate:conform step peak is deliberately not admitted: `reap_peak_rss_bytes` maxes over the child's tree rather than summing it, so that step's peak reads one process and never the pool. The row is quiet on a pass whose gate:conform skips on its green, and at `--jobs 1`, since the serial conformance sweep starts no pool; a hand `run_m1 --conform-only` at any wider width puts observations on the record. The row checks `CONFORM_SWEEP_UNIT_BYTES`, the divisor `artifact_cycle.conform_job_budget` divides the machine's memory by once the build lane's larger step is off it.",
+        note="These pool records come from `run_m1_gates.run_font_conformance`'s own fan-in rather than from a pytest controller: one record per pooled conformance sweep at `conform.SWEEP_MAX_LENGTH`, one observation per acceptance configuration, the highest peak footprint among its units as `run_m1_gates._conformance_unit` returned them to the parent process beside the results, plus one per settle-memo absorb that ran (`<config> absorb`). The pool runs one unit or absorb per process (`max_tasks_per_child=1`), so every reading is one task's own and the record measures a unit's cost rather than the pool's shape. The readings are footprints (`peak_rss.peak_footprint_self_bytes`), which leave out the clean pages of the mapped settle memo file: the page cache holds those once per machine, and the reserve covers them; the pool-record field keeps its `worker_peak_rss_bytes` name. A hand sweep at a `--conform-max-length` past the per-edit sweep's runs the same pooled branch and writes nothing here, since its units build a memo over every text up to its maximum length in process and hold a different collection from the per-edit sweep's. `make conform-deep` runs its own pool and records each unit's peak footprint beside its estimate on its check line instead (`rebuild/tools/deep_sweep.py`). The gate:conform step peak is deliberately not admitted: `reap_peak_rss_bytes` maxes over the child's tree rather than summing it, so that step's peak reads one process and never the pool. The row is quiet on a pass whose gate:conform skips on its green, and at `--jobs 1`, since the serial conformance sweep starts no pool; a hand `run_m1 --conform-only` at any wider width puts observations on the record. The row checks `CONFORM_SWEEP_UNIT_BYTES`, the divisor `artifact_cycle.conform_job_budget` divides the machine's memory by once the build lane's larger step is off it.",
         headroom=1.25,
         quantum=100_000_000,
     ),
@@ -490,8 +498,8 @@ def observations(
     host: str | None,
     recent: int,
     since: str | None = None,
-) -> tuple[list[Observation], int, int]:
-    """Return the observations of one unit that pass the host filter, the measurement cutoff, and the recency bound, with the number of records the host filter dropped and the number the measurement cutoff set aside.
+) -> tuple[list[Observation], int, int, int]:
+    """Return the observations of one unit that pass the host filter, the measurement cutoff, the unit's `worker_reading`, and the recency bound, with the number of records the host filter dropped, the number the measurement cutoff set aside, and the number of pool records within the cutoff that the `worker_reading` set aside.
 
     `since` is the ISO-Z stamp of the commit that set the constant's current value. A record that finished before it is set aside before the recency bound applies, so the bound counts only records measured on the code the constant describes. A record with no stamp is kept. None means no cutoff.
 
@@ -513,6 +521,15 @@ def observations(
             if not (isinstance(item[0].get("finished_at"), str) and item[0]["finished_at"] < since)
         ]
         older = len(records) - len(kept)
+        records = kept
+    other_reading = 0
+    if unit.worker_reading is not None:
+        kept = [
+            item
+            for item in records
+            if item[1] != "pool" or item[0].get("worker_reading") == unit.worker_reading
+        ]
+        other_reading = len(records) - len(kept)
         records = kept
     if recent > 0 and unit.recency_bound:
         by_host: dict[str, list[int]] = {}
@@ -543,7 +560,7 @@ def observations(
             lines = [line for line in (resident, footprint) if line is not None]
             if lines:
                 observed.append(Observation(max(lines), record_host, at, source, resident, footprint))
-    return observed, dropped, older
+    return observed, dropped, older, other_reading
 
 
 def _phase_footprint_bytes(record: dict, label: str) -> int | None:
@@ -573,6 +590,7 @@ class UnitRow:
     dropped_other_hosts: int
     set_at: str | None
     dropped_older: int
+    dropped_reading: int
     overrun: bool
     unverified_here: bool
     proposal: int | None
@@ -597,7 +615,7 @@ def build_rows(
     rows: list[UnitRow] = []
     for unit in UNITS:
         since = (constant_commit_times or {}).get(unit.name) if recent > 0 else None
-        observed, dropped, older = observations(
+        observed, dropped, older, other_reading = observations(
             unit, pool_records, steps_by_run, host=host, recent=recent, since=since
         )
         constant_bytes = constants.get(unit.name)
@@ -621,6 +639,7 @@ def build_rows(
                 dropped_other_hosts=dropped,
                 set_at=since,
                 dropped_older=older,
+                dropped_reading=other_reading,
                 overrun=overrun,
                 unverified_here=constant_bytes is not None and not observed and host is not None,
                 proposal=proposal,
@@ -669,6 +688,19 @@ def _since_line(row: UnitRow) -> str | None:
         return f"  since     : {row.unit.constant} has no commit yet (edited, untracked, or no git here), so every record stands"
     aside = f"; {_plural(row.dropped_older, 'older record')} set aside" if row.dropped_older else ""
     return f"  since     : {row.set_at}, the commit that set {row.unit.constant} to its current value{aside}"
+
+
+def _reading_line(row: UnitRow) -> str | None:
+    """Return the line that says which pool records count for a unit with a `worker_reading`: the ones that name it, with how many within the measurement cutoff name another line or none and were set aside. None for a unit without one."""
+    reading = row.unit.worker_reading
+    if reading is None:
+        return None
+    aside = (
+        f"; {_plural(row.dropped_reading, 'record')} naming another line or none set aside"
+        if row.dropped_reading
+        else ""
+    )
+    return f"  reading   : only the pool records whose worker readings are `{reading}` count{aside}"
 
 
 def _observed_line(row: UnitRow, *, host: str | None) -> str:
@@ -940,6 +972,9 @@ def render_rows(
         since = _since_line(row)
         if since is not None:
             lines.append(since)
+        reading = _reading_line(row)
+        if reading is not None:
+            lines.append(reading)
         if row.dropped_other_hosts:
             verb = "was" if row.dropped_other_hosts == 1 else "were"
             lines.append(
@@ -959,9 +994,14 @@ def render_rows(
                 row, host=host, total_bytes=total_bytes, cores=cores, root=root, machines=machines or {}
             )
         )
-        if row.unverified_here and row.dropped_older:
+        if row.unverified_here and (row.dropped_older or row.dropped_reading):
+            lacks: list[str] = []
+            if row.dropped_older:
+                lacks.append("has been measured since the commit that set the constant")
+            if row.dropped_reading:
+                lacks.append(f"has worker readings that are `{unit.worker_reading}`")
             lines.append(
-                "  UNVERIFIED HERE: no record from this host for this unit has been measured since the commit that set the constant,"
+                f"  UNVERIFIED HERE: no record from this host for this unit {' and '.join(lacks)},"
                 " so its current value is unchecked on this machine until the next pass that runs this unit."
             )
         elif row.unverified_here:

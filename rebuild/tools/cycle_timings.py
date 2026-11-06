@@ -10,7 +10,7 @@ A "run" line is written when a cycle finishes, including an interrupted one. It 
 
 A metered pass's run line also carries a `written` block, from the write meter's readings as the pass started and after every step had joined (`write_meter.delta`): `basis` (`own`, `shared` or `device`; the meter's docstring says what each means), `bytes` (the pass's writes, an upper bound in the shared basis and the device's in the device one), `diskio_bytes` (the coalition's `byteswritten`, which misses what the kernel flushes on its own), `outsiders_bytes` and `outsiders_unread` in the shared basis only, `review_server_bytes` (the review server's own writes over the pass, which `bytes` leaves out), `device_bytes` and `swap_bytes`, which `machine_wide` names as the whole machine's and neither of which is netted, `class`, the pass's write class (`write_class`), and in the device basis the `warning` that says why. The block is null on a pass whose first or last reading failed, and older run lines lack it. Beside the block, the cycle's run line carries `alphabet`, the M1 alphabet the subset stamp (`SUBSET_STAMP`) records once every step has joined, which is the alphabet the subset tables were last filtered to: `sha256`, a digest of its code points, and `codepoints`, how many it holds (`alphabet_record`). It is null when the stamp is missing or records no alphabet, and older run lines lack it. It sits beside the block so that a pass whose first or last reading failed still records it, since `write_class` compares it with the one the latest pass on this host that finished ok records (`previous_pass_alphabet`) to find a letter batch. Each write class has a ceiling on each host (`PASS_WRITE_CEILING_BYTES`, `write_ceiling`), and a pass over its class's ceiling prints a `[warn]` line and a summary line and never fails.
 
-A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's rebuild-lane spawns do. run_m1's conformance sweep and oracle shards and the review build's signature and corpus pools write them too. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
+A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak, under `controller_peak_rss_bytes` and `worker_peak_rss_bytes` whichever line the writer reads, and `worker_reading`, which names the line its worker readings are (`resident` or `footprint`); an older line carries no `worker_reading`. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's rebuild-lane spawns do. run_m1 writes them for the string replay's walk and absorbs, the oracle's ranges and absorbs, the conformance sweep and its own process, the review build for its signature, units and write pools, and the deep replay for its walks. The worker readings of the replay's absorbs, the oracle, the conformance sweep, run_m1's own process and the corpus build's units and write pools are peak footprints (`peak_rss.peak_footprint_self_bytes`), and the corpus build's two pools also record their parent's peak footprint as the controller reading; every other reading is a resident peak. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
 
 The reporter is `make cycle-timings` (`uv run python -m rebuild.tools.cycle_timings`). By default it shows recent runs with steps slowest first, a run's header with its `written=` bytes (and `basis=` when it is not `own`) and a step's row with its window's `written=`, marked `+` when another step overlapped it. `--inner` expands the phase lines. `--by-step` reports count, median, max, and latest seconds per step and host, beside the largest peak RSS and the median and largest window. `--writes` groups the metered run lines by host and write class, with each class's ceiling and how many runs went over it (`render_writes`). `--by-outcome` reports, per check, how many times it ran, how it came out, and which test ids it failed on. `--by-commit` lists the settlement lookup's figures from every run_m1 build that recorded them, by commit (`readback_readings`, `render_by_commit`). `--critical-path` reports, per host, pool policy and pass shape, which step ended each finished pass and how long its lane ran past the other lane, computed from the step lines (`critical_path`). `--journal` reads another journal, such as journals from two machines concatenated.
 
@@ -34,6 +34,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from rebuild.tools import memory_budget, write_meter
 from rebuild.tools.console import INNER_LINE, fmt_bytes, warn
@@ -162,9 +163,10 @@ def record_pool(
     width: int,
     worker_peaks: dict[str, int],
     controller_peak_bytes: int,
+    worker_reading: Literal["resident", "footprint"] = "resident",
     path: Path | None = None,
 ) -> None:
-    """Append one kind:"pool" line for a finished worker pool: the unit it measured, the width it ran at, and the controller's and each worker's peak RSS. The writers are pytest controllers, run_m1's pools, and the review build's pools, none of which needs a cycle.
+    """Append one kind:"pool" line for a finished worker pool: the unit it measured, the width it ran at, and the controller's and each worker's peak, which the writer reads as a resident peak or a peak footprint (the module docstring says which writers read which) and the line stores under `controller_peak_rss_bytes` and `worker_peak_rss_bytes` either way, with `worker_reading` naming the line the worker peaks are, so `make job-costs` can keep the two lines apart in one unit's records. The writers are pytest controllers, run_m1's pools, and the review build's pools, none of which needs a cycle.
 
     The line carries no run id, even under CYCLE_RUN_ENV, because one cycle pass runs several pools and a standalone pool has no run. `load_journal` ignores pool lines, and `load_pool_records` reads them.
 
@@ -182,6 +184,7 @@ def record_pool(
         "worker_peak_rss_bytes": {
             ident: int(peak) for ident, peak in sorted(worker_peaks.items(), key=gateway_order)
         },
+        "worker_reading": worker_reading,
     }
     failure = _append_entry(journal, entry)
     if failure is not None and not _pool_warn_state[0]:

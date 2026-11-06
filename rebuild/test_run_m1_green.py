@@ -350,13 +350,14 @@ def test_a_bare_run_records_its_own_peak_footprint_once_its_oracle_and_branch_ha
     """A bare run whose oracle ran and whose table-only branch joined records run_m1's own process's peak footprint as the one reading of a `run-m1-parent` pool record, the row `make job-costs` reads it under, whatever its gate then decides: here the gate is red."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch, tmp_path, multi_matched=2)
-    monkeypatch.setattr(run_m1_gates, "_peak_footprint", lambda: 1_540_000_000)
+    monkeypatch.setattr(run_m1, "peak_footprint_self_bytes", lambda: 1_540_000_000)
     with pytest.raises(SystemExit):
         run_m1_gates.main([])
     records = ct.load_pool_records(ct.JOURNAL)
     assert [(r["unit"], r["width"], r["worker_peak_rss_bytes"]) for r in records] == [
         (run_m1.PARENT_POOL_UNIT, 1, {"parent": 1_540_000_000})
     ]
+    assert records[0]["worker_reading"] == "footprint"
     assert any(run_m1.PARENT_POOL_UNIT in unit.pool_units for unit in cb.UNITS)
 
 
@@ -1010,6 +1011,31 @@ class TestOracleFanIn:
                     scratch, shard.config, 0
                 )
 
+    def test_the_pool_record_reads_each_ranges_and_each_absorbs_peak_footprint(self, monkeypatch, tmp_path):
+        """The `oracle-shard` pool record has one reading per range, the peak footprint its worker sent home, and one per settle-memo absorb, labeled `<config> absorb`, its worker's peak footprint (`peak_rss.peak_footprint_self_bytes`): the readings the oracle-shard and oracle-absorb rows of `make job-costs` read."""
+        worker = self._worker()
+
+        def footprinted(*args, **kwargs):
+            result = worker(*args, **kwargs)
+            result.peak_footprint_bytes = 100 + conform.ORACLE_CONFIGS.index(result.config)
+            return result
+
+        self._pool(monkeypatch, footprinted)
+        memo_inputs = self._memos(monkeypatch, [])
+        monkeypatch.setattr(run_m1_gates, "peak_footprint_self_bytes", lambda: 7_000)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs)
+        (record,) = ct.load_pool_records(ct.JOURNAL)
+        assert record["unit"] == "oracle-shard"
+        assert record["worker_reading"] == "footprint"
+        assert record["worker_peak_rss_bytes"] == {
+            **{config: 100 + index for index, config in enumerate(conform.ORACLE_CONFIGS)},
+            **{
+                f"{config} absorb": 7_000
+                for config in conform.SETTLEMENT_CONFIGS
+                if config in conform.ORACLE_CONFIGS
+            },
+        }
+
     def test_the_serial_oracle_calls_memo_ready_before_its_first_walk(self, monkeypatch, tmp_path):
         """At `--jobs 1` the walks rewrite the shared settle memo files as they go, so `memo_ready` is called before the first walk."""
         order: list = []
@@ -1296,7 +1322,7 @@ class TestConformFanIn:
             for index, slot in enumerate(slots):
                 readings[slot] = 10 * rank + (2 if index == len(slots) // 2 else 1)
         for jobs in (6, len(units) + 5):
-            monkeypatch.setattr(run_m1_gates, "peak_footprint_bytes", iter(readings).__next__)
+            monkeypatch.setattr(run_m1_gates, "peak_footprint_self_bytes", iter(readings).__next__)
             before = len(ct.load_pool_records(ct.JOURNAL))
             run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=jobs)
             records = ct.load_pool_records(ct.JOURNAL)[before:]
@@ -1308,6 +1334,7 @@ class TestConformFanIn:
                 config: 10 * rank + 2 for rank, config in enumerate(conform.ACCEPTANCE_CONFIGS, start=1)
             }
             assert record["controller_peak_rss_bytes"] == 10**9
+            assert record["worker_reading"] == "footprint"
 
     def test_a_serial_or_deep_sweep_files_no_pool_record(self, monkeypatch, tmp_path):
         """The serial conformance sweep starts no pool to measure. A deeper sweep's unit holds its maximum length's windows in memory, a different load from a per-edit unit's, so it must not be recorded as a conformance-sweep unit."""

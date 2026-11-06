@@ -46,7 +46,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.pipeline import conform, fingerprint, kernel_exec, run_m1, run_m1_gates, table, witness
+from rebuild.pipeline import conform, fingerprint, kernel_exec, run_m1, table, witness
 from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.run_m1_gates import SweepUnit, config_texts, sweep_units
 from rebuild.pipeline.model import MARKER_TAG_SEPARATOR, ResolvedSpec
@@ -681,7 +681,7 @@ def _unit_worker(
     memo_windows: int,
     slot: int,
 ):
-    """Run one unit's sweep in its own process, over the texts that contain one of `triggers` when there are any, with a settlement unit's walk releasing its windows before they pass `memo_windows`, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint (`run_m1_gates._peak_footprint`), read just before it returns."""
+    """Run one unit's sweep in its own process, over the texts that contain one of `triggers` when there are any, with a settlement unit's walk releasing its windows before they pass `memo_windows`, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint (`peak_rss.peak_footprint_self_bytes`), read just before it returns."""
     result = conform.conformance_config_worker(
         spec,
         font_path,
@@ -694,7 +694,7 @@ def _unit_worker(
         triggers=triggers,
         max_windows=memo_windows,
     )
-    return result, run_m1_gates._peak_footprint()
+    return result, peak_rss.peak_footprint_self_bytes()
 
 
 def _run_units(
@@ -998,7 +998,7 @@ def _texts_worker(
         if store is not None:
             store(result.sequences)
     result.modes = sorted(modes)
-    return result, run_m1_gates._peak_footprint()
+    return result, peak_rss.peak_footprint_self_bytes()
 
 
 def run_targeted(

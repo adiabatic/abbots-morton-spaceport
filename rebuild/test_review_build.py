@@ -1060,9 +1060,10 @@ def test_prune_orphan_shards_no_units_dir_is_noop(tmp_path):
 
 
 def test_a_pooled_corpus_build_files_its_per_worker_peaks(tmp_path, monkeypatch):
-    """The corpus build's fan-out width is its memory budget divided by `CORPUS_WORKER_BYTES`, and only a worker that ran can measure the peak that constant estimates: a step peak takes the maximum over the process tree rather than the sum, so it measures the parent and not the pool. A pooled build therefore writes the same kind:"pool" record an xdist controller writes, under its own unit name, and `make job-costs` reports it beside the constant. `record_pool` reads `JOURNAL` at call time, which lets this test redirect it."""
+    """The corpus build's fan-out width is its memory budget divided by `CORPUS_WORKER_BYTES`, and only a worker that ran can measure the peak that constant estimates: a step peak takes the maximum over the process tree rather than the sum, so it measures the parent and not the pool. A pooled build therefore writes the same kind:"pool" record an xdist controller writes, under its own unit name, and `make job-costs` reports it beside the constant. The controller's reading is the parent's own peak footprint (`peak_rss.peak_footprint_self_bytes`). `record_pool` reads `JOURNAL` at call time, which lets this test redirect it."""
     journal = tmp_path / "cycle-timings.ndjson"
     monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
+    monkeypatch.setattr("rebuild.tools.peak_rss.peak_footprint_bytes", lambda: 3_100_000_000)
     review_build._record_corpus_pool(2, {"w0": 1_000_000, "w1": 2_000_000})
     lines = journal.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
@@ -1070,6 +1071,30 @@ def test_a_pooled_corpus_build_files_its_per_worker_peaks(tmp_path, monkeypatch)
     assert (record["kind"], record["unit"], record["width"]) == ("pool", "corpus", 2)
     assert list(record["worker_peak_rss_bytes"]) == ["w0", "w1"]
     assert record["worker_peak_rss_bytes"]["w1"] == 2_000_000
+    assert record["controller_peak_rss_bytes"] == 3_100_000_000
+    assert record["worker_reading"] == "footprint"
+
+
+def test_a_write_pool_files_its_workers_and_its_parents_peak_footprints(tmp_path, monkeypatch):
+    """A write worker answers the stop with its peak footprint (`peak_rss.peak_footprint_self_bytes`), and the write pool's `corpus-write` record carries each worker's beside the parent's own as the controller's, the readings the corpus-write-worker row of `make job-costs` reads. The worker runs in a thread over a pipe with its columns stubbed, because the pool is spawn-only and a monkeypatch does not reach a spawned worker."""
+    journal = tmp_path / "cycle-timings.ndjson"
+    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
+    monkeypatch.setattr(review_build, "_load_columns", lambda path: (None, None))
+    readings = iter([740_000_000, 2_300_000_000])
+    monkeypatch.setattr("rebuild.tools.peak_rss.peak_footprint_bytes", lambda: next(readings))
+    parent, child = multiprocessing.Pipe()
+    worker = threading.Thread(target=review_build._write_worker, args=(child, tmp_path, None), daemon=True)
+    worker.start()
+    pool = object.__new__(review_build._WritePool)
+    pool._conns = [parent]
+    pool._procs = [worker]
+    pool.close(failed=False)
+    assert not worker.is_alive()
+    record = json.loads(journal.read_text(encoding="utf-8").splitlines()[0])
+    assert (record["unit"], record["width"]) == ("corpus-write", 1)
+    assert record["worker_peak_rss_bytes"] == {"w0": 740_000_000}
+    assert record["controller_peak_rss_bytes"] == 2_300_000_000
+    assert record["worker_reading"] == "footprint"
 
 
 def test_a_serial_corpus_build_files_no_pool_record(tmp_path, monkeypatch):
@@ -1752,11 +1777,13 @@ def _two_chunks(mini_bundle) -> list[list]:
 
 
 def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, monkeypatch, tmp_path):
-    """The pooled build's worker releases the memo at the same boundary as the serial build, once per batch. Each batch loads the memo before its boundary. Each `batch` reply carries only that batch's projections (the second reply's length is the second chunk's, not the running total), and every projection carries a content id and its fragment's spool address in the worker's class. The `ok` that answers the end marker has no payload, and after the stop the memo is empty and no EnrichedUnit is alive, because every fragment went to the spool as it was drafted."""
+    """The pooled build's worker releases the memo at the same boundary as the serial build, once per batch. Each batch loads the memo before its boundary. Each `batch` reply carries only that batch's projections (the second reply's length is the second chunk's, not the running total), and every projection carries a content id and its fragment's spool address in the worker's class. The `ok` that answers the end marker has no payload, the stop is answered with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), and after the stop the memo is empty and no EnrichedUnit is alive, because every fragment went to the spool as it was drafted."""
     seen = _spy_on_releases(monkeypatch)
+    monkeypatch.setattr("rebuild.tools.peak_rss.peak_footprint_bytes", lambda: 330_000_000)
     chunks = _two_chunks(mini_bundle)
     replies = _drive_worker_in_thread(mini_bundle, tmp_path, chunks)
     assert [reply[0] for reply in replies] == ["batch", "batch", "ok", "peak"]
+    assert replies[3] == ("peak", 330_000_000)
     for chunk, reply in zip(chunks, replies[:2], strict=True):
         assert len(reply[1]) == len(chunk)
         # The units crossed the pipe as copies, so the ids the worker assigned are on its projections, not on the units held here.

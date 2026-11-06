@@ -1508,7 +1508,7 @@ class TestOracleMultiMatchedTally:
             )
             assert result.multi_matched_count == len(rows)
             assert result.counts_by_entry == {}
-            pickled.append(len(pickle.dumps(replace(result, peak_rss_bytes=0))))
+            pickled.append(len(pickle.dumps(replace(result, peak_footprint_bytes=0))))
             oracle.discard_oracle_audit_scratch(root)
         assert pickled[0] == pickled[1]
 
@@ -2494,8 +2494,11 @@ class TestOracleRowRanges:
         assert all(left.stop_row == right.first_row for left, right in zip(by_row, by_row[1:]))
         assert [shard.label for shard in by_row] == ["default 1/3", "default 2/3", "default 3/3"]
 
-    def test_the_ranges_write_the_audit_the_whole_table_writes_and_fold_to_its_tally(self, spec, tmp_path):
-        """Cold and uncached, so every row is compared and every eligible position shaped in whichever range holds it. The joined audit must match the whole-table shard's byte for byte, which must match the serial path's, and the fold must reproduce the whole-table result in every field."""
+    def test_the_ranges_write_the_audit_the_whole_table_writes_and_fold_to_its_tally(
+        self, spec, tmp_path, monkeypatch
+    ):
+        """Cold and uncached, so every row is compared and every eligible position shaped in whichever range holds it. The joined audit must match the whole-table shard's byte for byte, which must match the serial path's, and the fold must reproduce the whole-table result in every field, the peak footprint each range's worker sends home (`peak_rss.peak_footprint_self_bytes`) among them; the footprint is stubbed, since a real one differs from range to range."""
+        monkeypatch.setattr("rebuild.tools.peak_rss.peak_footprint_bytes", lambda: 560_000_000)
         shared, rows = self._bench(spec, tmp_path)
         whole, whole_audit, _ = self._ranged(
             spec, tmp_path, "whole", [oracle.OracleShard("default")], cached=False, **shared
@@ -2518,7 +2521,8 @@ class TestOracleRowRanges:
             == (serial / "divergence-audit.tsv").read_bytes()
         )
         assert whole[0].divergent_rows > 0 and whole[0].positions_compared > 0
-        assert asdict(cut[0]) == {**asdict(whole[0]), "peak_rss_bytes": cut[0].peak_rss_bytes}
+        assert whole[0].peak_footprint_bytes == 560_000_000
+        assert asdict(cut[0]) == asdict(whole[0])
 
     def test_a_cut_cold_pass_stages_the_store_a_whole_cold_pass_stages(self, spec, tmp_path):
         """A joined store is several gzip members where a single-segment store is one, but the decompressed content must be the same: the header line, every record in table order, and the trailer counting them. `load_store` reads across the members, and a joined store missing the tail of its last segment loads as None, which is the truncation check the trailer exists for."""
@@ -2580,7 +2584,7 @@ class TestOracleRowRanges:
         )
         assert whole[0].positions_served > 0
         assert cut_audit.read_bytes() == whole_audit.read_bytes()
-        assert asdict(cut[0]) == {**asdict(whole[0]), "peak_rss_bytes": cut[0].peak_rss_bytes}
+        assert asdict(cut[0]) == {**asdict(whole[0]), "peak_footprint_bytes": cut[0].peak_footprint_bytes}
         assert gzip.decompress(
             oracle_cache.store_path(cut_stores, "default").read_bytes()
         ) == gzip.decompress(oracle_cache.store_path(whole_stores, "default").read_bytes())

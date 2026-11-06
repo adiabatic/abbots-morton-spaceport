@@ -73,7 +73,7 @@ from rebuild.tools.memory_budget import usable_cores
 from rebuild.tools.peak_rss import (
     ReapedPeaks,
     footprint_token,
-    peak_footprint_bytes,
+    peak_footprint_self_bytes,
     peak_rss_self_bytes,
     process_peak_rss_bytes,
     rss_token,
@@ -1184,6 +1184,7 @@ def run_replay_strings(
                     width=min(threads, len(memos)),
                     worker_peaks=peaks,
                     controller_peak_bytes=peak_rss_self_bytes(),
+                    worker_reading="footprint",
                 )
     finally:
         for config in memos:
@@ -1207,7 +1208,7 @@ def _record_replay_walk(peak: int, *, walks: int) -> None:
 def _absorb_replay_memo(
     out_dir: Path, config: str, memo: conform.SettleMemoFile, spec: ResolvedSpec
 ) -> tuple[int | None, float, str | None, int | None]:
-    """Absorb one configuration's window memo into its settle memo file, in a pool worker. Return the row count and the seconds the absorb took, which the parent reports as `[t] settle_memo_emit <config>`, and the worker's peak footprint (`peak_rss.peak_footprint_bytes`, or its resident peak where the footprint cannot be read), which the parent records (`REPLAY_ABSORB_POOL_UNIT`), or else a warning to print instead and no peak. A dump the crate never wrote, or one `conform.absorb_replay_memo` rejects, is only a warning, since the readers settle what the file lacks."""
+    """Absorb one configuration's window memo into its settle memo file, in a pool worker. Return the row count and the seconds the absorb took, which the parent reports as `[t] settle_memo_emit <config>`, and the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), which the parent records (`REPLAY_ABSORB_POOL_UNIT`), or else a warning to print instead and no peak. A dump the crate never wrote, or one `conform.absorb_replay_memo` rejects, is only a warning, since the readers settle what the file lacks."""
     dump = kernel_exec.replay_memo_dump(out_dir, config)
     started = time.perf_counter()
     if not dump.is_file():
@@ -1217,8 +1218,7 @@ def _absorb_replay_memo(
     except (kernel_exec.KernelRunError, OSError) as error:
         return None, 0.0, f"settle memo: {dump} not absorbed ({error}); the readers settle instead", None
     seconds = time.perf_counter() - started
-    peak = peak_footprint_bytes()
-    return entries, seconds, None, peak if peak is not None else peak_rss_self_bytes()
+    return entries, seconds, None, peak_footprint_self_bytes()
 
 
 def run_rule_witnesses(
@@ -1415,7 +1415,7 @@ def full_run(
     scratch_beside_default: int | None = None,
     fresh_oracle_cache: bool = False,
 ) -> None:
-    """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the Stage A capture, the pre-gate guards, `run_ligature_outgoing`, the deletion of the Stage A record immediately before the run's first write (`run_m1_gates._retract_stage_a`; that write is the guards' refilter when the subset tables are stale, and the build otherwise), the build (`run`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the record of this process's own peak footprint (`PARENT_POOL_UNIT`, one reading, `run_m1_gates._peak_footprint`), then the run_m1 gate, the Stage A record once that gate passes (`run_m1_gates._settle_stage_a`), the green record and the check line (timed from `started`). The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
+    """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the Stage A capture, the pre-gate guards, `run_ligature_outgoing`, the deletion of the Stage A record immediately before the run's first write (`run_m1_gates._retract_stage_a`; that write is the guards' refilter when the subset tables are stale, and the build otherwise), the build (`run`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the record of this process's own peak footprint (`PARENT_POOL_UNIT`, one reading, `peak_rss.peak_footprint_self_bytes`), then the run_m1 gate, the Stage A record once that gate passes (`run_m1_gates._settle_stage_a`), the green record and the check line (timed from `started`). The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
     from rebuild.pipeline import run_m1_gates
     from rebuild.tools.artifact_cycle import (
         _defect_gate_failure,
@@ -1498,8 +1498,9 @@ def full_run(
     record_pool(
         PARENT_POOL_UNIT,
         width=1,
-        worker_peaks={"parent": run_m1_gates._peak_footprint()},
+        worker_peaks={"parent": peak_footprint_self_bytes()},
         controller_peak_bytes=peak_rss_self_bytes(),
+        worker_reading="footprint",
     )
     gate = evaluate_run_m1_gate(summary, pin_gate, oracle_summary)
     if gate.ok:

@@ -113,6 +113,15 @@ def test_the_footprint_counts_what_a_process_touches_and_reads_another_live_proc
     assert peak_rss.footprint_bytes(child.pid) is None
 
 
+def test_a_process_reads_its_resident_peak_where_its_footprint_cannot_be_read(monkeypatch):
+    """`peak_footprint_self_bytes`, the reading a pool record takes from a worker or a parent, is this process's peak footprint, and its resident peak where the footprint reads None, so there is always a reading to record."""
+    monkeypatch.setattr(peak_rss, "peak_rss_self_bytes", lambda: 410_000_000)
+    monkeypatch.setattr(peak_rss, "peak_footprint_bytes", lambda: 330_000_000)
+    assert peak_rss.peak_footprint_self_bytes() == 330_000_000
+    monkeypatch.setattr(peak_rss, "peak_footprint_bytes", lambda: None)
+    assert peak_rss.peak_footprint_self_bytes() == 410_000_000
+
+
 def test_the_swap_in_use_is_what_the_machine_states():
     """On Linux the swap in use is `/proc/meminfo`'s total less its free, and a text without both fields reads None. Where there is a source, the live reading is a byte count."""
     meminfo = "MemTotal:       16384000 kB\nSwapTotal:       4194304 kB\nSwapFree:        1048576 kB\n"

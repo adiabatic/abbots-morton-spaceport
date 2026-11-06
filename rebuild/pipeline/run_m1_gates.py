@@ -49,7 +49,7 @@ from rebuild.tools.cycle_timings import (
 )
 from rebuild.tools.memory_budget import describe_fit
 from rebuild.tools.peak_rss import (
-    peak_footprint_bytes,
+    peak_footprint_self_bytes,
     peak_rss_self_bytes,
     process_peak_rss_bytes,
     rss_token,
@@ -339,12 +339,6 @@ def config_texts(
     return counts
 
 
-def _peak_footprint() -> int:
-    """This process's peak footprint (`peak_rss.peak_footprint_bytes`), or its peak resident set where the footprint cannot be read."""
-    peak = peak_footprint_bytes()
-    return peak if peak is not None else peak_rss_self_bytes()
-
-
 def _conformance_unit(
     spec: ResolvedSpec,
     font_path: Path,
@@ -355,11 +349,11 @@ def _conformance_unit(
     guard_verdicts: FormationGuard | None,
     settle_memo: conform.SettleMemoFile | None,
 ) -> tuple[conform.ConformanceConfigResult, int]:
-    """Run one unit of the pooled conformance sweep in a pool worker (`conform.conformance_config_worker` with `last`) and return its peak footprint (`_peak_footprint`) with the result, so the parent can write the `conform-sweep` pool record. The pool runs one unit per process, so the reading is this unit's own. It is a footprint rather than a resident peak because every settlement unit of a configuration maps the same settle memo file, whose clean pages the page cache holds once however many units touch them, while each unit's resident peak counts them again. The peak is returned in a pair instead of as a field on the result because conform.py is in `oracle_cache.ORACLE_ROW_CODE_PATHS`, and an edit there would invalidate every settle memo and row store."""
+    """Run one unit of the pooled conformance sweep in a pool worker (`conform.conformance_config_worker` with `last`) and return its peak footprint (`peak_rss.peak_footprint_self_bytes`) with the result, so the parent can write the `conform-sweep` pool record. The pool runs one unit per process, so the reading is this unit's own. It is a footprint rather than a resident peak because every settlement unit of a configuration maps the same settle memo file, whose clean pages the page cache holds once however many units touch them, while each unit's resident peak counts them again. The peak is returned in a pair instead of as a field on the result because conform.py is in `oracle_cache.ORACLE_ROW_CODE_PATHS`, and an edit there would invalidate every settle memo and row store."""
     result = conform.conformance_config_worker(
         spec, font_path, config, max_length, glyphs, guard_verdicts, settle_memo, last=last
     )
-    return result, _peak_footprint()
+    return result, peak_footprint_self_bytes()
 
 
 def _absorb_sweep_memo(
@@ -371,10 +365,10 @@ def _absorb_sweep_memo(
     prune: bool,
     discard: bool,
 ) -> tuple[bool, int, int, float, int]:
-    """Prune one configuration's settle memo file to the rows its conformance-sweep units reached and merge their parts into it (`conform.absorb_sweep_memo`) in a pool worker. Return whether the file was written, the rows pruned, the windows the parts added, the seconds the absorb took, and the worker's peak footprint (`_peak_footprint`), which goes into the `conform-sweep` pool record as `<config> absorb`. The write holds the configuration's rows, their remapped copies, and the index at once, so it runs in a worker rather than in the parent."""
+    """Prune one configuration's settle memo file to the rows its conformance-sweep units reached and merge their parts into it (`conform.absorb_sweep_memo`) in a pool worker. Return whether the file was written, the rows pruned, the windows the parts added, the seconds the absorb took, and the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), which goes into the `conform-sweep` pool record as `<config> absorb`. The write holds the configuration's rows, their remapped copies, and the index at once, so it runs in a worker rather than in the parent."""
     started = time.perf_counter()
     written, pruned, fresh = conform.absorb_sweep_memo(memo, parts, spec, identity, reached, prune, discard)
-    return written, pruned, fresh, time.perf_counter() - started, _peak_footprint()
+    return written, pruned, fresh, time.perf_counter() - started, peak_footprint_self_bytes()
 
 
 @dataclass
@@ -521,6 +515,7 @@ def _pooled_conformance(
             width=min(jobs, len(units)),
             worker_peaks=worker_peaks,
             controller_peak_bytes=peak_rss_self_bytes(),
+            worker_reading="footprint",
         )
     return conform.merge_conformance_results(font_path, results)
 
@@ -528,10 +523,10 @@ def _pooled_conformance(
 def _absorb_settle_memo_parts(
     memo: conform.SettleMemoFile, parts: Sequence[Path], spec: ResolvedSpec
 ) -> tuple[bool, float, int]:
-    """Merge one configuration's parts into its shared settle memo file (`conform.absorb_settle_memo_parts`) in a pool worker. Return whether the file was rewritten, the seconds the merge took, and the worker's peak memory (`peak_rss_self_bytes`). The parent reports a rewrite as `[t] settle_memo_absorb <config>` beside the replay's `settle_memo_emit` lines; it is a whole-file write, once per pass for each configuration that settled anything fresh. The peak goes into the pool record beside the row ranges' peaks. Like every reading there it is the process's peak memory, so it reads at or above the range its worker ran before it."""
+    """Merge one configuration's parts into its shared settle memo file (`conform.absorb_settle_memo_parts`) in a pool worker. Return whether the file was rewritten, the seconds the merge took, and the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`). The parent reports a rewrite as `[t] settle_memo_absorb <config>` beside the replay's `settle_memo_emit` lines; it is a whole-file write, once per pass for each configuration that settled anything fresh. The peak goes into the pool record beside the row ranges' peaks. Like every reading there it is the process's peak over its whole life, so it reads at or above the range its worker ran before it."""
     started = time.perf_counter()
     written = conform.absorb_settle_memo_parts(memo, parts, spec)
-    return written, time.perf_counter() - started, peak_rss_self_bytes()
+    return written, time.perf_counter() - started, peak_footprint_self_bytes()
 
 
 def _shard_settle_memo(
@@ -562,7 +557,7 @@ def run_oracle(
 
     Staging is inside this run's pid-named audit scratch directory, so a killed run's stores, segments and memo parts are deleted by `discard_oracle_audit_scratch` along with its audit segments, and two oracles sharing an `out_dir` (a `--gates-only` pass beside a cycle) cannot read or promote each other's files. Promotion happens only after `join_oracle_audit` has accepted the audit, because a store describing an audit that was never written is worse than no store. A split configuration where one range staged no segment is neither joined nor promoted, the all-or-nothing rule `promote_stores` already follows.
 
-    Every range's peak is recorded as one observation of the `oracle-shard` pool (`cycle_timings.record_pool`), which `make job-costs` compares against `artifact_cycle.ORACLE_SHARD_BYTES`, and every absorb's, labeled `<config> absorb`, which it compares against `artifact_cycle.ORACLE_ABSORB_BYTES`.
+    Every range's peak footprint is recorded as one observation of the `oracle-shard` pool (`cycle_timings.record_pool`), which `make job-costs` compares against `artifact_cycle.ORACLE_SHARD_BYTES`, and every absorb's, labeled `<config> absorb`, which it compares against `artifact_cycle.ORACLE_ABSORB_BYTES`.
     """
     setup_started = time.perf_counter()
     if spec is None:
@@ -657,7 +652,9 @@ def run_oracle(
                 }
                 absorbed = []
                 worker_peaks = {
-                    shard.label: result.peak_rss_bytes for pairs in landed.values() for shard, result in pairs
+                    shard.label: result.peak_footprint_bytes
+                    for pairs in landed.values()
+                    for shard, result in pairs
                 }
                 for config, future in merges.items():
                     written, seconds, peak = future.result()
@@ -672,6 +669,7 @@ def run_oracle(
                 width=width,
                 worker_peaks=worker_peaks,
                 controller_peak_bytes=peak_rss_self_bytes(),
+                worker_reading="footprint",
             )
             in_row_order = {
                 config: [

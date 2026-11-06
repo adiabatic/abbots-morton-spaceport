@@ -23,8 +23,8 @@ def _unit(name):
     return next(unit for unit in cb.UNITS if unit.name == name)
 
 
-def _pool(unit, peaks, *, host=HOST, at="2026-08-20T12:00:00Z", controller=400_000_000):
-    return {
+def _pool(unit, peaks, *, host=HOST, at="2026-08-20T12:00:00Z", controller=400_000_000, reading=None):
+    record = {
         "format": "ams-cycle-timings/1",
         "kind": "pool",
         "host": host,
@@ -34,6 +34,9 @@ def _pool(unit, peaks, *, host=HOST, at="2026-08-20T12:00:00Z", controller=400_0
         "controller_peak_rss_bytes": controller,
         "worker_peak_rss_bytes": {f"gw{index}": peak for index, peak in enumerate(peaks)},
     }
+    if reading is not None:
+        record["worker_reading"] = reading
+    return record
 
 
 def _step(name, peak, *, host=HOST, at="2026-08-20T12:00:00Z", run="r1"):
@@ -85,7 +88,7 @@ def test_every_pool_name_a_gate_wrapper_sets_is_one_the_registry_reads():
 
 def test_a_pool_record_supplies_one_observation_per_worker():
     record = _pool("font-suite", [1_000_000, 2_000_000, 3_000_000])
-    observed, dropped, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
+    observed, dropped, _, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [1_000_000, 2_000_000, 3_000_000]
     assert {item.source for item in observed} == {"pool"}
     assert dropped == 0
@@ -93,39 +96,39 @@ def test_a_pool_record_supplies_one_observation_per_worker():
 
 def test_the_controllers_own_peak_is_never_one_of_the_workers_observations():
     record = _pool("font-suite", [1_000_000], controller=9_000_000)
-    observed, _, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
+    observed, _, _, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [1_000_000]
 
 
 def test_a_corpus_pool_record_calibrates_the_worker_constant():
     """The corpus build writes its own pool records under the unit `corpus`, and only the corpus-worker row reads them. The corpus-parent row reads the `corpus-build` step peak, so the two corpus rows never share an observation."""
-    record = _pool("corpus", [6_000_000_000, 7_000_000_000])
-    observed, _, _ = cb.observations(_unit("corpus-worker"), [record], {}, host=HOST, recent=20)
+    record = _pool("corpus", [6_000_000_000, 7_000_000_000], reading="footprint")
+    observed, _, _, _ = cb.observations(_unit("corpus-worker"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [6_000_000_000, 7_000_000_000]
     assert {item.source for item in observed} == {"pool"}
-    parent, _, _ = cb.observations(_unit("corpus-parent"), [record], {}, host=HOST, recent=20)
+    parent, _, _, _ = cb.observations(_unit("corpus-parent"), [record], {}, host=HOST, recent=20)
     assert parent == []
 
 
 def test_a_corpus_write_pool_record_calibrates_the_write_worker_constant_only():
     """The corpus build's write runs a pool of its own after the units pool has stopped, whose workers each hold a copy of the corpus's columns, so it writes its records under the unit `corpus-write`. Only the corpus-write-worker row reads them, and the corpus-worker row reads none of them."""
-    record = _pool("corpus-write", [800_000_000, 600_000_000])
-    observed, _, _ = cb.observations(_unit("corpus-write-worker"), [record], {}, host=HOST, recent=20)
+    record = _pool("corpus-write", [800_000_000, 600_000_000], reading="footprint")
+    observed, _, _, _ = cb.observations(_unit("corpus-write-worker"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [800_000_000, 600_000_000]
-    units, _, _ = cb.observations(_unit("corpus-worker"), [record], {}, host=HOST, recent=20)
+    units, _, _, _ = cb.observations(_unit("corpus-worker"), [record], {}, host=HOST, recent=20)
     assert units == []
 
 
 def test_a_conform_sweep_pool_record_goes_to_the_sweep_row_only():
     """The conformance sweep and the oracle both fan out from run_m1 over the acceptance configurations, but a conformance-sweep worker and an oracle range worker hold different data. Each row reads only its own pool's records, because a record read by the other row would misstate that row's peak."""
     sweep = _pool("conform-sweep", [390_000_000, 920_000_000])
-    observed, _, _ = cb.observations(_unit("conform-sweep"), [sweep], {}, host=HOST, recent=20)
+    observed, _, _, _ = cb.observations(_unit("conform-sweep"), [sweep], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [390_000_000, 920_000_000]
     assert {item.source for item in observed} == {"pool"}
-    oracle, _, _ = cb.observations(_unit("oracle-shard"), [sweep], {}, host=HOST, recent=20)
+    oracle, _, _, _ = cb.observations(_unit("oracle-shard"), [sweep], {}, host=HOST, recent=20)
     assert oracle == []
     shard = _pool("oracle-shard", [560_000_000])
-    crossed, _, _ = cb.observations(_unit("conform-sweep"), [shard], {}, host=HOST, recent=20)
+    crossed, _, _, _ = cb.observations(_unit("conform-sweep"), [shard], {}, host=HOST, recent=20)
     assert crossed == []
 
 
@@ -133,14 +136,14 @@ def test_the_conform_sweep_row_also_reads_the_journals_conform_belt_records(tmp_
     """Older journal lines name the conformance sweep's pool `conform-belt`. `load_pool_records` reads them under the current name, so the conform-sweep row keeps its measured history."""
     path = _journal(tmp_path, [_pool("conform-belt", [390_000_000]), _pool("conform-sweep", [420_000_000])])
     pools = cb.load_pool_records(path)
-    observed, _, _ = cb.observations(_unit("conform-sweep"), pools, {}, host=HOST, recent=20)
+    observed, _, _, _ = cb.observations(_unit("conform-sweep"), pools, {}, host=HOST, recent=20)
     assert sorted(item.peak_bytes for item in observed) == [390_000_000, 420_000_000]
 
 
 def test_a_conform_step_peak_is_never_read_as_a_sweep_worker():
     """`reap_peak_rss_bytes` takes the max over gate:conform's process tree, so the step peak measures one process, not the pool. No row reads it."""
     steps = {"r1": [_step("gate:conform", 3_000_000_000)]}
-    observed, _, _ = cb.observations(_unit("conform-sweep"), [], steps, host=HOST, recent=20)
+    observed, _, _, _ = cb.observations(_unit("conform-sweep"), [], steps, host=HOST, recent=20)
     assert observed == []
     assert all("gate:conform" not in unit.step_names for unit in cb.UNITS)
 
@@ -176,16 +179,43 @@ def test_check_trips_on_a_land_or_replay_peak_above_its_constant(tmp_path, capsy
 
 def test_the_oracle_rows_split_its_pool_records_between_ranges_and_absorbs():
     """The oracle's pool record carries its ranges' readings and its settle-memo absorbs' (`<config> absorb`) together. The oracle-shard row reads the ranges, which its width divides by, and the oracle-absorb row reads the absorbs, which it prices apart."""
-    record = _pool("oracle-shard", [])
+    record = _pool("oracle-shard", [], reading="footprint")
     record["worker_peak_rss_bytes"] = {
         "default 1/2": 500_000_000,
         "default absorb": 650_000_000,
         "ss10": 330_000_000,
     }
-    ranges, _, _ = cb.observations(_unit("oracle-shard"), [record], {}, host=HOST, recent=20)
-    absorbs, _, _ = cb.observations(_unit("oracle-absorb"), [record], {}, host=HOST, recent=20)
+    ranges, _, _, _ = cb.observations(_unit("oracle-shard"), [record], {}, host=HOST, recent=20)
+    absorbs, _, _, _ = cb.observations(_unit("oracle-absorb"), [record], {}, host=HOST, recent=20)
     assert sorted(item.peak_bytes for item in ranges) == [330_000_000, 500_000_000]
     assert [item.peak_bytes for item in absorbs] == [650_000_000]
+
+
+def test_a_footprint_row_sets_aside_the_records_of_resident_peaks(tmp_path, capsys):
+    """The corpus-worker row reads peak footprints, and the `corpus` records under its constant also hold resident peaks, whose `worker_reading` is `resident` or, in an older record, missing. Only the `footprint` records count, set aside before the recency bound, so a resident peak over the constant neither trips the check nor takes a footprint's place in the window, and the report counts the records it set aside. A row left with none is unverified on this host."""
+    constant = CONSTANTS["corpus-worker"]
+    footprint = _pool("corpus", [constant // 2], at="2026-08-01T12:00:00Z", reading="footprint")
+    resident = [
+        _pool("corpus", [constant * 2], at="2026-08-02T12:00:00Z"),
+        _pool("corpus", [constant * 2], at="2026-08-03T12:00:00Z", reading="resident"),
+    ]
+    observed, _, _, set_aside = cb.observations(
+        _unit("corpus-worker"), [footprint, *resident], {}, host=HOST, recent=1
+    )
+    assert [item.peak_bytes for item in observed] == [constant // 2]
+    assert set_aside == 2
+    code, out = _run(capsys, _journal(tmp_path, [footprint, *resident]), "--check")
+    assert code == 0
+    assert (
+        "  reading   : only the pool records whose worker readings are `footprint` count; 2 records naming another line or none set aside"
+        in _block(out, "corpus-worker")
+    )
+    code, out = _run(capsys, _journal(tmp_path, resident), "--check")
+    assert code == 0
+    assert (
+        "  UNVERIFIED HERE: no record from this host for this unit has worker readings that are `footprint`,"
+        in _block(out, "corpus-worker")
+    )
 
 
 def test_the_kernel_build_row_reads_every_record_since_its_constants_commit(tmp_path, capsys):
@@ -232,7 +262,7 @@ def test_the_oracle_rows_count_only_the_settlement_configurations_the_oracle_com
 def test_a_verdict_update_step_peak_calibrates_the_standing_fill_parent():
     """The verdict-update step peak is the max over the verdict update and any refill workers, and only the standing-fill-parent row reads it. The refill pool writes no pool record, so no worker row gets observations from it."""
     steps = {"r1": [_step("verdict-update", 9_000_000_000)]}
-    observed, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
+    observed, _, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
     assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:verdict-update")]
     assert all(
         "verdict-update" not in unit.step_names for unit in cb.UNITS if unit.name != "standing-fill-parent"
@@ -246,7 +276,7 @@ def test_the_standing_fill_parent_also_reads_the_journals_plumbing_rows(tmp_path
         [_step("plumbing", 8_000_000_000, run="r1"), _step("verdict-update", 9_000_000_000, run="r2")],
     )
     _, steps, _ = cb.load_journal(path)
-    observed, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
+    observed, _, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
     assert sorted((item.peak_bytes, item.source) for item in observed) == [
         (8_000_000_000, "step:verdict-update"),
         (9_000_000_000, "step:verdict-update"),
@@ -254,24 +284,24 @@ def test_the_standing_fill_parent_also_reads_the_journals_plumbing_rows(tmp_path
 
 
 def test_the_corpus_rows_also_read_the_journals_surface_records(tmp_path):
-    """Older journal lines name the corpus-build step `surface-build` and its pool `surface`. `load_journal` and `load_pool_records` read them under the current names, so both corpus rows keep their measured history."""
+    """Older journal lines name the corpus-build step `surface-build` and its pool `surface`. `load_journal` and `load_pool_records` read them under the current names, so both corpus rows read them as their own records."""
     path = _journal(
         tmp_path,
         [
             _step("surface-build", 8_000_000_000, run="r1"),
             _step("corpus-build", 9_000_000_000, run="r2"),
-            _pool("surface", [6_000_000_000]),
-            _pool("corpus", [7_000_000_000]),
+            _pool("surface", [6_000_000_000], reading="footprint"),
+            _pool("corpus", [7_000_000_000], reading="footprint"),
         ],
     )
     _, steps, _ = cb.load_journal(path)
     pools = cb.load_pool_records(path)
-    parent, _, _ = cb.observations(_unit("corpus-parent"), pools, steps, host=HOST, recent=20)
+    parent, _, _, _ = cb.observations(_unit("corpus-parent"), pools, steps, host=HOST, recent=20)
     assert sorted((item.peak_bytes, item.source) for item in parent) == [
         (8_000_000_000, "step:corpus-build"),
         (9_000_000_000, "step:corpus-build"),
     ]
-    worker, _, _ = cb.observations(_unit("corpus-worker"), pools, steps, host=HOST, recent=20)
+    worker, _, _, _ = cb.observations(_unit("corpus-worker"), pools, steps, host=HOST, recent=20)
     assert sorted(item.peak_bytes for item in worker) == [6_000_000_000, 7_000_000_000]
 
 
@@ -285,7 +315,7 @@ def test_the_kernel_build_row_reads_the_higher_of_the_builds_resident_and_footpr
         f"[t] kernel_build_tables 200.0s width=5 runes=45 {rss_token(resident)} {footprint_token(footprint)}"
     )
     plain = _step("run_m1", resident, run="r2")
-    observed, _, _ = cb.observations(
+    observed, _, _, _ = cb.observations(
         _unit("kernel-build"), [], {"r1": [compressed], "r2": [plain]}, host=HOST, recent=20
     )
     assert [(item.peak_bytes, item.resident_bytes, item.footprint_bytes) for item in observed] == [
@@ -303,7 +333,7 @@ def test_the_kernel_build_row_reads_the_higher_of_the_builds_resident_and_footpr
 
 def test_a_named_step_peak_supplies_an_observation():
     steps = {"r1": [_step("run_m1", 9_000_000_000)]}
-    observed, _, _ = cb.observations(_unit("kernel-build"), [], steps, host=HOST, recent=20)
+    observed, _, _, _ = cb.observations(_unit("kernel-build"), [], steps, host=HOST, recent=20)
     assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:run_m1")]
 
 
@@ -439,7 +469,7 @@ def test_the_full_history_run_reads_past_the_constants_commit(tmp_path, capsys):
 def test_a_record_with_no_stamp_is_kept_under_the_measurement_cutoff():
     record = _step("run_m1", 1)
     del record["finished_at"]
-    observed, _, older = cb.observations(
+    observed, _, older, _ = cb.observations(
         _unit("kernel-build"), [], {"r1": [record]}, host=HOST, recent=20, since="2026-09-05T00:00:00Z"
     )
     assert [item.peak_bytes for item in observed] == [1]
@@ -835,7 +865,7 @@ def test_a_reading_that_has_used_the_headroom_proposes_a_raise_before_any_overru
     unit = _unit("oracle-shard")
     assert unit.headroom is not None and unit.quantum is not None
     constant = CONSTANTS["oracle-shard"]
-    used = _journal(tmp_path, [_pool("oracle-shard", [constant])])
+    used = _journal(tmp_path, [_pool("oracle-shard", [constant], reading="footprint")])
     code, out = _run(capsys, used, "--check")
     assert code == 0
     proposal = _proposal(_block(out, "oracle-shard"))
@@ -845,12 +875,12 @@ def test_a_reading_that_has_used_the_headroom_proposes_a_raise_before_any_overru
         f"  proposal  : ORACLE_SHARD_BYTES at {cb.format_gb(raised)} GB (max {cb.format_gb(constant)} GB × 1.25, rounded up to a multiple of 0.10 GB), headroom used, not yet an overrun; width here at {cb.format_gb(raised)} GB: "
     )
     assert "though one has used its headroom" in out
-    roomy = _journal(tmp_path, [_pool("oracle-shard", [constant * 4 // 5])])
+    roomy = _journal(tmp_path, [_pool("oracle-shard", [constant * 4 // 5], reading="footprint")])
     _, out = _run(capsys, roomy)
     assert "proposal" not in out
     for fraction in (0.5, 0.8, 0.81, 1.0, 1.3):
         rows = cb.build_rows(
-            [_pool("oracle-shard", [int(constant * fraction)])],
+            [_pool("oracle-shard", [int(constant * fraction)], reading="footprint")],
             {},
             constants=CONSTANTS,
             host=HOST,
@@ -884,9 +914,9 @@ def test_a_fleet_survey_states_the_proposals_width_on_each_host_in_the_window(tm
             _run_record(HOST, cores=8, total=16_000_000_000, at="2026-08-01T00:00:00Z"),
             _run_record(HOST, cores=10, total=34_359_738_368, at="2026-08-02T00:00:00Z"),
             _run_record(OTHER, cores=18, total=51_539_607_552),
-            _pool("oracle-shard", [constant]),
-            _pool("oracle-shard", [constant // 2], host=OTHER),
-            _pool("oracle-shard", [constant // 2], host=third),
+            _pool("oracle-shard", [constant], reading="footprint"),
+            _pool("oracle-shard", [constant // 2], host=OTHER, reading="footprint"),
+            _pool("oracle-shard", [constant // 2], host=third, reading="footprint"),
         ],
     )
     assert _main(path, "--host", "all") == 0
@@ -908,7 +938,7 @@ def test_the_cycle_quotes_the_proposal_of_a_tripped_row_and_never_of_one_that_on
         tmp_path,
         [
             _pool("conform-sweep", [CONSTANTS["conform-sweep"] * 2]),
-            _pool("oracle-shard", [CONSTANTS["oracle-shard"]]),
+            _pool("oracle-shard", [CONSTANTS["oracle-shard"]], reading="footprint"),
         ],
     )
     code, out = _run(capsys, path, "--check")

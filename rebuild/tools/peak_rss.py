@@ -4,7 +4,7 @@
 
 `peak_rss_self_bytes` is this process's own peak. `peak_rss_children_bytes` is the largest peak among the children this process has reaped. `process_peak_rss_bytes` is the larger of the two, which is the figure a `[t]` line for a stage that fans out should carry. A peak only rises, so the difference between two peak readings says nothing about what happened between them; `reap_peak_rss_bytes` gives a per-child figure. `current_rss_bytes` is the resident set at the moment of the call. A `[t]` line with both tokens (`rss_token`, `rss_now_token`) shows where in the step the peak was reached and what the phase that just ended leaves resident.
 
-Resident set under-reads a process under memory pressure: on Darwin the pages the compressor holds and the pages swapped out count in neither the resident set nor `ru_maxrss`. `footprint_bytes` and `peak_footprint_bytes` read what the process costs the machine instead, for any live pid this user owns. On Darwin that is `proc_pid_rusage`'s `rusage_info_v4` through `ctypes`: `ri_phys_footprint` now and `ri_lifetime_max_phys_footprint` over the process's life, the figures Activity Monitor and `top` report as memory. On Linux the current figure is `/proc/<pid>/status`'s `VmRSS` plus `VmSwap` and the peak is its `VmHWM`, a resident peak that leaves out what was swapped out. Elsewhere the current figure is None and the peak falls back to `ru_maxrss` for this process and None for another. Another process's peak footprint is readable until it is reaped, so `reap_peaks_bytes` reads a child's between its exit and its reap and returns it beside the resident peak `reap_peak_rss_bytes` reads; `footprint_token` writes it on a `[t]` line beside `rss_token`.
+Resident set under-reads a process under memory pressure: on Darwin the pages the compressor holds and the pages swapped out count in neither the resident set nor `ru_maxrss`. `footprint_bytes` and `peak_footprint_bytes` read what the process costs the machine instead, for any live pid this user owns. On Darwin that is `proc_pid_rusage`'s `rusage_info_v4` through `ctypes`: `ri_phys_footprint` now and `ri_lifetime_max_phys_footprint` over the process's life, the figures Activity Monitor and `top` report as memory. On Linux the current figure is `/proc/<pid>/status`'s `VmRSS` plus `VmSwap` and the peak is its `VmHWM`, a resident peak that leaves out what was swapped out. Elsewhere the current figure is None and the peak falls back to `ru_maxrss` for this process and None for another. `peak_footprint_self_bytes` is this process's peak footprint, or its resident peak where the footprint cannot be read, which a pool worker or a parent reads of itself for a `kind:"pool"` record (`cycle_timings.record_pool`). Another process's peak footprint is readable until it is reaped, so `reap_peaks_bytes` reads a child's between its exit and its reap and returns it beside the resident peak `reap_peak_rss_bytes` reads; `footprint_token` writes it on a `[t]` line beside `rss_token`.
 
 `swap_used_bytes` is the machine's swap in use, for a report to show beside a pool's footprint so a run short of memory is visible in its log: Darwin's `vm.swapusage` through `sysctlbyname`, or `/proc/meminfo`'s `SwapTotal` less `SwapFree` on Linux. It lags and does not fall back when the pressure ends, which is why `memory_budget` never sizes a pool from it. `parse_compressor_bytes` reads the memory Darwin's compressor occupies from a `vm_stat` text, and `parse_swapouts` the pages it has written to swap since boot, for the memory series (`rebuild/tools/memory_series.py`) to log beside it; a swapout delta, unlike `vm.swapusage`, counts what a step sent to swap whatever the swap held before.
 
@@ -132,6 +132,12 @@ def peak_footprint_bytes(pid: int | None = None, platform: str = sys.platform) -
     if peak is not None:
         return peak
     return peak_rss_self_bytes() if pid is None or pid == os.getpid() else None
+
+
+def peak_footprint_self_bytes() -> int:
+    """Return this process's peak footprint (`peak_footprint_bytes`), or its resident peak (`peak_rss_self_bytes`) where the footprint cannot be read, in bytes."""
+    peak = peak_footprint_bytes()
+    return peak if peak is not None else peak_rss_self_bytes()
 
 
 def meminfo_swap_used_bytes(text: str) -> int | None:

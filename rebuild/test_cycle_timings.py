@@ -772,6 +772,7 @@ def test_record_pool_writes_one_pool_line(tmp_path):
         width=3,
         worker_peaks={"gw10": 4_980_000_000, "gw2": 5_210_000_000, "gw0": 5_560_000_000},
         controller_peak_bytes=412_000_000,
+        worker_reading="footprint",
         path=path,
     )
     (entry,) = _lines(path)
@@ -786,6 +787,7 @@ def test_record_pool_writes_one_pool_line(tmp_path):
         "gw10": 4_980_000_000,
     }
     assert list(entry["worker_peak_rss_bytes"]) == ["gw0", "gw2", "gw10"]
+    assert entry["worker_reading"] == "footprint"
     assert entry["host"]
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", entry["finished_at"])
 
@@ -806,6 +808,7 @@ def test_record_pool_round_trips_through_load_pool_records(tmp_path):
     assert records[0]["worker_peak_rss_bytes"] == {"gw0": 1_900_000_000}
     assert records[1]["worker_peak_rss_bytes"] == {"gw0": 5_560_000_000, "gw1": 4_980_000_000}
     assert (records[0]["width"], records[1]["width"]) == (8, 4)
+    assert records[0]["worker_reading"] == "resident"
 
 
 def test_a_conform_sweep_record_keys_its_workers_by_configuration(tmp_path):

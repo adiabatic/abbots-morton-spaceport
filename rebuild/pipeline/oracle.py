@@ -52,7 +52,7 @@ from rebuild.pipeline.conform import (
 from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, load_alias_map
 from rebuild.pipeline.model import CellId, ResolvedSpec, isolated_overlay_active
 from rebuild.pipeline.shapers import IsolatedOverlayShaper, Shaper
-from rebuild.tools.peak_rss import peak_rss_self_bytes
+from rebuild.tools.peak_rss import peak_footprint_self_bytes
 from rebuild.validation.rowmodel import Row, iter_rows
 
 # Baseline rows read and walked at a time: the oracle's counterpart of `conform.TEXT_CHUNK`.
@@ -146,7 +146,7 @@ class BaselineReport:
 
 @dataclass
 class OracleConfigResult:
-    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and pickling every such `DivergentRow` to the parent would cost memory in proportion to the audit. The worker has already written every row to its audit shard, a multi-matched row with its matched ids joined by `+`, so `divergence-audit.tsv` has them all. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store segment was written under, or None when no store was written; the parent writes it into a joined store's header. `peak_rss_bytes` is the worker's peak memory, recorded in the pool record that `make job-costs` reads."""
+    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and pickling every such `DivergentRow` to the parent would cost memory in proportion to the audit. The worker has already written every row to its audit shard, a multi-matched row with its matched ids joined by `+`, so `divergence-audit.tsv` has them all. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store segment was written under, or None when no store was written; the parent writes it into a joined store's header. `peak_footprint_bytes` is the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), recorded in the pool record that `make job-costs` reads."""
 
     config: str
     rows_compared: int = 0
@@ -160,7 +160,7 @@ class OracleConfigResult:
     multi_matched_count: int = 0
     notes: list[str] = field(default_factory=list)
     pass_ordinal: int | None = None
-    peak_rss_bytes: int = 0
+    peak_footprint_bytes: int = 0
 
 
 @dataclass(frozen=True)
@@ -955,7 +955,7 @@ def _compare_config(
         file=sys.stderr,
         flush=True,
     )
-    result.peak_rss_bytes = peak_rss_self_bytes()
+    result.peak_footprint_bytes = peak_footprint_self_bytes()
     return result
 
 
@@ -1032,7 +1032,7 @@ def oracle_config_worker(
 
 
 def merge_config_shards(results: Sequence[OracleConfigResult]) -> OracleConfigResult:
-    """Combine one configuration's row-range results, given in row order, into one result. Counts and `counts_by_entry` are summed. `unmatched_exemplars` are concatenated and cut to `ORACLE_UNMATCHED_EXEMPLARS`, which gives the same rows an uncut run keeps, because a range's list holds all of its unmatched rows whenever it is shorter than the cap. `notes` are concatenated without repeats, since a missing table is noted once per range. All ranges must report the same `pass_ordinal`, because they read the same store header; a mismatch is a fan-out bug and raises ValueError. `peak_rss_bytes` is the largest range's."""
+    """Combine one configuration's row-range results, given in row order, into one result. Counts and `counts_by_entry` are summed. `unmatched_exemplars` are concatenated and cut to `ORACLE_UNMATCHED_EXEMPLARS`, which gives the same rows an uncut run keeps, because a range's list holds all of its unmatched rows whenever it is shorter than the cap. `notes` are concatenated without repeats, since a missing table is noted once per range. All ranges must report the same `pass_ordinal`, because they read the same store header; a mismatch is a fan-out bug and raises ValueError. `peak_footprint_bytes` is the largest range's."""
     if not results:
         raise ValueError("merge_config_shards folds at least one range")
     configs = {result.config for result in results}
@@ -1060,7 +1060,7 @@ def merge_config_shards(results: Sequence[OracleConfigResult]) -> OracleConfigRe
             if note not in seen_notes:
                 seen_notes.add(note)
                 merged.notes.append(note)
-        merged.peak_rss_bytes = max(merged.peak_rss_bytes, result.peak_rss_bytes)
+        merged.peak_footprint_bytes = max(merged.peak_footprint_bytes, result.peak_footprint_bytes)
     del merged.unmatched_exemplars[ORACLE_UNMATCHED_EXEMPLARS:]
     return merged
 

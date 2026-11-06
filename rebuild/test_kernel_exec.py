@@ -1986,7 +1986,7 @@ class TestTheReplayStage:
         monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
         monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs, units: ThreadPoolExecutor(max_workers=units))
         monkeypatch.setattr(run_m1.conform, "absorb_replay_memo", lambda dump, memo, spec, config: 7)
-        monkeypatch.setattr(run_m1, "peak_footprint_bytes", lambda: 315_000_000)
+        monkeypatch.setattr(run_m1, "peak_footprint_self_bytes", lambda: 315_000_000)
         digests = {name: f"d-{name}" for name in SPEC.runes}
         inputs = oracle_cache.SettleMemoInputs(rune_digests=dict(digests), oracle_code="code", data="data")
         run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)
@@ -1998,6 +1998,7 @@ class TestTheReplayStage:
         assert [record["worker_peak_rss_bytes"] for record in records] == [
             {f"{config} absorb": 315_000_000 for config in conform.SETTLEMENT_CONFIGS if config != "ss08"}
         ]
+        assert [record["worker_reading"] for record in records] == ["footprint"]
         assert any(run_m1.REPLAY_ABSORB_POOL_UNIT in unit.pool_units for unit in calibrate_budgets.UNITS)
 
     def test_the_stage_walks_at_its_own_width_and_a_stated_one_is_only_ever_narrowed(
