@@ -87,13 +87,13 @@ def _seed_repo(tmp_path):
 class TestEnsureFresh:
     def test_first_ensure_refilters_and_second_skips_without_touching_bytes(self, tmp_path):
         root = _seed_repo(tmp_path)
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         subset = root / "rebuild" / "out" / "m1" / "baseline-default.subset.tsv.gz"
         stamp = root / "rebuild" / "out" / "m1" / baseline_subset.STAMP_NAME
         assert subset.exists()
         assert stamp.exists()
         first = subset.read_bytes()
-        assert baseline_subset.ensure_fresh(root) is False
+        assert baseline_subset.ensure_fresh(root).refreshed is False
         assert subset.read_bytes() == first
 
     def test_a_source_table_change_reads_as_stale_and_refilters(self, tmp_path):
@@ -101,7 +101,7 @@ class TestEnsureFresh:
         baseline_subset.ensure_fresh(root)
         _write_sources(root / "rebuild" / "out", SEED_ROWS + ["E672\tqsEt\t0\t\t0,0,200"])
         assert baseline_subset.is_fresh(root) is False
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         with gzip.open(
             root / "rebuild" / "out" / "m1" / "baseline-default.subset.tsv.gz", "rt", encoding="utf-8"
         ) as fh:
@@ -117,13 +117,42 @@ class TestEnsureFresh:
             return {path.name: path.read_bytes() for path in m1.iterdir()}
 
         seen = []
-        assert baseline_subset.ensure_fresh(root, before_refilter=lambda: seen.append(snapshot())) is False
+        assert (
+            baseline_subset.ensure_fresh(root, before_refilter=lambda: seen.append(snapshot())).refreshed
+            is False
+        )
         assert seen == []
         before = snapshot()
         _write_sources(root / "rebuild" / "out", SEED_ROWS + ["E672\tqsEt\t0\t\t0,0,200"])
-        assert baseline_subset.ensure_fresh(root, before_refilter=lambda: seen.append(snapshot())) is True
+        assert (
+            baseline_subset.ensure_fresh(root, before_refilter=lambda: seen.append(snapshot())).refreshed
+            is True
+        )
         assert seen == [before]
         assert snapshot() != before
+
+    def test_a_refresh_says_whether_it_changed_the_stamped_alphabet(self, tmp_path, monkeypatch):
+        """A letter batch edits `M1_ALPHABET`, while a source table or a code edit refilters over the same alphabet, so `ensure_fresh` compares the alphabet the previous stamp records (`stamped_alphabet`) with the one it filters to. A refilter with no previous stamp, or over one whose alphabet does not parse, counts as a change. A refilter over a stamp that predates the field cannot say, so `alphabet_changed` is None."""
+        root = _seed_repo(tmp_path)
+        out = root / "rebuild" / "out" / "m1"
+        Refresh = baseline_subset.Refresh
+        assert baseline_subset.ensure_fresh(root) == Refresh(refreshed=True, alphabet_changed=True)
+        assert baseline_subset.stamped_alphabet(out) == baseline_subset.M1_ALPHABET
+        assert baseline_subset.ensure_fresh(root) == Refresh(refreshed=False, alphabet_changed=False)
+        _write_sources(root / "rebuild" / "out", SEED_ROWS + ["E672\tqsEt\t0\t\t0,0,200"])
+        assert baseline_subset.ensure_fresh(root) == Refresh(refreshed=True, alphabet_changed=False)
+        monkeypatch.setattr(baseline_subset, "M1_ALPHABET", baseline_subset.M1_ALPHABET | {0xE66C})
+        assert baseline_subset.ensure_fresh(root) == Refresh(refreshed=True, alphabet_changed=True)
+        assert baseline_subset.stamped_alphabet(out) == baseline_subset.M1_ALPHABET
+        stamp_path = out / baseline_subset.STAMP_NAME
+        stamp = json.loads(stamp_path.read_text())
+        stamp_path.write_text(json.dumps({**stamp, "key": "a key from other code", "alphabet": ["E6ZZ"]}))
+        assert baseline_subset.stamped_alphabet(out) is None
+        assert baseline_subset.ensure_fresh(root) == Refresh(refreshed=True, alphabet_changed=True)
+        del stamp["alphabet"]
+        stamp_path.write_text(json.dumps({**stamp, "key": "a key from other code"}))
+        assert baseline_subset.stamped_alphabet(out) is None
+        assert baseline_subset.ensure_fresh(root) == Refresh(refreshed=True, alphabet_changed=None)
 
     def test_an_alphabet_change_moves_the_key(self, tmp_path, monkeypatch):
         root = _seed_repo(tmp_path)
@@ -152,7 +181,7 @@ class TestEnsureFresh:
         subset = root / "rebuild" / "out" / "m1" / "baseline-default.subset.tsv.gz"
         subset.unlink()
         assert baseline_subset.is_fresh(root) is False
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         assert subset.exists()
 
     def test_an_interrupted_refilter_leaves_the_prior_stamp_reading_stale(self, tmp_path, monkeypatch):
@@ -175,7 +204,7 @@ class TestEnsureFresh:
         assert stamp.read_bytes() == before
         assert baseline_subset.is_fresh(root) is False
         monkeypatch.setattr(baseline_subset, "filter_table", original)
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         assert baseline_subset.is_fresh(root) is True
 
     def test_refiltering_unchanged_sources_is_byte_identical(self, tmp_path):
@@ -188,7 +217,7 @@ class TestEnsureFresh:
 
     def test_main_hand_run_refilters_unconditionally(self, tmp_path, monkeypatch, capsys):
         root = _seed_repo(tmp_path)
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         monkeypatch.setattr(baseline_subset, "REPO_ROOT", root)
         baseline_subset.main()
         assert "kept 1 rows" in capsys.readouterr().out
@@ -203,7 +232,7 @@ class TestEnsureFresh:
         assert orphan.exists()
         (out / "baseline-ss04.tsv.gz").unlink()
         assert baseline_subset.is_fresh(root) is False
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         assert not orphan.exists()
 
     def test_an_extra_output_on_disk_reads_as_stale_and_is_pruned(self, tmp_path):
@@ -212,7 +241,7 @@ class TestEnsureFresh:
         rogue = root / "rebuild" / "out" / "m1" / "baseline-zz.subset.tsv.gz"
         rogue.write_bytes(b"junk")
         assert baseline_subset.is_fresh(root) is False
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         assert not rogue.exists()
 
     def test_a_corrupted_output_reads_as_stale_and_is_refiltered(self, tmp_path):
@@ -222,7 +251,7 @@ class TestEnsureFresh:
         subset = root / "rebuild" / "out" / "m1" / "baseline-default.subset.tsv.gz"
         subset.write_bytes(b"")
         assert baseline_subset.is_fresh(root) is False
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         assert subset.stat().st_size > 0
         assert baseline_subset.is_fresh(root) is True
 
@@ -283,12 +312,12 @@ class TestFontProvenance:
             for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS
         }
         assert set(checked.values()) == {FONT_SHA256}
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
 
     def test_a_rewritten_site_font_refuses_before_any_freshness_check(self, tmp_path):
         """A stamped-fresh tree with a rebuilt font: the tables still hash to what the stamp recorded, so `is_fresh` would pass them. The error must come before that check and leave the stamp unchanged."""
         root = _seed_repo(tmp_path)
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         stamp = root / "rebuild" / "out" / "m1" / baseline_subset.STAMP_NAME
         before = stamp.read_bytes()
         rebuilt = b"a different font entirely"
@@ -345,7 +374,7 @@ class TestDefaultCovered:
 
     def test_identical_roster_tables_stamp_fresh(self, tmp_path):
         root = _seed_repo(tmp_path)
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         assert baseline_subset.is_fresh(root) is True
 
     def test_a_diverged_roster_table_refuses_and_leaves_no_stamp(self, tmp_path):
@@ -407,11 +436,11 @@ class TestSubsetNames:
         first = sidecar.read_bytes()
         sidecar.unlink()
         assert baseline_subset.is_fresh(root) is False
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         assert sidecar.read_bytes() == first
         sidecar.write_text('{"format": "ams-baseline-subset-names/1", "names": {}}\n')
         assert baseline_subset.is_fresh(root) is False
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         assert sidecar.read_bytes() == first
 
     def test_a_missing_sidecar_names_ensure_fresh_as_the_remedy(self, tmp_path):
@@ -498,7 +527,7 @@ class TestFontProvenanceThroughAVersionBump:
     def test_a_head_and_name_only_rewrite_passes_without_a_refilter(self, tmp_path):
         """A version bump: `make all` rewrote the font's `head` and `name`, and the tables still name the old raw digest. The check passes, nothing is refiltered or re-extracted, and the subset stamp and digests file keep their bytes."""
         root, font, digest = _seed_sfnt_repo(tmp_path)
-        assert baseline_subset.ensure_fresh(root) is True
+        assert baseline_subset.ensure_fresh(root).refreshed is True
         stamp = root / "rebuild" / "out" / "m1" / baseline_subset.STAMP_NAME
         before_stamp = stamp.read_bytes()
         before_digests = _digests_file(root).read_bytes()
@@ -506,11 +535,11 @@ class TestFontProvenanceThroughAVersionBump:
         assert hashlib.sha256(font.read_bytes()).hexdigest() != digest
         checked = baseline_subset.check_font_provenance(root)
         assert set(checked.values()) == {digest}
-        assert baseline_subset.ensure_fresh(root) is False
+        assert baseline_subset.ensure_fresh(root).refreshed is False
         assert stamp.read_bytes() == before_stamp
         assert _digests_file(root).read_bytes() == before_digests
         _sfnt_font(font, font, _bump_version)
-        assert baseline_subset.ensure_fresh(root) is False
+        assert baseline_subset.ensure_fresh(root).refreshed is False
 
     def test_a_bump_passes_on_the_earlier_digests_file_and_replaces_it(self, tmp_path):
         """With only `EARLIER_FONT_DIGESTS_FILE` on disk, a version bump still passes on the digests it holds, and that call writes `FONT_DIGESTS_FILE` with the same digests and removes the earlier file."""

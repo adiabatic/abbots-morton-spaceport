@@ -8,7 +8,7 @@ Each refilter also checks two facts that only a refilter can change. First, ever
 
 `ensure_fresh` checks a third fact on every call, fresh or stale: that each source table was extracted from the site font on disk. `make all` rewrites that font without changing any key this module stamps, so only a check that runs on every call can catch a rebuilt font. A header whose `font_sha256` matches the font on disk passes. A version bump's `make all` rewrites only the font's `head` and `name` tables, so a header whose digest does not match still passes when the font it was extracted from and the font on disk are identical outside those two tables (`fingerprint.font_content_digest`). The header records only the raw digest, so this module records the extraction font's `head`- and `name`-blind content digest in `rebuild/out/baseline-font-content-digests.json`, keyed by font path and raw digest, on each call where every table passes. When that file is absent, the digests are read from `rebuild/out/baseline-font-projections.json` in its place, and the first passing call writes the content digests file and removes that one. A machine that never checked the tables before the font changed has no such entry and fails with the re-extract remedy.
 
-`run_m1` calls `ensure_fresh` before its gates, so an `M1_ALPHABET` edit cannot feed the oracle stale subset tables. `subset_stamp.json` records a key over the alphabet, the source tables, and this module's code, plus each output's content hash, each output's kept-row count (see `subset_row_counts`), and the names sidecar's hash. The refilter is skipped only when the key matches and the outputs on disk are the stamped set with the stamped bytes. A truncated or edited table, a missing or edited names sidecar, and an orphan left by a removed source all read as stale, and `refresh` deletes orphans. Subset gzip members are written with mtime=0, so refiltering unchanged sources reproduces each table byte for byte.
+`run_m1` calls `ensure_fresh` before its gates, so an `M1_ALPHABET` edit cannot feed the oracle stale subset tables. `subset_stamp.json` records a key over the alphabet, the source tables, and this module's code, plus each output's content hash, each output's kept-row count (see `subset_row_counts`), the names sidecar's hash, and the alphabet the refilter kept rows over (see `stamped_alphabet`). `ensure_fresh` reads that alphabet before it refilters and says whether the new one differs (`Refresh`), so a letter batch, which edits the alphabet, can be told from a refilter that a source table or this module's code brought on. The refilter is skipped only when the key matches and the outputs on disk are the stamped set with the stamped bytes. A truncated or edited table, a missing or edited names sidecar, and an orphan left by a removed source all read as stale, and `refresh` deletes orphans. Subset gzip members are written with mtime=0, so refiltering unchanged sources reproduces each table byte for byte.
 
 Run by hand (unconditional refilter) as `uv run python -m rebuild.pipeline.baseline_subset`. The command line refuses before it checks or writes anything while the alphabet switch is set outside the fault kit (`spec_load.small_alphabet_refusal`), since it writes the live tree's subset tables.
 """
@@ -116,6 +116,14 @@ class FilteredTable:
     rows_sha256: str
 
 
+@dataclass(frozen=True)
+class Refresh:
+    """What one `ensure_fresh` call did: whether it refiltered the subset tables (`refreshed`), and whether the alphabet it filtered to differs from the one the previous stamp records (`alphabet_changed`, from `stamped_alphabet`). A previous stamp that is missing, malformed or of another format, or whose alphabet does not parse, counts as a change. A previous stamp of this format with no `alphabet` field predates the field and cannot say, so `alphabet_changed` is None. A call over fresh tables changed neither, since the stamp key covers the alphabet."""
+
+    refreshed: bool
+    alphabet_changed: bool | None
+
+
 def _codepoints_in_alphabet(field: str, alphabet: frozenset[int]) -> bool:
     try:
         return all(int(token, 16) in alphabet for token in field.split(":"))
@@ -161,10 +169,14 @@ def _subset_path(out_dir: Path, config: str) -> Path:
     return out_dir / f"baseline-{config}.subset.tsv.gz"
 
 
+def _alphabet_codes(alphabet: frozenset[int]) -> list[str]:
+    return [f"{codepoint:04X}" for codepoint in sorted(alphabet)]
+
+
 def stamp_key(repo_root: Path = REPO_ROOT) -> str:
     """The content key the stamp records: a hash of the alphabet, the source tables, and this module's code. The source tables enter through the size-plus-digests proxy of `fingerprint.baselines_value`, so a freshness check reads no source table. The code enters through the prose-insensitive `fingerprint.code_file_digest`, so a code change forces a refilter and a docstring edit does not."""
     lines = [
-        "alphabet\t" + ",".join(f"{codepoint:04X}" for codepoint in sorted(M1_ALPHABET)),
+        "alphabet\t" + ",".join(_alphabet_codes(M1_ALPHABET)),
         f"baselines\t{fingerprint.baselines_value(Path(repo_root))}",
         f"filter_code\t{fingerprint.code_file_digest(Path(__file__))}",
     ]
@@ -233,16 +245,17 @@ def read_subset_names(out_dir: Path = OUT_DIR) -> dict[str, list[str]]:
 
 
 def refresh(repo_root: Path = REPO_ROOT) -> dict[str, str]:
-    """Refilter every source table into rebuild/out/m1, delete subset outputs that have no source, check the default-covered configurations, write the names sidecar, and write the stamp, in that order. Returns the output names mapped to their content hashes. The key is computed before filtering, so a source edited mid-refilter is stamped under the old key and reads as stale on the next check. The identity check runs before the stamp is written, so a failure leaves the outputs on disk with no stamp that matches them."""
+    """Refilter every source table into rebuild/out/m1 over `M1_ALPHABET`, delete subset outputs that have no source, check the default-covered configurations, write the names sidecar, and write the stamp, which records that alphabet, in that order. Returns the output names mapped to their content hashes. The key is computed before filtering, so a source edited mid-refilter is stamped under the old key and reads as stale on the next check. The identity check runs before the stamp is written, so a failure leaves the outputs on disk with no stamp that matches them."""
     baseline_dir, out_dir = _dirs(repo_root)
     out_dir.mkdir(parents=True, exist_ok=True)
     key = stamp_key(repo_root)
+    alphabet = M1_ALPHABET
     outputs: dict[str, str] = {}
     filtered: dict[str, FilteredTable] = {}
     for source in sorted(baseline_dir.glob("baseline-*.tsv.gz")):
         config = source.name[len("baseline-") : -len(".tsv.gz")]
         destination = _subset_path(out_dir, config)
-        result = filter_table(source, destination)
+        result = filter_table(source, destination, alphabet)
         filtered[config] = result
         print(f"{source.name}: kept {result.kept} rows -> {destination}")
         outputs[destination.name] = fingerprint.file_sha256(destination)
@@ -257,18 +270,27 @@ def refresh(repo_root: Path = REPO_ROOT) -> dict[str, str]:
         "outputs": outputs,
         "rows": {config: table.kept for config, table in sorted(filtered.items())},
         "sidecars": {NAMES_NAME: fingerprint.file_sha256(names_path)},
+        "alphabet": _alphabet_codes(alphabet),
     }
     (out_dir / STAMP_NAME).write_text(json.dumps(payload, indent=2) + "\n")
     return outputs
 
 
-def subset_row_counts(out_dir: Path = OUT_DIR) -> dict[str, int]:
-    """Return each subset table's kept-row count as `{config: rows}`, read from the stamp, so the oracle can cut a table into row ranges without streaming it. Returns `{}` when the stamp is missing, malformed, of another format, or has no counts, as in a hand-made table directory; the caller then treats each table as one range."""
+def _read_stamp(out_dir: Path) -> dict | None:
+    """Return the stamp under `out_dir`, or None when it is missing, malformed or of another format."""
     try:
         stamp = json.loads((Path(out_dir) / STAMP_NAME).read_text())
     except OSError, ValueError:
-        return {}
+        return None
     if not isinstance(stamp, dict) or stamp.get("format") != STAMP_FORMAT:
+        return None
+    return stamp
+
+
+def subset_row_counts(out_dir: Path = OUT_DIR) -> dict[str, int]:
+    """Return each subset table's kept-row count as `{config: rows}`, read from the stamp, so the oracle can cut a table into row ranges without streaming it. Returns `{}` when the stamp is missing, malformed, of another format, or has no counts, as in a hand-made table directory; the caller then treats each table as one range."""
+    stamp = _read_stamp(out_dir)
+    if stamp is None:
         return {}
     rows = stamp.get("rows")
     if not isinstance(rows, dict):
@@ -279,14 +301,27 @@ def subset_row_counts(out_dir: Path = OUT_DIR) -> dict[str, int]:
         return {}
 
 
+def stamped_alphabet(out_dir: Path = OUT_DIR) -> frozenset[int] | None:
+    """Return the alphabet the stamp records, the code points the last stamped refilter kept rows over, or None when the stamp is missing, malformed or of another format, or records no alphabet or one that does not parse."""
+    stamp = _read_stamp(out_dir)
+    return None if stamp is None else _alphabet_of(stamp)
+
+
+def _alphabet_of(stamp: dict) -> frozenset[int] | None:
+    codes = stamp.get("alphabet")
+    if not isinstance(codes, list):
+        return None
+    try:
+        return frozenset(int(code, 16) for code in codes)
+    except TypeError, ValueError:
+        return None
+
+
 def is_fresh(repo_root: Path = REPO_ROOT) -> bool:
     """Return whether the stamped subset tables still match the alphabet and sources on disk. That requires a stamp of this format whose key matches a fresh computation, subset outputs on disk that are exactly the stamped set, and outputs and a names sidecar whose bytes hash to the stamped digests. A missing or malformed stamp reads as stale and never raises."""
     _, out_dir = _dirs(repo_root)
-    try:
-        stamp = json.loads((out_dir / STAMP_NAME).read_text())
-    except OSError, ValueError:
-        return False
-    if not isinstance(stamp, dict) or stamp.get("format") != STAMP_FORMAT:
+    stamp = _read_stamp(out_dir)
+    if stamp is None:
         return False
     if stamp.get("key") != stamp_key(repo_root):
         return False
@@ -397,15 +432,18 @@ def check_font_provenance(repo_root: Path = REPO_ROOT) -> dict[str, str]:
     return checked
 
 
-def ensure_fresh(repo_root: Path = REPO_ROOT, before_refilter: Callable[[], None] | None = None) -> bool:
-    """Check the source tables' font provenance, then refilter if the subset tables are stale, and return whether a refilter ran. `before_refilter` runs once the tables are found stale and before the refilter writes anything, so a caller can delete a record that vouches for the subset tables on disk only when they are about to be rewritten (`run_m1_gates._run_pregate_guards`). Raises `BaselineProvenanceError` from the provenance check and `SubsetIdentityError` from the refilter. The provenance check runs on every call because the site font is `make all` output and not a stamp input, so it can change while the stamp key stays the same."""
+def ensure_fresh(repo_root: Path = REPO_ROOT, before_refilter: Callable[[], None] | None = None) -> Refresh:
+    """Check the source tables' font provenance, then refilter if the subset tables are stale, and return whether a refilter ran and whether it changed the alphabet (`Refresh`). The alphabet the previous stamp records is read before the refilter overwrites the stamp. `before_refilter` runs once the tables are found stale and before the refilter writes anything, so a caller can delete a record that vouches for the subset tables on disk only when they are about to be rewritten (`run_m1_gates._run_pregate_guards`). Raises `BaselineProvenanceError` from the provenance check and `SubsetIdentityError` from the refilter. The provenance check runs on every call because the site font is `make all` output and not a stamp input, so it can change while the stamp key stays the same."""
     check_font_provenance(repo_root)
     if is_fresh(repo_root):
-        return False
+        return Refresh(refreshed=False, alphabet_changed=False)
+    previous = _read_stamp(_dirs(repo_root)[1])
     if before_refilter is not None:
         before_refilter()
     refresh(repo_root)
-    return True
+    if previous is not None and "alphabet" not in previous:
+        return Refresh(refreshed=True, alphabet_changed=None)
+    return Refresh(refreshed=True, alphabet_changed=previous is None or _alphabet_of(previous) != M1_ALPHABET)
 
 
 def main() -> None:

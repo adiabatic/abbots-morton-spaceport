@@ -181,7 +181,11 @@ def _stub_full_run(monkeypatch, out_dir, *, defect_errors=(), pins=True, pins_in
     monkeypatch.setattr(run_m1.fingerprint, "stage_a", lambda root: dict(STAGE_A))
     monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(
-        run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root, before_refilter: False
+        run_m1_gates.baseline_subset,
+        "ensure_fresh",
+        lambda repo_root, before_refilter: run_m1_gates.baseline_subset.Refresh(
+            refreshed=False, alphabet_changed=False
+        ),
     )
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
     monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
@@ -227,7 +231,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     def ensure(repo_root, before_refilter):
         state["ensured"] = True
         events.append("subset")
-        return True
+        return run_m1_gates.baseline_subset.Refresh(refreshed=True, alphabet_changed=True)
 
     monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", ensure)
     monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: events.append("outgoing") or {})
@@ -301,11 +305,16 @@ def test_a_font_provenance_refusal_stops_the_run_before_the_alias_check(monkeypa
     assert reached == []
 
 
-@pytest.mark.parametrize("refiltered", [True, False])
-def test_the_subset_line_says_whether_the_refresh_ran(monkeypatch, tmp_path, capsys, refiltered):
-    """The `[t] baseline_subset` line ends with `refreshed=true` when `ensure_fresh` refiltered the subset tables and `refreshed=false` when they were already fresh, and the timings journal reads it back as a boolean."""
+@pytest.mark.parametrize(
+    ("refreshed", "alphabet_changed"), [(True, True), (True, False), (True, None), (False, False)]
+)
+def test_the_subset_line_says_whether_the_refresh_ran_and_changed_the_alphabet(
+    monkeypatch, tmp_path, capsys, refreshed, alphabet_changed
+):
+    """The `[t] baseline_subset` line ends with `refreshed=true` when `ensure_fresh` refiltered the subset tables and `refreshed=false` when they were already fresh, then `alphabet_changed=true` when the refilter's alphabet differs from the one the previous stamp records, `alphabet_changed=false` when it does not, and no such token when that stamp predates the field, and the timings journal reads back as booleans the tokens the line has."""
+    refresh = run_m1_gates.baseline_subset.Refresh(refreshed=refreshed, alphabet_changed=alphabet_changed)
     monkeypatch.setattr(
-        run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root, before_refilter: refiltered
+        run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root, before_refilter: refresh
     )
     monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
     monkeypatch.setattr(run_m1_gates.oracle, "load_ledger", lambda path: [])
@@ -315,7 +324,7 @@ def test_the_subset_line_says_whether_the_refresh_ran(monkeypatch, tmp_path, cap
         for phase in ct.parse_inner_timings(capsys.readouterr().out)
         if phase["label"] == "baseline_subset"
     ]
-    assert line["refreshed"] is refiltered
+    assert (line["refreshed"], line.get("alphabet_changed")) == (refreshed, alphabet_changed)
 
 
 def test_unmatched_oracle_rows_record_a_green_and_exit_zero(monkeypatch, tmp_path):
@@ -576,7 +585,7 @@ def test_a_refusal_after_the_refilter_leaves_no_stage_a_record(monkeypatch, tmp_
 
     def ensure(repo_root, before_refilter):
         before_refilter()
-        return True
+        return run_m1_gates.baseline_subset.Refresh(refreshed=True, alphabet_changed=False)
 
     monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", ensure)
     monkeypatch.setattr(
@@ -1491,7 +1500,8 @@ class TestGatesOnly:
         monkeypatch.setattr(
             run_m1_gates.baseline_subset,
             "ensure_fresh",
-            lambda repo_root, before_refilter: ran.append("subset") or False,
+            lambda repo_root, before_refilter: ran.append("subset")
+            or run_m1_gates.baseline_subset.Refresh(refreshed=False, alphabet_changed=False),
         )
         monkeypatch.setattr(
             run_m1_gates.oracle,
