@@ -61,7 +61,7 @@ class TestFilterTable:
 
     def test_full_alphabet_membership(self):
         assert baseline_subset._codepoints_in_alphabet("0020:200C:E679", baseline_subset.M1_ALPHABET)
-        assert not baseline_subset._codepoints_in_alphabet("E66C", baseline_subset.M1_ALPHABET)
+        assert not baseline_subset._codepoints_in_alphabet("0041", baseline_subset.M1_ALPHABET)
         assert not baseline_subset._codepoints_in_alphabet("garbage", baseline_subset.M1_ALPHABET)
 
 

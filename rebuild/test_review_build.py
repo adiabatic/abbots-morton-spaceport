@@ -1550,14 +1550,11 @@ def _strip_addresses(corpus: Path) -> None:
 
 
 def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it(
-    tmp_path, mini_bundle, capsys, monkeypatch
+    tmp_path, mini_corpus, mini_bundle, capsys, monkeypatch
 ):
-    """A rebuild over the first build's corpus reuses every unit from the store, and the plan boundary holds none of the cached records, because each is loaded into the unit store as the stream yields it. `unit_cache.named` never prints, and `unit_cache.unplaced` (records still waiting for the walk) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
-    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
+    """A rebuild over a copy of the mini corpus reuses every unit from the store, and the plan boundary holds none of the cached records, because each is loaded into the unit store as the stream yields it. `unit_cache.named` never prints, and `unit_cache.unplaced` (records still waiting for the walk) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
     corpus = tmp_path / "corpus"
-    _cached_build(corpus, mini_bundle)
-    capsys.readouterr()
-
+    shutil.copytree(mini_corpus, corpus)
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     manifest = _cached_build(corpus, mini_bundle)
     captured = capsys.readouterr()
@@ -1573,15 +1570,12 @@ def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it
 
 
 def test_a_cached_rebuild_estimates_the_records_the_walk_has_to_place(
-    tmp_path, mini_bundle, capsys, monkeypatch
+    tmp_path, mini_corpus, mini_bundle, capsys, monkeypatch
 ):
     """The records a cached plan buffers are measured whenever there are any. In a store written before addresses were recorded, every record waits for the walk, so the plan boundary counts one record per unit under `unit_cache.unplaced`. Every unit is still reused."""
-    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
     corpus = tmp_path / "corpus"
-    _cached_build(corpus, mini_bundle)
+    shutil.copytree(mini_corpus, corpus)
     _strip_addresses(corpus)
-    capsys.readouterr()
-
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     manifest = _cached_build(corpus, mini_bundle)
     captured = capsys.readouterr()

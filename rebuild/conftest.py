@@ -4,20 +4,23 @@ Every test reads only checked-in inputs and what it builds itself, so the suite 
 
 A `sys.addaudithook` guard enforces that boundary. It is installed once per process and is active only during the setup, call, and teardown of an item this conftest governs. While it is active, any audited file operation on a path under the live trees (`rebuild/out/`, all of `tmp/` and `var/`, the gate's exempt prefixes that are not source, and the root `verdicts-*` stores) raises `ContractsLaneViolation`, naming the test and the path. A phase that catches that exception still fails through `pytest_runtest_makereport`. The guard does not see subprocess children or `Path.exists()` and `os.stat`; `_audit` describes both gaps.
 
-The same hook records each contracts item's input closure. `rebuild.tools.contracts_closure` reads the record and decides when a closure lets a test be skipped. The recorder adds to an item's closure every repo file the item opens, including a font `uharfbuzz` maps (`_wrap_blob_reads` reports that read as an `open` event), and every module the item imports for the first time in this process. A child process leaves the item's inputs untraced, with two exceptions: the git commands `closure_record.hermetic_child` accepts, and the kernel or its cargo build (`closure_record.kernel_child`), which flags the item so the crate's sources are added to its closure. A multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to report it. A file a module opens while its body is being imported is credited to that module (`_attribute_import_read`), so every test whose closure includes the module gets the read. What a fixture scoped wider than a function reads during its setup is credited to the fixture and added to every item that requests it, because the fixture sets up once, under a single item. `--closure-record PATH` makes the controller write every worker's closures to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names. The gate passes both options, and a bare `uv run pytest rebuild/` neither records nor skips.
+The same hook records each contracts item's input closure. `rebuild.tools.contracts_closure` reads the record and decides when a closure lets a test be skipped. The recorder adds to an item's closure every repo file the item opens, including a font `uharfbuzz` maps (`_wrap_blob_reads` reports that read as an `open` event), and every module the item imports for the first time in this process. A child process leaves the item's inputs untraced, with two exceptions: the git commands `closure_record.hermetic_child` accepts, and the kernel or its cargo build (`closure_record.kernel_child`), which flags the item so the crate's sources are added to its closure. A multiprocessing worker raises no audit event, so `BaseProcess.start` is wrapped to report it. A file a module opens while its body is being imported is credited to that module (`_attribute_import_read`), so every test whose closure includes the module gets the read. What a fixture scoped wider than a function reads during its setup is credited to the fixture and added to every item that requests it, because the fixture sets up once, under a single item. A fixture built once a run (`build_once`) sets up in every worker but builds in one, so the worker that builds it records what the build added to the closure and every other worker adds that record to its own. `--closure-record PATH` makes the controller write every worker's closures to a sidecar at session end, and `--closure-skip PATH` deselects the contracts items a selection file names. The gate passes both options, and a bare `uv run pytest rebuild/` neither records nor skips.
 
 The autouse fixture `_redirect_cycle_writes` points every cycle write under `tmp_path` for every test under rebuild/, so running the suite never changes a file in the working repo.
 
 This file imports only leaf modules, and must keep doing so; `rebuild.tools.cycle_paths` says why. The redirect therefore patches that module, the leaf the cycle driver (`rebuild.tools.artifact_cycle`) reads its paths from at call time. The recorder's helpers come from `rebuild.tools.closure_record` and not from `contracts_closure`, which imports the driver. The fixtures below load review-tree modules through `announced_import`, which imports the module at fixture setup and adds it to the closure of every test that requests the fixture. `rebuild/test_contracts_closure.py` checks both conftests' direct imports.
 
-Tests about the review corpus's code read the frozen mini bundle under `rebuild/review/fixtures/mini/`, never today's corpus. Besides allowing full width, this means an example window that no longer shows the property it was chosen for fails the bundle's regeneration, which names the window, instead of failing a test after a later rune edit.
+Tests about the review corpus's code read the frozen mini bundle under `rebuild/review/fixtures/mini/`, never today's corpus. Besides allowing full width, this means an example window that no longer shows the property it was chosen for fails the bundle's regeneration, which names the window, instead of failing a test after a later rune edit. The bundle's spec and corpus are built once a run, under the run's base temporary directory, and every xdist worker reads that one copy (`build_once`).
 """
 
+import functools
 import importlib
+import json
 import multiprocessing.process
 import os
+import shutil
 import sys
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -487,6 +490,72 @@ def live_deletion_targets():
     return list(LIVE_DELETION_TARGETS)
 
 
+def run_temp_root(tmp_path_factory: pytest.TempPathFactory, config: pytest.Config) -> Path:
+    """Return the base temporary directory the whole run shares. An xdist worker's basetemp is a directory inside the controller's, so under xdist the run's is its parent; a run without workers has only its own."""
+    basetemp = tmp_path_factory.getbasetemp()
+    return basetemp.parent if hasattr(config, "workerinput") else basetemp
+
+
+def _build_once(
+    tmp_path_factory: pytest.TempPathFactory,
+    config: pytest.Config,
+    name: str,
+    build: Callable[[Path], object],
+) -> Path:
+    """Return the directory `name` under `run_temp_root`, which the first process of the run to ask for it fills by calling `build` on it and every other process reads as it stands, so a fixture scoped wider than a function is built once a run and not once an xdist worker.
+
+    An exclusive lock beside the directory (`store_lock.hold_flock`) holds the other processes off until the build returns, and a record beside it, written last, marks the build done. A build that raised leaves no record, so the next process to ask removes what it left and builds again. The record holds what the build added to the input closure: its repo reads, the files of the modules it imported, and whether it spawned the kernel or an untraced child. A process that finds the build done adds the same to its own closure, so a test's recorded closure does not depend on which worker built the fixture.
+
+    Every worker reads the one copy, so nothing writes into it once it is built; a test that changes a fixture's files works on its own copy.
+    """
+    if not _guard_installed:
+        raise RuntimeError(
+            "build_once runs only in the conftest pytest loaded; request the `build_once` fixture instead of importing it."
+        )
+    store_lock = announced_import("rebuild.review.store_lock")
+    root = run_temp_root(tmp_path_factory, config)
+    directory = root / name
+    record = root / f"{name}.built.json"
+    with store_lock.hold_flock(root / f"{name}.lock"):
+        if record.is_file():
+            built = json.loads(record.read_text(encoding="utf-8"))
+            if _guard.active:
+                for rel in built["reads"]:
+                    _guard.read(rel)
+                if built["kernel"]:
+                    _guard.kernel()
+                if built["untraced_inputs"]:
+                    _guard.spawn()
+            return directory
+        if directory.exists():
+            shutil.rmtree(directory)
+        directory.mkdir()
+        sink = _Sink()
+        _guard.fixtures.append(sink)
+        try:
+            build(directory)
+        finally:
+            _guard.fixtures.pop()
+        modules = {path for module in sink.module_names if (path := _module_file(module)) is not None}
+        record.write_text(
+            json.dumps(
+                {
+                    "reads": sorted(sink.reads | modules),
+                    "kernel": sink.kernel,
+                    "untraced_inputs": sink.untraced_inputs,
+                }
+            ),
+            encoding="utf-8",
+        )
+    return directory
+
+
+@pytest.fixture(scope="session")
+def build_once(tmp_path_factory, pytestconfig) -> Callable[[str, Callable[[Path], object]], Path]:
+    """Return `_build_once` bound to the run's temp-path factory and config, so a fixture calls `build_once(name, build)`. A test module requests this fixture instead of importing the function: pytest loads this file as the module `conftest`, so `import rebuild.conftest` executes a second copy whose audit guard pytest never configured, and a build through that copy would record an empty closure and replay none. `_build_once` refuses to run in such a copy."""
+    return functools.partial(_build_once, tmp_path_factory, pytestconfig)
+
+
 @dataclass(frozen=True)
 class MiniBundle:
     """The spec root materialized from the frozen mini bundle's pin, that spec root's divergence ledger, and the bundle's subset tables packed under the temp root, where the enricher would otherwise write the pack beside the checked-in tables."""
@@ -497,38 +566,45 @@ class MiniBundle:
 
 
 @pytest.fixture(scope="session")
-def mini_bundle(tmp_path_factory) -> MiniBundle:
-    """Materialize the spec the mini bundle's rows settled under, once per session per worker, into pytest's temp root, and pack the bundle's subset tables beside it. The spec comes out of git from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records. Pass `spec_root` to `build_m1` or `load_spec`, `ledger` to `load_workload` or `load_ledger`, and `subset_pack` to `build_m1` and `Enricher`, and the settlement the enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say.
+def mini_bundle(build_once) -> MiniBundle:
+    """Materialize the spec the mini bundle's rows settled under, once a run (`build_once`), and pack the bundle's subset tables beside it. The spec comes out of git from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records. Pass `spec_root` to `build_m1` or `load_spec`, `ledger` to `load_workload` or `load_ledger`, and `subset_pack` to `build_m1` and `Enricher`, and the settlement the enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say.
 
     The git subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` accepts: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture keeps traced inputs.
     """
     pin = announced_import("rebuild.review.fixtures.mini.pin")
     subset_pack = announced_import("rebuild.review.subset_pack")
     audit = announced_import("rebuild.review.audit")
-    spec_root = pin.materialize(tmp_path_factory.mktemp("mini-spec"))
-    pack = subset_pack.ensure_pack(MINI, audit.ACCEPTANCE_CONFIGS, pack=spec_root / subset_pack.PACK_NAME)
+
+    def build(spec_root: Path) -> None:
+        pin.materialize(spec_root)
+        subset_pack.ensure_pack(MINI, audit.ACCEPTANCE_CONFIGS, pack=spec_root / subset_pack.PACK_NAME)
+
+    spec_root = build_once("mini-spec", build)
     return MiniBundle(
-        spec_root=spec_root, ledger=spec_root / "rebuild" / "m1-divergences.yaml", subset_pack=pack
+        spec_root=spec_root,
+        ledger=spec_root / "rebuild" / "m1-divergences.yaml",
+        subset_pack=spec_root / subset_pack.PACK_NAME,
     )
 
 
 @pytest.fixture(scope="session")
-def mini_corpus(tmp_path_factory, mini_bundle: MiniBundle) -> Path:
-    """Build the frozen mini bundle's corpus once per session per worker under pytest's temp root, for every test that needs the bundle's unmodified corpus. `build_m1` over these inputs is byte-stable, so one build serves all of them. A test that changes a corpus copies this one first. The build runs at one job, so it writes no pool record."""
+def mini_corpus(build_once, mini_bundle: MiniBundle) -> Path:
+    """Build the frozen mini bundle's corpus once a run (`build_once`), for every test that needs the bundle's unmodified corpus. `build_m1` over these inputs is byte-stable, so one build serves all of them. A test that changes a corpus copies this one first. The build runs at one job, so it writes no pool record."""
     build = announced_import("rebuild.review.build")
 
-    out = tmp_path_factory.mktemp("mini-corpus") / "corpus"
-    build.build_m1(
-        out,
-        audit_path=MINI / "audit.tsv",
-        ledger_path=mini_bundle.ledger,
-        subset_dir=MINI,
-        after_font=MINI / "M1.otf",
-        spec_root=mini_bundle.spec_root,
-        subset_pack=mini_bundle.subset_pack,
-        jobs=1,
-    )
-    return out
+    def build_corpus(directory: Path) -> None:
+        build.build_m1(
+            directory / "corpus",
+            audit_path=MINI / "audit.tsv",
+            ledger_path=mini_bundle.ledger,
+            subset_dir=MINI,
+            after_font=MINI / "M1.otf",
+            spec_root=mini_bundle.spec_root,
+            subset_pack=mini_bundle.subset_pack,
+            jobs=1,
+        )
+
+    return build_once("mini-corpus", build_corpus) / "corpus"
 
 
 @pytest.fixture(scope="session")

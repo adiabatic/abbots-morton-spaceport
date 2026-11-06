@@ -181,11 +181,23 @@ def _out_of_order_audit(tmp_path: Path) -> tuple[Path, dict[str, list[str]]]:
     }
 
 
+@pytest.fixture(scope="module")
+def edited_scratch(build_once, mini_bundle) -> tuple[Path, Path]:
+    """Return the edited mini audit (`_edited_audit`) and a from-scratch build of it, built once a run (`build_once`) for both seeds of the incremental-rebuild test, which only read them."""
+
+    def build(directory: Path) -> None:
+        _build(directory / "scratch", mini_bundle, audit_path=_edited_audit(directory), jobs=1)
+
+    directory = build_once("mini-corpus-edited-audit", build)
+    return directory / "audit-edited.tsv", directory / "scratch"
+
+
 @pytest.mark.parametrize("seed", ["copy", "clone"])
 def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
-    mini_corpus, mini_bundle, tmp_path, capfd, seed
+    mini_corpus, mini_bundle, edited_scratch, tmp_path, capfd, seed
 ):
-    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves at least one shard part the edit did not reach untouched on disk, and writes a corpus, store included, byte-identical to a from-scratch build of the edited audit. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was."""
+    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves at least one shard part the edit did not reach untouched on disk, and writes a corpus, store included, byte-identical to a from-scratch build of the edited audit. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was. Both seeds compare against the one from-scratch build `edited_scratch` makes."""
+    edited, scratch = edited_scratch
     served = _copy(mini_corpus, tmp_path)
     before = _tree(served)
     if seed == "clone":
@@ -194,7 +206,6 @@ def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
     else:
         incremental = served
     mtimes = _part_mtimes(incremental)
-    edited = _edited_audit(tmp_path)
     capfd.readouterr()
     _build(incremental, mini_bundle, audit_path=edited, jobs=1)
     report = capfd.readouterr().err
@@ -204,8 +215,6 @@ def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
     assert 0 < byte_copied <= cached
     kept = {name for name, stamp in _part_mtimes(incremental).items() if mtimes.get(name) == stamp}
     assert kept, "a class the edit never reached must keep its shard part on disk"
-    scratch = tmp_path / "scratch"
-    _build(scratch, mini_bundle, audit_path=edited, jobs=1)
     assert _tree(incremental) == _tree(scratch)
     if seed == "clone":
         assert _tree(served) == before

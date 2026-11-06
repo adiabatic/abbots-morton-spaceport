@@ -1,4 +1,4 @@
-"""Tests for the contracts lane's per-test closures: the static import walk over a synthetic tree, the selection rule over a hand-written record, the merge of a run's sidecar into the previous record, the gate's narrowing and recording, the leaf-only imports of both conftests, and, end to end in a child pytest under `-p rebuild.conftest`, that the audit guard records reads, imports, fixture setups, spawns, and a fixture's announced import, and applies a selection file. The child runs as a subprocess because the guard is a `sys.addaudithook`, which cannot be uninstalled."""
+"""Tests for the contracts lane's per-test closures: the static import walk over a synthetic tree, the selection rule over a hand-written record, the merge of a run's sidecar into the previous record, the gate's narrowing and recording, the leaf-only imports of both conftests, and, end to end in a child pytest under `-p rebuild.conftest`, that the audit guard records reads, imports, fixture setups, spawns, and a fixture's announced import, and applies a selection file, and that a fixture built once a run is built by one of two workers and credited to both. The child runs as a subprocess because the guard is a `sys.addaudithook`, which cannot be uninstalled."""
 
 from __future__ import annotations
 
@@ -1073,3 +1073,67 @@ class TestTheAnnouncedImport:
         silent = tests["test_announced.py::test_uses_silent"]
         assert "rebuild/tools/site_fonts.py" not in silent["modules"]
         assert "rebuild/tools/site_fonts.py" not in silent["reads"]
+
+
+SHARED_BUILD_CONFTEST = """
+import os
+from pathlib import Path
+
+import pytest
+
+BUILDS = Path({builds!r})
+SOURCE = Path({source!r})
+
+
+@pytest.fixture(scope="session")
+def shared(build_once):
+    def build(directory):
+        with BUILDS.open("a", encoding="utf-8") as log:
+            log.write(os.environ["PYTEST_XDIST_WORKER"] + "\\n")
+        (directory / "manifest.json").write_bytes(SOURCE.read_bytes())
+
+    return build_once("shared", build)
+"""
+
+SHARED_BUILD_TESTS = """
+import os
+from pathlib import Path
+
+
+def test_reads_the_build(shared):
+    with Path({seen!r}).open("a", encoding="utf-8") as log:
+        log.write(os.environ["PYTEST_XDIST_WORKER"] + "\\t" + str(shared) + "\\n")
+    assert (shared / "manifest.json").read_bytes()
+"""
+
+
+def test_two_workers_see_one_fixture_build(pytester, monkeypatch, tmp_path):
+    """A fixture built through `build_once` is built by one xdist worker and read by the other. With one test module per worker (`--dist loadfile`), the build runs once, both workers get the same directory, and the worker that found it built still records the repo file the build read in its test's closure."""
+    builds, seen, sidecar = tmp_path / "builds.log", tmp_path / "seen.log", tmp_path / "closures.json"
+    monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
+    pytester.makeconftest(SHARED_BUILD_CONFTEST.format(builds=str(builds), source=str(REPO_ROOT / MANIFEST)))
+    tests = SHARED_BUILD_TESTS.format(seen=str(seen))
+    pytester.makepyfile(test_first=tests, test_second=tests)
+    result = pytester.runpytest_subprocess(
+        "-p",
+        "rebuild.conftest",
+        "-p",
+        "no:cacheprovider",
+        "--rootdir",
+        str(pytester.path),
+        "-n",
+        "2",
+        "--dist",
+        "loadfile",
+        "--closure-record",
+        str(sidecar),
+    )
+    result.assert_outcomes(passed=2)
+    assert len(builds.read_text(encoding="utf-8").splitlines()) == 1
+    workers, directories = zip(*(line.split("\t") for line in seen.read_text(encoding="utf-8").splitlines()))
+    assert sorted(workers) == ["gw0", "gw1"]
+    assert len(set(directories)) == 1
+    payload = cc.read_sidecar(sidecar)
+    assert payload is not None
+    for nodeid in ("test_first.py::test_reads_the_build", "test_second.py::test_reads_the_build"):
+        assert MANIFEST in payload["tests"][nodeid]["reads"], nodeid
