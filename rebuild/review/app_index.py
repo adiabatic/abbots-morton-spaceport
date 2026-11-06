@@ -14,10 +14,11 @@ The app index and the locator table each start with a header carrying the manife
 from __future__ import annotations
 
 import gzip
+import io
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from rebuild.review import unit_index
 from rebuild.review.audit import MACHINE_CHECKS
@@ -133,12 +134,12 @@ def copy_forward_app_line(
 def write_app_artifacts_lines(
     corpus: Path,
     index_lines: Iterable[bytes],
-    locator_lines: Iterable[bytes],
+    locator_runs: Iterable[tuple[bytes, Sequence[dict]]],
     *,
     human: int,
     machine: int,
 ) -> tuple[Path, Path]:
-    """Write the three sidecars from already-projected lines, in the order they arrive: the app index's rows, then the locator's. The headers carry the manifest's stamp, so this runs after the manifest is written. `human` and `machine` are the row counts the two headers carry. Locator lines are cut into blocks as they arrive: a block closes at `LOCATOR_BLOCK_ROWS` rows or where the class changes, and is written to the rows file as its own gzip member. The table is written last, because its header states the rows file's total length. Gzip mtimes are pinned, so the same inputs write the same bytes.
+    """Write the three sidecars from the app index's already-projected lines, in the order they arrive, and the locator's blocks, already cut and compressed (`LocatorBlocks`), one run of them at a time. The headers carry the manifest's stamp, so this runs after the manifest is written. `human` and `machine` are the row counts the two headers carry. Each locator run is the bytes of its blocks' gzip members, which the rows file takes byte for byte, and their table entries, whose `byte_start` counts from the run's first member and is moved here to count from the start of the rows file. A block never spans two classes, so runs cut at class boundaries give the blocks one cutter over every line would. The table is written last, because its header states the rows file's total length. Gzip mtimes are pinned, so the same inputs write the same bytes.
 
     Each file is written under a sibling `.partial` name and renamed only after all three have closed, as `build._write_shard` stages its parts. `app_row` asserts on a fragment with a machine flag, so the projection can fail partway through while the app is still serving the previous set. Written in place, that failure would leave a truncated sidecar whose header still matches the manifest, which `artifact_is_current` accepts. Staged, a failed write leaves the previous set in place and no `.partial` file. The three renames run back to back, since `artifact_cycle.corpus_build_skippable` treats the three files being current as a statement about the whole corpus.
     """
@@ -152,8 +153,13 @@ def write_app_artifacts_lines(
             index.write(_line({**header(corpus, APP_INDEX_FORMAT), "units": human}))
             for line in index_lines:
                 index.write(line)
+        blocks: list[dict] = []
         with open(staged[2], "wb") as rows:
-            blocks = _write_locator_blocks(rows, locator_lines)
+            for members, entries in locator_runs:
+                base = rows.tell()
+                rows.write(members)
+                del members
+                blocks.extend({**entry, "byte_start": base + entry["byte_start"]} for entry in entries)
             rows_bytes = rows.tell()
         with gzip.GzipFile(staged[1], mode="wb", mtime=0, compresslevel=COMPRESS_LEVEL) as locator:
             locator.write(
@@ -178,39 +184,49 @@ def write_app_artifacts_lines(
             path.unlink(missing_ok=True)
 
 
-def _write_locator_blocks(rows, lines: Iterable[bytes]) -> list[dict]:
-    """Write the locator's lines to `rows` as gzip members, one per block, and return the table entry for each. Only the block being filled is held in memory. The app's binary search assumes each class's rows arrive in ascending id order (the order the build writes a class's fragments in), so a row out of order raises `ValueError` here instead of going missing in the browser."""
-    blocks: list[dict] = []
-    pending: list[bytes] = []
-    pending_class: str | None = None
-    first = last = None
+class LocatorBlocks:
+    """Cut the locator's lines into blocks as they arrive, in shard order, and write each block to `rows` as its own gzip member, keeping its table entry, whose `byte_start` is where the member starts in `rows`. A block closes at `LOCATOR_BLOCK_ROWS` rows or where the class changes. Only the block being filled is held as lines. The app's binary search assumes each class's rows arrive in ascending id order (the order the build writes a class's fragments in), so a row out of order raises `ValueError` here instead of going missing in the browser. `close` writes the last block and returns the table entries."""
 
-    def close() -> None:
-        assert first is not None and last is not None
-        start = rows.tell()
-        rows.write(gzip.compress(b"".join(pending), compresslevel=COMPRESS_LEVEL, mtime=0))
-        blocks.append(locator_block(pending_class, start, rows.tell() - start, first, last, len(pending)))
-        pending.clear()
+    def __init__(self, rows: BinaryIO) -> None:
+        self._rows = rows
+        self._blocks: list[dict] = []
+        self._pending: list[bytes] = []
+        self._class: str | None = None
+        self._first: str | None = None
+        self._last: str | None = None
 
-    for line in lines:
+    def add(self, line: bytes) -> None:
         row = json.loads(line)
         unit_id = row["id"]
         class_id = row.get("class")
-        if pending and class_id != pending_class:
-            close()
-            last = None
-        elif pending and len(pending) >= LOCATOR_BLOCK_ROWS:
-            close()
-        if last is not None and unit_id <= last:
-            raise ValueError(f"{unit_id} follows {last} in {class_id}: a class's rows must ascend")
-        if not pending:
-            pending_class = class_id
-            first = unit_id
-        pending.append(line)
-        last = unit_id
-    if pending:
-        close()
-    return blocks
+        if self._pending and class_id != self._class:
+            self._flush()
+            self._last = None
+        elif len(self._pending) >= LOCATOR_BLOCK_ROWS:
+            self._flush()
+        if self._last is not None and unit_id <= self._last:
+            raise ValueError(f"{unit_id} follows {self._last} in {class_id}: a class's rows must ascend")
+        if not self._pending:
+            self._class = class_id
+            self._first = unit_id
+        self._pending.append(line)
+        self._last = unit_id
+
+    def close(self) -> list[dict]:
+        if self._pending:
+            self._flush()
+        return self._blocks
+
+    def _flush(self) -> None:
+        assert self._first is not None and self._last is not None
+        start = self._rows.tell()
+        self._rows.write(gzip.compress(b"".join(self._pending), compresslevel=COMPRESS_LEVEL, mtime=0))
+        self._blocks.append(
+            locator_block(
+                self._class, start, self._rows.tell() - start, self._first, self._last, len(self._pending)
+            )
+        )
+        self._pending.clear()
 
 
 def write_app_artifacts(
@@ -218,28 +234,32 @@ def write_app_artifacts(
     shards: Mapping[str, list[dict]],
     spans: Mapping[str, Sequence[Span]],
 ) -> tuple[Path, Path]:
-    """Write the sidecars from fragments and spans the caller holds in memory. Classes go in `unit_index.class_shard_key` order, as in `unit_index.write_index`. A fragment goes to the app index if the manifest's triage index holds its unit, and to the locator otherwise. The build spools the same projection one fragment at a time, in the same order, so both paths write the same bytes."""
+    """Write the sidecars from fragments and spans the caller holds in memory. Classes go in `unit_index.class_shard_key` order, as in `unit_index.write_index`. A fragment goes to the app index if the manifest's triage index holds its unit, and to the locator otherwise, whose blocks are cut in one run over every machine unit. The build projects the same lines one fragment at a time, in the same order, and cuts the blocks one run of classes at a time, so both paths write the same bytes."""
     ordered = sorted(shards.items(), key=lambda item: unit_index.class_shard_key(item[0]))
     slot = unit_index.slot_reader(corpus)
     human_rows: list[tuple[dict, Span, int, int]] = []
-    machine_rows: list[tuple[dict, Span]] = []
+    rows = io.BytesIO()
+    locator = LocatorBlocks(rows)
+    machine = 0
     for class_id, fragments in ordered:
         for fragment, address in zip(fragments, spans.get(class_id) or (), strict=True):
             place = slot(fragment)
             order, batch = place["order"], place["batch"]
             if order is None or batch is None:
-                machine_rows.append((fragment, address))
+                locator.add(locator_line(fragment, *address))
+                machine += 1
             else:
                 human_rows.append((fragment, address, order, batch))
+    blocks = locator.close()
     return write_app_artifacts_lines(
         corpus,
         (
             app_line(fragment, *address, order=order, batch=batch)
             for fragment, address, order, batch in human_rows
         ),
-        (locator_line(fragment, *address) for fragment, address in machine_rows),
+        [(rows.getvalue(), blocks)],
         human=len(human_rows),
-        machine=len(machine_rows),
+        machine=machine,
     )
 
 

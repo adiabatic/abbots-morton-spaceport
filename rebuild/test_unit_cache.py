@@ -18,7 +18,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint, fixtures, kernel_exec, spec_load
-from rebuild.review import landing, unit_cache, unit_index
+from rebuild.review import app_index, landing, unit_cache, unit_index
 from rebuild.review import build as review_build
 from rebuild.review import enrich as review_enrich
 from rebuild.review.audit import (
@@ -551,7 +551,7 @@ def test_a_shard_rewritten_underneath_the_store_is_walked_rather_than_trusted(
 def test_an_edit_in_place_under_a_trusted_address_is_refused_at_the_write(
     mini_corpus, mini_bundle, tmp_path, monkeypatch, write_jobs
 ):
-    """The size check cannot see an edit that leaves a part the same length, so such a fragment is trusted into the plan. The reader catches it at the write, where every cached fragment is checked against its record, and the build fails instead of reusing bytes the store does not describe. The write fails the same way in this process and in a write worker, which hands the parent its message, and either way it leaves no staged part or spooled sidecar line behind. The width is set because the mini bundle's largest class would bound it below three (`_write_width`)."""
+    """The size check cannot see an edit that leaves a part the same length, so such a fragment is trusted into the plan. The reader catches it at the write, where every cached fragment is checked against its record, and the build fails instead of reusing bytes the store does not describe. The write fails the same way in this process and in a write worker, which hands the parent its message, and either way it leaves no staged part behind. The width is set because the mini bundle's largest class would bound it below three (`_write_width`)."""
     monkeypatch.setattr("rebuild.review.build._write_width", lambda classes, fit: fit)
     corpus = _copy(mini_corpus, tmp_path)
     path = next(path for path in _shard_paths(corpus) if json.loads(path.read_text(encoding="utf-8")))
@@ -656,8 +656,41 @@ def test_serial_and_parallel_builds_are_byte_identical(mini_corpus, mini_bundle,
     assert _tree(parallel) == _tree(mini_corpus)
 
 
+def _sidecars(corpus: Path) -> dict[str, bytes]:
+    return {
+        name: (corpus / name).read_bytes()
+        for name in (
+            unit_index.INDEX_NAME,
+            app_index.APP_INDEX_NAME,
+            app_index.LOCATOR_NAME,
+            app_index.LOCATOR_ROWS_NAME,
+        )
+    }
+
+
+def _sidecars_held_whole(corpus: Path, scratch: Path) -> dict[str, bytes]:
+    """Return the sidecars `unit_index.write_index` and `app_index.write_app_artifacts` write over a corpus's fragments held all at once, beside a copy of its manifest. Each class's spans come from rewriting its fragments through `_write_shard`, which must give back the corpus's own parts. These writers project the lines from the fragments and cut the locator's blocks in one pass over every machine unit, so they write the bytes a build's sidecars must have however the build holds its lines."""
+    scratch.mkdir()
+    shutil.copy2(corpus / "manifest.json", scratch / "manifest.json")
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    shards: dict[str, list[dict]] = {}
+    spans: dict[str, list[tuple[int, int, int]]] = {}
+    for meta in manifest["classes"]:
+        parts = unit_index.class_shards(meta)
+        shards[meta["id"]] = [
+            fragment for part in parts for fragment in json.loads((corpus / part).read_text(encoding="utf-8"))
+        ]
+        rewritten, spans[meta["id"]] = _write_shard(scratch, meta["id"], shards[meta["id"]])
+        assert [(scratch / part).read_bytes() for part in rewritten] == [
+            (corpus / part).read_bytes() for part in parts
+        ]
+    unit_index.write_index(scratch, shards.items())
+    app_index.write_app_artifacts(scratch, shards, spans)
+    return _sidecars(scratch)
+
+
 def test_a_pooled_write_is_byte_identical_to_the_serial_one(mini_bundle, tmp_path, capfd, monkeypatch):
-    """The write cuts the classes into runs of shard order (`_write_runs`) and, wider than one, writes the runs in worker processes, each fed its run a chunk at a time from the parent's columns (`_write_chunks`), with its own shard writer, sidecar spool and copy-forward cursors, while the parent writes each chunk's results into the store and folds its checker's facts as they arrive. So a cold build and a cached rebuild whose write runs three wide match a serial build byte for byte. The chunk width is lowered so the larger classes span many chunks, some ending on a chunk's last unit. The cold build reads, patches and serializes every fragment in the workers. The cached rebuild copies every fragment and every sidecar row forward, each run's cursors reading past the lines of the runs before it. Each pooled pass files one `corpus-write` pool record in the journal the autouse fixture redirects. The width is set because the mini bundle's largest class would bound it below three (`_write_width`).
+    """The write cuts the classes into runs of shard order (`_write_runs`) and, wider than one, writes the runs in worker processes, each fed its run a chunk at a time from the parent's columns (`_write_chunks`), with its own shard writer, compressed sidecar lines and copy-forward cursors, while the parent writes each chunk's results into the store and folds its checker's facts as they arrive. Once the manifest is written the parent pulls each run's lines from the worker that wrote it and writes the sidecars. So a cold build and a cached rebuild whose write runs three wide match a serial build byte for byte, and the sidecars of all three are the bytes the writers that hold every fragment at once write over the same shards (`_sidecars_held_whole`). The chunk width is lowered so the larger classes span many chunks, some ending on a chunk's last unit. The cold build reads, patches and serializes every fragment in the workers. The cached rebuild copies every fragment and every sidecar row forward, each run's cursors reading past the lines of the runs before it. Each pooled pass files one `corpus-write` pool record in the journal the autouse fixture redirects. The width is set because the mini bundle's largest class would bound it below three (`_write_width`).
 
     The one value the write reads at another unit is the id of a secondary junction's primary unit, which a chunk carries as an id word (`ChunkStore.primary_units`). The mini bundle's junctions find no primary unit under the real matcher, since their two-letter windows are not units, so every build here accepts any containing window (`enrich._junction_outcomes_match`). That names a visible primary unit for some junctions and an ink-identical one, suppressing the junction, for others, and the corpus checks still pass. A missing word then changes the cold build's bytes, and keeps the cached rebuild from copying those units as they are.
     """
@@ -670,11 +703,14 @@ def test_a_pooled_write_is_byte_identical_to_the_serial_one(mini_bundle, tmp_pat
     _build(serial, mini_bundle, jobs=1, write_jobs=1)
     counts = json.loads((serial / "manifest.json").read_text(encoding="utf-8"))["secondary_junctions"]
     assert counts["junctions_with_primary_unit"] and counts["junctions_suppressed_invisible"], counts
+    held_whole = _sidecars_held_whole(serial, tmp_path / "held-whole")
+    assert _sidecars(serial) == held_whole
     cold = tmp_path / "cold"
     capfd.readouterr()
     _build(cold, mini_bundle, jobs=1, write_jobs=3)
     assert "review.build manifest+check" in capfd.readouterr().err
     assert _tree(cold) == _tree(serial)
+    assert _sidecars(cold) == held_whole
     cached = _copy(serial, tmp_path)
     _build(cached, mini_bundle, jobs=1, write_jobs=3)
     err = capfd.readouterr().err
@@ -682,6 +718,7 @@ def test_a_pooled_write_is_byte_identical_to_the_serial_one(mini_bundle, tmp_pat
     byte_copied, total, copied_forward = _counts(err, BYTE_COPIED)
     assert byte_copied == total == copied_forward
     assert _tree(cached) == _tree(serial)
+    assert _sidecars(cached) == held_whole
     records = [json.loads(line) for line in cycle_timings.JOURNAL.read_text(encoding="utf-8").splitlines()]
     assert [(record["unit"], record["width"]) for record in records] == [("corpus-write", 3)] * 2
 

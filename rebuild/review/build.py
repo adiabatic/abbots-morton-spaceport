@@ -13,6 +13,7 @@ import argparse
 import ctypes
 import datetime
 import errno
+import gzip
 import hashlib
 import http.client
 import io
@@ -37,7 +38,7 @@ from dataclasses import dataclass, replace
 from functools import lru_cache, partial
 from itertools import batched, chain, combinations
 from pathlib import Path
-from typing import BinaryIO, cast
+from typing import BinaryIO, NoReturn, cast
 
 from rebuild.pipeline import fingerprint, spec_load
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
@@ -1673,34 +1674,35 @@ def _emissions(
         yield _Emission(unit.unit_id, fragment["content_key"], _policy_file(fragment), fragment=fragment)
 
 
-SIDECAR_SPOOL_NAMES = (unit_index.INDEX_NAME, app_index.APP_INDEX_NAME, app_index.LOCATOR_NAME)
-
-
-def _sidecar_spool_paths(out_dir: Path, run: int) -> dict[str, Path]:
-    """Return where one run of the write spools each sidecar's lines: beside the file it becomes, under a name that carries the run's index, so runs written at once in different processes never share a file."""
-    return {name: Path(out_dir) / f"{name}.{run}.spool.partial" for name in SIDECAR_SPOOL_NAMES}
-
-
 @dataclass(frozen=True)
 class _SidecarRun:
-    """One run's spooled sidecar lines, closed: the files that hold them, how many app-index rows (`human`) and locator rows (`machine`) they hold, and how many units' lines were copied forward from the previous sidecars."""
+    """One run's sidecar lines, closed, without the lines themselves: how many app-index rows (`human`) and locator rows (`machine`) they hold, how many units' lines were copied forward from the previous sidecars, and the table entries of the run's locator blocks, whose `byte_start` counts from the run's first block. The lines stay with the process that wrote the run until the parent pulls them (`_RunWritten.lines`)."""
 
-    paths: dict[str, Path]
     human: int
     machine: int
     copied_forward: int
+    blocks: list[dict]
 
 
-class _SidecarSpool:
-    """Spool one run's sidecar lines to disk while its shards are written. Each sidecar's header carries the manifest's identity, and the manifest can only be written once every class's part list is known, so the lines wait in `.partial` files beside the files they become (`_sidecar_spool_paths`). That keeps them out of the write's memory. `close` ends the run and returns its files, and `_write_sidecars` writes the stamped files from every run's files in shard order through the same writers `write_index` and `write_app_artifacts` use, so the bytes match a build that held every fragment. `discard` deletes the spool's files.
+class _SidecarLines:
+    """Hold one run's sidecar lines in memory, compressed, while its shards are written. Each sidecar's header carries the manifest's identity, and the manifest can only be written once every class's part list is known, so the lines wait for it. The index's lines and the app index's go into a gzip stream each, at level 1, which `_write_sidecars` inflates once the manifest is on disk and writes through `unit_index.write_index_lines` and `app_index.write_app_artifacts_lines`, the writers `write_index` and `write_app_artifacts` use. The locator's lines are cut into blocks as they come (`app_index.LocatorBlocks`), each compressed into the gzip member the rows file holds, and `_write_sidecars` copies those byte for byte: a run is whole classes and a block never spans two, so the run's blocks are the ones a cutter over every line would make. So the files match a build that held every fragment, byte for byte. `close` ends the run and returns its counts and block entries with its compressed lines, by the name of the file each becomes, and `release` closes the cursors of a run that failed.
 
     A byte-copied unit is projected without parsing it. Its line in the previous corpus's index, and its row in the previous app index if it is a human unit, are read in step through `unit_index.LineCursor` (both files are in shard order, and a cached unit keeps its place in it). They are copied forward with this build's queue position and shard address substituted (`unit_index.copy_forward_index_line`, `app_index.copy_forward_app_line`); every other field is the fragment's own and unchanged. Its locator row needs only its id, class and address. The write opens the cursors only when the previous sidecars are stamped for the manifest beside them (`copy_forward`), and each run opens its own, which read past the lines of the classes before the run's first; a unit a cursor cannot reach is parsed instead, which gives the same bytes at a higher cost.
     """
 
-    def __init__(self, out_dir: Path, run: int, *, copy_forward: bool = False) -> None:
+    def __init__(self, out_dir: Path, *, copy_forward: bool = False) -> None:
         out_dir = Path(out_dir)
-        self._paths = _sidecar_spool_paths(out_dir, run)
-        self._handles = {name: path.open("wb") for name, path in self._paths.items()}
+        self._buffers = {
+            name: io.BytesIO()
+            for name in (unit_index.INDEX_NAME, app_index.APP_INDEX_NAME, app_index.LOCATOR_ROWS_NAME)
+        }
+        self._index = gzip.GzipFile(
+            fileobj=self._buffers[unit_index.INDEX_NAME], mode="wb", mtime=0, compresslevel=1
+        )
+        self._app = gzip.GzipFile(
+            fileobj=self._buffers[app_index.APP_INDEX_NAME], mode="wb", mtime=0, compresslevel=1
+        )
+        self._locator = app_index.LocatorBlocks(self._buffers[app_index.LOCATOR_ROWS_NAME])
         self._index_cursor: unit_index.LineCursor | None = None
         self._app_cursor: unit_index.LineCursor | None = None
         if copy_forward:
@@ -1713,14 +1715,12 @@ class _SidecarSpool:
         self.copied_forward = 0
 
     def unit(self, fragment: dict, span: tuple[int, int, int], order: int | None, batch: int | None) -> None:
-        self._handles[unit_index.INDEX_NAME].write(unit_index.index_line(fragment, order=order, batch=batch))
+        self._index.write(unit_index.index_line(fragment, order=order, batch=batch))
         if order is None or batch is None:
-            self._handles[app_index.LOCATOR_NAME].write(app_index.locator_line(fragment, *span))
+            self._locator.add(app_index.locator_line(fragment, *span))
             self.machine += 1
         else:
-            self._handles[app_index.APP_INDEX_NAME].write(
-                app_index.app_line(fragment, *span, order=order, batch=batch)
-            )
+            self._app.write(app_index.app_line(fragment, *span, order=order, batch=batch))
             self.human += 1
 
     def cached(
@@ -1735,16 +1735,14 @@ class _SidecarSpool:
         if line is None or (order is not None and row is None):
             self.unit(json.loads(emission.body), span, order, batch)
             return
-        self._handles[unit_index.INDEX_NAME].write(
-            unit_index.copy_forward_index_line(line, unit_id=unit_id, order=order, batch=batch)
-        )
+        self._index.write(unit_index.copy_forward_index_line(line, unit_id=unit_id, order=order, batch=batch))
         if order is None or batch is None:
-            self._handles[app_index.LOCATOR_NAME].write(app_index.locator_line(emission.identity, *span))
+            self._locator.add(app_index.locator_line(emission.identity, *span))
             self.machine += 1
         else:
             assert row is not None
             part, start, length = span
-            self._handles[app_index.APP_INDEX_NAME].write(
+            self._app.write(
                 app_index.copy_forward_app_line(
                     row, unit_id=unit_id, order=order, batch=batch, part=part, start=start, length=length
                 )
@@ -1752,36 +1750,42 @@ class _SidecarSpool:
             self.human += 1
         self.copied_forward += 1
 
-    def _release(self) -> None:
-        for handle in self._handles.values():
-            handle.close()
+    def release(self) -> None:
         for cursor in (self._index_cursor, self._app_cursor):
             if cursor is not None:
                 cursor.close()
 
-    def close(self) -> _SidecarRun:
-        self._release()
-        return _SidecarRun(dict(self._paths), self.human, self.machine, self.copied_forward)
+    def close(self) -> tuple[_SidecarRun, dict[str, bytes]]:
+        self.release()
+        self._index.close()
+        self._app.close()
+        blocks = self._locator.close()
+        lines = {name: buffer.getvalue() for name, buffer in self._buffers.items()}
+        self._buffers.clear()
+        return _SidecarRun(self.human, self.machine, self.copied_forward, blocks), lines
 
-    def discard(self) -> None:
-        self._release()
-        for path in self._paths.values():
-            path.unlink(missing_ok=True)
+
+def _inflated(compressed: bytes) -> Iterator[bytes]:
+    with gzip.GzipFile(fileobj=io.BytesIO(compressed), mode="rb") as stream:
+        yield from stream
 
 
-def _write_sidecars(out_dir: Path, runs: Sequence[_SidecarRun]) -> None:
-    """Write the three stamped sidecars from the runs' spooled lines, run after run. The runs are in shard order, so the lines are too, and the files are byte for byte what one spool over the whole corpus would give. Run once the manifest is on disk, since each header carries its identity."""
+def _write_sidecars(out_dir: Path, runs: Sequence[_SidecarRun], pull: Callable[[int, str], bytes]) -> None:
+    """Write the three stamped sidecars from the runs' compressed lines, run after run. `pull` returns one run's lines for one sidecar, by the run's index and the name of the file they become, and gives them up, so this process holds one run's lines for one sidecar at a time: each is dropped before the next is pulled. The runs are in shard order, so the lines are too. The index's and the app index's lines are inflated and compressed again by their writers, as from lines held raw, and the locator's blocks are copied as they are, so the files are byte for byte what one pass over the whole corpus would give. Run once the manifest is on disk, since each header carries its identity."""
 
     def lines(name: str) -> Iterator[bytes]:
-        for run in runs:
-            with run.paths[name].open("rb") as handle:
-                yield from handle
+        for index in range(len(runs)):
+            yield from _inflated(pull(index, name))
+
+    def locator() -> Iterator[tuple[bytes, Sequence[dict]]]:
+        for index, run in enumerate(runs):
+            yield pull(index, app_index.LOCATOR_ROWS_NAME), run.blocks
 
     unit_index.write_index_lines(out_dir, lines(unit_index.INDEX_NAME))
     app_index.write_app_artifacts_lines(
         out_dir,
         lines(app_index.APP_INDEX_NAME),
-        lines(app_index.LOCATOR_NAME),
+        locator(),
         human=sum(run.human for run in runs),
         machine=sum(run.machine for run in runs),
     )
@@ -1892,11 +1896,12 @@ class _ChunkWritten:
 
 @dataclass(frozen=True)
 class _RunWritten:
-    """What writing one run of classes leaves for the parent once its chunks are written: the run's index in shard order, the renames of its staged shard parts (`_ShardWriter.take_pending`), and its spooled sidecar lines."""
+    """What writing one run of classes leaves once its chunks are written: the run's index in shard order, the renames of its staged shard parts (`_ShardWriter.take_pending`), its sidecar counts and locator block entries, and its compressed sidecar lines by the name of the file each becomes (`_SidecarLines`). A write worker keeps the lines and replies with the rest, and the parent pulls the lines once the manifest is written (`_WritePool.lines`); a run written in the parent keeps them here."""
 
     index: int
     pending: list[tuple[Path, Path]]
     sidecars: _SidecarRun
+    lines: dict[str, bytes]
 
 
 def _class_meta(entry: _ClassToWrite, table: UnitTable, store: UnitStore) -> dict:
@@ -1963,7 +1968,7 @@ def _write_chunk(
     offset: int,
     check: _CorpusCheck,
     writer: _ShardWriter,
-    sidecars: _SidecarSpool,
+    sidecars: _SidecarLines,
     spool: unit_cache.PriorFragmentReader,
     prior: unit_cache.PriorFragmentReader,
 ) -> _ChunkWritten:
@@ -2032,9 +2037,9 @@ def _write_run(
     settings: _WriteSettings,
     keep: Callable[[_ChunkWritten], None],
 ) -> _RunWritten:
-    """Write one run of classes (`_write_runs`), in shard order, from its chunks, with a shard writer, a sidecar spool, a checker and two fragment readers of its own: one over the recomputed spool and one over the previous corpus. A chunk with a header opens its class. Each chunk's results go to `keep` as soon as the chunk is written, and the chunk is dropped before the next is drawn, so the run holds one chunk and one chunk's results at a time. The shard parts stay staged and the sidecar lines spooled for the parent, which commits and writes them once every run has written. A run that raises deletes what it staged and spooled."""
+    """Write one run of classes (`_write_runs`), in shard order, from its chunks, with a shard writer, its sidecar lines (`_SidecarLines`), a checker and two fragment readers of its own: one over the recomputed spool and one over the previous corpus. A chunk with a header opens its class. Each chunk's results go to `keep` as soon as the chunk is written, and the chunk is dropped before the next is drawn, so the run holds one chunk and one chunk's results at a time beside its compressed sidecar lines. The shard parts stay staged and the sidecar lines compressed in memory, for the parent, which commits the parts once every run has written and writes the sidecars from the lines once the manifest is written. A run that raises deletes what it staged."""
     writer = _ShardWriter(settings.out_dir)
-    sidecars = _SidecarSpool(settings.out_dir, index, copy_forward=settings.copy_forward)
+    sidecars = _SidecarLines(settings.out_dir, copy_forward=settings.copy_forward)
     spool = unit_cache.PriorFragmentReader(settings.spool_dir)
     prior = unit_cache.PriorFragmentReader(settings.out_dir)
     check = _CorpusCheck(
@@ -2057,10 +2062,11 @@ def _write_run(
             keep(_write_chunk(chunk, class_id, offset, check, writer, sidecars, spool, prior))
             offset += len(chunk.ordinals)
             del chunk
-        return _RunWritten(index, writer.take_pending(), sidecars.close())
+        run, lines = sidecars.close()
+        return _RunWritten(index, writer.take_pending(), run, lines)
     except BaseException:
         writer.abort()
-        sidecars.discard()
+        sidecars.release()
         raise
     finally:
         spool.close()
@@ -2068,7 +2074,7 @@ def _write_run(
 
 
 def _write_runs(classes: Sequence[_ClassToWrite], width: int) -> list[list[_ClassToWrite]]:
-    """Cut the classes, which arrive in shard order, into the runs the write hands out: contiguous stretches of shard order, each closed before the class that would take it past an even share of the units (the unit total over `width`, rounded up). A class larger than that share is a run of its own. A run is contiguous so that its sidecar lines follow one another in the final files and one cursor per previous sidecar reads forward through the whole run, paying once to skip the lines before it rather than once per class. At a width of one the whole corpus is one run, which is the serial write."""
+    """Cut the classes, which arrive in shard order, into the runs the write hands out: contiguous stretches of shard order, each closed before the class that would take it past an even share of the units (the unit total over `width`, rounded up). A class larger than that share is a run of its own. A run is contiguous so that its sidecar lines follow one another in the final files, its locator blocks, which close at every class change, are the ones one pass over the corpus would cut, and one cursor per previous sidecar reads forward through the whole run, paying once to skip the lines before it rather than once per class. At a width of one the whole corpus is one run, which is the serial write."""
     sizes = [len(entry.ordinals) for entry in classes]
     share = -(-sum(sizes) // max(1, width))
     runs: list[list[_ClassToWrite]] = []
@@ -2135,8 +2141,14 @@ def _send_quietly(conn, message: tuple) -> None:
         pass
 
 
+def _write_failed(reply: tuple) -> NoReturn:
+    if reply[0] == "exit":
+        raise SystemExit(reply[1])
+    raise RuntimeError("corpus write worker failed:\n" + reply[1])
+
+
 def _write_worker(conn, settings: _WriteSettings, shared: tuple) -> None:
-    """Run one persistent write worker, answering the parent's messages on `conn` until `stop`. `shared` holds the string table and the workload table's pools, which the parent sends once, as the worker starts; every message after that comes through `_SharedPickler` and refers to them. A `run` message carries a run's index and its first chunk, and the worker writes the run (`_write_run`) a chunk at a time, holding only the chunk it is writing, since neither it nor the run keeps a chunk once written: it replies `written` with each chunk's results, the parent answers with the run's next chunk or, after its last, with `end`, and the worker then replies `run` with the run's renames and sidecar spools. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`). A `SystemExit` raised by the write, such as a fragment that does not read back, replies `exit` with its message, and any other exception replies `error` with its traceback; either ends the worker. Workers are started with spawn only, as the units pool's are (`_corpus_worker`)."""
+    """Run one persistent write worker, answering the parent's messages on `conn` until `stop`. `shared` holds the string table and the workload table's pools, which the parent sends once, as the worker starts; every message after that comes through `_SharedPickler` and refers to them. A `run` message carries a run's index and its first chunk, and the worker writes the run (`_write_run`) a chunk at a time, holding only the chunk it is writing, since neither it nor the run keeps a chunk once written: it replies `written` with each chunk's results, the parent answers with the run's next chunk or, after its last, with `end`, and the worker then replies `run` with the run's renames, sidecar counts and locator block entries. It keeps the run's compressed sidecar lines (`_RunWritten.lines`) beside those of every run it wrote before, until the parent asks for them once the manifest is written: a `lines` message names a run and a sidecar, and the worker replies `lines` and then sends those lines as raw bytes, so they are never pickled, and drops its copy. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`). A `SystemExit` raised by the write, such as a fragment that does not read back, replies `exit` with its message, and any other exception replies `error` with its traceback; either ends the worker. Workers are started with spawn only, as the units pool's are (`_corpus_worker`)."""
 
     def chunks(held: list[_Chunk]) -> Iterator[_Chunk]:
         yield held.pop()
@@ -2149,16 +2161,25 @@ def _write_worker(conn, settings: _WriteSettings, shared: tuple) -> None:
             yield chunk
             del chunk
 
+    lines: dict[int, dict[str, bytes]] = {}
     try:
         while True:
             message = _receive(conn, shared)
             if message[0] == "stop":
                 conn.send(("peak", peak_footprint_self_bytes()))
                 return
+            if message[0] == "lines":
+                compressed = lines[message[1]].pop(message[2])
+                conn.send(("lines",))
+                conn.send_bytes(compressed)
+                del compressed
+                continue
             index, held = message[1], [message[2]]
             del message
             run = _write_run(index, chunks(held), settings, lambda written: conn.send(("written", written)))
-            conn.send(("run", run))
+            lines[index] = run.lines
+            conn.send(("run", replace(run, lines={})))
+            del run
     except SystemExit as stop:
         _send_quietly(conn, ("exit", str(stop.code)))
     except Exception:
@@ -2168,13 +2189,14 @@ def _write_worker(conn, settings: _WriteSettings, shared: tuple) -> None:
 
 
 class _WritePool:
-    """The write's worker processes. Each receives the string table and the workload table's pools once, as it starts, and then the units it writes one chunk at a time, gathered by the parent (`_write_chunks`), so no worker holds the corpus's columns. `write` hands out the runs largest first, one per worker at a time, each worker taking the next as it finishes one. Within a run the parent keeps each worker's next chunk gathered ahead and held only as its pickled message, so no chunk outlives its gather: a worker that replies with a chunk's results receives the next at once, and the parent gathers and pickles the one after while the worker writes. Each chunk's results and each run's go to the caller as they arrive, in whatever order the workers finish them. `close` stops the workers and writes the pool record of their peak footprints and the parent's, or, after a failure, terminates them."""
+    """The write's worker processes. Each receives the string table and the workload table's pools once, as it starts, and then the units it writes one chunk at a time, gathered by the parent (`_write_chunks`), so no worker holds the corpus's columns. `write` hands out the runs largest first, one per worker at a time, each worker taking the next as it finishes one. Within a run the parent keeps each worker's next chunk gathered ahead and held only as its pickled message, so no chunk outlives its gather: a worker that replies with a chunk's results receives the next at once, and the parent gathers and pickles the one after while the worker writes. Each chunk's results and each run's go to the caller as they arrive, in whatever order the workers finish them. A worker keeps the compressed sidecar lines of every run it wrote, and `lines` pulls one run's lines for one sidecar from the worker that wrote the run, so the pool stays up while the parent writes the manifest and then the sidecars (`_write_sidecars`). `close` stops the workers and writes the pool record of their peak footprints and the parent's, or, after a failure, terminates them."""
 
     def __init__(self, width: int, settings: _WriteSettings, shared: tuple) -> None:
         ctx = multiprocessing.get_context("spawn")
         self._shared = shared
         self._procs: list = []
         self._conns: list = []
+        self._owners: dict = {}
         for _ in range(width):
             parent_conn, child_conn = ctx.Pipe()
             proc = ctx.Process(target=_write_worker, args=(child_conn, settings, shared))
@@ -2204,6 +2226,7 @@ class _WritePool:
             if index is None:
                 return False
             feed = chunks(runs[index])
+            self._owners[index] = conn
             conn.send_bytes(_pickled(("run", index, next(feed)), self._shared))
             feeds[conn] = (feed, ahead(feed))
             return True
@@ -2227,10 +2250,17 @@ class _WritePool:
                     del feeds[conn]
                     if not hand(conn):
                         waiting.remove(conn)
-                elif reply[0] == "exit":
-                    raise SystemExit(reply[1])
                 else:
-                    raise RuntimeError("corpus write worker failed:\n" + reply[1])
+                    _write_failed(reply)
+
+    def lines(self, index: int, name: str) -> bytes:
+        """Return run `index`'s compressed lines for the sidecar `name` from the worker that wrote the run, which gives them up as it sends them."""
+        conn = self._owners[index]
+        _send(conn, ("lines", index, name), ())
+        reply = conn.recv()
+        if reply[0] != "lines":
+            _write_failed(reply)
+        return conn.recv_bytes()
 
     def close(self, *, failed: bool) -> None:
         peaks: dict[str, int] = {}
@@ -2267,33 +2297,10 @@ class _WritePool:
             )
 
 
-def _write_pooled(
-    runs: Sequence[Sequence[_ClassToWrite]],
-    width: int,
-    settings: _WriteSettings,
-    shared: tuple,
-    chunks: Callable[[Sequence[_ClassToWrite]], Iterator[_Chunk]],
-    keep: Callable[[_ChunkWritten], None],
-    keep_run: Callable[[_RunWritten], None],
-) -> None:
-    """Write the runs across a `_WritePool` of `width` workers, from the chunks `chunks` makes of each run, passing each chunk's results to `keep` and each run's to `keep_run` as they arrive. The workers have exited by the time this returns or raises."""
-    pool: _WritePool | None = None
-    failed = True
-    try:
-        pool = _WritePool(width, settings, shared)
-        pool.write(runs, chunks, keep, keep_run)
-        failed = False
-    finally:
-        if pool is not None:
-            pool.close(failed=failed)
-
-
 def _discard_runs(out_dir: Path, runs: Sequence[Sequence[_ClassToWrite]]) -> None:
-    """Delete whatever the write's runs staged and spooled, after the write failed and every worker has exited: each class's staged shard parts and each run's spooled sidecar lines. A run that raised cleaned up after itself, but a worker the failure terminated mid-run did not. A run that finished has had its renames made or not, and a renamed part is no longer at its staging name."""
+    """Delete the shard parts the write's runs staged, after the write failed and every worker has exited. A run that raised cleaned up after itself, but a worker the failure terminated mid-run did not. A run that finished has had its renames made or not, and a renamed part is no longer at its staging name."""
     units_dir = Path(out_dir) / "units"
-    for index, run in enumerate(runs):
-        for path in _sidecar_spool_paths(out_dir, index).values():
-            path.unlink(missing_ok=True)
+    for run in runs:
         for entry in run:
             for staging in units_dir.glob(f"{entry.id}.*.json.partial"):
                 staging.unlink(missing_ok=True)
@@ -2334,17 +2341,13 @@ def _write_corpus(
 ) -> _WrittenCorpus:
     """Write the per-unit fragments into shards, copy the fonts, and write the manifest and the sidecars. The manifest's triage index, `human_unit_ids`, is the human units taken in `order`, the permutation `audit.sort_for_triage` returned; a batch is a slice of it. Every per-unit value read here is a column of `table` or `store`, indexed by ordinal. `classes` arrive in manifest order and `sections` holds the section `build_m1` computed for each; `ledger` is every ledger entry, reached or not, for the manifest's `ledger_classes` lookup.
 
-    Fragments are written in shard order: classes in `unit_index.class_shard_key` order, which is also the sidecars' order, and each class's units by id (`store.id_word`, which sorts like the id strings). So a class's fragments and its locator rows ascend together, and a recomputed unit is placed by its content, not by its queue position. The classes are cut into runs, contiguous stretches of that order (`_write_runs`), and each run is written by `_write_run` with its own shard writer, sidecar spool and fragment readers, so runs can be written at once. The width is `write_jobs`, the most workers that fit, narrowed by `_write_width` and to the number of runs. Above one, a pool of that many worker processes writes the runs (`_WritePool`), each worker from chunks of `WRITE_CHUNK_UNITS` units that the parent gathers from the table and the store for it (`_write_chunks`); at one, this process writes the one run, which is the whole corpus, from the full table and store. Either way the parent computes each class's manifest record from its columns, receives each chunk's per-unit addresses, config notes and policy files and its checker's facts, and as each chunk arrives writes the per-unit values into the store, holding each unit's part index until its class closes and names its parts, and folds the facts in (`_CorpusCheck.absorb`). Once every run is in, it renames the staged parts, and writes the manifest and then the sidecars from the runs' spools in shard order, so every output file is byte for byte what a single serial pass over the corpus writes. Nothing is committed until every run has written, and a failed run deletes what any run staged (`_discard_runs`), so the previous corpus stays intact.
+    Fragments are written in shard order: classes in `unit_index.class_shard_key` order, which is also the sidecars' order, and each class's units by id (`store.id_word`, which sorts like the id strings). So a class's fragments and its locator rows ascend together, and a recomputed unit is placed by its content, not by its queue position. The classes are cut into runs, contiguous stretches of that order (`_write_runs`), and each run is written by `_write_run` with its own shard writer, sidecar lines and fragment readers, so runs can be written at once. The width is `write_jobs`, the most workers that fit, narrowed by `_write_width` and to the number of runs. Above one, a pool of that many worker processes writes the runs (`_WritePool`), each worker from chunks of `WRITE_CHUNK_UNITS` units that the parent gathers from the table and the store for it (`_write_chunks`); at one, this process writes the one run, which is the whole corpus, from the full table and store. Either way the parent computes each class's manifest record from its columns, receives each chunk's per-unit addresses, config notes and policy files and its checker's facts, and as each chunk arrives writes the per-unit values into the store, holding each unit's part index until its class closes and names its parts, and folds the facts in (`_CorpusCheck.absorb`). Once every run is in, it renames the staged parts and writes the manifest, and then writes the sidecars from the runs' compressed lines in shard order (`_write_sidecars`), pulling one run's lines for one sidecar at a time: from the worker that wrote the run, which keeps them until then, so the pool stays up until the sidecars are written, or at one, from the run this process wrote. So every output file is byte for byte what a single serial pass over the corpus writes. Nothing is committed until every run has written, and a failed run deletes what any run staged (`_discard_runs`), so the previous corpus stays intact.
 
     `check_shards`' predicates run over the fragments as they pass, through the same `_CorpusCheck` the whole-corpus form uses, at `PATCHED` only plus every cross-unit predicate (`check_unit` describes the two subsets): each class's per-unit and class-level predicates in the process that writes it, and the cross-unit predicates once over the folded checker. A failing build's errors follow the order the chunks arrive in, so in a pooled write their order, and which of two clusters a duplicate group is reported against, can differ from a serial write's. `unit_errors` holds what the drafting-time check found, and those errors fail the build here in the same `contract check failed` list as the write's own. `cached_count` is the number of units the cache supplied, and decides whether the shards are written against the previous corpus and whether the previous sidecars may be copied forward.
 
     The manifest predicates (`check_manifest`) and the output-file predicates (`_check_output_files`) do not run here: every field they read is written by this function from its own inputs, and the fonts are checked against the digests taken at load in `_copy_font`. `check_output_dir` runs them over a real build in the contracts lane (`rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff), and `refresh_assets` runs the file predicates over the corpus it restamps.
     """
     out_dir = Path(out_dir)
-    # Delete what a killed build's write left behind: its spooled sidecar lines, whose names a write with fewer runs would not reuse.
-    for name in SIDECAR_SPOOL_NAMES:
-        for stale in out_dir.glob(f"{name}.*spool.partial"):
-            stale.unlink(missing_ok=True)
     ordered = sorted(classes, key=lambda entry: unit_index.class_shard_key(entry.id))
     prior_parts = _prior_parts(out_dir) if cached_count else {}
     to_write = [
@@ -2416,14 +2419,17 @@ def _write_corpus(
     def keep_run(run: _RunWritten) -> None:
         written[run.index] = run
 
+    def held_lines(index: int, name: str) -> bytes:
+        return written[index].lines.pop(name)
+
+    pool: _WritePool | None = None
+    failed = True
     committed = False
     try:
         if jobs > 1:
-            _write_pooled(
+            pool = _WritePool(jobs, settings, (table.strings, table.tuples, table.groups, table.mappings))
+            pool.write(
                 runs,
-                jobs,
-                settings,
-                (table.strings, table.tuples, table.groups, table.mappings),
                 partial(_write_chunks, table=table, store=store, metas=metas, width=WRITE_CHUNK_UNITS),
                 keep,
                 keep_run,
@@ -2487,13 +2493,17 @@ def _write_corpus(
         if pruned:
             print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
         copy_static(out_dir, static_dir)
-        _write_sidecars(out_dir, [written[index].sidecars for index in range(len(runs))])
+        _write_sidecars(
+            out_dir,
+            [written[index].sidecars for index in range(len(runs))],
+            pool.lines if pool is not None else held_lines,
+        )
+        failed = False
     finally:
+        if pool is not None:
+            pool.close(failed=failed)
         if not committed:
             _discard_runs(out_dir, runs)
-        for run in written.values():
-            for path in run.sidecars.paths.values():
-                path.unlink(missing_ok=True)
     # A unit whose re-settled cells disagree with the audit it was built from would describe a font nobody compiled, so any mismatch fails the build.
     errors: list[str] = []
     if mismatches:

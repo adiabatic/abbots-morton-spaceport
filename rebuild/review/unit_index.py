@@ -203,7 +203,7 @@ def shard_paths(corpus: Path) -> list[Path]:
 
 
 def index_line(fragment: dict, *, order: int | None = None, batch: int | None = None) -> bytes:
-    """Return one index record as its line in the file. The build writes these lines to a spool as the fragments pass, so what `write_index` would hold in memory is on disk instead."""
+    """Return one index record as its line in the file. The build compresses these lines in memory as the fragments pass (`build._SidecarLines`), so it holds the compressed lines, not the fragments `write_index` holds."""
     return (json.dumps(index_record(fragment, order=order, batch=batch), ensure_ascii=False) + "\n").encode()
 
 
@@ -287,7 +287,7 @@ def write_index_lines(corpus: Path, lines: Iterable[bytes]) -> Path:
 
 
 def write_index(corpus: Path, shards: Iterable[tuple[str, list[dict]]]) -> Path:
-    """Write the index from fragments the caller holds in memory. `shards` is (class id, fragments) pairs in any order. The file is written in shard-path order, with each unit's place in the queue read from the manifest beside it, so this is `write_index_lines` over the same projection the build spools one fragment at a time, and both write the same bytes."""
+    """Write the index from fragments the caller holds in memory. `shards` is (class id, fragments) pairs in any order. The file is written in shard-path order, with each unit's place in the queue read from the manifest beside it, so this is `write_index_lines` over the same projection the build makes one fragment at a time, and both write the same bytes."""
     ordered = sorted(shards, key=lambda item: class_shard_key(item[0]))
     slot = slot_reader(corpus)
     return write_index_lines(
