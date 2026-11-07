@@ -1142,9 +1142,9 @@ class TestThePayloadPath:
             tmp_path / "nothing" / "settlement-default.tsv"
         ).read_bytes()
 
-    @pytest.mark.parametrize("late", [False, True])
-    def test_a_fifo_no_crate_opens_gives_its_reader_an_empty_stream(self, monkeypatch, tmp_path, late):
-        """A run that ends without opening any FIFO, as a crate that fails before it writes does, leaves no reader waiting: each reads an empty stream, the run's answer comes back, and every FIFO is removed. That holds whether each reader is already waiting in its open when the run ends or, `late`, reaches its open only after `finish` has first tried the FIFO, which finds no reader and tries again. A reader left waiting would hang the call, so it runs on a thread that must finish in time."""
+    @pytest.mark.parametrize("late, runs", [(False, 1), (True, 1), (False, 200)])
+    def test_a_fifo_no_crate_opens_gives_its_reader_an_empty_stream(self, monkeypatch, tmp_path, late, runs):
+        """A run that ends without opening any FIFO, as a crate that fails before it writes does, leaves no reader waiting: each reads an empty stream, the run's answer comes back, and every FIFO is removed. That holds whether each reader is already waiting in its open when the run ends or, `late`, reaches its open only after `finish` has first tried the FIFO, which finds no reader and tries again, and across `runs` calls in a row, where `finish` often closes its writer while a reader is still inside its open. A reader left waiting would hang the call, so it runs on a thread that must finish in time."""
         if late:
             run = kernel_exec._PayloadFifo._run
 
@@ -1154,21 +1154,24 @@ class TestThePayloadPath:
 
             monkeypatch.setattr(kernel_exec._PayloadFifo, "_run", late_run)
         paths = {f"payload-{index}": tmp_path / f"payload-{index}.tsv" for index in range(6)}
-        answer = {}
-        caller = threading.Thread(
-            target=lambda: answer.update(
-                zip(
-                    ("ran", "read"),
-                    kernel_exec.stream_payloads(paths, lambda _name, source: source.read(), lambda: "ran"),
-                )
-            ),
-            daemon=True,
-        )
-        caller.start()
-        caller.join(timeout=30)
-        assert not caller.is_alive(), "a reader of a FIFO no crate opened is still waiting"
-        assert answer == {"ran": "ran", "read": dict.fromkeys(paths, b"")}
-        assert not list(tmp_path.iterdir())
+        for _ in range(runs):
+            answer = {}
+            caller = threading.Thread(
+                target=lambda: answer.update(
+                    zip(
+                        ("ran", "read"),
+                        kernel_exec.stream_payloads(
+                            paths, lambda _name, source: source.read(), lambda: "ran"
+                        ),
+                    )
+                ),
+                daemon=True,
+            )
+            caller.start()
+            caller.join(timeout=30)
+            assert not caller.is_alive(), "a reader of a FIFO no crate opened is still waiting"
+            assert answer == {"ran": "ran", "read": dict.fromkeys(paths, b"")}
+            assert not list(tmp_path.iterdir())
 
 
 class TestTheStructureStamp:

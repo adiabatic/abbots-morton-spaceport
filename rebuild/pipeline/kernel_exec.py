@@ -652,18 +652,15 @@ class _PayloadFifo[T]:
             self._result.set_result(value)
 
     def finish(self) -> T:
-        """Open and close the FIFO for writing without blocking, once the thread has it open or has finished, so a thread whose crate never opened it reads an empty stream instead of waiting forever; then wait for the thread, remove the FIFO, and return what `read` returned or raise what it raised. The open fails with ENXIO while no reader has the FIFO open, which here means only that the thread has not reached its own open yet, so it is retried. Call it once the crate has exited."""
+        """Open and close the FIFO for writing without blocking, once the thread has it open or has finished, so a thread whose crate never opened it reads an empty stream instead of waiting forever; then wait for the thread, remove the FIFO, and return what `read` returned or raise what it raised. The open fails with ENXIO while no reader has the FIFO open, which here means only that the thread has not reached its own open yet, so it is retried. A close that lands while the thread is still inside its open can leave the thread waiting in its first read on macOS, so the open and close repeat until the thread has finished; an extra writer that writes nothing changes no byte the thread reads. Call it once the crate has exited."""
         try:
             while not self._result.done():
                 try:
-                    descriptor = os.open(self.path, os.O_WRONLY | os.O_NONBLOCK)
+                    os.close(os.open(self.path, os.O_WRONLY | os.O_NONBLOCK))
                 except OSError as error:
                     if error.errno != errno.ENXIO:
                         raise
-                    wait([self._result], timeout=0.01)
-                else:
-                    os.close(descriptor)
-                    break
+                wait([self._result], timeout=0.01)
             return self._result.result()
         finally:
             self.path.unlink(missing_ok=True)
