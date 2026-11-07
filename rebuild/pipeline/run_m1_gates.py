@@ -1062,7 +1062,7 @@ def main(argv: list[str] | None = None) -> None:
         type=int,
         default=None,
         help=(
-            "at most how many of the heaviest delta configurations the kernel's table build enumerates from scratch beside default instead of over default's memo once it has enumerated (the same tables, sooner, for more memory and CPU), taken in whole tiers of equal unlocking-rune count and capped at the delta count and one less than --kernel-threads; the default is derived from this machine at the build's width and memo-write order: as many as fit the memory with each booked at kernel_exec.SCRATCH_PEAK_BYTES — "
+            "at most how many of the heaviest delta configurations the kernel's table build enumerates from scratch beside default instead of over default's memo once it has enumerated (the same tables, for more memory, CPU and memo bytes; the comment on kernel_exec.DELTAS_FROM_SCRATCH_CAP gives what it does to the wall time), taken in whole tiers of equal unlocking-rune count and capped at the delta count and one less than --kernel-threads; the default is derived from this machine at the build's width and memo-write order: as many as fit the memory with each booked at kernel_exec.SCRATCH_PEAK_BYTES, up to kernel_exec.DELTAS_FROM_SCRATCH_CAP — "
             f"{kernel_exec.deltas_from_scratch(len(conform.SETTLEMENT_CONFIGS), configs=len(conform.SETTLEMENT_CONFIGS), overlap=kernel_exec.memo_writes_overlap(len(conform.SETTLEMENT_CONFIGS), configs=len(conform.SETTLEMENT_CONFIGS)))} on this one at the whole wave's width; the artifact cycle passes the count it derives beside gate:make-test's pool"
         ),
     )

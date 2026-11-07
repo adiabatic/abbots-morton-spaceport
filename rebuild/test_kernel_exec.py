@@ -1551,7 +1551,7 @@ class TestTheMemoryDerivedThreadDefault:
         assert not kernel_exec.memo_writes_overlap(2, configs=2, total_bytes=roomy, from_scratch=True)
 
     def test_deltas_are_started_from_scratch_beside_default_while_their_peaks_fit(self):
-        """`table_build_booking_bytes` books each delta started from scratch beside `default` at `SCRATCH_PEAK_BYTES` less its parked product in place of a delta's slot, and books such a build at no less than its start, where `default` and each of them hold a `SCRATCH_PEAK_BYTES` together; the count is capped at the delta count and one less than the width, as the crate caps it. `deltas_from_scratch` is the largest count whose booking, with the memo-write order given, fits the memory less the reserve and what runs beside, so over a range of invented machines it never shrinks as the memory grows and covers every count from none to all the deltas. A from-scratch build starts nothing beside `default`."""
+        """`table_build_booking_bytes` books each delta started from scratch beside `default` at `SCRATCH_PEAK_BYTES` less its parked product in place of a delta's slot, and books such a build at no less than its start, where `default` and each of them hold a `SCRATCH_PEAK_BYTES` together; the count is capped at the delta count and one less than the width, as the crate caps it. `deltas_from_scratch` is the largest count up to `DELTAS_FROM_SCRATCH_CAP` whose booking, with the memo-write order given, fits the memory less the reserve and what runs beside, so over a range of invented machines it never shrinks as the memory grows and covers every count from none to the cap. A from-scratch build starts nothing beside `default`."""
         fixed = kernel_exec.DEFAULT_MEMO_BYTES + CONFIG_COUNT * kernel_exec.PARKED_FOLD_BYTES
         deltas = CONFIG_COUNT - 1
         slot = kernel_exec.SCRATCH_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES
@@ -1570,11 +1570,6 @@ class TestTheMemoryDerivedThreadDefault:
         assert kernel_exec.table_build_booking_bytes(
             1, configs=CONFIG_COUNT, scratch_beside_default=deltas
         ) == kernel_exec.table_build_booking_bytes(1, configs=CONFIG_COUNT)
-        roomy = 1_000_000_000_000
-        for width in range(1, CONFIG_COUNT + 1):
-            assert kernel_exec.deltas_from_scratch(
-                width, configs=CONFIG_COUNT, overlap=True, total_bytes=roomy
-            ) == min(deltas, width - 1)
         seen = []
         for total in range(30_000_000_000, 60_000_000_000, 100_000_000):
             usable = total - memory_budget.os_reserve_bytes(total_bytes=total)
@@ -1589,10 +1584,11 @@ class TestTheMemoryDerivedThreadDefault:
                 )
                 <= usable
             ]
-            assert count == max(fits, default=0), total
+            assert count == min(kernel_exec.DELTAS_FROM_SCRATCH_CAP, max(fits, default=0)), total
             assert not seen or count >= seen[-1], total
             seen.append(count)
-        assert set(range(CONFIG_COUNT)) <= set(seen)
+        assert set(range(kernel_exec.DELTAS_FROM_SCRATCH_CAP + 1)) <= set(seen)
+        roomy = 1_000_000_000_000
         usable = roomy - memory_budget.os_reserve_bytes(total_bytes=roomy)
         whole = kernel_exec.table_build_booking_bytes(CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True)
         assert (
@@ -1608,6 +1604,33 @@ class TestTheMemoryDerivedThreadDefault:
         assert (
             kernel_exec.deltas_from_scratch(2, configs=2, overlap=False, total_bytes=roomy, from_scratch=True)
             == 0
+        )
+
+    def test_no_more_deltas_start_from_scratch_than_the_cap_however_much_room_memory_leaves(self):
+        """`DELTAS_FROM_SCRATCH_CAP` holds the count `deltas_from_scratch` derives below the delta count whatever memory leaves room for: on an invented machine with room for every delta from scratch at any width, the count at each width is the cap, or one less than the width where that is lower. A machine with room for fewer than the cap still gets fewer: one just large enough for a single delta from scratch beside `default` gets one."""
+        cap = kernel_exec.DELTAS_FROM_SCRATCH_CAP
+        assert 0 < cap < CONFIG_COUNT - 1
+        roomy = 1_000_000_000_000
+        assert kernel_exec.table_build_booking_bytes(
+            CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, scratch_beside_default=CONFIG_COUNT - 1
+        ) <= roomy - memory_budget.os_reserve_bytes(total_bytes=roomy)
+        for width in range(1, CONFIG_COUNT + 1):
+            assert kernel_exec.deltas_from_scratch(
+                width, configs=CONFIG_COUNT, overlap=True, total_bytes=roomy
+            ) == min(cap, width - 1)
+        single = kernel_exec.table_build_booking_bytes(
+            CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, scratch_beside_default=1
+        )
+        total = next(
+            total
+            for total in range(single, 2 * single, 10_000_000)
+            if total - memory_budget.os_reserve_bytes(total_bytes=total) >= single
+        )
+        assert (
+            kernel_exec.deltas_from_scratch(
+                CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, total_bytes=total
+            )
+            == 1
         )
 
     def test_a_build_without_default_s_memo_books_each_slot_from_scratch(self, monkeypatch, tmp_path):

@@ -656,7 +656,7 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 
 
 def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
-    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits six of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. On six cores the gated build's parent and 2 workers leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, books 29 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once, and with the tree's 3 GB for the memo writers beside the wave added it books 32 GB, which fits too; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas, and those 26 GB with the writers' 3 GB do not fit. The tree's 13 GB from-scratch peak, less a parked product in place of a delta's slot, starts both deltas beside `default` on the 48 GB machine, where the start, 39 GB for `default` and both of them, binds over the wave's 38 GB; on the 36 GB machine one would book 29 GB where the reserve leaves 28 GB, so none starts."""
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits six of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. On six cores the gated build's parent and 2 workers leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, books 29 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once, and with the tree's 3 GB for the memo writers beside the wave added it books 32 GB, which fits too; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas, and those 26 GB with the writers' 3 GB do not fit. The tree's 13 GB from-scratch peak, less a parked product in place of a delta's slot, leaves the 48 GB machine room for both deltas beside `default`, where the start, 39 GB for `default` and both of them, binds over the wave's 38 GB, but the tree's cap of one starts one, booked at 35 GB; on the 36 GB machine one would book 29 GB where the reserve leaves 28 GB, so none starts."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
@@ -669,7 +669,8 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     (tree / "rebuild" / "pipeline" / "kernel_exec.py").write_text(
         f"{cb.KERNEL_DELTA_NAME} = 8_000_000_000\n{cb.KERNEL_MEMO_NAME} = 4_000_000_000\n"
         f"{cb.KERNEL_PARKED_NAME} = 2_000_000_000\n{cb.KERNEL_PREPARATION_NAME} = 3_000_000_000\n"
-        f"{cb.KERNEL_OVERLAP_NAME} = 3_000_000_000\n{cb.KERNEL_SCRATCH_NAME} = 13_000_000_000\n",
+        f"{cb.KERNEL_OVERLAP_NAME} = 3_000_000_000\n{cb.KERNEL_SCRATCH_NAME} = 13_000_000_000\n"
+        f"{cb.KERNEL_SCRATCH_CAP_NAME} = 1\n",
         encoding="utf-8",
     )
     (tree / cb.CONFORM_SOURCE).write_text(
@@ -724,7 +725,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         in out
     )
     assert (
-        "it starts at most 2 of the heaviest deltas from scratch beside default, in whole tiers, booked at 39.00 GB"
+        "it starts at most 1 of the heaviest deltas from scratch beside default, in whole tiers, booked at 35.00 GB"
         in out
     )
     narrow = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=36_000_000_000, cores=12, root=tree))

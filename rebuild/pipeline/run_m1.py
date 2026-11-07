@@ -481,7 +481,7 @@ def build_tables(
 
     `overlap_memo_writes` says whether the crate writes the memo files beside the delta wave and the folds rather than ahead of them. The artifact cycle passes the choice it derives beside gate:make-test's pytest pool; when it is `None`, as for a bare run, `kernel_exec.memo_writes_overlap` derives it at the width the build takes with nothing beside it, so it is on wherever that width's booking with `kernel_exec.MEMO_WRITE_OVERLAP_BYTES` added still fits the memory.
 
-    `scratch_beside_default` says at most how many of the heaviest deltas the crate enumerates from scratch beside `default` instead of over its memo, so they need not wait for it; the crate takes them in whole tiers of equal unlocking-rune count. The artifact cycle passes the count it derives beside gate:make-test's pytest pool; when it is `None`, `kernel_exec.deltas_from_scratch` derives it at the width and memo-write order the build takes with nothing beside it: as many as fit the memory with each booked at `kernel_exec.SCRATCH_PEAK_BYTES`.
+    `scratch_beside_default` says at most how many of the heaviest deltas the crate enumerates from scratch beside `default` instead of over its memo, so they need not wait for it; the crate takes them in whole tiers of equal unlocking-rune count. The artifact cycle passes the count it derives beside gate:make-test's pytest pool; when it is `None`, `kernel_exec.deltas_from_scratch` derives it at the width and memo-write order the build takes with nothing beside it: as many as fit the memory with each booked at `kernel_exec.SCRATCH_PEAK_BYTES`, up to `kernel_exec.DELTAS_FROM_SCRATCH_CAP`.
     """
     configs = tuple(configs)
     from_scratch = "default" not in configs

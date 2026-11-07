@@ -3117,8 +3117,9 @@ def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
 def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone_on_both_fleet_machines(
     monkeypatch,
 ):
-    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot or the memo writes beside the wave, and this test checks the gated widths and memo write orders, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round, and at that width both write the memo files beside the wave. A skipped-gate cycle starts every delta from scratch beside `default`; a gated cycle, with the pool's memory off the machine, starts two at eighteen cores and three at twelve. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
+    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot or the memo writes beside the wave, and this test checks the gated widths and memo write orders, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round, and at that width both write the memo files beside the wave. Each starts `kernel_exec.DELTAS_FROM_SCRATCH_CAP` deltas from scratch beside `default`, gated or not, because memory still leaves room for at least that many with the pool's memory off the machine, at eighteen cores and at twelve. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
+    from rebuild.pipeline.kernel_exec import DELTAS_FROM_SCRATCH_CAP
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
     for ncores in (18, 12):
@@ -3131,13 +3132,16 @@ def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone
             assert ac.memo_writes_overlap_budget(
                 gated, skip_make_test=skip_make_test, ncores=ncores, total_bytes=MACHINE_48_GIB
             )
-            assert ac.scratch_beside_default_budget(
-                gated,
-                overlap_memo_writes=True,
-                skip_make_test=skip_make_test,
-                ncores=ncores,
-                total_bytes=MACHINE_48_GIB,
-            ) == (len(SETTLEMENT_CONFIGS) - 1 if skip_make_test else {18: 2, 12: 3}[ncores])
+            assert (
+                ac.scratch_beside_default_budget(
+                    gated,
+                    overlap_memo_writes=True,
+                    skip_make_test=skip_make_test,
+                    ncores=ncores,
+                    total_bytes=MACHINE_48_GIB,
+                )
+                == DELTAS_FROM_SCRATCH_CAP
+            )
 
 
 def test_the_memo_write_order_takes_the_pytest_pool_off_the_machine_as_the_width_does():
@@ -3165,17 +3169,19 @@ def test_the_memo_write_order_takes_the_pytest_pool_off_the_machine_as_the_width
 
 
 def test_the_deltas_from_scratch_take_the_pytest_pool_off_the_machine_as_the_width_does():
-    """The cycle decides how many deltas start from scratch beside `default` with gate:make-test's pool off the machine, because run_m1 cannot see that pool. On an invented machine just large enough for the whole wave with the memo writers beside it and every delta from scratch beside `default`, and nothing else, the width and the memo-write order stay as they are with the pool running, but fewer deltas fit from scratch, so the plan passes fewer than a pass that skips the gate."""
+    """The cycle decides how many deltas start from scratch beside `default` with gate:make-test's pool off the machine, because run_m1 cannot see that pool. On an invented machine just large enough for the whole wave with the memo writers beside it and `kernel_exec.DELTAS_FROM_SCRATCH_CAP` deltas from scratch beside `default`, and nothing else, the width and the memo-write order stay as they are with the pool running, but fewer deltas fit from scratch, so the plan passes fewer than a pass that skips the gate."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
-    from rebuild.pipeline.kernel_exec import table_build_booking_bytes
+    from rebuild.pipeline.kernel_exec import DELTAS_FROM_SCRATCH_CAP, table_build_booking_bytes
     from rebuild.tools import memory_budget
 
     count = len(SETTLEMENT_CONFIGS)
-    every = table_build_booking_bytes(count, configs=count, overlap=True, scratch_beside_default=count - 1)
+    capped = table_build_booking_bytes(
+        count, configs=count, overlap=True, scratch_beside_default=DELTAS_FROM_SCRATCH_CAP
+    )
     total = next(
         total
-        for total in range(every, 2 * every, 10_000_000)
-        if total - memory_budget.os_reserve_bytes(total_bytes=total) >= every
+        for total in range(capped, 2 * capped, 10_000_000)
+        if total - memory_budget.os_reserve_bytes(total_bytes=total) >= capped
     )
     pool = ac._make_test_pool_bytes(skip_make_test=False, ncores=8)
     assert table_build_booking_bytes(
@@ -3190,7 +3196,7 @@ def test_the_deltas_from_scratch_take_the_pytest_pool_off_the_machine_as_the_wid
         argv = plan.argv("run_m1")
         passed[skip_make_test] = int(argv[argv.index("--scratch-beside-default") + 1])
         assert passed[skip_make_test] == plan.scratch_beside_default
-    assert passed[False] < passed[True] == count - 1
+    assert passed[False] < passed[True] == DELTAS_FROM_SCRATCH_CAP
 
 
 def test_replay_threads_budget_takes_the_pytest_pool_off_the_machine_first():

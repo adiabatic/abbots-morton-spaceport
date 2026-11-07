@@ -1440,7 +1440,7 @@ def scratch_beside_default_budget(
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return at most how many of the heaviest deltas this cycle's table build enumerates from scratch beside `default`, the `--scratch-beside-default` the plan passes run_m1, which the crate takes in whole tiers of equal unlocking-rune count: `kernel_exec.deltas_from_scratch` at `kernel_threads` and `overlap_memo_writes`, the width and memo-write order `kernel_threads_budget` and `memo_writes_overlap_budget` gave, with gate:make-test's pytest pool off the machine as they have it (`_wave_fit_terms`). run_m1 cannot derive this itself under a cycle, for the reason `memo_writes_overlap_budget` gives. `ncores` and `total_bytes` are keywords so a test can compute the count for an invented machine."""
+    """Return at most how many of the heaviest deltas this cycle's table build enumerates from scratch beside `default`, the `--scratch-beside-default` the plan passes run_m1, which the crate takes in whole tiers of equal unlocking-rune count: `kernel_exec.deltas_from_scratch` at `kernel_threads` and `overlap_memo_writes`, the width and memo-write order `kernel_threads_budget` and `memo_writes_overlap_budget` gave, with gate:make-test's pytest pool off the machine as they have it (`_wave_fit_terms`), up to `kernel_exec.DELTAS_FROM_SCRATCH_CAP`. run_m1 cannot derive this itself under a cycle, for the reason `memo_writes_overlap_budget` gives. `ncores` and `total_bytes` are keywords so a test can compute the count for an invented machine."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import deltas_from_scratch
 
@@ -2897,7 +2897,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
             f"    run_m1 --overlap-memo-writes     : {'on' if plan.overlap_memo_writes else 'off'}  (the table build's booking at that width, with MEMO_WRITE_OVERLAP_BYTES added for the memo writers beside the wave, {'fits the memory that width is sized from' if plan.overlap_memo_writes else 'does not fit the memory that width is sized from, so each memo file is written ahead of the work that follows it'})"
         )
         lines.append(
-            f"    run_m1 --scratch-beside-default  : {plan.scratch_beside_default}  (at most this many of the heaviest deltas enumerated from scratch beside default, in whole tiers of equal unlocking-rune count, as many as the table build's booking at that width and memo-write order still fits with each booked at SCRATCH_PEAK_BYTES{'' if plan.scratch_beside_default else '; none fits, so every delta waits for default and reads its memo'})"
+            f"    run_m1 --scratch-beside-default  : {plan.scratch_beside_default}  (at most this many of the heaviest deltas enumerated from scratch beside default, in whole tiers of equal unlocking-rune count, as many as the table build's booking at that width and memo-write order still fits with each booked at SCRATCH_PEAK_BYTES, up to DELTAS_FROM_SCRATCH_CAP{'' if plan.scratch_beside_default else '; none fits, so every delta waits for default and reads its memo'})"
         )
     if plan.rerun_gates_only:
         lines.append(
