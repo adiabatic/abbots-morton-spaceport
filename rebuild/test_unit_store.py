@@ -46,9 +46,6 @@ class _Projection:
     junction_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
     mismatches: tuple[str, ...]
     ordinal: int = -1
-    part: str = ""
-    start: int = 0
-    length: int = 0
 
 
 def _key(label: str) -> str:
@@ -133,19 +130,19 @@ def _record(primary_unit_projection: PrimaryUnitProjection) -> dict:
     }
 
 
-def _spooled(projection: _Projection, start: int) -> unit_cache.PriorFragment:
+def _in_arena(projection: _Projection, start: int) -> unit_cache.PriorFragment:
     return unit_cache.PriorFragment(
-        "units/serial.000.json", start, 700 + start, projection.unit_id, projection.content_key
+        review_build.ARENA_PART, start, 700 + start, projection.unit_id, projection.content_key
     )
 
 
 def test_a_recomputed_projection_reads_back_what_the_load_was_handed():
-    """Every accessor on a loaded recomputed projection returns what the projection carried, with the ink deltas in loaded order and the junction rects in the shape `_junction_records` gives them."""
+    """Every accessor on a loaded recomputed projection returns what the projection carried, with the ink deltas in loaded order and the junction rects in the shape `_junction_records` gives them, and `source` the arena address the load was handed until `rebase_source` moves its start."""
     projection = _projection("one", ink_identical=True, mismatches=("ss03 E652:E670: derived cells differ",))
     store = UnitStore(1)
     store.set_input_key(0, projection.input_key)
     assert (
-        store.load_projection(projection, no_verdict=False, ordinal=0, address=_spooled(projection, 12)) == 0
+        store.load_projection(projection, no_verdict=False, ordinal=0, address=_in_arena(projection, 12)) == 0
     )
     assert store.machine_flags(0) == (True, False, False) and store.machine_approved(0)
     assert (store.ink_identical(0), store.picture_identical(0), store.junior_equivalent(0)) == (
@@ -179,7 +176,7 @@ def test_a_recomputed_projection_reads_back_what_the_load_was_handed():
     assert store.junction_pairs(0) == projection.primary_unit_projection.junction_pairs
     assert store.junction_count(0) == 1
     assert store.mismatches(0) == list(projection.mismatches)
-    assert store.source(0) == _spooled(projection, 12)
+    assert store.source(0) == _in_arena(projection, 12)
     assert store.content_key_hex(0) == projection.content_key
     assert store.input_key_hex(0) == projection.input_key
     assert store.unit_id(0) == projection.unit_id
@@ -190,6 +187,8 @@ def test_a_recomputed_projection_reads_back_what_the_load_was_handed():
     assert store.cached_primary_units(0) == [[None, False]]
     assert store.primary_units(0) == ((None, False),)
     assert list(store.windows()) == [(0, _WINDOW)]
+    store.rebase_source(0, 3)
+    assert store.source(0) == replace(_in_arena(projection, 12), start=3)
 
 
 def test_the_input_key_column_is_written_once_and_a_load_checks_its_key_against_it():
@@ -211,15 +210,12 @@ def test_the_input_key_column_is_written_once_and_a_load_checks_its_key_against_
         UnitStore(1, input_keys=bytearray(3))
 
 
-def test_the_load_takes_the_ordinal_and_address_off_the_projection_when_not_given():
-    """`load_projection` takes the ordinal and the spool address from its arguments or, when they are omitted, from the projection's `ordinal`, `part`, `start`, and `length`. A projection with no ordinal either way raises."""
+def test_the_load_takes_the_ordinal_off_the_projection_when_not_given():
+    """`load_projection` takes the ordinal from its argument or, when that is omitted, from the projection's `ordinal`, and the address only from its argument. A projection with no ordinal either way raises."""
     base = _projection("addressed")
-    addressed = replace(base, ordinal=1, part="units/w0.000.json", start=3, length=40)
     store = UnitStore(2)
-    assert store.load_projection(addressed, no_verdict=False) == 1
-    assert store.source(1) == unit_cache.PriorFragment(
-        "units/w0.000.json", 3, 40, base.unit_id, base.content_key
-    )
+    assert store.load_projection(replace(base, ordinal=1), no_verdict=False, address=_in_arena(base, 3)) == 1
+    assert store.source(1) == _in_arena(base, 3)
     other = _projection("no-address")
     assert store.load_projection(other, no_verdict=False, ordinal=0) == 0
     assert store.source(0) is None
@@ -650,7 +646,7 @@ class _RecordingStore(UnitStore):
 
     def __init__(self, n: int, **kwargs) -> None:
         super().__init__(n, **kwargs)
-        self.projections: dict[int, unit_store.RecomputedProjection] = {}
+        self.projections: dict[int, review_build._UnitProjection] = {}
 
     def load_projection(self, projection, **kwargs):
         ordinal = super().load_projection(projection, **kwargs)
@@ -658,8 +654,8 @@ class _RecordingStore(UnitStore):
         return ordinal
 
 
-def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle, tmp_path):
-    """The serial runner loads the mini bundle's real projections as it drafts them. Every accessor equals the loaded projection, the source is the spool address the projection carries, the input key is the one the plan wrote, the index finds every id, and `windows` lists every unit's window. `sizes` counts only the columns' bytes, because the string table belongs to the workload table and is charged under `workload.units`. The permutation `sort_for_triage` returns equals a sort by `triage_key`, which uses the id string."""
+def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle):
+    """The serial runner loads the mini bundle's real projections as it drafts them. Every accessor equals the loaded projection, the source is the span of the runner's arena the projection's deflated fragment was moved to, in load order, the input key is the one the plan wrote, the index finds every id, and `windows` lists every unit's window. `sizes` counts only the columns' bytes, because the string table belongs to the workload table and is charged under `workload.units`. The permutation `sort_for_triage` returns equals a sort by `triage_key`, which uses the id string."""
     workload = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
     table = workload.table
     store = _RecordingStore(table.n, strings=table.strings)
@@ -676,10 +672,10 @@ def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle, tmp_
         REPO_ROOT,
         spec_root=mini_bundle.spec_root,
         table=table,
-        out_dir=tmp_path,
         subset_pack=mini_bundle.subset_pack,
         identical_classes=frozenset(entry.id for entry in workload.ledger if entry.ink_identical),
         corpus_index=build_corpus_index(REPO_ROOT),
+        dictionary=review_build.FRAGMENT_DICTIONARY.read_bytes(),
     )
     try:
         runner.phase1(store)
@@ -688,6 +684,7 @@ def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle, tmp_
     assert sorted(store.projections) == list(range(table.n))
     units = table.units(store)
     junctions = 0
+    start = 0
     for ordinal, unit in enumerate(units):
         projection = store.projections[ordinal]
         assert unit.unit_id == projection.unit_id and unit.input_key == keys[ordinal]
@@ -715,12 +712,9 @@ def test_the_mini_bundle_loads_and_reads_back_every_projection(mini_bundle, tmp_
         assert store.junction_rects(ordinal) == _junction_records(projection.junction_rects)
         assert store.mismatches(ordinal) == list(projection.mismatches)
         assert store.source(ordinal) == unit_cache.PriorFragment(
-            getattr(projection, "part"),
-            getattr(projection, "start"),
-            getattr(projection, "length"),
-            projection.unit_id,
-            projection.content_key,
+            review_build.ARENA_PART, start, len(projection.packed), projection.unit_id, projection.content_key
         )
+        start += len(projection.packed)
         assert store.codepoints(ordinal) == unit.codepoint_values
         assert store.junction_count(ordinal) == len(projection.primary_unit_projection.junction_pairs)
         junctions += store.junction_count(ordinal)

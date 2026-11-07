@@ -86,16 +86,10 @@ class Flags(NamedTuple):
 
 
 class RecomputedProjection(Protocol):
-    """The fields `load_projection` reads from a phase-1 projection, matching `build._UnitProjection`. It is a Protocol so that this module does not import `build`, which imports this module. `ordinal` is the row to load into, negative when the caller passes the ordinal. `part`, `start` and `length` are the fragment's spool address; an empty `part` means the caller passes the address or the row has none."""
+    """The fields `load_projection` reads from a phase-1 projection, matching `build._UnitProjection`. It is a Protocol so that this module does not import `build`, which imports this module. `ordinal` is the row to load into, negative when the caller passes the ordinal. The projection carries no address: the caller passes the fragment's."""
 
     @property
     def ordinal(self) -> int: ...
-    @property
-    def part(self) -> str: ...
-    @property
-    def start(self) -> int: ...
-    @property
-    def length(self) -> int: ...
     @property
     def unit_id(self) -> str: ...
     @property
@@ -389,13 +383,11 @@ class UnitStore:
         ordinal: int | None = None,
         address: Address | unit_cache.PriorFragment | None = None,
     ) -> int:
-        """Load one recomputed unit's phase-1 projection into its row and return the ordinal. The ordinal is the argument, else the projection's `ordinal`. The spool address is the argument (a `(part, start, length)` triple or the spool's `PriorFragment`), else the projection's `part`, `start` and `length`, else absent, in which case `source` returns None. `no_verdict` is the ledger's exemption for the unit (the workload table's flag); with the three machine flags it sets the `slim` bit, the fragment shape the drafting wrote (`audit.slim_fragment`). Raises when the primary-unit projection's ink flags disagree with the projection's, because `primary_unit_projection` reads them from the flag column. `ink_deltas` returns the deltas in the order loaded here, which is the fragment's JSON order."""
+        """Load one recomputed unit's phase-1 projection into its row and return the ordinal. The ordinal is the argument, else the projection's `ordinal`. The address is the argument, a `(part, start, length)` triple or a `PriorFragment`: for a build's recomputed unit, the fragment's span in the parent's arena of deflated fragments (`build._FragmentArena.add`). Without one the row has no address, and `source` returns None. `no_verdict` is the ledger's exemption for the unit (the workload table's flag); with the three machine flags it sets the `slim` bit, the fragment shape the drafting wrote (`audit.slim_fragment`). Raises when the primary-unit projection's ink flags disagree with the projection's, because `primary_unit_projection` reads them from the flag column. `ink_deltas` returns the deltas in the order loaded here, which is the fragment's JSON order."""
         if ordinal is None:
             ordinal = projection.ordinal
             if ordinal < 0:
                 raise ValueError(f"no ordinal for unit {projection.unit_id}")
-        if address is None and projection.part:
-            address = (projection.part, projection.start, projection.length)
         primary_unit_projection = projection.primary_unit_projection
         if (primary_unit_projection.ink_identical, primary_unit_projection.picture_identical) != (
             projection.ink_identical,
@@ -645,7 +637,7 @@ class UnitStore:
         return list(self._mismatches.get(ordinal, ()))
 
     def source(self, ordinal: int) -> unit_cache.PriorFragment | None:
-        """Return where the unit's fragment is read from (the recomputed spool's address for a recomputed unit, the prior corpus's for a cached one) as a `PriorFragment` stamped with the row's id and content key. None for a row loaded without an address."""
+        """Return where the unit's fragment is read from (its span in the parent's arena for a recomputed unit, the prior corpus's address for a cached one) as a `PriorFragment` stamped with the row's id and content key. None for a row loaded without an address."""
         part = self._src_part[ordinal]
         if part == 0:
             return None
@@ -657,6 +649,10 @@ class UnitStore:
             self.content_key_hex(ordinal),
             byte_copied=bool(self._flags[ordinal] & BYTE_COPIED),
         )
+
+    def rebase_source(self, ordinal: int, start: int) -> None:
+        """Move the unit's source to byte `start` of the same part, keeping its length: a write chunk's recomputed unit, moved into the chunk's own arena (`build._FragmentArena.gather`)."""
+        self._src_start[ordinal] = start
 
     def written_address(self, ordinal: int) -> Address | None:
         """Return this build's shard address for the unit, as the write recorded it through `set_written_address`, or None before then."""

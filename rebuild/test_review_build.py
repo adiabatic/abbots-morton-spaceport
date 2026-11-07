@@ -1,4 +1,4 @@
-"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the recomputed spool, the pool records and the memory tally, the shape-memo release, `_write_json`, the triage export, the table-diff build, and the refusal to build into the served corpus while the review server listens.
+"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the arena of recomputed fragments, the pool records and the memory tally, the shape-memo release, `_write_json`, the triage export, the table-diff build, and the refusal to build into the served corpus while the review server listens.
 
 No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint and the feature descriptions) needs no separate check; the class order and each class's copy and section are tested over a mini build. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `facts.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; rebuild/review-facts-pins.json records that the merge ran on the corpus, since its pre-merge `volatile.audit.units` is larger than its post-merge `volatile.manifest.totals.units`. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` cached windows on every build.
 """
@@ -15,6 +15,7 @@ import subprocess
 import sys
 import threading
 import weakref
+import zlib
 from dataclasses import replace
 from html.parser import HTMLParser
 from pathlib import Path
@@ -881,23 +882,38 @@ def test_the_shard_writer_keeps_the_previous_corpus_whole_until_commit(tmp_path)
     assert sorted(entry.name for entry in units.iterdir()) == ["a.json", "b.json"]
 
 
-def test_the_recomputed_spool_reads_every_fragment_back_by_address(tmp_path):
-    """A recomputed fragment is kept on disk between phase 1 and the write, and it is read back by the same reader that reads a prior fragment from the previous corpus. The spool uses the shard format, and each address names its part in the numbered form of the class the spool was opened under, so `add` returns the final address at once, carrying the fragment's id and `content_key` (None for a fragment drafted without one), and the spool keeps nothing of the fragment in memory. Fragments are read by address, so the write can ask for them in any order (shard order interleaves the workers' batches). Reading under a stamp the fragment does not carry raises, as it does for a prior fragment that moved."""
-    spool = review_build._FragmentSpool(tmp_path, "w0")
+def test_the_arena_reads_every_fragment_back_by_address():
+    """A recomputed fragment is held deflated in the parent's arena between phase 1 and the write. The packer deflates the fragment's shard bytes alone against the preset dictionary, and the copy of its primed compressor gives the bytes a compressor made with the dictionary for that one fragment gives. Each address the arena returns names `ARENA_PART` and a span that inflates to the shard bytes, so the write parses the bytes a shard part would hold, and the arena reads fragments back by address in any order, since shard order interleaves the workers' batches. A read is checked against its address: under a stamp the fragment does not carry, over a span cut short or run on into the next fragment, or under another dictionary, it raises."""
+    dictionary = review_build.FRAGMENT_DICTIONARY.read_bytes()
+    packer = review_build._FragmentPacker(dictionary)
+    arena = review_build._FragmentArena(dictionary)
     fragments = [{"id": f"u-{index:04d}", "content_key": None, "text": "x" * index} for index in range(5)]
-    spooled = {fragment["id"]: spool.add(fragment) for fragment in fragments}
-    assert spool.close() is None
-    assert all(located.unit_id == unit_id for unit_id, located in spooled.items())
-    assert {located.part for located in spooled.values()} == {"units/w0.000.json"}
-    assert sorted(
-        path.name for path in (tmp_path / review_build.RECOMPUTED_SPOOL_NAME / "units").iterdir()
-    ) == ["w0.000.json"]
-    assert all(located.content_key is None for located in spooled.values())
-    with unit_cache.PriorFragmentReader(tmp_path / review_build.RECOMPUTED_SPOOL_NAME) as reader:
-        for fragment in reversed(fragments):
-            assert reader.read(spooled[fragment["id"]]) == fragment
+    packed: dict[str, bytes] = {}
+    addresses: dict[str, unit_cache.PriorFragment] = {}
+    for fragment in fragments:
+        shard_bytes = review_build._fragment_bytes(fragment)
+        packed[fragment["id"]], raw_length = packer.pack(fragment)
+        fresh = zlib.compressobj(1, zdict=dictionary)
+        assert packed[fragment["id"]] == fresh.compress(shard_bytes) + fresh.flush()
+        assert raw_length == len(shard_bytes)
+        assert zlib.decompressobj(zdict=dictionary).decompress(packed[fragment["id"]]) == shard_bytes
+        address = arena.add(packed[fragment["id"]], raw_length)
+        addresses[fragment["id"]] = unit_cache.PriorFragment(*address, fragment["id"], None)
+    assert {address.part for address in addresses.values()} == {review_build.ARENA_PART}
+    assert len(arena) == sum(map(len, packed.values()))
+    for fragment in reversed(fragments):
+        assert arena.read(addresses[fragment["id"]]) == fragment
+    first = addresses["u-0001"]
+    for refused in (
+        replace(first, content_key="stamped"),
+        replace(first, length=first.length - 1),
+        replace(first, length=first.length + 1),
+    ):
         with pytest.raises(ValueError):
-            reader.read(replace(spooled["u-0001"], content_key="stamped"))
+            arena.read(refused)
+    other = review_build._FragmentArena(dictionary[::-1])
+    with pytest.raises(ValueError):
+        other.read(unit_cache.PriorFragment(*other.add(packed["u-0001"], 0), "u-0001", None))
 
 
 def _live_enriched_units() -> int:
@@ -905,8 +921,8 @@ def _live_enriched_units() -> int:
     return sum(1 for candidate in gc.get_objects() if isinstance(candidate, EnrichedUnit))
 
 
-def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_path, mini_bundle, monkeypatch):
-    """No EnrichedUnit outlives the batch that produced it. After phase 1 the unit store holds a spool address for each recomputed unit, the runner holds nothing enriched, each address reads back as that unit's drafted fragment, and closing the runner deletes the spool. Fragments come in two shapes: a unit the build machine-approves or the ledger exempts is spooled slim, without the explain, the drafts, or the highlight, and is never drafted; every human unit is whole and drafted. Phase 1 leaves every unit it is given holding the shared empty `NO_DELTAS`, and the per-config deltas it finds go to the store, which holds some for the mini workload."""
+def test_the_serial_runner_packs_every_fragment_and_keeps_no_enrichment(mini_bundle, monkeypatch):
+    """No EnrichedUnit outlives the batch that produced it. After phase 1 the unit store holds an arena address for each recomputed unit, the runner holds nothing enriched, each address reads back from the runner's arena as that unit's drafted fragment, and closing the runner frees the arena. A write chunk's arena (`_FragmentArena.gather`) holds its own units' fragments and no others, at the addresses its gathered store is moved to. Fragments come in two shapes: a unit the build machine-approves or the ledger exempts is packed slim, without the explain, the drafts, or the highlight, and is never drafted; every human unit is whole and drafted. Phase 1 leaves every unit it is given holding the shared empty `NO_DELTAS`, and the per-config deltas it finds go to the store, which holds some for the mini workload."""
     drafted: set[str] = set()
     draft_pin = review_build.Drafter.draft_pin
 
@@ -939,10 +955,10 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         REPO_ROOT,
         spec_root=mini_bundle.spec_root,
         table=table,
-        out_dir=tmp_path,
         subset_pack=mini_bundle.subset_pack,
         identical_classes=frozenset(entry.id for entry in workload.ledger if entry.ink_identical),
         corpus_index=build_corpus_index(REPO_ROOT),
+        dictionary=review_build.FRAGMENT_DICTIONARY.read_bytes(),
     )
     try:
         assert runner.phase1(store) is None
@@ -952,9 +968,7 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
         assert all(shared for _, shared in handed)
         assert not NO_DELTAS
         assert any(store.ink_deltas(ordinal) for ordinal in range(table.n))
-        assert runner.spool_dir == tmp_path / review_build.RECOMPUTED_SPOOL_NAME
-        assert runner.spool_dir.is_dir()
-        reader = unit_cache.PriorFragmentReader(runner.spool_dir)
+        assert runner.arena.count == table.n
         shapes = {True: 0, False: 0}
         for unit in table.units(store):
             assert store.unit_id(unit.ordinal) == unit.unit_id
@@ -964,8 +978,8 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
                 == hashlib.sha256(f"k{unit.ordinal}".encode()).hexdigest()
             )
             source = store.source(unit.ordinal)
-            assert source is not None and source.part == "units/serial.000.json"
-            fragment = reader.read(source)
+            assert source is not None and source.part == review_build.ARENA_PART
+            fragment = runner.arena.read(source)
             assert fragment["id"] == unit.unit_id == unit_cache.unit_id_for(fragment["content_key"])
             assert fragment["content_key"] == unit_cache.carry_content_hash(fragment)
             assert "batch" not in fragment and fragment["duplicate_group"] is None
@@ -977,10 +991,20 @@ def test_the_serial_runner_spools_every_fragment_and_keeps_no_enrichment(tmp_pat
             assert (unit.unit_id in drafted) == (not slim), unit.unit_id
             shapes[slim] += 1
         assert shapes[True] and shapes[False], "the mini workload must hold both fragment shapes"
-        reader.close()
+        members = range(1, table.n, 3)
+        sources = [store.source(ordinal) for ordinal in members]
+        chunk = store.gather(members)
+        gathered = runner.arena.gather(chunk)
+        assert gathered.dictionary is runner.arena.dictionary
+        assert len(gathered) == sum(source.length for source in sources if source is not None)
+        for position, source in enumerate(sources):
+            moved = chunk.source(position)
+            assert source is not None and moved is not None
+            assert (moved.part, moved.length) == (source.part, source.length)
+            assert gathered.read(moved) == runner.arena.read(source)
     finally:
         runner.close()
-    assert not (tmp_path / review_build.RECOMPUTED_SPOOL_NAME).exists()
+    assert len(runner.arena) == 0
 
 
 def test_the_stamped_scaffold_keys_are_the_projections_share_of_the_scaffold(mini_bundle):
@@ -1128,9 +1152,9 @@ def test_a_serial_signature_pass_files_no_pool_record(tmp_path, monkeypatch):
 def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     tmp_path, mini_bundle, capfd, monkeypatch
 ):
-    """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads. The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
+    """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads, and the units line ends with the size of the arena the recomputed fragments are held in and the ratio of their shard bytes to it, which shows a stale dictionary. The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
 
-    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own collections on stdout at every batch boundary: the projections it is about to return, each with its fragment's spool address and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are loaded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit collections it replaces, and no collection of enrichments exists.
+    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own collections on stdout at every batch boundary: the projections it is about to return, each with its deflated fragment and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are loaded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit collections it replaces, and no collection of enrichments exists.
     """
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     out = tmp_path / "corpus"
@@ -1164,7 +1188,11 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     assert all(
         item.startswith("rss_now_gb=") and float(item.removeprefix("rss_now_gb=")) > 0 for item in current
     )
-    assert note == f"jobs=2 (recomputed={total:,}, verified=0 cached)"
+    arena = re.fullmatch(
+        rf"jobs=2 \(recomputed={total:,}, verified=0 cached; arena \d+\.\d\d GB, deflated (\d+\.\d\d) to 1\)",
+        note,
+    )
+    assert arena and float(arena.group(1)) > 1, note
     _tokens, note = timings["review.build load"].tail.split("\t")
     assert re.fullmatch(_SIGNATURE_NOTE, note), note
     inner = {entry["label"]: entry for entry in parse_inner_timings(captured.err)}
@@ -1458,7 +1486,7 @@ def _packed_collections(text: str) -> dict[str, dict[str, int]]:
 def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writes_the_same_bytes(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the collections the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The audit's row columns are exact, full at load, and empty once the content keys have read them. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit collection it replaces. The checker's identity collection has an entry for every unit in a secondary-junction relation, a unit that names a primary unit or the primary unit it names, and for no other unit. The cache boundary has no collection of store records, because the store is written record by record, and no boundary has a collection of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
+    """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the collections the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The audit's row columns are exact, full at load, and empty once the content keys have read them. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit collection it replaces. The checker's identity collection has an entry for every unit in a secondary-junction relation, a unit that names a primary unit or the primary unit it names, and for no other unit. The runner's arena holds a deflated fragment for every unit, all recomputed here, through the write, and none once the runner frees it. The cache boundary has no collection of store records, because the store is written record by record, and no boundary has a collection of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
 
     def build(out: Path) -> dict:
         return review_build.build_m1(
@@ -1498,6 +1526,8 @@ def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writ
     for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
         assert tallies[boundary]["unit_store"] == total
     assert tallies["units"]["runner.subset_pack"] > 0
+    assert tallies["units"]["runner.arena"] == tallies["manifest+check"]["runner.arena"] == total
+    assert tallies["review-facts"]["runner.arena"] == tallies["cache"]["runner.arena"] == 0
     junctions = [
         (fragment["id"], junction["primary_unit"])
         for fragment in unit_index.iter_shard_fragments(tallied)
@@ -1635,10 +1665,10 @@ def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeyp
         tmp_path / "junior.otf",
         tmp_path,
         table=UnitTable(0, StringTable(), TuplePool()),
-        out_dir=tmp_path,
         subset_pack=tmp_path / "subsets.pack",
         identical_classes=frozenset(),
         corpus_index={},
+        dictionary=b"",
     )
     parent, child = multiprocessing.Pipe()
     child.send(("batch", ["projection-a", "projection-b"], {}))
@@ -1686,7 +1716,7 @@ def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(mini_bund
     assert shape_memo_sizes().entries == 0
 
 
-def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> list[tuple]:
+def _drive_worker_in_thread(mini_bundle, chunks: list[list]) -> list[tuple]:
     """Run `_corpus_worker` in a thread over a pipe, send `chunks` one `phase1` message at a time as the parent sends batches, then the end marker and the stop, and return every reply in order: one `batch` per chunk, the `ok`, and the `peak`. Running in a thread lets a test see the worker's process state: a spy on the build module's `release_shape_memos` is the one the worker's `_phase1_batches` calls, and the objects alive after the stop are the worker's."""
     init = {
         "before_font": review_build.SITE_BEFORE_FONT,
@@ -1696,11 +1726,11 @@ def _drive_worker_in_thread(mini_bundle, out_dir: Path, chunks: list[list]) -> l
         "subset_pack": mini_bundle.subset_pack,
         "repo_root": REPO_ROOT,
         "spec_root": mini_bundle.spec_root,
-        "out_dir": out_dir,
         "identical_classes": frozenset(
             entry.id for entry in load_ledger(mini_bundle.ledger) if entry.ink_identical
         ),
         "corpus_index": build_corpus_index(REPO_ROOT),
+        "dictionary": review_build.FRAGMENT_DICTIONARY.read_bytes(),
     }
     parent, child = multiprocessing.Pipe()
     worker = threading.Thread(target=review_build._corpus_worker, args=(child, init), daemon=True)
@@ -1735,14 +1765,12 @@ def _refuting_every_pin(monkeypatch) -> None:
     monkeypatch.setattr(review_build, "unit_to_json", refuted)
 
 
-def test_a_pool_worker_answers_with_the_errors_of_the_fragments_it_drafted(
-    mini_bundle, monkeypatch, tmp_path
-):
-    """The worker runs the drafting-time contract check over every fragment it drafts and returns the errors on the `batch` reply, beside the projections and addresses, so a drafting-side violation reaches the parent as data in the `contract check failed` list, not as a traceback. Over the bundle as shipped the errors are empty. With every human fragment's pin refuted they name `drafts.pin.syntax` once per human unit in the batch, up to `CONTRACT_ERRORS_SHOWN`. The worker runs in a thread because the pool is spawn-only and a monkeypatch does not reach a spawned worker. Projections are matched to units by `input_key`, which the cache plan assigns and `load_workload` leaves empty, so the test gives each unit one first."""
+def test_a_pool_worker_answers_with_the_errors_of_the_fragments_it_drafted(mini_bundle, monkeypatch):
+    """The worker runs the drafting-time contract check over every fragment it drafts and returns the errors on the `batch` reply, beside the projections and their deflated fragments, so a drafting-side violation reaches the parent as data in the `contract check failed` list, not as a traceback. Over the bundle as shipped the errors are empty. With every human fragment's pin refuted they name `drafts.pin.syntax` once per human unit in the batch, up to `CONTRACT_ERRORS_SHOWN`. The worker runs in a thread because the pool is spawn-only and a monkeypatch does not reach a spawned worker. Projections are matched to units by `input_key`, which the cache plan assigns and `load_workload` leaves empty, so the test gives each unit one first."""
     chunks = _two_chunks(mini_bundle)
     for index, unit in enumerate(unit for chunk in chunks for unit in chunk):
         unit.input_key = f"k{index}"
-    clean = _drive_worker_in_thread(mini_bundle, tmp_path / "clean", chunks)
+    clean = _drive_worker_in_thread(mini_bundle, chunks)
     assert [reply[0] for reply in clean] == ["batch", "batch", "ok", "peak"]
     assert all(reply[2] == [] for reply in clean[:2])
     no_verdict = {unit.input_key: unit.no_verdict for chunk in chunks for unit in chunk}
@@ -1761,11 +1789,11 @@ def test_a_pool_worker_answers_with_the_errors_of_the_fragments_it_drafted(
     ]
     assert sum(humans) > 0
     _refuting_every_pin(monkeypatch)
-    refuted = _drive_worker_in_thread(mini_bundle, tmp_path / "refuted", chunks)
+    refuted = _drive_worker_in_thread(mini_bundle, chunks)
     for human, reply in zip(humans, refuted[:2], strict=True):
         assert len(reply[2]) == min(human, review_build.CONTRACT_ERRORS_SHOWN)
         assert all("drafts.pin.syntax is 'fail: refuted for the test'" in line for line in reply[2])
-        assert all(projection.part == "units/w0.000.json" for projection in reply[1])
+        assert all(projection.packed for projection in reply[1])
 
 
 def _two_chunks(mini_bundle) -> list[list]:
@@ -1775,34 +1803,34 @@ def _two_chunks(mini_bundle) -> list[list]:
     return [units[:split], units[split:]]
 
 
-def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, monkeypatch, tmp_path):
-    """The pooled build's worker releases the memo at the same boundary as the serial build, once per batch. Each batch loads the memo before its boundary. Each `batch` reply carries only that batch's projections (the second reply's length is the second chunk's, not the running total), and every projection carries a content id and its fragment's spool address in the worker's class. The `ok` that answers the end marker has no payload, the stop is answered with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), and after the stop the memo is empty and no EnrichedUnit is alive, because every fragment went to the spool as it was drafted."""
+def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, monkeypatch):
+    """The pooled build's worker releases the memo at the same boundary as the serial build, once per batch. Each batch loads the memo before its boundary. Each `batch` reply carries only that batch's projections (the second reply's length is the second chunk's, not the running total), and every projection carries a content id and its fragment, deflated against the dictionary the worker's `init` carries, with the length of its shard bytes. The `ok` that answers the end marker has no payload, the stop is answered with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), and after the stop the memo is empty and no EnrichedUnit is alive, because every fragment was deflated onto its projection as it was drafted."""
     seen = _spy_on_releases(monkeypatch)
     monkeypatch.setattr("rebuild.tools.peak_rss.peak_footprint_bytes", lambda: 330_000_000)
     chunks = _two_chunks(mini_bundle)
-    replies = _drive_worker_in_thread(mini_bundle, tmp_path, chunks)
+    replies = _drive_worker_in_thread(mini_bundle, chunks)
     assert [reply[0] for reply in replies] == ["batch", "batch", "ok", "peak"]
     assert replies[3] == ("peak", 330_000_000)
+    dictionary = review_build.FRAGMENT_DICTIONARY.read_bytes()
     for chunk, reply in zip(chunks, replies[:2], strict=True):
         assert len(reply[1]) == len(chunk)
         # The units crossed the pipe as copies, so the ids the worker assigned are on its projections, not on the units held here.
         assert all(unit_cache.is_content_id(projection.unit_id) for projection in reply[1])
-        assert all(
-            projection.part == "units/w0.000.json" and projection.length > 0 for projection in reply[1]
-        )
+        for projection in reply[1]:
+            shard_bytes = zlib.decompressobj(zdict=dictionary).decompress(projection.packed)
+            assert len(shard_bytes) == projection.raw_length
+            assert json.loads(shard_bytes)["id"] == projection.unit_id
     assert replies[2] == ("ok",)
     assert _live_enriched_units() == 0
     assert len(seen) == len(chunks) and all(entries > 0 for entries in seen)
     assert shape_memo_sizes().entries == 0
 
 
-def test_a_pool_worker_holds_one_batch_of_projections_and_addresses(
-    mini_bundle, monkeypatch, tmp_path, capfd
-):
+def test_a_pool_worker_holds_one_batch_of_projections_and_fragments(mini_bundle, monkeypatch, capfd):
     """Checks, on the fixture, the memory-tally reading behind `CORPUS_WORKER_BYTES`: with `AMS_CORPUS_MEMORY_TALLY=1` the worker tallies a `w0/phase1-<n>` boundary per batch, and at each one `worker.projections` counts only the batch it was given, because projections are released after the reply. The mapped subset pack and the shape memo appear beside it, and no enrichment appears."""
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     chunks = _two_chunks(mini_bundle)
-    replies = _drive_worker_in_thread(mini_bundle, tmp_path, chunks)
+    replies = _drive_worker_in_thread(mini_bundle, chunks)
     assert [reply[0] for reply in replies] == ["batch", "batch", "ok", "peak"]
     tallies = _tally_lines(capfd.readouterr().out)
     assert list(tallies) == ["w0/phase1-1", "w0/phase1-2"]

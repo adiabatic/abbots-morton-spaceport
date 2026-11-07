@@ -32,6 +32,7 @@ import time
 import traceback
 import urllib.request
 import warnings
+import zlib
 from array import array
 from collections.abc import Callable, Collection, Container, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -105,7 +106,7 @@ from rebuild.review.enrich import (
     text_entities,
 )
 from rebuild.review.subset_pack import ensure_pack, is_junction_token, table_digests
-from rebuild.review.unit_store import UnitStore
+from rebuild.review.unit_store import Address, UnitStore
 from rebuild.tools import console, memory_tally
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import (
@@ -442,7 +443,7 @@ def patch_fragment(
     check: bool = False,
     ink_deltas: Mapping[str, str] | None = None,
 ) -> dict:
-    """Rewrite a fragment's scaffold and secondary junctions for this build, and return it. The write does this to every recomputed fragment read from the spool and to every cached fragment whose patched fields changed. Every scaffold field is rewritten from the current workload, with `ink_deltas` read from the unit store and the ledger class from the unit (`Unit.ledger_class`, which the write copies from the unit store), and the secondary junctions are rebuilt from the unit's rects in the unit store under this build's primary unit assignments. Assigning keys in place keeps the fragment's key order, so a patched fragment has the same bytes a from-scratch build writes, and a cached fragment whose patched fields did not change can be copied byte for byte instead.
+    """Rewrite a fragment's scaffold and secondary junctions for this build, and return it. The write does this to every recomputed fragment it reads back from the arena and to every cached fragment whose patched fields changed. Every scaffold field is rewritten from the current workload, with `ink_deltas` read from the unit store and the ledger class from the unit (`Unit.ledger_class`, which the write copies from the unit store), and the secondary junctions are rebuilt from the unit's rects in the unit store under this build's primary unit assignments. Assigning keys in place keeps the fragment's key order, so a patched fragment has the same bytes a from-scratch build writes, and a cached fragment whose patched fields did not change can be copied byte for byte instead.
 
     With `check` set, `check_scaffold` compares the checked scaffold keys (`_CHECKED_SCAFFOLD_KEYS`) before they are written. That checks that the fragment's content key still holds after the patch, and that the scaffold `check_unit`'s drafting-time subset read is the scaffold that ships, which is why that subset may run in the process that drafts. The write sets `check` for recomputed fragments only. A cached fragment's stamp was checked by the build that drafted it, and this build checks it again on the verification sample (`_recompute_fragment`, `check_stamp`).
     """
@@ -466,7 +467,7 @@ def patch_fragment(
 
 
 def check_scaffold(fragment: dict, scaffold: dict) -> None:
-    """Exit if `patch_fragment` would change any of a recomputed fragment's checked scaffold keys (`_CHECKED_SCAFFOLD_KEYS`). Equality at the keys inside the carry projection (`_STAMPED_SCAFFOLD_KEYS`) means the fragment's `content_key` still holds after the patch: those keys are everything the patch can change under the stamp (the group and machine flags, and the codepoints derived from them). Equality at the checked keys outside the projection, the promoted class and the config badge among them, means the drafting-time `check_unit` read the same scaffold values the write ships. The fragment arrives from the spool stamped and checked on every field the patch leaves alone, so this per-key comparison gives the same answer as rehashing the patched fragment (`check_stamp`), with one comparison per key instead of a sorted-key dump of the whole fragment, on every recomputed unit the write patches. A difference is a build bug: the parent's workload disagrees with what the worker drafted under."""
+    """Exit if `patch_fragment` would change any of a recomputed fragment's checked scaffold keys (`_CHECKED_SCAFFOLD_KEYS`). Equality at the keys inside the carry projection (`_STAMPED_SCAFFOLD_KEYS`) means the fragment's `content_key` still holds after the patch: those keys are everything the patch can change under the stamp (the group and machine flags, and the codepoints derived from them). Equality at the checked keys outside the projection, the promoted class and the config badge among them, means the drafting-time `check_unit` read the same scaffold values the write ships. The fragment arrives from the arena stamped and checked on every field the patch leaves alone, so this per-key comparison gives the same answer as rehashing the patched fragment (`check_stamp`), with one comparison per key instead of a sorted-key dump of the whole fragment, on every recomputed unit the write patches. A difference is a build bug: the parent's workload disagrees with what the worker drafted under."""
     moved = [key for key in _CHECKED_SCAFFOLD_KEYS if fragment[key] != scaffold[key]]
     if moved:
         inside = [key for key in moved if key in _STAMPED_SCAFFOLD_KEYS]
@@ -702,16 +703,21 @@ def _clone(source: Path, target: Path) -> bool:
     raise OSError(code, os.strerror(code), str(source), None, str(target))
 
 
+def _fragment_bytes(fragment: dict) -> bytes:
+    """Return a fragment's bytes as a shard part holds them (`_ShardWriter`): framed as `_write_json` frames a list element, without the comma before it."""
+    return json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2].encode("ascii")
+
+
 class _ShardWriter:
     """Write classes into byte-capped shard parts one fragment at a time, in the order the build passes them. `open` a class, `add` each fragment (or `add_byte_copied` the bytes of one the previous corpus already holds) and receive its (part index, byte start, byte length), `close` the class to get the relative paths the manifest lists in part order, and `commit` once every class is written. Between calls it holds only the open file handle and the running byte count, so no shard is assembled in the writing process's memory.
 
     The cap is for the browser. The app reads each byte range it fetches, which never crosses a part, as one JavaScript string, and V8's `String::kMaxLength` on a 64-bit build is 2**29 - 24 characters, a byte each in this ASCII-only JSON. When Blink cannot build a body that long, `Response.text()` resolves to an empty string instead of an error, so every fragment in an oversized range fails to parse after a fetch that appeared to succeed, and the app reports each unit as "not where this page was told it would be — the corpus was rebuilt". `SHARD_PART_BYTES` is half that limit, and the other half is headroom.
 
-    A class that fits in one part keeps the bare `units/<class-id>.json` name, so the small classes, the checked-in fixtures and the archived corpora do not change. A larger class is written as `units/<class-id>.000.json`, `units/<class-id>.001.json` and so on: numbered from zero with three digits, every part numbered, and never a bare name beside numbered ones. Both forms sort where `unit_index.class_shard_key` puts the class, because the character after the class id is `.` in both. A class opened with `numbered` uses the numbered form whatever its part count, so a part's path is final as soon as a fragment is added to it; the recomputed spool opens its class this way so that each address is final when the fragment is added.
+    A class that fits in one part keeps the bare `units/<class-id>.json` name, so the small classes, the checked-in fixtures and the archived corpora do not change. A larger class is written as `units/<class-id>.000.json`, `units/<class-id>.001.json` and so on: numbered from zero with three digits, every part numbered, and never a bare name beside numbered ones. Both forms sort where `unit_index.class_shard_key` puts the class, because the character after the class id is `.` in both.
 
     Each fragment is framed as `_write_json` frames a list element, so a part's bytes equal `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"`. Every part stays within the cap except a part holding a single fragment that alone exceeds it.
 
-    The returned spans are byte addresses. The review app's explain panel Range-fetches them, the unit store records them so the next build can read its cached units back, and `unit_cache.locate_prior_fragments` recomputes them from a written part for a record that lacks one. No punctuation falls inside a fragment's own bytes, and `ensure_ascii=True` makes the character count equal the byte offset, so `bytes[start:start + length]` is a standalone JSON value. Changing the `indent`, `ensure_ascii` or `separators` of the dump below breaks this without any error; `rebuild/test_app_index.py` slices every fragment back out to catch it.
+    The returned spans are byte addresses. The review app's explain panel Range-fetches them, the unit store records them so the next build can read its cached units back, and `unit_cache.locate_prior_fragments` recomputes them from a written part for a record that lacks one. No punctuation falls inside a fragment's own bytes, and `ensure_ascii=True` makes the character count equal the byte offset, so `bytes[start:start + length]` is a standalone JSON value. Changing the `indent`, `ensure_ascii` or `separators` of the dump in `_fragment_bytes` breaks this without any error; `rebuild/test_app_index.py` slices every fragment back out to catch it.
 
     A class opened with the previous corpus's part list is written against it. Each part is assumed to be the previous corpus's part, unchanged, for as long as every fragment passed is a byte copy of a fragment already at the offset the writer would put it at, which is the case for a cached unit whose content and patched fields did not change. The first fragment that breaks this, a recomputed one or one at a different offset, turns the part into a staging file holding the same prefix: a clone of the previous file (`_clone`) cut to the prefix, or on a volume that cannot clone, a copy of the prefix. Writing continues from there. A part whose fragments all match and whose previous file ends where this one would end is not written at all. So a class with no changes costs one read of its bytes and no write, and a part with a recomputed unit costs a write from that unit on, plus a copy of the bytes before it where the volume cannot clone, without parsing or serializing any other fragment.
 
@@ -731,12 +737,10 @@ class _ShardWriter:
         self._handle: BinaryIO | None = None
         self._open = False
         self._size = 0
-        self._numbered = False
 
-    def open(self, class_id: str, prior_parts: Sequence[str] = (), *, numbered: bool = False) -> None:
+    def open(self, class_id: str, prior_parts: Sequence[str] = ()) -> None:
         assert self._class_id is None, "close the open class first"
         self._class_id = class_id
-        self._numbered = numbered
         self._prior = [part for part in prior_parts if (self._out_dir / part).is_file()]
         self._parts = []
         self._handle = None
@@ -816,7 +820,7 @@ class _ShardWriter:
         return index, start, len(body)
 
     def add(self, fragment: dict) -> tuple[int, int, int]:
-        body = json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2].encode("ascii")
+        body = _fragment_bytes(fragment)
         index, start, first = self._reserve(len(body))
         return self._emit(body, index, start, first)
 
@@ -839,7 +843,7 @@ class _ShardWriter:
             self._parts.append(path)
         names = (
             [f"{class_id}.{index:03d}.json" for index in range(len(self._parts))]
-            if self._numbered or len(self._parts) > 1
+            if len(self._parts) > 1
             else [f"{class_id}.json"]
         )
         for index, (part, name) in enumerate(zip(self._parts, names, strict=True)):
@@ -896,26 +900,100 @@ def _write_shard(
         writer.abort()
 
 
-RECOMPUTED_SPOOL_NAME = "recomputed.spool.partial"
+ARENA_PART = "arena"
+
+# The preset dictionary every recomputed fragment is deflated against (`_FragmentPacker`). It is a data file and not a module, so neither the unit store's stamp (`unit_cache.corpus_code_paths`) nor the manifest's (`fingerprint.review_code_paths`) hashes it: it cannot change a shard byte, so regenerating it (rebuild/tools/fragment_dictionary.py) forces no recompute.
+FRAGMENT_DICTIONARY = Path(__file__).resolve().parent / "fragment-dictionary.bin"
 
 
-class _FragmentSpool:
-    """Hold one process's freshly drafted fragments on disk between phase 1 and the write. It is a `_ShardWriter` over `<out_dir>/recomputed.spool.partial` with one class named for the drafting process (`serial`, or `w<index>` in the pool). The parts use the shard framing, so a fragment's address reads back through `unit_cache.PriorFragmentReader` the same way a cached fragment is read from the previous corpus. Spooling lets a recomputed unit's `EnrichedUnit` be freed as soon as its fragment is on disk, and lets the write treat recomputed and cached fragments alike: read by address, patched, released. `add` returns the address at once (the class is opened numbered, so the part name is already final) as a `PriorFragment` carrying the drafted stamp, so the read back checks a recomputed fragment against its own key as it does a cached one. The spool does not keep the address: the caller puts it on the unit's projection, which carries it to the parent's unit store. `close` closes and commits the parts. The runner deletes the spool directory whether the build succeeds or fails."""
+class _FragmentPacker:
+    """Deflate one process's freshly drafted fragments for the parent's arena (`_FragmentArena`). `pack` takes a fragment's shard bytes (`_fragment_bytes`), the bytes a shard part holds and the write parses back, and compresses them alone at level 1 against the preset dictionary in the zlib framing, whose header carries the dictionary's Adler-32 and whose trailer carries the content's, so inflating with another dictionary, or from corrupted bytes, raises. A stream cut short or run on inflates without raising, so `_FragmentArena.read` also refuses a span whose stream does not end exactly where the span ends. One compressor is primed with the dictionary when the packer is made and copied for each fragment. A copy gives the bytes a compressor made with the dictionary for each fragment gives, at about 2.3 times the speed, because priming hashes the whole dictionary. A units worker makes one from the dictionary its `init` carries, and the serial path one from the arena's."""
 
-    def __init__(self, out_dir: Path, name: str) -> None:
-        self._writer = _ShardWriter(Path(out_dir) / RECOMPUTED_SPOOL_NAME)
-        self._writer.open(name, numbered=True)
-        self._name = name
+    def __init__(self, dictionary: bytes) -> None:
+        self._primed = zlib.compressobj(1, zdict=dictionary)
 
-    def add(self, fragment: dict) -> unit_cache.PriorFragment:
-        part, start, length = self._writer.add(fragment)
-        return unit_cache.PriorFragment(
-            f"units/{self._name}.{part:03d}.json", start, length, fragment["id"], fragment.get("content_key")
+    def pack(self, fragment: dict) -> tuple[bytes, int]:
+        """Return the fragment's shard bytes deflated, and the length of the shard bytes."""
+        body = _fragment_bytes(fragment)
+        deflater = self._primed.copy()
+        return deflater.compress(body) + deflater.flush(), len(body)
+
+
+class _FragmentArena:
+    """Hold the recomputed units' fragments from phase 1 to the write, each deflated alone (`_FragmentPacker`), end to end in one buffer. A fragment's final bytes and place in the shards depend on whole-corpus passes that run after drafting, so the write cannot take it as it is drafted; held deflated, it costs about a fifth of its shard bytes in the parent and nothing on disk. The parent adds each fragment as it loads the unit's projection (`_load_recomputed`) and records the address `add` returns, the fragment's span under the part name `ARENA_PART`, which names no file, as the unit's source in the unit store. The write reads each one back by that address (`read`), in shard order, which interleaves the units pool's batches. A pooled write's chunk carries an arena of its own that holds only the chunk's recomputed fragments (`gather`), so a write worker receives the fragments it writes and no others.
+
+    `dictionary` is the preset dictionary every packer and every inflate in one build uses. `build_m1` reads `FRAGMENT_DICTIONARY` once, and the runner hands those bytes to the units workers (their `init`) and to this arena, from which the serial path's packer and the write workers (their `shared`) take the same object, so a checkout that changes the file mid-build cannot split a build across two dictionaries. Nothing deflated with it outlives the build: the unit store records each fragment's shard address, and the next build reads a cached fragment from the shards.
+
+    `note` reports the arena's size and the ratio of the fragments' shard bytes to it on the units phase's line, so a dictionary gone stale against the fragment format shows there as a ratio falling toward the one a fragment reaches without a dictionary, about 2.5 to 1. `clear` frees the buffer once the write has read it.
+    """
+
+    def __init__(self, dictionary: bytes) -> None:
+        self.dictionary = dictionary
+        self.count = 0
+        self._bytes = bytearray()
+        self._raw = 0
+
+    def __len__(self) -> int:
+        return len(self._bytes)
+
+    def add(self, packed: bytes, raw_length: int) -> Address:
+        """Append one deflated fragment, whose shard bytes are `raw_length` long, and return its address."""
+        start = len(self._bytes)
+        self._bytes += packed
+        self._raw += raw_length
+        self.count += 1
+        return ARENA_PART, start, len(packed)
+
+    def read(self, located: unit_cache.PriorFragment) -> dict:
+        """Return the fragment at `located`, an address `add` returned, inflated and parsed. Each read is checked against its address, as a prior fragment's is (`unit_cache.PriorFragmentReader.read`): the span must hold exactly one zlib stream under this arena's dictionary, ending where the span ends, and the fragment must be the unit with the stamp the address carries. Otherwise the read raises ValueError."""
+        inflater = zlib.decompressobj(zdict=self.dictionary)
+        try:
+            body = inflater.decompress(self._bytes[located.start : located.start + located.length])
+        except zlib.error as error:
+            raise self._refusal(located, f"it does not inflate ({error})") from None
+        if not inflater.eof or inflater.unused_data:
+            raise self._refusal(located, "its deflated stream does not end where the span ends")
+        fragment = json.loads(body)
+        if (
+            not isinstance(fragment, dict)
+            or fragment.get("id") != located.unit_id
+            or fragment.get("content_key") != located.content_key
+        ):
+            raise self._refusal(located, "it holds another unit or stamp")
+        return fragment
+
+    def _refusal(self, located: unit_cache.PriorFragment, why: str) -> ValueError:
+        return ValueError(
+            f"the arena's bytes {located.start}+{located.length} do not hold unit {located.unit_id}: {why}"
         )
 
-    def close(self) -> None:
-        self._writer.close()
-        self._writer.commit()
+    def gather(self, store: UnitStore) -> _FragmentArena:
+        """Return an arena over one write chunk's recomputed fragments. `store` is the chunk's gathered store (`UnitStore.gather`): each recomputed unit's fragment is copied into the new arena in the chunk's order, and its source in `store` is moved to its place there (`UnitStore.rebase_source`). The new arena shares this one's dictionary object, which the write pool sends each worker once (`_SharedPickler`), so a chunk carries only its fragments."""
+        gathered = _FragmentArena(self.dictionary)
+        for position in range(len(store)):
+            if store.flags(position).cached:
+                continue
+            source = store.source(position)
+            assert source is not None, position
+            store.rebase_source(position, len(gathered._bytes))
+            gathered._bytes += self._bytes[source.start : source.start + source.length]
+            gathered.count += 1
+        return gathered
+
+    def note(self) -> str:
+        """Return the arena's size and the ratio of its fragments' shard bytes to it, for the units phase's line."""
+        if not self._bytes:
+            return "arena empty"
+        return f"arena {len(self._bytes) / 1e9:.2f} GB, deflated {self._raw / len(self._bytes):.2f} to 1"
+
+    def sizes(self) -> tuple[int, int]:
+        """Return the debug tally's reading: the fragments held and the buffer's allocation."""
+        return self.count, sys.getsizeof(self._bytes)
+
+    def clear(self) -> None:
+        self._bytes = bytearray()
+        self.count = 0
+        self._raw = 0
 
 
 def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
@@ -947,7 +1025,7 @@ def _cluster_id(configs, class_id, diffs) -> str:
 
 @dataclass(frozen=True, slots=True)
 class _UnitProjection:
-    """The picklable phase-1 result a corpus worker returns per unit: what the parent's serial whole-corpus passes read and what the unit cache persists. It never includes the EnrichedUnit, which is freed when its batch ends; the fragment is drafted and spooled in the same step, and its spool address (`part`, `start`, `length`) is included here. `ordinal` is the unit's row in the parent's unit store (`audit.Unit.ordinal`), so the parent loads the projection in without a lookup. `input_key` is the unit's cache key over its inputs, which the store records so the next build can reuse the unit by it. `unit_id` and `content_key` are the drafting's stamp. The ink diffs are sent only as two digests of their repr: `diffs_digest` is the duplicate-group key's diff component, and `cluster` is the blank-queue cluster id. The cluster is computed here because everything it depends on is known once the change group is assigned: the configs, the diffs, and the final class (the change group for an UNMATCHED or re-routed unit, else the ledger class). It is computed for machine-approved units too, because the store carries it forward and a cached unit can become a human unit through a ledger edit alone (its `no_verdict` flipping). `change_group` is that group, or empty for a unit that keeps its ledger class, and `ledger_class` is the `ink_identical` class a re-routed unit was taken from, or empty. Sending digests keeps the parent from holding each unit's diffs repr, which is as long as the diffs, through the units phase."""
+    """The picklable phase-1 result a corpus worker returns per unit: what the parent's serial whole-corpus passes read and what the unit cache persists. It never includes the EnrichedUnit, which is freed when its batch ends; the fragment is drafted and deflated in the same step (`_FragmentPacker`), and `packed` carries it, with `raw_length` the length of its shard bytes, to the parent's arena (`_FragmentArena`). `ordinal` is the unit's row in the parent's unit store (`audit.Unit.ordinal`), so the parent loads the projection in without a lookup. `input_key` is the unit's cache key over its inputs, which the store records so the next build can reuse the unit by it. `unit_id` and `content_key` are the drafting's stamp. The ink diffs are sent only as two digests of their repr: `diffs_digest` is the duplicate-group key's diff component, and `cluster` is the blank-queue cluster id. The cluster is computed here because everything it depends on is known once the change group is assigned: the configs, the diffs, and the final class (the change group for an UNMATCHED or re-routed unit, else the ledger class). It is computed for machine-approved units too, because the store carries it forward and a cached unit can become a human unit through a ledger edit alone (its `no_verdict` flipping). `change_group` is that group, or empty for a unit that keeps its ledger class, and `ledger_class` is the `ink_identical` class a re-routed unit was taken from, or empty. Sending digests keeps the parent from holding each unit's diffs repr, which is as long as the diffs, through the units phase."""
 
     unit_id: str
     input_key: str
@@ -965,9 +1043,8 @@ class _UnitProjection:
     junction_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
     mismatches: tuple[str, ...]
     ordinal: int = -1
-    part: str = ""
-    start: int = 0
-    length: int = 0
+    packed: bytes = b""
+    raw_length: int = 0
 
 
 def _phase1_unit(
@@ -978,9 +1055,9 @@ def _phase1_unit(
     drafter: Drafter,
     report,
     identical_classes: Collection[str],
-    spool: _FragmentSpool | None = None,
+    packer: _FragmentPacker | None = None,
 ) -> tuple[_UnitProjection, dict, list[str]]:
-    """Do one unit's per-unit work: the ink flags and deltas, the enrichment, the change group (`change_groups.assign_change_group`) of an UNMATCHED unit or of a unit `change_groups.reroutes` moves out of an `ink_identical` class (`identical_classes`), the drafted fragment (`unit_to_json`), and the drafting-time contract check over it (`check_unit` at `DRAFTED`). A re-routed unit records its ledger class (`Unit.ledger_class`) and drops the exemplar flag its ledger entry gave it, since the change group lists it for what it shows. Returns the projection the parent's whole-corpus passes read, the fragment, and the check's errors, which the caller passes to the write so the build fails there in the same list as the write-time check. With a `spool`, the fragment is spooled as it is drafted and its address is put on the projection; the verification sample passes none and patches the fragment it holds. The deltas go onto the fragment and the projection, never onto the unit, whose `ink_deltas` stays the shared empty mapping in every process. The check runs in whichever process drafts, so the pooled and serial paths check the same way. Drafting here, before the parent's whole-corpus passes, keeps the batch's shapes in the memo for the drafter's replay."""
+    """Do one unit's per-unit work: the ink flags and deltas, the enrichment, the change group (`change_groups.assign_change_group`) of an UNMATCHED unit or of a unit `change_groups.reroutes` moves out of an `ink_identical` class (`identical_classes`), the drafted fragment (`unit_to_json`), and the drafting-time contract check over it (`check_unit` at `DRAFTED`). A re-routed unit records its ledger class (`Unit.ledger_class`) and drops the exemplar flag its ledger entry gave it, since the change group lists it for what it shows. Returns the projection the parent's whole-corpus passes read, the fragment, and the check's errors, which the caller passes to the write so the build fails there in the same list as the write-time check. With a `packer`, the fragment is deflated as it is drafted and put on the projection; the verification sample passes none and patches the fragment it holds. The deltas go onto the fragment and the projection, never onto the unit, whose `ink_deltas` stays the shared empty mapping in every process. The check runs in whichever process drafts, so the pooled and serial paths check the same way. Drafting here, before the parent's whole-corpus passes, keeps the batch's shapes in the memo for the drafter's replay."""
     text = "".join(chr(value) for value in unit.codepoint_values)
     diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
     unit.ink_identical = comparator.ink_identical(text, unit.configs)
@@ -1004,7 +1081,7 @@ def _phase1_unit(
     )
     diffs_repr = repr(diffs).encode()
     fragment = unit_to_json(enriched, drafter, final_class=change_group or None, ink_deltas=ink_deltas)
-    address = spool.add(fragment) if spool is not None else None
+    packed, raw_length = packer.pack(fragment) if packer is not None else (b"", 0)
     projection = _UnitProjection(
         unit_id=unit.unit_id,
         input_key=unit.input_key,
@@ -1025,9 +1102,8 @@ def _phase1_unit(
         ),
         mismatches=tuple(enricher.mismatches[mismatch_mark:]),
         ordinal=unit.ordinal,
-        part=address.part if address is not None else "",
-        start=address.start if address is not None else 0,
-        length=address.length if address is not None else 0,
+        packed=packed,
+        raw_length=raw_length,
     )
     return projection, fragment, check_unit(fragment, at=(DRAFTED,))
 
@@ -1219,7 +1295,7 @@ class _SignatureWrite:
 def _corpus_worker(conn, init: dict) -> None:
     """Run one persistent corpus worker, answering the parent's messages on `conn` until `stop`. Workers are started with spawn only, because uharfbuzz and fontTools C objects are not fork-safe and `drafts._import_test_shaping` sets a module-global singleton.
 
-    A `phase1` message carries one batch of units from the parent's queue and the spool's class name. For each unit the worker runs config_diff, enrichment, drafting and the drafting-time contract check, releasing the shape memo after each settlement batch (`_phase1_batches`). It spools each fragment as it is drafted (`_FragmentSpool`, opened on the first batch and kept across batches), so no EnrichedUnit outlives its batch. It replies `batch` with the batch's projections, each carrying its fragment's spool address and the unit's ordinal, and the check's errors (`check_unit` at `DRAFTED`, capped at `CONTRACT_ERRORS_SHOWN`), and keeps nothing after the reply, so it holds one batch's units and projections at a time. `phase1-done` closes the spool and replies `ok`; the parent reads the fragments back by address itself. `verify` recomputes phase 1 and the patch for cached units, which this worker never enriched, and replies with each one's content key and freshly computed ink deltas. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`).
+    A `phase1` message carries one batch of units from the parent's queue and the worker's name, which names its tally boundaries. For each unit the worker runs config_diff, enrichment, drafting and the drafting-time contract check, releasing the shape memo after each settlement batch (`_phase1_batches`). It deflates each fragment as it is drafted (`_FragmentPacker`, made once from the preset dictionary `init` carries), so no EnrichedUnit outlives its batch. It replies `batch` with the batch's projections, each carrying its deflated fragment and the unit's ordinal, and the check's errors (`check_unit` at `DRAFTED`, capped at `CONTRACT_ERRORS_SHOWN`), and keeps nothing after the reply, so it holds one batch's units and projections at a time. `phase1-done` replies `ok`, which tells the parent the worker has drafted its last batch. `verify` recomputes phase 1 and the patch for cached units, which this worker never enriched, and replies with each one's content key and freshly computed ink deltas. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`).
 
     Each `batch` reply is sent as its batch finishes, so the parent can print progress while the pool is still working. `verify` sends no progress, since it covers only a couple of hundred units.
     """
@@ -1248,7 +1324,7 @@ def _corpus_worker(conn, init: dict) -> None:
         if tally:
             tally.hold_reading("worker.subset_pack", enricher.subset_pack_sizes)
             tally.hold_reading("ink.shape_memo", shape_memo_sizes)
-        spool: _FragmentSpool | None = None
+        packer = _FragmentPacker(init["dictionary"])
         batches = 0
         while True:
             message = conn.recv()
@@ -1256,8 +1332,6 @@ def _corpus_worker(conn, init: dict) -> None:
                 conn.send(("peak", peak_footprint_self_bytes()))
                 return
             if message[0] == "phase1":
-                if spool is None:
-                    spool = _FragmentSpool(init["out_dir"], message[2])
                 batches += 1
                 results: list[_UnitProjection] = []
                 contract_errors: list[str] = []
@@ -1271,7 +1345,7 @@ def _corpus_worker(conn, init: dict) -> None:
                             drafter,
                             report,
                             init["identical_classes"],
-                            spool,
+                            packer,
                         )
                         results.append(projection)
                         _keep_contract_errors(contract_errors, errors)
@@ -1283,9 +1357,6 @@ def _corpus_worker(conn, init: dict) -> None:
                     tally.release("worker.projections")
                 del message, results, contract_errors
             elif message[0] == "phase1-done":
-                if spool is not None:
-                    spool.close()
-                    spool = None
                 conn.send(("ok",))
             elif message[0] == "verify":
                 keys: dict[str, tuple] = {}
@@ -1334,7 +1405,7 @@ def _record_corpus_pool(width: int, peaks: dict[str, int]) -> None:
 
 PHASE1_UNITS = "units enriched"
 
-# The most recomputed units the parent sends a pool worker per `phase1` message. It equals the enricher's settlement batch width, so the hand-out uses the same boundary as the shape-memo release (`_phase1_batches`): a worker holds one batch of units, projections and spool addresses, and a wider hand-out would raise that without changing the memo's bound. It is read through the module global at call time so a test can lower it.
+# The most recomputed units the parent sends a pool worker per `phase1` message. It equals the enricher's settlement batch width, so the hand-out uses the same boundary as the shape-memo release (`_phase1_batches`): a worker holds one batch of units and of projections with their deflated fragments, and a wider hand-out would raise that without changing the memo's bound. It is read through the module global at call time so a test can lower it.
 PHASE1_HANDOUT_UNITS = EXPLAIN_UNIT_BATCH_SIZE
 
 
@@ -1343,9 +1414,12 @@ def _configuration_order(recomputed: Sequence[int], table: UnitTable) -> array:
     return array("I", sorted(recomputed, key=table.config_rank))
 
 
-def _load_recomputed(store: UnitStore, table: UnitTable, projection: _UnitProjection) -> None:
-    """Load one recomputed unit's projection into the store at its ordinal, with the unit's ledger exemption read from the table. The projection is the only way the id and the machine flags pass from the worker to the parent, and the store holds them from here on."""
-    store.load_projection(projection, no_verdict=table.no_verdict(projection.ordinal))
+def _load_recomputed(
+    store: UnitStore, table: UnitTable, arena: _FragmentArena, projection: _UnitProjection
+) -> None:
+    """Load one recomputed unit's projection into the store at its ordinal, with the unit's ledger exemption read from the table, and move its deflated fragment into `arena`, whose address becomes the unit's source. The projection is the only way the id, the machine flags and the fragment pass from the worker to the parent, and the store and the arena hold them from here on."""
+    address = arena.add(projection.packed, projection.raw_length)
+    store.load_projection(projection, no_verdict=table.no_verdict(projection.ordinal), address=address)
 
 
 def _handout_width(recomputed: int, nworkers: int) -> int:
@@ -1376,9 +1450,9 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _RecomputeRunner:
-    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, change-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It spools each fragment as it is drafted (`_FragmentSpool`, under `out_dir`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store as it arrives (`phase1`), and keeps the check's errors in `contract_errors` for the write. The write reads each recomputed fragment back from the spool (`spool_dir`) at the address the store holds, as it reads a cached fragment from the previous corpus.
+    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, change-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It deflates each fragment as it is drafted (`_FragmentPacker`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store and its fragment into the parent's arena (`arena`, a `_FragmentArena` over `dictionary`) as it arrives (`phase1`), and keeps the check's errors in `contract_errors` for the write. The write reads each recomputed fragment back from the arena at the address the store holds, as it reads a cached fragment from the previous corpus.
 
-    Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units, projections and addresses, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and deletes the spool however the build ends.
+    Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units and projections with their deflated fragments, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and frees the arena however the build ends.
     """
 
     def __init__(
@@ -1394,10 +1468,10 @@ class _RecomputeRunner:
         spec_root: Path | None = None,
         *,
         table: UnitTable,
-        out_dir: Path,
         subset_pack: Path,
         identical_classes: frozenset[str],
         corpus_index: dict,
+        dictionary: bytes,
     ) -> None:
         self._recomputed = recomputed
         self._table = table
@@ -1411,9 +1485,7 @@ class _RecomputeRunner:
         self._repo_root = repo_root
         self._corpus_index = corpus_index
         self._spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
-        self._out_dir = Path(out_dir)
-        # Delete a spool a killed build left behind, so the directory holds only what this build writes.
-        shutil.rmtree(self._out_dir / RECOMPUTED_SPOOL_NAME, ignore_errors=True)
+        self.arena = _FragmentArena(dictionary)
         self.contract_errors: list[str] = []
         self._local: tuple | None = None
         self._procs: list = []
@@ -1431,9 +1503,9 @@ class _RecomputeRunner:
                 "subset_pack": self._subset_pack,
                 "repo_root": repo_root,
                 "spec_root": self._spec_root,
-                "out_dir": self._out_dir,
                 "identical_classes": identical_classes,
                 "corpus_index": corpus_index,
+                "dictionary": dictionary,
             }
             ctx = multiprocessing.get_context("spawn")
             for index in range(nworkers):
@@ -1445,41 +1517,36 @@ class _RecomputeRunner:
                 self._conns.append(parent_conn)
 
     def phase1(self, store: UnitStore) -> None:
-        """Enrich and draft every recomputed unit, loading each projection into `store` at its ordinal as it arrives (`_load_recomputed`). The parent holds no projection past the reply that carried it and no unit record past the hand-out that materialized it: the recomputed units are ordinals, and a `Unit` is built from the table and the store (`UnitTable.unit`) for each batch sent to a worker, or one at a time on the serial path. Pooled, each worker spools its batches under its own class name and replies per batch with projections carrying spool addresses, which are loaded here as they arrive (`_drive_phase1`), with at most one reply per worker in flight. Serial, the same loop runs here over one spool, at the enricher's batch width with the memo released after each batch. Either way the EnrichedUnit is freed by the time its batch closes."""
+        """Enrich and draft every recomputed unit, loading each projection into `store` at its ordinal as it arrives (`_load_recomputed`). The parent holds no projection past the reply that carried it and no unit record past the hand-out that materialized it: the recomputed units are ordinals, and a `Unit` is built from the table and the store (`UnitTable.unit`) for each batch sent to a worker, or one at a time on the serial path. Pooled, each worker deflates its batches' fragments and replies per batch with projections carrying them, which are loaded here as they arrive (`_drive_phase1`), with at most one reply per worker in flight. Serial, the same loop runs here with one packer over the arena's dictionary, at the enricher's batch width with the memo released after each batch. Either way the EnrichedUnit is freed by the time its batch closes."""
         if self._conns:
             self._drive_phase1(store)
         elif self._recomputed:
             comparator, oracle, enricher, drafter = self._in_process()
-            spool = _FragmentSpool(self._out_dir, "serial")
+            packer = _FragmentPacker(self.arena.dictionary)
             table = self._table
             done = 0
             materialized = (table.unit(ordinal, store) for ordinal in self._recomputed)
             for unit_batch, reports in _phase1_batches(enricher, materialized):
                 for unit, report in zip(unit_batch, reports):
                     projection, _fragment, errors = _phase1_unit(
-                        unit, comparator, oracle, enricher, drafter, report, self._identical_classes, spool
+                        unit, comparator, oracle, enricher, drafter, report, self._identical_classes, packer
                     )
-                    _load_recomputed(store, table, projection)
+                    _load_recomputed(store, table, self.arena, projection)
                     _keep_contract_errors(self.contract_errors, errors)
                 done += len(unit_batch)
                 self._count(done)
-            spool.close()
 
     @property
     def pooled(self) -> bool:
         """Whether this runner drives a worker pool, in which case the parent spends the units phase waiting in `wait` instead of shaping."""
         return bool(self._conns)
 
-    @property
-    def spool_dir(self) -> Path:
-        """The directory phase 1 spools the recomputed fragments under. A recomputed unit's address in the unit store is relative to it, so the write reads a recomputed fragment back from here with the same reader that reads a cached one from the previous corpus. The fragment comes back as drafted, placeholders included, and the write patches it."""
-        return self._out_dir / RECOMPUTED_SPOOL_NAME
-
     def _count(self, done: int) -> None:
         console.progress(done, len(self._recomputed), PHASE1_UNITS, file=sys.stderr)
 
     def hold_collections(self, tally: memory_tally.MemoryTally) -> None:
-        """Register with the debug tally the one collection this runner holds in the parent: the serial path's subset-pack mapping, once its enricher exists. Pooled, the workers map the pack and tally it at their own batch boundaries, and the parent's reading stays at zero. The spool addresses are unit-store columns, which the store reports itself."""
+        """Register with the debug tally the two collections this runner holds in the parent: the arena of deflated fragments, which reads empty once `close` frees it, and the serial path's subset-pack mapping, once its enricher exists. Pooled, the workers map the pack and tally it at their own batch boundaries, and the parent's reading stays at zero. The arena addresses are unit-store columns, which the store reports itself."""
+        tally.hold_reading("runner.arena", self.arena.sizes)
         tally.hold_reading(
             "runner.subset_pack", lambda: self._local[2].subset_pack_sizes() if self._local else (0, 0)
         )
@@ -1506,7 +1573,7 @@ class _RecomputeRunner:
                 reply = conn.recv()
                 if reply[0] == "batch":
                     for projection in reply[1]:
-                        _load_recomputed(store, table, projection)
+                        _load_recomputed(store, table, self.arena, projection)
                     _keep_contract_errors(self.contract_errors, reply[2])
                     done += len(reply[1])
                     del reply
@@ -1605,14 +1672,14 @@ class _RecomputeRunner:
         self._conns = []
 
     def close(self) -> None:
-        """Stop the pool if `stop_workers` has not, and delete the recomputed spool. The write's readers are closed by the time this runs, since the write returns or raises first, so nothing holds one of the spool's parts open."""
+        """Stop the pool if `stop_workers` has not, and free the arena. The write has returned or raised by the time this runs, so nothing reads the arena after it."""
         self.stop_workers()
-        shutil.rmtree(self._out_dir / RECOMPUTED_SPOOL_NAME, ignore_errors=True)
+        self.arena.clear()
 
 
 @dataclass(frozen=True, slots=True)
 class _Emission:
-    """One unit as the write receives it. Either `fragment` is set, a fragment to serialize (recomputed from the spool, or cached but patched again because a field the whole-corpus passes or the ledger write changed), or `body` is set, the bytes of a cached fragment the previous corpus holds exactly as this build would write them, with `source`, the address they are at, and `identity`, the slim identity the cross-unit checks and the sidecars read. `content_key` and `policy_file` come from the fragment or the store record alike; the store keeps them past the write."""
+    """One unit as the write receives it. Either `fragment` is set, a fragment to serialize (recomputed, from the arena, or cached but patched again because a field the whole-corpus passes or the ledger write changed), or `body` is set, the bytes of a cached fragment the previous corpus holds exactly as this build would write them, with `source`, the address they are at, and `identity`, the slim identity the cross-unit checks and the sidecars read. `content_key` and `policy_file` come from the fragment or the store record alike; the store keeps them past the write."""
 
     unit_id: str
     content_key: str
@@ -1627,10 +1694,10 @@ def _emissions(
     ordinals: Iterable[int],
     table: UnitTable,
     store: UnitStore,
-    spool: unit_cache.PriorFragmentReader,
+    arena: _FragmentArena,
     prior: unit_cache.PriorFragmentReader,
 ) -> Iterator[_Emission]:
-    """Yield the units at `ordinals` as the write receives them, one at a time, each read by the address the store holds for it. A recomputed fragment is read from the spool (`spool`), patched with this build's scaffold, ink deltas, ledger class and primary units through `patch_fragment` (on a unit record materialized for the patch), and checked by `check_scaffold`. A cached fragment is read from the previous corpus (`prior`). When `UnitStore.cached_as_is` says every field the patch would write already matches, it is yielded as bytes without parsing, which lets the shard writer leave it, and a part made only of such fragments, in place, and its identity is read from the columns (`_cached_identity`). Otherwise it is parsed, patched and serialized again. A fragment that no longer reads back as the unit and stamp at its address stops the build."""
+    """Yield the units at `ordinals` as the write receives them, one at a time, each read by the address the store holds for it. A recomputed fragment is read from the arena (`arena`), patched with this build's scaffold, ink deltas, ledger class and primary units through `patch_fragment` (on a unit record materialized for the patch), and checked by `check_scaffold`. A cached fragment is read from the previous corpus (`prior`). When `UnitStore.cached_as_is` says every field the patch would write already matches, it is yielded as bytes without parsing, which lets the shard writer leave it, and a part made only of such fragments, in place, and its identity is read from the columns (`_cached_identity`). Otherwise it is parsed, patched and serialized again. A fragment that no longer reads back as the unit and stamp at its address stops the build."""
     for ordinal in ordinals:
         recomputed_unit = not store.flags(ordinal).cached
         source = store.source(ordinal)
@@ -1638,7 +1705,7 @@ def _emissions(
         junction_assign = store.primary_units(ordinal)
         try:
             if recomputed_unit:
-                fragment = spool.read(source)
+                fragment = arena.read(source)
             elif store.cached_as_is(
                 ordinal,
                 class_id=table.class_id(ordinal),
@@ -1847,10 +1914,9 @@ class _ClassToWrite:
 
 @dataclass(frozen=True)
 class _WriteSettings:
-    """What every run of the write shares: the corpus directory, the recomputed spool's directory, whether the previous sidecars may be copied forward, the checker's batch size and repo root, and the ids some unit names as its primary unit (`UnitStore.primary_unit_ids`), whose identities the checkers keep (`_CorpusCheck`'s `identity_for`)."""
+    """What every run of the write shares: the corpus directory, whether the previous sidecars may be copied forward, the checker's batch size and repo root, and the ids some unit names as its primary unit (`UnitStore.primary_unit_ids`), whose identities the checkers keep (`_CorpusCheck`'s `identity_for`)."""
 
     out_dir: Path
-    spool_dir: Path
     copy_forward: bool
     batch_size: int
     repo_root: Path
@@ -1868,11 +1934,12 @@ class _ClassHeader:
 
 @dataclass(frozen=True, slots=True)
 class _Chunk:
-    """A stretch of one class's units in the class's order, as the write receives it: a table and a store to read them from at `ordinals`, the class's header on its first chunk, and whether it is the class's last. The serial write takes each class as one chunk over the full table and store at the class's ordinals. A write worker takes chunks of `WRITE_CHUNK_UNITS` units, each over a table and a store gathered for its units alone (`UnitTable.gather`, `UnitStore.gather`) and read at positions 0 onward."""
+    """A stretch of one class's units in the class's order, as the write receives it: a table and a store to read them from at `ordinals`, the arena that holds their recomputed fragments at the addresses the store gives, the class's header on its first chunk, and whether it is the class's last. The serial write takes each class as one chunk over the full table, store and arena at the class's ordinals. A write worker takes chunks of `WRITE_CHUNK_UNITS` units, each over a table and a store gathered for its units alone (`UnitTable.gather`, `UnitStore.gather`) and read at positions 0 onward, and an arena of their recomputed fragments alone (`_FragmentArena.gather`)."""
 
     header: _ClassHeader | None
     table: UnitTable
     store: UnitStore
+    arena: _FragmentArena
     ordinals: Sequence[int]
     last: bool
 
@@ -1932,7 +1999,7 @@ def _class_meta(entry: _ClassToWrite, table: UnitTable, store: UnitStore) -> dic
     }
 
 
-# The units in one chunk of the write (`_write_chunks`), the units pool's hand-out width (`PHASE1_HANDOUT_UNITS`). A write worker holds one chunk's columns at a time, under 2 MB at this width, and a chunk takes it long enough to write that the parent's turn between chunks is a small share of it. It is read through the module global at call time so a test can lower it.
+# The units in one chunk of the write (`_write_chunks`), the units pool's hand-out width (`PHASE1_HANDOUT_UNITS`). A write worker holds one chunk's columns and recomputed fragments at a time, under 2 MB of columns at this width and about 4 MB of fragments when every unit was recomputed, and a chunk takes it long enough to write that the parent's turn between chunks is a small share of it. It is read through the module global at call time so a test can lower it.
 WRITE_CHUNK_UNITS = PHASE1_HANDOUT_UNITS
 
 
@@ -1941,22 +2008,25 @@ def _write_chunks(
     table: UnitTable,
     store: UnitStore,
     metas: dict[str, dict],
+    arena: _FragmentArena,
     width: int | None = None,
 ) -> Iterator[_Chunk]:
-    """Yield a run's classes as the write receives them, computing each class's manifest record as its first chunk is made (`_class_meta`) and keeping it in `metas` for the manifest. Without a `width`, each class is one chunk over the full table and store at the class's ordinals, which is the serial write. With one, each class is cut into chunks of `width` units in its order, a class with no units into one empty chunk, each over a table and a store gathered for its units alone, which a write worker reads by position."""
+    """Yield a run's classes as the write receives them, computing each class's manifest record as its first chunk is made (`_class_meta`) and keeping it in `metas` for the manifest. Without a `width`, each class is one chunk over the full table, store and arena at the class's ordinals, which is the serial write. With one, each class is cut into chunks of `width` units in its order, a class with no units into one empty chunk, each over a table, a store and an arena gathered for its units alone, which a write worker reads by position."""
     for entry in run:
         meta = metas[entry.id] = _class_meta(entry, table, store)
         header = _ClassHeader(entry.id, meta, entry.prior_parts)
         ordinals = entry.ordinals
         if width is None:
-            yield _Chunk(header, table, store, ordinals, True)
+            yield _Chunk(header, table, store, arena, ordinals, True)
             continue
         for offset in range(0, max(len(ordinals), 1), width):
             members = ordinals[offset : offset + width]
+            gathered = store.gather(members)
             yield _Chunk(
                 header if offset == 0 else None,
                 table.gather(members),
-                store.gather(members),
+                gathered,
+                arena.gather(gathered),
                 range(len(members)),
                 offset + width >= len(ordinals),
             )
@@ -1969,10 +2039,9 @@ def _write_chunk(
     check: _CorpusCheck,
     writer: _ShardWriter,
     sidecars: _SidecarLines,
-    spool: unit_cache.PriorFragmentReader,
     prior: unit_cache.PriorFragmentReader,
 ) -> _ChunkWritten:
-    """Write one chunk of the open class: each unit's fragment into the class's shard parts through `writer`, its sidecar lines onto `sidecars`, and each fragment through `check` at `PATCHED`. Each fragment is written, checked, projected and released before the next is read, so the process holds one fragment at a time beside the chunk's per-unit results. A fragment's content key must equal the one the store already holds for its unit, since the fragment was drafted or cached under it. The class's last chunk closes the class, which names its parts and runs its class-level checks. Nothing is written into the table or the store, so a worker can write from a chunk of both."""
+    """Write one chunk of the open class: each unit's fragment, read from the chunk's arena or from the previous corpus (`prior`), into the class's shard parts through `writer`, its sidecar lines onto `sidecars`, and each fragment through `check` at `PATCHED`. Each fragment is written, checked, projected and released before the next is read, so the process holds one fragment at a time beside the chunk's per-unit results. A fragment's content key must equal the one the store already holds for its unit, since the fragment was drafted or cached under it. The class's last chunk closes the class, which names its parts and runs its class-level checks. Nothing is written into the table, the store or the arena, so a worker can write from a chunk of each."""
     table, store, ordinals = chunk.table, chunk.store, chunk.ordinals
     parts = array("H")
     starts = array("Q")
@@ -1990,7 +2059,9 @@ def _write_chunk(
         return found
 
     byte_copied = 0
-    for ordinal, emission in zip(ordinals, _emissions(ordinals, table, store, spool, prior), strict=True):
+    for ordinal, emission in zip(
+        ordinals, _emissions(ordinals, table, store, chunk.arena, prior), strict=True
+    ):
         assert emission.unit_id == store.unit_id(ordinal), (emission.unit_id, ordinal)
         if emission.fragment is not None:
             fragment = emission.fragment
@@ -2037,10 +2108,9 @@ def _write_run(
     settings: _WriteSettings,
     keep: Callable[[_ChunkWritten], None],
 ) -> _RunWritten:
-    """Write one run of classes (`_write_runs`), in shard order, from its chunks, with a shard writer, its sidecar lines (`_SidecarLines`), a checker and two fragment readers of its own: one over the recomputed spool and one over the previous corpus. A chunk with a header opens its class. Each chunk's results go to `keep` as soon as the chunk is written, and the chunk is dropped before the next is drawn, so the run holds one chunk and one chunk's results at a time beside its compressed sidecar lines. The shard parts stay staged and the sidecar lines compressed in memory, for the parent, which commits the parts once every run has written and writes the sidecars from the lines once the manifest is written. A run that raises deletes what it staged."""
+    """Write one run of classes (`_write_runs`), in shard order, from its chunks, with a shard writer, its sidecar lines (`_SidecarLines`), a checker and a reader over the previous corpus of its own; each chunk brings the arena its recomputed fragments are read from. A chunk with a header opens its class. Each chunk's results go to `keep` as soon as the chunk is written, and the chunk is dropped before the next is drawn, so the run holds one chunk and one chunk's results at a time beside its compressed sidecar lines. The shard parts stay staged and the sidecar lines compressed in memory, for the parent, which commits the parts once every run has written and writes the sidecars from the lines once the manifest is written. A run that raises deletes what it staged."""
     writer = _ShardWriter(settings.out_dir)
     sidecars = _SidecarLines(settings.out_dir, copy_forward=settings.copy_forward)
-    spool = unit_cache.PriorFragmentReader(settings.spool_dir)
     prior = unit_cache.PriorFragmentReader(settings.out_dir)
     check = _CorpusCheck(
         mode="m1-audit",
@@ -2059,7 +2129,7 @@ def _write_run(
                 class_id, offset = chunk.header.id, 0
                 writer.open(class_id, chunk.header.prior_parts)
                 check.class_start(chunk.header.meta)
-            keep(_write_chunk(chunk, class_id, offset, check, writer, sidecars, spool, prior))
+            keep(_write_chunk(chunk, class_id, offset, check, writer, sidecars, prior))
             offset += len(chunk.ordinals)
             del chunk
         run, lines = sidecars.close()
@@ -2069,7 +2139,6 @@ def _write_run(
         sidecars.release()
         raise
     finally:
-        spool.close()
         prior.close()
 
 
@@ -2101,7 +2170,7 @@ def _write_width(classes: Sequence[_ClassToWrite], fit: int) -> int:
 
 
 class _SharedPickler(pickle.Pickler):
-    """Pickle a message to a write worker with the objects in `shared` left out, each replaced by its index there. Those are the string table and the workload table's pools, which every chunk's table and store refer to: a worker receives them once, as it starts, and `_SharedUnpickler` puts its own copies back, so a chunk carries only its rows."""
+    """Pickle a message to a write worker with the objects in `shared` left out, each replaced by its index there. Those are the string table and the workload table's pools, which every chunk's table and store refer to, and the preset dictionary every chunk's arena refers to (`_FragmentArena.gather`): a worker receives them once, as it starts, and `_SharedUnpickler` puts its own copies back, so a chunk carries only its rows and its fragments."""
 
     def __init__(self, handle: BinaryIO, shared: Sequence[object]) -> None:
         super().__init__(handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -2148,7 +2217,7 @@ def _write_failed(reply: tuple) -> NoReturn:
 
 
 def _write_worker(conn, settings: _WriteSettings, shared: tuple) -> None:
-    """Run one persistent write worker, answering the parent's messages on `conn` until `stop`. `shared` holds the string table and the workload table's pools, which the parent sends once, as the worker starts; every message after that comes through `_SharedPickler` and refers to them. A `run` message carries a run's index and its first chunk, and the worker writes the run (`_write_run`) a chunk at a time, holding only the chunk it is writing, since neither it nor the run keeps a chunk once written: it replies `written` with each chunk's results, the parent answers with the run's next chunk or, after its last, with `end`, and the worker then replies `run` with the run's renames, sidecar counts and locator block entries. It keeps the run's compressed sidecar lines (`_RunWritten.lines`) beside those of every run it wrote before, until the parent asks for them once the manifest is written: a `lines` message names a run and a sidecar, and the worker replies `lines` and then sends those lines as raw bytes, so they are never pickled, and drops its copy. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`). A `SystemExit` raised by the write, such as a fragment that does not read back, replies `exit` with its message, and any other exception replies `error` with its traceback; either ends the worker. Workers are started with spawn only, as the units pool's are (`_corpus_worker`)."""
+    """Run one persistent write worker, answering the parent's messages on `conn` until `stop`. `shared` holds the string table, the workload table's pools and the preset dictionary, which the parent sends once, as the worker starts; every message after that comes through `_SharedPickler` and refers to them. A `run` message carries a run's index and its first chunk, and the worker writes the run (`_write_run`) a chunk at a time, holding only the chunk it is writing, since neither it nor the run keeps a chunk once written: it replies `written` with each chunk's results, the parent answers with the run's next chunk or, after its last, with `end`, and the worker then replies `run` with the run's renames, sidecar counts and locator block entries. It keeps the run's compressed sidecar lines (`_RunWritten.lines`) beside those of every run it wrote before, until the parent asks for them once the manifest is written: a `lines` message names a run and a sidecar, and the worker replies `lines` and then sends those lines as raw bytes, so they are never pickled, and drops its copy. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`). A `SystemExit` raised by the write, such as a fragment that does not read back, replies `exit` with its message, and any other exception replies `error` with its traceback; either ends the worker. Workers are started with spawn only, as the units pool's are (`_corpus_worker`)."""
 
     def chunks(held: list[_Chunk]) -> Iterator[_Chunk]:
         yield held.pop()
@@ -2189,7 +2258,7 @@ def _write_worker(conn, settings: _WriteSettings, shared: tuple) -> None:
 
 
 class _WritePool:
-    """The write's worker processes. Each receives the string table and the workload table's pools once, as it starts, and then the units it writes one chunk at a time, gathered by the parent (`_write_chunks`), so no worker holds the corpus's columns. `write` hands out the runs largest first, one per worker at a time, each worker taking the next as it finishes one. Within a run the parent keeps each worker's next chunk gathered ahead and held only as its pickled message, so no chunk outlives its gather: a worker that replies with a chunk's results receives the next at once, and the parent gathers and pickles the one after while the worker writes. Each chunk's results and each run's go to the caller as they arrive, in whatever order the workers finish them. A worker keeps the compressed sidecar lines of every run it wrote, and `lines` pulls one run's lines for one sidecar from the worker that wrote the run, so the pool stays up while the parent writes the manifest and then the sidecars (`_write_sidecars`). `close` stops the workers and writes the pool record of their peak footprints and the parent's, or, after a failure, terminates them."""
+    """The write's worker processes. Each receives the string table, the workload table's pools and the preset dictionary once, as it starts, and then the units it writes one chunk at a time, with their recomputed fragments, gathered by the parent (`_write_chunks`), so no worker holds the corpus's columns. `write` hands out the runs largest first, one per worker at a time, each worker taking the next as it finishes one. Within a run the parent keeps each worker's next chunk gathered ahead and held only as its pickled message, so no chunk outlives its gather: a worker that replies with a chunk's results receives the next at once, and the parent gathers and pickles the one after while the worker writes. Each chunk's results and each run's go to the caller as they arrive, in whatever order the workers finish them. A worker keeps the compressed sidecar lines of every run it wrote, and `lines` pulls one run's lines for one sidecar from the worker that wrote the run, so the pool stays up while the parent writes the manifest and then the sidecars (`_write_sidecars`). `close` stops the workers and writes the pool record of their peak footprints and the parent's, or, after a failure, terminates them."""
 
     def __init__(self, width: int, settings: _WriteSettings, shared: tuple) -> None:
         ctx = multiprocessing.get_context("spawn")
@@ -2334,14 +2403,14 @@ def _write_corpus(
     draft_lines: Sequence[str],
     sections: Mapping[str, str],
     ledger: Sequence[LedgerClass],
-    spool_dir: Path,
+    arena: _FragmentArena,
     write_jobs: int,
     tally: memory_tally.MemoryTally | None = None,
     spec_root: Path | None = None,
 ) -> _WrittenCorpus:
     """Write the per-unit fragments into shards, copy the fonts, and write the manifest and the sidecars. The manifest's triage index, `human_unit_ids`, is the human units taken in `order`, the permutation `audit.sort_for_triage` returned; a batch is a slice of it. Every per-unit value read here is a column of `table` or `store`, indexed by ordinal. `classes` arrive in manifest order and `sections` holds the section `build_m1` computed for each; `ledger` is every ledger entry, reached or not, for the manifest's `ledger_classes` lookup.
 
-    Fragments are written in shard order: classes in `unit_index.class_shard_key` order, which is also the sidecars' order, and each class's units by id (`store.id_word`, which sorts like the id strings). So a class's fragments and its locator rows ascend together, and a recomputed unit is placed by its content, not by its queue position. The classes are cut into runs, contiguous stretches of that order (`_write_runs`), and each run is written by `_write_run` with its own shard writer, sidecar lines and fragment readers, so runs can be written at once. The width is `write_jobs`, the most workers that fit, narrowed by `_write_width` and to the number of runs. Above one, a pool of that many worker processes writes the runs (`_WritePool`), each worker from chunks of `WRITE_CHUNK_UNITS` units that the parent gathers from the table and the store for it (`_write_chunks`); at one, this process writes the one run, which is the whole corpus, from the full table and store. Either way the parent computes each class's manifest record from its columns, receives each chunk's per-unit addresses, config notes and policy files and its checker's facts, and as each chunk arrives writes the per-unit values into the store, holding each unit's part index until its class closes and names its parts, and folds the facts in (`_CorpusCheck.absorb`). Once every run is in, it renames the staged parts and writes the manifest, and then writes the sidecars from the runs' compressed lines in shard order (`_write_sidecars`), pulling one run's lines for one sidecar at a time: from the worker that wrote the run, which keeps them until then, so the pool stays up until the sidecars are written, or at one, from the run this process wrote. So every output file is byte for byte what a single serial pass over the corpus writes. Nothing is committed until every run has written, and a failed run deletes what any run staged (`_discard_runs`), so the previous corpus stays intact.
+    Fragments are written in shard order: classes in `unit_index.class_shard_key` order, which is also the sidecars' order, and each class's units by id (`store.id_word`, which sorts like the id strings). So a class's fragments and its locator rows ascend together, and a recomputed unit is placed by its content, not by its queue position. The classes are cut into runs, contiguous stretches of that order (`_write_runs`), and each run is written by `_write_run` with its own shard writer, sidecar lines and reader over the previous corpus, so runs can be written at once. A recomputed fragment is read from `arena`, the runner's arena of deflated fragments. The width is `write_jobs`, the most workers that fit, narrowed by `_write_width` and to the number of runs. Above one, a pool of that many worker processes writes the runs (`_WritePool`), each worker from chunks of `WRITE_CHUNK_UNITS` units that the parent gathers from the table, the store and the arena for it (`_write_chunks`); at one, this process writes the one run, which is the whole corpus, from the full table, store and arena. Either way the parent computes each class's manifest record from its columns, receives each chunk's per-unit addresses, config notes and policy files and its checker's facts, and as each chunk arrives writes the per-unit values into the store, holding each unit's part index until its class closes and names its parts, and folds the facts in (`_CorpusCheck.absorb`). Once every run is in, it renames the staged parts and writes the manifest, and then writes the sidecars from the runs' compressed lines in shard order (`_write_sidecars`), pulling one run's lines for one sidecar at a time: from the worker that wrote the run, which keeps them until then, so the pool stays up until the sidecars are written, or at one, from the run this process wrote. So every output file is byte for byte what a single serial pass over the corpus writes. Nothing is committed until every run has written, and a failed run deletes what any run staged (`_discard_runs`), so the previous corpus stays intact.
 
     `check_shards`' predicates run over the fragments as they pass, through the same `_CorpusCheck` the whole-corpus form uses, at `PATCHED` only plus every cross-unit predicate (`check_unit` describes the two subsets): each class's per-unit and class-level predicates in the process that writes it, and the cross-unit predicates once over the folded checker. A failing build's errors follow the order the chunks arrive in, so in a pooled write their order, and which of two clusters a duplicate group is reported against, can differ from a serial write's. `unit_errors` holds what the drafting-time check found, and those errors fail the build here in the same `contract check failed` list as the write's own. `cached_count` is the number of units the cache supplied, and decides whether the shards are written against the previous corpus and whether the previous sidecars may be copied forward.
 
@@ -2371,9 +2440,7 @@ def _write_corpus(
         and unit_index.index_is_current(out_dir)
         and app_index.artifact_is_current(out_dir, app_index.APP_INDEX_NAME, app_index.APP_INDEX_FORMAT)
     )
-    settings = _WriteSettings(
-        out_dir, Path(spool_dir), copy_forward, batch_size, repo_root, store.primary_unit_ids()
-    )
+    settings = _WriteSettings(out_dir, copy_forward, batch_size, repo_root, store.primary_unit_ids())
     width = _write_width(to_write, write_jobs)
     runs = _write_runs(to_write, width)
     jobs = min(width, len(runs))
@@ -2427,16 +2494,20 @@ def _write_corpus(
     committed = False
     try:
         if jobs > 1:
-            pool = _WritePool(jobs, settings, (table.strings, table.tuples, table.groups, table.mappings))
+            pool = _WritePool(
+                jobs, settings, (table.strings, table.tuples, table.groups, table.mappings, arena.dictionary)
+            )
             pool.write(
                 runs,
-                partial(_write_chunks, table=table, store=store, metas=metas, width=WRITE_CHUNK_UNITS),
+                partial(
+                    _write_chunks, table=table, store=store, metas=metas, arena=arena, width=WRITE_CHUNK_UNITS
+                ),
                 keep,
                 keep_run,
             )
         else:
             for index, run in enumerate(runs):
-                keep_run(_write_run(index, _write_chunks(run, table, store, metas), settings, keep))
+                keep_run(_write_run(index, _write_chunks(run, table, store, metas, arena), settings, keep))
         for index in range(len(runs)):
             for staging, target in written[index].pending:
                 staging.replace(target)
@@ -2805,10 +2876,10 @@ def build_m1(
         verify_units,
         spec_root=spec_root,
         table=table,
-        out_dir=out_dir,
         subset_pack=subset_pack,
         identical_classes=identical_classes,
         corpus_index=corpus_index,
+        dictionary=FRAGMENT_DICTIONARY.read_bytes(),
     )
     try:
         if runner.pooled:
@@ -2908,10 +2979,10 @@ def build_m1(
         _phase_timing(
             "review.build units",
             phase,
-            f"jobs={units_jobs} ({gate_lane + '; ' if gate_lane else ''}recomputed={len(recomputed):,}, verified={len(verified):,} cached)",
+            f"jobs={units_jobs} ({gate_lane + '; ' if gate_lane else ''}recomputed={len(recomputed):,}, verified={len(verified):,} cached; {runner.arena.note()})",
         )
 
-        # The write (phase 2) reads each unit's fragment by the address the store holds for it (`_emissions`): a recomputed one from the runner's spool, a cached one from the previous corpus, copied as bytes when nothing the patch writes has changed. It writes the shards, the sidecars and the manifest, checking each fragment as it passes (`_write_corpus`). The units pool is stopped first, so the write's own pool starts in the memory a units pool started now would hold, read off the gate lane's state again as the units pool's width was (`artifact_cycle.corpus_write_job_budget`). This runs inside the runner's `try` because the spool belongs to the runner.
+        # The write (phase 2) reads each unit's fragment by the address the store holds for it (`_emissions`): a recomputed one from the runner's arena, a cached one from the previous corpus, copied as bytes when nothing the patch writes has changed. It writes the shards, the sidecars and the manifest, checking each fragment as it passes (`_write_corpus`). The units pool is stopped first, so the write's own pool starts in the memory a units pool started now would hold, read off the gate lane's state again as the units pool's width was (`artifact_cycle.corpus_write_job_budget`). This runs inside the runner's `try` because the arena belongs to the runner, which frees it once the write is done.
         runner.stop_workers()
         console.phase("review.build manifest+check", file=sys.stderr)
         phase = time.perf_counter()
@@ -2948,7 +3019,7 @@ def build_m1(
             draft_lines=draft_lines,
             sections=sections,
             ledger=workload.ledger,
-            spool_dir=runner.spool_dir,
+            arena=runner.arena,
             write_jobs=write_jobs,
             tally=tally,
             spec_root=spec_root,

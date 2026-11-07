@@ -1,0 +1,1286 @@
+_data/runes/qsHe.yaml:stances.half.surface.exits.x-height]\n  decided by: join-count (over full entry=none junction=none)\n  note: glyph_data/runes/qsHe.yaml:stances.half.surface.exits.x-height\n  note: glyph_data/runes/qsHe.yaml:policy.extend[0]\n  settled: qsHe.full.ex-y0.ex-ext-1   junction=baseline   extension=1\n\nposition 3: qsSee\n  candidates (join-count = left junction + own junction + optimistic prospect):\n  -> normal           entry=baseline   junction=none       join-count=1 prospect=0\n     curled-over      entry=baseline   junction=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (entry-binding) qsSee.straighter: no available entry row at baseline against the committed junction\n    - (entry-binding) qsSee.straightest: no available entry row at baseline against the committed junction\n  decided by: order (over curled-over entry=baseline junction=none)\n  settled: qsSee.normal.en-y0   junction=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsHe.yaml:stances.half.surface.exits.x-height",
+   "glyph_data/runes/qsHe.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\\\u00b7 | \u00b7Cheer | \u00b7He ~b~ \u00b7See",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsHe.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{exit: baseline, when: {right: {family: [qsSee]}}, why: 'Reviewer rejected the M1 outcome for 00B7:E65E:E662:E65A (\u00b7 \u00b7Cheer\u00b7He\u00b7See)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsHe.yaml:stances.half.surface.exits.x-height",
+     "glyph_data/runes/qsHe.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for 00B7:E65E:E662:E65A (\u00b7 \u00b7Cheer\u00b7He\u00b7See)"
+   },
+   "any_of": {
+    "text": "\u00b7 qsCheer qsHe qsSee",
+    "features": {},
+    "candidates": [
+     "\\\u00b7 | \u00b7Cheer | \u00b7He ~b~ \u00b7See",
+     "\\\u00b7 | \u00b7Cheer ~b~ \u00b7He | \u00b7See"
+    ]
+   }
+  },
+  "content_key": "0000c7a2da7708346e1046e3ee471850090c7b51ffb9b98bfa6a221b38dda0d1"
+ }
+ {
+  "id": "u-115gVozaQzJ",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-36331a1d640b",
+   "ss03": "d-36331a1d640b",
+   "ss04": "d-36331a1d640b",
+   "ss05": "d-36331a1d640b",
+   "ss03+ss05": "d-36331a1d640b"
+  },
+  "no_verdict": false,
+  "duplicate_group": "e-ZvrdiPZxw8d",
+  "cluster": "c-6777dc8c",
+  "class": "same-joins-same-width",
+  "ledger_class": null,
+  "group": "qsNo:qsAh",
+  "codepoints": "E666:E676:E665",
+  "text_entities": "&#xE666;&#xE676;&#xE665;",
+  "notation": "\u00b7No\u00b7Ah\u00b7May",
+  "notation_tokens": [
+   "\u00b7No",
+   "\u00b7Ah",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "config_classes": {
+   "default": "UNMATCHED",
+   "ss03": "UNMATCHED",
+   "ss04": "UNMATCHED",
+   "ss05": "UNMATCHED",
+   "ss03+ss05": "UNMATCHED"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsNo.alt.en-y0.ex-y0",
+    "qsAh.ex-ext-1",
+    "qsMay.en-y5"
+   ],
+   "junctions": [
+    "y0",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsNo/flipped/None/baseline/",
+    "qsAh/sole/baseline/x-height/ex-ext-1",
+    "qsMay/loop/x-height/None/"
+   ],
+   "junctions": [
+    "y0",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    1
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 650,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 700,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_junctions": null,
+  "summary": "New: \u00b7No keeps the same junctions but settles as a different cell (flipped, entry none, exit baseline) \u2014 decided by qsAh.yaml policy.extend[0] (join-count rank).",
+  "explain": "sequence E666:E676:E665   config default\nsettled: qsNo.flipped.ex-y0 qsAh.sole.en-y0.ex-y5.ex-ext-1 qsMay.loop.en-y5\n\nposition 0: qsNo\n  candidates (join-count = left junction + own junction + optimistic prospect):\n  -> flipped          entry=none       junction=baseline   join-count=2 prospect=1\n     loop             entry=none       junction=none       join-count=1 prospect=1\n     flipped          entry=none       junction=none       join-count=1 prospect=1\n  eliminated before ranking:\n    - (lookahead-closure) qsNo.loop: exit x-height has no refusal-aware acceptor cell on qsAh\n  decided by: join-count (over loop entry=none junction=none)\n  settled: qsNo.flipped.ex-y0   junction=baseline   extension=0\n\nposition 1: qsAh\n  candidates (join-count = left junction + own junction + optimistic prospect):\n  -> sole             entry=baseline   junction=x-height   join-count=2 prospect=0\n     sole             entry=baseline   junction=none       join-count=1 prospect=0\n  decided by: join-count (over sole entry=baseline junction=none)\n  note: glyph_data/runes/qsAh.yaml:policy.extend[0]\n  settled: qsAh.sole.en-y0.ex-y5.ex-ext-1   junction=x-height   extension=1",
+  "provenance": [
+   "glyph_data/runes/qsAh.yaml:policy.extend[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7No ~b~ \u00b7Ah ~x~ \u00b7May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsNo.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {entry: baseline}, over: {entry: none}, mode: absolute, when: {right: {family: [qsAh]}}, why: 'Reviewer rejected the M1 outcome for E666:E676:E665 (\u00b7No\u00b7Ah\u00b7May)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsAh.yaml:policy.extend[0]"
+    ],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E666:E676:E665 (\u00b7No\u00b7Ah\u00b7May)"
+   },
+   "any_of": {
+    "text": "qsNo qsAh qsMay",
+    "features": {},
+    "candidates": [
+     "\u00b7No ~b~ \u00b7Ah ~x~ \u00b7May"
+    ]
+   }
+  },
+  "content_key": "00022134c4c6522f1f521f8a9cd5e147fca57c5aea54f252e3cbbc144c671182"
+ }
+ {
+  "id": "u-11N98LmSniP",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-9df007ed88b5",
+   "ss03": "d-9df007ed88b5",
+   "ss04": "d-9df007ed88b5",
+   "ss05": "d-9df007ed88b5",
+   "ss03+ss05": "d-9df007ed88b5"
+  },
+  "no_verdict": false,
+  "duplicate_group": "e-1fJRpZh13ni",
+  "cluster": "c-0867d61c",
+  "class": "same-joins-same-width",
+  "ledger_class": "identical-variant-name",
+  "group": "qsEight:qsIt",
+  "codepoints": "E673:E670:E660:E675",
+  "text_entities": "&#xE673;&#xE670;&#xE660;&#xE675;",
+  "notation": "\u00b7Eight\u00b7It\u00b7Ye\u00b7I",
+  "notation_tokens": [
+   "\u00b7Eight",
+   "\u00b7It",
+   "\u00b7Ye",
+   "\u00b7I"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "config_classes": {
+   "default": "identical-variant-name",
+   "ss03": "identical-variant-name",
+   "ss04": "identical-variant-name",
+   "ss05": "identical-variant-name",
+   "ss03+ss05": "identical-variant-name"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsEight.ex-ext-1",
+    "qsIt.en-y0.ex-y5",
+    "qsYe.en-y5.ex-y0.ex-ext-1",
+    "qsI"
+   ],
+   "junctions": [
+    "y0",
+    "y5",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsEight/normal-sized-loop/None/baseline/ex-ext-1",
+    "qsIt/sole/baseline/x-height/",
+    "qsYe/climbing-loop/x-height/baseline/ex-ext-1",
+    "qsI/smaller-loop/baseline/None/"
+   ],
+   "junctions": [
+    "y0",
+    "y5",
+    "y0"
+   ],
+   "extensions": [
+    1,
+    0,
+    1
+   ]
+  },
+  "diff_positions": [
+   3
+  ],
+  "pair": {
+   "left": 2,
+   "right": 3
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 350,
+    "x_max": 800,
+    "advance_total": 800
+   },
+   "after": {
+    "x_min": 400,
+    "x_max": 800,
+    "advance_total": 800
+   }
+  },
+  "boundary_marks": [],
+  "secondary_junctions": null,
+  "summary": "New: \u00b7I keeps the same junctions but settles as a different cell (smaller-loop, entry baseline, exit none) \u2014 decided by qsI.yaml policy.prefer[2] (a yielding prefer).",
+  "explain": "sequence E673:E670:E660:E675   config default\nsettled: qsEight.normal-sized-loop.ex-y0.ex-ext-1 qsIt.sole.en-y0.ex-y5 qsYe.climbing-loop.en-y5.ex-y0.ex-ext-1 qsI.smaller-loop.en-y0\n\nposition 3: qsI\n  candidates (join-count = left junction + own junction + optimistic prospect):\n     loop             entry=baseline   junction=none       join-count=1 prospect=0\n  -> smaller-loop     entry=baseline   junction=none       join-count=1 prospect=0\n  decided by: yielding-prefer (over loop entry=baseline junction=none)\n  note: prefer applied: glyph_data/runes/qsI.yaml:policy.prefer[2]\n  settled: qsI.smaller-loop.en-y0   junction=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsI.yaml:policy.prefer[2]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7Eight ~b~ \u00b7It ~x~ \u00b7Ye ~b~ \u00b7I",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsI.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {entry: none}, over: {entry: baseline}, mode: absolute, when: {left: {family: [qsYe]}}, why: 'Reviewer rejected the M1 outcome for E673:E670:E660:E675 (\u00b7Eight\u00b7It\u00b7Ye\u00b7I)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsI.yaml:policy.prefer[2]"
+    ],
+    "decided_stage": "yielding-prefer",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E673:E670:E660:E675 (\u00b7Eight\u00b7It\u00b7Ye\u00b7I)"
+   },
+   "any_of": {
+    "text": "qsEight qsIt qsYe qsI",
+    "features": {},
+    "candidates": [
+     "\u00b7Eight ~b~ \u00b7It ~x~ \u00b7Ye ~b~ \u00b7I"
+    ]
+   }
+  },
+  "content_key": "00099e3ef61314fca92bfc41a394e60d3b62bd35e03001b981d355073b9a4c3e"
+ }
+ {
+  "id": "u-1111rkb51o8",
+  "ink_identical": true,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {},
+  "no_verdict": true,
+  "duplicate_group": null,
+  "cluster": null,
+  "class": "split-by-space-or-zwnj",
+  "ledger_class": null,
+  "group": "qsYe:qsOut",
+  "codepoints": "0020:E660:E67B:E675",
+  "text_entities": "&#x0020;&#xE660;&#xE67B;&#xE675;",
+  "notation": "\u2423 \u00b7Ye\u00b7Out\u00b7I",
+  "notation_tokens": [
+   "\u2423",
+   "\u00b7Ye",
+   "\u00b7Out",
+   "\u00b7I"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "config_classes": {
+   "default": "split-by-space-or-zwnj",
+   "ss03": "split-by-space-or-zwnj",
+   "ss04": "split-by-space-or-zwnj",
+   "ss05": "split-by-space-or-zwnj",
+   "ss03+ss05": "split-by-space-or-zwnj"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "space",
+    "qsYe.ex-y0",
+    "qsOut",
+    "qsI"
+   ],
+   "junctions": [
+    "break",
+    "y0",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "space/boundary/None/None/",
+    "qsYe/loop/None/baseline/",
+    "qsOut/normal/baseline/None/",
+    "qsI/loop/None/None/"
+   ],
+   "junctions": [
+    "break",
+    "y0",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   2
+  ],
+  "boundary_marks": [
+   {
+    "index": 0,
+    "kind": "space",
+    "x": 0
+   }
+  ],
+  "secondary_junctions": null,
+  "summary": "New: \u00b7Out keeps the same junctions but settles as a different cell (normal, entry baseline, exit none) \u2014 decided by qsOut.yaml stances.swept-up.surface.exits.x-height (declaration order).",
+  "provenance": [
+   "glyph_data/runes/qsOut.yaml:stances.swept-up.surface.exits.x-height"
+  ],
+  "content_key": "000001b8f9b2435340d03bb3e554ca669a7930ae652e606e60d9a7c9ecd21eae"
+ }
+ {
+  "id": "u-113oTk4S9Jc",
+  "ink_identical": false,
+  "picture_identical": true,
+  "junior_equivalent": false,
+  "ink_deltas": {},
+  "no_verdict": true,
+  "duplicate_group": null,
+  "cluster": null,
+  "class": "split-by-space-or-zwnj",
+  "ledger_class": null,
+  "group": "qsPea:qsZoo",
+  "codepoints": "E650:E65B:E676:0020",
+  "text_entities": "&#xE650;&#xE65B;&#xE676;&#x0020;",
+  "notation": "\u00b7Pea\u00b7Zoo\u00b7Ah \u2423",
+  "notation_tokens": [
+   "\u00b7Pea",
+   "\u00b7Zoo",
+   "\u00b7Ah",
+   "\u2423"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "config_classes": {
+   "default": "split-by-space-or-zwnj",
+   "ss03": "split-by-space-or-zwnj",
+   "ss04": "split-by-space-or-zwnj",
+   "ss05": "split-by-space-or-zwnj",
+   "ss03+ss05": "split-by-space-or-zwnj"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsPea.half.ex-y5.ex-dips",
+    "qsZoo.en-con-2",
+    "qsAh",
+    "space"
+   ],
+   "junctions": [
+    "y5",
+    "y0",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsPea/half/None/x-height/",
+    "qsZoo/full/x-height/baseline/en-con-2",
+    "qsAh/sole/baseline/None/",
+    "space/boundary/None/None/"
+   ],
+   "junctions": [
+    "y5",
+    "y0",
+    "break"
+   ],
+   "extensions": [
+    -2,
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   2
+  ],
+  "boundary_marks": [
+   {
+    "index": 3,
+    "kind": "space",
+    "x": 750
+   }
+  ],
+  "secondary_junctions": null,
+  "summary": "New: \u00b7Zoo keeps the same junctions but settles as a different cell (full, entry x-height, exit baseline, adjustments en-con-2) \u2014 decided by qsZoo.yaml policy.contract[1] (join-count rank).",
+  "provenance": [
+   "glyph_data/runes/qsZoo.yaml:policy.contract[1]"
+  ],
+  "content_key": "0001463f068aab95c0ad28c485b46bf2156a36d253f01ef302024781c1400a5e"
+ }
+ {
+  "id": "u-111yonPPVmo",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-ec07946473eb",
+   "ss03": "d-ec07946473eb",
+   "ss04": "d-ec07946473eb",
+   "ss05": "d-ec07946473eb",
+   "ss03+ss05": "d-ec07946473eb"
+  },
+  "no_verdict": false,
+  "duplicate_group": "e-UZ6P8ecmAHL",
+  "cluster": "c-83172153",
+  "class": "same-joins-narrower",
+  "ledger_class": null,
+  "group": "qsIt:qsJay",
+  "codepoints": "E670:E65F:E654:E668",
+  "text_entities": "&#xE670;&#xE65F;&#xE654;&#xE668;",
+  "notation": "\u00b7It\u00b7Jay\u00b7Key\u00b7Roe",
+  "notation_tokens": [
+   "\u00b7It",
+   "\u00b7Jay",
+   "\u00b7Key",
+   "\u00b7Roe"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "config_classes": {
+   "default": "UNMATCHED",
+   "ss03": "UNMATCHED",
+   "ss04": "UNMATCHED",
+   "ss05": "UNMATCHED",
+   "ss03+ss05": "UNMATCHED"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsIt.ex-y5",
+    "qsJay.en-y5.ex-y0.en-ext-1",
+    "qsKey",
+    "qsRoe"
+   ],
+   "junctions": [
+    "y5",
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsIt/sole/None/x-height/",
+    "qsJay/sole/x-height/None/",
+    "qsKey/sole/None/baseline/",
+    "qsRoe/sole/baseline/None/"
+   ],
+   "junctions": [
+    "y5",
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2,
+   3
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 400,
+    "advance_total": 900
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 350,
+    "advance_total": 850
+   }
+  },
+  "boundary_marks": [],
+  "secondary_junctions": null,
+  "summary": "New: \u00b7Jay keeps the same junctions but settles as a different cell (sole, entry x-height, exit none) \u2014 decided by qsJay.yaml stances.sole.surface.exits.baseline (the only surviving candidate).",
+  "explain": "sequence E670:E65F:E654:E668   config default\nsettled: qsIt.sole.ex-y5 qsJay.sole.en-y5 qsKey.sole.ex-y0 qsRoe.sole.en-y0\n\nposition 1: qsJay\n  candidates (join-count = left junction + own junction + optimistic prospect):\n  -> sole             entry=x-height   junction=none       join-count=2 prospect=1\n  eliminated before ranking:\n    - (row-scope) qsJay.sole: exit baseline toward-scope does not admit qsKey  [glyph_data/runes/qsJay.yaml:stances.sole.surface.exits.baseline]\n  decided by: only-candidate\n  note: glyph_data/runes/qsJay.yaml:stances.sole.surface.exits.baseline\n  settled: qsJay.sole.en-y5   junction=none   extension=0\n\nposition 2: qsKey\n  candidates (join-count = left junction + own junction + optimistic prospect):\n  -> sole             entry=none       junction=baseline   join-count=1 prospect=0\n     sole             entry=none       junction=none       join-count=0 prospect=0\n  decided by: join-count (over sole entry=none junction=none)\n  settled: qsKey.sole.ex-y0   junction=baseline   extension=0\n\nposition 3: qsRoe\n  candidates (join-count = left junction + own junction + optimistic prospect):\n  -> sole             entry=baseline   junction=none       join-count=1 prospect=0\n  decided by: only-candidate\n  settled: qsRoe.sole.en-y0   junction=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsJay.yaml:stances.sole.surface.exits.baseline"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7It ~x~ \u00b7Jay | \u00b7Key ~b~ \u00b7Roe",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsJay.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, over: {exit: none}, mode: absolute, when: {right: {family: [qsKey]}}, why: 'Reviewer rejected the M1 outcome for E670:E65F:E654:E668 (\u00b7It\u00b7Jay\u00b7Key\u00b7Roe)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsJay.yaml:stances.sole.surface.exits.baseline"
+    ],
+    "decided_stage": "only-candidate",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E670:E65F:E654:E668 (\u00b7It\u00b7Jay\u00b7Key\u00b7Roe)"
+   },
+   "any_of": {
+    "text": "qsIt qsJay qsKey qsRoe",
+    "features": {},
+    "candidates": [
+     "\u00b7It ~x~ \u00b7Jay | \u00b7Key ~b~ \u00b7Roe"
+    ]
+   }
+  },
+  "content_key": "000072137f1e7186f94a8d15f5e50d56cd97ef9dda102a02c1ade037149a9d42"
+ }
+ {
+  "id": "u-112CPhbZhCw",
+  "ink_identical": false,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-c8b870907f1c",
+   "ss03": "d-c8b870907f1c",
+   "ss04": "d-c8b870907f1c",
+   "ss05": "d-c8b870907f1c",
+   "ss03+ss05": "d-c8b870907f1c"
+  },
+  "no_verdict": false,
+  "duplicate_group": "e-JP4RY7tcUFY",
+  "cluster": "c-32164e53",
+  "class": "same-joins-narrower",
+  "ledger_class": null,
+  "group": "qsShe:qsGay",
+  "codepoints": "E65C:E655:E656:E677",
+  "text_entities": "&#xE65C;&#xE655;&#xE656;&#xE677;",
+  "notation": "\u00b7She\u00b7Gay\u00b7Thaw\u00b7Awe",
+  "notation_tokens": [
+   "\u00b7She",
+   "\u00b7Gay",
+   "\u00b7Thaw",
+   "\u00b7Awe"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "config_classes": {
+   "default": "UNMATCHED",
+   "ss03": "UNMATCHED",
+   "ss04": "UNMATCHED",
+   "ss05": "UNMATCHED",
+   "ss03+ss05": "UNMATCHED"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell",
+   "position"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsShe.ex-y0",
+    "qsGay.en-y0.ex-y5",
+    "qsThaw",
+    "qsAwe"
+   ],
+   "junctions": [
+    "y0",
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsShe/sole/None/baseline/",
+    "qsGay/sole/baseline/None/en-con-1",
+    "qsThaw/sole/None/None/",
+    "qsAwe/sole/None/None/"
+   ],
+   "junctions": [
+    "y0",
+    "break",
+    "break"
+   ],
+   "extensions": [
+    -1,
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 550,
+    "advance_total": 1250
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 1200
+   }
+  },
+  "boundary_marks": [],
+  "secondary_junctions": null,
+  "summary": "New: \u00b7Gay keeps the same junctions but settles as a different cell (sole, entry baseline, exit none, adjustments en-con-1) \u2014 decided by qsGay.yaml stances.sole.surface.exits.x-height (the only surviving candidate).",
+  "explain": "sequence E65C:E655:E656:E677   config default\nsettled: qsShe.sole.ex-y0 qsGay.sole.en-y0.en-con-1 qsThaw.sole qsAwe.sole\n\nposition 1: qsGay\n  candidates (join-count = left junction + own junction + optimistic prospect):\n  -> sole             entry=baseline   junction=none       join-count=1 prospect=0\n  eliminated before ranking:\n    - (pairings) qsGay.sole: pairing (baseline, baseline) not allowed\n    - (row-scope) qsGay.sole: exit x-height toward-scope does not admit qsThaw  [glyph_data/runes/qsGay.yaml:stances.sole.surface.exits.x-height]\n  decided by: only-candidate\n  note: glyph_data/runes/qsGay.yaml:stances.sole.surface.exits.x-height\n  note: glyph_data/runes/qsGay.yaml:policy.contract[1]\n  settled: qsGay.sole.en-y0.en-con-1   junction=none   extension=0",
+  "provenance": [
+   "glyph_data/runes/qsGay.yaml:stances.sole.surface.exits.x-height",
+   "glyph_data/runes/qsGay.yaml:policy.contract[1]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "\u00b7She ~b~ \u00b7Gay | \u00b7Thaw | \u00b7Awe",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsGay.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: x-height}, over: {exit: none}, mode: absolute, when: {right: {family: [qsThaw]}}, why: 'Reviewer rejected the M1 outcome for E65C:E655:E656:E677 (\u00b7She\u00b7Gay\u00b7Thaw\u00b7Awe)'}",
+    "names_provenance": [
+     "glyph_data/runes/qsGay.yaml:stances.sole.surface.exits.x-height",
+     "glyph_data/runes/qsGay.yaml:policy.contract[1]"
+    ],
+    "decided_stage": "only-candidate",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E65C:E655:E656:E677 (\u00b7She\u00b7Gay\u00b7Thaw\u00b7Awe)"
+   },
+   "any_of": {
+    "text": "qsShe qsGay qsThaw qsAwe",
+    "features": {},
+    "candidates": [
+     "\u00b7She ~b~ \u00b7Gay | \u00b7Thaw | \u00b7Awe"
+    ]
+   }
+  },
+  "content_key": "00008b592979f074c15e7a149d9139fb4dbb2a7c53bf231e084ac0c9e1379f7b"
+ }
+ {
+  "id": "u-111fHo38moM",
+  "ink_identical": false,
+  "picture_identical": true,
+  "junior_equivalent": false,
+  "ink_deltas": {},
+  "no_verdict": false,
+  "duplicate_group": null,
+  "cluster": null,
+  "class": "identical-unused-join-name",
+  "ledger_class": null,
+  "group": "qsSee:qsPea",
+  "codepoints": "E65A:00B7:E650:E65F",
+  "text_entities": "&#xE65A;&#x00B7;&#xE650;&#xE65F;",
+  "notation": "\u00b7See \u00b7 \u00b7Pea\u00b7Jay",
+  "notation_tokens": [
+   "\u00b7See",
+   "\u00b7",
+   "\u00b7Pea",
+   "\u00b7Jay"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "config_classes": {
+   "default": "identical-unused-join-name",
+   "ss03": "identical-unused-join-name",
+   "ss04": "identical-unused-join-name",
+   "ss05": "identical-unused-join-name",
+   "ss03+ss05": "identical-unused-join-name"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsSee",
+    "periodcentered",
+    "qsPea.half.ex-y5.ex-dips",
+    "qsJay.en-y5.ex-y0.en-con-1"
+   ],
+   "junctions": [
+    "break",
+    "break",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsSee/normal/None/None/",
+    "namer-dot/boundary/None/None/",
+    "qsPea/half/None/x-height/",
+    "qsJay/sole/x-height/None/en-con-1"
+   ],
+   "junctions": [
+    "break",
+    "break",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0,
+    -1
+   ]
+  },
+  "diff_positions": [
+   3
+  ],
+  "pair": {
+   "left": 2,
+   "right": 3
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "boundary_marks": [
+   {
+    "index": 1,
+    "kind": "namer-dot",
+    "x": 300
+   }
+  ],
+  "secondary_junctions": null,
+  "summary": "New: \u00b7Jay keeps the same junctions but settles as a different cell (sole, entry x-height, exit none, adjustments en-con-1) \u2014 decided by qsJay.yaml policy.contract[0] (the only surviving candidate).",
+  "provenance": [
+   "glyph_data/runes/qsJay.yaml:policy.contract[0]"
+  ],
+  "content_key": "00004ce4226fd3a87dcc339f0faf3e4d14cf358ca78093e5cdfb2b44dd85f9a4"
+ }
+ {
+  "id": "u-1121ydbVk8X",
+  "ink_identical": false,
+  "picture_identical": true,
+  "junior_equivalent": false,
+  "ink_deltas": {},
+  "no_verdict": false,
+  "duplicate_group": null,
+  "cluster": null,
+  "class": "identical-unused-join-name",
+  "ledger_class": null,
+  "group": "qsEt:qsTea",
+  "codepoints": "E672:E652:E667:E65D",
+  "text_entities": "&#xE672;&#xE652;&#xE667;&#xE65D;",
+  "notation": "\u00b7Et\u00b7Tea\u00b7Low\u00b7J\u2019ai",
+  "notation_tokens": [
+   "\u00b7Et",
+   "\u00b7Tea",
+   "\u00b7Low",
+   "\u00b7J\u2019ai"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04"
+  ],
+  "config_note": "only when ss05 is off",
+  "config_gate": [
+   {
+    "feature": "ss05",
+    "state": "off",
+    "text": "only when ss05 is off"
+   }
+  ],
+  "config_classes": {
+   "default": "identical-unused-join-name",
+   "ss03": "identical-unused-join-name",
+   "ss04": "identical-unused-join-name"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsEt",
+    "qsTea.en-y0",
+    "qsLow.ex-con-1",
+    "qsJai.en-y5.ex-y0"
+   ],
+   "junctions": [
+    "y0",
+    "break",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsEt/sole/None/baseline/",
+    "qsTea/full/baseline/None/",
+    "qsLow/sole/None/x-height/",
+    "qsJai/sole/x-height/None/en-con-1"
+   ],
+   "junctions": [
+    "y0",
+    "break",
+    "y5"
+   ],
+   "extensions": [
+    0,
+    0,
+    -1
+   ]
+  },
+  "diff_positions": [
+   0,
+   3
+  ],
+  "pair": {
+   "left": 2,
+   "right": 3
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "boundary_marks": [],
+  "secondary_junctions": null,
+  "summary": "New: \u00b7J\u2019ai keeps the same junctions but settles as a different cell (sole, entry x-height, exit none, adjustments en-con-1) \u2014 decided by qsJai.yaml policy.contract[1] (the only surviving candidate).",
+  "provenance": [
+   "glyph_data/runes/qsJai.yaml:policy.contract[1]"
+  ],
+  "content_key": "0000766ef61f18c073a8198db3847596d2c0f5ade1c91af2805ed6a09bc9e42b"
+ }
+ {
+  "id": "u-1119XDKCzou",
+  "ink_identical": true,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {},
+  "no_verdict": false,
+  "duplicate_group": null,
+  "cluster": null,
+  "class": "identical-variant-name",
+  "ledger_class": null,
+  "group": "qsFee:qsI",
+  "codepoints": "E658:E675:E65E:E652",
+  "text_entities": "&#xE658;&#xE675;&#xE65E;&#xE652;",
+  "notation": "\u00b7Fee\u00b7I\u00b7Cheer\u00b7Tea",
+  "notation_tokens": [
+   "\u00b7Fee",
+   "\u00b7I",
+   "\u00b7Cheer",
+   "\u00b7Tea"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "config_classes": {
+   "default": "identical-variant-name",
+   "ss03": "identical-variant-name",
+   "ss04": "identical-variant-name",
+   "ss05": "identical-variant-name",
+   "ss03+ss05": "identical-variant-name"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsFee",
+    "qsI",
+    "qsCheer",
+    "qsTea.en-y0"
+   ],
+   "junctions": [
+    "break",
+    "y5",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsFee/loop/None/None/",
+    "qsI/loop/None/x-height/",
+    "qsCheer/sole/x-height/baseline/",
+    "qsTea/full/baseline/None/"
+   ],
+   "junctions": [
+    "break",
+    "y5",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   1,
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   2
+  ],
+  "boundary_marks": [],
+  "secondary_junctions": null,
+  "summary": "New: \u00b7I keeps the same junctions but settles as a different cell (loop, entry none, exit x-height) \u2014 decided by declaration order (no policy record involved).",
+  "provenance": [],
+  "content_key": "0000111c7ac4357c0846725ae755f071858f2c09e647ba615b14a4f2c87791d9"
+ }
+ {
+  "id": "u-111BHpCo92v",
+  "ink_identical": true,
+  "picture_identical": false,
+  "junior_equivalent": false,
+  "ink_deltas": {},
+  "no_verdict": false,
+  "duplicate_group": null,
+  "cluster": null,
+  "class": "identical-variant-name",
+  "ledger_class": null,
+  "group": "qsOy:qsKey",
+  "codepoints": "E679:00B7:E654:E667",
+  "text_entities": "&#xE679;&#x00B7;&#xE654;&#xE667;",
+  "notation": "\u00b7Oy \u00b7 \u00b7Key\u00b7Low",
+  "notation_tokens": [
+   "\u00b7Oy",
+   "\u00b7",
+   "\u00b7Key",
+   "\u00b7Low"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "config_classes": {
+   "default": "identical-variant-name",
+   "ss03": "identical-variant-name",
+   "ss04": "identical-variant-name",
+   "ss05": "identical-variant-name",
+   "ss03+ss05": "identical-variant-name"
+  },
+  "config_class_note": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "cell"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsOy",
+    "periodcentered",
+    "qsKey",
+    "qsLow"
+   ],
+   "junctions": [
+    "break",
+    "break",
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsOy/sole/None/None/",
+    "namer-dot/boundary/None/None/",
+    "qsKey/sole/None/baseline/",
+    "qsLow/sole/baseline/None/"
+   ],
+   "junctions": [
+    "break",
+    "break",
+    "y0"
+   ],
+   "extensions": [
+    0,
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   2,
+   3
+  ],
+  "pair": {
+   "left": 2,
+   "right": 3
+  },
+  "pair_codepoints": [
+   2,
+   3
+  ],
+  "boundary_marks": [
+   {
+    "index": 1,
+    "kind": "namer-dot",
+    "x": 450
+   }
+  ],
+  "secondary_junctions": null,
+  "summary": "New: \u00b7Key keeps the same junctions but settles as a different cell (sole, entry none, exit baseline) \u2014 decided by join-count rank (no policy record involved).",
+  "provenance": [],
+  "content_key": "000014a9e4f0b1cfe8662467053933a32822c9e3722d136929d2b6bc6c86d3ad"
+ }
