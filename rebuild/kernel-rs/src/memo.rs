@@ -368,8 +368,10 @@ impl Exclusion {
 
     /// Whether `key` names any of this exclusion's runes, on its left, as its input, or in any slot.
     pub(crate) fn names(&self, key: &TraceKey) -> bool {
-        key.runes_named()
-            .any(|ordinal| self.named.get(usize::from(ordinal.get())).copied() == Some(true))
+        !self.runes.is_empty()
+            && key
+                .runes_named()
+                .any(|ordinal| self.named.get(usize::from(ordinal.get())).copied() == Some(true))
     }
 
     /// Whether this shared memo may answer for `key` given what its entry read: no named rune among the key's, and no excluded rune or class among the reads.
@@ -377,8 +379,13 @@ impl Exclusion {
         if self.runes.is_empty() && self.classes.is_empty() {
             return true;
         }
-        !self.names(key)
-            && !reads.iter().any(|read| match read {
+        !self.names(key) && self.admits_reads(reads)
+    }
+
+    /// Whether no excluded rune or class is among an entry's reads: the half of [`Exclusion::admits`] left once [`Exclusion::names`] has cleared the key, which a lookup tests first because it needs no entry.
+    pub(crate) fn admits_reads(&self, reads: &[Read]) -> bool {
+        (self.runes.is_empty() && self.classes.is_empty())
+            || !reads.iter().any(|read| match read {
                 Read::Rune(rune) => self.runes.contains(rune),
                 Read::Class(class) => self.classes.contains(class),
             })
@@ -2034,7 +2041,7 @@ mod tests {
         );
     }
 
-    /// The exclusion tests the read journal: an entry whose evaluation read an excluded rune or class is rejected even though its key names neither, and one that read neither is admitted.
+    /// The exclusion tests the read journal: an entry whose evaluation read an excluded rune or class is rejected even though its key names neither, and one that read neither is admitted. A lookup that clears the key with `names` and then tests the reads alone answers as `admits` does.
     #[test]
     fn an_exclusion_refuses_an_entry_by_what_it_read() {
         let index = fixtures::mini();
@@ -2052,5 +2059,30 @@ mod tests {
                 .with_classes([class])
                 .admits(&key, &[Read::Rune(may)])
         );
+        let may_ordinal = index.rune_ordinal(may).expect("qsMay is modeled");
+        let mut naming = key;
+        naming.runes[1] = Some(may_ordinal);
+        let exclusions = [
+            Exclusion::none(),
+            Exclusion::of(&index, [may]),
+            Exclusion::of(&index, []).with_classes([class]),
+            by_reads,
+        ];
+        let reads: [&[Read]; 4] = [
+            &[],
+            &[Read::Rune(pea)],
+            &[Read::Rune(may)],
+            &[Read::Class(class)],
+        ];
+        for exclusion in &exclusions {
+            for key in [&key, &naming] {
+                for read in reads {
+                    assert_eq!(
+                        exclusion.admits(key, read),
+                        !exclusion.names(key) && exclusion.admits_reads(read)
+                    );
+                }
+            }
+        }
     }
 }

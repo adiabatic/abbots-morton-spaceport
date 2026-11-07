@@ -3699,17 +3699,20 @@ fn record_elimination(
     }
 }
 
-/// The first shared memo that holds `key` and admits it, with its index among the shared memos and the entry. A shared memo whose exclusion covers the key's runes or the entry's reads is skipped, because that entry was settled under runes or classes this engine does not share.
+/// The first shared memo that holds `key` and admits it, with its index among the shared memos and the entry. A shared memo whose exclusion covers the key's runes or the entry's reads is skipped, because that entry was settled under runes or classes this engine does not share. The key's runes are tested before the memo is read, since that test needs no entry and refuses most of the keys an exclusion refuses.
 fn shared_memo_entry<'b>(
     shared_memos: &'b [SharedMemo],
     key: &TraceKey,
 ) -> Option<(usize, &'b SharedMemo, TraceEntry)> {
     shared_memos.iter().enumerate().find_map(|(id, shared)| {
+        if shared.excluded.names(key) {
+            return None;
+        }
         shared
             .memo
             .entries
             .get(key)
-            .filter(|entry| shared.excluded.admits(key, shared.memo.reads(**entry)))
+            .filter(|entry| shared.excluded.admits_reads(shared.memo.reads(**entry)))
             .map(|&entry| (id, shared, entry))
     })
 }
