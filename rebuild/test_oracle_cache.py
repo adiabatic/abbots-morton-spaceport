@@ -22,6 +22,7 @@ from rebuild.pipeline import (
     fingerprint,
     fixtures,
     kernel_exec,
+    oracle,
     oracle_cache,
     oracle_positions,
     position_record,
@@ -719,7 +720,7 @@ def test_a_served_row_keeps_the_age_it_was_derived_at(repo, tmp_path):
 
 
 def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around_them(repo, tmp_path):
-    """A row range of a cut configuration writes a segment: one gzip member of records with no header and no trailer, so the parent can put a header member before the segments and a trailer member after them without decompressing anything. The joined payload equals the single-member store's payload, `load_store` reads it across members, and the joined header records the pass ordinal the segments were written under."""
+    """A row range of a cut configuration builds a segment in memory and writes no file: one gzip member of records with no header and no trailer, which it returns on its result, so the parent can put a header member before the segments and a trailer member after them without decompressing anything. The joined payload equals the single-member store's payload, `load_store` reads it across members, and the joined header records the pass ordinal the segments were written under. The parent's in-order writer joins a configuration's segments when its last range lands, and stages no store for a configuration one of whose ranges returned none."""
     spec = fixtures.mini_spec()
     stamp = _stamp(repo, spec)
     keys = _keys(repo, spec)
@@ -727,17 +728,21 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
     with oracle_cache.RowWriter(whole, stamp, "subset-digest", 4, keys) as writer:
         for index in range(6):
             writer.append((PEA, PEA + index), None, 4)
-    scratch = tmp_path / "scratch"
-    for segment, rows in ((0, range(0, 2)), (1, range(2, 6))):
-        path = oracle_cache.scratch_store_path(scratch, "default", segment)
-        with oracle_cache.RowWriter(path, stamp, "subset-digest", 4, keys, segment=True) as writer:
+    files = set(tmp_path.rglob("*"))
+    segments: list[tuple[int, bytes]] = []
+    for rows in (range(0, 2), range(2, 6)):
+        with oracle_cache.RowWriter(None, stamp, "subset-digest", 4, keys) as writer:
             for index in rows:
                 writer.append((PEA, PEA + index), None, 4)
-        payload = gzip.decompress(path.read_bytes())
+        assert writer.member is not None
+        payload = gzip.decompress(writer.member)
         assert not payload.startswith(b"{") and oracle_cache.ROW_COUNT_TRAILER.encode() not in payload
         assert payload.count(b"\n") == len(rows)
-    joined = oracle_cache.join_store_segments(scratch, "default", [2, 4], stamp, "subset-digest", 4, keys)
-    assert joined is not None and joined == oracle_cache.scratch_store_path(scratch, "default")
+        segments.append((len(rows), writer.member))
+    assert set(tmp_path.rglob("*")) == files
+    scratch = tmp_path / "scratch"
+    joined = oracle_cache.join_store_segments(scratch, "default", segments, stamp, "subset-digest", 4, keys)
+    assert joined == oracle_cache.scratch_store_path(scratch, "default")
     assert gzip.decompress(joined.read_bytes()) == gzip.decompress(whole.read_bytes())
     store = oracle_cache.load_store(joined, stamp, "subset-digest", spec, keys)
     assert store is not None and store.rows == 6 and store.pass_ordinal == 4
@@ -745,14 +750,32 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
     assert store.serve(5, (PEA, PEA + 5)) == oracle_cache.decode_record(
         gzip.decompress(whole.read_bytes()).decode().splitlines()[6]
     )
-    assert (
-        oracle_cache.join_store_segments(scratch, "default", [2, 4, 0], stamp, "subset-digest", 4, keys)
-        is None
+
+    shards = [oracle.OracleShard("default", 0, 2, 0, 2), oracle.OracleShard("default", 2, None, 1, 2)]
+    for name, returned in (("every", segments), ("short", [segments[0], (4, None)])):
+        out = tmp_path / name
+        cache = oracle.OracleRowCache({"default": stamp}, keys, write_dir=out / "scratch")
+        with oracle.InOrderWriter(out, shards, cache, ("default",)) as fan_in:
+            for shard, (rows, member) in reversed(list(zip(shards, returned))):
+                result = oracle.OracleConfigResult(
+                    config="default", rows_compared=rows, pass_ordinal=4, store_segment=member
+                )
+                fan_in.land(shard, result)
+                assert result.store_segment is None
+        staged = oracle_cache.scratch_store_path(out / "scratch", "default")
+        assert staged.is_file() == (name == "every")
+    every = oracle_cache.load_store(
+        oracle_cache.scratch_store_path(tmp_path / "every" / "scratch", "default"),
+        stamp,
+        stamp.labels["subset"],
+        spec,
+        keys,
     )
+    assert every is not None and every.rows == 6 and every.pass_ordinal == 4
 
 
 def _joined_store(tmp_path: Path, repo: Path, spec, segment_rows=(3, 2, 4), pass_ordinal=3):
-    """Write a cut configuration's store at `pass_ordinal` from segments of `segment_rows` records whose ages vary by row, and a whole store of the same records, and return both paths, the stamp, the keys, and each segment's compressed bytes."""
+    """Write a cut configuration's store at `pass_ordinal` from in-memory segments of `segment_rows` records whose ages vary by row, and a whole store of the same records, and return both paths, the stamp, the keys, and each segment's compressed bytes."""
     stamp = _stamp(repo, spec)
     keys = _keys(repo, spec)
     scratch = tmp_path / "scratch"
@@ -761,22 +784,19 @@ def _joined_store(tmp_path: Path, repo: Path, spec, segment_rows=(3, 2, 4), pass
         for index in range(sum(segment_rows)):
             writer.append((PEA, PEA + index), None, pass_ordinal - index % 3, None, pass_ordinal - index % 2)
     first = 0
-    for segment, count in enumerate(segment_rows):
-        path = oracle_cache.scratch_store_path(scratch, "default", segment)
-        with oracle_cache.RowWriter(path, stamp, "subset-digest", pass_ordinal, keys, segment=True) as writer:
+    segments: list[bytes] = []
+    for count in segment_rows:
+        with oracle_cache.RowWriter(None, stamp, "subset-digest", pass_ordinal, keys) as writer:
             for index in range(first, first + count):
                 writer.append(
                     (PEA, PEA + index), None, pass_ordinal - index % 3, None, pass_ordinal - index % 2
                 )
+        assert writer.member is not None
+        segments.append(writer.member)
         first += count
     joined = oracle_cache.join_store_segments(
-        scratch, "default", list(segment_rows), stamp, "subset-digest", pass_ordinal, keys
+        scratch, "default", list(zip(segment_rows, segments)), stamp, "subset-digest", pass_ordinal, keys
     )
-    assert joined is not None
-    segments = [
-        oracle_cache.scratch_store_path(scratch, "default", segment).read_bytes()
-        for segment in range(len(segment_rows))
-    ]
     return joined, whole, stamp, keys, segments
 
 
@@ -1439,16 +1459,18 @@ def test_a_store_whose_row_stamp_moved_holds_only_each_record_s_position_part(re
         for index in range(len(verdicts)):
             append(writer, index)
     first = 0
-    for segment, count in enumerate(segment_rows):
-        path = oracle_cache.scratch_store_path(scratch, "default", segment)
-        with oracle_cache.RowWriter(path, stamp, "subset-digest", 21, keys, segment=True) as writer:
+    segments: list[tuple[int, bytes]] = []
+    for count in segment_rows:
+        with oracle_cache.RowWriter(None, stamp, "subset-digest", 21, keys) as writer:
             for index in range(first, first + count):
                 append(writer, index)
+        assert writer.member is not None
+        segments.append((count, writer.member))
         first += count
     joined = oracle_cache.join_store_segments(
         scratch,
         "default",
-        list(segment_rows),
+        segments,
         stamp,
         "subset-digest",
         21,
@@ -1456,7 +1478,6 @@ def test_a_store_whose_row_stamp_moved_holds_only_each_record_s_position_part(re
         position_stamp,
         position_keys,
     )
-    assert joined is not None
     moved = oracle_cache.EnvironmentStamp(
         lines=tuple(
             "oracle_code\tmoved" if line.startswith("oracle_code\t") else line for line in stamp.lines

@@ -6,7 +6,7 @@ The rows the oracle classifies are produced in conform.py. `_compare_row` and `_
 
 `compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, junctions, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
 
-run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and writes its own audit segment under `oracle_audit_scratch` and its own store segment. `join_oracle_audit` and `oracle_cache.join_store_segments` join those in row order, and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, because `_compare_config` addresses every row by its absolute index in the table: the store records, the scheduled re-derivation, and the verification samples all key on it.
+run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and returns the range's audit rows, compressed (`AuditBlocks`), on its result, and a range of a cut configuration also returns its store segment there. The parent's `InOrderWriter` writes `divergence-audit.tsv` once, in row order, and each cut configuration's store once its last range has returned (`oracle_cache.join_store_segments`), and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, because `_compare_config` addresses every row by its absolute index in the table: the store records, the scheduled re-derivation, and the verification samples all key on it.
 
 For the overlay configuration (ss10), no settlement table produces the new side. Its rows are walked by `conform.IsolatedOverlayWalk`, which returns every letter bare from the registry alone, and shaped by `shapers.IsolatedOverlayShaper`, which uses the copies' `hmtx` advances instead of HarfBuzz. Read-back's isolation check and the conformance sweep over the overlay are what make both valid. So the old font's ss10 rows are compared with an all-bare stream, and no settlement or shaping runs for them.
 
@@ -22,10 +22,11 @@ import os
 import shutil
 import sys
 import time
+import zlib
 from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Container, Iterable, Iterator, Mapping, Sequence, TextIO
+from typing import Callable, Container, Iterable, Iterator, Mapping, Protocol, Sequence, TextIO
 
 import yaml
 
@@ -59,13 +60,15 @@ from rebuild.validation.rowmodel import Row, iter_rows
 ORACLE_ROW_CHUNK = 65536
 # How many unmatched rows a result keeps for `oracle_summary.json` to quote. Every unmatched row is written to the audit regardless.
 ORACLE_UNMATCHED_EXEMPLARS = 20
+# The audit bytes a range holds uncompressed before it compresses them as one block (`AuditBlocks`). Deflate's window is 32 KiB, so a block this size compresses nearly as well as the range's whole audit would.
+ORACLE_AUDIT_BLOCK = 4 << 20
 # The time an overlay-configuration row costs relative to a settlement-configuration row, which `oracle_shard_plan` weights row counts by. The overlay's walk reads the registry and its shaper reads `hmtx`, so its worker takes about half the wall-clock time over the same rows (measured from the `[t] oracle ss10` and `[t] oracle default` lines in the cycle journal).
 OVERLAY_ROW_COST = 0.5
 
 
 @dataclass(frozen=True)
 class OracleShard:
-    """Rows `[first_row, stop_row)` of one configuration's subset table, the `index`-th of the `of` ranges the configuration is cut into. `stop_row` None is the table's end. With `of == 1` the range is the whole table, and its audit segment, store, and `[t]` label are named as an unsharded run names them."""
+    """Rows `[first_row, stop_row)` of one configuration's subset table, the `index`-th of the `of` ranges the configuration is cut into. `stop_row` None is the table's end. With `of == 1` the range is the whole table, and its store and `[t]` label are named as an unsharded run names them."""
 
     config: str
     first_row: int = 0
@@ -75,7 +78,7 @@ class OracleShard:
 
     @property
     def segment(self) -> int | None:
-        """The suffix this range's scratch files carry, or None for the one range of an uncut configuration."""
+        """The range's place among its configuration's store segments, or None for the one range of an uncut configuration, which writes its store whole."""
         return None if self.of == 1 else self.index
 
     @property
@@ -146,7 +149,7 @@ class BaselineReport:
 
 @dataclass
 class OracleConfigResult:
-    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and pickling every such `DivergentRow` to the parent would cost memory in proportion to the audit. The worker has already written every row to its audit shard, a multi-matched row with its matched ids joined by `+`, so `divergence-audit.tsv` has them all. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store segment was written under, or None when no store was written; the parent writes it into a joined store's header. `peak_footprint_bytes` is the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), recorded in the pool record that `make job-costs` reads."""
+    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and every divergent row reaches the parent as its audit line instead: `audit_blocks` holds every divergent row's line, a multi-matched row's with its matched ids joined by `+`, compressed a block at a time (`AuditBlocks`), so `divergence-audit.tsv` has them all. `store_segment` is a cut configuration's range's store records as one gzip member (`oracle_cache.RowWriter` with no path), or None when the range writes no store or writes its configuration's whole store itself. The parent's `InOrderWriter` takes both off the result as it lands, and a folded result carries neither. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store segment was written under, or None when no store was written; the parent writes it into a joined store's header. `peak_footprint_bytes` is the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), recorded in the pool record that `make job-costs` reads."""
 
     config: str
     rows_compared: int = 0
@@ -161,6 +164,8 @@ class OracleConfigResult:
     notes: list[str] = field(default_factory=list)
     pass_ordinal: int | None = None
     peak_footprint_bytes: int = 0
+    audit_blocks: list[bytes] = field(default_factory=list)
+    store_segment: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -185,7 +190,7 @@ def open_row_cache(
     first_row: int = 0,
     stop_row: int | None = None,
 ) -> tuple["oracle_cache.RowStore | None", "oracle_cache.RowWriter | None"]:
-    """Return this configuration's loaded store, holding the records of rows `[first_row, stop_row)`, and the writer for its successor, or Nones without a cache. Both oracle paths call this, so they open the pair the same way. The subset digest is read from the stamp's `subset` line instead of hashing the table again. A range of a cut configuration passes its `segment` and row bounds: it stages a segment writer (records only, with no header or trailer) for `oracle_cache.join_store_segments` to join, and loads only its own rows. Every range reads the same store header, so all ranges agree on the pass ordinal the joined header records. A cache with no `write_dir` keeps nothing it derives, so it loads its store read-only, which skips the scheduled re-derivation (`oracle_cache.RowStore`)."""
+    """Return this configuration's loaded store, holding the records of rows `[first_row, stop_row)`, and the writer for its successor, or Nones without a cache. Both oracle paths call this, so they open the pair the same way. The subset digest is read from the stamp's `subset` line instead of hashing the table again. A range of a cut configuration passes its `segment` and row bounds: it opens a segment writer, which builds its records alone, with no header or trailer, as one gzip member in memory for the range to return (`oracle_cache.RowWriter` with no path), and loads only its own rows. Every range reads the same store header, so all ranges agree on the pass ordinal the joined header records. A cache with no `write_dir` keeps nothing it derives, so it loads its store read-only, which skips the scheduled re-derivation (`oracle_cache.RowStore`)."""
     if cache is None:
         return None, None
     stamp = cache.environment[config]
@@ -208,14 +213,13 @@ def open_row_cache(
     writer = None
     if cache.write_dir is not None:
         writer = oracle_cache.RowWriter(
-            oracle_cache.scratch_store_path(cache.write_dir, config, segment),
+            None if segment is not None else oracle_cache.scratch_store_path(cache.write_dir, config),
             stamp,
             subset_digest,
             oracle_cache.next_pass_ordinal(store),
             cache.family_keys,
             cache.position_environment,
             cache.position_keys,
-            segment=segment is not None,
         )
     return store, writer
 
@@ -637,14 +641,8 @@ ORACLE_AUDIT_HEADER = "config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew"
 
 
 def oracle_audit_scratch(out_dir: Path) -> Path:
-    """Return this run's scratch directory for the audit shards and the staged audit, beside `divergence-audit.tsv`. The pid in the name lets two runs share an `out_dir` (a `--gates-only` pass during a cycle, for example) without mixing or deleting each other's shards. The name matches neither `artifact_cycle.M1_ARTIFACT_NAMES` nor any glob over the tables, so nothing a killed run leaves here is taken for an artifact."""
+    """Return this run's scratch directory for the staged audit, the staged stores (`oracle_cache.scratch_store_path`) and the settle memo parts (`settle_memo_part`), beside `divergence-audit.tsv`. The pid in the name lets two runs share an `out_dir` (a `--gates-only` pass during a cycle, for example) without mixing or deleting each other's files. The name matches neither `artifact_cycle.M1_ARTIFACT_NAMES` nor any glob over the tables, so nothing a killed run leaves here is taken for an artifact."""
     return Path(out_dir) / f"divergence-audit.parts.{os.getpid()}"
-
-
-def oracle_audit_shard(scratch_dir: Path, config: str, segment: int | None = None) -> Path:
-    """Return the file for one configuration's audit rows, without the header, or for one row range's rows when `segment` is given. Workers pass their rows to the parent as a file instead of a pickled list because the audit is the largest output of the build and grows with every migrated letter; returning it through the pool would hold all of it in the parent's memory on top of the phase's existing peak."""
-    name = f"{config}.part" if segment is None else f"{config}.{segment}.part"
-    return Path(scratch_dir) / name
 
 
 def settle_memo_part(scratch_dir: Path, config: str, segment: int) -> Path:
@@ -654,7 +652,7 @@ def settle_memo_part(scratch_dir: Path, config: str, segment: int) -> Path:
 
 @contextmanager
 def _staged_oracle_audit(out_dir: Path) -> Iterator[Path]:
-    """Yield the staging path for this run's audit, and move it to `divergence-audit.tsv` only when the block exits normally. The audit is a fingerprinted artifact, and a truncated one would read as a new build with fewer units while every downstream gate passes. So an oracle killed partway (Ctrl-C, a timeout, a full disk) must leave the previous complete audit in place. The staging file is in this run's scratch directory, so the same cleanup deletes it with the shards."""
+    """Yield the staging path for this run's audit, and move it to `divergence-audit.tsv` only when the block exits normally. The audit is a fingerprinted artifact, and a truncated one would read as a new build with fewer units while every downstream gate passes. So an oracle killed partway (Ctrl-C, a timeout, a full disk) must leave the previous complete audit in place. The staging file is in this run's scratch directory, so the same cleanup deletes it with the run's other scratch files."""
     out = Path(out_dir)
     scratch = oracle_audit_scratch(out)
     scratch.mkdir(parents=True, exist_ok=True)
@@ -668,41 +666,127 @@ def _staged_oracle_audit(out_dir: Path) -> Iterator[Path]:
             scratch.rmdir()
 
 
-def join_oracle_audit(
-    out_dir: Path,
-    scratch_dir: Path,
-    configs: Iterable[str],
-    expect_rows: int,
-    segments: Mapping[str, int] | None = None,
-) -> None:
-    """Concatenate the shards into `divergence-audit.tsv` after the header, in the caller's configuration order and, within a configuration that `segments` says is cut into several ranges, in row order. The copy is binary with a 1 MiB buffer, so the parent never holds the audit in memory, and the bytes match what `_compare_config` writes on the serial path. Two checks keep a partial join from replacing the audit: every shard must exist before any byte is copied (FileNotFoundError names the missing ones), and the number of lines copied must equal `expect_rows`, the workers' own `divergent_rows` total (ValueError otherwise). The join needs disk space for a second copy of the audit while it runs. Deleting the scratch directory is left to the caller, because the failure it cleans up after is usually a worker's."""
-    scratch = Path(scratch_dir)
-    shards: list[tuple[str, Path]] = []
-    for config in configs:
-        count = (segments or {}).get(config, 1)
-        if count <= 1:
-            shards.append((config, oracle_audit_shard(scratch, config)))
-        else:
-            shards.extend((config, oracle_audit_shard(scratch, config, segment)) for segment in range(count))
-    missing = sorted({config for config, path in shards if not path.is_file()})
-    if missing:
-        left = sorted(found.name for found in scratch.glob("*")) if scratch.is_dir() else []
-        raise FileNotFoundError(
-            f"the oracle wrote no audit shard for {', '.join(missing)} — it left {left}, and divergence-audit.tsv is untouched"
+class AuditSink(Protocol):
+    """What `_compare_config` writes audit lines to: the serial path's staged file, or a range's `AuditBlocks`."""
+
+    def write(self, text: str, /) -> int: ...
+
+
+class AuditBlocks:
+    """One row range's audit lines, held in memory for the range to return on its result. They are compressed with zlib at level 1 a block at a time, each block a whole zlib stream that ends at a line's end once `ORACLE_AUDIT_BLOCK` bytes have gathered, so the range holds at most one block uncompressed and the parent inflates one block at a time (`InOrderWriter`). The bytes are the lines' UTF-8, as the serial path's staged file writes them."""
+
+    def __init__(self) -> None:
+        self.blocks: list[bytes] = []
+        self._pending = bytearray()
+
+    def write(self, text: str, /) -> int:
+        self._pending += text.encode("utf-8")
+        if len(self._pending) >= ORACLE_AUDIT_BLOCK:
+            self._seal()
+        return len(text)
+
+    def _seal(self) -> None:
+        self.blocks.append(zlib.compress(self._pending, 1))
+        self._pending = bytearray()
+
+    def close(self) -> list[bytes]:
+        """Compress what is left and return every block in line order."""
+        if self._pending:
+            self._seal()
+        return self.blocks
+
+
+class InOrderWriter:
+    """The pooled oracle's fan-in, in `run_m1`'s parent: it writes `divergence-audit.tsv` once, in `configs` order and in row order within each configuration, from the lines each range returns (`OracleConfigResult.audit_blocks`), and writes each cut configuration's store once, from the segments its ranges return, when its last range lands (`oracle_cache.join_store_segments`). `land` takes each range's result as its future resolves, in any order, and takes the lines and the segment off the result, so neither it nor its future keeps them. A range's lines are written, with every later range's that has already landed, once every range before it is written, and each range's are dropped once written. The parent therefore holds a landed range's compressed lines only until the ranges before it are written: at most the whole audit compressed, when the first range lands last. `oracle_shard_plan` cuts the configurations' rows at equal shares, so every range that is a whole share finishes at about the same time, and which of them lands last decides how much of the audit the parent holds. It holds a cut configuration's segments only until its last range lands, so at worst it holds every cut configuration's segments at once. Together it holds at most the whole audit compressed and every cut configuration's segments, which are the compressed stores the pass writes. A bare run records the parent's peak footprint, which includes both, under `run_m1.PARENT_POOL_UNIT`, and the run-m1-parent row of `make job-costs` reports it.
+
+    The audit goes through a staging file in the run's scratch directory (`_staged_oracle_audit`) and is moved into place only when the block exits normally and two checks pass, so a partial audit never replaces the standing one: every planned range must have landed, and the lines written must equal the landed ranges' own `divergent_rows` total; either failure raises ValueError. A store is staged only when `row_cache` writes one, under its `write_dir`. A cut configuration one of whose ranges returned no segment, or whose ranges disagree on the pass ordinal (which `merge_config_shards` refuses), stages no store, so `oracle_cache.promote_stores` promotes none.
+    """
+
+    def __init__(
+        self,
+        out_dir: Path,
+        shards: Iterable[OracleShard],
+        row_cache: OracleRowCache | None = None,
+        configs: Sequence[str] = ORACLE_CONFIGS,
+    ) -> None:
+        self._out_dir = Path(out_dir)
+        self._order = sorted(shards, key=lambda shard: (configs.index(shard.config), shard.first_row))
+        self._positions = {shard: position for position, shard in enumerate(self._order)}
+        self._row_cache = row_cache
+        self._waiting: dict[int, list[bytes]] = {}
+        self._written = 0
+        self._rows = 0
+        self._counted = 0
+        self._segments: dict[str, dict[int, tuple[int, bytes | None, int | None]]] = {}
+        self._staged = ExitStack()
+
+    def __enter__(self) -> "InOrderWriter":
+        with ExitStack() as stack:
+            staging = stack.enter_context(_staged_oracle_audit(self._out_dir))
+            self._target = stack.enter_context(staging.open("wb"))
+            self._target.write((ORACLE_AUDIT_HEADER + "\n").encode("utf-8"))
+            self._staged = stack.pop_all()
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        if exc_type is not None:
+            self._staged.__exit__(exc_type, exc, traceback)
+            return
+        with self._staged:
+            missing = [
+                shard.label
+                for position, shard in enumerate(self._order)
+                if position >= self._written and position not in self._waiting
+            ]
+            if missing:
+                raise ValueError(
+                    f"the oracle has no audit rows from {', '.join(missing)} — divergence-audit.tsv is untouched"
+                )
+            if self._rows != self._counted:
+                raise ValueError(
+                    f"the oracle's ranges returned {self._rows} audit rows where they counted {self._counted} divergent — divergence-audit.tsv is untouched"
+                )
+
+    def land(self, shard: OracleShard, result: OracleConfigResult) -> None:
+        """Take one range's result: write its lines and every waiting range's that now follows in order, and stage its configuration's store when this is the last of its ranges to land."""
+        position = self._positions.get(shard)
+        if position is None or position < self._written or position in self._waiting:
+            raise ValueError(f"the oracle's fan-in is not waiting for {shard.label}")
+        blocks, result.audit_blocks = result.audit_blocks, []
+        segment, result.store_segment = result.store_segment, None
+        self._counted += result.divergent_rows
+        self._waiting[position] = blocks
+        while self._written in self._waiting:
+            for block in self._waiting.pop(self._written):
+                lines = zlib.decompress(block)
+                self._rows += lines.count(b"\n")
+                self._target.write(lines)
+            self._written += 1
+        cache = self._row_cache
+        if shard.of == 1 or cache is None or cache.write_dir is None:
+            return
+        held = self._segments.setdefault(shard.config, {})
+        held[shard.index] = (result.rows_compared, segment, result.pass_ordinal)
+        if len(held) < shard.of:
+            return
+        del self._segments[shard.config]
+        ranges = [held[index] for index in range(shard.of)]
+        members = [(rows, member) for rows, member, _ordinal in ranges if member is not None]
+        ordinal = ranges[0][2]
+        if ordinal is None or len(members) < shard.of or any(other != ordinal for *_, other in ranges):
+            return
+        stamp = cache.environment[shard.config]
+        oracle_cache.join_store_segments(
+            cache.write_dir,
+            shard.config,
+            members,
+            stamp,
+            stamp.labels["subset"],
+            ordinal,
+            cache.family_keys,
+            cache.position_environment,
+            cache.position_keys,
         )
-    rows = 0
-    with _staged_oracle_audit(out_dir) as staging:
-        with staging.open("wb") as target:
-            target.write((ORACLE_AUDIT_HEADER + "\n").encode("utf-8"))
-            for _, path in shards:
-                with path.open("rb") as shard:
-                    while chunk := shard.read(1 << 20):
-                        rows += chunk.count(b"\n")
-                        target.write(chunk)
-        if rows != expect_rows:
-            raise ValueError(
-                f"the oracle's audit shards hold {rows} rows where its workers counted {expect_rows} divergent — divergence-audit.tsv is untouched"
-            )
 
 
 def _oracle_audit_owner_is_running(pid: str) -> bool:
@@ -719,7 +803,7 @@ def _oracle_audit_owner_is_running(pid: str) -> bool:
 
 
 def discard_oracle_audit_scratch(out_dir: Path) -> None:
-    """Delete this run's scratch directory, and any earlier run's whose process has exited, since a killed run skips the `finally` that would have deleted its shards and they can take as much disk as the audit. A directory whose pid is still running belongs to another oracle and is kept. Nothing here raises, so calling it in a `finally` cannot replace the exception being handled."""
+    """Delete this run's scratch directory, and any earlier run's whose process has exited, since a killed run skips the `finally` that would have deleted its staged audit, stores and memo parts, and they can take as much disk as the audit. A directory whose pid is still running belongs to another oracle and is kept. Nothing here raises, so calling it in a `finally` cannot replace the exception being handled."""
     out = Path(out_dir)
     shutil.rmtree(oracle_audit_scratch(out), ignore_errors=True)
     with suppress(OSError):
@@ -739,7 +823,7 @@ def _compare_config(
     shaper: "Shaper | IsolatedOverlayShaper | None",
     kern: "oracle_positions.KernEvaluator | None",
     guard_verdicts: settle.FormationGuard | None,
-    audit: TextIO | None,
+    audit: AuditSink | None,
     *,
     store: "oracle_cache.RowStore | None" = None,
     writer: "oracle_cache.RowWriter | None" = None,
@@ -984,13 +1068,12 @@ def oracle_config_worker(
     config: str,
     font_path: Path | None,
     kern_sidecar_path: Path | None,
-    audit_dir: Path,
     row_cache: "OracleRowCache | None" = None,
     settle_memo: SettleMemoFile | None = None,
     guard_verdicts: settle.FormationGuard | None = None,
     shard: OracleShard | None = None,
 ) -> OracleConfigResult:
-    """Run `_compare_config` for one configuration, or one row range when `shard` is given, in a pool worker. Audit rows go to the range's segment under `audit_dir`, so the result carries only counts. When the caller passes no `guard_verdicts`, the worker runs the section 5.7 guard sweep itself, as the conformance sweep's worker does; the overlay configuration's worker forms nothing and skips it. A caller that fans out several ranges runs the sweep once and passes it to every range. The worker opens the row cache itself, through the same `open_row_cache` call the serial path makes, and reads and writes `settle_memo` itself, because a spawned worker inherits no open files. For a range of the pooled oracle, `settle_memo.write_path` is the range's own part, which the parent absorbs into the shared file after every range has finished and the witness stage has returned."""
+    """Run `_compare_config` for one configuration, or one row range when `shard` is given, in a pool worker. The range's audit lines travel home on the result, compressed (`AuditBlocks`), and so does a cut configuration's range's store segment, which its writer builds in memory; an uncut configuration's range writes its whole store under the row cache's `write_dir` itself. When the caller passes no `guard_verdicts`, the worker runs the section 5.7 guard sweep itself, as the conformance sweep's worker does; the overlay configuration's worker forms nothing and skips it. A caller that fans out several ranges runs the sweep once and passes it to every range. The worker opens the row cache itself, through the same `open_row_cache` call the serial path makes, and reads and writes `settle_memo` itself, because a spawned worker inherits no open files. For a range of the pooled oracle, `settle_memo.write_path` is the range's own part, which the parent absorbs into the shared file after every range has finished and the witness stage has returned."""
     shard = OracleShard(config) if shard is None else shard
     aliases = load_aliases(alias_path)
     entries, ledger = load_ledger(ledger_path)
@@ -999,18 +1082,16 @@ def oracle_config_worker(
     overlay = isolated_overlay_active(spec, features)
     shaper = oracle_positions._shaper_for(spec, font_path, overlay)
     kern = oracle_positions.KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
-    segment_path = oracle_audit_shard(audit_dir, config, shard.segment)
-    segment_path.parent.mkdir(parents=True, exist_ok=True)
     store, writer = open_row_cache(
         row_cache, spec, config, shard.segment, first_row=shard.first_row, stop_row=shard.stop_row
     )
     if guard_verdicts is None and not overlay:
         guard_verdicts = kernel_exec.guard_sweep(spec)
+    audit = AuditBlocks()
     with _collector_held(), ExitStack() as stack:
-        audit = stack.enter_context(segment_path.open("w", encoding="utf-8", newline="\n"))
         if writer is not None:
             stack.enter_context(writer)
-        return _compare_config(
+        result = _compare_config(
             spec,
             subset_tables_dir,
             config,
@@ -1029,6 +1110,9 @@ def oracle_config_worker(
             stop_row=shard.stop_row,
             label=shard.label,
         )
+    result.audit_blocks = audit.close()
+    result.store_segment = None if writer is None else writer.member
+    return result
 
 
 def merge_config_shards(results: Sequence[OracleConfigResult]) -> OracleConfigResult:

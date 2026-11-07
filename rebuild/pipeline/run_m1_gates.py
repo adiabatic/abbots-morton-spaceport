@@ -547,7 +547,7 @@ def run_oracle(
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
     memo_ready: Callable[[], None] | None = None,
 ) -> dict:
-    """Run the baseline oracle (`rebuild/M1-PLAN.md` §6) over the subset tables, reading the row cache before the first row and writing it after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table: `oracle.oracle_shard_plan` splits every table (by the row counts the subset stamp records, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that each of `jobs` workers gets an equal share of the whole, and `run_m1._spawn_pool` starts up to `jobs` workers, one per range at most. Each range writes its own audit segment and store segment, and writes the settle memo windows it settled fresh as a part. The parent merges the ranges' tallies (`oracle.merge_config_shards`), concatenates the segments (`oracle.join_oracle_audit`, `oracle_cache.join_store_segments`), and merges the parts into the shared memo files (`conform.absorb_settle_memo_parts`, on the same pool, each merge's peak recorded in the pool record as `<config> absorb` beside the ranges'), all in row order, so the summary, the audit and every store's records match an unsplit run. The crate's formation-guard verdicts are computed once here and passed with every submission, as in the conformance sweep's fan-out. `[t] oracle_setup` times this process's work before the pool takes over, from entry to the last range's submission: the cache keys, the shard plan, the guard sweep and the submissions.
+    """Run the baseline oracle (`rebuild/M1-PLAN.md` §6) over the subset tables, reading the row cache before the first row and writing it after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table: `oracle.oracle_shard_plan` splits every table (by the row counts the subset stamp records, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that each of `jobs` workers gets an equal share of the whole, and `run_m1._spawn_pool` starts up to `jobs` workers, one per range at most. Each range returns its audit lines, compressed, on its result, a range of a cut configuration also returns its store segment there, and every range writes the settle memo windows it settled fresh as a part. The parent writes the audit once, in row order, as the ranges land, and each cut configuration's store once its last range has landed (`oracle.InOrderWriter`, whose docstring states what the parent holds meanwhile), merges the ranges' tallies (`oracle.merge_config_shards`), and merges the parts into the shared memo files (`conform.absorb_settle_memo_parts`, on the same pool, each merge's peak recorded in the pool record as `<config> absorb` beside the ranges'), all in row order, so the summary, the audit and every store's records match an unsplit run. The crate's formation-guard verdicts are computed once here and passed with every submission, as in the conformance sweep's fan-out. `[t] oracle_setup` times this process's work before the pool takes over, from entry to the last range's submission: the cache keys, the shard plan, the guard sweep and the submissions.
 
     `memo_inputs` is `run_m1.settle_memo_inputs` as the caller took it before loading `spec`, and names the settle memo files this pass shares with the conformance sweep (`conform.settle_memo_files`). The oracle's rows are the conformance sweep's texts, so a settlement configuration whose file the replay or the conformance sweep already wrote under these keys settles nothing here, and one neither has reached yet writes the file the conformance sweep will load. A caller with no inputs shares nothing, the overlay configuration has no memo, since its worker settles nothing, and this pass leaves an M1-only configuration's memo (`conform.M1_ONLY_CONFIGS`) to the other passes, since the oracle never compares it. `memo_ready`, when given, is called before this pass writes a shared settle memo file. On the pooled path that is once every range has finished, because ranges write only parts and the parent's merges are the pass's only writes to the files. On the `--jobs 1` path it is before the first walk, because those walks replace the files whole as they go. `run_m1.full_run` passes `run_m1.TableGates.wait_for_memo`, which returns once the witness stage has merged its own part into each file. That lets the pool start after the string replay alone while the witness stage still runs: a range reads a whole file whether it maps it before or after the witness stage's merge, and every write this pass makes includes what the witness stage wrote.
 
@@ -555,7 +555,7 @@ def run_oracle(
 
     Failing to compute those keys does not fail the gate. `alias_family_digests` rejects an alias head with no rune digest behind it, and the alias map is a hand-edited file that one typo can make unreadable. So a key that cannot be computed leaves this pass with no cache: every row is derived, no store is written, and the gate runs as it does without a cache.
 
-    Staging is inside this run's pid-named audit scratch directory, so a killed run's stores, segments and memo parts are deleted by `discard_oracle_audit_scratch` along with its audit segments, and two oracles sharing an `out_dir` (a `--gates-only` pass beside a cycle) cannot read or promote each other's files. Promotion happens only after `join_oracle_audit` has accepted the audit, because a store describing an audit that was never written is worse than no store. A split configuration where one range staged no segment is neither joined nor promoted, the all-or-nothing rule `promote_stores` already follows.
+    Staging is inside this run's pid-named scratch directory, so a killed run's staged audit, stores and memo parts are deleted by `discard_oracle_audit_scratch`, and two oracles sharing an `out_dir` (a `--gates-only` pass beside a cycle) cannot read or promote each other's files. Promotion happens only after the in-order writer has accepted the audit, because a store describing an audit that was never written is worse than no store. A cut configuration one of whose ranges returned no segment is neither joined nor promoted, the all-or-nothing rule `promote_stores` already follows.
 
     Every range's peak footprint is recorded as one observation of the `oracle-shard` pool (`cycle_timings.record_pool`), which `make job-costs` compares against `artifact_cycle.ORACLE_SHARD_BYTES`, and every absorb's, labeled `<config> absorb`, which it compares against `artifact_cycle.ORACLE_ABSORB_BYTES`.
     """
@@ -610,93 +610,79 @@ def run_oracle(
                 config: [] for config in conform.ORACLE_CONFIGS
             }
             width = min(jobs, len(shards))
-            with run_m1._spawn_pool(jobs, len(shards)) as pool:
-                futures = {
-                    pool.submit(
-                        oracle.oracle_config_worker,
-                        spec,
-                        out_dir,
-                        ALIAS_YAML,
-                        DIVERGENCES_YAML,
-                        shard.config,
-                        out_dir / "M1.otf",
-                        KERN_SIDECAR_YAML,
-                        audit_dir=scratch,
-                        row_cache=row_cache,
-                        settle_memo=_shard_settle_memo(settle_memos.get(shard.config), scratch, shard),
-                        guard_verdicts=guard_verdicts,
-                        shard=shard,
-                    ): shard
-                    for shard in shards
-                }
-                console.timing("oracle_setup", time.perf_counter() - setup_started)
-                done = 0
-                for future in as_completed(futures):
-                    result = future.result()
-                    landed[result.config].append((futures[future], result))
-                    done += 1
-                    console.progress(done, len(shards), "shards")
-                if memo_ready is not None:
-                    memo_ready()
-                merges = {
-                    config: pool.submit(
-                        _absorb_settle_memo_parts,
-                        memo,
-                        [
-                            oracle.settle_memo_part(scratch, config, index)
-                            for index in range(segments[config])
-                        ],
-                        spec,
-                    )
-                    for config, memo in settle_memos.items()
-                }
-                absorbed = []
-                worker_peaks = {
-                    shard.label: result.peak_footprint_bytes
-                    for pairs in landed.values()
-                    for shard, result in pairs
-                }
-                for config, future in merges.items():
-                    written, seconds, peak = future.result()
-                    worker_peaks[f"{config} absorb"] = peak
-                    if written:
-                        absorbed.append(config)
-                        console.timing(f"settle_memo_absorb {config}", seconds)
-            if absorbed:
-                console.say(f"settle memo: absorbed the ranges' parts for {', '.join(absorbed)}")
-            record_pool(
-                "oracle-shard",
-                width=width,
-                worker_peaks=worker_peaks,
-                controller_peak_bytes=peak_rss_self_bytes(),
-                worker_reading="footprint",
-            )
-            in_row_order = {
-                config: [
-                    result for _shard, result in sorted(landed[config], key=lambda pair: pair[0].first_row)
-                ]
-                for config in conform.ORACLE_CONFIGS
-            }
-            ordered = [oracle.merge_config_shards(in_row_order[config]) for config in conform.ORACLE_CONFIGS]
-            report = oracle.merge_oracle_results(ordered)
-            oracle.join_oracle_audit(
-                out_dir, scratch, conform.ORACLE_CONFIGS, report.divergent_rows, segments=segments
-            )
-            if row_cache is not None and row_cache.write_dir is not None:
-                for merged in ordered:
-                    if segments[merged.config] > 1 and merged.pass_ordinal is not None:
-                        stamp = row_cache.environment[merged.config]
-                        oracle_cache.join_store_segments(
-                            scratch,
-                            merged.config,
-                            [result.rows_compared for result in in_row_order[merged.config]],
-                            stamp,
-                            stamp.labels["subset"],
-                            merged.pass_ordinal,
-                            row_cache.family_keys,
-                            row_cache.position_environment,
-                            row_cache.position_keys,
+            with oracle.InOrderWriter(out_dir, shards, row_cache) as in_order:
+                with run_m1._spawn_pool(jobs, len(shards)) as pool:
+                    futures = {
+                        pool.submit(
+                            oracle.oracle_config_worker,
+                            spec,
+                            out_dir,
+                            ALIAS_YAML,
+                            DIVERGENCES_YAML,
+                            shard.config,
+                            out_dir / "M1.otf",
+                            KERN_SIDECAR_YAML,
+                            row_cache=row_cache,
+                            settle_memo=_shard_settle_memo(settle_memos.get(shard.config), scratch, shard),
+                            guard_verdicts=guard_verdicts,
+                            shard=shard,
+                        ): shard
+                        for shard in shards
+                    }
+                    console.timing("oracle_setup", time.perf_counter() - setup_started)
+                    done = 0
+                    for future in as_completed(futures):
+                        result = future.result()
+                        in_order.land(futures[future], result)
+                        landed[result.config].append((futures[future], result))
+                        done += 1
+                        console.progress(done, len(shards), "shards")
+                    if memo_ready is not None:
+                        memo_ready()
+                    merges = {
+                        config: pool.submit(
+                            _absorb_settle_memo_parts,
+                            memo,
+                            [
+                                oracle.settle_memo_part(scratch, config, index)
+                                for index in range(segments[config])
+                            ],
+                            spec,
                         )
+                        for config, memo in settle_memos.items()
+                    }
+                    absorbed = []
+                    worker_peaks = {
+                        shard.label: result.peak_footprint_bytes
+                        for pairs in landed.values()
+                        for shard, result in pairs
+                    }
+                    for config, future in merges.items():
+                        written, seconds, peak = future.result()
+                        worker_peaks[f"{config} absorb"] = peak
+                        if written:
+                            absorbed.append(config)
+                            console.timing(f"settle_memo_absorb {config}", seconds)
+                if absorbed:
+                    console.say(f"settle memo: absorbed the ranges' parts for {', '.join(absorbed)}")
+                record_pool(
+                    "oracle-shard",
+                    width=width,
+                    worker_peaks=worker_peaks,
+                    controller_peak_bytes=peak_rss_self_bytes(),
+                    worker_reading="footprint",
+                )
+                in_row_order = {
+                    config: [
+                        result
+                        for _shard, result in sorted(landed[config], key=lambda pair: pair[0].first_row)
+                    ]
+                    for config in conform.ORACLE_CONFIGS
+                }
+                ordered = [
+                    oracle.merge_config_shards(in_row_order[config]) for config in conform.ORACLE_CONFIGS
+                ]
+                report = oracle.merge_oracle_results(ordered)
         else:
             if memo_ready is not None:
                 memo_ready()

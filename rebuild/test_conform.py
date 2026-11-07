@@ -1,9 +1,10 @@
-"""Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position comparison, the oracle's audit shards, row cache and row ranges, the conformance sweep's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The conformance sweep at its full maximum length runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
+"""Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position comparison, the oracle's audit, row cache and row ranges, the conformance sweep's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The conformance sweep at its full maximum length runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
 
 import gc
 import gzip
 import hashlib
 import inspect
+import io
 import itertools
 import json
 import os
@@ -15,7 +16,7 @@ import sys
 import weakref
 import zlib
 from array import array
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, replace
 from fnmatch import fnmatch
 from pathlib import Path
@@ -1102,82 +1103,83 @@ _AUDIT_SHAPES = (
 
 
 class TestOracleAudit:
-    """`divergence-audit.tsv` is fingerprinted and later stages parse it from disk, so its bytes must not change. Each configuration's rows are written to a shard where they are produced, and the parent concatenates the shards after the header. These tests check that the concatenation equals the header and all rows joined with newlines, for every shape the audit can take, including an empty configuration and an empty audit. They also check that a missing or short shard fails instead of producing a short audit that looks complete."""
+    """`divergence-audit.tsv` is fingerprinted and later stages parse it from disk, so its bytes must not change. Each row range returns its lines on its result, compressed a block at a time, and the parent's in-order writer writes them after the header in configuration order and row order, whatever order the ranges land in. These tests check that the file equals the header and all rows joined with newlines, for every shape the audit can take, including an empty configuration and an empty audit, however the lines are cut into ranges and blocks. They also check that a range that never lands, or lands short of the rows it counted, fails instead of producing a short audit that looks complete."""
 
-    def _shard(self, scratch: Path, config: str, lines: Sequence[str], segment: int | None = None) -> None:
-        shard = oracle.oracle_audit_shard(scratch, config, segment)
-        shard.parent.mkdir(parents=True, exist_ok=True)
-        with shard.open("w", encoding="utf-8", newline="\n") as handle:
-            for line in lines:
-                handle.write(line + "\n")
+    @staticmethod
+    def _result(
+        shard: oracle.OracleShard, lines: Sequence[str], divergent_rows: int | None = None
+    ) -> oracle.OracleConfigResult:
+        """A range's result as its worker returns it: its lines through `AuditBlocks` and its divergent count, by default the number of its lines."""
+        audit = oracle.AuditBlocks()
+        for line in lines:
+            audit.write(line + "\n")
+        counted = len(lines) if divergent_rows is None else divergent_rows
+        return oracle.OracleConfigResult(
+            config=shard.config, divergent_rows=counted, audit_blocks=audit.close()
+        )
 
+    @staticmethod
+    def _cut(config: str, lines: Sequence[str], cuts: int) -> list[tuple[oracle.OracleShard, list[str]]]:
+        """Cut one configuration's lines into `cuts` row ranges in order, the last of them possibly empty, as a range with no divergent row returns."""
+        return [
+            (
+                oracle.OracleShard(config, index, None if index == cuts - 1 else index + 1, index, cuts),
+                list(lines[len(lines) * index // cuts : len(lines) * (index + 1) // cuts]),
+            )
+            for index in range(cuts)
+        ]
+
+    def _write(self, out: Path, per_config: Mapping[str, Sequence[str]], cuts: int = 1) -> None:
+        """Land every configuration's ranges on one writer in reverse of the audit's order, so each range but the first waits for the ones before it."""
+        ranges = [piece for config, lines in per_config.items() for piece in self._cut(config, lines, cuts)]
+        with oracle.InOrderWriter(out, [shard for shard, _ in ranges], configs=tuple(per_config)) as writer:
+            for shard, lines in reversed(ranges):
+                writer.land(shard, self._result(shard, lines))
+
+    @pytest.mark.parametrize("cuts", (1, 2))
     @pytest.mark.parametrize("per_config", _AUDIT_SHAPES)
-    def test_shards_concatenate_to_the_bytes_the_join_used_to_write(self, tmp_path, per_config):
-        scratch = oracle.oracle_audit_scratch(tmp_path)
-        for config, lines in per_config.items():
-            self._shard(scratch, config, lines)
+    def test_the_ranges_lines_follow_the_header_in_order(self, tmp_path, per_config, cuts):
+        """A configuration cut into row ranges arrives as one set of lines per range. The file must be the same however the rows were split, including an empty last range."""
+        self._write(tmp_path, per_config, cuts)
         every = [line for lines in per_config.values() for line in lines]
-        oracle.join_oracle_audit(tmp_path, scratch, per_config, len(every))
         joined = "\n".join([oracle.ORACLE_AUDIT_HEADER, *every]) + "\n"
         assert (tmp_path / "divergence-audit.tsv").read_bytes() == joined.encode("utf-8")
 
-    @pytest.mark.parametrize("per_config", _AUDIT_SHAPES)
-    def test_a_cut_configurations_segments_concatenate_in_row_order_to_the_same_bytes(
-        self, tmp_path, per_config
-    ):
-        """A configuration cut into row ranges arrives as one segment per range. The join must produce the same bytes as the uncut shard however the rows were split, including an empty second segment, which is what a range with no divergent row writes."""
-        scratch = oracle.oracle_audit_scratch(tmp_path)
-        for config, lines in per_config.items():
-            half = len(lines) // 2
-            self._shard(scratch, config, lines[:half], segment=0)
-            self._shard(scratch, config, lines[half:], segment=1)
-        every = [line for lines in per_config.values() for line in lines]
-        segments = {config: 2 for config in per_config}
-        oracle.join_oracle_audit(tmp_path, scratch, per_config, len(every), segments=segments)
-        joined = "\n".join([oracle.ORACLE_AUDIT_HEADER, *every]) + "\n"
-        assert (tmp_path / "divergence-audit.tsv").read_bytes() == joined.encode("utf-8")
-
-    def test_a_cut_configuration_missing_one_segment_is_named_rather_than_joined_short(self, tmp_path):
-        standing = tmp_path / "divergence-audit.tsv"
-        standing.write_bytes(b"the audit of the last green run\n")
-        scratch = oracle.oracle_audit_scratch(tmp_path)
-        self._shard(scratch, "default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"], segment=0)
-        with pytest.raises(FileNotFoundError, match="default"):
-            oracle.join_oracle_audit(tmp_path, scratch, ("default",), 1, segments={"default": 2})
-        assert standing.read_bytes() == b"the audit of the last green run\n"
-
-    def test_the_frozen_mini_audit_reassembles_byte_for_byte(self, tmp_path):
-        """The same check over a real audit. The mini bundle's `audit.tsv` is a filtered live audit that `fixtures/mini/regenerate.py` writes by joining its rows with newlines, and its configuration blocks are contiguous and in `ORACLE_CONFIGS` order. Splitting it into shards and joining them must reproduce the file."""
+    def test_the_frozen_mini_audit_reassembles_byte_for_byte(self, tmp_path, monkeypatch):
+        """The same check over a real audit. The mini bundle's `audit.tsv` is a filtered live audit that `fixtures/mini/regenerate.py` writes by joining its rows with newlines, and its configuration blocks are contiguous and in `ORACLE_CONFIGS` order. Returned whole or cut, in blocks small enough that each range's lines span several, the lines must reproduce the file."""
         source = MINI / "audit.tsv"
         rows = source.read_text(encoding="utf-8").splitlines()
         assert rows[0] == oracle.ORACLE_AUDIT_HEADER
         per_config: dict[str, list[str]] = {config: [] for config in conform.ORACLE_CONFIGS}
         for row in rows[1:]:
             per_config[row.split("\t")[0]].append(row)
-        scratch = oracle.oracle_audit_scratch(tmp_path)
-        for config, lines in per_config.items():
-            self._shard(scratch, config, lines)
-        oracle.join_oracle_audit(tmp_path, scratch, conform.ORACLE_CONFIGS, len(rows) - 1)
-        assert (tmp_path / "divergence-audit.tsv").read_bytes() == source.read_bytes()
+        monkeypatch.setattr(oracle, "ORACLE_AUDIT_BLOCK", 256)
+        for cuts in (1, 2):
+            out = tmp_path / str(cuts)
+            out.mkdir()
+            self._write(out, per_config, cuts)
+            assert (out / "divergence-audit.tsv").read_bytes() == source.read_bytes()
+        widest = max(per_config, key=lambda config: len(per_config[config]))
+        assert len(self._result(oracle.OracleShard(widest), per_config[widest]).audit_blocks) > 2
 
-        cut = tmp_path / "cut"
-        cut.mkdir()
-        scratch = oracle.oracle_audit_scratch(cut)
-        for config, lines in per_config.items():
-            half = len(lines) // 2
-            self._shard(scratch, config, lines[:half], segment=0)
-            self._shard(scratch, config, lines[half:], segment=1)
-        oracle.join_oracle_audit(
-            cut,
-            scratch,
-            conform.ORACLE_CONFIGS,
-            len(rows) - 1,
-            segments={config: 2 for config in conform.ORACLE_CONFIGS},
-        )
-        assert (cut / "divergence-audit.tsv").read_bytes() == source.read_bytes()
+    def test_a_landed_range_waits_only_for_the_ranges_before_it(self, tmp_path):
+        """The parent holds a landed range's lines only until every range before it is written. The writer takes the lines off the result as it lands, so the result and its future keep none, writes a range as soon as the ranges before it are written, and holds nothing once every range has landed."""
+        lines = [f"default\t{index:04X}\tcell\tpea-half\tqsPea\tqsPea.half" for index in range(6)]
+        ranges = self._cut("default", lines, 3)
+        landed = []
+        with oracle.InOrderWriter(tmp_path, [shard for shard, _ in ranges], configs=("default",)) as writer:
+            for at in (2, 0, 1):
+                shard, part = ranges[at]
+                result = self._result(shard, part)
+                writer.land(shard, result)
+                assert result.audit_blocks == []
+                landed.append(sorted(writer._waiting))
+        assert landed == [[2], [2], []]
+        joined = "\n".join([oracle.ORACLE_AUDIT_HEADER, *lines]) + "\n"
+        assert (tmp_path / "divergence-audit.tsv").read_bytes() == joined.encode("utf-8")
 
     def test_the_two_oracle_paths_write_the_same_file(self, spec, tmp_path):
-        """`--jobs 1` writes the audit as it goes, and the pool writes shards that the parent concatenates. Both must produce the same bytes. The two paths run here over the same hand-made subset tables: a pending alias makes every row diverge and an empty ledger leaves every divergence UNMATCHED, so every row reaches the file through each path."""
+        """`--jobs 1` writes the audit as it goes, and the pool's ranges return their lines for the parent's in-order writer. Both must produce the same bytes. The two paths run here over the same hand-made subset tables: a pending alias makes every row diverge and an empty ledger leaves every divergence UNMATCHED, so every row reaches the file through each path."""
         tables = tmp_path / "tables"
         tables.mkdir()
         for config, rows in (
@@ -1206,17 +1208,16 @@ class TestOracleAudit:
 
         fanned = tmp_path / "fanned"
         fanned.mkdir()
-        scratch = oracle.oracle_audit_scratch(fanned)
-        merged = oracle.merge_oracle_results(
-            oracle.oracle_config_worker(spec, tables, aliases, ledger, config, None, None, audit_dir=scratch)
-            for config in configs
-        )
-        oracle.join_oracle_audit(fanned, scratch, configs, merged.divergent_rows)
-        assert merged.divergent_rows == in_process.divergent_rows
+        shards = [oracle.OracleShard(config) for config in configs]
+        with oracle.InOrderWriter(fanned, shards, configs=configs) as writer:
+            for shard in reversed(shards):
+                writer.land(
+                    shard,
+                    oracle.oracle_config_worker(spec, tables, aliases, ledger, shard.config, None, None),
+                )
         assert (fanned / "divergence-audit.tsv").read_bytes() == (
             serial / "divergence-audit.tsv"
         ).read_bytes()
-        oracle.discard_oracle_audit_scratch(fanned)
         assert [path.name for path in fanned.iterdir()] == ["divergence-audit.tsv"]
 
     def test_a_serial_oracle_that_dies_partway_leaves_the_audit_it_found_standing(
@@ -1250,69 +1251,75 @@ class TestOracleAudit:
             "ledger.yaml",
         ]
 
-    def test_a_missing_shard_is_named_rather_than_quietly_skipped(self, tmp_path):
-        """Every shard is checked for before any byte is copied, so the join cannot write a short audit from whatever is on disk. The existing audit must survive the failure, because the caller deletes the scratch directory afterward and the shards are then gone too."""
+    def test_a_range_that_never_lands_is_named_rather_than_quietly_skipped(self, tmp_path):
+        """Every planned range must land before the audit is promoted, so the writer cannot leave a short audit that reads as complete. The standing audit must survive, because the run's scratch is deleted afterward and the staged copy with it."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
-        scratch = oracle.oracle_audit_scratch(tmp_path)
-        self._shard(scratch, "default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"])
-        with pytest.raises(FileNotFoundError, match="ss03"):
-            oracle.join_oracle_audit(tmp_path, scratch, ("default", "ss03"), 1)
+        ranges = [
+            (oracle.OracleShard("default"), ["default\tE650\tcell\ta\tqsPea\tqsPea.half"]),
+            *self._cut("ss03", ["ss03\tE650\tcell\ta\tqsPea\tqsPea.half"], 2),
+        ]
+        with pytest.raises(ValueError, match="no audit rows from ss03 2/2 "):
+            with oracle.InOrderWriter(
+                tmp_path, [shard for shard, _ in ranges], configs=("default", "ss03")
+            ) as writer:
+                for shard, lines in ranges[:2]:
+                    writer.land(shard, self._result(shard, lines))
         assert standing.read_bytes() == b"the audit of the last green run\n"
+        assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
-    def test_an_audit_short_of_the_rows_its_workers_counted_is_not_promoted(self, tmp_path):
-        """The workers' row counts come back through the pipe and the rows come back on disk, so comparing the two is the only cross-check the parent can make. It catches a shard that was truncated but closed cleanly, which checking for the file cannot find."""
+    def test_an_audit_short_of_the_rows_its_ranges_counted_is_not_promoted(self, tmp_path):
+        """The ranges' row counts and their lines travel home separately, so comparing the two is the only cross-check the parent can make. It catches lines dropped on the way, which checking that every range landed cannot find."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
-        scratch = oracle.oracle_audit_scratch(tmp_path)
-        self._shard(scratch, "default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"])
+        shard = oracle.OracleShard("default")
         with pytest.raises(ValueError, match="2 divergent"):
-            oracle.join_oracle_audit(tmp_path, scratch, ("default",), 2)
+            with oracle.InOrderWriter(tmp_path, [shard], configs=("default",)) as writer:
+                writer.land(shard, self._result(shard, ["default\tE650\tcell\ta\tqsPea\tqsPea.half"], 2))
         assert standing.read_bytes() == b"the audit of the last green run\n"
 
     def test_the_scratch_goes_whether_or_not_the_oracle_got_that_far(self, tmp_path):
         scratch = oracle.oracle_audit_scratch(tmp_path)
-        self._shard(scratch, "default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"])
-        self._shard(scratch, "ss03+ss05", [])
+        for path in (
+            oracle_cache.scratch_store_path(scratch, "default"),
+            oracle.settle_memo_part(scratch, "ss03", 0),
+        ):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"")
         oracle.discard_oracle_audit_scratch(tmp_path)
         assert list(tmp_path.iterdir()) == []
 
-    def test_a_sweep_takes_a_dead_run_s_shards_and_leaves_a_live_one_s(self, tmp_path):
-        """The pid in the scratch directory name matters in both directions. A killed run skips its `finally`, so without this sweep its shards would stay on disk indefinitely. A running pid is another oracle using the same out_dir (a `--gates-only` pass beside a cycle), and deleting its directory would remove shards it is about to concatenate."""
+    def test_a_sweep_takes_a_dead_run_s_scratch_and_leaves_a_live_one_s(self, tmp_path):
+        """The pid in the scratch directory name matters in both directions. A killed run skips its `finally`, so without this sweep its staged files would stay on disk indefinitely. A running pid is another oracle using the same out_dir (a `--gates-only` pass beside a cycle), and deleting its directory would remove the audit it is staging."""
         finished = subprocess.Popen([sys.executable, "-c", ""])
         finished.wait()
         stale = tmp_path / f"divergence-audit.parts.{finished.pid}"
         stale.mkdir()
-        (stale / "default.part").write_text("")
+        (stale / "divergence-audit.tsv").write_text("")
         live = tmp_path / f"divergence-audit.parts.{os.getppid()}"
         live.mkdir()
-        (live / "default.part").write_text("")
+        (live / "divergence-audit.tsv").write_text("")
         oracle.discard_oracle_audit_scratch(tmp_path)
         assert not stale.exists()
-        assert (live / "default.part").is_file()
+        assert (live / "divergence-audit.tsv").is_file()
 
     def test_a_scratch_name_is_not_mistaken_for_an_artifact(self):
-        """The scratch directory sits beside the artifacts in `rebuild/out/m1`, so its name and its shard names must match nothing that reads that directory: the cycle's artifact list, its subset-table glob, and the table readers' patterns. Configuration names contain `+`, which the baseline table filenames already use."""
+        """The scratch directory sits beside the artifacts in `rebuild/out/m1`, so its name must match nothing that reads that directory: the cycle's artifact list, its subset-table glob, and the table readers' patterns."""
         from rebuild.tools.artifact_cycle import M1_ARTIFACT_NAMES
 
-        scratch = oracle.oracle_audit_scratch(Path("m1"))
-        assert scratch.name not in set(M1_ARTIFACT_NAMES)
-        for name in [scratch.name] + [
-            oracle.oracle_audit_shard(scratch, config).name for config in conform.ORACLE_CONFIGS
-        ]:
-            assert not any(
-                fnmatch(name, pattern)
-                for pattern in (
-                    "baseline-*.subset.tsv.gz",
-                    "settlement-*.tsv",
-                    "joins-*.tsv",
-                    "windows-*.tsv.gz",
-                    "transitions-*.ndjson",
-                    "*.json",
-                )
+        name = oracle.oracle_audit_scratch(Path("m1")).name
+        assert name not in set(M1_ARTIFACT_NAMES)
+        assert not any(
+            fnmatch(name, pattern)
+            for pattern in (
+                "baseline-*.subset.tsv.gz",
+                "settlement-*.tsv",
+                "joins-*.tsv",
+                "windows-*.tsv.gz",
+                "transitions-*.ndjson",
+                "*.json",
             )
-        names = [oracle.oracle_audit_shard(scratch, config).name for config in conform.ORACLE_CONFIGS]
-        assert len(set(names)) == len(conform.ORACLE_CONFIGS)
+        )
 
 
 def _divergent_subset_tables(root: Path, per_config: dict[str, list[tuple[int, int]]]) -> Path:
@@ -1331,7 +1338,7 @@ def _divergent_subset_tables(root: Path, per_config: dict[str, list[tuple[int, i
 
 
 class TestOracleUnmatchedTally:
-    """What a configuration's result carries about its unmatched rows. Every unmatched row is already written to that configuration's audit shard, and `oracle_summary.json` needs only their count and the first `ORACLE_UNMATCHED_EXEMPLARS` of them to quote. So the result carries the count and that first slice instead of pickling the whole list across the process pipe. These tests check the count, the cap, and the table order the exemplars must keep so the summary quotes the same rows."""
+    """What a configuration's result carries about its unmatched rows. Every unmatched row is already among the audit lines that configuration's result carries, and `oracle_summary.json` needs only their count and the first `ORACLE_UNMATCHED_EXEMPLARS` of them to quote. So the result carries the count and that first slice instead of pickling the whole list across the process pipe. These tests check the count, the cap, and the table order the exemplars must keep so the summary quotes the same rows."""
 
     def test_a_configuration_sends_home_a_count_and_the_first_twenty_rows(self, spec, tmp_path):
         letters = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667, 0xE670, 0xE679, 0xE67A)
@@ -1360,14 +1367,10 @@ class TestOracleUnmatchedTally:
         assert len(audit) == 29
         assert sum(line.split("\t")[3] == "UNMATCHED" for line in audit[1:]) == 28
 
-        fanned = tmp_path / "fanned"
-        fanned.mkdir()
-        scratch = oracle.oracle_audit_scratch(fanned)
         merged = oracle.merge_oracle_results(
-            oracle.oracle_config_worker(spec, tables, aliases, ledger, config, None, None, audit_dir=scratch)
+            oracle.oracle_config_worker(spec, tables, aliases, ledger, config, None, None)
             for config in configs
         )
-        oracle.discard_oracle_audit_scratch(fanned)
         assert merged.unmatched_count == report.unmatched_count
         assert [row.codepoints for row in merged.unmatched_exemplars] == [
             row.codepoints for row in report.unmatched_exemplars
@@ -1383,12 +1386,9 @@ class TestOracleUnmatchedTally:
         aliases.write_text("".join(f"old{code:04X}: pending\n" for code in letters))
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("[]\n")
-        scratch = oracle.oracle_audit_scratch(tmp_path)
         shards = [oracle.OracleShard("default", 0, 10, 0, 2), oracle.OracleShard("default", 10, None, 1, 2)]
         ranged = [
-            oracle.oracle_config_worker(
-                spec, tables, aliases, ledger, "default", None, None, audit_dir=scratch, shard=shard
-            )
+            oracle.oracle_config_worker(spec, tables, aliases, ledger, "default", None, None, shard=shard)
             for shard in shards
         ]
         assert [result.unmatched_count for result in ranged] == [10, 15]
@@ -1399,7 +1399,6 @@ class TestOracleUnmatchedTally:
             f"{left:04X}:{right:04X}" for left, right in wide[: oracle.ORACLE_UNMATCHED_EXEMPLARS]
         ]
         assert merged.rows_compared == 25 and merged.divergent_rows == 25
-        oracle.discard_oracle_audit_scratch(tmp_path)
 
 
 class TestOracleMultiMatchedTally:
@@ -1447,40 +1446,17 @@ class TestOracleMultiMatchedTally:
             line.split("\t")[1] for line in audit[1:] if line.split("\t")[3] == "every-row+pea-rows"
         ] == doubled["default"] + doubled["ss03"]
 
-        fanned = tmp_path / "fanned"
-        fanned.mkdir()
         results = [
-            oracle.oracle_config_worker(
-                spec,
-                tables,
-                aliases,
-                ledger,
-                config,
-                None,
-                None,
-                audit_dir=oracle.oracle_audit_scratch(fanned),
-            )
+            oracle.oracle_config_worker(spec, tables, aliases, ledger, config, None, None)
             for config in configs
         ]
         assert [result.multi_matched_count for result in results] == [11, 1]
         merged = oracle.merge_oracle_results(results)
         assert merged.multi_matched_count == 12
 
-        cut = tmp_path / "cut"
-        cut.mkdir()
         shards = [oracle.OracleShard("default", 0, 10, 0, 2), oracle.OracleShard("default", 10, None, 1, 2)]
         ranged = [
-            oracle.oracle_config_worker(
-                spec,
-                tables,
-                aliases,
-                ledger,
-                "default",
-                None,
-                None,
-                audit_dir=oracle.oracle_audit_scratch(cut),
-                shard=shard,
-            )
+            oracle.oracle_config_worker(spec, tables, aliases, ledger, "default", None, None, shard=shard)
             for shard in shards
         ]
         assert [result.multi_matched_count for result in ranged] == [10, 1]
@@ -1490,11 +1466,11 @@ class TestOracleMultiMatchedTally:
         assert rejoined.multi_matched_count == 12
         for tally in (*results, merged, *ranged, folded, rejoined):
             assert self._accounted_for(tally) == tally.divergent_rows
-        oracle.discard_oracle_audit_scratch(fanned)
-        oracle.discard_oracle_audit_scratch(cut)
 
-    def test_what_a_range_sends_home_does_not_grow_with_its_multi_matched_rows(self, spec, tmp_path):
-        """Every divergent row matches both entries, so every tally except the multi-matched count stays empty or small. Every integer in the result is below 256 and pickles to the same width, so the pickled result is the same length for ten such rows as for twenty-five."""
+    def test_what_a_range_sends_home_beside_its_audit_lines_does_not_grow_with_its_multi_matched_rows(
+        self, spec, tmp_path
+    ):
+        """Every divergent row matches both entries, so every tally except the multi-matched count stays empty or small. Every integer in the result is below 256 and pickles to the same width, so the pickled result less its audit lines, which every divergent row adds to however it matched, is the same length for ten such rows as for twenty-five."""
         aliases = self._aliases(tmp_path)
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("- id: first\n  match: {}\n- id: second\n  match: {}\n")
@@ -1502,14 +1478,10 @@ class TestOracleMultiMatchedTally:
         for rows in (self.PAIRS[:10], self.PAIRS[:25]):
             root = tmp_path / str(len(rows))
             tables = _divergent_subset_tables(root, {"default": rows})
-            scratch = oracle.oracle_audit_scratch(root)
-            result = oracle.oracle_config_worker(
-                spec, tables, aliases, ledger, "default", None, None, audit_dir=scratch
-            )
+            result = oracle.oracle_config_worker(spec, tables, aliases, ledger, "default", None, None)
             assert result.multi_matched_count == len(rows)
             assert result.counts_by_entry == {}
-            pickled.append(len(pickle.dumps(replace(result, peak_footprint_bytes=0))))
-            oracle.discard_oracle_audit_scratch(root)
+            pickled.append(len(pickle.dumps(replace(result, peak_footprint_bytes=0, audit_blocks=[]))))
         assert pickled[0] == pickled[1]
 
 
@@ -2383,8 +2355,29 @@ class TestOracleRowCache:
             assert [line[1] for line in block] == wanted
 
 
+def _joined_framing(whole: Path, firsts: Sequence[int]) -> bytes:
+    """The bytes of a cut configuration's store whose ranges start at `firsts`, built from the uncut store `whole` of the same records: a header member carrying the member index (each range's row count, compressed length and CRC-32), each range's records as their own level-1 gzip member with no name and a zero mtime, and a trailer member counting every row. This is the framing `oracle_cache.join_store_segments` writes from the segments a cut configuration's ranges return, and its bytes must not change, so the members are built here with `gzip` itself rather than through the store's writer."""
+    lines = gzip.decompress(whole.read_bytes()).splitlines(keepends=True)
+    header, records, trailer = lines[0], lines[1:-1], lines[-1]
+
+    def member(payload: bytes) -> bytes:
+        buffer = io.BytesIO()
+        with gzip.GzipFile(filename="", fileobj=buffer, mode="wb", mtime=0, compresslevel=1) as stream:
+            stream.write(payload)
+        return buffer.getvalue()
+
+    segments = [
+        (stop - first, member(b"".join(records[first:stop])))
+        for first, stop in zip(firsts, [*firsts[1:], len(records)])
+    ]
+    index = b"".join(struct.pack("<QQI", rows, len(body), zlib.crc32(body)) for rows, body in segments)
+    return (
+        oracle_cache._indexed_member(header, index) + b"".join(body for _, body in segments) + member(trailer)
+    )
+
+
 class TestOracleRowRanges:
-    """The oracle's unit of fan-out is a row range of one configuration's table, and cutting a table into ranges must change no count and no byte. `_compare_config` addresses rows by absolute index throughout, so a range is a self-contained segment of the same audit and the same store. Each test runs the real compare over the mini bundle's default rows once whole and once cut, through the worker, folds and joins that `run_m1_gates.run_oracle` uses, and requires the cut run to equal the whole one."""
+    """The oracle's unit of fan-out is a row range of one configuration's table, and cutting a table into ranges must change no count and no byte. `_compare_config` addresses rows by absolute index throughout, so a range is a self-contained segment of the same audit and the same store. Each test runs the real compare over the mini bundle's default rows once whole and once cut, through the worker, the in-order writer and the fold that `run_m1_gates.run_oracle` uses, and requires the cut run to equal the whole one."""
 
     def _ranged(
         self,
@@ -2405,7 +2398,7 @@ class TestOracleRowRanges:
         font: Path | None = None,
         position=None,
     ):
-        """One pass through the fan-out's pieces without a pool: a worker per range writing its own segments, the parent's fold and joins, and the joined store promoted. A single whole-table shard is the uncut reference."""
+        """One pass through the fan-out's pieces without a pool: a worker per range, each landing on the parent's in-order writer in reverse of row order, the fold, and the joined store promoted. A single whole-table shard is the uncut reference."""
         scratch = tmp_path / f"{name}-scratch"
         stores = tmp_path / f"{name}-stores"
         out = tmp_path / name
@@ -2424,10 +2417,10 @@ class TestOracleRowRanges:
             else None
         )
         guard = kernel_exec.guard_sweep(spec)
-        landed = [
-            (
-                shard,
-                oracle.oracle_config_worker(
+        landed: list[tuple[oracle.OracleShard, oracle.OracleConfigResult]] = []
+        with oracle.InOrderWriter(out, shards, row_cache, configs) as writer:
+            for shard in sorted(shards, key=lambda shard: shard.first_row, reverse=True):
+                result = oracle.oracle_config_worker(
                     spec,
                     tables,
                     aliases,
@@ -2435,37 +2428,17 @@ class TestOracleRowRanges:
                     shard.config,
                     font,
                     None,
-                    audit_dir=scratch,
                     row_cache=row_cache,
                     guard_verdicts=guard,
                     shard=shard,
-                ),
-            )
-            for shard in shards
-        ]
+                )
+                writer.land(shard, result)
+                landed.append((shard, result))
         by_config: dict[str, list[oracle.OracleConfigResult]] = {}
         for shard, result in sorted(landed, key=lambda pair: pair[0].first_row):
             by_config.setdefault(shard.config, []).append(result)
         merged = [oracle.merge_config_shards(by_config[config]) for config in configs]
-        segments = {shard.config: shard.of for shard in shards}
-        report = oracle.merge_oracle_results(merged)
-        oracle.join_oracle_audit(out, scratch, configs, report.divergent_rows, segments=segments)
         if cached and write:
-            for result in merged:
-                if segments[result.config] > 1:
-                    assert result.pass_ordinal is not None
-                    stamp = stamps[result.config]
-                    assert oracle_cache.join_store_segments(
-                        scratch,
-                        result.config,
-                        [part.rows_compared for part in by_config[result.config]],
-                        stamp,
-                        stamp.labels["subset"],
-                        result.pass_ordinal,
-                        keys,
-                        position_stamp,
-                        position_keys,
-                    )
             assert oracle_cache.promote_stores(scratch, stores, configs) == list(configs)
         return merged, out / "divergence-audit.tsv", stores
 
@@ -2525,16 +2498,20 @@ class TestOracleRowRanges:
         assert asdict(cut[0]) == asdict(whole[0])
 
     def test_a_cut_cold_pass_stages_the_store_a_whole_cold_pass_stages(self, spec, tmp_path):
-        """A joined store is several gzip members where a single-segment store is one, but the decompressed content must be the same: the header line, every record in table order, and the trailer counting them. `load_store` reads across the members, and a joined store missing the tail of its last segment loads as None, which is the truncation check the trailer exists for."""
+        """A full pass's shape: cold, so every range derives every row it holds. A joined store is several gzip members where a single-segment store is one, but the decompressed content must be the same: the header line, every record in table order, and the trailer counting them. Its bytes are the joined framing of those records (`_joined_framing`), and its audit is the whole pass's. `load_store` reads across the members, and a joined store missing the tail of its last segment loads as None, which is the truncation check the trailer exists for."""
         shared, rows = self._bench(spec, tmp_path)
-        _whole, _, whole_stores = self._ranged(
+        _whole, whole_audit, whole_stores = self._ranged(
             spec, tmp_path, "whole", [oracle.OracleShard("default")], **shared
         )
         shards = oracle.oracle_shard_plan(3, {"default": len(rows)}, ("default",))
-        _cut, _, cut_stores = self._ranged(spec, tmp_path, "cut", shards, **shared)
+        _cut, cut_audit, cut_stores = self._ranged(spec, tmp_path, "cut", shards, **shared)
         whole_path = oracle_cache.store_path(whole_stores, "default")
         cut_path = oracle_cache.store_path(cut_stores, "default")
+        assert cut_audit.read_bytes() == whole_audit.read_bytes()
         assert gzip.decompress(cut_path.read_bytes()) == gzip.decompress(whole_path.read_bytes())
+        assert cut_path.read_bytes() == _joined_framing(
+            whole_path, sorted(shard.first_row for shard in shards)
+        )
         assert cut_path.read_bytes() != whole_path.read_bytes()
         stamp = shared["stamps"]["default"]
         loaded = oracle_cache.load_store(
@@ -2569,26 +2546,34 @@ class TestOracleRowRanges:
         short.write_bytes(gzip.compress(payload[: len(payload) - 40]))
         assert oracle_cache.load_store(short, stamp, stamp.labels["subset"], spec, shared["keys"]) is None
 
-    def test_a_cut_warm_pass_serves_what_a_whole_warm_pass_serves(self, spec, tmp_path):
-        """The serve path, the scheduled re-derivation and the verification draw are all keyed on the row's ordinal in the table, so a warm pass cut into ranges serves the same rows as a whole warm pass, re-derives the same scheduled rows, writes the same audit and stages the same store. `positions_served` sums to the whole pass's figure, and each range draws its own verification sample, which is a superset of the whole pass's draw."""
+    @pytest.mark.parametrize("moved", ((), ("qsTea",)), ids=("unedited", "rune-edit"))
+    def test_a_cut_warm_pass_serves_what_a_whole_warm_pass_serves(self, spec, tmp_path, moved):
+        """The serve path, the scheduled re-derivation and the verification draw are all keyed on the row's ordinal in the table, so a warm pass cut into ranges serves the same rows as a whole warm pass, re-derives the same scheduled rows, writes the same audit and stages the same store, byte for byte the joined framing of the whole pass's records (`_joined_framing`). That holds on an unedited tree and on a rune edit's shape, where the moved family's rows are derived again among rows served. `positions_served` sums to the whole pass's figure, and each range draws its own verification sample, which is a superset of the whole pass's draw."""
         shared, rows = self._bench(spec, tmp_path)
         _cold, _, cold_stores = self._ranged(
             spec, tmp_path, "cold", [oracle.OracleShard("default")], **shared
         )
+        edited = {**shared, "keys": {**shared["keys"], **{name: f"{name}@1" for name in moved}}}
         whole, whole_audit, whole_stores = self._ranged(
-            spec, tmp_path, "whole", [oracle.OracleShard("default")], read_dir=cold_stores, **shared
+            spec, tmp_path, "whole", [oracle.OracleShard("default")], read_dir=cold_stores, **edited
         )
         shards = oracle.oracle_shard_plan(3, {"default": len(rows)}, ("default",))
         cut, cut_audit, cut_stores = self._ranged(
-            spec, tmp_path, "cut", shards, read_dir=cold_stores, **shared
+            spec, tmp_path, "cut", shards, read_dir=cold_stores, **edited
         )
+        whole_path = oracle_cache.store_path(whole_stores, "default")
+        cut_path = oracle_cache.store_path(cut_stores, "default")
         assert whole[0].positions_served > 0
         assert cut_audit.read_bytes() == whole_audit.read_bytes()
         assert asdict(cut[0]) == {**asdict(whole[0]), "peak_footprint_bytes": cut[0].peak_footprint_bytes}
-        assert gzip.decompress(
-            oracle_cache.store_path(cut_stores, "default").read_bytes()
-        ) == gzip.decompress(oracle_cache.store_path(whole_stores, "default").read_bytes())
+        assert cut_path.read_bytes() == _joined_framing(
+            whole_path, sorted(shard.first_row for shard in shards)
+        )
         assert cut[0].pass_ordinal == whole[0].pass_ordinal == 1
+        rederived = {index for index, age in enumerate(_cache_ages(cut_path)) if age == 1}
+        reaching = {index for index, row in enumerate(rows) if 0xE652 in row} if moved else set()
+        assert bool(reaching) == bool(moved)
+        assert reaching <= rederived < set(range(len(rows)))
 
     def test_the_fold_refuses_ranges_that_disagree_on_the_store_ordinal(self):
         results = [

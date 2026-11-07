@@ -42,10 +42,10 @@ from __future__ import annotations
 import gzip
 import hashlib
 import heapq
+import io
 import itertools
 import json
 import os
-import shutil
 import struct
 import sys
 import zlib
@@ -140,10 +140,9 @@ def store_path(out_dir: Path, config: str) -> Path:
     return Path(out_dir) / f"{STORE_STEM}-{config}.tsv.gz"
 
 
-def scratch_store_path(scratch_dir: Path, config: str, segment: int | None = None) -> Path:
-    """Return where a store is staged while the oracle runs: a subdirectory of this run's pid-named audit scratch. `discard_oracle_audit_scratch` therefore removes a killed run's stores along with its shards, and `join_oracle_audit`'s missing-shard message lists one directory instead of a store per acceptance configuration. A row range of a cut configuration stages its `segment` beside the whole store's path, for `join_store_segments` to join."""
-    name = f"{config}.tsv.gz" if segment is None else f"{config}.{segment}.tsv.gz"
-    return Path(scratch_dir) / SCRATCH_SUBDIR / name
+def scratch_store_path(scratch_dir: Path, config: str) -> Path:
+    """Return where a store is staged while the oracle runs: a subdirectory of this run's pid-named scratch (`oracle.oracle_audit_scratch`), so `discard_oracle_audit_scratch` removes a killed run's stores along with its staged audit. An uncut configuration's range writes its store here, and the parent writes a cut configuration's here from the segments its ranges return (`join_store_segments`)."""
+    return Path(scratch_dir) / SCRATCH_SUBDIR / f"{config}.tsv.gz"
 
 
 def _sha256_file(path: Path, digest: Callable[[Path], str] = fingerprint.file_sha256) -> str:
@@ -835,11 +834,11 @@ _MEMBER_INDEX_ID = b"AM"
 _MEMBER_ENTRY = struct.Struct("<QQI")
 
 
-def _crc32_of(stream: IO[bytes], length: int | None = None) -> tuple[int, int]:
-    """Return the CRC-32 of the next `length` bytes of `stream`, or of the rest of it when `length` is None, and how many bytes it read, which is fewer at the end of the file."""
+def _crc32_of(stream: IO[bytes], length: int) -> tuple[int, int]:
+    """Return the CRC-32 of the next `length` bytes of `stream` and how many bytes it read, which is fewer at the end of the file."""
     crc = read = 0
-    while length is None or read < length:
-        chunk = stream.read(1 << 20 if length is None else min(1 << 20, length - read))
+    while read < length:
+        chunk = stream.read(min(1 << 20, length - read))
         if not chunk:
             break
         crc = zlib.crc32(chunk, crc)
@@ -989,28 +988,35 @@ def _record_arrays(records: bytes | bytearray) -> tuple["array[int]", "array[int
 
 
 class RowWriter:
-    """One configuration's store being written, one record per subset row in table order. The row count is a trailer instead of a header field, so the header can be written before the count is known, and a truncated store has no trailer and fails to load. The file is written to a temporary path and moved into place with `os.replace`, so a store on disk is always complete. A `segment` writer writes one row range of a cut configuration as its own gzip member, with records only and no header or trailer, for `join_store_segments` to place between a header member and a trailer member once every range has finished. A store with one range is written whole."""
+    """One configuration's store being written, one record per subset row in table order. The row count is a trailer instead of a header field, so the header can be written before the count is known, and a truncated store has no trailer and fails to load. The file is written to a temporary path and moved into place with `os.replace`, so a store on disk is always complete. A writer with no `path` writes one row range of a cut configuration: its records only, with no header or trailer, as one gzip member built in memory, which `close` leaves on `member` for the range to return on its result and the parent to place between a header member and a trailer member once every range of the configuration has returned (`join_store_segments`). A store with one range is written whole."""
 
     def __init__(
         self,
-        path: Path,
+        path: Path | None,
         environment: EnvironmentStamp,
         subset_digest: str,
         pass_ordinal: int,
         family_keys: Mapping[str, str],
         position_environment: EnvironmentStamp | None = None,
         position_keys: Mapping[str, str] | None = None,
-        segment: bool = False,
     ) -> None:
-        self.path = Path(path)
         self.pass_ordinal = pass_ordinal
         self.rows = 0
-        self.segment = segment
-        self._scratch = self.path.with_name(self.path.name + ".tmp")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._raw: IO[bytes] = self._scratch.open("wb")
+        self.member: bytes | None = None
+        self._raw: IO[bytes]
+        if path is None:
+            self.path = None
+            self._scratch = None
+            self._memory = io.BytesIO()
+            self._raw = self._memory
+        else:
+            self.path = Path(path)
+            self._scratch = self.path.with_name(self.path.name + ".tmp")
+            self._memory = None
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self._raw = self._scratch.open("wb")
         self._stream = _open_member(self._raw)
-        if not segment:
+        if self.path is not None:
             self._stream.write(
                 store_header(
                     environment, subset_digest, pass_ordinal, family_keys, position_environment, position_keys
@@ -1035,8 +1041,13 @@ class RowWriter:
         self.rows += 1
 
     def close(self) -> None:
-        if not self.segment:
-            self._stream.write(f"{ROW_COUNT_TRAILER}\t{self.rows}\n".encode())
+        if self._memory is not None:
+            self._stream.close()
+            self.member = self._memory.getvalue()
+            self._memory.close()
+            return
+        assert self._scratch is not None and self.path is not None
+        self._stream.write(f"{ROW_COUNT_TRAILER}\t{self.rows}\n".encode())
         self._stream.close()
         self._raw.close()
         os.replace(self._scratch, self.path)
@@ -1048,7 +1059,8 @@ class RowWriter:
             self._raw.close()
         except OSError, ValueError:
             pass
-        Path(self._scratch).unlink(missing_ok=True)
+        if self._scratch is not None:
+            self._scratch.unlink(missing_ok=True)
 
     def __enter__(self) -> "RowWriter":
         return self
@@ -1063,25 +1075,18 @@ class RowWriter:
 def join_store_segments(
     scratch_dir: Path,
     config: str,
-    segment_rows: Sequence[int],
+    segments: Sequence[tuple[int, bytes]],
     environment: EnvironmentStamp,
     subset_digest: str,
     pass_ordinal: int,
     family_keys: Mapping[str, str],
     position_environment: EnvironmentStamp | None = None,
     position_keys: Mapping[str, str] | None = None,
-) -> Path | None:
-    """Assemble one cut configuration's staged store from the segments its row ranges wrote, one per entry of `segment_rows`, which counts each range's rows in row order, and return its path. The file is a header member, then each segment's compressed bytes copied in row order, then a trailer member counting every row. The header member's gzip header carries the member index (`_indexed_member`): each segment's row count, compressed length and CRC-32, which lets `load_store` inflate a range's own segment alone. It is written through a temporary file and `os.replace` to `scratch_store_path(scratch_dir, config)`, where `promote_stores` finds it as it would an uncut configuration's store. Nothing is decompressed, so the parent's cost is a copy and a CRC over the segments. The result is a multi-member gzip stream and is not byte-identical to the single-member store the same records would make, but its decompressed content is, since a gzip reader skips a header's extra field. `gzip.open(...)` reads across members, empty ones included, so `load_store`'s whole-file read, trailer check, row check digest and ages work unchanged, and a store missing a segment's tail still loads as `None`. The different framing is safe because nothing hashes this file (see `store_path`). Returns `None`, and stages nothing, when a segment is missing."""
-    paths = [scratch_store_path(scratch_dir, config, segment) for segment in range(len(segment_rows))]
-    if any(not path.is_file() for path in paths):
-        return None
-    entries = []
-    for path, rows in zip(paths, segment_rows):
-        with path.open("rb") as stream:
-            crc, length = _crc32_of(stream)
-        entries.append(_MEMBER_ENTRY.pack(rows, length, crc))
-    index = b"".join(entries)
+) -> Path:
+    """Write one cut configuration's staged store from the segments its row ranges returned, given in row order as each range's row count and its records' gzip member (`RowWriter` with no path), and return its path. The file is a header member, then each segment's member in row order, then a trailer member counting every row. The header member's gzip header carries the member index (`_indexed_member`): each segment's row count, compressed length and CRC-32, which lets `load_store` inflate a range's own segment alone. It is written once, through a temporary file and `os.replace`, to `scratch_store_path(scratch_dir, config)`, where `promote_stores` finds it as it would an uncut configuration's store. Nothing is decompressed, so the parent's cost is a CRC over the segments and their one write. The result is a multi-member gzip stream and is not byte-identical to the single-member store the same records would make, but its decompressed content is, since a gzip reader skips a header's extra field. `gzip.open(...)` reads across members, empty ones included, so `load_store`'s whole-file read, trailer check, row check digest and ages work unchanged, and a store missing a segment's tail still loads as `None`. The different framing is safe because nothing hashes this file (see `store_path`). The caller holds the segments until the configuration's last range has returned and joins only a configuration every range of which returned one (`oracle.InOrderWriter`)."""
+    index = b"".join(_MEMBER_ENTRY.pack(rows, len(member), zlib.crc32(member)) for rows, member in segments)
     target = scratch_store_path(scratch_dir, config)
+    target.parent.mkdir(parents=True, exist_ok=True)
     staged = target.with_name(target.name + ".tmp")
     with staged.open("wb") as raw:
         raw.write(
@@ -1092,17 +1097,16 @@ def join_store_segments(
                 index,
             )
         )
-        for path in paths:
-            with path.open("rb") as segment_file:
-                shutil.copyfileobj(segment_file, raw, 1 << 20)
+        for _rows, member in segments:
+            raw.write(member)
         with _open_member(raw) as tail:
-            tail.write(f"{ROW_COUNT_TRAILER}\t{sum(segment_rows)}\n".encode())
+            tail.write(f"{ROW_COUNT_TRAILER}\t{sum(rows for rows, _member in segments)}\n".encode())
     os.replace(staged, target)
     return target
 
 
 def promote_stores(scratch_dir: Path, out_dir: Path, configs: Iterable[str]) -> list[str]:
-    """Move a finished run's staged stores into place beside the M1 artifacts, all of them or none, and return the configurations promoted. The caller calls this only after `join_oracle_audit` has written the audit and after it has checked that neither the stamps nor any family key moved during the run. A store recorded under digests the run did not build from would be served as current on every later pass."""
+    """Move a finished run's staged stores into place beside the M1 artifacts, all of them or none, and return the configurations promoted. The caller calls this only after the audit is written (`oracle.InOrderWriter` on the pooled path) and after it has checked that neither the stamps nor any family key moved during the run. A store recorded under digests the run did not build from would be served as current on every later pass."""
     staged = [(config, scratch_store_path(scratch_dir, config)) for config in configs]
     if any(not path.is_file() for _, path in staged):
         return []

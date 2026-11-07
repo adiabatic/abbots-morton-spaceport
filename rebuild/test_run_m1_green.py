@@ -504,7 +504,7 @@ def test_a_full_run_writes_the_stage_a_record_only_once_its_gates_pass(monkeypat
     def run_oracle(spec, jobs, **_cache):
         during_oracle.append(fingerprint.read_stage_a(tmp_path))
         if stop is ValueError:
-            raise ValueError("an audit shard went missing")
+            raise ValueError("the oracle has no audit rows from default")
         return {"unmatched": 0, "multi_matched": 0}
 
     monkeypatch.setattr(run_m1_gates, "run_oracle", run_oracle)
@@ -779,7 +779,7 @@ class _InlinePool:
 
 
 class TestOracleFanIn:
-    """Each worker writes its own audit segment, so the order of `divergence-audit.tsv` comes from the parent's concatenation, not from the order the futures resolve. A run that fails partway must leave the previous audit in place: a short audit hashes differently, so the corpus build would read it as a new, smaller audit instead of a stale one."""
+    """Each range returns its own audit lines, so the order of `divergence-audit.tsv` comes from the parent's in-order writer, not from the order the futures resolve. A run that fails partway must leave the previous audit in place: a short audit hashes differently, so the corpus build would read it as a new, smaller audit instead of a stale one."""
 
     def _pool(self, monkeypatch, worker, rows=None):
         """Stubs out every process in the fan-out: an inline pool, futures resolved in reverse, the worker, the crate's guard sweep, and the subset stamp's row counts, which are `rows` or, by default, none, giving one range per configuration."""
@@ -814,7 +814,6 @@ class TestOracleFanIn:
             config,
             font_path,
             kern_sidecar_path,
-            audit_dir,
             row_cache=None,
             settle_memo=None,
             guard_verdicts=None,
@@ -827,15 +826,14 @@ class TestOracleFanIn:
                 shards.append((shard, settle_memo))
             if shard.label == refuse:
                 raise RuntimeError(f"{shard.label} fell over")
-            segment = oracle.oracle_audit_shard(audit_dir, config, shard.segment)
-            segment.parent.mkdir(parents=True, exist_ok=True)
-            with segment.open("w", encoding="utf-8", newline="\n") as handle:
-                handle.write(f"{config}\t{shard.first_row:04X}\tcell\tpea-half\tqsPea\tqsPea.half\n")
+            audit = oracle.AuditBlocks()
+            audit.write(f"{config}\t{shard.first_row:04X}\tcell\tpea-half\tqsPea\tqsPea.half\n")
             return oracle.OracleConfigResult(
                 config=config,
                 rows_compared=1,
                 divergent_rows=2 if shard.label == overcount else 1,
                 multi_matched_count=0 if multi is None else multi(shard),
+                audit_blocks=audit.close(),
             )
 
         return worker
@@ -1073,7 +1071,7 @@ class TestOracleFanIn:
     def test_a_cut_configurations_store_is_joined_from_its_ranges_segments_and_read_back(
         self, monkeypatch, tmp_path
     ):
-        """Runs the parent's row-store handling through `run_oracle`: each range stages a segment through `open_row_cache`, the parent joins a cut configuration's segments under the header its ranges agreed on and promotes every configuration's store, and the next pass's ranges load the joined store through the same reader and write under the next ordinal. The promoted store must equal what one writer over the whole table writes, which checks that the join's arguments (the stamp, the subset digest, the ordinal, the keys, and the row count) come from the range results."""
+        """Runs the parent's row-store handling through `run_oracle`: each range of a cut configuration builds its segment in memory through `open_row_cache` and returns it on its result, the parent's in-order writer joins a cut configuration's segments under the header its ranges agreed on once its last range lands, and every configuration's store is promoted, and the next pass's ranges load the joined store through the same reader and write under the next ordinal. The promoted store must equal what one writer over the whole table writes, which checks that the join's arguments (the stamp, the subset digest, the ordinal, the keys, and the row count) come from the range results."""
         spec = fixtures.mini_spec()
         rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         stamps = {
@@ -1091,16 +1089,12 @@ class TestOracleFanIn:
             config,
             font_path,
             kern_sidecar_path,
-            audit_dir,
             row_cache=None,
             settle_memo=None,
             guard_verdicts=None,
             shard=None,
         ):
             shard = oracle.OracleShard(config) if shard is None else shard
-            audit = oracle.oracle_audit_shard(audit_dir, config, shard.segment)
-            audit.parent.mkdir(parents=True, exist_ok=True)
-            audit.write_text("", encoding="utf-8")
             stop = rows[config] if shard.stop_row is None else shard.stop_row
             store, writer = oracle.open_row_cache(row_cache, spec, config, shard.segment)
             assert writer is not None
@@ -1109,7 +1103,10 @@ class TestOracleFanIn:
                 for index in range(shard.first_row, stop):
                     writer.append((0xE650, 0xE650 + index), None, writer.pass_ordinal)
             return oracle.OracleConfigResult(
-                config=config, rows_compared=stop - shard.first_row, pass_ordinal=writer.pass_ordinal
+                config=config,
+                rows_compared=stop - shard.first_row,
+                pass_ordinal=writer.pass_ordinal,
+                store_segment=writer.member,
             )
 
         self._pool(monkeypatch, worker, rows=rows)
@@ -1182,7 +1179,7 @@ class TestOracleFanIn:
         assert all(cache.rotation > 0 for cache in seen)
 
     def test_an_audit_short_of_the_rows_the_workers_counted_is_refused(self, monkeypatch, tmp_path):
-        """The counts reach the parent through the pool and the rows reach it on disk, so a segment that was truncated but closed cleanly shows up as a mismatch between the two. That mismatch is the only way the parent can tell a complete audit from a partial one."""
+        """Each range's count and its lines reach the parent separately, so lines lost on the way show up as a mismatch between the two. That mismatch is the only way the parent can tell a complete audit from a partial one."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         self._pool(monkeypatch, self._worker(overcount=conform.ORACLE_CONFIGS[2]))
