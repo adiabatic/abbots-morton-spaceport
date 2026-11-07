@@ -1402,6 +1402,7 @@ mod tests {
                 shared_memos,
                 keep_memo: true,
                 publish_verdicts: Vec::new(),
+                ..MemoAccess::default()
             },
             None,
         )
@@ -1576,6 +1577,7 @@ mod tests {
                         shared_memos: shared.clone(),
                         keep_memo: true,
                         publish_verdicts: Vec::new(),
+                        ..MemoAccess::default()
                     },
                     None,
                 )

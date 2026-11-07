@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::deep_slots::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
-use crate::engine::{CacheSize, Engine, EngineModes, Slots};
+use crate::engine::{CacheSize, Engine, EngineModes, MemoCeilings, Slots};
 use crate::error::SettleError;
 use crate::fiber::DeepFiberDeriver;
 use crate::hash::{HashMap, HashSet, ShardedMap};
@@ -90,12 +90,28 @@ impl EnumerationModes {
     }
 }
 
-/// What one enumeration may read before settling a window itself, and whether it returns its own memo ([`crate::memo`]). The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Writing the memo to a file is independent of it: [`enumerate_for_tables`] writes the file, or hands it to a writer, at the release point whether or not the snapshot is kept. `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot.
-#[derive(Debug, Default)]
+/// The ceilings every table enumeration's engine holds its prospect and candidate memos to: 2^20 buckets for the prospect memo and 2^22 for the candidate memo, which hold 917,504 and 3,670,016 entries before they are cleared ([`MemoCeilings`]). Without them both memos grow with the windows an enumeration settles, beside the trace memo, which has no ceiling. What an engine holds with them is booked in `kernel_exec.SCRATCH_PEAK_BYTES` and `kernel_exec.DELTA_SLOT_BYTES`, whose comments carry the readings. `build-tables` takes `--prospect-memo-buckets=` and `--candidates-memo-buckets=` to set others.
+pub const TABLE_MEMO_CEILINGS: MemoCeilings =
+    MemoCeilings::new(1 << 20, 1 << 22).expect("both are powers of two of at least eight");
+
+/// What one enumeration may read before settling a window itself, whether it returns its own memo ([`crate::memo`]), and the ceilings on its engine's prospect and candidate memos. The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Writing the memo to a file is independent of it: [`enumerate_for_tables`] writes the file, or hands it to a writer, at the release point whether or not the snapshot is kept. `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot. `memo_ceilings` is [`TABLE_MEMO_CEILINGS`] unless the caller sets others, which changes no product or memo.
+#[derive(Debug)]
 pub struct MemoAccess {
     pub shared_memos: Vec<SharedMemo>,
     pub keep_memo: bool,
     pub publish_verdicts: Vec<HashSet<Sym>>,
+    pub memo_ceilings: MemoCeilings,
+}
+
+impl Default for MemoAccess {
+    fn default() -> Self {
+        Self {
+            shared_memos: Vec::new(),
+            keep_memo: false,
+            publish_verdicts: Vec::new(),
+            memo_ceilings: TABLE_MEMO_CEILINGS,
+        }
+    }
 }
 
 /// The content-addressed id one deep-slot member set carries, `table.deep_class_id`: `#C` plus the first twelve hex digits of the SHA-256 of the tab-joined members.
@@ -271,7 +287,7 @@ pub fn enumerate_for_tables<'i>(
     )
 }
 
-/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: each collection's length and capacity once the worklist finishes, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] writes one in line), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
+/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: each collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings (`memo_clears`), the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] writes one in line), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
 ///
 /// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_with_cache_stats(
@@ -311,6 +327,7 @@ fn enumerate_from_seeds<'i>(
             trace_memo: true,
             // The rows read only the settled triple, the prospect, the joint tiebreak and the notes, never how a trace was decided.
             explain_ranking: false,
+            memo_ceilings: Some(access.memo_ceilings),
             ..EngineModes::default()
         },
     );
@@ -847,6 +864,11 @@ fn enumerate_from_seeds<'i>(
         for size in engine.cache_stats() {
             lines.push(size.line(&config));
         }
+        lines.push(format!(
+            "[c] {config} memo_clears prospect={} candidates={}",
+            engine.prospect_memo_clears(),
+            engine.candidates_memo_clears()
+        ));
         lines.push(format!(
             "[c] {config} elimination_text bytes={}",
             engine.elimination_text_bytes()
@@ -2600,6 +2622,7 @@ mod tests {
                 shared_memos: Vec::new(),
                 keep_memo: true,
                 publish_verdicts: vec![unlocking_runes(&index, &[ss03])],
+                ..MemoAccess::default()
             },
             None,
         )
@@ -2634,6 +2657,7 @@ mod tests {
                     }],
                     keep_memo: false,
                     publish_verdicts: Vec::new(),
+                    ..MemoAccess::default()
                 },
                 None,
             )
@@ -2690,6 +2714,7 @@ mod tests {
                 shared_memos: Vec::new(),
                 keep_memo: true,
                 publish_verdicts: Vec::new(),
+                ..MemoAccess::default()
             },
             None,
         )
@@ -2712,6 +2737,7 @@ mod tests {
                 shared_memos: shared(),
                 keep_memo: true,
                 publish_verdicts: Vec::new(),
+                ..MemoAccess::default()
             },
             None,
         )
@@ -2736,6 +2762,7 @@ mod tests {
                 shared_memos: shared(),
                 keep_memo: false,
                 publish_verdicts: Vec::new(),
+                ..MemoAccess::default()
             },
             Some(MemoWrite::Inline(MemoFile {
                 path: path.clone(),

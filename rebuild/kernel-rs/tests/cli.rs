@@ -13,6 +13,9 @@ const KERNEL: &str = env!("CARGO_BIN_EXE_ams-m1-kernel");
 /// The two configurations the fixture distinguishes, and the flag `enumerate` takes for each: `ss03` unlocks a `qsMay` entry, and `default` has no features.
 const CONFIGS: [(&str, Option<&str>); 2] = [("default", None), ("ss03", Some("--features=ss03"))];
 
+/// The smallest ceilings `build-tables` takes on each engine's prospect and candidate memos, eight buckets each. Every configuration of the fixture clears both memos many times at them, so a test comparing files across builds at these ceilings compares them across those clears.
+const SMALL_MEMO_CEILINGS: [&str; 2] = ["--prospect-memo-buckets=8", "--candidates-memo-buckets=8"];
+
 /// This test's own scratch directory, cleared first so that files from a previous run cannot pass for this run's output. It is under `target/`, which is gitignored.
 fn scratch(name: &str) -> PathBuf {
     let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -397,7 +400,7 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     }
 }
 
-/// Sharing `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--no-default-memo-sharing`, which enumerates every configuration from scratch. Serving the deltas `default`'s liveness verdicts changes no file either: a build with `--no-verdict-sharing` writes the sharing build's tables, digests and memo files.
+/// Sharing `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--no-default-memo-sharing`, which enumerates every configuration from scratch. Serving the deltas `default`'s liveness verdicts changes no file either: a build with `--no-verdict-sharing` writes the sharing build's tables, digests and memo files. Every build here runs at [`SMALL_MEMO_CEILINGS`].
 #[test]
 fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files() {
     let root = scratch("cli-default-memo-sharing");
@@ -420,6 +423,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
             "--threads=2",
             "--memo-stamp=cli-memo",
         ];
+        arguments.extend(SMALL_MEMO_CEILINGS);
         arguments.extend(extra);
         let output = run(&arguments);
         assert!(output.status.success(), "{}", stderr_of(&output));
@@ -447,7 +451,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
     }
 }
 
-/// Writing the memo files beside the rest of the build does not change any file: a table build with `--overlap-memo-writes` writes the same tables, memo files and digests as one without, and still times each configuration's memo write.
+/// Writing the memo files beside the rest of the build does not change any file: a table build with `--overlap-memo-writes` writes the same tables, memo files and digests as one without, and still times each configuration's memo write. Both builds run at [`SMALL_MEMO_CEILINGS`].
 #[test]
 fn a_table_build_writing_its_memos_beside_the_wave_files_the_bytes_one_writing_them_ahead_files() {
     let root = scratch("cli-overlap-memo-writes");
@@ -466,6 +470,7 @@ fn a_table_build_writing_its_memos_beside_the_wave_files_the_bytes_one_writing_t
             "--memo-stamp=cli-memo",
             "--timings",
         ];
+        arguments.extend(SMALL_MEMO_CEILINGS);
         arguments.extend(extra);
         let output = run(&arguments);
         assert!(output.status.success(), "{}", stderr_of(&output));
@@ -492,7 +497,7 @@ fn a_table_build_writing_its_memos_beside_the_wave_files_the_bytes_one_writing_t
     }
 }
 
-/// Sending the memo files to the null sink changes no table and writes no memo file: a table build with `--output-sink=null` writes the same tables and digests as one writing its memo files, whether it would write them ahead of the wave or beside it, and leaves no `memo-<config>.tsv` behind. The flag takes only `null`, once, and only beside a stamp.
+/// Sending the memo files to the null sink changes no table and writes no memo file: a table build with `--output-sink=null` writes the same tables and digests as one writing its memo files, whether it would write them ahead of the wave or beside it, and leaves no `memo-<config>.tsv` behind. The flag takes only `null`, once, and only beside a stamp. Every build compared here runs at [`SMALL_MEMO_CEILINGS`].
 #[test]
 fn a_table_build_sending_its_memos_to_the_null_sink_files_the_tables_and_no_memo_file() {
     let root = scratch("cli-memo-output-sink");
@@ -513,6 +518,7 @@ fn a_table_build_sending_its_memos_to_the_null_sink_files_the_tables_and_no_memo
             "--threads=2",
             "--memo-stamp=cli-memo",
         ];
+        arguments.extend(SMALL_MEMO_CEILINGS);
         arguments.extend(extra);
         let output = run(&arguments);
         assert!(output.status.success(), "{}", stderr_of(&output));
@@ -565,7 +571,7 @@ fn a_table_build_sending_its_memos_to_the_null_sink_files_the_tables_and_no_memo
     }
 }
 
-/// Starting the heaviest delta from scratch beside `default` changes no table: a build with `--scratch-beside-default=1` writes the tables and digests of a build that runs it as a delta, and writes for it the memo file a `--no-default-memo-sharing` build writes rather than the delta's, since a configuration enumerated from scratch memoizes every window it settles. A count of zero is a usage error, since leaving the flag out asks for none.
+/// Starting the heaviest delta from scratch beside `default` changes no table: a build with `--scratch-beside-default=1` writes the tables and digests of a build that runs it as a delta, and writes for it the memo file a `--no-default-memo-sharing` build writes rather than the delta's, since a configuration enumerated from scratch memoizes every window it settles. A count of zero is a usage error, since leaving the flag out asks for none. Every build here runs at [`SMALL_MEMO_CEILINGS`].
 #[test]
 fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a_sharing_one_files()
 {
@@ -587,6 +593,7 @@ fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a
             "--threads=2",
             "--memo-stamp=cli-memo",
         ];
+        arguments.extend(SMALL_MEMO_CEILINGS);
         arguments.extend(extra);
         let output = run(&arguments);
         assert!(output.status.success(), "{}", stderr_of(&output));
@@ -626,6 +633,119 @@ fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a
     assert_eq!(output.status.code(), Some(2), "{}", stderr_of(&output));
 }
 
+/// Clearing the prospect and candidate memos at a ceiling changes no file: a table build at [`SMALL_MEMO_CEILINGS`] writes the tables, memo files and digests of one at the default ceilings, which the fixture never reaches. Its cache stats count each configuration's clears on a `memo_clears` line, and its two memos' tables never pass seven entries, the most eight buckets hold. A ceiling that is not a power of two of at least eight, or is given twice, is a usage error, and so is either flag on `enumerate`.
+#[test]
+fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_uncleared_one_files() {
+    let root = scratch("cli-memo-ceilings");
+    let spec = spec_at(&root);
+    let outdirs = ["default-ceilings", "small-ceilings"].map(|arm| root.join(arm));
+    let mut answers: Vec<String> = Vec::new();
+    let mut clears: Vec<Vec<(u64, u64)>> = Vec::new();
+    for (outdir, extra) in outdirs.iter().zip([&[][..], &SMALL_MEMO_CEILINGS[..]]) {
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(outdir),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            "--threads=2",
+            "--memo-stamp=cli-memo",
+            "--cache-stats",
+        ];
+        arguments.extend(extra);
+        let output = run(&arguments);
+        assert!(output.status.success(), "{}", stderr_of(&output));
+        let stderr = stderr_of(&output);
+        let mut counted = Vec::new();
+        for (token, _) in CONFIGS {
+            let line = format!("[c] {token} memo_clears prospect=");
+            let rest = stderr
+                .lines()
+                .find_map(|stat| stat.strip_prefix(line.as_str()))
+                .unwrap_or_else(|| panic!("{token} reports its clears: {stderr}"));
+            let (prospect, candidates) = rest
+                .split_once(" candidates=")
+                .expect("the line counts both memos");
+            counted.push((
+                prospect.parse().expect("a count"),
+                candidates.parse().expect("a count"),
+            ));
+        }
+        clears.push(counted);
+        if !extra.is_empty() {
+            for (token, _) in CONFIGS {
+                for name in ["prospect_cache", "candidates_cache"] {
+                    let prefix = format!("[c] {token} {name} len=");
+                    let rows: Vec<&str> = stderr
+                        .lines()
+                        .filter(|stat| stat.starts_with(prefix.as_str()))
+                        .collect();
+                    assert!(!rows.is_empty(), "{token} reports its {name}: {stderr}");
+                    for stat in rows {
+                        let capacity: usize = stat
+                            .rsplit_once(" cap=")
+                            .and_then(|(_, capacity)| capacity.parse().ok())
+                            .unwrap_or_else(|| panic!("a table row states its capacity: {stat}"));
+                        assert!(capacity <= 7, "{stat}");
+                    }
+                }
+            }
+        }
+        answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
+    }
+    assert_eq!(answers[0], answers[1]);
+    assert_eq!(
+        clears[0],
+        vec![(0, 0); 2],
+        "the default ceilings are never reached"
+    );
+    assert!(
+        clears[1]
+            .iter()
+            .all(|&(prospect, candidates)| prospect > 0 && candidates > 0),
+        "{:?}",
+        clears[1]
+    );
+    let [uncleared, cleared] = &outdirs;
+    for (token, _) in CONFIGS {
+        for family in ["settlement", "joins", "windows", "memo"] {
+            let name = format!("{family}-{token}.tsv");
+            assert_eq!(
+                std::fs::read(uncleared.join(&name))
+                    .expect("the build at the default ceilings wrote it"),
+                std::fs::read(cleared.join(&name)).expect("and so did the build at small ones"),
+                "{name}"
+            );
+        }
+    }
+    for flag in ["--prospect-memo-buckets", "--candidates-memo-buckets"] {
+        for value in ["", "0", "4", "12", "+8", "8.0"] {
+            let output = run(&[
+                "build-tables",
+                word(&spec),
+                word(&root.join("misuse")),
+                "--configs=default,ss03",
+                "--inputs=cli-stamp",
+                &format!("{flag}={value}"),
+            ]);
+            assert_eq!(output.status.code(), Some(2), "{flag}={value}");
+        }
+        let twice = format!("{flag}=8");
+        let output = run(&[
+            "build-tables",
+            word(&spec),
+            word(&root.join("misuse")),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            &twice,
+            &twice,
+        ]);
+        assert_eq!(output.status.code(), Some(2), "{flag} given twice");
+        let output = run(&["enumerate", word(&spec), &twice]);
+        assert_eq!(output.status.code(), Some(2), "{flag} on enumerate");
+    }
+}
+
 /// A table file with its windows head's `fold_order` left out, the one field that names which configurations a build was given.
 fn without_fold_order(bytes: Vec<u8>) -> String {
     let text = String::from_utf8(bytes).expect("a table file is UTF-8");
@@ -641,7 +761,7 @@ fn without_fold_order(bytes: Vec<u8>) -> String {
     }
 }
 
-/// Previous memos across builds: a build of an edited spec that reads the previous build's memo files, with the edited rune named, writes the bytes a from-scratch build of the edited spec writes for every configuration, and writes memo files of its own under the stamp it was given. The fixture's whole set imports no window, so a build of fewer configurations writes the same bytes but for its windows head's `fold_order`.
+/// Previous memos across builds: a build of an edited spec that reads the previous build's memo files, with the edited rune named, writes the bytes a from-scratch build of the edited spec writes for every configuration, and writes memo files of its own under the stamp it was given. The fixture's whole set imports no window, so a build of fewer configurations writes the same bytes but for its windows head's `fold_order`. Every build here runs at [`SMALL_MEMO_CEILINGS`].
 #[test]
 fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files() {
     let root = scratch("cli-previous-memos");
@@ -665,42 +785,49 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
     );
     std::fs::write(&after, edited).expect("the edited spec writes");
     let previous = root.join("previous");
-    let output = run(&[
+    let mut arguments = vec![
         "build-tables",
         word(&before),
         word(&previous),
         "--configs=default,ss03",
         "--inputs=cli-stamp",
         "--memo-stamp=before",
-    ]);
+    ];
+    arguments.extend(SMALL_MEMO_CEILINGS);
+    let output = run(&arguments);
     assert!(output.status.success(), "{}", stderr_of(&output));
     for (token, _) in CONFIGS {
         assert!(previous.join(format!("memo-{token}.tsv")).is_file());
     }
     let reusing = root.join("reusing");
-    let output = run(&[
+    let previous_memos = format!("--previous-memos={}", word(&previous));
+    let mut arguments = vec![
         "build-tables",
         word(&after),
         word(&reusing),
         "--configs=default,ss03",
         "--inputs=cli-stamp",
-        &format!("--previous-memos={}", word(&previous)),
+        &previous_memos,
         "--edited=qsTea",
         "--memo-stamp=after",
         "--timings",
-    ]);
+    ];
+    arguments.extend(SMALL_MEMO_CEILINGS);
+    let output = run(&arguments);
     assert!(output.status.success(), "{}", stderr_of(&output));
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     let phases: Vec<&str> = stderr.lines().map(timing_phase).collect();
     assert!(phases.contains(&"memo[default]"), "{phases:?}");
     let scratch_built = root.join("scratch");
-    let output = run(&[
+    let mut arguments = vec![
         "build-tables",
         word(&after),
         word(&scratch_built),
         "--configs=default,ss03",
         "--inputs=cli-stamp",
-    ]);
+    ];
+    arguments.extend(SMALL_MEMO_CEILINGS);
+    let output = run(&arguments);
     assert!(output.status.success(), "{}", stderr_of(&output));
     for (token, _) in CONFIGS {
         for family in ["settlement", "joins", "windows"] {
@@ -726,7 +853,6 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
         ("without-default", "--configs=ss03", None, vec!["ss03"]),
     ] {
         let outdir = root.join(arm);
-        let previous_memos = format!("--previous-memos={}", word(&previous));
         let mut args = vec![
             "build-tables",
             word(&after),
@@ -737,6 +863,7 @@ fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files()
             "--edited=qsTea",
             "--memo-stamp=after",
         ];
+        args.extend(SMALL_MEMO_CEILINGS);
         args.extend(extra);
         let output = run(&args);
         assert!(output.status.success(), "{arm}: {}", stderr_of(&output));

@@ -129,6 +129,46 @@ impl Slots {
 /// The tail [`Engine::cond_matches_right`] walks once a `then:` chain runs past the supplied slots.
 const UNKNOWN_TAIL: [RightToken; 1] = [UNKNOWN];
 
+/// The ceilings on an engine's prospect memo and candidate memo, each the bucket count its hash table may reach, a power of two of at least eight. A table of that many buckets holds seven eighths as many entries before it doubles, so a memo holding that many is cleared in place before its next insert, keeping its table, and fills again. Both memos are pure caches: a miss after a clear derives again what the clear dropped, journaling the same fired delta and read set at the ids they already hold, so no trace, fired set, table or memo file changes, and the cost is the second derivation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MemoCeilings {
+    prospect_buckets: usize,
+    candidates_buckets: usize,
+}
+
+impl MemoCeilings {
+    /// Ceilings of `prospect_buckets` and `candidates_buckets` buckets, or `None` unless each is a power of two of at least eight.
+    pub const fn new(prospect_buckets: usize, candidates_buckets: usize) -> Option<Self> {
+        if !Self::is_bucket_count(prospect_buckets) || !Self::is_bucket_count(candidates_buckets) {
+            return None;
+        }
+        Some(Self {
+            prospect_buckets,
+            candidates_buckets,
+        })
+    }
+
+    /// The prospect memo's ceiling in buckets.
+    pub const fn prospect_buckets(self) -> usize {
+        self.prospect_buckets
+    }
+
+    /// The candidate memo's ceiling in buckets.
+    pub const fn candidates_buckets(self) -> usize {
+        self.candidates_buckets
+    }
+
+    /// Whether `buckets` is a bucket count hashbrown gives a table, at a size where its capacity is seven eighths of it.
+    const fn is_bucket_count(buckets: usize) -> bool {
+        buckets.is_power_of_two() && buckets >= 8
+    }
+
+    /// The most entries a table of `buckets` buckets holds before it doubles.
+    const fn entries(buckets: usize) -> usize {
+        buckets / 8 * 7
+    }
+}
+
 /// The modes an engine is built with. The crate reads no environment, so the caller passes them. [`Default`] gives the default modes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EngineModes {
@@ -142,6 +182,8 @@ pub struct EngineModes {
     pub trace_memo: bool,
     /// Whether a trace carries its ranking: every ranked survivor with its scores, the eliminations with their descriptions, and the runner-up. On wherever a person reads a trace (the explain report, the review corpus, the probe). Off in the table fixpoint, whose rows read only the settled triple, the prospect, the joint tiebreak and the notes, and in the string replay, which reads only the settled record. Formatting rankings nobody reads is the largest avoidable allocation in either.
     pub explain_ranking: bool,
+    /// The ceilings on the prospect and candidate memos, or `None` for neither. Only the table fixpoint sets them ([`crate::fixpoint::TABLE_MEMO_CEILINGS`]); every other engine keeps both unbounded, among them the case verbs' that the explain report and the probe settle through, and the string replay's.
+    pub memo_ceilings: Option<MemoCeilings>,
 }
 
 impl Default for EngineModes {
@@ -152,6 +194,7 @@ impl Default for EngineModes {
             follower_prefer_slots: true,
             trace_memo: false,
             explain_ranking: true,
+            memo_ceilings: None,
         }
     }
 }
@@ -967,6 +1010,11 @@ pub struct Engine<'i> {
     candidates_cache: CandidatesMemo,
     /// The prospect memo: the term as an `i8`, since it is zero or one, beside the ids of its fired delta and read set (issue #166). With a trace memo in simulated-prospect mode it holds only the asks whose replayed settlement raised. A settling ask's answer is one field of a window the trace memo holds, so [`Engine::prospect`] skips the entry and reads the trace memo on the next ask. A probe's ask, whose window the trace memo also skips (issue #168), settles the window again, which the probes' own memos make rare.
     prospect_cache: HashMap<ProspectKey, (i8, DeltaId, ReadsId)>,
+    /// How many entries the prospect memo and the candidate memo each hold before they are cleared ([`MemoCeilings`]), `usize::MAX` without a ceiling, and how many times each has been cleared, for the cache stats.
+    prospect_ceiling: usize,
+    candidates_ceiling: usize,
+    prospect_clears: u64,
+    candidates_clears: u64,
     exit_sources_cache: HashMap<StanceId, (Vec<ExitSource<'i>>, Vec<Pointer>)>,
     pairing_sets: HashMap<StanceId, PairingSets>,
     explain_ranking: bool,
@@ -1017,6 +1065,14 @@ impl<'i> Engine<'i> {
             closure_cache: HashMap::default(),
             candidates_cache: CandidatesMemo::default(),
             prospect_cache: HashMap::default(),
+            prospect_ceiling: modes.memo_ceilings.map_or(usize::MAX, |ceilings| {
+                MemoCeilings::entries(ceilings.prospect_buckets)
+            }),
+            candidates_ceiling: modes.memo_ceilings.map_or(usize::MAX, |ceilings| {
+                MemoCeilings::entries(ceilings.candidates_buckets)
+            }),
+            prospect_clears: 0,
+            candidates_clears: 0,
             exit_sources_cache: HashMap::default(),
             pairing_sets: HashMap::default(),
             explain_ranking: modes.explain_ranking,
@@ -1137,6 +1193,16 @@ impl<'i> Engine<'i> {
     /// Whether this engine memoizes whole windows and journals a delta per memoized evaluation.
     pub fn trace_memo(&self) -> bool {
         self.trace_cache.is_some()
+    }
+
+    /// How many times the prospect memo has been cleared at its ceiling.
+    pub fn prospect_memo_clears(&self) -> u64 {
+        self.prospect_clears
+    }
+
+    /// How many times the candidate memo has been cleared at its ceiling.
+    pub fn candidates_memo_clears(&self) -> u64 {
+        self.candidates_clears
     }
 
     /// Drop every memo this engine holds, keeping the fired set and the small per-stance tables. After a fixpoint's last trace comes a drain and sort of the whole product, and keeping the window memos alive through it would set the enumeration's peak memory.
@@ -2126,6 +2192,8 @@ impl<'i> Engine<'i> {
                     delta: self.deltas.intern(delta),
                     reads: self.reads.intern(reads),
                 };
+                self.candidates_clears +=
+                    u64::from(clear_at_ceiling(&mut memo.entries, self.candidates_ceiling));
                 memo.entries.insert(key, entry);
                 entry
             }
@@ -2568,6 +2636,10 @@ impl<'i> Engine<'i> {
         let delta_id = self.deltas.intern(delta);
         let reads = self.reads.intern(reads);
         let prospect = i8::try_from(result).expect("a prospect is a junction count, zero or one");
+        self.prospect_clears += u64::from(clear_at_ceiling(
+            &mut self.prospect_cache,
+            self.prospect_ceiling,
+        ));
         self.prospect_cache.insert(key, (prospect, delta_id, reads));
         Ok(result)
     }
@@ -3726,6 +3798,15 @@ fn replay_into(fired_log: &mut Option<Vec<Pointer>>, capture_starts: &[usize], d
         .as_mut()
         .expect("a capture is only ever open while the journal exists");
     log.extend_from_slice(delta);
+}
+
+/// Empty `memo` in place, keeping its table, when it holds `ceiling` entries, so the insert that follows fills the table again instead of doubling it ([`MemoCeilings`]). Returns whether it emptied the memo.
+fn clear_at_ceiling<K, V>(memo: &mut HashMap<K, V>, ceiling: usize) -> bool {
+    if memo.len() < ceiling {
+        return false;
+    }
+    memo.clear();
+    true
 }
 
 /// Replay a shared memo entry's fired delta the same way, except that the shared memo's pointers were journaled by another engine, so the fired set holds them only after this engine has replayed that delta id once. `replayed` has one flag per delta id of the shared memo.
@@ -6118,6 +6199,95 @@ mod tests {
                 );
                 assert_eq!(bare, explained, "window {at} on the {pass}");
             }
+        }
+    }
+
+    /// A memo ceiling clears the prospect and candidate memos without moving a window. In each prospect mode, two trace-memo engines over the mini spec, one holding both memos to eight buckets and one holding neither, settle the same windows in the same order to the same result, fired delta and read set, and end with the same fired set, while neither of the capped engine's two tables passes the seven entries eight buckets hold. The windows are every input letter after the edge, a space and each left the edge's windows settle to, before every pair of letters and boundaries, with a letter, a boundary or an unknown third. The capped engine clears its candidate memo in both modes. Its prospect memo is cleared in the candidacy mode, which memoizes every ask. The simulated mode holds only the asks whose replayed settlement raised, and whether any of these windows raises is a fact about the fixture rather than the ceiling, so that mode's prospect clears go unchecked.
+    #[test]
+    fn a_memo_ceiling_clears_the_prospect_and_candidate_memos_and_moves_no_window() {
+        let index = fixtures::mini();
+        let ss03 = fixtures::sym(&index, "ss03");
+        let letters: Vec<RightToken> = index
+            .runes()
+            .iter()
+            .filter_map(|(name, _)| index.letter(*name))
+            .collect();
+        let rights: Vec<RightToken> = letters.iter().copied().chain([EDGE, SPACE]).collect();
+        let mut lefts = vec![
+            LeftContext::boundary(TokenKind::Edge),
+            LeftContext::boundary(TokenKind::Space),
+        ];
+        let mut scout = Engine::new(&index, [ss03]);
+        for &token in &letters {
+            for &right1 in &rights {
+                let edge = LeftContext::boundary(TokenKind::Edge);
+                if let Ok(trace) = scout.transition_trace(&edge, token, Slots::pair(right1, EDGE)) {
+                    let left = LeftContext::letter(&index, trace.settled);
+                    if !lefts.contains(&left) {
+                        lefts.push(left);
+                    }
+                }
+            }
+        }
+        assert!(lefts.len() > 2, "the edge's windows settle to letter lefts");
+        for simulated_prospect in [true, false] {
+            let engine = |memo_ceilings| {
+                Engine::with_modes(
+                    &index,
+                    [ss03],
+                    EngineModes {
+                        simulated_prospect,
+                        trace_memo: true,
+                        explain_ranking: false,
+                        memo_ceilings,
+                        ..EngineModes::default()
+                    },
+                )
+            };
+            let mut capped = engine(Some(
+                MemoCeilings::new(8, 8).expect("eight buckets is a ceiling"),
+            ));
+            let mut unbounded = engine(None);
+            for left in &lefts {
+                for &token in &letters {
+                    for &right1 in &rights {
+                        for &right2 in &rights {
+                            for right3 in rights.iter().copied().chain([UNKNOWN]) {
+                                let slots = Slots::new(right1, right2, right3, EDGE);
+                                let window =
+                                    format!("{simulated_prospect} {left:?} {token:?} {slots:?}");
+                                let ours = capped.transition_trace(left, token, slots);
+                                assert_eq!(
+                                    ours,
+                                    unbounded.transition_trace(left, token, slots),
+                                    "{window}"
+                                );
+                                if ours.is_ok() {
+                                    assert_eq!(
+                                        capped.trace_delta(left, token, slots),
+                                        unbounded.trace_delta(left, token, slots),
+                                        "{window}"
+                                    );
+                                    assert_eq!(
+                                        capped.trace_reads(left, token, slots),
+                                        unbounded.trace_reads(left, token, slots),
+                                        "{window}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            assert_eq!(capped.fired(), unbounded.fired(), "{simulated_prospect}");
+            assert!(capped.candidates_memo_clears() > 0, "{simulated_prospect}");
+            if !simulated_prospect {
+                assert!(capped.prospect_memo_clears() > 0);
+            }
+            assert_eq!(unbounded.prospect_memo_clears(), 0);
+            assert_eq!(unbounded.candidates_memo_clears(), 0);
+            assert!(capped.prospect_cache.capacity() <= 7);
+            assert!(capped.candidates_cache.entries.capacity() <= 7);
         }
     }
 

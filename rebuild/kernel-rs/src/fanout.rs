@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use crate::artifacts;
 use crate::crossconfig::{self, ForeignRow, Imports, SharedRules, Source, SourceRows, Spellings};
-use crate::engine::EngineModes;
+use crate::engine::{EngineModes, MemoCeilings};
 use crate::fixpoint::{self, EnumerationModes, MemoAccess, MemoWrite};
 use crate::fold;
 use crate::hash::HashSet;
@@ -45,6 +45,7 @@ pub struct Configuration<'a> {
 /// - `overlap_memo_writes`: in a build that shares `default`'s memo, each delta's memo file and `default`'s are written on a thread of their own from the configuration's release point, beside its drain, sort and fold and the rest of the wave, instead of on the configuration's own thread ahead of them ([`run_configs_tables`]). The files are the same bytes either way. A configuration enumerated from scratch writes its file ahead of its drain whatever this says.
 /// - `scratch_beside_default`: in a build that shares `default`'s memo, at most how many of the deltas, taken heaviest first from [`delta_worklist`], enumerate from scratch instead, starting at the same moment as `default` rather than after it. They are taken in whole tiers of equal unlocking-rune count ([`scratch_tiers`]), and the count is capped at the delta count and at one less than the worker slots, so `default`'s enumeration and theirs never run more than the width at once. The tables are the same bytes either way.
 /// - `verdict_sharing`: in a build where at least one delta reads `default`'s memo, `default` also publishes its liveness verdicts in that memo, for each distinct unlocking-rune set among those deltas ([`verdict_groups`]), and each delta is served the ones its exclusion admits, rerunning only the asks that name one of its unlocking runes ([`crate::liveness`]). A build whose deltas all enumerate from scratch publishes none, since the capture costs `default` time. The tables and memo files are the same bytes either way.
+/// - `memo_ceilings`: the ceilings each configuration's engine holds its prospect and candidate memos to, [`fixpoint::TABLE_MEMO_CEILINGS`] unless the caller sets others. The tables and memo files are the same bytes at any ceiling.
 #[derive(Clone, Debug)]
 pub struct MemoSharing {
     pub default_memo_sharing: bool,
@@ -56,6 +57,7 @@ pub struct MemoSharing {
     pub overlap_memo_writes: bool,
     pub scratch_beside_default: usize,
     pub verdict_sharing: bool,
+    pub memo_ceilings: MemoCeilings,
 }
 
 impl Default for MemoSharing {
@@ -70,6 +72,7 @@ impl Default for MemoSharing {
             overlap_memo_writes: false,
             scratch_beside_default: 0,
             verdict_sharing: true,
+            memo_ceilings: fixpoint::TABLE_MEMO_CEILINGS,
         }
     }
 }
@@ -507,6 +510,7 @@ pub fn run_configs_tables(
                 } else {
                     Vec::new()
                 },
+                memo_ceilings: sharing.memo_ceilings,
             },
             memo_file(
                 sharing,
@@ -561,6 +565,7 @@ pub fn run_configs_tables(
                             shared_memos: shared,
                             keep_memo: false,
                             publish_verdicts: Vec::new(),
+                            memo_ceilings: sharing.memo_ceilings,
                         };
                         enumerate_config_tables(index, config, modes, report, access, file, beside)
                     });
@@ -1038,6 +1043,7 @@ fn enumerate_from_scratch<'a: 's, 's>(
             .collect(),
         keep_memo: false,
         publish_verdicts: Vec::new(),
+        memo_ceilings: sharing.memo_ceilings,
     };
     let carried = shared_behind(previous.as_ref(), edited.clone())
         .into_iter()
