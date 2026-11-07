@@ -875,6 +875,11 @@ fn enumerate_from_seeds<'i>(
             resident_kb()
         ));
     }
+    // Nothing reads these past the stats above, so they are freed here instead of at the return, and everything from here to the return runs without them: the snapshot build, the memo write, the drain, the sort and the partition check.
+    drop(worklist);
+    drop(seen);
+    drop(pending_rows);
+    drop(pending_ids);
 
     // Taken here, before the memos are released: the drain, the sort and the partition check that follow do not change what the product reports as fired, and the partition check's re-traces are left out of it. The cross-check traces above are included.
     let cited_provenance = engine
@@ -1255,6 +1260,8 @@ struct ContextPartition {
 /// It runs over the crate's own product before the stream is written, because the filters, fibers and option lists it consults are not in the stream. Everything it consults was already computed during enumeration: the two filters' memos are filled, every live context's fibers are derived, and `right4_options` returns the same list for the same inputs. The product's fired set is taken before this check runs, so the check adds no provenance.
 ///
 /// It checks, per base: the member sets of the observed r3 letter tokens are pairwise disjoint, and each lies inside the recomputed static option list and inside one fiber of its context's partition; right3 is not `#NA` exactly where the rune set and the third-slot filter say live; one slot deeper, r4 member sets are disjoint per base and r3 token, every member of an r3 token gets the same `fourth_slot_matters` result and the same computed r4 option list; and every class id resolves through the product's map, with every map entry used. Disjointness is checked per base, not per context, because slot restrictions are per left state, so two bases in one context can admit nested subsets of one fiber. Coverage of the static option list is not checked, because slot restrictions exclude unreachable members, as label grain excludes their rows.
+///
+/// The product's rows are in key order, so each base's rows are one run, and the check holds the member claims of one base at a time, clearing them when the next base starts. That is sound only while the bases arrive in order: a base whose rows came back after another base's would be checked against cleared claims. So a base that sorts before the one just checked is an error, raised here because the fold's `assert_key_sorted`, which checks the same order, runs only after this check.
 struct DeepPartitionCheck<'a, 'i> {
     engine: &'a mut Engine<'i>,
     options: &'a mut WindowOptions<'i>,
@@ -1278,8 +1285,9 @@ impl DeepPartitionCheck<'_, '_> {
             .map(|(token, members)| (token.as_str(), members.as_slice()))
             .collect();
         let mut used: HashSet<&str> = HashSet::default();
-        let mut seen3: HashMap<[&str; 4], HashMap<&str, &str>> = HashMap::default();
-        let mut seen4: HashMap<([&str; 4], &str), HashMap<&str, &str>> = HashMap::default();
+        let mut last_base: Option<[&str; 4]> = None;
+        let mut seen3: HashMap<&str, &str> = HashMap::default();
+        let mut seen4: HashMap<&str, HashMap<&str, &str>> = HashMap::default();
         for row in &product.transitions {
             let key = row.key(&product.labels);
             let family = rune_of(
@@ -1354,9 +1362,20 @@ impl DeepPartitionCheck<'_, '_> {
                 &**product.labels.text(row.right1),
                 &**product.labels.text(row.right2),
             ];
-            let taken3 = seen3.entry(base).or_default();
+            if let Some(last) = last_base
+                && base != last
+            {
+                if base < last {
+                    return Err(format!(
+                        "the product's bases are not in key order: {base:?} follows {last:?}"
+                    ));
+                }
+                seen3.clear();
+                seen4.clear();
+            }
+            last_base = Some(base);
             for member in &members3 {
-                if let Some(claimed) = taken3.get(member)
+                if let Some(claimed) = seen3.get(member)
                     && *claimed != &**product.labels.text(row.right3)
                 {
                     return Err(format!(
@@ -1364,7 +1383,7 @@ impl DeepPartitionCheck<'_, '_> {
                         product.labels.text(row.right3)
                     ));
                 }
-                taken3.insert(member, &**product.labels.text(row.right3));
+                seen3.insert(member, &**product.labels.text(row.right3));
             }
             {
                 let partition = &self.contexts[&(family, right1, right2)];
@@ -1465,9 +1484,7 @@ impl DeepPartitionCheck<'_, '_> {
                 continue;
             }
             let members4 = token_members(&classes, product.labels.text(row.right4));
-            let taken4 = seen4
-                .entry((base, &**product.labels.text(row.right3)))
-                .or_default();
+            let taken4 = seen4.entry(&**product.labels.text(row.right3)).or_default();
             for member in &members4 {
                 if let Some(claimed) = taken4.get(member)
                     && *claimed != &**product.labels.text(row.right4)
@@ -2427,6 +2444,59 @@ mod tests {
         assert!(
             error.ends_with(": members induce different computed r4 option lists: qsPea vs qsTea"),
             "{error}"
+        );
+    }
+
+    /// The r3 member sets at one base are disjoint, and a member's claim lasts for its base only: the same member under another token at the next base is no conflict.
+    #[test]
+    fn two_r3_tokens_sharing_a_member_stop_the_build_at_one_base_only() {
+        let index = deep_alphabet();
+        let token = class_of(&["qsMay", "qsTea"]);
+        let partition: &[&[&str]] = &[&["qsMay", "qsTea"]];
+        let one_base = hand_product(
+            vec![
+                deep_row(["qsPea", "#EDGE", "qsTea", "qsMay", &token, "#NA"]),
+                deep_row(["qsPea", "#EDGE", "qsTea", "qsMay", "qsTea", "#NA"]),
+            ],
+            &[(&token, &["qsMay", "qsTea"])],
+        );
+        let error = checked(&index, &one_base, &[(LIVE, partition)])
+            .expect_err("qsTea is claimed by two tokens at one base");
+        assert!(
+            error.ends_with(&format!(
+                ": r3 member qsTea belongs to two tokens at one base: {token} and qsTea"
+            )),
+            "{error}"
+        );
+        let two_bases = hand_product(
+            vec![
+                deep_row(["qsPea", "#EDGE", "qsTea", "qsMay", &token, "#NA"]),
+                deep_row(["qsPea", "space", "qsTea", "qsMay", "qsTea", "#NA"]),
+            ],
+            &[(&token, &["qsMay", "qsTea"])],
+        );
+        assert_eq!(checked(&index, &two_bases, &[(LIVE, partition)]), Ok(()));
+    }
+
+    /// The claims are cleared at each new base, so a base whose rows come back after another base's would be checked against cleared claims. Here the third row repeats the first row's base with a claim that conflicts with the first row's, which a check reading on past the base would miss; the check stops at the base instead.
+    #[test]
+    fn a_base_out_of_key_order_stops_the_partition_check() {
+        let index = deep_alphabet();
+        let token = class_of(&["qsMay", "qsTea"]);
+        let product = hand_product(
+            vec![
+                deep_row(["qsPea", "#EDGE", "qsTea", "qsMay", &token, "#NA"]),
+                deep_row(["qsPea", "space", "qsTea", "qsMay", "qsTea", "#NA"]),
+                deep_row(["qsPea", "#EDGE", "qsTea", "qsMay", "qsTea", "#NA"]),
+            ],
+            &[(&token, &["qsMay", "qsTea"])],
+        );
+        assert_eq!(
+            checked(&index, &product, &[(LIVE, &[&["qsMay", "qsTea"]])]),
+            Err(
+                r##"the product's bases are not in key order: ["qsPea", "#EDGE", "qsTea", "qsMay"] follows ["qsPea", "space", "qsTea", "qsMay"]"##
+                    .to_owned()
+            )
         );
     }
 
