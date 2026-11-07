@@ -306,27 +306,6 @@ pub fn adjustment_text(index: &SpecIndex, token: AdjustmentToken) -> String {
     }
 }
 
-/// The inverse of [`adjustment_text`]: the token a text denotes, or `None` when it is not one (a side prefix other than `en` or `ex`, a count that is not a number, or a bitmap name this spec never interned). The only caller is the memo file reader in `memo.rs`.
-pub fn adjustment_from_text(index: &SpecIndex, text: &str) -> Option<AdjustmentToken> {
-    if text == "locked" {
-        return Some(AdjustmentToken::Locked);
-    }
-    let (prefix, rest) = text.split_once('-')?;
-    let side = match prefix {
-        "en" => Side::Entry,
-        "ex" => Side::Exit,
-        _ => return None,
-    };
-    let (kind, value) = rest.split_once('-')?;
-    match kind {
-        "ext" => Some(AdjustmentToken::Extend(side, value.parse().ok()?)),
-        "con" => Some(AdjustmentToken::Contract(side, value.parse().ok()?)),
-        "trim" => Some(AdjustmentToken::Trim(side, value.parse().ok()?)),
-        "bind" => Some(AdjustmentToken::Bind(side, index.sym_of(value)?)),
-        _ => None,
-    }
-}
-
 /// One cell's identity, `model.CellId`. `entry` and `exit` are the live heights of the two sides, and `None` means the side did not join. The adjustments are ordered and generated, never authored.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct CellId {
@@ -693,7 +672,7 @@ pub enum DecidedStage {
 }
 
 impl DecidedStage {
-    /// The seven stages in ranking order, each at the index [`DecidedStage::ordinal`] returns for it. [`DecidedStage::from_text`] and the tests iterate over this table.
+    /// The seven stages in ranking order, each at the index [`DecidedStage::ordinal`] returns for it. The tests iterate over this table.
     pub const ALL: [Self; 7] = [
         Self::Boundary,
         Self::OnlyCandidate,
@@ -729,11 +708,6 @@ impl DecidedStage {
             6 => Some(Self::Tiebreak),
             _ => None,
         }
-    }
-
-    /// The stage a name denotes, or `None` for text that is not one of the seven. The inverse of [`DecidedStage::as_str`], for the memo file, which stores a stage for each entry.
-    pub fn from_text(text: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|stage| stage.as_str() == text)
     }
 
     /// The stage's name, as the trace writes it.
@@ -1024,7 +998,6 @@ mod tests {
             let ordinal = u8::try_from(index).expect("seven ordinals");
             assert_eq!(stage.ordinal(), ordinal);
             assert_eq!(DecidedStage::from_ordinal(ordinal), Some(stage));
-            assert_eq!(DecidedStage::from_text(stage.as_str()), Some(stage));
         }
         assert_eq!(
             DecidedStage::from_ordinal(u8::try_from(DecidedStage::ALL.len()).expect("seven")),

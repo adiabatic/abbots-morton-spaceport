@@ -1258,7 +1258,6 @@ class Plan:
     sweep_reason: str = ""
     kernel_threads: int = 1
     kernel_reason: str = ""
-    overlap_memo_writes: bool = False
     scratch_beside_default: int = 0
     replay_threads: int = 1
     replay_reason: str = ""
@@ -1390,7 +1389,7 @@ def _make_test_pool_bytes(*, skip_make_test: bool, ncores: int | None) -> float:
 
 
 def _wave_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[float, int]:
-    """Return the co-resident bytes and the width cap that `kernel_threads_budget`, `memo_writes_overlap_budget`, `scratch_beside_default_budget`, `replay_threads_budget` and `replay_threads_derivation` share. The co-resident term is gate:make-test's pytest pool (`_make_test_pool_bytes`) only: `kernel_exec.kernel_threads_default` adds `default`'s retained memo and the parked fold products itself, and the replay builds its engines after the table build's process has exited. The cap is the smaller of the configuration count and the usable cores, the same bounds `run_m1._table_build_threads` and `run_m1._replay_threads` apply."""
+    """Return the co-resident bytes and the width cap that `kernel_threads_budget`, `scratch_beside_default_budget`, `replay_threads_budget` and `replay_threads_derivation` share. The co-resident term is gate:make-test's pytest pool (`_make_test_pool_bytes`) only: `kernel_exec.kernel_threads_default` adds `default`'s retained memo and the parked fold products itself, and the replay builds its engines after the table build's process has exited. The cap is the smaller of the configuration count and the usable cores, the same bounds `run_m1._table_build_threads` and `run_m1._replay_threads` apply."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -1401,7 +1400,7 @@ def _wave_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[float,
 def kernel_threads_budget(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> int:
-    """Return the kernel fan-out's width for this cycle, the `--kernel-threads` the plan passes run_m1. Memory limits this width because a live delta holds its whole working set until it emits, and every configuration's prepared fold product stays parked until the cross-configuration exchange ends. `kernel_exec.kernel_threads_default` does the arithmetic over the settlement configurations: the widest width whose booking (`kernel_exec.table_build_booking_bytes`: the memo snapshots `default` keeps alive for the wave, one parked product per configuration, what each delta in flight adds beyond its own, and `default`'s fold preparation in a slot of its own once every delta has one) fits the machine's memory less the reserve. On the fleet (`doc/fleet.md`) this gives the whole wave, every configuration at once, on both 48 GiB machines with or without gate:make-test's pool subtracted. The cycle subtracts that pool too, because it runs from t=0 through the whole table build: FONT_SUITE_WORKER_BYTES for each of the `make_test_pool_width` workers the cycle passes that child, the gate lane's share of the cores (`memory_budget.split_cores`), since run_m1 holds the build lane. A pass that skips the gate, including --skip-gates, subtracts nothing. AMS_KERNEL_THREADS overrides the arithmetic, as it does for a bare run_m1, so the memory set aside for the pytest pool never narrows a stated width.
+    """Return the kernel fan-out's width for this cycle, the `--kernel-threads` the plan passes run_m1. Memory limits this width because a live delta holds its whole working set until it emits, and every configuration's prepared fold product stays parked until the cross-configuration exchange ends. `kernel_exec.kernel_threads_default` does the arithmetic over the settlement configurations: the widest width whose booking (`kernel_exec.table_build_booking_bytes`: the memo snapshot `default` keeps alive for the wave, one parked product per configuration, what each delta in flight adds beyond its own, and `default`'s fold preparation in a slot of its own once every delta has one) fits the machine's memory less the reserve. On the fleet (`doc/fleet.md`) this gives the whole wave, every configuration at once, on both 48 GiB machines with or without gate:make-test's pool subtracted. The cycle subtracts that pool too, because it runs from t=0 through the whole table build: FONT_SUITE_WORKER_BYTES for each of the `make_test_pool_width` workers the cycle passes that child, the gate lane's share of the cores (`memory_budget.split_cores`), since run_m1 holds the build lane. A pass that skips the gate, including --skip-gates, subtracts nothing. AMS_KERNEL_THREADS overrides the arithmetic, as it does for a bare run_m1, so the memory set aside for the pytest pool never narrows a stated width.
 
     The result is capped at the configuration count and the usable cores, as in `replay_threads_budget`. The memory result never exceeds the configuration count, but a stated AMS_KERNEL_THREADS can, and a machine can have fewer cores than configurations, so without the cap the plan line could name a width the build never takes. With it, the plan line, the argv and `cycle_summary.json`'s `plan.kernel_threads` show the real width, and `run_m1._table_build_threads`'s own `min()` changes nothing. A stated AMS_KERNEL_THREADS above the configuration count is cut to it here, as `run_m1._table_build_threads` would cut it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
@@ -1415,32 +1414,14 @@ def kernel_threads_budget(
     return max(1, min(derived, cap))
 
 
-def memo_writes_overlap_budget(
-    kernel_threads: int,
-    *,
-    skip_make_test: bool = False,
-    ncores: int | None = None,
-    total_bytes: int | None = None,
-) -> bool:
-    """Return whether this cycle's table build writes its memo files beside the delta wave and the folds, the `--overlap-memo-writes` or `--no-overlap-memo-writes` the plan passes run_m1: `kernel_exec.memo_writes_overlap` at `kernel_threads`, the width `kernel_threads_budget` gave, with gate:make-test's pytest pool off the machine as that width has it (`_wave_fit_terms`). run_m1 cannot derive this itself under a cycle, because it does not know that pool is running beside it. `ncores` and `total_bytes` are keywords so a test can compute the choice for an invented machine."""
-    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
-    from rebuild.pipeline.kernel_exec import memo_writes_overlap
-
-    coresident, _cap = _wave_fit_terms(skip_make_test=skip_make_test, ncores=ncores)
-    return memo_writes_overlap(
-        kernel_threads, configs=len(SETTLEMENT_CONFIGS), coresident_bytes=coresident, total_bytes=total_bytes
-    )
-
-
 def scratch_beside_default_budget(
     kernel_threads: int,
     *,
-    overlap_memo_writes: bool,
     skip_make_test: bool = False,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return at most how many of the heaviest deltas this cycle's table build enumerates from scratch beside `default`, the `--scratch-beside-default` the plan passes run_m1, which the crate takes in whole tiers of equal unlocking-rune count: `kernel_exec.deltas_from_scratch` at `kernel_threads` and `overlap_memo_writes`, the width and memo-write order `kernel_threads_budget` and `memo_writes_overlap_budget` gave, with gate:make-test's pytest pool off the machine as they have it (`_wave_fit_terms`), up to `kernel_exec.DELTAS_FROM_SCRATCH_CAP`. run_m1 cannot derive this itself under a cycle, for the reason `memo_writes_overlap_budget` gives. `ncores` and `total_bytes` are keywords so a test can compute the count for an invented machine."""
+    """Return at most how many of the heaviest deltas this cycle's table build enumerates from scratch beside `default`, the `--scratch-beside-default` the plan passes run_m1, which the crate takes in whole tiers of equal unlocking-rune count: `kernel_exec.deltas_from_scratch` at `kernel_threads`, the width `kernel_threads_budget` gave, with gate:make-test's pytest pool off the machine as that width has it (`_wave_fit_terms`). run_m1 cannot derive this itself under a cycle, because it does not know that pool is running beside it. `ncores` and `total_bytes` are keywords so a test can compute the count for an invented machine."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import deltas_from_scratch
 
@@ -1448,7 +1429,6 @@ def scratch_beside_default_budget(
     return deltas_from_scratch(
         kernel_threads,
         configs=len(SETTLEMENT_CONFIGS),
-        overlap=overlap_memo_writes,
         coresident_bytes=coresident,
         total_bytes=total_bytes,
     )
@@ -2194,15 +2174,8 @@ def build_plan(
             "" if kernel_workers == 1 else "s"
         )
     kernel_reason += ", capped at the configuration count and the cores"
-    overlap_memo_writes = memo_writes_overlap_budget(
-        kernel_threads, skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
-    )
     scratch_beside_default = scratch_beside_default_budget(
-        kernel_threads,
-        overlap_memo_writes=overlap_memo_writes,
-        skip_make_test=no_make_test,
-        ncores=ncores,
-        total_bytes=total_bytes,
+        kernel_threads, skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
     )
     replay_threads = replay_threads_budget(
         skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
@@ -2284,7 +2257,6 @@ def build_plan(
         sweep_reason=sweep_reason,
         kernel_threads=kernel_threads,
         kernel_reason=kernel_reason,
-        overlap_memo_writes=overlap_memo_writes,
         scratch_beside_default=scratch_beside_default,
         replay_threads=replay_threads,
         replay_reason=replay_reason,
@@ -2336,7 +2308,6 @@ def build_plan(
         run_m1_argv += [
             "--kernel-threads",
             str(kernel_threads),
-            "--overlap-memo-writes" if overlap_memo_writes else "--no-overlap-memo-writes",
             "--scratch-beside-default",
             str(scratch_beside_default),
             "--replay-threads",
@@ -2894,10 +2865,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
     else:
         lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({plan.kernel_reason})")
         lines.append(
-            f"    run_m1 --overlap-memo-writes     : {'on' if plan.overlap_memo_writes else 'off'}  (the table build's booking at that width, with MEMO_WRITE_OVERLAP_BYTES added for the memo writers beside the wave, {'fits the memory that width is sized from' if plan.overlap_memo_writes else 'does not fit the memory that width is sized from, so each memo file is written ahead of the work that follows it'})"
-        )
-        lines.append(
-            f"    run_m1 --scratch-beside-default  : {plan.scratch_beside_default}  (at most this many of the heaviest deltas enumerated from scratch beside default, in whole tiers of equal unlocking-rune count, as many as the table build's booking at that width and memo-write order still fits with each booked at SCRATCH_PEAK_BYTES, up to DELTAS_FROM_SCRATCH_CAP{'' if plan.scratch_beside_default else '; none fits, so every delta waits for default and reads its memo'})"
+            f"    run_m1 --scratch-beside-default  : {plan.scratch_beside_default}  (at most this many of the heaviest deltas enumerated from scratch beside default, in whole tiers of equal unlocking-rune count, as many as the table build's booking at that width still fits with each booked at SCRATCH_PEAK_BYTES{'' if plan.scratch_beside_default else '; none fits, so every delta waits for default and reads its memo'})"
         )
     if plan.rerun_gates_only:
         lines.append(
@@ -4998,7 +4966,6 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "do_merge": plan.do_merge,
             "conform_max_length": plan.conform_max_length,
             "kernel_threads": None if plan.rerun_gates_only else plan.kernel_threads,
-            "overlap_memo_writes": None if plan.rerun_gates_only else plan.overlap_memo_writes,
             "scratch_beside_default": None if plan.rerun_gates_only else plan.scratch_beside_default,
             "replay_threads": None if plan.rerun_gates_only else plan.replay_threads,
             "sweep_jobs": plan.sweep_jobs if plan.runs("run_m1") else None,

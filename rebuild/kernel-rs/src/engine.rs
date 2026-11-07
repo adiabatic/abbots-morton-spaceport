@@ -129,7 +129,7 @@ impl Slots {
 /// The tail [`Engine::cond_matches_right`] walks once a `then:` chain runs past the supplied slots.
 const UNKNOWN_TAIL: [RightToken; 1] = [UNKNOWN];
 
-/// The ceilings on an engine's prospect memo and candidate memo, each the bucket count its hash table may reach, a power of two of at least eight. A table of that many buckets holds seven eighths as many entries before it doubles, so a memo holding that many is cleared in place before its next insert, keeping its table, and fills again. Both memos are pure caches: a miss after a clear derives again what the clear dropped, journaling the same fired delta and read set at the ids they already hold, so no trace, fired set, table or memo file changes, and the cost is the second derivation.
+/// The ceilings on an engine's prospect memo and candidate memo, each the bucket count its hash table may reach, a power of two of at least eight. A table of that many buckets holds seven eighths as many entries before it doubles, so a memo holding that many is cleared in place before its next insert, keeping its table, and fills again. Both memos are pure caches: a miss after a clear derives again what the clear dropped, journaling the same fired delta and read set at the ids they already hold, so no trace, fired set or table changes, and the cost is the second derivation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MemoCeilings {
     prospect_buckets: usize,
@@ -385,7 +385,7 @@ struct ClosureKey {
 
 /// The trace memo's key: the reduced left with its extension, the input rune, and all four raw slots. The kernel reads the left only through these fields, so lefts differing only in their cell's entry or adjustments share one entry.
 ///
-/// It is packed to twenty bytes because the memo holds one per window, over a million windows per configuration, as measured in issues #165 and #266. Each rune, stance and junction field is its field's [`Ordinal`]: two bytes naming one of the few symbols the spec offers for that position, where a `Sym` into the whole pool takes four. Each slot is its rune's ordinal beside its kind, which is what a [`RightToken`] is: a letter is its kind with a rune, and every other kind has no rune, so each token has one encoding and two windows share a key exactly when their slots are equal. The left's kind and the four slot kinds share one [`PackedKinds`] word, and the extension is an `i16` count of connector pixels. Eight ordinals, the word and the count sit at alignment two with no padding. A key is compared, hashed and sorted, and is read back only by the memo writer, which resolves each ordinal through the index that minted it.
+/// It is packed to twenty bytes because the memo holds one per window, over a million windows per configuration, as measured in issues #165 and #266. Each rune, stance and junction field is its field's [`Ordinal`]: two bytes naming one of the few symbols the spec offers for that position, where a `Sym` into the whole pool takes four. Each slot is its rune's ordinal beside its kind, which is what a [`RightToken`] is: a letter is its kind with a rune, and every other kind has no rune, so each token has one encoding and two windows share a key exactly when their slots are equal. The left's kind and the four slot kinds share one [`PackedKinds`] word, and the extension is an `i16` count of connector pixels. Eight ordinals, the word and the count sit at alignment two with no padding. A key is compared, hashed and sorted, and its ordinals are never resolved back to names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct TraceKey {
     pub(crate) left_rune: Option<Ordinal>,
@@ -408,11 +408,13 @@ impl TraceKey {
     }
 
     /// The left's kind.
+    #[cfg(test)]
     pub(crate) fn left_kind(&self) -> TokenKind {
         self.kinds.get(0)
     }
 
     /// The kind of raw slot `slot`, zero through three.
+    #[cfg(test)]
     pub(crate) fn slot_kind(&self, slot: usize) -> TokenKind {
         self.kinds.get(slot + 1)
     }
@@ -577,7 +579,7 @@ impl<'i> Applicable<'i> {
     }
 }
 
-/// The index of one distinct fired delta in the engine's delta pool, stored in a memoized window, enumeration, prospect or closure entry in place of the delta. A configuration's memoized windows far outnumber the distinct deltas they journal (issue #165; `default`'s memo file lists both), so four bytes per entry replace a boxed slice that many other entries repeat. [`DeltaId::at`] and [`DeltaId::index`] are the only conversions.
+/// The index of one distinct fired delta in the engine's delta pool, stored in a memoized window, enumeration, prospect or closure entry in place of the delta. A configuration's memoized windows far outnumber the distinct deltas they journal (issue #165), so four bytes per entry replace a boxed slice that many other entries repeat. [`DeltaId::at`] and [`DeltaId::index`] are the only conversions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct DeltaId(u32);
 
@@ -836,15 +838,16 @@ struct Captured {
     reads: Box<[Read]>,
 }
 
-/// A [`SettledId`] narrowed to two bytes for a [`TraceEntry`] (issue #266), which panics past its range instead of wrapping. It is a separate type because the shared id must stay four bytes wide: its `NonZeroU32` niche keeps a fixpoint product row's `Option<SettledId>` at four bytes ([`crate::fixpoint`]), and a product holds every record a whole fixpoint reaches. This memo holds only what one engine traced, and `default`'s memo file names a few hundred distinct settled records. The integer is the index plus one, so the range is [`TraceSettledId::CAPACITY`] records. [`TraceSettledId::at`] and [`TraceSettledId::index`] are the conversions, and [`TraceSettledId::widen`] returns the pool's own id.
+/// A [`SettledId`] narrowed to two bytes for a [`TraceEntry`] (issue #266), which panics past its range instead of wrapping. It is a separate type because the shared id must stay four bytes wide: its `NonZeroU32` niche keeps a fixpoint product row's `Option<SettledId>` at four bytes ([`crate::fixpoint`]), and a product holds every record a whole fixpoint reaches. This memo holds only what one engine traced, and `default`'s memo names a few hundred distinct settled records. The integer is the index plus one, so the range is [`TraceSettledId::CAPACITY`] records. [`TraceSettledId::at`] and [`TraceSettledId::index`] are the conversions, and [`TraceSettledId::widen`] returns the pool's own id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TraceSettledId(NonZeroU16);
 
 impl TraceSettledId {
     /// How many records a trace memo can index: every index whose successor fits in a `u16`.
+    #[cfg(test)]
     pub(crate) const CAPACITY: usize = u16::MAX as usize;
 
-    /// The id for the pool's `index`-th record, or `None` past the range. The memo reader uses this and rejects a file past the range instead of panicking.
+    /// The id for the pool's `index`-th record, or `None` past the range.
     pub(crate) fn try_at(index: usize) -> Option<Self> {
         let raw = u16::try_from(index.checked_add(1)?).ok()?;
         NonZeroU16::new(raw).map(Self)
@@ -872,6 +875,7 @@ pub(crate) struct TraceNotesId(NonZeroU16);
 
 impl TraceNotesId {
     /// How many lists a trace memo can index: every index whose successor fits in a `u16`.
+    #[cfg(test)]
     pub(crate) const CAPACITY: usize = u16::MAX as usize;
 
     /// The id for the pool's `index`-th list, or `None` past the range.
@@ -1550,7 +1554,7 @@ impl<'i> Engine<'i> {
         answer
     }
 
-    /// Close the capture [`Engine::begin_verdict`] opened and publish the verdict under `key`, with the step the probe stopped at. A group's slot holds what the probe fired outside the asks naming one of the group's runes: what a delta in that group would fire running the asks it does not run itself. The slot is left empty where the key names one of those runes, or where those other asks read one, since a delta in that group would then settle some of their windows itself ([`crate::memo::Exclusion::admits`]). The fired delta is stored sorted, because a served verdict is replayed only into the fired set, which has no order, and sorted deltas intern to far fewer distinct entries.
+    /// Close the capture [`Engine::begin_verdict`] opened and publish the verdict under `key`, with the step the probe stopped at. A group's slot holds what the probe fired outside the asks naming one of the group's runes: what a delta in that group would fire running the asks it does not run itself. The slot is left empty where the key names one of those runes, or where those other asks read one, since a delta in that group would then settle some of their windows itself ([`crate::memo::Exclusion::names`], [`crate::memo::Exclusion::admits_reads`]). The fired delta is stored sorted, because a served verdict is replayed only into the fired set, which has no order, and sorted deltas intern to far fewer distinct entries.
     pub(crate) fn end_verdict(&mut self, key: VerdictKey, stop: u32) {
         let publication = self
             .publication

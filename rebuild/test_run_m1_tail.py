@@ -80,7 +80,7 @@ def _stub_gates(
     monkeypatch.setattr(
         run_m1,
         "build_tables",
-        lambda spec, out_dir=None, inputs=None, kernel_threads=None, packing=None, overlap_memo_writes=None, scratch_beside_default=None: (
+        lambda spec, out_dir=None, inputs=None, kernel_threads=None, packing=None, scratch_beside_default=None: (
             TABLES,
             {},
         ),
@@ -519,7 +519,7 @@ class TestMain:
 
 
 def _gated_pack(monkeypatch, release):
-    """Wraps `_pack_config` so each configuration's pack after the crate's exit, the staged window artifact's rename and the memo's pack, waits on `release[config]` and then runs for real."""
+    """Wraps `_pack_config` so each configuration's pack after the crate's exit, the staged window artifact's rename, waits on `release[config]` and then runs for real."""
     real = run_m1._pack_config
 
     def pack(tables_dir, config, staged):
@@ -588,23 +588,18 @@ class TestThePacking:
         for config in CONFIGS:
             packed = table_module.windows_path(deferred, config)
             assert packed.read_bytes() == table_module.windows_path(blocking, config).read_bytes(), config
-            memo = kernel_exec.memo_path(deferred, config)
-            assert memo.read_bytes() == kernel_exec.memo_path(blocking, config).read_bytes(), config
-        assert not [
-            path.name for path in deferred.glob("*.tsv") if path.name.startswith(("windows-", "memo-"))
-        ]
+        assert not [path.name for path in deferred.glob("windows-*.tsv")]
         assert not list(deferred.glob("*.tmp"))
 
     def test_close_raises_a_pack_failure_rather_than_swallowing_it(self, monkeypatch, tmp_path):
-        """`close` raises the failure of a pack that raised, and a second `close` returns. Every memo pack refuses, so each plain memo file stays on disk, and the build runs on the mini fixture narrowed to ·Tea, ·May and ·It (`spec_load.narrowed`), whose files are a small fraction of the whole fixture's."""
-        real = run_m1._pack_windows
+        """`close` raises the failure of a pack that raised, and a second `close` returns. Every pack refuses once its rename is done, and the build runs on the mini fixture narrowed to ·Tea, ·May and ·It (`spec_load.narrowed`), whose files are a small fraction of the whole fixture's."""
+        real = run_m1._pack_config
 
-        def refuse(source, path, head=b""):
-            if path.name.startswith("memo-"):
-                raise OSError(f"no room for {path.name}")
-            real(source, path, head)
+        def refuse(tables_dir, config, staged):
+            real(tables_dir, config, staged)
+            raise OSError(f"no room for {config}")
 
-        monkeypatch.setattr(run_m1, "_pack_windows", refuse)
+        monkeypatch.setattr(run_m1, "_pack_config", refuse)
         packing = run_m1.Packing(2)
         spec = spec_load.narrowed(SPEC, ("qsTea", "qsMay", "qsIt"))
         run_m1.build_tables(spec, tmp_path, inputs=STAMP, packing=packing)

@@ -44,9 +44,10 @@ from rebuild.test_verdict_update import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 2.6 GB, six parked fold products at PARKED_FOLD_BYTES (1.3 GB), DELTA_SLOT_BYTES at 4.7 GB and FOLD_PREPARATION_BYTES at 1.1 GB, the whole wave is booked at 35.0 GB, so 38 GB, which leaves 30.0 GB after `memory_budget`'s reserve, fits four deltas alone and three beside an eight-core machine's pytest pool, and leaves room to test larger stated pool widths, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
+# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 1.4 GB, six parked fold products at PARKED_FOLD_BYTES (1.2 GB), DELTA_SLOT_BYTES at 0.4 GB and FOLD_PREPARATION_BYTES at 0.4 GB, the whole wave is booked at 11.0 GB, so 20 GB, which leaves 12.0 GB after `memory_budget`'s reserve, fits the whole wave alone and five deltas beside an eight-core machine's pytest pool, 21 GB, which leaves 13.0 GB, fits four beside a stated nine-worker pool, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
 MACHINE_44_GB = 44_000_000_000
-MACHINE_38_GB = 38_000_000_000
+MACHINE_21_GB = 21_000_000_000
+MACHINE_20_GB = 20_000_000_000
 MACHINE_36_GB = 36_000_000_000
 # The fleet's RAM size (`doc/fleet.md`), for the fleet machines' width assertions. On both fleet machines the corpus build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the arithmetic of the memory set aside for the pool is asserted through `_corpus_fit_terms`, which takes no total.
 MACHINE_48_GIB = 51_539_607_552
@@ -327,7 +328,6 @@ def test_dry_run_plan_default():
         "rebuild.pipeline.run_m1",
         "--kernel-threads",
         str(plan.kernel_threads),
-        "--overlap-memo-writes" if plan.overlap_memo_writes else "--no-overlap-memo-writes",
         "--scratch-beside-default",
         str(plan.scratch_beside_default),
         "--replay-threads",
@@ -3102,24 +3102,23 @@ def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
     """The make-test child inherits this process's environment, so a width already set in PYTEST_XDIST_AUTO_NUM_WORKERS is the width its pool takes. The cycle reserves memory for that width, so the memory set aside for the pool matches the pool that runs."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
     assert ac.make_test_pool_width(ncores=1) == 9
-    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_38_GB) == 3
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_21_GB) == 4
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "64")
-    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_38_GB) == 1
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_21_GB) == 1
 
 
 def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
-    """The kernel width subtracts the pytest pool along with default's retained memo and the parked fold products before dividing. A 38 GB machine alone has room for four deltas, and subtracting an eight-core machine's pytest pool leaves room for three. At this boundary forgetting the memory set aside for the pool changes the answer."""
-    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_38_GB)
-    beside = ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_38_GB)
-    assert (solo, beside) == (4, 3)
+    """The kernel width subtracts the pytest pool along with default's retained memo and the parked fold products before dividing. A 20 GB machine alone has room for the whole wave, and subtracting an eight-core machine's pytest pool leaves room for five deltas, so the wave loses the slot of its own that `default`'s fold preparation takes. At this boundary forgetting the memory set aside for the pool changes the answer."""
+    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_20_GB)
+    beside = ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_20_GB)
+    assert (solo, beside) == (6, 5)
 
 
 def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone_on_both_fleet_machines(
     monkeypatch,
 ):
-    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot or the memo writes beside the wave, and this test checks the gated widths and memo write orders, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round, and at that width both write the memo files beside the wave. Each starts `kernel_exec.DELTAS_FROM_SCRATCH_CAP` deltas from scratch beside `default`, gated or not, because memory still leaves room for at least that many with the pool's memory off the machine, at eighteen cores and at twelve. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
+    """The kernel terms (`kernel_exec.table_build_booking_bytes`) are chosen so that gate:make-test's pytest pool costs neither fleet machine a worker slot, and this test checks the gated widths, which only the cycle computes. On both 48 GiB machines, at eighteen and at twelve cores, the gated and skipped-gate widths are equal to the configuration count, every delta and `default`'s fold preparation in a slot of its own, so the wave runs in one round. Each starts every delta from scratch beside `default`, gated or not, because memory still leaves room for all of them with the pool's memory off the machine, at eighteen cores and at twelve. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass these assertions whatever the constants are."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
-    from rebuild.pipeline.kernel_exec import DELTAS_FROM_SCRATCH_CAP
 
     monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
     for ncores in (18, 12):
@@ -3129,74 +3128,39 @@ def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone
             ac.kernel_threads_budget(skip_make_test=True, ncores=ncores, total_bytes=MACHINE_48_GIB) == gated
         )
         for skip_make_test in (False, True):
-            assert ac.memo_writes_overlap_budget(
-                gated, skip_make_test=skip_make_test, ncores=ncores, total_bytes=MACHINE_48_GIB
-            )
             assert (
                 ac.scratch_beside_default_budget(
-                    gated,
-                    overlap_memo_writes=True,
-                    skip_make_test=skip_make_test,
-                    ncores=ncores,
-                    total_bytes=MACHINE_48_GIB,
+                    gated, skip_make_test=skip_make_test, ncores=ncores, total_bytes=MACHINE_48_GIB
                 )
-                == DELTAS_FROM_SCRATCH_CAP
+                == len(SETTLEMENT_CONFIGS) - 1
             )
 
 
-def test_the_memo_write_order_takes_the_pytest_pool_off_the_machine_as_the_width_does():
-    """The cycle decides the memo write order with gate:make-test's pool off the machine, because run_m1 cannot see that pool. On an invented machine just large enough for the whole wave with the memo writers beside it and nothing else, the width stays the configuration count with the pool running, but the writers no longer fit beside it, so the plan passes `--no-overlap-memo-writes`, and a pass that skips the gate passes `--overlap-memo-writes`."""
+def test_the_deltas_from_scratch_take_the_pytest_pool_off_the_machine_as_the_width_does():
+    """The cycle decides how many deltas start from scratch beside `default` with gate:make-test's pool off the machine, because run_m1 cannot see that pool. On an invented machine just large enough for the whole wave with every delta from scratch beside `default`, and nothing else, the width stays as it is with the pool running, but fewer deltas fit from scratch, so the plan passes fewer than a pass that skips the gate."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import table_build_booking_bytes
     from rebuild.tools import memory_budget
 
     count = len(SETTLEMENT_CONFIGS)
-    beside = table_build_booking_bytes(count, configs=count, overlap=True)
+    every = table_build_booking_bytes(count, configs=count, scratch_beside_default=count - 1)
     total = next(
         total
-        for total in range(beside, 2 * beside, 10_000_000)
-        if total - memory_budget.os_reserve_bytes(total_bytes=total) >= beside
+        for total in range(every, 2 * every, 10_000_000)
+        if total - memory_budget.os_reserve_bytes(total_bytes=total) >= every
     )
     pool = ac._make_test_pool_bytes(skip_make_test=False, ncores=8)
     assert table_build_booking_bytes(count, configs=count) + pool <= total - memory_budget.os_reserve_bytes(
         total_bytes=total
     ), "the invented machine is meant to keep the whole wave with the pool running"
-    for skip_make_test, flag in ((False, "--no-overlap-memo-writes"), (True, "--overlap-memo-writes")):
-        assert ac.kernel_threads_budget(skip_make_test=skip_make_test, ncores=8, total_bytes=total) == count
-        plan = _plan(ncores=8, total_bytes=total, skip_make_test=skip_make_test)
-        assert plan.overlap_memo_writes is skip_make_test
-        assert flag in plan.argv("run_m1")
-
-
-def test_the_deltas_from_scratch_take_the_pytest_pool_off_the_machine_as_the_width_does():
-    """The cycle decides how many deltas start from scratch beside `default` with gate:make-test's pool off the machine, because run_m1 cannot see that pool. On an invented machine just large enough for the whole wave with the memo writers beside it and `kernel_exec.DELTAS_FROM_SCRATCH_CAP` deltas from scratch beside `default`, and nothing else, the width and the memo-write order stay as they are with the pool running, but fewer deltas fit from scratch, so the plan passes fewer than a pass that skips the gate."""
-    from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
-    from rebuild.pipeline.kernel_exec import DELTAS_FROM_SCRATCH_CAP, table_build_booking_bytes
-    from rebuild.tools import memory_budget
-
-    count = len(SETTLEMENT_CONFIGS)
-    capped = table_build_booking_bytes(
-        count, configs=count, overlap=True, scratch_beside_default=DELTAS_FROM_SCRATCH_CAP
-    )
-    total = next(
-        total
-        for total in range(capped, 2 * capped, 10_000_000)
-        if total - memory_budget.os_reserve_bytes(total_bytes=total) >= capped
-    )
-    pool = ac._make_test_pool_bytes(skip_make_test=False, ncores=8)
-    assert table_build_booking_bytes(
-        count, configs=count, overlap=True
-    ) + pool <= total - memory_budget.os_reserve_bytes(
-        total_bytes=total
-    ), "the invented machine is meant to keep the whole wave and the memo writers beside it with the pool running"
     passed = {}
     for skip_make_test in (False, True):
         plan = _plan(ncores=8, total_bytes=total, skip_make_test=skip_make_test)
-        assert plan.kernel_threads == count and plan.overlap_memo_writes
+        assert plan.kernel_threads == count
         argv = plan.argv("run_m1")
         passed[skip_make_test] = int(argv[argv.index("--scratch-beside-default") + 1])
         assert passed[skip_make_test] == plan.scratch_beside_default
-    assert passed[False] < passed[True] == DELTAS_FROM_SCRATCH_CAP
+    assert passed[False] < passed[True] == count - 1
 
 
 def test_replay_threads_budget_takes_the_pytest_pool_off_the_machine_first():
@@ -3298,14 +3262,14 @@ def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_t
 
 def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
     """The plan subtracts the pytest pool only when gate:make-test runs. When the gate is auto-skipped or `--skip-gates` is given, no pool runs, so the kernel width gets that memory back."""
-    assert _plan(ncores=8, total_bytes=MACHINE_38_GB).kernel_threads == 3
+    assert _plan(ncores=8, total_bytes=MACHINE_20_GB).kernel_threads == 5
     assert (
         _plan(
-            ncores=8, total_bytes=MACHINE_38_GB, skip_make_test=True, make_test_note="closure unchanged"
+            ncores=8, total_bytes=MACHINE_20_GB, skip_make_test=True, make_test_note="closure unchanged"
         ).kernel_threads
-        == 4
+        == 6
     )
-    assert _plan(ncores=8, total_bytes=MACHINE_38_GB, skip_gates=True).kernel_threads == 4
+    assert _plan(ncores=8, total_bytes=MACHINE_20_GB, skip_gates=True).kernel_threads == 6
 
 
 def test_dry_run_renders_concurrency():
@@ -3572,7 +3536,6 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "do_merge": True,
         "conform_max_length": ac.CONFORM_MAX_LENGTH_DEFAULT,
         "kernel_threads": plan.kernel_threads,
-        "overlap_memo_writes": plan.overlap_memo_writes,
         "scratch_beside_default": plan.scratch_beside_default,
         "replay_threads": plan.replay_threads,
         "sweep_jobs": plan.sweep_jobs,
@@ -3634,7 +3597,6 @@ def test_cycle_summary_payload_names_the_gates_only_rerun_and_passes_no_kernel_w
     assert payload["plan"]["rerun_gates_only"] is True
     assert payload["plan"]["skip_run_m1"] is False
     assert payload["plan"]["kernel_threads"] is None
-    assert payload["plan"]["overlap_memo_writes"] is None
     assert payload["plan"]["scratch_beside_default"] is None
     assert payload["plan"]["replay_threads"] is None
 
@@ -6088,10 +6050,10 @@ def test_main_forces_the_rebuild_suite_under_fresh(tmp_path, monkeypatch, capsys
 
 
 def _full_build_step(out: str):
-    """Return the match for the rendered run_m1 step of a plan that builds, so the negative cases can show a build was planned instead of the gates-only argv. `--jobs` appears before `--kernel-threads` only when the sweep width is above one, the memo write order, the count of deltas started beside `default` and then `--replay-threads` always follow `--kernel-threads`, and `--fresh-oracle-cache` appears only under `--fresh`."""
+    """Return the match for the rendered run_m1 step of a plan that builds, so the negative cases can show a build was planned instead of the gates-only argv. `--jobs` appears before `--kernel-threads` only when the sweep width is above one, the count of deltas started beside `default` and then `--replay-threads` always follow `--kernel-threads`, and `--fresh-oracle-cache` appears only under `--fresh`."""
     return re.search(
         r"^ +\$ uv run python -m rebuild\.pipeline\.run_m1"
-        r"( --jobs \d+)? --kernel-threads \d+ --(no-)?overlap-memo-writes --scratch-beside-default \d+"
+        r"( --jobs \d+)? --kernel-threads \d+ --scratch-beside-default \d+"
         r" --replay-threads \d+( --fresh-oracle-cache)?$",
         _step_lines(out, "run_m1"),
         re.MULTILINE,

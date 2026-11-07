@@ -190,7 +190,7 @@ def _stub_full_run(monkeypatch, out_dir, *, defect_errors=(), pins=True, pins_in
     monkeypatch.setattr(
         run_m1,
         "run",
-        lambda spec, inputs, kernel_threads=None, memo_inputs=None, replay_threads=None, overlap_memo_writes=None, scratch_beside_default=None: (
+        lambda spec, inputs, kernel_threads=None, memo_inputs=None, replay_threads=None, scratch_beside_default=None: (
             {"defect_errors": list(defect_errors), "notes": []},
             _JoinedGates(),
         ),
@@ -235,7 +235,7 @@ def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch
     monkeypatch.setattr(
         run_m1,
         "run",
-        lambda spec, inputs, kernel_threads=None, memo_inputs=None, replay_threads=None, overlap_memo_writes=None, scratch_beside_default=None: events.append(
+        lambda spec, inputs, kernel_threads=None, memo_inputs=None, replay_threads=None, scratch_beside_default=None: events.append(
             "run"
         )
         or ({"defect_errors": [], "notes": []}, _JoinedGates()),
@@ -377,7 +377,7 @@ def test_an_interactive_run_files_the_gates_result(monkeypatch, tmp_path):
 def test_an_interactive_run_files_its_table_builds_phases_and_a_run_that_builds_nothing_files_none(
     monkeypatch, tmp_path
 ):
-    """A standalone run's check line carries its table build's phase lines as `inner`: the crate's own and the `kernel_build_tables` line with the build's record, which says whether the build read the previous build's memos. An invocation that builds nothing and runs no pooled oracle carries none, even in the process that ran the earlier build."""
+    """A standalone run's check line carries its table build's phase lines as `inner`: the crate's own and the `kernel_build_tables` line with the build's record, which names the alphabet's rune count. An invocation that builds nothing and runs no pooled oracle carries none, even in the process that ran the earlier build."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch, tmp_path)
     mini = fixtures.mini_spec()
@@ -393,7 +393,6 @@ def test_an_interactive_run_files_its_table_builds_phases_and_a_run_that_builds_
     built, bare = _checks()
     labels = [phase["label"] for phase in built["inner"]]
     assert "enumerate[default]" in labels and labels[-1] == "kernel_build_tables"
-    assert built["inner"][-1]["memos_read"] == 0
     assert built["inner"][-1]["runes"] == len(mini.runes)
     assert "inner" not in bare
 

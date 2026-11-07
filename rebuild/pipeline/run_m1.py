@@ -29,7 +29,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import zlib
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
@@ -97,31 +96,8 @@ def _spawn_pool(jobs: int, units: int, *, max_tasks_per_child: int | None = None
     )
 
 
-MEMO_STAMP_FORMAT = "ams-m1-memo-stamp/2"
-# The keys of a rune's dump that are prose the engine never reads: a record's or an unlock's `why`, and the rune's notes and ductus. `rune_content_digests` drops them so rewording a rationale invalidates no memo, as every other digest in this tree ignores prose.
-PROSE_KEYS = frozenset({"why", "notes", "ductus"})
-
-
-def _without_prose(payload):
-    if isinstance(payload, dict):
-        return {key: _without_prose(value) for key, value in payload.items() if key not in PROSE_KEYS}
-    if isinstance(payload, list):
-        return [_without_prose(value) for value in payload]
-    return payload
-
-
-def rune_content_digests(spec: ResolvedSpec) -> dict[str, str]:
-    """Return each modeled rune's SHA-256 over its resolved content: the rune's part of the spec dump the crate reads (`kernel_io.rune_payload`), without `PROSE_KEYS`. It hashes the resolved rune instead of the file because the engine reads the resolved rune: a ligature carries the outgoing stroke it inherits from its trailing component, and a ligature registration rewrites every left condition its trailing component reaches. So the digest changes when what the engine reads of the rune changes. A cross-file `against:` holds only its target rune's name and an optional record id, and the engine consults it only where a prefer of that rune collides with one of the resolving rune's, in a window that names both, so the target's own digest covers it. The memo therefore needs no `spec_load.rune_closure` pass over the digests. It works for any spec, a fixture's included, so the memo stamp is one function of the spec in hand. The payload is hashed in the dump's own key order, never sorted, because the crate reads a rune's mappings in that order: stance declaration order ranks the stances `policy.order` omits, and exit declaration order is the final tiebreak's last key (kernel_io's module docstring)."""
-    return {
-        name: hashlib.sha256(
-            json.dumps(_without_prose(kernel_io.rune_payload(rune)), separators=(",", ":")).encode()
-        ).hexdigest()
-        for name, rune in spec.runes.items()
-    }
-
-
 def memo_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
-    """Return the whole-store half of the memo stamp: what a memo entry depends on apart from each rune's content and each predicate class's membership, which the stamp records per rune and per class (`rune_content_digests`, `class_memberships`) so that an edit to one invalidates only the windows that read it. The crate reads nothing but the spec dump and its command line (`kernel_exec.build_table_files`). The lines are the code `table_build_code_paths` names (the crate, and the module-grain import closure of `kernel_exec` and `kernel_io` outside rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`, so the width and telemetry helpers that closure stops at are not hashed), the dumped registry with each class reduced to its name (`_registry_digest`), the rune order, the semantics tokens, the alphabet with its ligature sequences and the resolved rune-local groups, and the capability features. The rest of `fingerprint.table_code_paths` and the data files reach the crate, if at all, only through the dump, which these lines and the per-rune and per-class records hash as data, or through command-line values that cannot make a memo entry wrong: the configuration and mode set each memo head records, which the crate checks the file against; the previous memo files and the edited runes and moved classes, which `previous_memos` and `memo_edited` choose from the stamps themselves; the width, which the crate's unit test `a_table_fan_out_files_the_same_bytes_at_every_width` (rebuild/kernel-rs/src/fanout.rs) shows changes no table; the schedule flags, which the identity tests in rebuild/kernel-rs/tests/cli.rs and rebuild/test_kernel_exec.py show change no table; and `--inputs`, `--memo-stamp` and `--timings`, which only label or time what the crate writes. So an edit to the spec loader, to an emitter, to read-back or to run_m1.py moves none of these code lines, and it moves the stamp only where it changes the dump or what the stamp's own code in run_m1.py and `spec_load.capability_features` compute from it; `replay_structure_stamp` hashes that code instead."""
+    """Return the table build's structure stamp, the `structure` its `TableBuildRecord` carries: what the crate reads apart from each rune's content and each predicate class's membership. The crate reads nothing but the spec dump and its command line (`kernel_exec.build_table_files`). The lines are the code `table_build_code_paths` names (the crate, and the module-grain import closure of `kernel_exec` and `kernel_io` outside rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`, so the width and telemetry helpers that closure stops at are not hashed), the dumped registry with each class reduced to its name (`_registry_digest`), the rune order, the semantics tokens, the alphabet with its ligature sequences and the resolved rune-local groups, and the capability features. The rest of `fingerprint.table_code_paths` and the data files reach the crate, if at all, only through the dump, or through command-line values that change no table: the width, which the crate's unit test `a_table_fan_out_files_the_same_bytes_at_every_width` (rebuild/kernel-rs/src/fanout.rs) shows changes no table; the schedule flags, which the identity tests in rebuild/kernel-rs/tests/cli.rs and rebuild/test_kernel_exec.py show change no table; and `--inputs` and `--timings`, which only label or time what the crate writes. So an edit to the spec loader, to an emitter, to read-back or to run_m1.py moves none of these code lines, and it moves the stamp only where it changes the dump or what the stamp's own code in run_m1.py and `spec_load.capability_features` compute from it; `replay_structure_stamp` hashes that code instead."""
     from rebuild.pipeline import spec_load
 
     lines = [
@@ -136,7 +112,7 @@ def memo_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
 
 
 def _registry_digest(spec: ResolvedSpec) -> str:
-    """The SHA-256 of the registry's part of the spec dump (`kernel_io.registry_payload`) with each predicate class reduced to its name, in dump order. Membership stays out because `class_memberships` records it, so a rune joining a class moves only that class. The keys keep the dump's order, because the crate stores every mapping in that order (rebuild/kernel-rs/src/model.rs)."""
+    """The SHA-256 of the registry's part of the spec dump (`kernel_io.registry_payload`) with each predicate class reduced to its name, in dump order. Membership stays out, so a rune joining a class leaves the structure stamp where it was. The keys keep the dump's order, because the crate stores every mapping in that order (rebuild/kernel-rs/src/model.rs)."""
     registry = kernel_io.registry_payload(spec.registry)
     payload = {**registry, "predicate_classes": list(registry["predicate_classes"])}
     return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
@@ -155,118 +131,12 @@ def _classless_structure_digest(spec: ResolvedSpec) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
-def class_memberships(spec: ResolvedSpec) -> dict[str, list[str]]:
-    """Return every registry predicate class's sorted membership, as the memo stamp records it and `memo_edited` compares it."""
-    return {name: sorted(members) for name, members in spec.registry.predicate_classes.items()}
-
-
-def memo_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
-    """Return the stamp a build's memo files carry in their heads and the next build checks them against: `memo_structure_stamp`, every rune's `rune_content_digests` entry, and every predicate class's membership (`class_memberships`), as compact sorted JSON on one line, the form the crate writes into its head line verbatim. `memo_edited` reads it."""
-    return json.dumps(
-        {
-            "format": MEMO_STAMP_FORMAT,
-            "structure": memo_structure_stamp(spec, root),
-            "runes": rune_content_digests(spec),
-            "classes": class_memberships(spec),
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-
-
-@dataclass(frozen=True)
-class MemoDelta:
-    """The runes whose content changed and the predicate classes whose membership changed between two memo stamps, each sorted."""
-
-    runes: tuple[str, ...]
-    classes: tuple[str, ...]
-
-
-def memo_edited(previous: str, current: str) -> MemoDelta | None:
-    """Return what a memo written under stamp `previous` cannot be trusted for under `current`, or None when it cannot be read at all. None means a different stamp format, a changed structure (the crate and the modules `TABLE_BUILD_CODE_MODULES` names, the dumped registry with each class reduced to its name, the rune order, the alphabet and its ligatures, the groups, the semantics tokens, the capability features), or a recorded rune this spec no longer models. A rune new to the spec counts as edited, although a new rune also changes the structure stamp, which rejects the memo first. A class present in only one stamp counts as changed. An empty delta means every window in the memo is still valid."""
-    try:
-        before = json.loads(previous)
-        after = json.loads(current)
-    except ValueError:
-        return None
-    if not isinstance(before, dict) or not isinstance(after, dict):
-        return None
-    if before.get("format") != after.get("format") or before.get("structure") != after.get("structure"):
-        return None
-    recorded = before.get("runes")
-    runes = after.get("runes")
-    if not isinstance(recorded, dict) or not isinstance(runes, dict) or recorded.keys() - runes.keys():
-        return None
-    recorded_classes = before.get("classes")
-    classes = after.get("classes")
-    if not isinstance(recorded_classes, dict) or not isinstance(classes, dict):
-        return None
-    return MemoDelta(
-        runes=tuple(sorted(name for name, digest in runes.items() if recorded.get(name) != digest)),
-        classes=tuple(
-            sorted(
-                name
-                for name in recorded_classes.keys() | classes.keys()
-                if recorded_classes.get(name) != classes.get(name)
-            )
-        ),
-    )
-
-
-@dataclass(frozen=True)
-class PreviousMemos:
-    """The previous build's memo files that a table build reads before settling a window itself: the directory they were unpacked into, the configurations whose memo was unpacked, and the runes and predicate classes that no memo may be trusted for."""
-
-    directory: Path
-    configs: tuple[str, ...]
-    edited: tuple[str, ...]
-    moved_classes: tuple[str, ...]
-
-
-def previous_memos(
-    out_dir: Path, stamp: str, scratch: Path, configs: Sequence[str] = conform.SETTLEMENT_CONFIGS
-) -> PreviousMemos | None:
-    """Unpack into `scratch` the previous build's memos under `out_dir` that this build may read, or return None when there are none. Each named configuration's packed memo is read for its head, checked against this process's mode set and against `stamp` through `memo_edited`, and unpacked for the crate only if both pass. The edited runes are the union over every memo unpacked, so a rune that one memo cannot be trusted for is served by no memo. Only the memos of `configs` are read, because the crate reads only the memos of the configurations it builds; a narrowed build therefore unpacks only its own configurations' memos, and a memo that narrowed builds never rewrite cannot add every rune changed since the last whole build to the union. A memo whose head, stamp, or gzip stream fails is left in place and not read, and this build's own memo replaces it."""
-    modes = "+".join(kernel_exec.enumeration_tokens()) or "pinned"
-    edited: set[str] = set()
-    moved_classes: set[str] = set()
-    unpacked: list[str] = []
-    for config in configs:
-        packed = kernel_exec.memo_path(out_dir, config)
-        head = kernel_exec.read_memo_head(packed)
-        if head is None or head.config != config or head.modes != modes:
-            continue
-        moved = memo_edited(head.stamp, stamp)
-        if moved is None:
-            continue
-        scratch.mkdir(parents=True, exist_ok=True)
-        plain_path = scratch / f"memo-{config}.tsv"
-        try:
-            with gzip.open(packed, "rb") as source, plain_path.open("wb") as plain:
-                shutil.copyfileobj(source, plain, length=1 << 20)
-        except OSError, EOFError, zlib.error:
-            plain_path.unlink(missing_ok=True)
-            continue
-        edited.update(moved.runes)
-        moved_classes.update(moved.classes)
-        unpacked.append(config)
-    if not unpacked:
-        return None
-    return PreviousMemos(
-        directory=scratch,
-        configs=tuple(unpacked),
-        edited=tuple(sorted(edited)),
-        moved_classes=tuple(sorted(moved_classes)),
-    )
-
-
 TABLE_BUILD_CODE_MODULES = frozenset(
     {
         "rebuild/pipeline/kernel_exec.py",
         "rebuild/pipeline/kernel_io.py",
         "rebuild/pipeline/labels.py",
         "rebuild/pipeline/model.py",
-        "rebuild/pipeline/output_sink.py",
         "rebuild/pipeline/settle.py",
         "rebuild/pipeline/table.py",
     }
@@ -274,7 +144,7 @@ TABLE_BUILD_CODE_MODULES = frozenset(
 
 
 def table_build_code_paths(root: Path = REPO_ROOT) -> list[Path]:
-    """Return the code that `memo_structure_stamp` and a `TableBuildRecord`'s `code` digest both hash: the crate's manifest, lock and sources, and the modules `TABLE_BUILD_CODE_MODULES` names, as repo-relative paths. That roster is the module-grain import closure of the crate driver (`kernel_exec`, whose `build_table_files` runs the crate and is the whole timed `kernel_build_tables` span) and of the spec dump's writer (`kernel_io`), outside rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`. Being an import closure, it also holds modules the two import for work other than running the crate and writing the dump, and hashing those only drops memos more often. rebuild/test_build_code_closure.py checks the roster against that closure in both directions. The rest of `fingerprint.table_code_paths` reaches the crate, if at all, only through the dump, which the memo stamp hashes as data, or through command-line values that cannot make a memo entry wrong (`memo_structure_stamp` names them). So an edit there moves the memo stamp only where it changes the dump or the code that computes the stamp: the stamp's own code in run_m1.py, `spec_load.capability_features`, and the file digests `fingerprint.path_lines` takes. A letter batch's `baseline_subset.M1_ALPHABET` edit and a gate edit such as one to `conform` keep `code`, so a build before a batch can be paired with the first build after it."""
+    """Return the code that `memo_structure_stamp` and a `TableBuildRecord`'s `code` digest both hash: the crate's manifest, lock and sources, and the modules `TABLE_BUILD_CODE_MODULES` names, as repo-relative paths. That roster is the module-grain import closure of the crate driver (`kernel_exec`, whose `build_table_files` runs the crate and is the whole timed `kernel_build_tables` span) and of the spec dump's writer (`kernel_io`), outside rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`. Being an import closure, it also holds modules the two import for work other than running the crate and writing the dump, and hashing those only moves the stamp and `code` more often. rebuild/test_build_code_closure.py checks the roster against that closure in both directions. The rest of `fingerprint.table_code_paths` reaches the crate, if at all, only through the dump, or through command-line values that change no table (`memo_structure_stamp` names them). So an edit there moves the structure stamp only where it changes the dump or the code that computes the stamp: the stamp's own code in run_m1.py, `spec_load.capability_features`, and the file digests `fingerprint.path_lines` takes. A letter batch's `baseline_subset.M1_ALPHABET` edit and a gate edit such as one to `conform` keep `code`, so a build before a batch can be paired with the first build after it."""
     kernel = root / "rebuild" / "kernel-rs"
     named = {root / relative for relative in TABLE_BUILD_CODE_MODULES}
     return [path for path in fingerprint.table_code_paths(root) if kernel in path.parents or path in named]
@@ -282,13 +152,10 @@ def table_build_code_paths(root: Path = REPO_ROOT) -> list[Path]:
 
 @dataclass(frozen=True)
 class TableBuildRecord:
-    """What the timings journal records of a table build into an `out_dir`, so that two builds with the same code and a different alphabet can be paired across a letter batch: the memo structure stamp the build's memos carry (`memo_structure_stamp`, which hashes the code `code` covers beside the dumped registry, the rune order, the semantics tokens, the alphabet and the capability features, so under one `code` it moves with the spec, with the mode set, or with an edit to its own code in run_m1.py or to `spec_load.capability_features`, which `code` does not cover), the digest of the code the table build runs (`table_build_code_paths`, through `fingerprint.code_file_digest`, which drops its Python files' docstrings and its Rust files' whole-line comments and hashes the crate's manifest and lock as raw bytes), how many configurations read a previous build's memo, the runes and predicate classes those memos were not trusted for, the table build's width, and the number of runes in the alphabet. A build that read no memo is a fresh build, as the first build after a new rune always is, since the rune moves the structure stamp and `memo_edited` then rejects every memo. `tokens` writes the record as the `key=value` tail of the `[t] kernel_build_tables` line, and `cycle_timings.parse_inner_timings` reads each token back under its key."""
+    """What the timings journal records of a table build into an `out_dir`, so that two builds with the same code and a different alphabet can be paired across a letter batch: the structure stamp (`memo_structure_stamp`, which hashes the code `code` covers beside the dumped registry, the rune order, the semantics tokens, the alphabet and the capability features, so under one `code` it moves with the spec, with the mode set, or with an edit to its own code in run_m1.py or to `spec_load.capability_features`, which `code` does not cover), the digest of the code the table build runs (`table_build_code_paths`, through `fingerprint.code_file_digest`, which drops its Python files' docstrings and its Rust files' whole-line comments and hashes the crate's manifest and lock as raw bytes), the table build's width, and the number of runes in the alphabet. Every build enumerates cold, since none reads a memo an earlier build wrote. `tokens` writes the record as the `key=value` tail of the `[t] kernel_build_tables` line, and `cycle_timings.parse_inner_timings` reads each token back under its key."""
 
     structure: str
     code: str
-    memos_read: int
-    edited: tuple[str, ...]
-    classes: tuple[str, ...]
     width: int
     runes: int
 
@@ -297,25 +164,17 @@ class TableBuildRecord:
             [
                 f"structure={self.structure}",
                 f"code={self.code}",
-                f"memos_read={self.memos_read}",
-                f"edited={','.join(self.edited) or '-'}",
-                f"classes={','.join(self.classes) or '-'}",
                 f"width={self.width}",
                 f"runes={self.runes}",
             ]
         )
 
 
-def table_build_record(
-    spec: ResolvedSpec, stamp: str, previous: PreviousMemos | None, width: int, root: Path = REPO_ROOT
-) -> TableBuildRecord:
-    """Return the `TableBuildRecord` of a build of `spec` at `width` whose memos carry `stamp` and that read `previous`. The structure comes out of `stamp` itself, so the record names the stamp the memos were written under. `build_tables` takes the record beside the stamp, before the crate starts, so an edit made while the crate runs cannot give `code` a tree the build did not run."""
+def table_build_record(spec: ResolvedSpec, width: int, root: Path = REPO_ROOT) -> TableBuildRecord:
+    """Return the `TableBuildRecord` of a build of `spec` at `width`. `build_tables` takes the record before the crate starts, so an edit made while the crate runs cannot give `structure` or `code` a tree the build did not run."""
     return TableBuildRecord(
-        structure=json.loads(stamp)["structure"],
+        structure=memo_structure_stamp(spec, root),
         code=fingerprint.hash_paths(root, table_build_code_paths(root)),
-        memos_read=len(previous.configs) if previous else 0,
-        edited=previous.edited if previous else (),
-        classes=previous.moved_classes if previous else (),
         width=width,
         runes=len(spec.runes),
     )
@@ -379,12 +238,12 @@ def _replay_threads(replay_threads: int | None) -> int:
 
 
 def _core_bound_threads(count: int) -> int:
-    """Return the width of a per-configuration pool whose tasks are CPU-bound and hold nothing the memory-derived widths account for: one task per settlement configuration, capped at the cores this process may run on, and at least one. It sizes the memo packers and the shipped-order walks. A packer holds a zlib stream and `_pack_windows`'s copy buffer: `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measured 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5, with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat and widening it costs nothing. The window payloads' packers hold the same and run outside this pool, one a configuration for the crate's whole run (`build_tables`), because each must read its FIFO for as long as the crate writes it. A shipped-order walk is one single-threaded crate process that holds the rules and labels and streams the rows, 0.105 GB of child RSS, a small fraction of the table build's peak. `AMS_KERNEL_THREADS` and `--kernel-threads` do not affect these pools: that setting exists to keep the table build out of swap, so a build set to width one narrows the crate's delta round while the packing and the walks still run every configuration at once. The string replay's setting (`_replay_threads`) affects neither pool."""
+    """Return the width of a per-configuration pool whose tasks are CPU-bound and hold nothing the memory-derived widths account for: one task per settlement configuration, capped at the cores this process may run on, and at least one. It sizes the packing, whose tasks each rename one staged window artifact (`_pack_config`), and the shipped-order walks. The window payloads' readers (`_take_windows`) run outside this pool, one a configuration for the crate's whole run (`build_tables`), because each must read its FIFO for as long as the crate writes it; each holds a zlib stream and `_pack_windows`'s copy buffer, and `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measured 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5, with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat. A shipped-order walk is one single-threaded crate process that holds the rules and labels and streams the rows, 0.105 GB of child RSS, a small fraction of the table build's peak. `AMS_KERNEL_THREADS` and `--kernel-threads` do not affect these pools: that setting exists to keep the table build out of swap, so a build set to width one narrows the crate's delta round while the packing and the walks still run every configuration at once. The string replay's setting (`_replay_threads`) affects neither pool."""
     return max(1, min(count, usable_cores()))
 
 
 class Packing:
-    """One table build's packing once its crate has exited cleanly, on a thread pool that can outlive `build_tables`: each configuration's staged window artifact renamed over its `.gz` and its memo file packed (`_pack_config`). Each configuration's pack is a future keyed by the configuration's name, so a stage that reads a packed enumeration (`run_emitted_order`'s walks) waits for its own configuration through `wait` instead of for the whole build. `build_tables` opens and closes its own `Packing` when the caller passes none, which blocks until packing finishes. `run` passes one, and the table-only branch closes it after the last walk that reads a packed file. `close` waits for every pack, shuts the pool down, reports `[t] pack_windows_total` (from the first submit to the last pack's completion, since the pool stays open across the kernel run and the walks), and raises the first pack failure."""
+    """One table build's packing once its crate has exited cleanly, on a thread pool that can outlive `build_tables`: each configuration's staged window artifact renamed over its `.gz` (`_pack_config`). Each configuration's pack is a future keyed by the configuration's name, so a stage that reads a packed enumeration (`run_emitted_order`'s walks) waits for its own configuration through `wait` instead of for the whole build. `build_tables` opens and closes its own `Packing` when the caller passes none, which blocks until packing finishes. `run` passes one, and the table-only branch closes it after the last walk that reads a packed file. `close` waits for every pack, shuts the pool down, reports `[t] pack_windows_total` (from the first submit to the last pack's completion, since the pool stays open across the kernel run and the walks), and raises the first pack failure."""
 
     def __init__(self, threads: int) -> None:
         self._pool = ThreadPoolExecutor(max_workers=threads, thread_name_prefix="pack-windows")
@@ -432,15 +291,10 @@ class Packing:
 
 
 def _pack_config(tables_dir: Path, config: str, staged: Path | None) -> None:
-    """Finish one configuration's packing after the crate's clean exit: rename the window artifact its payload's reader staged (`_take_windows`) over the `.gz` when the build is stamped (`staged`), then pack the crate's memo file into `kernel_exec.memo_path`. The plain memo file is removed inside the task once its pack is written, so a deferred pack never loses its own source."""
+    """Finish one configuration's packing after the crate's clean exit: rename the window artifact its payload's reader staged (`_take_windows`) over the `.gz` when the build is stamped (`staged`)."""
     started = time.perf_counter()
     if staged is not None:
         os.replace(staged, table_module.windows_path(tables_dir, config))
-    memo = tables_dir / f"memo-{config}.tsv"
-    if memo.is_file():
-        with memo.open("rb") as source:
-            _pack_windows(source, kernel_exec.memo_path(tables_dir, config))
-        memo.unlink()
     console.timing(f"pack_windows[{config}]", time.perf_counter() - started)
 
 
@@ -462,16 +316,15 @@ def build_tables(
     kernel_threads: int | None = None,
     packing: Packing | None = None,
     configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
-    overlap_memo_writes: bool | None = None,
     scratch_beside_default: int | None = None,
 ) -> tuple[dict[str, tuple], dict[str, str]]:
     """Build the decision and join tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, then one crate `build-tables` process (`kernel_exec.build_table_files`) enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo, or from scratch beside `default` (`scratch_beside_default`), prepares its fold as it finishes, and, once every configuration has exchanged the windows the others keep live (`rebuild/kernel-rs/src/crossconfig.rs`), finishes each fold. The crate writes the settlement TSV, the join TSV and the window enumeration itself; nothing is folded on the Python side.
 
     A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A narrowed set writes the same windows and join tables as the whole set, but its settlement tables can differ, since it has fewer configurations to import windows from. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over, so its width is derived from the from-scratch bound. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
 
-    The window payload never reaches the disk as plain text. Before the crate starts, a FIFO stands at each configuration's payload path (`kernel_exec.stream_payloads`), and one thread a configuration, outside the `Packing` pool and whatever the crate's width, reads it for the crate's whole run (`_take_windows`): it keeps the head line and, when the build is stamped, gzips the payload into a staged name beside the artifact as the crate writes it, at compressor speed, since a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. Each payload's end of file comes with the crate's close of it. Once the crate has exited, any FIFO it never opened is opened and closed so that no reader waits forever, and an empty stream packs nothing. Only after the crate's clean exit, with every reader finished, is a staged artifact renamed over `windows-<config>.tsv.gz`, as `run_m1_gates` promotes the oracle's row stores, so a build whose crate or any reader fails, or that is interrupted before the crate's clean exit, deletes what it staged and leaves the previous build's packed payload in place. A reader's failure fails the build, as the cause of the crate's broken pipe when the reader stopped early. Per configuration, Python then parses the kept head for the rules, the reachable cells and the fired provenance every downstream stage needs, and parses the join TSV back for the defect gates, on a thread pool at the table build's width, and this call waits for them. The rename and the memo file's pack (`_pack_config`) run on a `Packing` pool at `_core_bound_threads` width, one task per configuration up to the cores. When `packing` is passed, the tables are returned as soon as the heads are parsed, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
+    The window payload never reaches the disk as plain text. Before the crate starts, a FIFO stands at each configuration's payload path (`kernel_exec.stream_payloads`), and one thread a configuration, outside the `Packing` pool and whatever the crate's width, reads it for the crate's whole run (`_take_windows`): it keeps the head line and, when the build is stamped, gzips the payload into a staged name beside the artifact as the crate writes it, at compressor speed, since a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. Each payload's end of file comes with the crate's close of it. Once the crate has exited, any FIFO it never opened is opened and closed so that no reader waits forever, and an empty stream packs nothing. Only after the crate's clean exit, with every reader finished, is a staged artifact renamed over `windows-<config>.tsv.gz`, as `run_m1_gates` promotes the oracle's row stores, so a build whose crate or any reader fails, or that is interrupted before the crate's clean exit, deletes what it staged and leaves the previous build's packed payload in place. A reader's failure fails the build, as the cause of the crate's broken pipe when the reader stopped early. Per configuration, Python then parses the kept head for the rules, the reachable cells and the fired provenance every downstream stage needs, and parses the join TSV back for the defect gates, on a thread pool at the table build's width, and this call waits for them. The rename (`_pack_config`) runs on a `Packing` pool at `_core_bound_threads` width, one task per configuration up to the cores. When `packing` is passed, the tables are returned as soon as the heads are parsed, and the caller waits on each pack through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
-    A build with an `out_dir` also reuses its trace memos across builds. `previous_memos` reads the previous build's `memo-<config>.tsv.gz` files for the configurations this build names, unpacks those whose stamp still matches, and names the runes whose content changed as edited, so a window naming no edited rune settles as it did last time. This build's own memos are packed under the same names, stamped with `memo_stamp` over the spec in hand. Such a build ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which says whether it read those memos. A caller with no `out_dir` reads and writes no memo, and its line carries no record. Every build's line then carries the `build-tables` process's own resident peak and peak footprint (`_table_build_tail`). Either way the crate's phase lines and that line are kept in `_build_phase_lines` for run_m1's check line.
+    No build reads or writes a memo file: `default`'s memo lives only inside the crate's process, so every build enumerates cold. A build with an `out_dir` ends its `[t] kernel_build_tables` line with its `TableBuildRecord`; a caller with no `out_dir` carries no record. Every build's line then carries the `build-tables` process's own resident peak and peak footprint (`_table_build_tail`). Either way the crate's phase lines and that line are kept in `_build_phase_lines` for run_m1's check line.
 
     `out_dir`, when given, receives the TSVs listed in `doc/rebuild-design.md` §8. The second returned mapping is each configuration's `table.table_digest` as the crate reported it, computed while the window rows are still in memory, which avoids recomputing the fixpoint. The crate also prints it on stdout, where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are built in `configs` order however the configurations finish, so completion order cannot affect an artifact.
 
@@ -479,20 +332,14 @@ def build_tables(
 
     `kernel_threads` is how many worker slots the build runs at once, each enumerating a delta configuration or running `default`'s fold preparation, capped at the configuration count and the cores this process may run on, neither of which is a memory limit. The default it falls back to is the memory limit: `kernel_exec.kernel_threads_default` is the widest width whose `kernel_exec.table_build_booking_bytes` fits this machine's memory, which books what `default`'s finished memo holds, one parked fold product per configuration this build names, and what each slot holds beyond its own parked product. So the cap only narrows a memory-derived width and never widens one.
 
-    `overlap_memo_writes` says whether the crate writes the memo files beside the delta wave and the folds rather than ahead of them. The artifact cycle passes the choice it derives beside gate:make-test's pytest pool; when it is `None`, as for a bare run, `kernel_exec.memo_writes_overlap` derives it at the width the build takes with nothing beside it, so it is on wherever that width's booking with `kernel_exec.MEMO_WRITE_OVERLAP_BYTES` added still fits the memory.
-
-    `scratch_beside_default` says at most how many of the heaviest deltas the crate enumerates from scratch beside `default` instead of over its memo, so they need not wait for it; the crate takes them in whole tiers of equal unlocking-rune count. The artifact cycle passes the count it derives beside gate:make-test's pytest pool; when it is `None`, `kernel_exec.deltas_from_scratch` derives it at the width and memo-write order the build takes with nothing beside it: as many as fit the memory with each booked at `kernel_exec.SCRATCH_PEAK_BYTES`, up to `kernel_exec.DELTAS_FROM_SCRATCH_CAP`.
+    `scratch_beside_default` says at most how many of the heaviest deltas the crate enumerates from scratch beside `default` instead of over its memo, so they need not wait for it; the crate takes them in whole tiers of equal unlocking-rune count. The artifact cycle passes the count it derives beside gate:make-test's pytest pool; when it is `None`, `kernel_exec.deltas_from_scratch` derives it at the width the build takes with nothing beside it: as many as fit the memory with each booked at `kernel_exec.SCRATCH_PEAK_BYTES`.
     """
     configs = tuple(configs)
     from_scratch = "default" not in configs
     threads = _table_build_threads(kernel_threads, len(configs), from_scratch=from_scratch)
-    if overlap_memo_writes is None:
-        overlap_memo_writes = kernel_exec.memo_writes_overlap(
-            threads, configs=len(configs), from_scratch=from_scratch
-        )
     if scratch_beside_default is None:
         scratch_beside_default = kernel_exec.deltas_from_scratch(
-            threads, configs=len(configs), overlap=overlap_memo_writes, from_scratch=from_scratch
+            threads, configs=len(configs), from_scratch=from_scratch
         )
     kernel_exec.ensure_built()
     built: dict[str, tuple] = {}
@@ -509,17 +356,7 @@ def build_tables(
         for path in stale_table_files(tables_dir):
             path.unlink(missing_ok=True)
 
-        stamp = memo_stamp(spec) if out_dir is not None else None
-        previous = None
-        if out_dir is not None and stamp is not None:
-            start = time.perf_counter()
-            previous = previous_memos(out_dir, stamp, directory / "previous-memos", configs)
-            console.timing(
-                "previous_memos",
-                time.perf_counter() - start,
-                f"edited={','.join(previous.edited) if previous else '-'} classes={','.join(previous.moved_classes) if previous else '-'}",
-            )
-        record = table_build_record(spec, stamp, previous, threads) if stamp is not None else None
+        record = table_build_record(spec, threads) if out_dir is not None else None
         staged = {config: _staged_windows(tables_dir, config) for config in configs} if keep_windows else {}
         start = time.perf_counter()
         try:
@@ -534,11 +371,6 @@ def build_tables(
                     threads=threads,
                     symbols=len(conform.spec_alphabet(spec)),
                     timings=True,
-                    previous_memos=previous.directory if previous else None,
-                    edited=previous.edited if previous else (),
-                    moved_classes=previous.moved_classes if previous else (),
-                    memo_stamp=stamp,
-                    overlap_memo_writes=overlap_memo_writes,
                     scratch_beside_default=scratch_beside_default,
                 ),
             )
@@ -613,7 +445,7 @@ def _staged_windows(tables_dir: Path, config: str) -> Path:
 
 
 def _pack_windows(source: IO[bytes], path: Path, head: bytes = b"") -> None:
-    """Gzip a plain enumeration the kernel writes into the artifact at `path`: `head`, what a reader has already taken from `source`, then the rest of `source`. The gzip timestamp is zeroed and the header names no file, so two builds of one table are byte-identical whatever the staged name, and so is a payload however its reads are cut. Level 1 is used because the payload is gigabytes of plain TSV per build, written once and read back a few times, and compression time is spent on every build that writes an `out_dir`. The level affects only time, since table identity is taken over the decompressed bytes. The memo files are packed the same way. `rebuild/kernel-rs/src/artifacts.rs` also states that the decompressed bytes are the artifact's identity."""
+    """Gzip a plain enumeration the kernel writes into the artifact at `path`: `head`, what a reader has already taken from `source`, then the rest of `source`. The gzip timestamp is zeroed and the header names no file, so two builds of one table are byte-identical whatever the staged name, and so is a payload however its reads are cut. Level 1 is used because the payload is gigabytes of plain TSV per build, written once and read back a few times, and compression time is spent on every build that writes an `out_dir`. The level affects only time, since table identity is taken over the decompressed bytes. `rebuild/kernel-rs/src/artifacts.rs` also states that the decompressed bytes are the artifact's identity."""
     with (
         path.open("wb") as raw,
         gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0, compresslevel=1) as packed,
@@ -883,12 +715,11 @@ def run(
     kernel_threads: int | None = None,
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
     replay_threads: int | None = None,
-    overlap_memo_writes: bool | None = None,
     scratch_beside_default: int | None = None,
 ) -> tuple[dict, TableGates]:
     """Build the tables, then run two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage (in a spawned process of its own) and the shipped-order walks. The glyph chain (minting, the defect gates, the emission, the compile and read-back) runs on the calling thread, writes `pipeline_summary.json`, and returns its summary with the branch's `TableGates` handle without joining the branch. The caller joins it: `full_run` calls `wait_for_replay` before the oracle, passes `wait_for_memo` for the oracle to call before its memo writes, calls `join` after the oracle so the gate covers both branches, and calls `close` in a `finally`. When the glyph chain raises, the branch's first failure is raised in its place if there is one, so a failed replay is reported as incomplete tables and not as whatever the glyph chain made of them.
 
-    `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memo files the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from, and so do `overlap_memo_writes` and `scratch_beside_default` (`build_tables`). `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
+    `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memo files the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from, and so does `scratch_beside_default` (`build_tables`). `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     commit = head_commit()
@@ -908,7 +739,6 @@ def run(
             inputs=inputs,
             kernel_threads=kernel_threads,
             packing=packing,
-            overlap_memo_writes=overlap_memo_writes,
             scratch_beside_default=scratch_beside_default,
         )
     except BaseException:
@@ -1411,7 +1241,6 @@ def full_run(
     started: float,
     kernel_threads: int | None = None,
     replay_threads: int | None = None,
-    overlap_memo_writes: bool | None = None,
     scratch_beside_default: int | None = None,
     fresh_oracle_cache: bool = False,
 ) -> None:
@@ -1447,7 +1276,6 @@ def full_run(
             kernel_threads=kernel_threads,
             memo_inputs=memo_inputs,
             replay_threads=replay_threads,
-            overlap_memo_writes=overlap_memo_writes,
             scratch_beside_default=scratch_beside_default,
         )
         console.timing("run_total", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))

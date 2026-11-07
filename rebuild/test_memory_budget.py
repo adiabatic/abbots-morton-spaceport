@@ -143,27 +143,21 @@ class TestTheWidthsAlreadyOnRecord:
         )
 
     def test_the_shipped_terms_fit_the_whole_wave_on_the_48_gib_machines(self, monkeypatch):
-        """The criterion the kernel terms are chosen against: on the fleet's 48 GiB machines the solo width is the configuration count, every delta in a slot of its own and `default`'s fold preparation in one more, so the wave runs in one round, and that width's booking with `MEMO_WRITE_OVERLAP_BYTES` added still fits, so the memo files are written beside the wave. A change to any of `DELTA_SLOT_BYTES`, `FOLD_PREPARATION_BYTES`, `DEFAULT_MEMO_BYTES`, `PARKED_FOLD_BYTES` or `MEMO_WRITE_OVERLAP_BYTES` that costs those machines a slot or the overlap fails here. With `SCRATCH_PEAK_BYTES` as it stands, those machines also have room for `DELTAS_FROM_SCRATCH_CAP` deltas from scratch beside `default` and start that many; a re-measure that leaves room for fewer fails here, so the count is pinned where it is chosen. The last assertion checks that `TABLE_BUILD_PEAK_BYTES`, which `make job-costs` holds the higher of the run_m1 step's peak and the table build's peak footprint to, is the booking at that width with the memo writers beside the wave and that many deltas from scratch beside `default`, so re-measuring a term moves it too. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass whatever the constants are."""
+        """The criterion the kernel terms are chosen against: on the fleet's 48 GiB machines the solo width is the configuration count, every delta in a slot of its own and `default`'s fold preparation in one more, so the wave runs in one round. A change to any of `DELTA_SLOT_BYTES`, `FOLD_PREPARATION_BYTES`, `DEFAULT_MEMO_BYTES` or `PARKED_FOLD_BYTES` that costs those machines a slot fails here. With `SCRATCH_PEAK_BYTES` as it stands, those machines also have room for every delta from scratch beside `default` and start them all; a re-measure that leaves room for fewer fails here, so the count is pinned where it is chosen. The last assertion checks that `TABLE_BUILD_PEAK_BYTES`, which `make job-costs` holds the higher of the run_m1 step's peak and the table build's peak footprint to, is the booking at that width with every delta from scratch beside `default`, so re-measuring a term moves it too. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass whatever the constants are."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import (
-            DELTAS_FROM_SCRATCH_CAP,
             TABLE_BUILD_PEAK_BYTES,
             deltas_from_scratch,
             kernel_threads_default,
-            memo_writes_overlap,
             table_build_booking_bytes,
         )
 
         monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
         count = len(SETTLEMENT_CONFIGS)
         assert kernel_threads_default(configs=count, total_bytes=MACHINE_48_GIB) == count
-        assert memo_writes_overlap(count, configs=count, total_bytes=MACHINE_48_GIB)
-        assert (
-            deltas_from_scratch(count, configs=count, overlap=True, total_bytes=MACHINE_48_GIB)
-            == DELTAS_FROM_SCRATCH_CAP
-        )
+        assert deltas_from_scratch(count, configs=count, total_bytes=MACHINE_48_GIB) == count - 1
         assert TABLE_BUILD_PEAK_BYTES == table_build_booking_bytes(
-            count, configs=count, overlap=True, scratch_beside_default=DELTAS_FROM_SCRATCH_CAP
+            count, configs=count, scratch_beside_default=count - 1
         )
 
     def test_the_replay_divisor_fits_every_configuration_on_both_fleet_machines(self, monkeypatch):
@@ -176,7 +170,7 @@ class TestTheWidthsAlreadyOnRecord:
         assert 0 < REPLAY_PEAK_BYTES < SCRATCH_PEAK_BYTES
 
     def test_the_memo_term_is_smaller_in_kind_than_the_divisor(self):
-        """`DEFAULT_MEMO_BYTES` covers `default`'s memo snapshots kept alive for the wave, stored as compact records with their pools, while `SCRATCH_PEAK_BYTES` covers a configuration enumerated from scratch and held through its memo write, so the memo term must be the smaller. Setting them equal would charge the wave a whole configuration for a snapshot. A parked fold product is part of what its configuration held at its peak, so `PARKED_FOLD_BYTES` is smaller than `SCRATCH_PEAK_BYTES` too, or a from-scratch slot's divisor would not be positive. The slot that runs only `default`'s fold preparation costs no more than a delta's (`FOLD_PREPARATION_BYTES` at most `DELTA_SLOT_BYTES`), so a width at or below the delta count, where a delta takes that slot once the preparation ends, is booked at its deltas alone."""
+        """`DEFAULT_MEMO_BYTES` covers `default`'s memo snapshot kept alive for the wave, stored as compact records with their pools, while `SCRATCH_PEAK_BYTES` covers a configuration enumerated from scratch and held through its fold, so the memo term must be the smaller. Setting them equal would charge the wave a whole configuration for a snapshot. A parked fold product is part of what its configuration held at its peak, so `PARKED_FOLD_BYTES` is smaller than `SCRATCH_PEAK_BYTES` too, or a from-scratch slot's divisor would not be positive. The slot that runs only `default`'s fold preparation costs no more than a delta's (`FOLD_PREPARATION_BYTES` at most `DELTA_SLOT_BYTES`), so a width at or below the delta count, where a delta takes that slot once the preparation ends, is booked at its deltas alone."""
         from rebuild.pipeline.kernel_exec import DELTA_SLOT_BYTES, FOLD_PREPARATION_BYTES, PARKED_FOLD_BYTES
 
         assert 0 < DEFAULT_MEMO_BYTES < SCRATCH_PEAK_BYTES

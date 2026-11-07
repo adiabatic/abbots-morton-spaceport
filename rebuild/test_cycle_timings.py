@@ -136,28 +136,23 @@ def test_parse_inner_timings_reads_the_corpus_builds_phase_lines():
 
 
 def test_parse_inner_timings_reads_the_table_builds_record():
-    """run_m1's `kernel_build_tables` line ends with the table build's record, and each token is kept under its key, typed by its reader: the runes and classes a reused memo excluded as lists, `-` and an empty value as none, and the counts as integers. A value its reader rejects is left out."""
+    """run_m1's `kernel_build_tables` line ends with the table build's record, and each token is kept under its key, typed by its reader: the stamps as text and the counts as integers. A value its reader rejects is left out, and so is a token no reader names, such as an older line's `memos_read`."""
     text = "\n".join(
         [
-            "[t] previous_memos 1.9s edited= classes=-",
-            "[t] kernel_build_tables 220.2s structure=454ec84a code=4a63df81 memos_read=5 edited=qsTea,qsWay classes=- width=5 runes=44",
-            "[t] kernel_build_tables 3.0s memos_read=all width=5",
+            "[t] kernel_build_tables 220.2s structure=454ec84a code=4a63df81 width=5 runes=44",
+            "[t] kernel_build_tables 3.0s memos_read=5 width=all runes=44",
         ]
     )
     assert ct.parse_inner_timings(text) == [
-        {"label": "previous_memos", "elapsed_s": 1.9, "edited": [], "classes": []},
         {
             "label": "kernel_build_tables",
             "elapsed_s": 220.2,
             "structure": "454ec84a",
             "code": "4a63df81",
-            "memos_read": 5,
-            "edited": ["qsTea", "qsWay"],
-            "classes": [],
             "width": 5,
             "runes": 44,
         },
-        {"label": "kernel_build_tables", "elapsed_s": 3.0, "width": 5},
+        {"label": "kernel_build_tables", "elapsed_s": 3.0, "runes": 44},
     ]
 
 
@@ -650,15 +645,13 @@ def test_record_check_carries_each_workers_peak_footprint_beside_its_estimate(tm
 def test_record_check_carries_phase_lines_only_when_given_them(tmp_path):
     """run_m1's CLI passes its table build's phase lines, in the form `parse_inner_timings` returns, so a standalone build's check line can be paired with another build as a cycle's run_m1 step line can. A check given none carries no `inner`."""
     path = tmp_path / "j.ndjson"
-    inner = ct.parse_inner_timings(
-        "[t] enumerate[default] 78.1s\n[t] kernel_build_tables 220.2s memos_read=0 width=5"
-    )
+    inner = ct.parse_inner_timings("[t] enumerate[default] 78.1s\n[t] kernel_build_tables 220.2s width=5")
     ct.record_check(_check_result(check="run_m1"), inner=inner, path=path)
     ct.record_check(_check_result(check="run_m1"), path=path)
     with_phases, without = _lines(path)
     assert with_phases["inner"] == [
         {"label": "enumerate[default]", "elapsed_s": 78.1},
-        {"label": "kernel_build_tables", "elapsed_s": 220.2, "memos_read": 0, "width": 5},
+        {"label": "kernel_build_tables", "elapsed_s": 220.2, "width": 5},
     ]
     assert "inner" not in without
 

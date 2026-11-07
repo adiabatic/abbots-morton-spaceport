@@ -114,7 +114,6 @@ ORACLE_ROW_CODE_PATHS = (
     "rebuild/pipeline/labels.py",
     "rebuild/pipeline/model.py",
     "rebuild/pipeline/oracle_cache.py",
-    "rebuild/pipeline/output_sink.py",
     "rebuild/pipeline/position_record.py",
     "rebuild/pipeline/settle.py",
     "rebuild/pipeline/shapers.py",

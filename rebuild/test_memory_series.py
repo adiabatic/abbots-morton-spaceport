@@ -1,7 +1,6 @@
 """Tests for the memory series (`rebuild/tools/memory_series.py`). The table steps build the mini fixture narrowed to ·Tea, ·May and ·It, a build of a fraction of a second, so they run the real crate; the corpus lines build the frozen mini bundle (`mini_bundle`, `mini_corpus`) through the real child, a build of a few seconds. The meter, the machine reading and the waits are replaced where a test reads their arithmetic."""
 
 import gzip
-import hashlib
 import io
 import json
 import os
@@ -21,7 +20,7 @@ from rebuild.tools import memory_tally, scaling_sweep, write_meter
 from rebuild.tools.write_meter import Member, WriteReading
 
 CONFIGS = list(conform.SETTLEMENT_CONFIGS)
-FLAGS = ms.Flags(threads=2, overlap_memo_writes=True, scratch_beside_default=1)
+FLAGS = ms.Flags(threads=2, scratch_beside_default=1)
 STAMP = "memory-series-test"
 QUIET = ms.Machine(swap_used=None, compressor=None, swapouts=None, device=None)
 MINI = Path(__file__).resolve().parent / "review" / "fixtures" / "mini"
@@ -61,20 +60,17 @@ def _reading(at, device, logical=0):
 def test_a_step_reads_through_fifos_what_a_build_on_files_writes_and_leaves_only_null_links(
     monkeypatch, tmp_path
 ):
-    """A step's windows counts, memo byte counts and SHA-256s and digests are what the same build writes as files, counted and hashed after it exits, and while the crate runs its directory holds the FIFOs and the settlement and joins links to the null device and nothing else, so the build writes no file. The directory is gone once the step returns."""
+    """A step's windows counts and digests are what the same build writes as files, counted and hashed after it exits, and while the crate runs its directory holds the FIFOs and the settlement and joins links to the null device and nothing else, so the build writes no file. The directory is gone once the step returns."""
     spec_path = _spec_path(tmp_path)
     files = tmp_path / "files"
     arguments = ms.step_arguments(kernel_exec.BINARY, spec_path, files, CONFIGS, STAMP, FLAGS)
     done = subprocess.run(arguments, capture_output=True, check=True)
     digests = {answer["config"]: answer["digest"] for answer in map(json.loads, done.stdout.splitlines())}
     windows = {}
-    memos = {}
     for config in CONFIGS:
         payload = kernel_exec.windows_payload(files, config)
         with payload.open("rb") as source:
             windows[config] = list(scaling_sweep.counts(scaling_sweep.scan(source), payload))
-        memo = (files / f"memo-{config}.tsv").read_bytes()
-        memos[config] = {"bytes": len(memo), "sha256": hashlib.sha256(memo).hexdigest()}
 
     step_dir = tmp_path / "step"
     seen: dict[str, str] = {}
@@ -100,13 +96,12 @@ def test_a_step_reads_through_fifos_what_a_build_on_files_writes_and_leaves_only
         machine=lambda: QUIET,
     )
     assert measured["windows"] == windows
-    assert measured["memo"] == memos
     assert measured["digests"] == digests
-    assert all(counts[0] > 0 for counts in windows.values()) and all(memo["bytes"] for memo in memos.values())
+    assert all(counts[0] > 0 for counts in windows.values())
     expected = {}
     for config in CONFIGS:
         expected |= {f"settlement-{config}.tsv": os.devnull, f"joins-{config}.tsv": os.devnull}
-        expected |= {f"windows-{config}.tsv": "fifo", f"memo-{config}.tsv": "fifo"}
+        expected |= {f"windows-{config}.tsv": "fifo"}
     assert seen == expected
     assert not step_dir.exists()
 

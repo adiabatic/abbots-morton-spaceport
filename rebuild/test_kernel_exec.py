@@ -1,10 +1,9 @@
-"""Tests for `rebuild/pipeline/kernel_exec.py`, the kernel interface, and for the `run_m1` code that calls it: the mode flags passed to the crate, the product and tables it returns, the previous memos, the thread widths, the CLI, and the string replay. Every table is built on the mini fixture, which is enough to check the shape of the results; enumerating the live alphabet is the build's job.
+"""Tests for `rebuild/pipeline/kernel_exec.py`, the kernel interface, and for the `run_m1` code that calls it: the mode flags passed to the crate, the product and tables it returns, the table build record's structure stamp, the thread widths, the CLI, and the string replay. Every table is built on the mini fixture, which is enough to check the shape of the results; enumerating the live alphabet is the build's job.
 
 No test skips. On a machine without `cargo` these tests fail with the remedy `KernelBuildError` carries, because the M1 build cannot run there either.
 """
 
 import fcntl
-import gzip
 import itertools
 import json
 import os
@@ -771,7 +770,7 @@ def test_the_enumeration_tokens_name_every_flag_that_is_on(
 
 
 def test_the_tables_stamp_appends_exactly_the_enumeration_tokens(monkeypatch):
-    """`run_m1.tables_inputs` appends exactly the tokens `kernel_exec.enumeration_tokens` returns. `run_m1.previous_memos` (the memo head's mode set), `run_m1.memo_structure_stamp` and `run_m1.locality_lines` read the same function, so a new engine flag reaches every stamp."""
+    """`run_m1.tables_inputs` appends exactly the tokens `kernel_exec.enumeration_tokens` returns. `run_m1.memo_structure_stamp` and `run_m1.locality_lines` read the same function, so a new engine flag reaches every stamp."""
     monkeypatch.setattr(run_m1.fingerprint, "tables_value", lambda repo_root: "sources")
     assert run_m1.tables_inputs() == "+".join(["sources", *kernel_exec.enumeration_tokens()])
 
@@ -907,32 +906,8 @@ class TestTheKernelInvocation:
         assert stamp == STAMP
         assert default_memo_sharing
 
-    def test_the_memo_write_order_reaches_the_crate(self, monkeypatch, tmp_path):
-        """`run_m1.build_tables` passes the crate the memo write order its caller chose. When the caller chose none, as a bare run does, it passes what `kernel_exec.memo_writes_overlap` derives at the build's width for the configurations it builds, with nothing beside it."""
-        passed = []
-        asked = []
-
-        def build_table_files(*_args, overlap_memo_writes=False, **_rest):
-            passed.append(overlap_memo_writes)
-            raise Reached
-
-        def memo_writes_overlap(width, **terms):
-            asked.append((width, terms))
-            return "derived"
-
-        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
-        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
-        monkeypatch.setattr(kernel_exec, "memo_writes_overlap", memo_writes_overlap)
-        for chosen in (None, True, False):
-            with pytest.raises(Reached):
-                run_m1.build_tables(
-                    SPEC, tmp_path, inputs=STAMP, kernel_threads=2, overlap_memo_writes=chosen
-                )
-        assert passed == ["derived", True, False]
-        assert asked == [(min(2, run_m1.usable_cores()), {"configs": CONFIG_COUNT, "from_scratch": False})]
-
     def test_the_count_of_deltas_from_scratch_reaches_the_crate(self, monkeypatch, tmp_path):
-        """`run_m1.build_tables` passes the crate the count of deltas to start from scratch beside `default` that its caller chose. When the caller chose none, as a bare run does, it passes what `kernel_exec.deltas_from_scratch` derives at the build's width and memo-write order for the configurations it builds, with nothing beside it."""
+        """`run_m1.build_tables` passes the crate the count of deltas to start from scratch beside `default` that its caller chose. When the caller chose none, as a bare run does, it passes what `kernel_exec.deltas_from_scratch` derives at the build's width for the configurations it builds, with nothing beside it."""
         passed = []
         asked = []
 
@@ -954,13 +929,10 @@ class TestTheKernelInvocation:
                     tmp_path,
                     inputs=STAMP,
                     kernel_threads=2,
-                    overlap_memo_writes=True,
                     scratch_beside_default=chosen,
                 )
         assert passed == [3, 0, 2]
-        assert asked == [
-            (min(2, run_m1.usable_cores()), {"configs": CONFIG_COUNT, "overlap": True, "from_scratch": False})
-        ]
+        assert asked == [(min(2, run_m1.usable_cores()), {"configs": CONFIG_COUNT, "from_scratch": False})]
 
     def test_a_narrowed_cpu_allowance_narrows_the_fan_out(self, monkeypatch, tmp_path):
         """The width is also capped at `usable_cores()`, the cores this process may run on, so a container limited to part of its host's CPUs stays within that limit whatever the memory allows. The test fixes the allowance at two and asks for every configuration, so the test passes only if the cap applies."""
@@ -969,56 +941,8 @@ class TestTheKernelInvocation:
         seen = self._observe_build(monkeypatch, tmp_path, len(conform.SETTLEMENT_CONFIGS))
         assert seen[0][1] == min(len(conform.SETTLEMENT_CONFIGS), allowance)
 
-    def test_a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_build_files(
-        self, tmp_path, monkeypatch
-    ):
-        """A build of an edited spec into a directory holding the previous build's memos reads them, with the edited rune named, and writes the same packed windows, settlement TSVs, and join TSVs, byte for byte, as a build of the edited spec into an empty directory. It also leaves its own memos under the edited spec's stamp."""
-        asked = []
-        asked_classes = []
-        real = kernel_exec.build_table_files
-
-        def build_table_files(*args, **rest):
-            asked.append((rest.get("previous_memos"), rest.get("edited"), rest.get("memo_stamp")))
-            asked_classes.append(rest.get("moved_classes"))
-            return real(*args, **rest)
-
-        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
-        tea = SPEC.runes["qsTea"]
-        edited = replace(
-            SPEC, runes={**SPEC.runes, "qsTea": replace(tea, policy=replace(tea.policy, refuse=()))}
-        )
-        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(edited)) == run_m1.MemoDelta(
-            runes=("qsTea",), classes=()
-        )
-        reusing = tmp_path / "reusing"
-        run_m1.build_tables(SPEC, reusing, inputs=STAMP)
-        assert asked[-1] == (None, (), run_m1.memo_stamp(SPEC))
-        for config in conform.SETTLEMENT_CONFIGS:
-            assert kernel_exec.read_memo_head(kernel_exec.memo_path(reusing, config)) == kernel_exec.MemoHead(
-                config, "+".join(kernel_exec.enumeration_tokens()), run_m1.memo_stamp(SPEC)
-            )
-        before = {path.name: path.read_bytes() for path in reusing.iterdir()}
-        run_m1.build_tables(edited, reusing, inputs=STAMP)
-        previous, named, stamp = asked[-1]
-        assert previous is not None and named == ("qsTea",) and stamp == run_m1.memo_stamp(edited)
-        assert asked_classes[-1] == ()
-        scratch = tmp_path / "scratch"
-        run_m1.build_tables(edited, scratch, inputs=STAMP)
-        assert asked[-1] == (None, (), run_m1.memo_stamp(edited))
-        moved = False
-        for path in sorted(scratch.iterdir()):
-            if path.name.startswith("memo-"):
-                continue
-            expected = path.read_bytes()
-            assert (reusing / path.name).read_bytes() == expected, path.name
-            moved |= before[path.name] != expected
-        assert moved, "striking the refusal moves the tables, so the identity is not trivial"
-        for config in conform.SETTLEMENT_CONFIGS:
-            head = kernel_exec.read_memo_head(kernel_exec.memo_path(reusing, config))
-            assert head is not None and head.stamp == run_m1.memo_stamp(edited)
-
     def test_a_build_into_an_out_dir_records_what_pairs_it_with_another(self, tmp_path, capsys):
-        """A build into an `out_dir` ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which `cycle_timings.parse_inner_timings` reads back: the structure stamp its memos carry, the digest of the code the table build runs, the width, the rune count, and how many configurations read the previous build's memo, then the `build-tables` process's own resident peak and, on Darwin, its peak footprint, which `build_table_files` reads before it reaps the process. The first build reads none. A rebuild after a rune edit reads every configuration's memo, names the edited rune, and keeps the structure stamp and the code digest. The crate's own phase lines and that line are kept for run_m1's check line."""
+        """A build into an `out_dir` ends its `[t] kernel_build_tables` line with its `TableBuildRecord`, which `cycle_timings.parse_inner_timings` reads back: the structure stamp, the digest of the code the table build runs, the width and the rune count, then the `build-tables` process's own resident peak and, on Darwin, its peak footprint, which `build_table_files` reads before it reaps the process. A rebuild after a rune edit keeps the structure stamp and the code digest. The crate's own phase lines and that line are kept for run_m1's check line."""
 
         def recorded():
             (entry,) = [
@@ -1034,7 +958,6 @@ class TestTheKernelInvocation:
         assert first["code"] == fingerprint.hash_paths(
             run_m1.REPO_ROOT, run_m1.table_build_code_paths(run_m1.REPO_ROOT)
         )
-        assert (first["memos_read"], first["edited"], first["classes"]) == (0, [], [])
         assert (first["width"], first["runes"]) == (run_m1._table_build_threads(2), len(SPEC.runes))
         assert "rss_gb" in first and ("footprint_gb" in first or sys.platform != "darwin")
         tea = SPEC.runes["qsTea"]
@@ -1043,7 +966,6 @@ class TestTheKernelInvocation:
         )
         run_m1.build_tables(edited, tmp_path, inputs=STAMP, kernel_threads=2)
         second = recorded()
-        assert (second["memos_read"], second["edited"], second["classes"]) == (CONFIG_COUNT, ["qsTea"], [])
         assert (second["structure"], second["code"]) == (first["structure"], first["code"])
         labels = [phase["label"] for phase in ct.parse_inner_timings("\n".join(run_m1._build_phase_lines))]
         assert "enumerate[default]" in labels and labels[-1] == "kernel_build_tables"
@@ -1057,10 +979,9 @@ class TestTheKernelInvocation:
         (pipeline / "baseline_subset.py").write_text("M1_ALPHABET = frozenset({0xE650})\n", encoding="utf-8")
         (pipeline / "conform.py").write_text("UNCOVERED = frozenset({'qsAh'})\n", encoding="utf-8")
         (source / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
-        stamp = json.dumps({"structure": "s"})
 
         def code() -> str:
-            return run_m1.table_build_record(SPEC, stamp, None, 1, root=tmp_path).code
+            return run_m1.table_build_record(SPEC, 1, root=tmp_path).code
 
         before = code()
         (pipeline / "baseline_subset.py").write_text(
@@ -1071,12 +992,26 @@ class TestTheKernelInvocation:
         (source / "main.rs").write_text("fn main() { std::process::exit(1) }\n", encoding="utf-8")
         assert code() != before
 
-    def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, tmp_path):
-        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The four runs build the mini fixture narrowed to ·Tea, ·Day, ·May and ·It (`spec_load.narrowed`), whose window enumerations and memo files are a small fraction of the whole fixture's. There `ss03` allows `·May ~x~ ·Tea.half` and `ss04` allows `·Day ~b~ ·It ~b~ ·May`, so those deltas have windows to share and windows to settle themselves. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration. So must those of a run three wide that starts the two heaviest deltas from scratch beside `default` and runs `ss04` and `ss05` as deltas: `ss03` and `ss03+ss05` unlock the same two runes, ·Tea and ·May, where `ss04` and `ss05` unlock one each, so the first two form the top tier the crate takes whole (`fanout::scratch_tiers`). Its memo files show that schedule ran, because a configuration enumerated from scratch memoizes every window it settles, while a delta memoizes only what `default`'s memo could not answer. A run that serves the deltas none of `default`'s liveness verdicts writes the sharing run's tables and memo files, byte for byte."""
+    def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, monkeypatch, tmp_path):
+        """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The four runs build the mini fixture narrowed to ·Tea, ·Day, ·May and ·It (`spec_load.narrowed`), whose window enumerations are a small fraction of the whole fixture's. There `ss03` allows `·May ~x~ ·Tea.half` and `ss04` allows `·Day ~b~ ·It ~b~ ·May`, so those deltas have windows to share and windows to settle themselves. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration. So must those of a run three wide that starts the two heaviest deltas from scratch beside `default` and runs `ss04` and `ss05` as deltas: `ss03` and `ss03+ss05` unlock the same two runes, ·Tea and ·May, where `ss04` and `ss05` unlock one each, so the first two form the top tier the crate takes whole (`fanout::scratch_tiers`). A run that serves the deltas none of `default`'s liveness verdicts writes the sharing run's tables, byte for byte. Each run's crate is asked for its own schedule: the sharing run passes none of the schedule flags, and each other run passes only its own."""
         spec = spec_load.narrowed(SPEC, ("qsTea", "qsDay", "qsMay", "qsIt"))
         spec_path = tmp_path / "spec.json"
         kernel_io.write_spec(spec, spec_path)
         kernel_exec.ensure_built()
+        run_kernel_reaped = kernel_exec._run_kernel_reaped
+        schedules = {}
+
+        def reaped(arguments, verb, **rest):
+            schedules[os.path.basename(arguments[3])] = {
+                argument
+                for argument in arguments
+                if argument.startswith(
+                    ("--no-default-memo-sharing", "--no-verdict-sharing", "--scratch-beside-default")
+                )
+            }
+            return run_kernel_reaped(arguments, verb, **rest)
+
+        monkeypatch.setattr(kernel_exec, "_run_kernel_reaped", reaped)
         answers = {}
         for name, default_memo_sharing, threads, beside, verdict_sharing in (
             ("sharing", True, 2, 0, True),
@@ -1092,10 +1027,15 @@ class TestTheKernelInvocation:
                 threads=threads,
                 symbols=len(conform.spec_alphabet(spec)),
                 default_memo_sharing=default_memo_sharing,
-                memo_stamp=run_m1.memo_stamp(spec),
                 scratch_beside_default=beside,
                 verdict_sharing=verdict_sharing,
             ).digests
+        assert schedules == {
+            "sharing": set(),
+            "scratch": {"--no-default-memo-sharing"},
+            "beside": {"--scratch-beside-default=2"},
+            "unserved": {"--no-verdict-sharing"},
+        }
         assert answers["sharing"] == answers["scratch"] == answers["beside"] == answers["unserved"]
         for config in conform.SETTLEMENT_CONFIGS:
             for family in ("settlement", "joins", "windows"):
@@ -1104,17 +1044,6 @@ class TestTheKernelInvocation:
                     assert (tmp_path / "sharing" / name).read_bytes() == (
                         tmp_path / other / name
                     ).read_bytes(), (other, name)
-        memos = {
-            (arm, config): (tmp_path / arm / f"memo-{config}.tsv").read_bytes()
-            for arm in answers
-            for config in conform.SETTLEMENT_CONFIGS
-        }
-        for config in ("ss03", "ss03+ss05"):
-            assert memos["sharing", config] != memos["scratch", config] == memos["beside", config], config
-        for config in ("default", "ss04", "ss05"):
-            assert memos["sharing", config] == memos["beside", config], config
-        for config in conform.SETTLEMENT_CONFIGS:
-            assert memos["sharing", config] == memos["unserved", config], config
 
     def test_an_unstamped_build_names_a_stamp_the_kernel_will_accept(self, monkeypatch, tmp_path):
         """`build-tables` requires a stamp, so a build called without `inputs` passes `kernel_exec.UNSTAMPED_WINDOWS`. The build then keeps only the payload's head and drops the rest as it arrives, so that stamp never reaches an artifact."""
@@ -1130,32 +1059,6 @@ class TestTheKernelInvocation:
             run_m1.build_tables(SPEC, tmp_path)
         assert set(seen) == {kernel_exec.UNSTAMPED_WINDOWS}
         assert kernel_exec.UNSTAMPED_WINDOWS
-
-    @pytest.mark.parametrize("configs", [None, ("default",), ("ss03", "default")])
-    def test_the_table_build_reads_previous_memos_of_the_configurations_it_builds(
-        self, monkeypatch, tmp_path, configs
-    ):
-        """`build_tables` passes `previous_memos` the same configurations it passes the crate, so a whole-set build reads every settlement configuration's previous memo and a narrowed build only its own."""
-        seen = {}
-
-        def previous_memos(out_dir, stamp, scratch, configs):
-            seen["previous"] = tuple(configs)
-            return None
-
-        def build_table_files(spec_path, out_dir, configs, **rest):
-            seen["crate"] = tuple(configs)
-            raise Reached
-
-        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
-        monkeypatch.setattr(run_m1, "previous_memos", previous_memos)
-        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
-        with pytest.raises(Reached):
-            if configs is None:
-                run_m1.build_tables(SPEC, tmp_path)
-            else:
-                run_m1.build_tables(SPEC, tmp_path, configs=configs)
-        expected = tuple(conform.SETTLEMENT_CONFIGS) if configs is None else configs
-        assert seen == {"previous": expected, "crate": expected}
 
     def test_run_hands_the_width_to_the_table_build(self, monkeypatch, tmp_path):
         seen = {}
@@ -1268,47 +1171,11 @@ class TestThePayloadPath:
         assert not list(tmp_path.iterdir())
 
 
-class TestTheMemoStamp:
-    """Tests for `run_m1.memo_stamp` and `run_m1.memo_edited`, which decide whether a previous build's memo may be read and which runes it may not answer for."""
+class TestTheStructureStamp:
+    """Tests for `run_m1.memo_structure_stamp`, the structure a `run_m1.TableBuildRecord` carries."""
 
-    def test_a_reworded_rationale_moves_no_rune_digest(self):
-        tea = SPEC.runes["qsTea"]
-        record = tea.policy.refuse[0]
-        reworded = replace(
-            SPEC,
-            runes={
-                **SPEC.runes,
-                "qsTea": replace(
-                    tea,
-                    notes="reworded",
-                    policy=replace(
-                        tea.policy, refuse=(replace(record, why="because"), *tea.policy.refuse[1:])
-                    ),
-                ),
-            },
-        )
-        assert run_m1.rune_content_digests(reworded) == run_m1.rune_content_digests(SPEC)
-        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(reworded)) == run_m1.MemoDelta(
-            runes=(), classes=()
-        )
-
-    def test_a_moved_structure_or_another_format_refuses_the_memo_and_a_new_rune_is_edited(self):
-        stamp = json.loads(run_m1.memo_stamp(SPEC))
-        moved = json.dumps({**stamp, "structure": "elsewhere"})
-        assert run_m1.memo_edited(moved, run_m1.memo_stamp(SPEC)) is None
-        assert run_m1.memo_edited(json.dumps({**stamp, "format": "other"}), run_m1.memo_stamp(SPEC)) is None
-        assert run_m1.memo_edited("not json", run_m1.memo_stamp(SPEC)) is None
-        fewer = json.dumps(
-            {**stamp, "runes": {name: digest for name, digest in list(stamp["runes"].items())[1:]}}
-        )
-        assert run_m1.memo_edited(fewer, run_m1.memo_stamp(SPEC)) == run_m1.MemoDelta(
-            runes=(next(iter(stamp["runes"])),), classes=()
-        )
-        more = json.dumps({**stamp, "runes": {**stamp["runes"], "qsGone": "digest"}})
-        assert run_m1.memo_edited(more, run_m1.memo_stamp(SPEC)) is None
-
-    def test_a_class_whose_membership_moved_is_named_and_moves_no_structure(self):
-        """When a rune joins a predicate class, the memo stays readable, because the structure stamp leaves out class membership, and `memo_edited` names only that class as moved. The crate then uses its read journal to re-settle only the windows that consulted that class."""
+    def test_a_class_whose_membership_moved_moves_no_structure(self):
+        """When a rune joins a predicate class, the structure stamp holds still, because it leaves out class membership."""
         registry = SPEC.registry
         name, members = next(iter(registry.predicate_classes.items()))
         joined = replace(
@@ -1319,14 +1186,11 @@ class TestTheMemoStamp:
             ),
         )
         assert run_m1.memo_structure_stamp(joined) == run_m1.memo_structure_stamp(SPEC)
-        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(joined)) == run_m1.MemoDelta(
-            runes=(), classes=(name,)
-        )
 
     def test_the_structure_keeps_through_an_edit_the_crate_never_reads_and_moves_with_the_code_that_runs_it(
         self, tmp_path
     ):
-        """An emitter, read-back, run_m1.py and the spec loader are none of the memo structure stamp's code lines, so an edit there moves the stamp only where it changes the dump or what run_m1.py's stamp code and `spec_load.capability_features` compute from it (`run_m1.memo_structure_stamp`), and these edits change neither. The same edits move the string replay's stamp, so the replay walks every text. An edit to the crate or to any module `run_m1.TABLE_BUILD_CODE_MODULES` names moves the memo structure stamp."""
+        """An emitter, read-back, run_m1.py and the spec loader are none of the structure stamp's code lines, so an edit there moves the stamp only where it changes the dump or what run_m1.py's stamp code and `spec_load.capability_features` compute from it (`run_m1.memo_structure_stamp`), and these edits change neither. The same edits move the string replay's stamp, so the replay walks every text. An edit to the crate or to any module `run_m1.TABLE_BUILD_CODE_MODULES` names moves the structure stamp."""
         main = tmp_path / "rebuild" / "kernel-rs" / "src" / "main.rs"
         roster = [tmp_path / relative for relative in sorted(run_m1.TABLE_BUILD_CODE_MODULES)]
         unread = [
@@ -1351,9 +1215,9 @@ class TestTheMemoStamp:
             assert run_m1.memo_structure_stamp(SPEC, tmp_path) != before, path.relative_to(tmp_path)
 
     def test_the_structure_moves_with_the_dumped_registry_the_rune_order_and_the_semantics(self, monkeypatch):
-        """The registry and the order of the runes reach the crate through the dump, and the mode set through its command line, so each moves the structure stamp, and a changed dump makes `memo_edited` refuse the memo."""
+        """The registry and the order of the runes reach the crate through the dump, and the mode set through its command line, so each moves the structure stamp."""
         assert [entry.name for entry in fields(ResolvedSpec)] == ["runes", "registry"], (
-            "the memo stamp hashes the spec dump as its runes and its registry, so a new top-level ResolvedSpec field "
+            "the structure stamp hashes the spec dump as its runes and its registry, so a new top-level ResolvedSpec field "
             "reaches the crate unhashed until run_m1.memo_structure_stamp hashes it"
         )
         base = run_m1.memo_structure_stamp(SPEC)
@@ -1365,87 +1229,8 @@ class TestTheMemoStamp:
         reordered = replace(SPEC, runes=dict(reversed(list(SPEC.runes.items()))))
         for changed in (raised, reordered):
             assert run_m1.memo_structure_stamp(changed) != base
-            assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(changed)) is None
         monkeypatch.setattr(kernel_exec, "enumeration_tokens", lambda: ["other-mode-set"])
         assert run_m1.memo_structure_stamp(SPEC) != base
-
-    def test_a_rune_whose_stances_are_reordered_counts_as_edited(self):
-        """The crate reads a rune's stances in declaration order, which ranks the stances `policy.order` omits, so reordering them moves that rune's digest and only that rune counts as edited."""
-        tea = SPEC.runes["qsTea"]
-        swapped = replace(
-            SPEC,
-            runes={**SPEC.runes, "qsTea": replace(tea, stances=dict(reversed(list(tea.stances.items()))))},
-        )
-        assert run_m1.memo_edited(run_m1.memo_stamp(SPEC), run_m1.memo_stamp(swapped)) == run_m1.MemoDelta(
-            runes=("qsTea",), classes=()
-        )
-
-    def test_previous_memos_reads_only_memos_whose_head_and_stamp_hold(self, tmp_path):
-        stamp = run_m1.memo_stamp(SPEC)
-        modes = "+".join(kernel_exec.enumeration_tokens())
-        wrong = json.dumps({**json.loads(stamp), "structure": "elsewhere"})
-        for config, head in (
-            ("default", f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{modes}\t{stamp}\n"),
-            ("ss03", f"# {kernel_exec.MEMO_FORMAT}\tss03\t{modes}\t{wrong}\n"),
-            ("ss04", f"# {kernel_exec.MEMO_FORMAT}\tss04\tanother-mode-set\t{stamp}\n"),
-        ):
-            with gzip.open(kernel_exec.memo_path(tmp_path, config), "wt") as handle:
-                handle.write(head)
-        previous = run_m1.previous_memos(tmp_path, stamp, tmp_path / "previous")
-        assert previous is not None
-        assert previous.configs == ("default",)
-        assert previous.edited == ()
-        assert previous.moved_classes == ()
-        assert sorted(path.name for path in previous.directory.iterdir()) == ["memo-default.tsv"]
-        assert run_m1.previous_memos(tmp_path / "empty", stamp, tmp_path / "previous2") is None
-
-    def test_previous_memos_reads_only_the_configurations_the_build_names(self, tmp_path):
-        """A narrowed build unpacks only its own configurations' memos and collects edited runes only from them. The default, the whole settlement set, reads every usable memo and collects edited runes from all of them."""
-        stamp = run_m1.memo_stamp(SPEC)
-        modes = "+".join(kernel_exec.enumeration_tokens())
-        recorded = json.loads(stamp)
-        rune = next(iter(recorded["runes"]))
-        behind = json.dumps({**recorded, "runes": {**recorded["runes"], rune: "another-digest"}})
-        for config, head in (
-            ("default", f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{modes}\t{stamp}\n"),
-            ("ss03", f"# {kernel_exec.MEMO_FORMAT}\tss03\t{modes}\t{behind}\n"),
-        ):
-            with gzip.open(kernel_exec.memo_path(tmp_path, config), "wt") as handle:
-                handle.write(head)
-        narrowed = run_m1.previous_memos(tmp_path, stamp, tmp_path / "narrowed", configs=("default",))
-        assert narrowed is not None
-        assert narrowed.configs == ("default",)
-        assert narrowed.edited == ()
-        assert sorted(path.name for path in narrowed.directory.iterdir()) == ["memo-default.tsv"]
-        whole = run_m1.previous_memos(tmp_path, stamp, tmp_path / "whole")
-        assert whole is not None
-        assert whole.configs == ("default", "ss03")
-        assert whole.edited == (rune,)
-        assert sorted(path.name for path in whole.directory.iterdir()) == [
-            "memo-default.tsv",
-            "memo-ss03.tsv",
-        ]
-        assert run_m1.previous_memos(tmp_path, stamp, tmp_path / "ss04", configs=("ss04",)) is None
-
-    def test_a_memo_damaged_in_its_head_block_is_skipped_and_left_in_place(self, tmp_path):
-        """Zeroed bytes after a valid gzip header make the head's decompression raise `zlib.error`, which `read_memo_head` treats as no readable memo."""
-        packed = kernel_exec.memo_path(tmp_path, "default")
-        packed.write_bytes(gzip.compress(b"")[:10] + bytes(4096))
-        assert kernel_exec.read_memo_head(packed) is None
-        assert run_m1.previous_memos(tmp_path, run_m1.memo_stamp(SPEC), tmp_path / "previous") is None
-        assert packed.exists()
-
-    def test_a_memo_damaged_after_a_readable_head_is_skipped_and_left_in_place(self, tmp_path):
-        """A readable head followed by a gzip member whose deflate data is zeroed passes the head check, then raises `zlib.error` during unpacking, so `previous_memos` drops its partial plain file and reads no memo."""
-        stamp = run_m1.memo_stamp(SPEC)
-        modes = "+".join(kernel_exec.enumeration_tokens())
-        packed = kernel_exec.memo_path(tmp_path, "default")
-        head = f"# {kernel_exec.MEMO_FORMAT}\tdefault\t{modes}\t{stamp}\n"
-        packed.write_bytes(gzip.compress(head.encode()) + gzip.compress(b"")[:10] + bytes(4096))
-        assert kernel_exec.read_memo_head(packed) is not None
-        assert run_m1.previous_memos(tmp_path, stamp, tmp_path / "previous") is None
-        assert list((tmp_path / "previous").iterdir()) == []
-        assert packed.exists()
 
 
 class TestTheMemoryDerivedThreadDefault:
@@ -1489,22 +1274,22 @@ class TestTheMemoryDerivedThreadDefault:
         "total, wanted",
         [
             (4_000_000_000, 1),
-            (34_359_738_368, 3),
-            (32_000_000_000, 2),
-            (30_000_000_000, 2),
+            (17_500_000_000, 2),
+            (18_000_000_000, 3),
+            (18_500_000_000, 4),
             (64_000_000_000, 6),
         ],
     )
     def test_the_width_follows_the_machine_and_never_falls_below_one(self, total, wanted):
-        """With `DEFAULT_MEMO_BYTES` (2.6 GB) and six parked products at `PARKED_FOLD_BYTES` (1.3 GB) off the machine, a 32 GiB machine fits three delta slots at `DELTA_SLOT_BYTES` (4.7 GB), and a decimal 32 GB machine and a 30 GB machine each fit two. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
+        """With `DEFAULT_MEMO_BYTES` (1.4 GB) and six parked products at `PARKED_FOLD_BYTES` (1.2 GB) off the machine, a 17.5 GB machine fits two delta slots at `DELTA_SLOT_BYTES` (0.4 GB), an 18 GB machine three and an 18.5 GB machine four. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_machine_before_it_is_divided(self):
-        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 45 GB machine leaves too little for the whole wave's 35.0 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
-        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=45_000_000_000) == 6
+        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 21.8 GB machine leaves too little for the whole wave's 11.0 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
+        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=21_800_000_000) == 6
         assert (
             kernel_exec.kernel_threads_default(
-                configs=CONFIG_COUNT, coresident_bytes=3_000_000_000, total_bytes=45_000_000_000
+                configs=CONFIG_COUNT, coresident_bytes=3_000_000_000, total_bytes=21_800_000_000
             )
             == 5
         )
@@ -1519,39 +1304,12 @@ class TestTheMemoryDerivedThreadDefault:
                 + min(width, deltas) * kernel_exec.DELTA_SLOT_BYTES
                 + (kernel_exec.FOLD_PREPARATION_BYTES if width > deltas else 0)
             )
-        every = kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=34_359_738_368)
-        budget = 34_359_738_368 - memory_budget.os_reserve_bytes(total_bytes=34_359_738_368) - fixed
+        every = kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=18_000_000_000)
+        budget = 18_000_000_000 - memory_budget.os_reserve_bytes(total_bytes=18_000_000_000) - fixed
         assert every == budget // kernel_exec.DELTA_SLOT_BYTES
 
-    def test_the_memo_files_are_written_beside_the_wave_only_where_their_writers_still_fit(self):
-        """`memo_writes_overlap` books `MEMO_WRITE_OVERLAP_BYTES` on top of a build's booking at its width. Over a range of invented machines, at the width `kernel_threads_default` derives, the memo files go beside the wave exactly when taking that term off the memory first would leave the width unchanged, except where taking it off floors that width at one, and the range holds a machine that runs the whole wave with its memo files written ahead. Memory something else holds beside the build counts against the writers as it does against the width, and a build without `default`'s memo writes each file ahead of its drain on any machine."""
-        whole = kernel_exec.table_build_booking_bytes(CONFIG_COUNT, configs=CONFIG_COUNT)
-        assert (
-            kernel_exec.table_build_booking_bytes(CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True)
-            == whole + kernel_exec.MEMO_WRITE_OVERLAP_BYTES
-        )
-        seen = set()
-        for total in range(4_000_000_000, 80_000_000_000, 250_000_000):
-            width = kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total)
-            narrowed = kernel_exec.kernel_threads_default(
-                configs=CONFIG_COUNT, coresident_bytes=kernel_exec.MEMO_WRITE_OVERLAP_BYTES, total_bytes=total
-            )
-            usable = total - memory_budget.os_reserve_bytes(total_bytes=total)
-            floored = kernel_exec.table_build_booking_bytes(1, configs=CONFIG_COUNT, overlap=True) > usable
-            overlaps = kernel_exec.memo_writes_overlap(width, configs=CONFIG_COUNT, total_bytes=total)
-            assert overlaps == (narrowed == width and not floored), total
-            seen.add((width, overlaps))
-        assert {(CONFIG_COUNT, True), (CONFIG_COUNT, False), (1, False)} <= seen
-        roomy = 1_000_000_000_000
-        usable = roomy - memory_budget.os_reserve_bytes(total_bytes=roomy)
-        assert kernel_exec.memo_writes_overlap(CONFIG_COUNT, configs=CONFIG_COUNT, total_bytes=roomy)
-        assert not kernel_exec.memo_writes_overlap(
-            CONFIG_COUNT, configs=CONFIG_COUNT, coresident_bytes=usable - whole, total_bytes=roomy
-        )
-        assert not kernel_exec.memo_writes_overlap(2, configs=2, total_bytes=roomy, from_scratch=True)
-
     def test_deltas_are_started_from_scratch_beside_default_while_their_peaks_fit(self):
-        """`table_build_booking_bytes` books each delta started from scratch beside `default` at `SCRATCH_PEAK_BYTES` less its parked product in place of a delta's slot, and books such a build at no less than its start, where `default` and each of them hold a `SCRATCH_PEAK_BYTES` together; the count is capped at the delta count and one less than the width, as the crate caps it. `deltas_from_scratch` is the largest count up to `DELTAS_FROM_SCRATCH_CAP` whose booking, with the memo-write order given, fits the memory less the reserve and what runs beside, so over a range of invented machines it never shrinks as the memory grows and covers every count from none to the cap. A from-scratch build starts nothing beside `default`."""
+        """`table_build_booking_bytes` books each delta started from scratch beside `default` at `SCRATCH_PEAK_BYTES` less its parked product in place of a delta's slot, and books such a build at no less than its start, where `default` and each of them hold a `SCRATCH_PEAK_BYTES` together; the count is capped at the delta count and one less than the width, as the crate caps it. `deltas_from_scratch` is the largest count up to the delta count whose booking fits the memory less the reserve and what runs beside, so over a range of invented machines it never shrinks as the memory grows and covers every count from none to every delta. A from-scratch build starts nothing beside `default`."""
         fixed = kernel_exec.DEFAULT_MEMO_BYTES + CONFIG_COUNT * kernel_exec.PARKED_FOLD_BYTES
         deltas = CONFIG_COUNT - 1
         slot = kernel_exec.SCRATCH_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES
@@ -1562,83 +1320,46 @@ class TestTheMemoryDerivedThreadDefault:
                 + taken * slot
                 + (deltas - taken) * kernel_exec.DELTA_SLOT_BYTES
                 + kernel_exec.FOLD_PREPARATION_BYTES
-                + kernel_exec.MEMO_WRITE_OVERLAP_BYTES
             )
             assert kernel_exec.table_build_booking_bytes(
-                CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, scratch_beside_default=count
+                CONFIG_COUNT, configs=CONFIG_COUNT, scratch_beside_default=count
             ) == (max(wave, (1 + taken) * kernel_exec.SCRATCH_PEAK_BYTES) if taken else wave)
         assert kernel_exec.table_build_booking_bytes(
             1, configs=CONFIG_COUNT, scratch_beside_default=deltas
         ) == kernel_exec.table_build_booking_bytes(1, configs=CONFIG_COUNT)
         seen = []
-        for total in range(30_000_000_000, 60_000_000_000, 100_000_000):
+        for total in range(16_000_000_000, 32_000_000_000, 100_000_000):
             usable = total - memory_budget.os_reserve_bytes(total_bytes=total)
-            count = kernel_exec.deltas_from_scratch(
-                CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, total_bytes=total
-            )
+            count = kernel_exec.deltas_from_scratch(CONFIG_COUNT, configs=CONFIG_COUNT, total_bytes=total)
             fits = [
                 taken
                 for taken in range(CONFIG_COUNT)
                 if kernel_exec.table_build_booking_bytes(
-                    CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, scratch_beside_default=taken
+                    CONFIG_COUNT, configs=CONFIG_COUNT, scratch_beside_default=taken
                 )
                 <= usable
             ]
-            assert count == min(kernel_exec.DELTAS_FROM_SCRATCH_CAP, max(fits, default=0)), total
+            assert count == max(fits, default=0), total
             assert not seen or count >= seen[-1], total
             seen.append(count)
-        assert set(range(kernel_exec.DELTAS_FROM_SCRATCH_CAP + 1)) <= set(seen)
+        assert set(range(CONFIG_COUNT)) <= set(seen)
         roomy = 1_000_000_000_000
         usable = roomy - memory_budget.os_reserve_bytes(total_bytes=roomy)
-        whole = kernel_exec.table_build_booking_bytes(CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True)
+        whole = kernel_exec.table_build_booking_bytes(CONFIG_COUNT, configs=CONFIG_COUNT)
         assert (
             kernel_exec.deltas_from_scratch(
-                CONFIG_COUNT,
-                configs=CONFIG_COUNT,
-                overlap=True,
-                coresident_bytes=usable - whole,
-                total_bytes=roomy,
+                CONFIG_COUNT, configs=CONFIG_COUNT, coresident_bytes=usable - whole, total_bytes=roomy
             )
             == 0
         )
-        assert (
-            kernel_exec.deltas_from_scratch(2, configs=2, overlap=False, total_bytes=roomy, from_scratch=True)
-            == 0
-        )
-
-    def test_no_more_deltas_start_from_scratch_than_the_cap_however_much_room_memory_leaves(self):
-        """`DELTAS_FROM_SCRATCH_CAP` holds the count `deltas_from_scratch` derives below the delta count whatever memory leaves room for: on an invented machine with room for every delta from scratch at any width, the count at each width is the cap, or one less than the width where that is lower. A machine with room for fewer than the cap still gets fewer: one just large enough for a single delta from scratch beside `default` gets one."""
-        cap = kernel_exec.DELTAS_FROM_SCRATCH_CAP
-        assert 0 < cap < CONFIG_COUNT - 1
-        roomy = 1_000_000_000_000
-        assert kernel_exec.table_build_booking_bytes(
-            CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, scratch_beside_default=CONFIG_COUNT - 1
-        ) <= roomy - memory_budget.os_reserve_bytes(total_bytes=roomy)
-        for width in range(1, CONFIG_COUNT + 1):
-            assert kernel_exec.deltas_from_scratch(
-                width, configs=CONFIG_COUNT, overlap=True, total_bytes=roomy
-            ) == min(cap, width - 1)
-        single = kernel_exec.table_build_booking_bytes(
-            CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, scratch_beside_default=1
-        )
-        total = next(
-            total
-            for total in range(single, 2 * single, 10_000_000)
-            if total - memory_budget.os_reserve_bytes(total_bytes=total) >= single
-        )
-        assert (
-            kernel_exec.deltas_from_scratch(
-                CONFIG_COUNT, configs=CONFIG_COUNT, overlap=True, total_bytes=total
-            )
-            == 1
-        )
+        assert kernel_exec.deltas_from_scratch(2, configs=2, total_bytes=roomy, from_scratch=True) == 0
 
     def test_a_build_without_default_s_memo_books_each_slot_from_scratch(self, monkeypatch, tmp_path):
-        """A set without `default` enumerates every configuration from scratch, so its slots book `SCRATCH_PEAK_BYTES` less a parked product, not a delta's slot, and its width is that division, capped at the configuration count. On an invented 24 GB machine a two-configuration build that shares `default`'s memo runs both at once, while the from-scratch division fits one. `run_m1.build_tables` asks for that width exactly when `default` is not in the set it builds."""
+        """A set without `default` enumerates every configuration from scratch, so its slots book `SCRATCH_PEAK_BYTES` less a parked product, not a delta's slot, and its width is that division, capped at the configuration count. On an invented 15 GB machine a two-configuration build that shares `default`'s memo runs both at once, while the from-scratch division fits one. `run_m1.build_tables` asks for that width exactly when `default` is not in the set it builds."""
         fixed = kernel_exec.DEFAULT_MEMO_BYTES + 2 * kernel_exec.PARKED_FOLD_BYTES
         slot = kernel_exec.SCRATCH_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES
         assert kernel_exec.table_build_booking_bytes(2, configs=2, from_scratch=True) == fixed + 2 * slot
-        total = 24_000_000_000
+        total = 15_000_000_000
         budget = total - memory_budget.os_reserve_bytes(total_bytes=total) - fixed
         assert budget // slot < 2 == kernel_exec.kernel_threads_default(configs=2, total_bytes=total)
         assert (

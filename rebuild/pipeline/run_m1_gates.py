@@ -1049,21 +1049,12 @@ def main(argv: list[str] | None = None) -> None:
         ),
     )
     parser.add_argument(
-        "--overlap-memo-writes",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help=(
-            "whether the kernel's table build writes its memo files on threads of their own beside the delta wave and the folds (the same bytes, sooner) or each ahead of the work that follows it; the default is derived from this machine at the build's width: on when the booking --kernel-threads is sized by, with kernel_exec.MEMO_WRITE_OVERLAP_BYTES added for those writers, still fits the memory — "
-            f"{'on' if kernel_exec.memo_writes_overlap(len(conform.SETTLEMENT_CONFIGS), configs=len(conform.SETTLEMENT_CONFIGS)) else 'off'} on this one at the whole wave's width; the artifact cycle passes the choice it derives beside gate:make-test's pool"
-        ),
-    )
-    parser.add_argument(
         "--scratch-beside-default",
         type=int,
         default=None,
         help=(
-            "at most how many of the heaviest delta configurations the kernel's table build enumerates from scratch beside default instead of over default's memo once it has enumerated (the same tables, for more memory, CPU and memo bytes; the comment on kernel_exec.DELTAS_FROM_SCRATCH_CAP gives what it does to the wall time), taken in whole tiers of equal unlocking-rune count and capped at the delta count and one less than --kernel-threads; the default is derived from this machine at the build's width and memo-write order: as many as fit the memory with each booked at kernel_exec.SCRATCH_PEAK_BYTES, up to kernel_exec.DELTAS_FROM_SCRATCH_CAP — "
-            f"{kernel_exec.deltas_from_scratch(len(conform.SETTLEMENT_CONFIGS), configs=len(conform.SETTLEMENT_CONFIGS), overlap=kernel_exec.memo_writes_overlap(len(conform.SETTLEMENT_CONFIGS), configs=len(conform.SETTLEMENT_CONFIGS)))} on this one at the whole wave's width; the artifact cycle passes the count it derives beside gate:make-test's pool"
+            "at most how many of the heaviest delta configurations the kernel's table build enumerates from scratch beside default instead of over default's memo once it has enumerated (the same tables, for more memory and CPU; the comment on kernel_exec.SCRATCH_PEAK_BYTES gives what it does to the wall time), taken in whole tiers of equal unlocking-rune count and capped at the delta count and one less than --kernel-threads; the default is derived from this machine at the build's width: as many as fit the memory with each booked at kernel_exec.SCRATCH_PEAK_BYTES — "
+            f"{kernel_exec.deltas_from_scratch(len(conform.SETTLEMENT_CONFIGS), configs=len(conform.SETTLEMENT_CONFIGS))} on this one at the whole wave's width; the artifact cycle passes the count it derives beside gate:make-test's pool"
         ),
     )
     parser.add_argument(
@@ -1134,7 +1125,6 @@ def main(argv: list[str] | None = None) -> None:
             started=started,
             kernel_threads=args.kernel_threads,
             replay_threads=args.replay_threads,
-            overlap_memo_writes=args.overlap_memo_writes,
             scratch_beside_default=args.scratch_beside_default,
             fresh_oracle_cache=args.fresh_oracle_cache,
         )

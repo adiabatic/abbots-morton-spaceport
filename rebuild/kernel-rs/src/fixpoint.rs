@@ -12,7 +12,6 @@ use std::collections::BTreeSet;
 use std::num::{NonZeroU16, NonZeroU32};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use crate::deep_slots::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
 use crate::engine::{CacheSize, Engine, EngineModes, MemoCeilings, Slots};
@@ -21,7 +20,7 @@ use crate::fiber::DeepFiberDeriver;
 use crate::hash::{HashMap, HashSet};
 use crate::index::{Ordinal, SpecIndex};
 use crate::liveness::ProspectLiveness;
-use crate::memo::{MemoFile, MemoSnapshot, SharedMemo};
+use crate::memo::{MemoSnapshot, SharedMemo};
 use crate::model::Sym;
 use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
@@ -51,7 +50,7 @@ const SEED_KINDS: [TokenKind; 4] = [
     TokenKind::NamerDot,
 ];
 
-/// The mode set one enumeration runs under, and at which grain. Python reads the three flags from module-level defaults that environment variables override (`kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT`). This crate reads no environment, so the caller passes them, and [`Default`] gives the default modes. [`EnumerationModes::token`] names the mode set; a memo file's head carries it so a memo traced under one mode set is never read under another.
+/// The mode set one enumeration runs under, and at which grain. Python reads the three flags from module-level defaults that environment variables override (`kernel_exec.SIMULATED_PROSPECT_DEFAULT`, `kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT` and `kernel_exec.DEEP_CLASSES_DEFAULT`). This crate reads no environment, so the caller passes them, and [`Default`] gives the default modes.
 ///
 /// Either engine mode on makes a deep mode set: both deep-slot rune sets widen to every rune and the filters get their liveness probe. `deep_classes` only takes effect in a deep mode set. With both engine modes off, the mode set is the pinned one: `deep_classes` is accepted there and does nothing, because there is no fiber source to enumerate at class grain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -71,31 +70,11 @@ impl Default for EnumerationModes {
     }
 }
 
-impl EnumerationModes {
-    /// The mode set's name as `kernel_exec.enumeration_tokens` forms it: each enabled flag's token, `+`-joined, or `pinned` when both engine modes are off, so Python and Rust name a mode set with the same string.
-    pub fn token(self) -> String {
-        let mut tokens: Vec<&str> = Vec::new();
-        if self.simulated_prospect {
-            tokens.push("simulated-prospect");
-        }
-        if self.follower_prefer_slots {
-            tokens.push("follower-prefer-slots");
-        }
-        if self.deep_classes && (self.simulated_prospect || self.follower_prefer_slots) {
-            tokens.push("deep-classes");
-        }
-        if tokens.is_empty() {
-            return "pinned".to_owned();
-        }
-        tokens.join("+")
-    }
-}
-
 /// The ceilings every table enumeration's engine holds its prospect and candidate memos to: 2^20 buckets for the prospect memo and 2^22 for the candidate memo, which hold 917,504 and 3,670,016 entries before they are cleared ([`MemoCeilings`]). Without them both memos grow with the windows an enumeration settles, beside the trace memo, which has no ceiling. What an engine holds with them is booked in `kernel_exec.SCRATCH_PEAK_BYTES` and `kernel_exec.DELTA_SLOT_BYTES`, whose comments carry the readings. `build-tables` takes `--prospect-memo-buckets=` and `--candidates-memo-buckets=` to set others.
 pub const TABLE_MEMO_CEILINGS: MemoCeilings =
     MemoCeilings::new(1 << 20, 1 << 22).expect("both are powers of two of at least eight");
 
-/// What one enumeration may read before settling a window itself, whether it returns its own memo ([`crate::memo`]), and the ceilings on its engine's prospect and candidate memos. The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Writing the memo to a file is independent of it: [`enumerate_for_tables`] writes the file, or hands it to a writer, at the release point whether or not the snapshot is kept. `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot. `memo_ceilings` is [`TABLE_MEMO_CEILINGS`] unless the caller sets others, which changes no product or memo.
+/// What one enumeration may read before settling a window itself, whether it returns its own memo ([`crate::memo`]), and the ceilings on its engine's prospect and candidate memos. The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Without it, the enumeration releases its memo at the release point ([`enumerate_for_tables`]). `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot. `memo_ceilings` is [`TABLE_MEMO_CEILINGS`] unless the caller sets others, which changes no product or memo.
 #[derive(Debug)]
 pub struct MemoAccess {
     pub shared_memos: Vec<SharedMemo>,
@@ -1010,48 +989,29 @@ pub fn enumerate_transitions(
         contract_seeds,
         None,
         MemoAccess::default(),
-        None,
     )
     .map(|enumeration| enumeration.product)
 }
 
-/// Where [`enumerate_for_tables`] sends its memo file at the release point.
-pub enum MemoWrite<'w> {
-    /// Written there, on the enumeration's own thread, before the drain and the sort.
-    Inline(MemoFile),
-    /// Handed there, with the finished snapshot, to a writer that runs beside the drain, the sort and whatever the caller does next. The enumeration neither waits for the writer nor times it, and a configuration that keeps no memo holds its snapshot until the writer lets go of it.
-    Beside(MemoFile, Box<dyn FnOnce(MemoFile, Arc<MemoSnapshot>) + 'w>),
-}
-
-/// What [`enumerate_for_tables`] returns: the fixpoint, the [`WindowOptions`] it ran over, the engine's finished memo when `access` asked to keep it, and how long the memo file took to write when it was written in line. That write runs inside the enumeration, so it is timed here for the caller to report under its own label.
+/// What [`enumerate_for_tables`] returns: the fixpoint, the [`WindowOptions`] it ran over, and the engine's finished memo when `access` asked to keep it.
 pub struct TablesEnumeration<'i> {
     pub product: FixpointProduct,
     pub options: WindowOptions<'i>,
     pub memo: Option<Arc<MemoSnapshot>>,
-    pub memo_write: Option<Duration>,
 }
 
-/// [`enumerate_transitions`] that also returns the [`WindowOptions`] it ran over, the `--cache-stats` lines when `cache_stats` is given, and the engine's finished memo when `access` asks for it. The table build folds the product it holds, and the fold's certificates read the formation guard through the same options, whose verdict memo the worklist already filled, instead of sweeping the guard again. The memo access lets one configuration's enumeration read another's settled windows ([`crate::memo`]). With a `file`, the finished memo is written at the release point, after the engine's other memos are freed, so a configuration whose memo access does not keep the memo holds none through its drain or its sort; or, under [`MemoWrite::Beside`], it is handed to a writer there, so the write runs beside the drain and the sort instead of ahead of them.
+/// [`enumerate_transitions`] that also returns the [`WindowOptions`] it ran over, the `--cache-stats` lines when `cache_stats` is given, and the engine's finished memo when `access` asks for it. The table build folds the product it holds, and the fold's certificates read the formation guard through the same options, whose verdict memo the worklist already filled, instead of sweeping the guard again. The memo access lets one configuration's enumeration read another's settled windows ([`crate::memo`]). A kept memo is taken at the release point, after the engine's other memos are freed; a configuration whose memo access does not keep it releases it there, so it holds none through its drain or its sort.
 pub fn enumerate_for_tables<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
     modes: EnumerationModes,
     cache_stats: Option<&mut Vec<String>>,
     access: MemoAccess,
-    file: Option<MemoWrite<'_>>,
 ) -> Result<TablesEnumeration<'i>, String> {
-    enumerate_from_seeds(
-        index,
-        features,
-        modes,
-        contract_seeds,
-        cache_stats,
-        access,
-        file,
-    )
+    enumerate_from_seeds(index, features, modes, contract_seeds, cache_stats, access)
 }
 
-/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings (`memo_clears`), the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] writes one in line), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
+/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings (`memo_clears`), the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
 ///
 /// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_with_cache_stats(
@@ -1067,7 +1027,6 @@ pub fn enumerate_with_cache_stats(
         contract_seeds,
         Some(cache_stats),
         MemoAccess::default(),
-        None,
     )
     .map(|enumeration| enumeration.product)
 }
@@ -1080,7 +1039,6 @@ fn enumerate_from_seeds<'i>(
     seeds: fn(&WindowOptions<'_>) -> Vec<Seed>,
     mut cache_stats: Option<&mut Vec<String>>,
     access: MemoAccess,
-    file: Option<MemoWrite<'_>>,
 ) -> Result<TablesEnumeration<'i>, String> {
     let mut engine = Engine::with_modes(
         index,
@@ -1733,7 +1691,7 @@ fn enumerate_from_seeds<'i>(
             resident_kb()
         ));
     }
-    // Nothing reads these past the stats above, so they are freed here instead of at the return, and everything from here to the return runs without them: the snapshot build, the memo write, the drain, the sort and the partition check. The row log keeps its chains and fragment headers for the drain.
+    // Nothing reads these past the stats above, so they are freed here instead of at the return, and everything from here to the return runs without them: the snapshot build, the drain, the sort and the partition check. The row log keeps its chains and fragment headers for the drain.
     drop(worklist);
     drop(items);
     drop(pending);
@@ -1747,8 +1705,8 @@ fn enumerate_from_seeds<'i>(
         .iter()
         .map(|pointer| pointer.text(index))
         .collect();
-    // The drain and the sort below are the run's other large working set, and they do not need the memos. Releasing the memos here keeps the two from coexisting, which would otherwise be the enumeration's peak memory. The memo file is written here too, or handed to its writer, from the trace memo the engine returns as a snapshot after freeing its prospect, candidate and closure memos, so the writer's buffers never coexist with them. The snapshot is then dropped, except for the configuration other enumerations will read, whose snapshot is held through the drain and the sort, and except while a writer beside the drain still holds it.
-    let memo = if access.keep_memo || file.is_some() {
+    // The drain and the sort below are the run's other large working set, and they do not need the memos. Releasing the memos here keeps the two from coexisting, which would otherwise be the enumeration's peak memory. Only the configuration other enumerations will read keeps its trace memo, as the snapshot the engine returns after freeing its prospect, candidate and closure memos, and holds it through the drain and the sort.
+    let memo = if access.keep_memo {
         engine.take_memo().map(Arc::new)
     } else {
         engine.release_memos();
@@ -1757,35 +1715,6 @@ fn enumerate_from_seeds<'i>(
     if let Some(lines) = cache_stats.as_mut() {
         lines.push(format!(
             "[c] {config} resident_after_release kb={}",
-            resident_kb()
-        ));
-    }
-    let mut memo_write = None;
-    match file {
-        Some(MemoWrite::Inline(file)) => {
-            let started = Instant::now();
-            file.write(
-                index,
-                memo.as_ref()
-                    .expect("a memo file is written from a kept memo"),
-            )?;
-            memo_write = Some(started.elapsed());
-        }
-        Some(MemoWrite::Beside(file, writer)) => writer(
-            file,
-            Arc::clone(
-                memo.as_ref()
-                    .expect("a memo file is written from a kept memo"),
-            ),
-        ),
-        None => {}
-    }
-    let memo = memo.filter(|_| access.keep_memo);
-    if memo_write.is_some()
-        && let Some(lines) = cache_stats.as_mut()
-    {
-        lines.push(format!(
-            "[c] {config} resident_after_memo_write kb={}",
             resident_kb()
         ));
     }
@@ -1847,7 +1776,6 @@ fn enumerate_from_seeds<'i>(
         product,
         options,
         memo,
-        memo_write,
     })
 }
 
@@ -2447,23 +2375,12 @@ impl DeepPartitionCheck<'_, '_> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
     use super::*;
     use crate::index::fixtures;
-    use crate::memo::{Exclusion, MemoHead, OutputSink, memo_path, read_memo, unlocking_runes};
+    use crate::memo::{Exclusion, unlocking_runes};
     use crate::stream::emit_transitions;
-
-    /// A scratch directory of this module's own under `target/`, cleared first.
-    fn scratch(name: &str) -> PathBuf {
-        let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("target/test-scratch")
-            .join(name);
-        let _ = std::fs::remove_dir_all(&directory);
-        std::fs::create_dir_all(&directory).expect("the scratch directory is makeable");
-        directory
-    }
 
     /// The two heights the ordinary fixtures join at.
     const HEIGHTS: &[(&str, &str)] = &[("baseline", "0"), ("x-height", "5")];
@@ -3720,7 +3637,6 @@ mod tests {
             contract_seeds,
             None,
             MemoAccess::default(),
-            None,
         )
         .expect("the fixpoint closes")
         .product;
@@ -3731,7 +3647,6 @@ mod tests {
             reversed_seeds,
             None,
             MemoAccess::default(),
-            None,
         )
         .expect("the fixpoint closes")
         .product;
@@ -3762,7 +3677,6 @@ mod tests {
             contract_seeds,
             None,
             MemoAccess::default(),
-            None,
         )
         .expect("the fixpoint closes")
         .product;
@@ -3773,7 +3687,6 @@ mod tests {
             reversed_seeds,
             None,
             MemoAccess::default(),
-            None,
         )
         .expect("the fixpoint closes")
         .product;
@@ -3805,7 +3718,6 @@ mod tests {
                 publish_verdicts: vec![unlocking_runes(&index, &[ss03])],
                 ..MemoAccess::default()
             },
-            None,
         )
         .expect("default closes")
         .memo
@@ -3819,7 +3731,6 @@ mod tests {
             contract_seeds,
             None,
             MemoAccess::default(),
-            None,
         )
         .expect("ss03 closes from scratch")
         .product;
@@ -3840,7 +3751,6 @@ mod tests {
                     publish_verdicts: Vec::new(),
                     ..MemoAccess::default()
                 },
-                None,
             )
             .expect("ss03 closes over a shared memo")
             .product;
@@ -3877,116 +3787,6 @@ mod tests {
             emit_transitions(&index, &unfiltered),
             "without the exclusion the shared memo answers qsMay's windows as default settles them"
         );
-    }
-
-    /// A configuration that keeps no memo writes it at the release point and returns none: `ss03` enumerated over `default`'s shared memo with a file named and `keep_memo` off returns no snapshot, times the write, and leaves a file that reads back as the memo a kept run of the same enumeration returns, window for window.
-    #[test]
-    fn a_configuration_keeping_no_memo_files_it_at_the_release_point() {
-        let index = fixtures::mini();
-        let ss03 = fixtures::sym(&index, "ss03");
-        let modes = EnumerationModes::default();
-        let default_memo = enumerate_from_seeds(
-            &index,
-            &[],
-            modes,
-            contract_seeds,
-            None,
-            MemoAccess {
-                shared_memos: Vec::new(),
-                keep_memo: true,
-                publish_verdicts: Vec::new(),
-                ..MemoAccess::default()
-            },
-            None,
-        )
-        .expect("default closes")
-        .memo
-        .expect("a kept memo comes back");
-        let shared = || {
-            vec![SharedMemo {
-                memo: Arc::clone(&default_memo),
-                excluded: Exclusion::of(&index, unlocking_runes(&index, &[ss03])),
-            }]
-        };
-        let kept = enumerate_from_seeds(
-            &index,
-            &[ss03],
-            modes,
-            contract_seeds,
-            None,
-            MemoAccess {
-                shared_memos: shared(),
-                keep_memo: true,
-                publish_verdicts: Vec::new(),
-                ..MemoAccess::default()
-            },
-            None,
-        )
-        .expect("ss03 closes over a shared memo")
-        .memo
-        .expect("a kept memo comes back");
-        assert!(!kept.is_empty(), "ss03 traces windows of its own");
-        let dir = scratch("release-point-memo");
-        let path = memo_path(&dir, "ss03");
-        let head = MemoHead {
-            config: "ss03".to_owned(),
-            modes: modes.token(),
-            stamp: "release-point".to_owned(),
-        };
-        let filed = enumerate_from_seeds(
-            &index,
-            &[ss03],
-            modes,
-            contract_seeds,
-            None,
-            MemoAccess {
-                shared_memos: shared(),
-                keep_memo: false,
-                publish_verdicts: Vec::new(),
-                ..MemoAccess::default()
-            },
-            Some(MemoWrite::Inline(MemoFile {
-                path: path.clone(),
-                head: head.clone(),
-                carried: Vec::new(),
-                sink: OutputSink::File,
-            })),
-        )
-        .expect("ss03 closes over a shared memo");
-        assert!(
-            filed.memo.is_none(),
-            "a memo nobody reads is let go of at the release point"
-        );
-        assert!(filed.memo_write.is_some(), "the write is clocked");
-        assert!(
-            path.is_file(),
-            "the file was written inside the enumeration"
-        );
-        let back = read_memo(&index, &path, &head, |_| true).expect("the file reads");
-        assert_eq!(back.len(), kept.len());
-        for (key, entry) in &kept.entries {
-            let again = back.entries[key];
-            assert_eq!(back.settled(again), kept.settled(*entry));
-            assert_eq!(
-                back.notes[again.notes.index()],
-                kept.notes[entry.notes.index()]
-            );
-            assert_eq!(back.delta(again), kept.delta(*entry));
-            assert_eq!(back.reads(again), kept.reads(*entry));
-            assert_eq!(
-                (
-                    again.prospect(),
-                    again.joint_tiebreak(),
-                    again.decided_stage()
-                ),
-                (
-                    entry.prospect(),
-                    entry.joint_tiebreak(),
-                    entry.decided_stage()
-                )
-            );
-        }
-        std::fs::remove_dir_all(&dir).expect("the scratch directory is removable");
     }
 
     #[test]

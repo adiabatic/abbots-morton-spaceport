@@ -50,6 +50,16 @@ fn stderr_of(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
+/// The windows `ss03` took from a shared memo in one `--cache-stats` run, as its `shared_memo_hits` line counts them.
+fn ss03_shared_memo_hits(stderr: &str) -> u64 {
+    stderr
+        .lines()
+        .find_map(|line| line.strip_prefix("[c] ss03 shared_memo_hits count="))
+        .unwrap_or_else(|| panic!("ss03 reports its shared memo hits: {stderr}"))
+        .parse()
+        .expect("as a count")
+}
+
 /// Returns the phase label of one `[t]` line, parsed as `console.INNER_LINE` (the pattern `cycle_timings.py` uses) parses it, but without the optional trailing fields that pattern allows. Panics on a line that does not match. The parser uses string operations for this small grammar to avoid a regex dependency's build cost.
 fn timing_phase(line: &str) -> &str {
     let body = line
@@ -400,7 +410,7 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     }
 }
 
-/// Sharing `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--no-default-memo-sharing`, which enumerates every configuration from scratch. Serving the deltas `default`'s liveness verdicts changes no file either: a build with `--no-verdict-sharing` writes the sharing build's tables, digests and memo files. Every build here runs at [`SMALL_MEMO_CEILINGS`].
+/// Sharing `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--no-default-memo-sharing`, which enumerates every configuration from scratch. Serving the deltas `default`'s liveness verdicts changes no file either: a build with `--no-verdict-sharing` writes the sharing build's tables and digests. Each build's cache stats show the schedule its flag asks for: `ss03` takes windows from `default`'s memo in the sharing build and the one serving no verdicts, and none in the build from scratch. Every build here runs at [`SMALL_MEMO_CEILINGS`].
 #[test]
 fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files() {
     let root = scratch("cli-default-memo-sharing");
@@ -409,6 +419,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
     let scratch_built = root.join("scratch");
     let unserved = root.join("unserved");
     let mut answers: Vec<String> = Vec::new();
+    let mut hits: Vec<u64> = Vec::new();
     for (outdir, extra) in [
         (&shared, None),
         (&scratch_built, Some("--no-default-memo-sharing")),
@@ -421,16 +432,19 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
             "--configs=default,ss03",
             "--inputs=cli-stamp",
             "--threads=2",
-            "--memo-stamp=cli-memo",
+            "--cache-stats",
         ];
         arguments.extend(SMALL_MEMO_CEILINGS);
         arguments.extend(extra);
         let output = run(&arguments);
         assert!(output.status.success(), "{}", stderr_of(&output));
+        hits.push(ss03_shared_memo_hits(&stderr_of(&output)));
         answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
     }
     assert_eq!(answers[0], answers[1]);
     assert_eq!(answers[0], answers[2]);
+    assert!(hits[0] > 0 && hits[2] > 0, "{hits:?}");
+    assert_eq!(hits[1], 0, "a build from scratch shares no memo");
     for (token, _) in CONFIGS {
         for family in ["settlement", "joins", "windows"] {
             let name = format!("{family}-{token}.tsv");
@@ -442,142 +456,17 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
                 );
             }
         }
-        let memo = format!("memo-{token}.tsv");
-        assert_eq!(
-            std::fs::read(shared.join(&memo)).expect("the memo-sharing build wrote it"),
-            std::fs::read(unserved.join(&memo)).expect("and so did the build serving no verdicts"),
-            "{memo}"
-        );
     }
 }
 
-/// Writing the memo files beside the rest of the build does not change any file: a table build with `--overlap-memo-writes` writes the same tables, memo files and digests as one without, and still times each configuration's memo write. Both builds run at [`SMALL_MEMO_CEILINGS`].
-#[test]
-fn a_table_build_writing_its_memos_beside_the_wave_files_the_bytes_one_writing_them_ahead_files() {
-    let root = scratch("cli-overlap-memo-writes");
-    let spec = spec_at(&root);
-    let ahead = root.join("ahead");
-    let beside = root.join("beside");
-    let mut answers: Vec<String> = Vec::new();
-    for (outdir, extra) in [(&ahead, None), (&beside, Some("--overlap-memo-writes"))] {
-        let mut arguments = vec![
-            "build-tables",
-            word(&spec),
-            word(outdir),
-            "--configs=default,ss03",
-            "--inputs=cli-stamp",
-            "--threads=2",
-            "--memo-stamp=cli-memo",
-            "--timings",
-        ];
-        arguments.extend(SMALL_MEMO_CEILINGS);
-        arguments.extend(extra);
-        let output = run(&arguments);
-        assert!(output.status.success(), "{}", stderr_of(&output));
-        let stderr = stderr_of(&output);
-        let phases: Vec<&str> = stderr.lines().map(timing_phase).collect();
-        for (token, _) in CONFIGS {
-            assert!(
-                phases.contains(&format!("memo[{token}]").as_str()),
-                "{phases:?}"
-            );
-        }
-        answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
-    }
-    assert_eq!(answers[0], answers[1]);
-    for (token, _) in CONFIGS {
-        for family in ["settlement", "joins", "windows", "memo"] {
-            let name = format!("{family}-{token}.tsv");
-            assert_eq!(
-                std::fs::read(ahead.join(&name)).expect("the build writing ahead wrote it"),
-                std::fs::read(beside.join(&name)).expect("and so did the build writing beside"),
-                "{name}"
-            );
-        }
-    }
-}
-
-/// Sending the memo files to the null sink changes no table and writes no memo file: a table build with `--output-sink=null` writes the same tables and digests as one writing its memo files, whether it would write them ahead of the wave or beside it, and leaves no `memo-<config>.tsv` behind. The flag takes only `null`, once, and only beside a stamp. Every build compared here runs at [`SMALL_MEMO_CEILINGS`].
-#[test]
-fn a_table_build_sending_its_memos_to_the_null_sink_files_the_tables_and_no_memo_file() {
-    let root = scratch("cli-memo-output-sink");
-    let spec = spec_at(&root);
-    let outdirs = ["filed", "null", "null-beside"].map(|arm| root.join(arm));
-    let mut answers: Vec<String> = Vec::new();
-    for (outdir, extra) in outdirs.iter().zip([
-        &[][..],
-        &["--output-sink=null"][..],
-        &["--output-sink=null", "--overlap-memo-writes"][..],
-    ]) {
-        let mut arguments = vec![
-            "build-tables",
-            word(&spec),
-            word(outdir),
-            "--configs=default,ss03",
-            "--inputs=cli-stamp",
-            "--threads=2",
-            "--memo-stamp=cli-memo",
-        ];
-        arguments.extend(SMALL_MEMO_CEILINGS);
-        arguments.extend(extra);
-        let output = run(&arguments);
-        assert!(output.status.success(), "{}", stderr_of(&output));
-        answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
-    }
-    let [filed, null, beside] = &outdirs;
-    assert_eq!(answers[0], answers[1]);
-    assert_eq!(answers[0], answers[2]);
-    for (token, _) in CONFIGS {
-        for family in ["settlement", "joins", "windows"] {
-            let name = format!("{family}-{token}.tsv");
-            for other in [null, beside] {
-                assert_eq!(
-                    std::fs::read(filed.join(&name)).expect("the build filing its memos wrote it"),
-                    std::fs::read(other.join(&name)).expect("and so did the null sink's"),
-                    "{name}"
-                );
-            }
-        }
-        let memo = format!("memo-{token}.tsv");
-        assert!(filed.join(&memo).is_file(), "{memo}");
-        assert!(!null.join(&memo).exists(), "{memo}");
-        assert!(!beside.join(&memo).exists(), "{memo}");
-    }
-    for extra in [
-        &["--memo-stamp=cli-memo", "--output-sink=file"][..],
-        &[
-            "--memo-stamp=cli-memo",
-            "--output-sink=null",
-            "--output-sink=null",
-        ][..],
-        &["--output-sink=null"][..],
-    ] {
-        let misuse = root.join("misuse");
-        let mut arguments = vec![
-            "build-tables",
-            word(&spec),
-            word(&misuse),
-            "--configs=default,ss03",
-            "--inputs=cli-stamp",
-        ];
-        arguments.extend(extra);
-        let output = run(&arguments);
-        assert_eq!(
-            output.status.code(),
-            Some(2),
-            "{extra:?}: {}",
-            stderr_of(&output)
-        );
-    }
-}
-
-/// Starting the heaviest delta from scratch beside `default` changes no table: a build with `--scratch-beside-default=1` writes the tables and digests of a build that runs it as a delta, and writes for it the memo file a `--no-default-memo-sharing` build writes rather than the delta's, since a configuration enumerated from scratch memoizes every window it settles. A count of zero is a usage error, since leaving the flag out asks for none. Every build here runs at [`SMALL_MEMO_CEILINGS`].
+/// Starting the heaviest delta from scratch beside `default` changes no table: a build with `--scratch-beside-default=1` writes the tables and digests of a build that runs it as a delta and of a `--no-default-memo-sharing` build. With `default`'s one delta started beside it, no delta reads `default`'s memo, so `default` keeps none, and the cache stats show it: `ss03` takes windows from `default`'s memo only in the build that runs it as a delta. A count of zero is a usage error, since leaving the flag out asks for none. Every build here runs at [`SMALL_MEMO_CEILINGS`].
 #[test]
 fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a_sharing_one_files()
 {
     let root = scratch("cli-scratch-beside-default");
     let spec = spec_at(&root);
     let mut answers: Vec<String> = Vec::new();
+    let mut hits: Vec<u64> = Vec::new();
     let outdirs = ["delta", "beside", "scratch"].map(|arm| root.join(arm));
     for (outdir, extra) in outdirs.iter().zip([
         None,
@@ -591,37 +480,32 @@ fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a
             "--configs=default,ss03",
             "--inputs=cli-stamp",
             "--threads=2",
-            "--memo-stamp=cli-memo",
+            "--cache-stats",
         ];
         arguments.extend(SMALL_MEMO_CEILINGS);
         arguments.extend(extra);
         let output = run(&arguments);
         assert!(output.status.success(), "{}", stderr_of(&output));
+        hits.push(ss03_shared_memo_hits(&stderr_of(&output)));
         answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
     }
     let [delta, beside, scratch_built] = &outdirs;
     assert_eq!(answers[0], answers[1]);
+    assert_eq!(answers[0], answers[2]);
+    assert!(hits[0] > 0, "the delta reads default's memo: {hits:?}");
+    assert_eq!(hits[1..], [0, 0], "and no other build shares one");
     for (token, _) in CONFIGS {
         for family in ["settlement", "joins", "windows"] {
             let name = format!("{family}-{token}.tsv");
-            assert_eq!(
-                std::fs::read(delta.join(&name)).expect("the delta build wrote it"),
-                std::fs::read(beside.join(&name)).expect("and so did the build beside default"),
-                "{name}"
-            );
+            for other in [beside, scratch_built] {
+                assert_eq!(
+                    std::fs::read(delta.join(&name)).expect("the delta build wrote it"),
+                    std::fs::read(other.join(&name)).expect("and so did the other"),
+                    "{name}"
+                );
+            }
         }
-        let memo = format!("memo-{token}.tsv");
-        assert_eq!(
-            std::fs::read(beside.join(&memo)).expect("the build beside default wrote it"),
-            std::fs::read(scratch_built.join(&memo)).expect("and so did the scratch build"),
-            "{memo}"
-        );
     }
-    assert_ne!(
-        std::fs::read(delta.join("memo-ss03.tsv")).expect("the delta build wrote it"),
-        std::fs::read(scratch_built.join("memo-ss03.tsv")).expect("and so did the scratch build"),
-        "a delta memoizes only the windows default's memo could not answer"
-    );
     let output = run(&[
         "build-tables",
         word(&spec),
@@ -633,7 +517,7 @@ fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a
     assert_eq!(output.status.code(), Some(2), "{}", stderr_of(&output));
 }
 
-/// Clearing the prospect and candidate memos at a ceiling changes no file: a table build at [`SMALL_MEMO_CEILINGS`] writes the tables, memo files and digests of one at the default ceilings, which the fixture never reaches. Its cache stats count each configuration's clears on a `memo_clears` line, and its two memos' tables never pass seven entries, the most eight buckets hold. A ceiling that is not a power of two of at least eight, or is given twice, is a usage error, and so is either flag on `enumerate`.
+/// Clearing the prospect and candidate memos at a ceiling changes no file: a table build at [`SMALL_MEMO_CEILINGS`] writes the tables and digests of one at the default ceilings, which the fixture never reaches. Its cache stats count each configuration's clears on a `memo_clears` line, and its two memos' tables never pass seven entries, the most eight buckets hold. A ceiling that is not a power of two of at least eight, or is given twice, is a usage error, and so is either flag on `enumerate`.
 #[test]
 fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_uncleared_one_files() {
     let root = scratch("cli-memo-ceilings");
@@ -649,7 +533,6 @@ fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_unclear
             "--configs=default,ss03",
             "--inputs=cli-stamp",
             "--threads=2",
-            "--memo-stamp=cli-memo",
             "--cache-stats",
         ];
         arguments.extend(extra);
@@ -708,7 +591,7 @@ fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_unclear
     );
     let [uncleared, cleared] = &outdirs;
     for (token, _) in CONFIGS {
-        for family in ["settlement", "joins", "windows", "memo"] {
+        for family in ["settlement", "joins", "windows"] {
             let name = format!("{family}-{token}.tsv");
             assert_eq!(
                 std::fs::read(uncleared.join(&name))
@@ -744,173 +627,6 @@ fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_unclear
         let output = run(&["enumerate", word(&spec), &twice]);
         assert_eq!(output.status.code(), Some(2), "{flag} on enumerate");
     }
-}
-
-/// A table file with its windows head's `fold_order` left out, the one field that names which configurations a build was given.
-fn without_fold_order(bytes: Vec<u8>) -> String {
-    let text = String::from_utf8(bytes).expect("a table file is UTF-8");
-    match text.find("\"fold_order\":[") {
-        Some(start) => {
-            let end = start
-                + text[start..]
-                    .find("],")
-                    .expect("the buckets follow the order");
-            format!("{}{}", &text[..start], &text[end + 2..])
-        }
-        None => text,
-    }
-}
-
-/// Previous memos across builds: a build of an edited spec that reads the previous build's memo files, with the edited rune named, writes the bytes a from-scratch build of the edited spec writes for every configuration, and writes memo files of its own under the stamp it was given. The fixture's whole set imports no window, so a build of fewer configurations writes the same bytes but for its windows head's `fold_order`. Every build here runs at [`SMALL_MEMO_CEILINGS`].
-#[test]
-fn a_build_reading_the_previous_memos_files_the_bytes_a_from_scratch_one_files() {
-    let root = scratch("cli-previous-memos");
-    let before = spec_at(&root);
-    let after = root.join("edited.json");
-    let refusal = format!(
-        "\"refuse\":{}",
-        fixtures::seq(&[&fixtures::record(&[
-            ("kind", "\"refuse\""),
-            (
-                "provenance",
-                &fixtures::names(&["qsTea.yaml", "policy.refuse[0]"])
-            ),
-        ])])
-    );
-    let edited = fixtures::mini_dump().replacen(&refusal, "\"refuse\":[]", 1);
-    assert_ne!(
-        edited,
-        fixtures::mini_dump(),
-        "the edit lands on qsTea's refusal"
-    );
-    std::fs::write(&after, edited).expect("the edited spec writes");
-    let previous = root.join("previous");
-    let mut arguments = vec![
-        "build-tables",
-        word(&before),
-        word(&previous),
-        "--configs=default,ss03",
-        "--inputs=cli-stamp",
-        "--memo-stamp=before",
-    ];
-    arguments.extend(SMALL_MEMO_CEILINGS);
-    let output = run(&arguments);
-    assert!(output.status.success(), "{}", stderr_of(&output));
-    for (token, _) in CONFIGS {
-        assert!(previous.join(format!("memo-{token}.tsv")).is_file());
-    }
-    let reusing = root.join("reusing");
-    let previous_memos = format!("--previous-memos={}", word(&previous));
-    let mut arguments = vec![
-        "build-tables",
-        word(&after),
-        word(&reusing),
-        "--configs=default,ss03",
-        "--inputs=cli-stamp",
-        &previous_memos,
-        "--edited=qsTea",
-        "--memo-stamp=after",
-        "--timings",
-    ];
-    arguments.extend(SMALL_MEMO_CEILINGS);
-    let output = run(&arguments);
-    assert!(output.status.success(), "{}", stderr_of(&output));
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    let phases: Vec<&str> = stderr.lines().map(timing_phase).collect();
-    assert!(phases.contains(&"memo[default]"), "{phases:?}");
-    let scratch_built = root.join("scratch");
-    let mut arguments = vec![
-        "build-tables",
-        word(&after),
-        word(&scratch_built),
-        "--configs=default,ss03",
-        "--inputs=cli-stamp",
-    ];
-    arguments.extend(SMALL_MEMO_CEILINGS);
-    let output = run(&arguments);
-    assert!(output.status.success(), "{}", stderr_of(&output));
-    for (token, _) in CONFIGS {
-        for family in ["settlement", "joins", "windows"] {
-            let name = format!("{family}-{token}.tsv");
-            assert_eq!(
-                std::fs::read(reusing.join(&name))
-                    .expect("the build reading previous memos wrote it"),
-                std::fs::read(scratch_built.join(&name)).expect("and so did the other"),
-                "{name}"
-            );
-        }
-        assert!(reusing.join(format!("memo-{token}.tsv")).is_file());
-        assert!(!scratch_built.join(format!("memo-{token}.tsv")).exists());
-    }
-    for (arm, configs, extra, tokens) in [
-        (
-            "no-default-memo-sharing",
-            "--configs=default,ss03",
-            Some("--no-default-memo-sharing"),
-            vec!["default", "ss03"],
-        ),
-        ("single", "--configs=default", None, vec!["default"]),
-        ("without-default", "--configs=ss03", None, vec!["ss03"]),
-    ] {
-        let outdir = root.join(arm);
-        let mut args = vec![
-            "build-tables",
-            word(&after),
-            word(&outdir),
-            configs,
-            "--inputs=cli-stamp",
-            &previous_memos,
-            "--edited=qsTea",
-            "--memo-stamp=after",
-        ];
-        args.extend(SMALL_MEMO_CEILINGS);
-        args.extend(extra);
-        let output = run(&args);
-        assert!(output.status.success(), "{arm}: {}", stderr_of(&output));
-        for token in tokens {
-            for family in ["settlement", "joins", "windows"] {
-                let name = format!("{family}-{token}.tsv");
-                assert_eq!(
-                    without_fold_order(
-                        std::fs::read(outdir.join(&name))
-                            .expect("the build reading previous memos wrote it")
-                    ),
-                    without_fold_order(
-                        std::fs::read(scratch_built.join(&name))
-                            .expect("the scratch build wrote it")
-                    ),
-                    "{arm}: {name}"
-                );
-            }
-            assert!(outdir.join(format!("memo-{token}.tsv")).is_file());
-        }
-    }
-    let output = run(&[
-        "build-tables",
-        word(&after),
-        word(&root.join("misuse")),
-        "--configs=default",
-        "--inputs=cli-stamp",
-        "--edited=qsTea",
-    ]);
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "--edited= without --previous-memos= is a usage error"
-    );
-    let output = run(&[
-        "build-tables",
-        word(&after),
-        word(&root.join("misuse")),
-        "--configs=default",
-        "--inputs=cli-stamp",
-        "--moved-classes=halves-that-exit-at-x-height",
-    ]);
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "--moved-classes= without --previous-memos= is a usage error too"
-    );
 }
 
 /// The word each TSV's own comment line uses for itself.

@@ -13,7 +13,7 @@
 //! - `ams-m1-kernel guard-sweep <spec> [--config=<token>]` writes the section 5.7 guard verdict map, one tab-separated verdict per line. Without `--config=`, each verdict is quantified over the powerset of capability-unlock features, which is the map the font ships. With `--config=`, the map is answered under that one configuration, named by a token in `--configs=` form; `default` names the no-feature configuration, which an empty `--features=` could not. The rebuild suite compares each configuration's map with the quantified one. The guard fixes its own engine modes, so the two mode flags are a usage error here.
 //! - `ams-m1-kernel enumerate <spec> [--features=a,b,…] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs one configuration's table-build fixpoint and writes the uncompressed `ams-m1-transitions/1` stream (a head line and one row per window), which `kernel_exec.read_stream` reads. `--deep-classes-off` selects label grain, like Python's `AMS_DEEP_CLASSES=0`. With both `--candidacy-prospect` and `--follower-prefer-slots-off`, enumeration is label grain anyway, so the flag is accepted and has no effect.
 //! - `ams-m1-kernel enumerate-configs <spec> <outdir> --configs=a,b,… [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs several configurations' fixpoints in one process and writes each stream to `<outdir>/transitions-<config>.ndjson`. It creates the directory with its parents and overwrites existing streams. Before writing, it deletes every other `transitions-*.ndjson` in the directory, so after exit 0 the directory holds only the configurations the command line named. stdout stays empty. The files are valid only on exit 0: a failing configuration exits 1 with its name in the message and leaves the other configurations' files in place. `--configs=` is required and uses Python's tokens (`conform.ACCEPTANCE_CONFIGS`): `default` for no features, otherwise a `+`-joined feature list whose names are checked against the spec as `--features=` names are. A token that is not the canonical form of its features (out of order, repeated, empty, or with an empty part between two `+`) is a usage error, so the filename, the stream head's `config`, and the caller's name for the configuration always agree. The mode flags apply to every configuration in the run.
-//! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--previous-memos=<dir> [--edited=a,b,…] [--moved-classes=a,b,…]] [--memo-stamp=<text> [--output-sink=null]] [--overlap-memo-writes] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs the same fixpoints and folds each product in memory, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/joins-<config>.tsv`, and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs=` names, and one `{"config":…,"digest":…}` line per configuration to stdout in command-line order. `default` enumerates first and keeps its trace memo. The other configurations then run as deltas, `--threads` at a time, heaviest first by unlocking-rune count, with `default`'s fold preparation taking one of the worker slots. `--scratch-beside-default=N` starts up to `N` of the heaviest from scratch beside `default` instead, in whole tiers of equal unlocking-rune count and capped at one less than `--threads`, so they read no memo of `default`'s and need not wait for it, and the rest run as deltas once `default` has enumerated. Before any table is written, the configurations exchange the windows each keeps live that another's rules would answer wrongly in the order the font ships ([`ams_m1_kernel::crossconfig`]), so a configuration's tables depend on the set `--configs=` names. Each delta reads `default`'s memo for every window that names none of its own unlocking runes ([`ams_m1_kernel::memo`]) and writes the same tables a from-scratch enumeration writes. `--no-default-memo-sharing` enumerates every configuration from scratch, and a set without `default` does so anyway. Any configuration enumerated from scratch writes the same tables. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts there, and a delta served one reruns only the probe's asks that name one of its unlocking runes ([`ams_m1_kernel::liveness`]); `--no-verdict-sharing` runs every probe whole, which writes the same tables and memo files. `--memo-stamp=<text>` writes each configuration's finished memo as `<outdir>/memo-<config>.tsv`, with a head naming the configuration, the mode set, and the stamp. `--output-sink=null` sends those files to a null sink instead ([`ams_m1_kernel::memo::OutputSink`]): the build makes the same bytes, with every check the writer makes, and writes none of them, for a caller none of whose later steps reads a memo file; it writes the same tables and digests. A configuration enumerated from scratch memoizes every window it settles and a delta only those `default`'s memo could not answer, so a memo file depends on how its configuration was enumerated. Each file is written ahead of its configuration's drain, and `default`'s ahead of the deltas; `--overlap-memo-writes` writes `default`'s and each delta's on a thread of its own beside the drain, the fold and the delta wave instead, which holds each writer's rows beside the wave and writes the same bytes, and has no effect without a stamp or on a configuration enumerated from scratch. Each configuration's engine clears its prospect memo in place once it holds what a table of 2^20 buckets holds, and its candidate memo at 2^22 buckets ([`ams_m1_kernel::fixpoint::TABLE_MEMO_CEILINGS`]); `--prospect-memo-buckets=N` and `--candidates-memo-buckets=N` set other ceilings, each a power of two of at least eight, and any ceiling writes the same tables, digests and memo files. `--previous-memos=<dir>` reads a previous build's memo files from that directory. `--edited=` names the runes whose content changed since that build and `--moved-classes=` the predicate classes whose membership changed, and a window whose settlement read none of them reuses its earlier answer. A previous memo file for another configuration or mode set is an error, a missing one is skipped, a moved class this spec no longer declares is ignored (no valid memo entry can have read it), and `--edited=` or `--moved-classes=` without `--previous-memos=` is a usage error. No stream is written or read, because the fold runs on the product the worklist still holds; this saves writing and reading back several hundred megabytes per configuration. `run_m1.build_tables` gzips the windows payload and the memo files, because the crate has no compressor. The directory is created if needed and nothing in it is deleted, because a build writes into its artifact directory beside other artifacts. `--inputs=` is required because a persisted enumeration is accepted or rejected on the stamp it carries.
+//! - `ams-m1-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs the same fixpoints and folds each product in memory, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/joins-<config>.tsv`, and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs=` names, and one `{"config":…,"digest":…}` line per configuration to stdout in command-line order. `default` enumerates first and keeps its trace memo. The other configurations then run as deltas, `--threads` at a time, heaviest first by unlocking-rune count, with `default`'s fold preparation taking one of the worker slots. `--scratch-beside-default=N` starts up to `N` of the heaviest from scratch beside `default` instead, in whole tiers of equal unlocking-rune count and capped at one less than `--threads`, so they read no memo of `default`'s and need not wait for it, and the rest run as deltas once `default` has enumerated. Before any table is written, the configurations exchange the windows each keeps live that another's rules would answer wrongly in the order the font ships ([`ams_m1_kernel::crossconfig`]), so a configuration's tables depend on the set `--configs=` names. Each delta reads `default`'s memo for every window that names none of its own unlocking runes ([`ams_m1_kernel::memo`]) and writes the same tables a from-scratch enumeration writes. `--no-default-memo-sharing` enumerates every configuration from scratch, and a set without `default` does so anyway. Any configuration enumerated from scratch writes the same tables. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts there, and a delta served one reruns only the probe's asks that name one of its unlocking runes ([`ams_m1_kernel::liveness`]); `--no-verdict-sharing` runs every probe whole, which writes the same tables. A memo lives only inside the process: `default` keeps its finished memo while a delta is left to read it, every other configuration releases its own before it drains and sorts its rows, and the build reads no memo file and writes none. Each configuration's engine clears its prospect memo in place once it holds what a table of 2^20 buckets holds, and its candidate memo at 2^22 buckets ([`ams_m1_kernel::fixpoint::TABLE_MEMO_CEILINGS`]); `--prospect-memo-buckets=N` and `--candidates-memo-buckets=N` set other ceilings, each a power of two of at least eight, and any ceiling writes the same tables and digests. No stream is written or read, because the fold runs on the product the worklist still holds; this saves writing and reading back several hundred megabytes per configuration. `run_m1.build_tables` gzips the windows payload, because the crate has no compressor. The directory is created if needed and nothing in it is deleted, because a build writes into its artifact directory beside other artifacts. `--inputs=` is required because a persisted enumeration is accepted or rejected on the stamp it carries.
 //! - `ams-m1-kernel replay-strings <spec> <outdir> --configs=a,b,… --max-length=N [--families=a,b,…] [--last=U+XXXX] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]` reads each configuration's `<outdir>/settlement-<config>.tsv` and walks every text of length 1 through `N` over the spec's alphabet ([`ams_m1_kernel::replay`]). With `--families=`, it walks only the texts that name one of those runes; a ligature is named through its components. With `--last=`, it walks only the texts whose last symbol is the alphabet symbol at that code point, a letter or a boundary token, written as `U+` and four to six uppercase hexadecimal digits; a code point outside the alphabet exits 1. The walks over every symbol partition the texts between them, and `skipped` counts only the texts ending in that symbol that `--families=` leaves out. It applies the rules first-match, feeding each settled left forward, and compares every window's rule outcome with this engine's settlement of that window. `run_m1` runs it after every table build as the enumeration-completeness check. A clean run writes one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration to stdout. `--memo-dir=<dir>` also writes each passing walk's window memo there as `replay-windows-<config>.bin`, the input to the build's settle memo ([`ams_m1_kernel::replay::Replay::write_window_memo`]). `--memo-windows=N` caps each walk's memo at `N` windows, or at one text's windows when `N` is below the maximum length: before any text that could push the memo past the cap, the walk releases its memo and its engine's memos. The walk's memory then does not grow with the size of the text set, apart from the settled records and labels it keeps, and `windows` counts window settles instead of distinct windows. `--memo-windows=` with `--memo-dir=` is a usage error, because a released memo is incomplete. A window where the rules and the engine disagree, or that the engine refuses, exits 1 with a message naming the configuration, the window, and the text it was reached in. The maximum length is required because the caller records the depth the walk covered. There is no grain flag, because a replay settles single windows, which have no grain.
 //! - `ams-m1-kernel replay-emitted <windows> --config=<token> --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]` walks one configuration's window enumeration (the plain `ams-m1-windows/3` payload at `<windows>`, or standard input for `-`) against the settlement order the font ships ([`ams_m1_kernel::shipped_order`]). `--order=` holds every configuration's rules in the order the emitter ships them, written as a settlement TSV whose provenance column names the table rules each row was folded from. `--context=` holds the configuration's marker renames, deep classes, and foreign labels (the bare runes, marker copies and locked copies its stream never carries, as `emit_gsub.emitted_context_tsv` lists them), one `rename`, `class`, or `foreign` record per line. `--table=` is the configuration's own settlement TSV, read only to name the table's rule in a disagreement. Each row is renamed through the configuration's marker renames, and the first emitted rule for its input that matches it must give the row's outcome, on the row itself and on every continuation of a `#NA` it leaves open after a letter. A clean run writes one `{"config":…,"rows":…,"checked_per_member":…,"open_rows":…,"continued":…}` line to stdout, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class matched only part of their deep class, `open_rows` the rows that leave a slot open after a letter, and `continued` those whose continuations the walk searched because their deciding rule constrains the open slot or a later one. A row for which the shipped order gives a different outcome exits 1 with a message naming the configuration, the row, the continuation, the emitted rule that fired, and the table's rule; so does a row that carries a foreign label. No spec is read: the tables already hold the settled answers, and the walk checks that the shipped lookup reproduces them.
 //! - `ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--follower-prefer-slots-off]` reads one deep-slot query per line of the key file. `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` return `live` or `dead`, the full filter verdict (the chain check and the liveness check together). `fibers<tab><input><tab><r1><tab><r2>` returns the context's fiber partition as compact JSON. Every name must be a rune family name, and any other name stops the run. Each output line is the key line, a tab, and the answer, in file order.
@@ -29,7 +29,7 @@
 #![forbid(unsafe_code)]
 
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -40,13 +40,12 @@ use ams_m1_kernel::fiber::{ContextFibers, DeepFiberDeriver};
 use ams_m1_kernel::fixpoint::{EnumerationModes, TABLE_MEMO_CEILINGS, right_token_label};
 use ams_m1_kernel::index::SpecIndex;
 use ams_m1_kernel::liveness::ProspectLiveness;
-use ams_m1_kernel::memo::OutputSink;
 use ams_m1_kernel::model::Sym;
 use ams_m1_kernel::options::WindowOptions;
 use ams_m1_kernel::stream::feature_config_token;
 use ams_m1_kernel::{artifacts, cases, emit, fanout, guard, parse, shipped_order};
 
-const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--previous-memos=<dir> [--edited=qsPea,qsTea] [--moved-classes=a,b]] [--memo-stamp=<text> [--output-sink=null]] [--overlap-memo-writes] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--last=U+E650] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off]";
+const USAGE: &str = "usage: ams-m1-kernel spec-echo <spec>\n       ams-m1-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]\n       ams-m1-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-m1-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--last=U+E650] [--memo-dir=<dir> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]\n       ams-m1-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --context=<context.tsv> [--timings]\n       ams-m1-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off]";
 
 /// The flags and positionals a command line named, before the subcommand checks its positional count. The three mode flags are written as negations because the default modes turn all three on.
 struct Flags<'a> {
@@ -65,12 +64,6 @@ struct Flags<'a> {
     cache_stats: bool,
     default_memo_sharing: bool,
     verdict_sharing: bool,
-    previous_memos: Option<&'a str>,
-    edited: Option<Vec<&'a str>>,
-    moved_classes: Option<Vec<&'a str>>,
-    memo_stamp: Option<&'a str>,
-    output_sink: Option<OutputSink>,
-    overlap_memo_writes: bool,
     scratch_beside_default: Option<usize>,
     prospect_memo_buckets: Option<usize>,
     candidates_memo_buckets: Option<usize>,
@@ -100,7 +93,7 @@ struct Vocabulary {
     max_length: bool,
     /// `--table=`, `--order=`, and `--context=`, the three files of `replay-emitted`, which requires all three and `--config=`.
     emitted: bool,
-    /// The table build's memo flags. `--no-default-memo-sharing` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it, and `--no-verdict-sharing` reads its windows but has `default` publish no liveness verdicts. `--previous-memos=` names a previous build's memo files, and `--edited=` (runes) and `--moved-classes=` (predicate classes) name what changed since; those two are valid only with `--previous-memos=`. `--memo-stamp=` is the stamp this build writes its own memo files under; without it, no memo files are written. `--output-sink=null`, valid only with `--memo-stamp=`, sends those files to a null sink instead. `--overlap-memo-writes` writes each memo file on a thread of its own beside the rest of the build, `--scratch-beside-default=` names at most how many of the heaviest deltas enumerate from scratch beside `default`, and `--prospect-memo-buckets=` and `--candidates-memo-buckets=` set the ceilings on each engine's prospect and candidate memos ([`ams_m1_kernel::fanout::MemoSharing`]).
+    /// The table build's memo flags. `--no-default-memo-sharing` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it, and `--no-verdict-sharing` reads its windows but has `default` publish no liveness verdicts. `--scratch-beside-default=` names at most how many of the heaviest deltas enumerate from scratch beside `default`, and `--prospect-memo-buckets=` and `--candidates-memo-buckets=` set the ceilings on each engine's prospect and candidate memos ([`ams_m1_kernel::fanout::MemoSharing`]).
     memo_flags: bool,
     /// `--settled-only`: make each case result the settled record as seven tab-separated fields instead of the whole trace. Only `settle-cases` returns a trace.
     settled: bool,
@@ -265,12 +258,6 @@ struct TablesPlan<'a> {
     threads: Option<usize>,
     default_memo_sharing: bool,
     verdict_sharing: bool,
-    previous_memos: Option<&'a str>,
-    edited: Vec<&'a str>,
-    moved_classes: Vec<&'a str>,
-    memo_stamp: Option<&'a str>,
-    output_sink: OutputSink,
-    overlap_memo_writes: bool,
     scratch_beside_default: usize,
     memo_ceilings: MemoCeilings,
     simulated_prospect: bool,
@@ -417,12 +404,6 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut cache_stats = false;
     let mut default_memo_sharing = true;
     let mut verdict_sharing = true;
-    let mut previous_memos: Option<&str> = None;
-    let mut edited: Option<Vec<&str>> = None;
-    let mut moved_classes: Option<Vec<&str>> = None;
-    let mut memo_stamp: Option<&str> = None;
-    let mut output_sink: Option<OutputSink> = None;
-    let mut overlap_memo_writes = false;
     let mut scratch_beside_default: Option<usize> = None;
     let mut prospect_memo_buckets: Option<usize> = None;
     let mut candidates_memo_buckets: Option<usize> = None;
@@ -444,8 +425,6 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
             default_memo_sharing = false;
         } else if vocabulary.memo_flags && argument == "--no-verdict-sharing" {
             verdict_sharing = false;
-        } else if vocabulary.memo_flags && argument == "--overlap-memo-writes" {
-            overlap_memo_writes = true;
         } else if vocabulary.memo_flags
             && let Some(count) = argument.strip_prefix("--scratch-beside-default=")
         {
@@ -469,41 +448,6 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
                 return None;
             }
             candidates_memo_buckets = Some(count.parse::<usize>().ok().filter(|count| *count > 0)?);
-        } else if vocabulary.memo_flags
-            && let Some(dir) = argument.strip_prefix("--previous-memos=")
-        {
-            if dir.is_empty() || previous_memos.is_some() {
-                return None;
-            }
-            previous_memos = Some(dir);
-        } else if vocabulary.memo_flags
-            && let Some(list) = argument.strip_prefix("--edited=")
-        {
-            if list.is_empty() || edited.is_some() {
-                return None;
-            }
-            edited = Some(list.split(',').collect());
-        } else if vocabulary.memo_flags
-            && let Some(list) = argument.strip_prefix("--moved-classes=")
-        {
-            if list.is_empty() || moved_classes.is_some() {
-                return None;
-            }
-            moved_classes = Some(list.split(',').collect());
-        } else if vocabulary.memo_flags
-            && let Some(stamp) = argument.strip_prefix("--memo-stamp=")
-        {
-            if stamp.is_empty() || memo_stamp.is_some() {
-                return None;
-            }
-            memo_stamp = Some(stamp);
-        } else if vocabulary.memo_flags
-            && let Some(sink) = argument.strip_prefix("--output-sink=")
-        {
-            if sink != "null" || output_sink.is_some() {
-                return None;
-            }
-            output_sink = Some(OutputSink::Null);
         } else if vocabulary.emitted
             && let Some(path) = argument.strip_prefix("--table=")
         {
@@ -625,12 +569,6 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         cache_stats,
         default_memo_sharing,
         verdict_sharing,
-        previous_memos,
-        edited,
-        moved_classes,
-        memo_stamp,
-        output_sink,
-        overlap_memo_writes,
         scratch_beside_default,
         prospect_memo_buckets,
         candidates_memo_buckets,
@@ -752,18 +690,12 @@ fn plan_configs(rest: &[String]) -> Option<ConfigsPlan<'_>> {
     })
 }
 
-/// `--inputs=` is required: a persisted enumeration is accepted or rejected on its stamp, and a default stamp would let a table built from older runes pass as current. `--edited=` or `--moved-classes=` without `--previous-memos=` is a usage error, because without a previous memo there is nothing for them to invalidate, and so is `--output-sink=` without `--memo-stamp=`, because without a stamp there is no memo file to send anywhere. A memo ceiling that is not a power of two of at least eight buckets is a usage error ([`MemoCeilings::new`]).
+/// `--inputs=` is required: a persisted enumeration is accepted or rejected on its stamp, and a default stamp would let a table built from older runes pass as current. A memo ceiling that is not a power of two of at least eight buckets is a usage error ([`MemoCeilings::new`]).
 fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
     let flags = scan_flags(rest, TABLES_FLAGS)?;
     let [spec, outdir] = flags.positionals.as_slice() else {
         return None;
     };
-    if (flags.edited.is_some() || flags.moved_classes.is_some()) && flags.previous_memos.is_none() {
-        return None;
-    }
-    if flags.output_sink.is_some() && flags.memo_stamp.is_none() {
-        return None;
-    }
     let memo_ceilings = MemoCeilings::new(
         flags
             .prospect_memo_buckets
@@ -781,12 +713,6 @@ fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
         threads: flags.threads,
         default_memo_sharing: flags.default_memo_sharing,
         verdict_sharing: flags.verdict_sharing,
-        previous_memos: flags.previous_memos,
-        edited: flags.edited.unwrap_or_default(),
-        moved_classes: flags.moved_classes.unwrap_or_default(),
-        memo_stamp: flags.memo_stamp,
-        output_sink: flags.output_sink.unwrap_or_default(),
-        overlap_memo_writes: flags.overlap_memo_writes,
         scratch_beside_default: flags.scratch_beside_default.unwrap_or(0),
         memo_ceilings,
         simulated_prospect: flags.simulated_prospect,
@@ -1040,21 +966,6 @@ fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
         .unwrap_or(1)
         .min(fanout::available_threads())
         .min(resolved.len());
-    let edited = plan
-        .edited
-        .iter()
-        .map(|name| {
-            index
-                .sym_of(name)
-                .filter(|rune| index.is_modeled(*rune))
-                .ok_or_else(|| format!("{}: {name} is not a rune this spec models", plan.spec))
-        })
-        .collect::<Result<Vec<Sym>, String>>()?;
-    let moved_classes: Vec<Sym> = plan
-        .moved_classes
-        .iter()
-        .filter_map(|name| index.sym_of(name))
-        .collect();
     let answers = fanout::run_configs_tables(
         &index,
         &resolved,
@@ -1065,12 +976,6 @@ fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
         report,
         fanout::MemoSharing {
             default_memo_sharing: plan.default_memo_sharing,
-            previous_memos: plan.previous_memos.map(PathBuf::from),
-            edited,
-            moved_classes,
-            memo_stamp: plan.memo_stamp.map(str::to_owned),
-            output_sink: plan.output_sink,
-            overlap_memo_writes: plan.overlap_memo_writes,
             scratch_beside_default: plan.scratch_beside_default,
             verdict_sharing: plan.verdict_sharing,
             memo_ceilings: plan.memo_ceilings,

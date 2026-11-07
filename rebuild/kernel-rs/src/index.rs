@@ -2,7 +2,7 @@
 //!
 //! The model's [`Table`] keeps insertion order but offers no lookup, and this module adds the lookups. Each accessor returns what the corresponding Python read (`spec.runes[name]`, `stance.surface.entries.get(height)`, `spec.registry.heights[height]`) returns, except that a few return `None` or `false` where Python raises `KeyError`; those accessors say so.
 //!
-//! The index also keeps the read journal: a thread-local log of every rune whose content, and every predicate class whose membership, an accessor returned while the engine had a capture open. A memo entry reused across configurations and builds is invalidated by what its evaluation read, and every such read passes through these accessors, so the journal is kept here. A rune's stances, rows, order, strokes, entry-bearing flag and groups journal the rune. A predicate class's membership journals the class. The rune list, the registry's heights and tokens, the ordinals, and a symbol's text journal nothing, because a memo is stamped with that structure instead. The log is per thread because the index is shared across a fan-out's threads and holds nothing mutable. Each engine runs on one thread, and its captures switch the log on and clear it ([`crate::engine`]).
+//! The index also keeps the read journal: a thread-local log of every rune whose content, and every predicate class whose membership, an accessor returned while the engine had a capture open. A memo entry another configuration reads is refused by what its evaluation read, and every such read passes through these accessors, so the journal is kept here. A rune's stances, rows, order, strokes, entry-bearing flag and groups journal the rune. A predicate class's membership journals the class. The rune list, the registry's heights and tokens, the ordinals, and a symbol's text journal nothing, because every configuration of a build reads the same structure through one index. The log is per thread because the index is shared across a fan-out's threads and holds nothing mutable. Each engine runs on one thread, and its captures switch the log on and clear it ([`crate::engine`]).
 //!
 //! Three pure functions of the spec are computed once when the index is built, instead of in each engine: the stance order index ([`SpecIndex::order_index`]), `is_entry_bearing`, and the per-rune entry-stroke set. The last two are feature-blind reads of the surface. `settle.is_entry_bearing` computes the same flag on the Python side.
 //!
@@ -90,7 +90,7 @@ struct RuneIndex {
     entry_bearing: bool,
 }
 
-/// One thing a settlement's evaluation read of the spec, at the grain a memo across builds is invalidated at: a rune's resolved content, or a predicate class's membership. The module doc says which accessors journal which.
+/// One thing a settlement's evaluation read of the spec, at the grain an [`crate::memo::Exclusion`] refuses a shared memo entry at: a rune's resolved content, or a predicate class's membership. The module doc says which accessors journal which.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Read {
     Rune(Sym),
@@ -164,6 +164,7 @@ pub struct SpecIndex {
     rune_field: Vec<Sym>,
     rune_ordinals: HashMap<Sym, Ordinal>,
     /// The stance-field ordinal table: every stance name some rune declares, in the order the runes first declare them. [`SpecIndex::stance_ordinals`] is the mint over it.
+    #[cfg(test)]
     stance_field: Vec<Sym>,
     stance_ordinals: HashMap<Sym, Ordinal>,
     /// The entry-field ordinal table: the registry's heights in declaration order, then any entry row or entry unlock height the registry left undeclared. [`SpecIndex::entry_ordinal`] scans it.
@@ -268,6 +269,7 @@ impl SpecIndex {
             rune_index,
             rune_field,
             rune_ordinals,
+            #[cfg(test)]
             stance_field,
             stance_ordinals,
             entry_heights,
@@ -396,6 +398,7 @@ impl SpecIndex {
     }
 
     /// The stance name one stance-field ordinal stands for.
+    #[cfg(test)]
     pub fn stance_at_ordinal(&self, ordinal: Ordinal) -> Sym {
         self.stance_field[usize::from(ordinal.get()) - 1]
     }
@@ -406,6 +409,7 @@ impl SpecIndex {
     }
 
     /// The height one entry-field ordinal stands for.
+    #[cfg(test)]
     pub fn entry_at_ordinal(&self, ordinal: Ordinal) -> Sym {
         self.entry_heights[usize::from(ordinal.get()) - 1]
     }
@@ -416,6 +420,7 @@ impl SpecIndex {
     }
 
     /// The height one junction-field ordinal stands for.
+    #[cfg(test)]
     pub fn junction_at_ordinal(&self, ordinal: Ordinal) -> Sym {
         self.junction_heights[usize::from(ordinal.get()) - 1]
     }

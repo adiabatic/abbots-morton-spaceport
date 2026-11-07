@@ -14,7 +14,7 @@ Every cycle pass appends its run line and step lines to `rebuild/out/cycle-timin
 uv run python -P rebuild/tools/perf_fingerprint.py --root . --out var/keep/perf/<change>-before.json
 ```
 
-The two readings are equal but for the differences the change names. A verdict made between them shows as a `verdicts` difference. The fingerprint leaves memo files out, so a change that touches the settle memos also compares each configuration's memo sha256 while memo files exist.
+The two readings are equal but for the differences the change names. A verdict made between them shows as a `verdicts` difference.
 
 ## The fault kit
 

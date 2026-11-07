@@ -1,15 +1,15 @@
 """The memory series: measure what the M1 table build and the review corpus build hold and write at each of several alphabet cuts, one heavy process at a time, so a change that claims a term is flat shows it across the cuts instead of at the whole alphabet alone. It has the scaling sweep's shape (`rebuild/tools/scaling_sweep.py`), which times one configuration, and measures the whole build instead. It measures one holder a run, which `--holder` picks: the table build (`tables`, the default), whose step the paragraphs up to "The corpus step" describe, or the corpus build (`corpus`), whose step they then describe.
 
-Each table step is one `build-tables` over the configurations named (every settlement configuration unless `--configs` narrows them) on one alphabet cut, at the flags a bare run_m1 derives on this machine (`bare_flags`, as `run_m1.build_tables` derives them with nothing beside the build: the width, whether the memo files are written beside the wave, and how many deltas start from scratch beside `default`), unless `--kernel-threads`, `--overlap-memo-writes` or `--no-overlap-memo-writes`, or `--scratch-beside-default` states one. Every step runs the same flags, so the cuts differ only in their alphabet. The cut is `scaling_series.sub_spec`'s, over `scaling_series.series_order`, the rule the alphabet switch (`spec_load.M1_RUNES_ENV`) narrows by too, so a line's `alphabet` is what that switch takes to build the same cut in a tree of the fault kit's kind. The sizes default to `SIZES` below the whole alphabet and the whole alphabet itself, so the largest line is the live build's; positional arguments name other rune counts, and a count named twice is measured twice.
+Each table step is one `build-tables` over the configurations named (every settlement configuration unless `--configs` narrows them) on one alphabet cut, at the flags a bare run_m1 derives on this machine (`bare_flags`, as `run_m1.build_tables` derives them with nothing beside the build: the width and how many deltas start from scratch beside `default`), unless `--kernel-threads` or `--scratch-beside-default` states one. Every step runs the same flags, so the cuts differ only in their alphabet. The cut is `scaling_series.sub_spec`'s, over `scaling_series.series_order`, the rule the alphabet switch (`spec_load.M1_RUNES_ENV`) narrows by too, so a line's `alphabet` is what that switch takes to build the same cut in a tree of the fault kit's kind. The sizes default to `SIZES` below the whole alphabet and the whole alphabet itself, so the largest line is the live build's; positional arguments name other rune counts, and a count named twice is measured twice.
 
-A step's build writes no file. Each configuration's windows payload goes through a FIFO at its path and is counted as it arrives (`scaling_sweep.scan`, through `kernel_exec.stream_payloads`), and so does each configuration's plain memo file, `memo-<config>.tsv`, which the crate writes under `--memo-stamp` as run_m1's build does: its FIFO is drained through SHA-256 and a byte count, so the line carries what the memo file would have held without the file. The settlement and joins paths are symbolic links to the null device. The crate opens every one of these paths with `File::create`, which opens a FIFO or the null device and truncates neither. The crate's stdout and stderr come back through pipes. Both stamps, `--inputs` and `--memo-stamp`, are `STAMP_PREFIX` and the rune count, so one cut hashes the same from run to run. A build fed previous memos would unpack them to plain files, so no step builds warm.
+A step's build writes no file. Each configuration's windows payload goes through a FIFO at its path and is counted as it arrives (`scaling_sweep.scan`, through `kernel_exec.stream_payloads`). The settlement and joins paths are symbolic links to the null device. The crate opens every one of these paths with `File::create`, which opens a FIFO or the null device and truncates neither. The crate's stdout and stderr come back through pipes. The `--inputs` stamp is `STAMP_PREFIX` and the rune count, so one cut hashes the same from run to run.
 
-A table line holds, beside `step` (`tables`) and the cut (`runes`, `letters`, `ligs`, `configs`, the three flags and `modes`, the settlement modes `kernel_exec.mode_flags` passes):
+A table line holds, beside `step` (`tables`) and the cut (`runes`, `letters`, `ligs`, `configs`, the two flags and `modes`, the settlement modes `kernel_exec.mode_flags` passes):
 
 - `wall_s` and `cpu_s`: the child's wall time and its own user and system time, from the rusage `os.wait4` reaps it with.
 - `peak_resident` and `peak_footprint`: the child's resident peak from that rusage and its lifetime peak footprint, read between its exit and its reap as `peak_rss.reap_peaks_bytes` reads it. This module reaps the child itself, because that function discards the rusage the CPU figure comes from.
 - `start`, `peak` and `end`: a sampler thread reads the child's resident set and footprint (`peak_rss.resident_bytes`, `peak_rss.footprint_bytes`) and the machine (`read_machine`: swap in use, `peak_rss.swap_used_bytes`; the compressor's occupancy, `peak_rss.parse_compressor_bytes`, and the swapout count, `peak_rss.parse_swapouts`, both over `vm_stat`; and the internal SSD's write counter, as the write meter reads it) every `--interval` seconds. `start` is the machine just before the spawn, `peak` the sample whose footprint was highest, and `end` the machine once the child is reaped beside the last sample's child figures, whose footprint reads None when that sample caught the child exiting (`peak_rss.footprint_bytes`). `compressor_max` and `swap_used_max` are the highest of every reading, and `samples` how many the sampler took.
-- `windows`: each configuration's `[windows, rules, cells]`, counted from its payload as `scaling_sweep.counts` counts them. `memo`: each configuration's memo `bytes` and `sha256`. `digests`: each configuration's table digest from the child's stdout.
+- `windows`: each configuration's `[windows, rules, cells]`, counted from its payload as `scaling_sweep.counts` counts them. `digests`: each configuration's table digest from the child's stdout.
 - `phases`: the child's `[t]` lines, label to seconds. `tables`: the `[c]` lines that give a collection's length and capacity, as `[len, cap, load]` by configuration and collection, the load being length over capacity. `resident`: the `[c]` lines that give a resident size, in bytes. `stats`: every other `[c]` line's fields (`cache_lines` says how a line is keyed).
 - `written`: the write meter's fields (`rebuild/tools/write_meter.py`). The meter is read with the device `--idle-seconds` before the step and again just before the step's FIFOs are made, which gives the device's idle rate (`idle_rate`); then once the child is reaped and every FIFO drained (`end`), and again `--after-seconds` after that (`after`), since a write the kernel defers and the swap the pressure leaves reach the device late. Each of the two blocks reads from the reading just before the FIFOs are made: `basis`, `written` (the coalition's logical writes, `WriteDelta.bytes`), `diskio`, `device`, `device_net` (the device's delta less the idle rate over the same seconds), `swap` (the VM volume's writes), `swapouts` (the `vm_stat` swapout delta from `start`), `seconds`, and the meter's `warning` when it has one. `vm.swapusage` lags and does not fall back once the pressure ends, so the swapout delta is the swap reading a step owns. The window from that reading to `end` holds the build, the machine reading before its spawn, and the making and removal of the step's FIFOs, which come to a few kilobytes of directory metadata; it holds neither the step directory's making nor its removal. Before the first step's idle reading the run flushes its own setup's writes (the crate's build, the binary's copy, the spec dumps, the index refresh `git describe` makes and the record's truncation) with `os.sync` and waits `SETTLE_S` for them to reach the device, so the first step's idle rate holds none of them. A basis other than `own` or a warning also prints a `[warn]` line.
 - `alphabet` (the cut's rune names), `cpus` and `ram` (`memory_budget.usable_cores` and `total_memory_bytes`, which `doc/fleet.md` matches to a machine; no hostname is recorded), `head` (the commit, with `-dirty` after it when tracked files have changed) and `finished_at`.
@@ -39,7 +39,7 @@ A corpus line holds, beside `step` (`corpus` or `corpus-load` with its `scale`),
 
 After a corpus run's last line the record and stdout get the fit of each corpus figure against units, and of the parent's footprint at the load's and the plan's marks against rows, over the cut lines, and the ×2 load line's ratio to the ×1 line at each mark (`corpus_report`).
 
-Run as: make memory-series ARGS='[--holder tables] [k ...] [--configs a,b] [--kernel-threads N] [--[no-]overlap-memo-writes] [--scratch-beside-default N] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]', or ARGS='--holder corpus [k ...] [load-x1] [load-x2] [--jobs N] [--signature-jobs N] [--write-jobs N] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]'.
+Run as: make memory-series ARGS='[--holder tables] [k ...] [--configs a,b] [--kernel-threads N] [--scratch-beside-default N] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]', or ARGS='--holder corpus [k ...] [load-x1] [load-x2] [--jobs N] [--signature-jobs N] [--write-jobs N] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]'.
 """
 
 from __future__ import annotations
@@ -48,7 +48,6 @@ import argparse
 import ctypes
 import errno
 import functools
-import hashlib
 import json
 import os
 import re
@@ -97,7 +96,6 @@ STAMP_PREFIX = "memory-series-r"
 VM_STAT = "/usr/bin/vm_stat"
 READ_CHUNK_BYTES = 1 << 20
 WINDOWS = "windows"
-MEMO = "memo"
 # A `[c]` line's fields that say which instance of a collection it reports, such as `shared_memo_hits id=0`, rather than a figure.
 CACHE_QUALIFIERS = ("id", "release")
 _CACHE_LINE = re.compile(r"^\[c\] (\S+) (.+)$", re.MULTILINE)
@@ -173,10 +171,9 @@ _SIDECAR_NOTE = re.compile(r"sidecar lines ([\d., ]+) MB by run")
 
 @dataclass(frozen=True)
 class Flags:
-    """The table build's width, whether it writes its memo files beside the wave, and how many deltas it starts from scratch beside `default`."""
+    """The table build's width and how many deltas it starts from scratch beside `default`."""
 
     threads: int
-    overlap_memo_writes: bool
     scratch_beside_default: int
 
 
@@ -228,25 +225,20 @@ def bare_flags(
     configs: Sequence[str],
     *,
     threads: int | None = None,
-    overlap: bool | None = None,
     scratch: int | None = None,
 ) -> Flags:
     """The flags a bare run_m1 builds `configs` at on this machine, derived as `run_m1.build_tables` derives them with nothing beside the build, each replaced by the one stated. A stated width is capped at the configuration count and the cores, as run_m1 caps it."""
     from_scratch = "default" not in configs
     width = run_m1._table_build_threads(threads, len(configs), from_scratch=from_scratch)
-    if overlap is None:
-        overlap = kernel_exec.memo_writes_overlap(width, configs=len(configs), from_scratch=from_scratch)
     if scratch is None:
-        scratch = kernel_exec.deltas_from_scratch(
-            width, configs=len(configs), overlap=overlap, from_scratch=from_scratch
-        )
-    return Flags(width, overlap, scratch)
+        scratch = kernel_exec.deltas_from_scratch(width, configs=len(configs), from_scratch=from_scratch)
+    return Flags(width, scratch)
 
 
 def step_arguments(
     binary: Path, spec_path: Path, out_dir: Path, configs: Sequence[str], stamp: str, flags: Flags
 ) -> list[str]:
-    """The `build-tables` command line of one step, with its cache stats and timings on and its memo files stamped `stamp`."""
+    """The `build-tables` command line of one step, with its cache stats and timings on and its windows stamped `stamp`."""
     arguments = [
         str(binary),
         "build-tables",
@@ -256,19 +248,16 @@ def step_arguments(
         f"--inputs={stamp}",
         f"--threads={flags.threads}",
         *kernel_exec.mode_flags(),
-        f"--memo-stamp={stamp}",
         "--cache-stats",
         "--timings",
     ]
-    if flags.overlap_memo_writes:
-        arguments.append("--overlap-memo-writes")
     if flags.scratch_beside_default:
         arguments.append(f"--scratch-beside-default={flags.scratch_beside_default}")
     return arguments
 
 
 def route(out_dir: Path, configs: Sequence[str]) -> dict[str, Path]:
-    """Make `out_dir`, which must not exist, with each configuration's settlement and joins paths linked to the null device, and return the paths `kernel_exec.stream_payloads` makes FIFOs at: each configuration's windows payload and memo file, keyed `windows <config>` and `memo <config>`."""
+    """Make `out_dir`, which must not exist, with each configuration's settlement and joins paths linked to the null device, and return the paths `kernel_exec.stream_payloads` makes FIFOs at: each configuration's windows payload, keyed `windows <config>`."""
     out_dir.mkdir(parents=True)
     paths: dict[str, Path] = {}
     for config in configs:
@@ -276,23 +265,7 @@ def route(out_dir: Path, configs: Sequence[str]) -> dict[str, Path]:
         settlement.symlink_to(os.devnull)
         joins.symlink_to(os.devnull)
         paths[f"{WINDOWS} {config}"] = kernel_exec.windows_payload(out_dir, config)
-        paths[f"{MEMO} {config}"] = out_dir / f"memo-{config}.tsv"
     return paths
-
-
-def drain_memo(source: IO[bytes]) -> dict[str, int | str]:
-    """Read one memo file's stream to its end and return its byte count and SHA-256."""
-    digest = hashlib.sha256()
-    count = 0
-    while chunk := source.read(READ_CHUNK_BYTES):
-        digest.update(chunk)
-        count += len(chunk)
-    return {"bytes": count, "sha256": digest.hexdigest()}
-
-
-def read_payload(name: str, source: IO[bytes]) -> tuple[bytes, bytes, int] | dict[str, int | str]:
-    """Read the stream `route` named `name`: a windows payload is scanned (`scaling_sweep.scan`) and a memo file drained (`drain_memo`)."""
-    return scaling_sweep.scan(source) if name.startswith(f"{WINDOWS} ") else drain_memo(source)
 
 
 def _vm_stat() -> str | None:
@@ -545,7 +518,7 @@ def measure_step(
         start = meter()
         child, payloads = kernel_exec.stream_payloads(
             paths,
-            read_payload,
+            lambda _name, source: scaling_sweep.scan(source),
             lambda: run_child(arguments, env=env, interval=interval_s, machine=machine),
         )
         end = meter()
@@ -554,12 +527,10 @@ def measure_step(
     rate = None if idle is None else idle_rate(idle, start)
     digests = check_child(child, configs, arguments)
     windows: dict[str, list[int]] = {}
-    memo: dict[str, object] = {}
     for config in configs:
         scanned = payloads[f"{WINDOWS} {config}"]
         assert isinstance(scanned, tuple)
         windows[config] = list(scaling_sweep.counts(scanned, kernel_exec.windows_payload(step_dir, config)))
-        memo[config] = payloads[f"{MEMO} {config}"]
     after: dict[str, object] | None = None
     if after_s > 0:
         sleep(after_s)
@@ -575,7 +546,6 @@ def measure_step(
         "interval_s": interval_s,
         **moments(child),
         "windows": windows,
-        "memo": memo,
         "digests": digests,
         "phases": {match.group(1): float(match.group(2)) for match in INNER_LINE.finditer(child.stderr)},
         **cache_lines(child.stderr),
@@ -1549,12 +1519,6 @@ def parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
         help="the table build's width; by default the one a bare run_m1 derives (table holder)",
     )
     parser.add_argument(
-        "--overlap-memo-writes",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="whether the memo files are written beside the wave; by default as a bare run_m1 decides (table holder)",
-    )
-    parser.add_argument(
         "--scratch-beside-default",
         type=int,
         help="at most how many deltas start from scratch beside default; by default as a bare run_m1 decides (table holder)",
@@ -1615,7 +1579,6 @@ def parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
         CORPUS: (
             ("--configs", args.configs),
             ("--kernel-threads", args.kernel_threads),
-            ("--[no-]overlap-memo-writes", args.overlap_memo_writes),
             ("--scratch-beside-default", args.scratch_beside_default),
         ),
     }[args.holder]
@@ -1784,7 +1747,6 @@ def run_series(args: argparse.Namespace) -> int:
         flags = bare_flags(
             configs,
             threads=args.kernel_threads,
-            overlap=args.overlap_memo_writes,
             scratch=args.scratch_beside_default,
         )
         env = {**os.environ, **kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT} if sys.platform == "darwin" else None
