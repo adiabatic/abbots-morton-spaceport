@@ -174,3 +174,17 @@ def test_a_column_reading_prints_the_documented_tokens_and_a_walked_one_prints_n
     empty = _PACKED_LINE.match(lines["empty"])
     assert empty and empty.groups()[5:] == ("0", "0.0", "0.0", "-", "0", "0")
     assert all(line.startswith(memory_tally.TALLY) for line in out.getvalue().splitlines())
+
+
+def test_a_mark_reaches_only_an_installed_reporter_with_its_label_and_counts():
+    """With no reporter a mark does nothing, so a live build pays a call a mark; an installed reporter receives each mark's label and counts, and removing it silences the marks again."""
+    memory_tally.mark("unheard", units=1)
+    heard: list[tuple[str, dict[str, int]]] = []
+    memory_tally.report_marks(lambda label, counts: heard.append((label, dict(counts))))
+    try:
+        memory_tally.mark("pack")
+        memory_tally.mark("compacted", units=934)
+    finally:
+        memory_tally.report_marks(None)
+    memory_tally.mark("after", units=2)
+    assert heard == [("pack", {}), ("compacted", {"units": 934})]

@@ -14,7 +14,7 @@ Start here:
 - `cycle_timings.py` (`make cycle-timings`): summarizes the recorded step timings and check results
 - `calibrate_budgets.py` (`make job-costs`): checks the checked-in per-worker memory peaks against the peaks recorded in the timings journal
 - `deep_sweep.py` (`make conform-deep`): gate:conform run to a longer maximum length on demand
-- `memory_series.py` (`make memory-series`): measures what the table build holds and writes at each of several alphabet cuts, one build at a time, into `rebuild/memory-series.txt`
+- `memory_series.py` (`make memory-series`): measures what the table build or the review corpus build holds and writes at each of several alphabet cuts, one build at a time, into `rebuild/memory-series.txt`
 - `fault_kit.py`: re-injects the fault kit's rows (`rebuild/perf/faults.yaml`) into its own tree, `var/perf/kit/`, each on its own small alphabet, and checks that their gates still catch them (`doc/perf-check.md`)
 
 `console.py` is a library, not a script. It defines the line protocol every in-house child of the cycle prints (the `[t]`, `[phase]`, `[progress]`, and `[warn]` prefixes) and `CycleConsole`, the terminal renderer the artifact cycle shows that output with: the plan block, the per-step banners, the per-step logs under `var/build-logs/`, and the closing table. Read it before adding output to anything the cycle spawns.

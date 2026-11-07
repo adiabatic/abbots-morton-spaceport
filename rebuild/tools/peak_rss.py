@@ -111,11 +111,11 @@ def resident_bytes(pid: int | None = None, platform: str = sys.platform) -> int 
 
 
 def footprint_bytes(pid: int | None = None, platform: str = sys.platform) -> int | None:
-    """Return the memory `pid` (this process when None) costs the machine now, in bytes, or None when it cannot be read: the process is gone or belongs to another user, or the platform has no source. Unlike a resident set it counts compressed and swapped pages, so it does not fall when the machine is under pressure. The module docstring names the source on each platform."""
+    """Return the memory `pid` (this process when None) costs the machine now, in bytes, or None when it cannot be read: the process is gone, exiting or unreaped, or belongs to another user, or the platform has no source. Unlike a resident set it counts compressed and swapped pages, so it does not fall when the machine is under pressure. The module docstring names the source on each platform. Darwin reads a footprint of 0 from the moment a process starts to exit until it is reaped, while its resident set still reads as before, and no live process has a footprint of 0, so a 0 reads as None."""
     target = os.getpid() if pid is None else pid
     if platform == "darwin":
         info = _darwin_rusage(target)
-        return None if info is None else int(info.ri_phys_footprint)
+        return None if info is None or not info.ri_phys_footprint else int(info.ri_phys_footprint)
     status = _linux_status_bytes(target)
     if "VmRSS" not in status:
         return None

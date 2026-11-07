@@ -16,6 +16,7 @@ from rebuild.pipeline.settle import form_ligatures, is_boundary_settled, tokens_
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit
 from rebuild.review.ink import OutlineCache, OutlineIntern, kern_neutral
 from rebuild.review.subset_pack import SubsetPack, SubsetRow, ensure_pack, table_digests
+from rebuild.tools import memory_tally
 from rebuild.validation.shaping import SENIOR_FONT, Shaper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -871,6 +872,7 @@ def resolve_primary_unit_assignments(
     by_codepoints: dict[tuple[int, ...], list[int]] = {}
     for ordinal, window in reduced.windows():
         by_codepoints.setdefault(window, []).append(ordinal)
+    memory_tally.mark("by_codepoints built", windows=len(by_codepoints))
     counts = {
         "units_with_markers": 0,
         "junctions_with_primary_unit": 0,

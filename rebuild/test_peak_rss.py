@@ -91,7 +91,7 @@ def test_another_live_processs_resident_set_reads_until_it_is_reaped():
     sys.platform != "darwin" and not sys.platform.startswith("linux"), reason="no footprint source here"
 )
 def test_the_footprint_counts_what_a_process_touches_and_reads_another_live_process():
-    """The current footprint rises by the pages this process touches, the lifetime peak is at least the current figure, and another process this user owns reads the same way while it is alive and reads None once it is reaped."""
+    """The current footprint rises by the pages this process touches, the lifetime peak is at least the current figure, and another process this user owns reads the same way while it is alive and reads None once it has exited, before its reap as after it."""
     before = peak_rss.footprint_bytes()
     block = bytearray(64 * 1024 * 1024)
     for offset in range(0, len(block), 4096):
@@ -107,6 +107,9 @@ def test_the_footprint_counts_what_a_process_touches_and_reads_another_live_proc
         assert current is not None and current > 0
         child_peak = peak_rss.peak_footprint_bytes(child.pid)
         assert child_peak is not None and child_peak >= current
+        child.kill()
+        os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
+        assert peak_rss.footprint_bytes(child.pid) is None
     finally:
         child.kill()
         child.wait()

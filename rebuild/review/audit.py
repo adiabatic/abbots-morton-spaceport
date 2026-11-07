@@ -873,10 +873,12 @@ def load_audit_table(
     path: Path,
     ledger: list[LedgerClass],
     family_of: dict[int, str],
+    *,
+    mark: Callable[[str], None] | None = None,
 ) -> tuple[UnitTable, RowColumns]:
-    """`load_table(load_audit(path, names), ledger, family_of, names)` with the parse fused into the row loop (`_stage_audit`), which is how the build loads the audit; the columns, the name pool, the string table and the config vocabulary come out identical to that form."""
+    """`load_table(load_audit(path, names), ledger, family_of, names)` with the parse fused into the row loop (`_stage_audit`), which is how the build loads the audit; the columns, the name pool, the string table and the config vocabulary come out identical to that form. `mark` is `load_workload`'s."""
     columns = RowColumns()
-    return _load_staged(columns, lambda: _stage_audit(path, columns), ledger, family_of)
+    return _load_staged(columns, lambda: _stage_audit(path, columns), ledger, family_of, mark)
 
 
 _Staged = tuple[array, array, array, array, array, array, array, list[str]]
@@ -994,9 +996,12 @@ def _load_staged(
     stage: Callable[[], _Staged],
     ledger: list[LedgerClass],
     family_of: dict[int, str],
+    mark: Callable[[str], None] | None = None,
 ) -> tuple[UnitTable, RowColumns]:
-    """The unit half of `load_table`: run the row loop `stage` into `columns`' pools, place its file-order arrays into the row columns, and build the unit table over them. `stage` is called here rather than its arrays passed in, so this frame holds the only reference to them and can free each as soon as it is spent."""
+    """The unit half of `load_table`: run the row loop `stage` into `columns`' pools, place its file-order arrays into the row columns, and build the unit table over them. `stage` is called here rather than its arrays passed in, so this frame holds the only reference to them and can free each as soon as it is spent. `mark` is `load_workload`'s, called as the row loop returns and once the triage permutation is built."""
     config_f, kinds_f, entry_f, baseline_f, new_f, unit_f, counts, windows = stage()
+    if mark is not None:
+        mark("stage_audit returned")
     exempt_classes = {entry.id for entry in ledger if entry.no_verdict}
     names = columns.names
     strings = columns.table
@@ -1103,7 +1108,10 @@ def _load_staged(
     del order, starts, counts, windows, configs_of, kinds_of, classes_of
 
     class_order = {entry.id: index for index, entry in enumerate(ledger)}
-    _permute(table, _triage_permutation(table, class_order, family_ranks(family_of)))
+    permutation = _triage_permutation(table, class_order, family_ranks(family_of))
+    if mark is not None:
+        mark("triage permutation built")
+    _permute(table, permutation)
     return table, columns
 
 
@@ -1382,10 +1390,12 @@ def load_workload(
     audit_path: Path,
     ledger_path: Path,
     family_of: dict[int, str],
+    *,
+    mark: Callable[[str], None] | None = None,
 ) -> Workload:
-    """Load the ledger and the audit into a `Workload`. Every row's `matched_entry` must be UNMATCHED or a ledger id: an audit written by run_m1 under an older ledger, one whose ids have since been renamed, would otherwise list its units under classes the ledger does not describe."""
+    """Load the ledger and the audit into a `Workload`. Every row's `matched_entry` must be UNMATCHED or a ledger id: an audit written by run_m1 under an older ledger, one whose ids have since been renamed, would otherwise list its units under classes the ledger does not describe. `mark` is the build's sub-step hook (`memory_tally.mark`), passed in rather than imported for the reason `RowColumns` gives."""
     ledger = load_ledger(ledger_path)
-    table, rows = load_audit_table(audit_path, ledger, family_of)
+    table, rows = load_audit_table(audit_path, ledger, family_of, mark=mark)
     named = {rows.table[index] for index in set(rows.entry)}
     unknown = sorted(named - {UNMATCHED_CLASS} - {entry.id for entry in ledger})
     if unknown:

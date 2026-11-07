@@ -1515,6 +1515,7 @@ class _RecomputeRunner:
                 child_conn.close()
                 self._procs.append(proc)
                 self._conns.append(parent_conn)
+            memory_tally.mark("units pool started")
 
     def phase1(self, store: UnitStore) -> None:
         """Enrich and draft every recomputed unit, loading each projection into `store` at its ordinal as it arrives (`_load_recomputed`). The parent holds no projection past the reply that carried it and no unit record past the hand-out that materialized it: the recomputed units are ordinals, and a `Unit` is built from the table and the store (`UnitTable.unit`) for each batch sent to a worker, or one at a time on the serial path. Pooled, each worker deflates its batches' fragments and replies per batch with projections carrying them, which are loaded here as they arrive (`_drive_phase1`), with at most one reply per worker in flight. Serial, the same loop runs here with one packer over the arena's dictionary, at the enricher's batch width with the memo released after each batch. Either way the EnrichedUnit is freed by the time its batch closes."""
@@ -1668,6 +1669,8 @@ class _RecomputeRunner:
             if proc.is_alive():
                 proc.terminate()
         _record_corpus_pool(len(self._procs), peaks)
+        if self._procs:
+            memory_tally.mark("units pool stopped")
         self._procs = []
         self._conns = []
 
@@ -1743,12 +1746,13 @@ def _emissions(
 
 @dataclass(frozen=True)
 class _SidecarRun:
-    """One run's sidecar lines, closed, without the lines themselves: how many app-index rows (`human`) and locator rows (`machine`) they hold, how many units' lines were copied forward from the previous sidecars, and the table entries of the run's locator blocks, whose `byte_start` counts from the run's first block. The lines stay with the process that wrote the run until the parent pulls them (`_RunWritten.lines`)."""
+    """One run's sidecar lines, closed, without the lines themselves: how many app-index rows (`human`) and locator rows (`machine`) they hold, how many units' lines were copied forward from the previous sidecars, the table entries of the run's locator blocks, whose `byte_start` counts from the run's first block, and the bytes of the run's compressed lines (`held`), which the write phase's line reports run by run. The lines stay with the process that wrote the run until the parent pulls them (`_RunWritten.lines`)."""
 
     human: int
     machine: int
     copied_forward: int
     blocks: list[dict]
+    held: int
 
 
 class _SidecarLines:
@@ -1829,7 +1833,8 @@ class _SidecarLines:
         blocks = self._locator.close()
         lines = {name: buffer.getvalue() for name, buffer in self._buffers.items()}
         self._buffers.clear()
-        return _SidecarRun(self.human, self.machine, self.copied_forward, blocks), lines
+        held = sum(map(len, lines.values()))
+        return _SidecarRun(self.human, self.machine, self.copied_forward, blocks, held), lines
 
 
 def _inflated(compressed: bytes) -> Iterator[bytes]:
@@ -1860,12 +1865,13 @@ def _write_sidecars(out_dir: Path, runs: Sequence[_SidecarRun], pull: Callable[[
 
 @dataclass(frozen=True)
 class _WrittenCorpus:
-    """What `_write_corpus` returns besides the manifest: the width its write ran at, how many units were written without parsing, and how many sidecar rows were copied forward from the previous sidecars. The per-unit values the build reads after the fragments are gone are written into the unit store's columns during the write instead: each unit's `config_note`, which the review facts histogram, and its shard address and policy-draft file, which the unit-cache store records so the next build's plan can reuse the fragment without walking the shard and check it without parsing it."""
+    """What `_write_corpus` returns besides the manifest: the width its write ran at, how many units were written without parsing, how many sidecar rows were copied forward from the previous sidecars, and each run's compressed sidecar lines in bytes, in shard order (`_SidecarRun.held`). The per-unit values the build reads after the fragments are gone are written into the unit store's columns during the write instead: each unit's `config_note`, which the review facts histogram, and its shard address and policy-draft file, which the unit-cache store records so the next build's plan can reuse the fragment without walking the shard and check it without parsing it."""
 
     manifest: dict
     jobs: int
     byte_copied: int
     copied_forward: int
+    sidecar_bytes: list[int]
 
 
 class _StoreNotes(Mapping[int, str | None]):
@@ -2273,6 +2279,7 @@ class _WritePool:
             child_conn.close()
             self._procs.append(proc)
             self._conns.append(parent_conn)
+        memory_tally.mark("write pool started")
 
     def write(
         self,
@@ -2364,6 +2371,7 @@ class _WritePool:
                 controller_peak_bytes=peak_footprint_self_bytes(),
                 worker_reading="footprint",
             )
+        memory_tally.mark("write pool stopped")
 
 
 def _discard_runs(out_dir: Path, runs: Sequence[Sequence[_ClassToWrite]]) -> None:
@@ -2560,6 +2568,7 @@ def _write_corpus(
             "serve_command": SERVE_COMMAND,
         }
         _write_json(out_dir / "manifest.json", manifest)
+        memory_tally.mark("manifest written")
         pruned = _prune_orphan_shards(out_dir, manifest)
         if pruned:
             print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
@@ -2569,6 +2578,7 @@ def _write_corpus(
             [written[index].sidecars for index in range(len(runs))],
             pool.lines if pool is not None else held_lines,
         )
+        memory_tally.mark("sidecars written")
         failed = False
     finally:
         if pool is not None:
@@ -2587,7 +2597,11 @@ def _write_corpus(
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:CONTRACT_ERRORS_SHOWN]))
     return _WrittenCorpus(
-        manifest, jobs, byte_copied, sum(written[index].sidecars.copied_forward for index in range(len(runs)))
+        manifest,
+        jobs,
+        byte_copied,
+        sum(written[index].sidecars.copied_forward for index in range(len(runs))),
+        [written[index].sidecars.held for index in range(len(runs))],
     )
 
 
@@ -2689,14 +2703,16 @@ def build_m1(
     # The pack is written before the pool starts, so no worker races the write. Its table digests are also the environment stamp's `subsets` line, so each table is hashed once for both.
     subset_digests = table_digests(subset_dir, ACCEPTANCE_CONFIGS)
     subset_pack = ensure_pack(subset_dir, ACCEPTANCE_CONFIGS, subset_digests, subset_pack)
+    memory_tally.mark("pack")
 
     tally = memory_tally.from_environment()
     console.phase("review.build load", file=sys.stderr)
     phase = time.perf_counter()
-    workload = load_workload(audit_path, ledger_path, dict(LETTERS))
+    workload = load_workload(audit_path, ledger_path, dict(LETTERS), mark=memory_tally.mark)
     table = workload.table
     rows = workload.rows
     assert rows is not None
+    memory_tally.mark("load_workload done", units=table.n, rows=workload.row_count)
     if tally:
         tally.hold_reading("workload.units", lambda: unit_table_sizes(table))
         tally.hold_reading("workload.rows", lambda: row_column_sizes(workload.rows))
@@ -2707,9 +2723,11 @@ def build_m1(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(spec_root)
+    memory_tally.mark("spec loaded")
     font_digests = {"before": _sha256(before_font), "after": _sha256(after_font)}
     family_keys, helpers_digest = unit_cache.family_content_keys(spec_root, spec, after_font)
     keyer = unit_cache.UnitKeyer(family_keys, dict(LETTERS))
+    memory_tally.mark("family keys")
     signatures, signature_entries, signature_environment, signatures_shaped, signature_width = (
         _resolve_signature_digests(
             table,
@@ -2724,6 +2742,7 @@ def build_m1(
             recompute_all_units,
         )
     )
+    memory_tally.mark("signatures resolved")
 
     def ink_sig(codepoints: str, config: str) -> str:
         return signatures[(codepoints, config)]
@@ -2731,6 +2750,7 @@ def build_m1(
     exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
     identical_classes = frozenset(entry.id for entry in workload.ledger if entry.ink_identical)
     premerge_capture = facts.capture_premerge(table, identical_classes)
+    memory_tally.mark("premerge captured")
     signature_count = len(signatures)
     if tally:
         signature_reading = memory_tally.estimate(signatures)
@@ -2738,8 +2758,10 @@ def build_m1(
         tally.hold_reading("facts.premerge", lambda: premerge_sizes(premerge_capture))
     merge_ink_duplicate_units(table, rows, ink_sig, exempt_classes)
     del signatures, ink_sig
+    memory_tally.mark("merged")
     # The merge marked the absorbed rows. Compacting drops them and renumbers the survivors, so from here a table row index is the unit's ordinal, which the unit store below uses too. The pre-merge snapshot records the compaction so it can find each pre-merge row's survivor.
     premerge_capture.rebase(table.compact())
+    memory_tally.mark("compacted", units=table.n)
     present = table.classes_present()
     workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
     if tally:
@@ -2776,10 +2798,13 @@ def build_m1(
         draft_lines=draft_lines,
     )
     store = UnitStore(table.n, strings=table.strings)
+    memory_tally.mark("unit store allocated")
     for ordinal in range(table.n):
         store.set_input_key(ordinal, keyer.key(table, rows, ordinal))
+    memory_tally.mark("input keys written")
     release_rows(workload)
     del rows
+    memory_tally.mark("rows released")
     cached_count = 0
     unplaced: list[unit_cache.ParsedCachedUnit] = []
     if not recompute_all_units:
@@ -2793,6 +2818,7 @@ def build_m1(
                     f"key {key}: every row belongs to one triple and every key line carries its window and "
                     "names, so a repeat is a sha256 collision"
                 )
+        memory_tally.mark("named built")
         stream = unit_cache.stream_store(out_dir, environment, wanted=named)
         if stream is None:
             note = unit_cache.store_miss_note(out_dir, environment) or unit_cache.UNREADABLE_NOTE
@@ -2834,6 +2860,7 @@ def build_m1(
                     cached_count += 1
             del located
         del named
+        memory_tally.mark("named freed")
     recomputed = array("I", (ordinal for ordinal in range(table.n) if not store.loaded(ordinal)))
     # The sample is drawn from the cached units' id words in ascending order, which is the ids' own order. The sampled units are materialized once, as copies the recomputation may write to: its phase 1 writes the ink flags, and the verification patch writes the injected duplicate group and class. The whole-corpus passes read the table and the store, not these copies.
     sampled = set(
@@ -2861,6 +2888,7 @@ def build_m1(
     _phase_timing(
         "review.build plan", phase, f"(reused {cached_count:,} of {table.n:,} units from the cache)"
     )
+    memory_tally.mark("plan")
 
     console.phase("review.build units", file=sys.stderr)
     phase = time.perf_counter()
@@ -2889,11 +2917,14 @@ def build_m1(
             signature_write = None
         del signature_entries
         runner.phase1(store)
+        memory_tally.mark("units drafted")
         # The enricher read each unit's name tuples from the record it was handed, and the verification sample holds its own records, so the parent reads no name tuple after this point.
         table.release_names()
+        memory_tally.mark("names released")
 
         # Every unit's id and machine flags are now in the store: a cached unit's from the plan, a recomputed unit's from its projection. Building the id index fails the build on a repeated id. With 64-bit ids a repeat is very unlikely, but it would give two windows one id, so it is an error and not a merge.
         store.index()
+        memory_tally.mark("id index built")
 
         # Promote the change group of each UNMATCHED unit, and of each unit phase 1 re-routed out of an `ink_identical` class, to its class, so the per-class shard loop writes it under that group; a re-routed unit also loses the exemplar flag its ledger entry gave it, as its drafting did. The cluster id is already keyed on this final class: the runner computed it where it assigned the group, and a cached unit uses the stored value, whose inputs the unit cache's module docstring lists as covered. The same pass counts each final class's human units, the units no machine check approves, for the sections.
         human_units: dict[str, int] = {}
@@ -2925,6 +2956,7 @@ def build_m1(
             table, store, {entry.id: index for index, entry in enumerate(classes)}, dict(LETTERS)
         )
         total_batches = assign_batches(table, store, order, batch_size)
+        memory_tally.mark("triage sorted")
 
         # Duplicate groups: human units whose config set, judged pair, class and ink diffs (`diffs_digest`) all agree show the same change in different surroundings, so one verdict covers all of them. They are keyed after change-group promotion so the class is final. The id is a digest of the key (`unit_cache.duplicate_group_id_for`), so a group keeps its id on every corpus it appears on. The table's string table stores each id once, however many units carry it.
         duplicate_groups: set[str] = set()
@@ -2941,10 +2973,12 @@ def build_m1(
             duplicate_groups.add(duplicate_group)
             table.set_duplicate_group(ordinal, duplicate_group)
             table.set_cluster(ordinal, store.cluster(ordinal))
+        memory_tally.mark("duplicate groups")
 
         by_class = table.rows_by_class(order)
         # The primary-unit resolution pass reads the corpus through the store and writes each unit's primary units back into it. The returned dict is filled only on the list path, so it is empty here.
         _assignments, secondary_junction_counts = resolve_primary_unit_assignments(store)
+        memory_tally.mark("by_codepoints freed")
 
         # The sampled records were materialized before the whole-corpus passes ran, so the fields the whole-corpus passes assign (duplicate group, cluster, class, primary units) are passed to the recomputation explicitly.
         injections = {
@@ -2969,6 +3003,7 @@ def build_m1(
                 f"the unit cache supplied {len(stale)} of {len(verified)} sampled units whose content key or "
                 f"ink deltas do not match a recomputation: {', '.join(stale[:10])}"
             )
+        memory_tally.mark("verified")
         mismatches = [line for ordinal in range(table.n) for line in store.mismatches(ordinal)]
         duplicate_group_count = len(duplicate_groups)
         del duplicate_groups
@@ -3033,7 +3068,8 @@ def build_m1(
         "review.build manifest+check",
         phase,
         f"jobs={written.jobs} (byte-copied {written.byte_copied:,} of {table.n:,} fragments, "
-        f"copied forward {written.copied_forward:,} sidecar rows)",
+        f"copied forward {written.copied_forward:,} sidecar rows; sidecar lines "
+        f"{', '.join(f'{size / 1e6:.1f}' for size in written.sidecar_bytes)} MB by run)",
     )
 
     console.phase("review.build review-facts", file=sys.stderr)
@@ -3059,6 +3095,7 @@ def build_m1(
             workload.row_count,
         ),
     )
+    memory_tally.mark("review facts written")
     if tally:
         tally.boundary("review-facts")
     _phase_timing("review.build review-facts", phase)
@@ -3109,6 +3146,7 @@ def build_m1(
     finally:
         if prior_store is not None:
             prior_store.close()
+    memory_tally.mark("unit store written")
     if signature_write is not None:
         signature_write.join()
     if tally:

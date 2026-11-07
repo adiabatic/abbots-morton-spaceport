@@ -12,6 +12,8 @@ Each boundary prints one line per collection, largest first, then one line namin
 
 The first form is a walked estimate or a bare `(count, bytes)` reading. The second is a reading that carries a `PackedCost`, which `column_sizes` returns for a collection stored as columns. `packed_bytes` is the reading's packed figure over the whole count: the columns' bytes plus what the collection keeps beside them (`column_sizes`'s `extra_bytes`: a tuple pool's `pool_bytes`, or lines kept as objects). `packed_per` and `walked_per` are bytes per member for `packed_bytes` and for `est_bytes`. `ratio` is `walked_per` divided by `packed_per`, or `-` when either is zero, as for an empty collection. `strings` and `string_bytes` are the string table the columns index: the number of distinct strings and their bytes. The table is left out of `packed_bytes` because one table serves several collections, and `est_bytes` adds it only on the line of the collection that holds it (`column_sizes`), so the strings are counted once. `<boundary>` is the build phase at whose end the reading was taken (`load`, `plan`, `units`, `manifest+check`, `review-facts`, `cache`), or `w<i>/phase1-<n>` for a pooled worker's own collections after its nth batch. Neither contains whitespace. `est_gb` is in decimal gigabytes, the unit of the `rss_gb=` token on the same phase's `[t]` line. A boundary with nothing held prints only the `largest=` line, with `-` as the name.
 
+`mark` names one sub-step of the corpus build's parent as it ends, with any counts the build has at hand, such as the units and rows the load holds. `build.py`, `enrich.py` and, through the callable `audit.load_workload` takes, `audit.py` call it at the sub-steps the memory series reads (`rebuild/tools/memory_series.py`, whose `CORPUS_MARKS` lists them in order). It does nothing unless a reporter is installed with `report_marks`, which only the series' corpus child does, so a live build pays one function call a mark. `audit.py` takes the hook as an argument instead of importing it, for the reason `audit.RowColumns` gives.
+
 The module imports only the standard library. rebuild/test_review_code_closure.py lists it in `WIDTH_AND_TELEMETRY_MODULES`, the rebuild/tools modules the build may import that cannot change a unit's output.
 """
 
@@ -38,8 +40,24 @@ _LEAVES = (str, bytes, bytearray, int, float, complex, bool, type(None))
 _SEQUENCES = (list, tuple, set, frozenset, deque)
 
 
+MarkReporter = Callable[[str, Mapping[str, int]], None]
+_mark_reporter: MarkReporter | None = None
+
+
 def enabled(environ: Mapping[str, str] = os.environ) -> bool:
     return environ.get(TALLY_ENV) == "1"
+
+
+def report_marks(reporter: MarkReporter | None) -> None:
+    """Install `reporter` as what `mark` calls with each label and its counts, or remove it with None."""
+    global _mark_reporter
+    _mark_reporter = reporter
+
+
+def mark(label: str, **counts: int) -> None:
+    """Pass one sub-step's label and counts to the installed reporter, or do nothing when none is installed."""
+    if _mark_reporter is not None:
+        _mark_reporter(label, counts)
 
 
 def deep_size(root: object, seen: set[int], leaf_types: tuple[type, ...] = ()) -> int:
