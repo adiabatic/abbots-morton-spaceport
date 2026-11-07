@@ -205,6 +205,15 @@ def test_parse_inner_timings_reads_the_replay_scope_and_the_subset_refresh():
     ]
 
 
+def test_parse_inner_timings_reads_what_the_oracles_fan_in_held():
+    """run_m1's `oracle_fan_in` line ends with the most the oracle's fan-in held in shared memory at once, which no footprint token can carry, kept as a float. A value its reader rejects is left out."""
+    text = "\n".join(["[t] oracle_fan_in 1.4s held_gb=0.32", "[t] oracle_fan_in 1.0s held_gb=most"])
+    assert ct.parse_inner_timings(text) == [
+        {"label": "oracle_fan_in", "elapsed_s": 1.4, "held_gb": 0.32},
+        {"label": "oracle_fan_in", "elapsed_s": 1.0},
+    ]
+
+
 def test_parse_inner_timings_ignores_lines_without_seconds():
     assert ct.parse_inner_timings("[t] build_tables[default] done") == []
     assert ct.parse_inner_timings("plain noise\nnot a [t] line 3.0s") == []

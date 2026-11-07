@@ -1,5 +1,6 @@
 """Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position comparison, the oracle's audit, row cache and row ranges, the conformance sweep's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The conformance sweep at its full maximum length runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
 
+import errno
 import gc
 import gzip
 import hashlib
@@ -19,6 +20,7 @@ from array import array
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, replace
 from fnmatch import fnmatch
+from multiprocessing import shared_memory
 from pathlib import Path
 from typing import Any, cast
 
@@ -1103,19 +1105,28 @@ _AUDIT_SHAPES = (
 
 
 class TestOracleAudit:
-    """`divergence-audit.tsv` is fingerprinted and later stages parse it from disk, so its bytes must not change. Each row range returns its lines on its result, compressed a block at a time, and the parent's in-order writer writes them after the header in configuration order and row order, whatever order the ranges land in. These tests check that the file equals the header and all rows joined with newlines, for every shape the audit can take, including an empty configuration and an empty audit, however the lines are cut into ranges and blocks. They also check that a range that never lands, or lands short of the rows it counted, fails instead of producing a short audit that looks complete."""
+    """`divergence-audit.tsv` is fingerprinted and later stages parse it from disk, so its bytes must not change. Each row range ships its lines home in a shared memory segment, compressed a block at a time, and the parent's in-order writer writes them after the header in configuration order and row order, whatever order the ranges land in. These tests check that the file equals the header and all rows joined with newlines, for every shape the audit can take, including an empty configuration and an empty audit, however the lines are cut into ranges and blocks. They also check that a range that never lands, or lands short of the rows it counted, fails instead of producing a short audit that looks complete."""
 
     @staticmethod
-    def _result(
-        shard: oracle.OracleShard, lines: Sequence[str], divergent_rows: int | None = None
-    ) -> oracle.OracleConfigResult:
-        """A range's result as its worker returns it: its lines through `AuditBlocks` and its divergent count, by default the number of its lines."""
+    def _blocks(lines: Sequence[str]) -> list[bytes]:
         audit = oracle.AuditBlocks()
         for line in lines:
             audit.write(line + "\n")
+        return audit.close()
+
+    def _result(
+        self,
+        writer: oracle.InOrderWriter,
+        shard: oracle.OracleShard,
+        lines: Sequence[str],
+        divergent_rows: int | None = None,
+    ) -> oracle.OracleConfigResult:
+        """A range's result as its worker returns it: its lines through `AuditBlocks`, shipped to the segment `writer` names for it, and its divergent count, by default the number of its lines."""
         counted = len(lines) if divergent_rows is None else divergent_rows
         return oracle.OracleConfigResult(
-            config=shard.config, divergent_rows=counted, audit_blocks=audit.close()
+            config=shard.config,
+            divergent_rows=counted,
+            audit_blocks=oracle.ship(self._blocks(lines), writer.ship_to(shard).audit),
         )
 
     @staticmethod
@@ -1134,7 +1145,7 @@ class TestOracleAudit:
         ranges = [piece for config, lines in per_config.items() for piece in self._cut(config, lines, cuts)]
         with oracle.InOrderWriter(out, [shard for shard, _ in ranges], configs=tuple(per_config)) as writer:
             for shard, lines in reversed(ranges):
-                writer.land(shard, self._result(shard, lines))
+                writer.land(shard, self._result(writer, shard, lines))
 
     @pytest.mark.parametrize("cuts", (1, 2))
     @pytest.mark.parametrize("per_config", _AUDIT_SHAPES)
@@ -1160,21 +1171,27 @@ class TestOracleAudit:
             self._write(out, per_config, cuts)
             assert (out / "divergence-audit.tsv").read_bytes() == source.read_bytes()
         widest = max(per_config, key=lambda config: len(per_config[config]))
-        assert len(self._result(oracle.OracleShard(widest), per_config[widest]).audit_blocks) > 2
+        assert len(self._blocks(per_config[widest])) > 2
 
     def test_a_landed_range_waits_only_for_the_ranges_before_it(self, tmp_path):
-        """The parent holds a landed range's lines only until every range before it is written. The writer takes the lines off the result as it lands, so the result and its future keep none, writes a range as soon as the ranges before it are written, and holds nothing once every range has landed."""
+        """The parent holds a landed range's lines only until every range before it is written. The writer takes the segment's name off the result as it lands, so the result and its future keep none, and unlinks the segment as it maps it, so no name outlives the landing. It writes a range as soon as the ranges before it are written and holds nothing once every range has landed. Shared memory counts in no footprint while it waits, so the writer counts what it holds itself: the most it held at once is the waiting range's lines beside the larger of the two that landed after it."""
         lines = [f"default\t{index:04X}\tcell\tpea-half\tqsPea\tqsPea.half" for index in range(6)]
         ranges = self._cut("default", lines, 3)
         landed = []
+        sizes = {}
         with oracle.InOrderWriter(tmp_path, [shard for shard, _ in ranges], configs=("default",)) as writer:
             for at in (2, 0, 1):
                 shard, part = ranges[at]
-                result = self._result(shard, part)
+                result = self._result(writer, shard, part)
+                assert result.audit_blocks is not None
+                sizes[at] = sum(result.audit_blocks.lengths)
                 writer.land(shard, result)
-                assert result.audit_blocks == []
+                assert result.audit_blocks is None
+                with pytest.raises(FileNotFoundError):
+                    shared_memory.SharedMemory(writer.ship_to(shard).audit, track=False)
                 landed.append(sorted(writer._waiting))
         assert landed == [[2], [2], []]
+        assert writer.held_peak_bytes == sizes[2] + max(sizes[0], sizes[1])
         joined = "\n".join([oracle.ORACLE_AUDIT_HEADER, *lines]) + "\n"
         assert (tmp_path / "divergence-audit.tsv").read_bytes() == joined.encode("utf-8")
 
@@ -1213,7 +1230,9 @@ class TestOracleAudit:
             for shard in reversed(shards):
                 writer.land(
                     shard,
-                    oracle.oracle_config_worker(spec, tables, aliases, ledger, shard.config, None, None),
+                    oracle.oracle_config_worker(
+                        spec, tables, aliases, ledger, shard.config, None, None, ship_to=writer.ship_to(shard)
+                    ),
                 )
         assert (fanned / "divergence-audit.tsv").read_bytes() == (
             serial / "divergence-audit.tsv"
@@ -1264,7 +1283,7 @@ class TestOracleAudit:
                 tmp_path, [shard for shard, _ in ranges], configs=("default", "ss03")
             ) as writer:
                 for shard, lines in ranges[:2]:
-                    writer.land(shard, self._result(shard, lines))
+                    writer.land(shard, self._result(writer, shard, lines))
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
@@ -1275,8 +1294,87 @@ class TestOracleAudit:
         shard = oracle.OracleShard("default")
         with pytest.raises(ValueError, match="2 divergent"):
             with oracle.InOrderWriter(tmp_path, [shard], configs=("default",)) as writer:
-                writer.land(shard, self._result(shard, ["default\tE650\tcell\ta\tqsPea\tqsPea.half"], 2))
+                writer.land(
+                    shard, self._result(writer, shard, ["default\tE650\tcell\ta\tqsPea\tqsPea.half"], 2)
+                )
         assert standing.read_bytes() == b"the audit of the last green run\n"
+
+    @pytest.mark.parametrize("stop", ("between landings", "in a landing"))
+    def test_a_fan_in_that_stops_partway_leaves_no_segment_behind(self, monkeypatch, tmp_path, stop):
+        """A pass can stop between two landings (a range raises, the pool breaks, SIGINT reaches the parent) or in one, when the disk fills as the writer writes the lines now due. By then the writer holds a landed range's lines that wait on an earlier range and a cut configuration's segment short of its last range, and a range may have shipped bytes whose result the writer never took. Shared memory outlives every process that maps it until it is unlinked, so the writer closes and unlinks all of it as the block unwinds, holds no mapping afterward, and stages nothing."""
+        stamp = oracle_cache.EnvironmentStamp(lines=("subset\tdigest",))
+        cache = oracle.OracleRowCache({"default": stamp}, {}, write_dir=tmp_path / "scratch")
+        ranges = self._cut("default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"] * 3, 3)
+        names: list[str] = []
+
+        class FullDisk:
+            def write(self, data):
+                raise OSError(errno.ENOSPC, "No space left on device")
+
+        def shipped(writer, shard, part):
+            result = self._result(writer, shard, part)
+            result.pass_ordinal = 1
+            result.store_segment = oracle.ship([gzip.compress(b"records\n")], writer.ship_to(shard).store)
+            return shard, result
+
+        writer = oracle.InOrderWriter(tmp_path, [shard for shard, _ in ranges], cache, ("default",))
+        failure = {"between landings": "the pool broke", "in a landing": "No space left"}[stop]
+        with pytest.raises((RuntimeError, OSError), match=failure):
+            with writer:
+                for shard, _ in ranges:
+                    names += [writer.ship_to(shard).audit, writer.ship_to(shard).store]
+                waiting = [shipped(writer, shard, part) for shard, part in ranges[1:]]
+                writer.land(*waiting[1])
+                assert writer._waiting and writer._segments
+                if stop == "in a landing":
+                    monkeypatch.setattr(writer, "_target", FullDisk())
+                    writer.land(*shipped(writer, *ranges[0]))
+                raise RuntimeError("the pool broke")
+        for name in names:
+            with pytest.raises(FileNotFoundError):
+                shared_memory.SharedMemory(name, track=False)
+        assert writer._held == 0
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_pooled_fan_in_leaves_the_resource_tracker_nothing_to_clean_up(self, tmp_path):
+        """A range's segment is made in a spawned worker and unlinked in the parent, and the resource tracker the two share unlinks, with a warning, whatever is still registered when the last process holding it exits. The worker registers the segment as it makes it, and the parent's attach and unlink register it again and unregister it, so a run that lands every range leaves the tracker nothing, and so does one that stops before landing any, because the writer's exit unlinks every segment it named. The tracker exits with the run, so the run is a child process here, and its stderr must carry no warning."""
+        script = "\n".join(
+            [
+                "import sys, zlib",
+                "from pathlib import Path",
+                "from rebuild.pipeline import oracle, run_m1",
+                "out, mode = Path(sys.argv[1]), sys.argv[2]",
+                'shards = [oracle.OracleShard("default", 0, 1, 0, 2), oracle.OracleShard("default", 1, None, 1, 2)]',
+                'line = zlib.compress(b"default\\tE650\\tcell\\ta\\tqsPea\\tqsPea.half\\n")',
+                'with oracle.InOrderWriter(out, shards, configs=("default",)) as writer:',
+                "    names = [writer.ship_to(shard).audit for shard in shards]",
+                "    print(*names, flush=True)",
+                "    with run_m1._spawn_pool(2, len(shards)) as pool:",
+                "        shipped = [future.result() for future in [pool.submit(oracle.ship, [line], name) for name in names]]",
+                '    if mode == "stop":',
+                '        raise SystemExit("stopped before landing")',
+                "    for shard, audit in zip(shards, shipped):",
+                '        writer.land(shard, oracle.OracleConfigResult("default", divergent_rows=1, audit_blocks=audit))',
+            ]
+        )
+        for mode, status in (("land", 0), ("stop", 1)):
+            out = tmp_path / mode
+            out.mkdir()
+            run = subprocess.run(
+                [sys.executable, "-c", script, str(out), mode],
+                capture_output=True,
+                text=True,
+                cwd=REPO_ROOT,
+                timeout=120,
+            )
+            assert run.returncode == status, run.stderr
+            assert "resource_tracker" not in run.stderr
+            names = run.stdout.split()
+            assert len(names) == 2
+            for name in names:
+                with pytest.raises(FileNotFoundError):
+                    shared_memory.SharedMemory(name, track=False)
+            assert (out / "divergence-audit.tsv").is_file() == (mode == "land")
 
     def test_the_scratch_goes_whether_or_not_the_oracle_got_that_far(self, tmp_path):
         scratch = oracle.oracle_audit_scratch(tmp_path)
@@ -1290,17 +1388,26 @@ class TestOracleAudit:
         assert list(tmp_path.iterdir()) == []
 
     def test_a_sweep_takes_a_dead_run_s_scratch_and_leaves_a_live_one_s(self, tmp_path):
-        """The pid in the scratch directory name matters in both directions. A killed run skips its `finally`, so without this sweep its staged files would stay on disk indefinitely. A running pid is another oracle using the same out_dir (a `--gates-only` pass beside a cycle), and deleting its directory would remove the audit it is staging."""
+        """The pid in the scratch directory name matters in both directions. A killed run skips its `finally`, so without this sweep its staged files would stay on disk indefinitely, and a SIGKILL of its whole process group also leaves in the kernel the shared memory segments of the ranges that had shipped and not landed, which only the names its writer recorded there can find. A running pid is another oracle using the same out_dir (a `--gates-only` pass beside a cycle), and deleting its directory would remove the audit it is staging."""
         finished = subprocess.Popen([sys.executable, "-c", ""])
         finished.wait()
         stale = tmp_path / f"divergence-audit.parts.{finished.pid}"
         stale.mkdir()
         (stale / "divergence-audit.tsv").write_text("")
+        shards = [shard for shard, _ in self._cut("default", [], 2)]
+        dead = oracle.InOrderWriter(tmp_path / "dead", shards, configs=("default",))
+        with pytest.raises(ValueError, match="no audit rows"):
+            with dead:
+                shutil.copy(oracle.oracle_audit_scratch(tmp_path / "dead") / oracle.SEGMENT_RECORD, stale)
+        left = dead.ship_to(shards[1]).store
+        shared_memory.SharedMemory(left, create=True, size=8, track=False).close()
         live = tmp_path / f"divergence-audit.parts.{os.getppid()}"
         live.mkdir()
         (live / "divergence-audit.tsv").write_text("")
         oracle.discard_oracle_audit_scratch(tmp_path)
         assert not stale.exists()
+        with pytest.raises(FileNotFoundError):
+            shared_memory.SharedMemory(left, track=False)
         assert (live / "divergence-audit.tsv").is_file()
 
     def test_a_scratch_name_is_not_mistaken_for_an_artifact(self):
@@ -1338,7 +1445,7 @@ def _divergent_subset_tables(root: Path, per_config: dict[str, list[tuple[int, i
 
 
 class TestOracleUnmatchedTally:
-    """What a configuration's result carries about its unmatched rows. Every unmatched row is already among the audit lines that configuration's result carries, and `oracle_summary.json` needs only their count and the first `ORACLE_UNMATCHED_EXEMPLARS` of them to quote. So the result carries the count and that first slice instead of pickling the whole list across the process pipe. These tests check the count, the cap, and the table order the exemplars must keep so the summary quotes the same rows."""
+    """What a configuration's result carries about its unmatched rows. Every unmatched row is already among the audit lines that configuration's ranges ship home, and `oracle_summary.json` needs only their count and the first `ORACLE_UNMATCHED_EXEMPLARS` of them to quote. So the result carries the count and that first slice instead of pickling the whole list across the process pipe. These tests check the count, the cap, and the table order the exemplars must keep so the summary quotes the same rows."""
 
     def test_a_configuration_sends_home_a_count_and_the_first_twenty_rows(self, spec, tmp_path):
         letters = (0xE650, 0xE652, 0xE653, 0xE65A, 0xE665, 0xE667, 0xE670, 0xE679, 0xE67A)
@@ -1470,7 +1577,7 @@ class TestOracleMultiMatchedTally:
     def test_what_a_range_sends_home_beside_its_audit_lines_does_not_grow_with_its_multi_matched_rows(
         self, spec, tmp_path
     ):
-        """Every divergent row matches both entries, so every tally except the multi-matched count stays empty or small. Every integer in the result is below 256 and pickles to the same width, so the pickled result less its audit lines, which every divergent row adds to however it matched, is the same length for ten such rows as for twenty-five."""
+        """Every divergent row matches both entries, so every tally except the multi-matched count stays empty or small. Every integer in the result is below 256 and pickles to the same width, and the result carries no audit lines, which every divergent row adds to however it matched, since a range ships them home in a shared memory segment the result only names. So the pickled result is the same length for ten such rows as for twenty-five."""
         aliases = self._aliases(tmp_path)
         ledger = tmp_path / "ledger.yaml"
         ledger.write_text("- id: first\n  match: {}\n- id: second\n  match: {}\n")
@@ -1481,7 +1588,7 @@ class TestOracleMultiMatchedTally:
             result = oracle.oracle_config_worker(spec, tables, aliases, ledger, "default", None, None)
             assert result.multi_matched_count == len(rows)
             assert result.counts_by_entry == {}
-            pickled.append(len(pickle.dumps(replace(result, peak_footprint_bytes=0, audit_blocks=[]))))
+            pickled.append(len(pickle.dumps(replace(result, peak_footprint_bytes=0))))
         assert pickled[0] == pickled[1]
 
 
@@ -2431,6 +2538,7 @@ class TestOracleRowRanges:
                     row_cache=row_cache,
                     guard_verdicts=guard,
                     shard=shard,
+                    ship_to=writer.ship_to(shard),
                 )
                 writer.land(shard, result)
                 landed.append((shard, result))

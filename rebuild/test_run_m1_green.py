@@ -6,6 +6,7 @@ import pickle
 import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from multiprocessing import shared_memory
 from pathlib import Path
 
 import pytest
@@ -376,7 +377,7 @@ def test_an_interactive_run_files_the_gates_result(monkeypatch, tmp_path):
 def test_an_interactive_run_files_its_table_builds_phases_and_a_run_that_builds_nothing_files_none(
     monkeypatch, tmp_path
 ):
-    """A standalone run's check line carries its table build's phase lines as `inner`: the crate's own and the `kernel_build_tables` line with the build's record, which says whether the build read the previous build's memos. An invocation that builds nothing carries none, even in the process that ran the earlier build."""
+    """A standalone run's check line carries its table build's phase lines as `inner`: the crate's own and the `kernel_build_tables` line with the build's record, which says whether the build read the previous build's memos. An invocation that builds nothing and runs no pooled oracle carries none, even in the process that ran the earlier build."""
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
     _stub_full_run(monkeypatch, tmp_path)
     mini = fixtures.mini_spec()
@@ -779,7 +780,7 @@ class _InlinePool:
 
 
 class TestOracleFanIn:
-    """Each range returns its own audit lines, so the order of `divergence-audit.tsv` comes from the parent's in-order writer, not from the order the futures resolve. A run that fails partway must leave the previous audit in place: a short audit hashes differently, so the corpus build would read it as a new, smaller audit instead of a stale one."""
+    """Each range ships its own audit lines home, so the order of `divergence-audit.tsv` comes from the parent's in-order writer, not from the order the futures resolve. A run that fails partway must leave the previous audit in place: a short audit hashes differently, so the corpus build would read it as a new, smaller audit instead of a stale one."""
 
     def _pool(self, monkeypatch, worker, rows=None):
         """Stubs out every process in the fan-out: an inline pool, futures resolved in reverse, the worker, the crate's guard sweep, and the subset stamp's row counts, which are `rows` or, by default, none, giving one range per configuration."""
@@ -805,7 +806,7 @@ class TestOracleFanIn:
         """The files the oracle left in its out directory, excluding the timings journal, which `rebuild/conftest.py` redirects into the same `tmp_path` and the fan-out's pool record writes to."""
         return sorted(path.name for path in out_dir.iterdir() if path.name != ct.JOURNAL.name)
 
-    def _worker(self, refuse=None, overcount=None, record=None, shards=None, multi=None):
+    def _worker(self, refuse=None, overcount=None, record=None, shards=None, multi=None, shipped=None):
         def worker(
             spec,
             subset_tables_dir,
@@ -818,8 +819,10 @@ class TestOracleFanIn:
             settle_memo=None,
             guard_verdicts=None,
             shard=None,
+            ship_to=None,
         ):
             shard = oracle.OracleShard(config) if shard is None else shard
+            assert ship_to is not None
             if record is not None:
                 record.append(row_cache)
             if shards is not None:
@@ -828,12 +831,14 @@ class TestOracleFanIn:
                 raise RuntimeError(f"{shard.label} fell over")
             audit = oracle.AuditBlocks()
             audit.write(f"{config}\t{shard.first_row:04X}\tcell\tpea-half\tqsPea\tqsPea.half\n")
+            if shipped is not None:
+                shipped.append(ship_to.audit)
             return oracle.OracleConfigResult(
                 config=config,
                 rows_compared=1,
                 divergent_rows=2 if shard.label == overcount else 1,
                 multi_matched_count=0 if multi is None else multi(shard),
-                audit_blocks=audit.close(),
+                audit_blocks=oracle.ship(audit.close(), ship_to.audit),
             )
 
         return worker
@@ -877,15 +882,20 @@ class TestOracleFanIn:
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
     def test_the_fan_in_counts_the_ranges_as_they_finish(self, monkeypatch, tmp_path, capsys):
-        """The oracle is the longest part of a pass that prints nothing else while it runs, so it prints a progress counter as each row range finishes, over the number of ranges submitted: one per configuration when the stamp counts no rows, more when it does. A count that stops short of the total is a future the fan-in never collected."""
+        """The oracle is the longest part of a pass that prints nothing else while it runs, so it prints a progress counter as each row range finishes, over the number of ranges submitted: one per configuration when the stamp counts no rows, more when it does. A count that stops short of the total is a future the fan-in never collected. Once every range has landed it prints one `[t] oracle_fan_in` line, whose `held_gb` the timings journal keeps, because what the fan-in held waited in shared memory, which no footprint counts, and keeps the line for a hand run's check line (`run_m1._build_phase_lines`)."""
+        monkeypatch.setattr(run_m1, "_build_phase_lines", [])
         self._pool(monkeypatch, self._worker())
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
-        events = [console.parse_line(line) for line in capsys.readouterr().out.splitlines()]
+        printed = capsys.readouterr().out
+        events = [console.parse_line(line) for line in printed.splitlines()]
         counters = [event for event in events if isinstance(event, console.Progress)]
         assert [event.text for event in counters] == [
             f"{landed}/{len(conform.ORACLE_CONFIGS)} shards"
             for landed in range(1, len(conform.ORACLE_CONFIGS) + 1)
         ]
+        fan_in = [entry for entry in ct.parse_inner_timings(printed) if entry["label"] == "oracle_fan_in"]
+        assert len(fan_in) == 1 and fan_in[0]["held_gb"] == 0.0
+        assert ct.parse_inner_timings("\n".join(run_m1._build_phase_lines)) == fan_in
 
         seen: list = []
         rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
@@ -944,17 +954,23 @@ class TestOracleFanIn:
         assert self._files_left(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
 
     def test_a_range_that_falls_over_leaves_the_standing_audit_alone(self, monkeypatch, tmp_path):
+        """The range that falls over is the last one submitted, so every other range has already shipped its lines into shared memory, and none of their results is ever landed. The writer's exit must unlink those segments too, since shared memory outlives the run until someone does."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         planned = oracle.oracle_shard_plan(10, rows)
-        cut = next(shard for shard in planned if shard.of > 1)
-        self._pool(monkeypatch, self._worker(refuse=cut.label), rows=rows)
+        cut = [shard for shard in planned if shard.of > 1][-1]
+        shipped: list[str] = []
+        self._pool(monkeypatch, self._worker(refuse=cut.label, shipped=shipped), rows=rows)
         with pytest.raises(RuntimeError) as failure:
             run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         assert cut.label in str(failure.value)
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
+        assert shipped
+        for name in shipped:
+            with pytest.raises(FileNotFoundError):
+                shared_memory.SharedMemory(name, track=False)
 
     def _memos(self, monkeypatch, order):
         """Gives every settlement configuration a settle memo file under the run's out directory and replaces the parent's absorb with a stub that records the file and the parts it was passed in `order`. Returns the memo inputs to pass to `run_oracle`."""
@@ -1071,7 +1087,7 @@ class TestOracleFanIn:
     def test_a_cut_configurations_store_is_joined_from_its_ranges_segments_and_read_back(
         self, monkeypatch, tmp_path
     ):
-        """Runs the parent's row-store handling through `run_oracle`: each range of a cut configuration builds its segment in memory through `open_row_cache` and returns it on its result, the parent's in-order writer joins a cut configuration's segments under the header its ranges agreed on once its last range lands, and every configuration's store is promoted, and the next pass's ranges load the joined store through the same reader and write under the next ordinal. The promoted store must equal what one writer over the whole table writes, which checks that the join's arguments (the stamp, the subset digest, the ordinal, the keys, and the row count) come from the range results."""
+        """Runs the parent's row-store handling through `run_oracle`: each range of a cut configuration builds its segment in memory through `open_row_cache` and ships it home in shared memory, the parent's in-order writer joins a cut configuration's segments under the header its ranges agreed on once its last range lands, and every configuration's store is promoted, and the next pass's ranges load the joined store through the same reader and write under the next ordinal. The promoted store must equal what one writer over the whole table writes, which checks that the join's arguments (the stamp, the subset digest, the ordinal, the keys, and the row count) come from the range results."""
         spec = fixtures.mini_spec()
         rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         stamps = {
@@ -1093,8 +1109,10 @@ class TestOracleFanIn:
             settle_memo=None,
             guard_verdicts=None,
             shard=None,
+            ship_to=None,
         ):
             shard = oracle.OracleShard(config) if shard is None else shard
+            assert ship_to is not None
             stop = rows[config] if shard.stop_row is None else shard.stop_row
             store, writer = oracle.open_row_cache(row_cache, spec, config, shard.segment)
             assert writer is not None
@@ -1106,7 +1124,7 @@ class TestOracleFanIn:
                 config=config,
                 rows_compared=stop - shard.first_row,
                 pass_ordinal=writer.pass_ordinal,
-                store_segment=writer.member,
+                store_segment=None if writer.member is None else oracle.ship([writer.member], ship_to.store),
             )
 
         self._pool(monkeypatch, worker, rows=rows)

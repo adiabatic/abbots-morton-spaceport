@@ -720,7 +720,7 @@ def test_a_served_row_keeps_the_age_it_was_derived_at(repo, tmp_path):
 
 
 def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around_them(repo, tmp_path):
-    """A row range of a cut configuration builds a segment in memory and writes no file: one gzip member of records with no header and no trailer, which it returns on its result, so the parent can put a header member before the segments and a trailer member after them without decompressing anything. The joined payload equals the single-member store's payload, `load_store` reads it across members, and the joined header records the pass ordinal the segments were written under. The parent's in-order writer joins a configuration's segments when its last range lands, and stages no store for a configuration one of whose ranges returned none."""
+    """A row range of a cut configuration builds a segment in memory and writes no file: one gzip member of records with no header and no trailer, which it ships home in shared memory, so the parent can put a header member before the segments and a trailer member after them without decompressing anything. The joined payload equals the single-member store's payload, `load_store` reads it across members, and the joined header records the pass ordinal the segments were written under. The parent's in-order writer joins a configuration's segments when its last range lands, and stages no store for a configuration one of whose ranges returned none."""
     spec = fixtures.mini_spec()
     stamp = _stamp(repo, spec)
     keys = _keys(repo, spec)
@@ -758,7 +758,12 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
         with oracle.InOrderWriter(out, shards, cache, ("default",)) as fan_in:
             for shard, (rows, member) in reversed(list(zip(shards, returned))):
                 result = oracle.OracleConfigResult(
-                    config="default", rows_compared=rows, pass_ordinal=4, store_segment=member
+                    config="default",
+                    rows_compared=rows,
+                    pass_ordinal=4,
+                    store_segment=(
+                        None if member is None else oracle.ship([member], fan_in.ship_to(shard).store)
+                    ),
                 )
                 fan_in.land(shard, result)
                 assert result.store_segment is None

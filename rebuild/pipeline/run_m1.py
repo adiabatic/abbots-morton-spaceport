@@ -331,7 +331,7 @@ def _table_build_tail(record: TableBuildRecord | None, peaks: ReapedPeaks) -> st
     return " ".join(tokens) or None
 
 
-# The phase lines of the build this invocation ran, for its check line: the crate's `[t]` lines, the `kernel_build_tables` line with its `TableBuildRecord` tokens and the `build-tables` process's resident peak and peak footprint, then the `readback` line with the settlement lookup's figures and the commit. A cycle's run_m1 step parses the same lines from the output it captured, but a standalone check line has none, so `build_tables` and the glyph chain keep them here, `run_m1_gates.main` empties the list when an invocation starts, and `run_m1_gates._record_cli_check` parses it.
+# The phase lines of the build and the pooled oracle this invocation ran, for its check line: the crate's `[t]` lines, the `kernel_build_tables` line with its `TableBuildRecord` tokens and the `build-tables` process's resident peak and peak footprint, then the `readback` line with the settlement lookup's figures and the commit, and the pooled oracle's `oracle_fan_in` line with what its fan-in held in shared memory. A cycle's run_m1 step parses the same lines from the output it captured, but a standalone check line has none, so `build_tables`, the glyph chain and `run_m1_gates.run_oracle` keep them here, `run_m1_gates.main` empties the list when an invocation starts, and `run_m1_gates._record_cli_check` parses it.
 _build_phase_lines: list[str] = []
 
 
