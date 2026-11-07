@@ -1999,8 +1999,8 @@ def _class_meta(entry: _ClassToWrite, table: UnitTable, store: UnitStore) -> dic
     }
 
 
-# The units in one chunk of the write (`_write_chunks`), the units pool's hand-out width (`PHASE1_HANDOUT_UNITS`). A write worker holds one chunk's columns and recomputed fragments at a time, under 2 MB of columns at this width and about 4 MB of fragments when every unit was recomputed, and a chunk takes it long enough to write that the parent's turn between chunks is a small share of it. It is read through the module global at call time so a test can lower it.
-WRITE_CHUNK_UNITS = PHASE1_HANDOUT_UNITS
+# The units in one chunk of the write (`_write_chunks`). A write worker holds one chunk's columns and recomputed fragments at a time: at 45 runes about 0.2 MB of columns and up to about 1 MB of deflated fragments when every unit of a human class was recomputed, so a chunk's message stays near 1 MB, and about 2 MB at 57, where fragments roughly double. The width is set by that message, not by the worker's share: a message of 5 to 10 MB, as 8,192 units make, leaves its receive buffers among the large blocks macOS's allocator keeps dirty after they are freed, and a worker that receives ninety of them read up to 0.59 GB where its live data is a third of that, while chunks of 1,024 and 2,048 units, messages up to 2.5 MB, read flat (M, a replay of one write worker over the live corpus). The parent's turn between chunks is still a small share of the time a chunk takes to write. It is read through the module global at call time so a test can lower it.
+WRITE_CHUNK_UNITS = 1024
 
 
 def _write_chunks(
