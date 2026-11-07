@@ -9,6 +9,7 @@
 //! One engine settles everything, and the two slot filters, the liveness probe and the fiber deriver all borrow it. The trace memo makes a re-reached window free, and `Engine::fired` becomes the product's `cited_provenance`, so a probe running on a second engine would silently drop entries from what the dead-policy gate sees as fired. For the same reason one liveness probe is lent to both filters and to the deriver.
 
 use std::collections::BTreeSet;
+use std::num::{NonZeroU16, NonZeroU32};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -17,8 +18,8 @@ use crate::deep_slots::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, t
 use crate::engine::{CacheSize, Engine, EngineModes, MemoCeilings, Slots};
 use crate::error::SettleError;
 use crate::fiber::DeepFiberDeriver;
-use crate::hash::{HashMap, HashSet, ShardedMap};
-use crate::index::SpecIndex;
+use crate::hash::{HashMap, HashSet};
+use crate::index::{Ordinal, SpecIndex};
 use crate::liveness::ProspectLiveness;
 use crate::memo::{MemoFile, MemoSnapshot, SharedMemo};
 use crate::model::Sym;
@@ -26,8 +27,8 @@ use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
 use crate::stream::{FixpointProduct, Label, LabelPool, TransitionRow, feature_config_token};
 use crate::types::{
-    CellId, EDGE, LeftContext, NotesId, NotesPool, RightToken, Settled, SettledId, SettledPool,
-    TokenKind, TransitionTrace, cell_label,
+    CellId, EDGE, LeftContext, NAMER_DOT, NotesId, NotesPool, RightToken, SPACE, Settled,
+    SettledId, SettledPool, TokenKind, TransitionTrace, UNKNOWN, ZWNJ, cell_label,
 };
 
 /// The label of a slot the window does not carry, `table.NA_LABEL`. A boundary at right1 puts it in the second slot as well, because nothing follows a boundary inside one window.
@@ -122,11 +123,14 @@ pub fn deep_class_id(members: &[String]) -> String {
     format!("{DEEP_CLASS_PREFIX}{}", &digest[..12])
 }
 
-/// A slot restriction's allowed tokens: a set compared and hashed by content, so two items restricted to the same tokens are one item, behind an [`Rc`] so an item is cheap to clone into the `seen` set. The `BTreeSet` order is interning order and is never read.
+/// A slot restriction's allowed tokens: a set compared and hashed by content, so two items restricted to the same tokens are one item, behind an [`Rc`] so an item is cheap to clone into the [`ItemTable`]. The `BTreeSet` order is interning order and is never read.
 type Allowed = Rc<BTreeSet<RightToken>>;
 
 /// The six labels one window is keyed by, `table.Window.key`: the input glyph, the left, and the four right slots, each as the id the pool minted for its text.
 type WindowKey = [Label; 6];
+
+/// The three labels that begin a window key and name its base: the input glyph, the left, and right1. A window is recorded only behind a base some item has reached, so a base no item has reached holds no window.
+type BaseKey = [Label; 3];
 
 impl LabelPool {
     /// One right slot's label, interned: [`right_token_label`] without allocating the `String` that function returns.
@@ -152,28 +156,709 @@ impl LabelPool {
     }
 }
 
-/// One worklist item: the left state, the input rune, the right1 the left was reached alongside, and the two allowed-sets restricting the slots past it. Its equality is the `seen` key. A [`LeftContext`] holds a kind, a settled record and ordinals computed from that record, so its derived equality amounts to comparing the kind and the settled left.
+/// What one seed names: the boundary left's kind and the input rune. The seed's item has no slot restriction.
+type Seed = (TokenKind, Sym);
+
+/// One worklist item: the left state as its id in the [`LeftTable`], the input rune, the right1 the left was reached alongside, and the two allowed-sets restricting the slots past it. Its equality is the `seen` key. Two lefts share an id exactly when they share a kind and a settled record, and a [`LeftContext`] holds a kind, a settled record and ordinals computed from that record, so comparing ids compares what its derived equality compares.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Item {
-    left: LeftContext,
+    left: LeftId,
     rune: Sym,
     right1: Option<RightToken>,
     right2_allowed: Option<Allowed>,
     right3_allowed: Option<Allowed>,
 }
 
-/// A recorded window's fields other than the six labels that key it (the rest of `table.Transition`). The settled records and the provenance are indexes into the run's [`SettledPool`] and [`NotesPool`]: a configuration reaches millions of rows but only a few thousand distinct records, so holding each record by value would copy its heap allocations into hundreds of thousands of rows. The prospect fits in a byte. The row is sixteen bytes, two of them padding, with no heap allocation of its own. The outcome is not stored: it is the settled cell's label, resolved once per settled record when the product is built.
-struct Row {
-    settled: SettledId,
-    left_settled: Option<SettledId>,
-    provenance: NotesId,
-    prospect: i8,
-    joint: bool,
+/// One product-local index narrowed to two bytes for the row log and the pending rows, held as the index plus one so that an absent one takes no byte beside it, which leaves room for 65,535 indexes. Past them it panics, naming the field it narrows for, as [`crate::engine::TraceSettledId`] panics past its range (#266), instead of wrapping to a low id. A configuration reaches hundreds of labels, settled records and notes lists, as its `labels`, `settled_ids` and `notes` `[c]` lines count them.
+fn narrow16(index: usize, field: &str) -> NonZeroU16 {
+    index
+        .checked_add(1)
+        .and_then(|raw| u16::try_from(raw).ok())
+        .and_then(NonZeroU16::new)
+        .unwrap_or_else(|| panic!("{field} {index} is past the 65,535 indexes two bytes hold"))
 }
 
-/// The prospect term as a row stores it. The engine returns an `i64` because its join-count arithmetic sums these terms, but the term itself is zero or one (whether the follower's junction is claimed) with the prospect simulated or not, so it fits in a byte. A wider value means the engine is no longer returning a count, and the conversion panics.
-fn prospect_byte(prospect: i64) -> i8 {
-    i8::try_from(prospect).expect("a prospect is a junction count, zero or one")
+/// [`narrow16`] at four bytes, for the ids of the tables that can outgrow two bytes: fragments, pending rows, member lists and worklist items.
+fn narrow32(index: usize, field: &str) -> NonZeroU32 {
+    index
+        .checked_add(1)
+        .and_then(|raw| u32::try_from(raw).ok())
+        .and_then(NonZeroU32::new)
+        .unwrap_or_else(|| {
+            panic!("{field} {index} is past the 4,294,967,295 indexes four bytes hold")
+        })
+}
+
+/// A [`Label`] narrowed by [`narrow16`]: a row's last three labels, and the three a fragment carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ShortLabel(NonZeroU16);
+
+impl ShortLabel {
+    fn of(label: Label, field: &str) -> Self {
+        Self(narrow16(label.0 as usize, field))
+    }
+
+    fn widen(self) -> Label {
+        Label(u32::from(self.0.get()) - 1)
+    }
+}
+
+/// A [`SettledId`] narrowed by [`narrow16`]: a row's or a pending row's settled record, and a fragment's or a pending row's left_settled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ShortSettled(NonZeroU16);
+
+impl ShortSettled {
+    fn of(id: SettledId, field: &str) -> Self {
+        Self(narrow16(id.index(), field))
+    }
+
+    fn widen(self) -> SettledId {
+        SettledId::at(usize::from(self.0.get()) - 1)
+    }
+}
+
+/// A [`NotesId`] narrowed by [`narrow16`]: a row's or a pending row's provenance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ShortNotes(NonZeroU16);
+
+impl ShortNotes {
+    fn of(id: NotesId, field: &str) -> Self {
+        Self(narrow16(id.index(), field))
+    }
+
+    fn widen(self) -> NotesId {
+        NotesId::at(usize::from(self.0.get()) - 1)
+    }
+}
+
+/// A window slot's token in two bytes, for a pending row: the five other kinds as one to five, and a letter as its rune-field ordinal plus five, from which [`TokenCode::token`] rebuilds the token [`SpecIndex::letter`] gives that rune. A letter whose ordinal leaves no room panics, naming the field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct TokenCode(NonZeroU16);
+
+impl TokenCode {
+    /// The codes the five other kinds take, below every letter's.
+    const KINDS: u16 = 5;
+
+    fn of(token: RightToken, field: &str) -> Self {
+        let code = match token {
+            RightToken::Edge => 1,
+            RightToken::Space => 2,
+            RightToken::Zwnj => 3,
+            RightToken::NamerDot => 4,
+            RightToken::Unknown => Self::KINDS,
+            RightToken::Letter(_, ordinal) => {
+                ordinal.get().checked_add(Self::KINDS).unwrap_or_else(|| {
+                    panic!(
+                        "{field} names rune ordinal {ordinal}, past the 65,530 a two-byte token code holds"
+                    )
+                })
+            }
+        };
+        Self(NonZeroU16::new(code).expect("every code is one or more"))
+    }
+
+    fn token(self, index: &SpecIndex) -> RightToken {
+        match self.0.get() {
+            1 => EDGE,
+            2 => SPACE,
+            3 => ZWNJ,
+            4 => NAMER_DOT,
+            Self::KINDS => UNKNOWN,
+            code => {
+                let ordinal = Ordinal::new(code - Self::KINDS)
+                    .expect("a letter's code is past the other kinds'");
+                RightToken::Letter(index.rune_at_ordinal(ordinal), ordinal)
+            }
+        }
+    }
+}
+
+/// A left state's id in the [`LeftTable`], by [`narrow16`]: there are as many as the settled records a configuration reaches, and four more.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct LeftId(NonZeroU16);
+
+impl LeftId {
+    fn at(index: usize) -> Self {
+        Self(narrow16(index, "left state id"))
+    }
+
+    fn index(self) -> usize {
+        usize::from(self.0.get()) - 1
+    }
+}
+
+/// A fragment's position in [`RowLog::fragments`], by [`narrow32`]: the base index's value, a fragment's next, and a pending row's base.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct FragmentId(NonZeroU32);
+
+impl FragmentId {
+    fn at(index: usize) -> Self {
+        Self(narrow32(index, "fragment id"))
+    }
+
+    fn index(self) -> usize {
+        self.0.get() as usize - 1
+    }
+}
+
+/// A pending row's position in [`PendingRows::rows`], by [`narrow32`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct PendingId(NonZeroU32);
+
+impl PendingId {
+    fn at(index: usize) -> Self {
+        Self(narrow32(index, "pending row id"))
+    }
+
+    fn index(self) -> usize {
+        self.0.get() as usize - 1
+    }
+}
+
+/// A member list's id in [`MemberLists`], by [`narrow32`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ListId(NonZeroU32);
+
+impl ListId {
+    fn at(index: usize) -> Self {
+        Self(narrow32(index, "member list id"))
+    }
+
+    fn index(self) -> usize {
+        self.0.get() as usize - 1
+    }
+}
+
+/// An item's id in the [`ItemTable`], by [`narrow32`]: the four bytes the worklist's stack holds for the item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ItemId(NonZeroU32);
+
+impl ItemId {
+    fn at(index: usize) -> Self {
+        Self(narrow32(index, "worklist item id"))
+    }
+
+    fn index(self) -> usize {
+        self.0.get() as usize - 1
+    }
+}
+
+/// A row's prospect and joint-tiebreak flag in one byte, the prospect in the low bit and the flag above it. The engine returns the prospect as an `i64` because its join-count arithmetic sums these terms, but the term itself is zero or one (whether the follower's junction is claimed) with the prospect simulated or not. Any other value means the engine is no longer returning a count, and packing it panics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Flags(u8);
+
+impl Flags {
+    fn new(prospect: i64, joint: bool) -> Self {
+        let prospect = u8::try_from(prospect)
+            .ok()
+            .filter(|term| *term <= 1)
+            .expect("a prospect is a junction count, zero or one");
+        Self(prospect | (u8::from(joint) << 1))
+    }
+
+    fn prospect(self) -> i8 {
+        (self.0 & 1) as i8
+    }
+
+    fn joint(self) -> bool {
+        self.0 & 2 != 0
+    }
+}
+
+/// One recorded window as the row log holds it: its last three labels, its settled record and its provenance, each narrowed to two bytes, and its prospect and joint flag in one byte, twelve bytes with the padding and no heap allocation of its own. The rest of its key and its left_settled are its [`Fragment`]'s. The settled record and the provenance are indexes into the run's [`SettledPool`] and [`NotesPool`]: a configuration reaches millions of rows but only hundreds of distinct records, so holding each record by value would copy its heap allocations into every row. The outcome is not stored: it is the settled cell's label, resolved once per settled record when the product is built.
+#[derive(Clone, Copy, Debug)]
+struct LogRow {
+    right2: ShortLabel,
+    right3: ShortLabel,
+    right4: ShortLabel,
+    settled: ShortSettled,
+    provenance: ShortNotes,
+    flags: Flags,
+}
+
+impl LogRow {
+    fn new(slots: [Label; 3], settled: SettledId, provenance: NotesId, flags: Flags) -> Self {
+        Self {
+            right2: ShortLabel::of(slots[0], "a row's right2 label"),
+            right3: ShortLabel::of(slots[1], "a row's right3 label"),
+            right4: ShortLabel::of(slots[2], "a row's right4 label"),
+            settled: ShortSettled::of(settled, "a row's settled record"),
+            provenance: ShortNotes::of(provenance, "a row's provenance"),
+            flags,
+        }
+    }
+
+    /// The three labels past the row's base.
+    fn slots(self) -> [Label; 3] {
+        [
+            self.right2.widen(),
+            self.right3.widen(),
+            self.right4.widen(),
+        ]
+    }
+}
+
+/// How many rows one chunk of the row log holds: as many as 64 KiB holds.
+const ROWS_PER_CHUNK: usize = (64 << 10) / size_of::<LogRow>();
+
+/// One run of one base's rows in its input's chain: the base's three labels and the left_settled its rows share, narrowed as a row's fields are, the chain position of its first row and how many rows follow it there, the base's next fragment, and, on a base's first fragment, the base's latest pending class-grain row, twenty-four bytes in all. A fragment never crosses a chunk boundary, so its rows are one slice of one chunk.
+#[derive(Clone, Copy, Debug)]
+struct Fragment {
+    input: ShortLabel,
+    left: ShortLabel,
+    right1: ShortLabel,
+    left_settled: Option<ShortSettled>,
+    start: u32,
+    next: Option<FragmentId>,
+    pending: Option<PendingId>,
+    count: u16,
+}
+
+impl Fragment {
+    /// A fragment of `base` holding no rows yet, starting at chain position `start`.
+    fn new(base: BaseKey, left_settled: Option<SettledId>, start: usize) -> Self {
+        Self {
+            input: ShortLabel::of(base[0], "a fragment's input label"),
+            left: ShortLabel::of(base[1], "a fragment's left label"),
+            right1: ShortLabel::of(base[2], "a fragment's right1 label"),
+            left_settled: left_settled
+                .map(|id| ShortSettled::of(id, "a fragment's left_settled record")),
+            start: u32::try_from(start).unwrap_or_else(|_| {
+                panic!(
+                    "a fragment's chain position {start} is past the 4,294,967,296 positions four bytes hold"
+                )
+            }),
+            next: None,
+            pending: None,
+            count: 0,
+        }
+    }
+
+    fn base(&self) -> BaseKey {
+        [self.input.widen(), self.left.widen(), self.right1.widen()]
+    }
+}
+
+/// One input's rows in the order they were appended: its chunks, each allocated at [`ROWS_PER_CHUNK`] rows and filled before the next is allocated, its fragments in chain order, and how many rows it holds.
+struct RowChain {
+    input: Label,
+    chunks: Vec<Vec<LogRow>>,
+    fragments: Vec<FragmentId>,
+    len: usize,
+}
+
+impl RowChain {
+    fn new(input: Label) -> Self {
+        Self {
+            input,
+            chunks: Vec::new(),
+            fragments: Vec::new(),
+            len: 0,
+        }
+    }
+
+    /// Appends one row at the chain's end, allocating a chunk when the last one is full.
+    fn push(&mut self, row: LogRow) {
+        if self.len.is_multiple_of(ROWS_PER_CHUNK) {
+            self.chunks.push(Vec::with_capacity(ROWS_PER_CHUNK));
+        }
+        self.chunks
+            .last_mut()
+            .expect("a chunk has room for this row")
+            .push(row);
+        self.len += 1;
+    }
+
+    /// One fragment's rows, a slice of the one chunk it lies in.
+    fn rows(&self, fragment: &Fragment) -> &[LogRow] {
+        if fragment.count == 0 {
+            return &[];
+        }
+        let start = fragment.start as usize;
+        let offset = start % ROWS_PER_CHUNK;
+        &self.chunks[start / ROWS_PER_CHUNK][offset..offset + usize::from(fragment.count)]
+    }
+}
+
+/// Where one item's pass over one base appends: the base's chain, its first fragment and its last.
+#[derive(Clone, Copy, Debug)]
+struct Cursor {
+    chain: usize,
+    first: FragmentId,
+    last: FragmentId,
+}
+
+/// A revisited base as it stood when the pass began: its rows by their last three labels, each with its settled record and its fragment's left_settled, and its pending rows by [`PendingSlot`].
+struct LocalRows {
+    rows: HashMap<[Label; 3], (SettledId, Option<SettledId>)>,
+    pending: HashMap<PendingSlot, PendingId>,
+}
+
+/// One item's pass over one base: where it appends, and, on a revisit, the local maps of the base's rows and pending rows. A pass over a base no item reached before has no local maps, and every window it reaches is new.
+struct Visit {
+    cursor: Cursor,
+    local: Option<LocalRows>,
+}
+
+impl Visit {
+    /// The settled record of the window behind this base whose last three labels are `slots`, when the base already records it, or `None` when the window is new and must be traced. A record left by another left state is `Err` with that state's record: the left label is injective into the trace's inputs, so the stored state is what a re-trace would return only when the two lefts agree, which is the premise `partition_error` reports the failure of.
+    fn recorded(
+        &self,
+        slots: &[Label; 3],
+        left_settled: Option<SettledId>,
+    ) -> Result<Option<SettledId>, Option<SettledId>> {
+        let Some(&(settled, recorded)) =
+            self.local.as_ref().and_then(|local| local.rows.get(slots))
+        else {
+            return Ok(None);
+        };
+        if recorded != left_settled {
+            return Err(recorded);
+        }
+        Ok(Some(settled))
+    }
+
+    /// The pending row this base already has at `slot`, under [`Visit::recorded`]'s comparison.
+    fn pending(
+        &self,
+        slot: &PendingSlot,
+        left_settled: Option<SettledId>,
+        rows: &PendingRows,
+    ) -> Result<Option<PendingId>, Option<SettledId>> {
+        let Some(&id) = self
+            .local
+            .as_ref()
+            .and_then(|local| local.pending.get(slot))
+        else {
+            return Ok(None);
+        };
+        let recorded = rows.get(id).left_settled();
+        if recorded != left_settled {
+            return Err(recorded);
+        }
+        Ok(Some(id))
+    }
+}
+
+/// The rows the worklist records, held compactly in place of a map from window key to row: one [`RowChain`] an input, each base's rows a run of [`Fragment`]s in it, and the base index from each base an item has reached to its first fragment. A base's fragments chain from there, and its pending class-grain rows hang off that first fragment.
+///
+/// An item reaches one base per right1, and every window key begins with its base, so an item reaching a base no item reached before records every window behind it as new and probes nothing past the base index. Only a revisit reads the base's rows back, into the local maps of its [`Visit`], and looks each window up there, finding a window exactly where a map of every window would. One item's pass over one base reaches each window key once, because the slots' option lists repeat no token, so no row enters the log twice.
+#[derive(Default)]
+struct RowLog {
+    chains: Vec<RowChain>,
+    chain_of: Vec<Option<usize>>,
+    fragments: Vec<Fragment>,
+    bases: HashMap<BaseKey, FragmentId>,
+    revisits: usize,
+}
+
+impl RowLog {
+    /// The chain that holds `input`'s rows, started with the input's first base.
+    fn chain_for(&mut self, input: Label) -> usize {
+        let slot = input.0 as usize;
+        if self.chain_of.len() <= slot {
+            self.chain_of.resize(slot + 1, None);
+        }
+        if let Some(chain) = self.chain_of[slot] {
+            return chain;
+        }
+        let chain = self.chains.len();
+        self.chains.push(RowChain::new(input));
+        self.chain_of[slot] = Some(chain);
+        chain
+    }
+
+    /// Starts a fragment of `base` at the end of its chain.
+    fn open(&mut self, chain: usize, base: BaseKey, left_settled: Option<SettledId>) -> FragmentId {
+        let id = FragmentId::at(self.fragments.len());
+        self.fragments
+            .push(Fragment::new(base, left_settled, self.chains[chain].len));
+        self.chains[chain].fragments.push(id);
+        id
+    }
+
+    /// Starts one item's pass over `base`. A base no item reached before gets its first fragment and its entry in the base index. A base reached before is a revisit, and its rows and pending rows are read back into the visit's local maps.
+    fn visit(
+        &mut self,
+        base: BaseKey,
+        left_settled: Option<SettledId>,
+        pending: &PendingRows,
+    ) -> Visit {
+        let chain = self.chain_for(base[0]);
+        let Some(&first) = self.bases.get(&base) else {
+            let first = self.open(chain, base, left_settled);
+            self.bases.insert(base, first);
+            return Visit {
+                cursor: Cursor {
+                    chain,
+                    first,
+                    last: first,
+                },
+                local: None,
+            };
+        };
+        self.revisits += 1;
+        let mut rows = HashMap::default();
+        let mut last = first;
+        let mut at = Some(first);
+        while let Some(id) = at {
+            let fragment = &self.fragments[id.index()];
+            let recorded = fragment.left_settled.map(ShortSettled::widen);
+            for row in self.chains[chain].rows(fragment) {
+                rows.insert(row.slots(), (row.settled.widen(), recorded));
+            }
+            last = id;
+            at = fragment.next;
+        }
+        let mut slots = HashMap::default();
+        let mut at = self.fragments[first.index()].pending;
+        while let Some(id) = at {
+            let row = pending.get(id);
+            slots.insert(row.slot(), id);
+            at = row.next;
+        }
+        Visit {
+            cursor: Cursor { chain, first, last },
+            local: Some(LocalRows {
+                rows,
+                pending: slots,
+            }),
+        }
+    }
+
+    /// Appends one row to the base `cursor` is at. The base's last fragment takes it when that fragment ends the chain, shares the row's left_settled and has room in its chunk; otherwise a fragment chained from the last one does.
+    fn append(&mut self, cursor: &mut Cursor, row: LogRow, left_settled: Option<SettledId>) {
+        let position = self.chains[cursor.chain].len;
+        let narrowed =
+            left_settled.map(|id| ShortSettled::of(id, "a fragment's left_settled record"));
+        let last = &self.fragments[cursor.last.index()];
+        let extends = last.left_settled == narrowed
+            && last.start as usize + usize::from(last.count) == position
+            && (last.count == 0 || !position.is_multiple_of(ROWS_PER_CHUNK));
+        if !extends {
+            let base = last.base();
+            let id = self.open(cursor.chain, base, left_settled);
+            self.fragments[cursor.last.index()].next = Some(id);
+            cursor.last = id;
+        }
+        self.fragments[cursor.last.index()].count += 1;
+        self.chains[cursor.chain].push(row);
+    }
+
+    /// The pending walk's append of one class row to the base whose first fragment is `first`. The base's rows are scanned for the row's key first, its label rows and the class rows appended before it alike, and the row is appended only when none carries that key. Returns whether it was appended.
+    fn append_new(
+        &mut self,
+        first: FragmentId,
+        row: LogRow,
+        left_settled: Option<SettledId>,
+    ) -> bool {
+        let chain = self.chain_for(self.fragments[first.index()].input.widen());
+        let slots = row.slots();
+        let mut last = first;
+        let mut at = Some(first);
+        while let Some(id) = at {
+            let fragment = &self.fragments[id.index()];
+            if self.chains[chain]
+                .rows(fragment)
+                .iter()
+                .any(|held| held.slots() == slots)
+            {
+                return false;
+            }
+            last = id;
+            at = fragment.next;
+        }
+        self.append(&mut Cursor { chain, first, last }, row, left_settled);
+        true
+    }
+
+    /// The labels of the base whose first fragment is `first`.
+    fn base(&self, first: FragmentId) -> BaseKey {
+        self.fragments[first.index()].base()
+    }
+
+    /// The latest pending row of the base whose first fragment is `first`.
+    fn pending_head(&self, first: FragmentId) -> Option<PendingId> {
+        self.fragments[first.index()].pending
+    }
+
+    /// Makes `id` the latest pending row of the base whose first fragment is `first`. The row's own `next` names the one it follows.
+    fn set_pending_head(&mut self, first: FragmentId, id: PendingId) {
+        self.fragments[first.index()].pending = Some(id);
+    }
+
+    /// Frees the base index, which nothing after the pending walk reads.
+    fn forget_bases(&mut self) {
+        self.bases = HashMap::default();
+    }
+
+    /// What the log holds: its chunks at their allocated size, each chain's fragment list, the fragment headers, and the base index's buckets at their entry and a control byte each.
+    fn bytes(&self) -> usize {
+        let chains: usize = self
+            .chains
+            .iter()
+            .map(|chain| {
+                chain.chunks.iter().map(Vec::capacity).sum::<usize>() * size_of::<LogRow>()
+                    + chain.fragments.capacity() * size_of::<FragmentId>()
+            })
+            .sum();
+        let buckets = if self.bases.capacity() == 0 {
+            0
+        } else {
+            (self.bases.capacity() * 8 / 7).next_power_of_two()
+        };
+        chains
+            + self.fragments.capacity() * size_of::<Fragment>()
+            + buckets * (size_of::<(BaseKey, FragmentId)>() + 1)
+    }
+
+    /// The final row vector: each input's chain decoded in input-rank order, each input's rows sorted by rank as one slice, and each chain's chunks freed once its rows have moved. Keys are unique and the input leads the key, so the slices in that order are the whole sort.
+    fn drain(self, ranks: &[u32]) -> Vec<TransitionRow> {
+        let Self {
+            mut chains,
+            fragments,
+            ..
+        } = self;
+        chains.sort_unstable_by_key(|chain| ranks[chain.input.0 as usize]);
+        let mut rows: Vec<TransitionRow> =
+            Vec::with_capacity(chains.iter().map(|chain| chain.len).sum());
+        for chain in chains {
+            let start = rows.len();
+            for id in &chain.fragments {
+                let fragment = &fragments[id.index()];
+                let left = fragment.left.widen();
+                let right1 = fragment.right1.widen();
+                let left_settled = fragment.left_settled.map(ShortSettled::widen);
+                rows.extend(chain.rows(fragment).iter().map(|row| {
+                    let [right2, right3, right4] = row.slots();
+                    TransitionRow {
+                        input_glyph: chain.input,
+                        left,
+                        right1,
+                        right2,
+                        right3,
+                        right4,
+                        settled: row.settled.widen(),
+                        left_settled,
+                        provenance: row.provenance.widen(),
+                        prospect: row.flags.prospect(),
+                        joint: row.flags.joint(),
+                    }
+                }));
+            }
+            rows[start..]
+                .sort_unstable_by_key(|row| row.labels().map(|label| ranks[label.0 as usize]));
+        }
+        rows
+    }
+}
+
+/// The distinct left states the worklist reaches, each held once with the settled id it is keyed by: the boundary lefts the seeds start from and one letter left per settled record a row settled into. An item and a pending row name their left by its two-byte id.
+#[derive(Default)]
+struct LeftTable {
+    ids: HashMap<(TokenKind, Option<SettledId>), LeftId>,
+    lefts: Vec<(Rc<LeftContext>, Option<SettledId>)>,
+}
+
+impl LeftTable {
+    /// The id of the boundary left of this kind.
+    fn boundary(&mut self, kind: TokenKind) -> LeftId {
+        self.intern(kind, None, || LeftContext::boundary(kind))
+    }
+
+    /// The id of the letter left a window settling into `settled` hands its successor. [`LeftContext::letter`] builds it the first time.
+    fn letter(&mut self, index: &SpecIndex, pool: &SettledPool, settled: SettledId) -> LeftId {
+        self.intern(TokenKind::Letter, Some(settled), || {
+            LeftContext::letter(index, pool.get(settled).clone())
+        })
+    }
+
+    fn intern(
+        &mut self,
+        kind: TokenKind,
+        settled: Option<SettledId>,
+        build: impl FnOnce() -> LeftContext,
+    ) -> LeftId {
+        if let Some(&id) = self.ids.get(&(kind, settled)) {
+            return id;
+        }
+        let id = LeftId::at(self.lefts.len());
+        self.ids.insert((kind, settled), id);
+        self.lefts.push((Rc::new(build()), settled));
+        id
+    }
+
+    fn get(&self, id: LeftId) -> &Rc<LeftContext> {
+        &self.lefts[id.index()].0
+    }
+
+    /// The settled record a left is keyed by, which a row reached from it stores as its left_settled.
+    fn settled(&self, id: LeftId) -> Option<SettledId> {
+        self.lefts[id.index()].1
+    }
+}
+
+/// The worklist's items, each interned once, which is the `seen` set as a table: the stack holds an item's four-byte id each time the item is reached, and the item is processed the first time its id is popped. So the traversal is the one a stack of items with a `seen` check at pop time makes.
+#[derive(Default)]
+struct ItemTable {
+    ids: HashMap<Item, ItemId>,
+    items: Vec<Item>,
+    popped: Vec<bool>,
+}
+
+impl ItemTable {
+    /// Pushes this item's id onto the stack, interning the item the first time it is reached.
+    fn push(&mut self, worklist: &mut Vec<ItemId>, item: Item) {
+        let id = *self.ids.entry(item).or_insert_with_key(|item| {
+            let id = ItemId::at(self.items.len());
+            self.items.push(item.clone());
+            self.popped.push(false);
+            id
+        });
+        worklist.push(id);
+    }
+
+    /// The item one popped id names, the first time it is popped, and `None` every time after.
+    fn first_pop(&mut self, id: ItemId) -> Option<Item> {
+        let popped = &mut self.popped[id.index()];
+        if *popped {
+            return None;
+        }
+        *popped = true;
+        Some(self.items[id.index()].clone())
+    }
+
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    fn capacity(&self) -> usize {
+        self.ids.capacity()
+    }
+}
+
+/// The member lists pending rows name, each interned once: a third slot's identity, which is a fiber's whole membership or a boundary alone, and a fourth slot's r4 group.
+#[derive(Default)]
+struct MemberLists {
+    ids: HashMap<Rc<[RightToken]>, ListId>,
+    lists: Vec<Rc<[RightToken]>>,
+}
+
+impl MemberLists {
+    fn intern(&mut self, members: &[RightToken]) -> ListId {
+        if let Some(&id) = self.ids.get(members) {
+            return id;
+        }
+        let id = ListId::at(self.lists.len());
+        let shared: Rc<[RightToken]> = Rc::from(members);
+        self.ids.insert(Rc::clone(&shared), id);
+        self.lists.push(shared);
+        id
+    }
+
+    fn get(&self, id: ListId) -> &[RightToken] {
+        &self.lists[id.index()]
+    }
 }
 
 /// One third-slot entry of a class-grain window: the boundary token when the entry is a boundary, the fiber's index in the context when it is a fiber, and the members this item's slot restrictions admitted.
@@ -182,41 +867,49 @@ type Slot3Entry = (Option<RightToken>, Option<usize>, Vec<RightToken>);
 /// One fourth-slot entry of a class-grain window: the r4 group, or `None` where the fourth slot is dead and the row carries `#NA` there.
 type Slot4Entry = Option<Vec<RightToken>>;
 
-/// What an in-flight class-grain row is keyed by while the worklist runs: the four near labels, the third slot's identity, and the fourth's full member group.
-type PendingKey = (Label, Label, Label, Label, Identity3, Slot4Entry);
+/// What an in-flight class-grain row is found by within its base: its right2, its third slot's identity, and its fourth slot's group. The identity is the fiber's whole membership, not the admitted subset, so two worklist items whose slot restrictions admit different subsets of one fiber accumulate into a single row.
+type PendingSlot = (TokenCode, ListId, Option<ListId>);
 
-/// The third slot's identity inside a [`PendingKey`]: the boundary token for a boundary entry, and the fiber's full member list for a fiber.
-///
-/// The members are the fiber's whole membership, not the admitted subset, so two worklist items whose slot restrictions admit different subsets of one fiber accumulate into a single row.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum Identity3 {
-    Boundary(RightToken),
-    Members(Vec<RightToken>),
-}
-
-/// One in-flight class-grain row: the representative trace's stored row fields, the r3 members accumulating across worklist items, and the frame the cross-check traces replay after the drain.
+/// One in-flight class-grain row: the representative trace's stored row fields, the r3 members accumulating across worklist items, and the frame the cross-check traces replay after the worklist, each as a narrowed id. `admitted3` is a set over rune ordinals, the first sixty-four in the row's own word and the rest, past sixty-four runes, in [`PendingRows`]' wide words. `base` is its base's first fragment and `next` the base's pending row before it. Forty-eight bytes in all.
 ///
 /// The representative is the fiber's least member under the label order, the first entry of [`crate::fiber::Fiber::members`], whether or not the first item to reach the row admitted it. The r4 members carry no slot restriction and so are complete from the first item, which is why they are a plain group here while the third slot's are a set.
+#[derive(Clone, Copy, Debug)]
 struct PendingDeepRow {
-    left_context: LeftContext,
-    left_label: Label,
-    input_label: Label,
-    token: RightToken,
-    right1: RightToken,
-    right2: RightToken,
-    boundary3: Option<RightToken>,
-    admitted3: BTreeSet<RightToken>,
-    members4: Slot4Entry,
-    traced_r3_member: RightToken,
-    traced_r4_member: Option<RightToken>,
-    settled: SettledId,
-    left_settled: Option<SettledId>,
-    provenance: NotesId,
-    prospect: i8,
-    joint: bool,
+    admitted3: u64,
+    base: FragmentId,
+    next: Option<PendingId>,
+    identity3: ListId,
+    members4: Option<ListId>,
+    left: LeftId,
+    token: TokenCode,
+    right1: TokenCode,
+    right2: TokenCode,
+    boundary3: Option<TokenCode>,
+    traced_r3_member: TokenCode,
+    traced_r4_member: Option<TokenCode>,
+    settled: ShortSettled,
+    left_settled: Option<ShortSettled>,
+    provenance: ShortNotes,
+    flags: Flags,
 }
 
 impl PendingDeepRow {
+    fn slot(&self) -> PendingSlot {
+        (self.right2, self.identity3, self.members4)
+    }
+
+    fn settled(&self) -> SettledId {
+        self.settled.widen()
+    }
+
+    fn left_settled(&self) -> Option<SettledId> {
+        self.left_settled.map(ShortSettled::widen)
+    }
+
+    fn provenance(&self) -> NotesId {
+        self.provenance.widen()
+    }
+
     /// Whether a cross-check trace's record matches the representative's in the four fields a row stores: the settled triple and the notes (each read back through its pool), the prospect, and the joint-tiebreak flag. The ranking that reached them is not compared because the row does not store it.
     fn matches_stored_fields(
         &self,
@@ -224,10 +917,81 @@ impl PendingDeepRow {
         notes: &NotesPool,
         cross_check: &TransitionTrace,
     ) -> bool {
-        cross_check.settled == *settled_pool.get(self.settled)
-            && cross_check.prospect == i64::from(self.prospect)
-            && cross_check.joint_tiebreak == self.joint
-            && cross_check.notes == notes.get(self.provenance)
+        cross_check.settled == *settled_pool.get(self.settled())
+            && cross_check.prospect == i64::from(self.flags.prospect())
+            && cross_check.joint_tiebreak == self.flags.joint()
+            && cross_check.notes == notes.get(self.provenance())
+    }
+}
+
+/// The in-flight class-grain rows in creation order, which the member cross-check walks, with the wide words of their `admitted3` sets: `stride` words a row past its own word, none at sixty-four runes or fewer.
+struct PendingRows {
+    rows: Vec<PendingDeepRow>,
+    stride: usize,
+    wide: Vec<u64>,
+}
+
+impl PendingRows {
+    /// Rows whose sets cover the rune-field ordinals of `runes` modeled runes, which come first in the field.
+    fn new(runes: usize) -> Self {
+        Self {
+            rows: Vec::new(),
+            stride: runes.saturating_sub(1) / 64,
+            wide: Vec::new(),
+        }
+    }
+
+    fn get(&self, id: PendingId) -> &PendingDeepRow {
+        &self.rows[id.index()]
+    }
+
+    /// Adds a row at the end, with `admitted` as its first members.
+    fn push(&mut self, row: PendingDeepRow, admitted: &[RightToken]) -> PendingId {
+        let id = PendingId::at(self.rows.len());
+        self.rows.push(row);
+        self.wide.resize(self.wide.len() + self.stride, 0);
+        self.admit(id, admitted);
+        id
+    }
+
+    /// ORs the letters among `members` into a row's `admitted3` in place. A boundary entry's member carries no ordinal and is left out, since only a fiber's row reads its set back.
+    fn admit(&mut self, id: PendingId, members: &[RightToken]) {
+        for ordinal in members.iter().filter_map(|member| member.ordinal()) {
+            let bit = usize::from(ordinal.get()) - 1;
+            let mask = 1u64 << (bit % 64);
+            match bit / 64 {
+                0 => self.rows[id.index()].admitted3 |= mask,
+                word => {
+                    assert!(
+                        word <= self.stride,
+                        "admitted3 holds modeled runes' ordinals, and {ordinal} is past the {} its words cover",
+                        64 * (self.stride + 1)
+                    );
+                    self.wide[id.index() * self.stride + word - 1] |= mask;
+                }
+            }
+        }
+    }
+
+    /// The ordinals a row's `admitted3` holds, ascending.
+    fn admitted(&self, id: PendingId) -> Vec<Ordinal> {
+        let own = self.rows[id.index()].admitted3;
+        let wide = &self.wide[id.index() * self.stride..(id.index() + 1) * self.stride];
+        let mut ordinals = Vec::new();
+        for (word, bits) in std::iter::once(own).chain(wide.iter().copied()).enumerate() {
+            let mut rest = bits;
+            while rest != 0 {
+                let ordinal = word * 64 + rest.trailing_zeros() as usize + 1;
+                ordinals.push(
+                    u16::try_from(ordinal)
+                        .ok()
+                        .and_then(Ordinal::new)
+                        .expect("a set bit is a rune-field ordinal"),
+                );
+                rest &= rest - 1;
+            }
+        }
+        ordinals
     }
 }
 
@@ -287,7 +1051,7 @@ pub fn enumerate_for_tables<'i>(
     )
 }
 
-/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: each collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings (`memo_clears`), the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] writes one in line), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
+/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings (`memo_clears`), the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, after the memo file is written (when [`enumerate_for_tables`] writes one in line), and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
 ///
 /// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_with_cache_stats(
@@ -313,7 +1077,7 @@ fn enumerate_from_seeds<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
     modes: EnumerationModes,
-    seeds: fn(&WindowOptions<'_>) -> Vec<Item>,
+    seeds: fn(&WindowOptions<'_>) -> Vec<Seed>,
     mut cache_stats: Option<&mut Vec<String>>,
     access: MemoAccess,
     file: Option<MemoWrite<'_>>,
@@ -350,26 +1114,39 @@ fn enumerate_from_seeds<'i>(
     let mut labels = LabelPool::default();
     let mut settled_pool = SettledPool::default();
     let mut notes = NotesPool::default();
-    // Sharded so that the map's last doubling, which comes near the enumeration's peak, holds one shard's two tables rather than two tables of every window.
-    let mut transitions: ShardedMap<WindowKey, Row> = ShardedMap::default();
-    // The in-flight class-grain rows in creation order, which the member cross-check walks, and a map from each row's key to its index.
-    let mut pending_rows: Vec<PendingDeepRow> = Vec::new();
-    let mut pending_ids: HashMap<PendingKey, usize> = HashMap::default();
-    let mut seen: HashSet<Item> = HashSet::default();
-    let mut worklist = seeds(&options);
+    let mut lefts = LeftTable::default();
+    let mut lists = MemberLists::default();
+    let mut log = RowLog::default();
+    let mut pending = PendingRows::new(index.rune_count());
+    let mut items = ItemTable::default();
+    let mut worklist: Vec<ItemId> = Vec::new();
+    for (kind, rune) in seeds(&options) {
+        let left = lefts.boundary(kind);
+        items.push(
+            &mut worklist,
+            Item {
+                left,
+                rune,
+                right1: None,
+                right2_allowed: None,
+                right3_allowed: None,
+            },
+        );
+    }
 
-    while let Some(item) = worklist.pop() {
-        // One insert both tests and updates `seen` at pop time: an item already present is skipped.
-        if !seen.insert(item.clone()) {
-            continue;
-        }
-        let Item {
-            left,
+    while let Some(id) = worklist.pop() {
+        // The check runs at pop time: an item whose id was popped before is skipped.
+        let Some(Item {
+            left: left_ref,
             rune,
             right1: right1_constraint,
             right2_allowed,
             right3_allowed,
-        } = item;
+        }) = items.first_pop(id)
+        else {
+            continue;
+        };
+        let left = Rc::clone(lefts.get(left_ref));
         let locked = left.kind == TokenKind::Zwnj && index.is_entry_bearing(rune);
         let raw = index.resolve(rune);
         let input_label = if locked {
@@ -385,11 +1162,8 @@ fn enumerate_from_seeds<'i>(
         } else {
             labels.intern(boundary_left_label(left.kind))
         };
-        // A letter left is the settled record of a row already recorded, so past the seeds this lookup always hits. It runs once per item, and each window the item reaches compares the resulting index as an integer.
-        let left_id: Option<SettledId> = left
-            .settled
-            .as_ref()
-            .map(|settled| settled_pool.intern(settled));
+        // A letter left is the settled record of a row already recorded, whose id keys the left, so each window the item reaches compares that id as an integer.
+        let left_id: Option<SettledId> = lefts.settled(left_ref);
         // The trace reads the raw letter whatever the label says: locking is a property of the glyph the emitted lookup substitutes, not of what settles.
         let token = index
             .letter(rune)
@@ -439,6 +1213,8 @@ fn enumerate_from_seeds<'i>(
             } else {
                 vec![EDGE]
             };
+            // The base behind this right1, started at the first window or class row the item reaches there, where it first looks one up.
+            let mut visit: Option<Visit> = None;
 
             for right2 in right2_options {
                 let deep3_live = deep_inputs.contains(&rune)
@@ -511,9 +1287,9 @@ fn enumerate_from_seeds<'i>(
                         };
                         // The identity is the fiber's full member list, not the admitted subset, so two items whose slot restrictions admit different subsets of one fiber accumulate into one row.
                         let identity3 = match boundary3 {
-                            Some(token) => Identity3::Boundary(token),
-                            None => Identity3::Members(fiber3.map_or_else(Vec::new, |position| {
-                                context.fibers[position].members.clone()
+                            Some(token) => lists.intern(&[token]),
+                            None => lists.intern(fiber3.map_or(&[][..], |position| {
+                                context.fibers[position].members.as_slice()
                             })),
                         };
                         // The row is traced at the fiber's least member whether or not this item's slot restrictions admit it. The fiber invariant makes every member's record the same, and tracing a fixed member makes the traced window set, and so the fired set, independent of which item reached the fiber first.
@@ -523,37 +1299,43 @@ fn enumerate_from_seeds<'i>(
                         };
                         for members4 in slot4_entries {
                             let traced_r4_member = members4.as_ref().map(|group| group[0]);
-                            let pending_key: PendingKey = (
-                                input_label,
-                                left_label,
-                                labels.token(index, right1),
-                                labels.token(index, right2),
-                                identity3.clone(),
-                                members4.clone(),
+                            let right1_label = labels.token(index, right1);
+                            let right2_label = labels.token(index, right2);
+                            let members4_id = members4.as_deref().map(|group| lists.intern(group));
+                            let pass = visit.get_or_insert_with(|| {
+                                log.visit(
+                                    [input_label, left_label, right1_label],
+                                    left_id,
+                                    &pending,
+                                )
+                            });
+                            let slot: PendingSlot = (
+                                TokenCode::of(right2, "a pending row's right2 token"),
+                                identity3,
+                                members4_id,
                             );
-                            let settled = match pending_ids.get(&pending_key) {
-                                Some(&id) => {
-                                    let record = &mut pending_rows[id];
-                                    if record.left_settled != left_id {
-                                        let display: WindowKey = [
-                                            input_label,
-                                            left_label,
-                                            labels.token(index, right1),
-                                            labels.token(index, right2),
-                                            labels.token(index, traced_r3_member),
-                                            labels.slot(index, traced_r4_member),
-                                        ];
-                                        return Err(partition_error(
-                                            index,
-                                            &labels.spelled(&display),
-                                            record.left_settled.map(|id| settled_pool.get(id)),
-                                            left.settled.as_ref(),
-                                        ));
-                                    }
-                                    record.admitted3.extend(admitted3.iter().copied());
-                                    settled_pool.get(record.settled).clone()
+                            let settled = match pass.pending(&slot, left_id, &pending) {
+                                Err(recorded) => {
+                                    let display: WindowKey = [
+                                        input_label,
+                                        left_label,
+                                        right1_label,
+                                        right2_label,
+                                        labels.token(index, traced_r3_member),
+                                        labels.slot(index, traced_r4_member),
+                                    ];
+                                    return Err(partition_error(
+                                        index,
+                                        &labels.spelled(&display),
+                                        recorded.map(|id| settled_pool.get(id)),
+                                        left.settled.as_ref(),
+                                    ));
                                 }
-                                None => {
+                                Ok(Some(row)) => {
+                                    pending.admit(row, &admitted3);
+                                    pending.get(row).settled()
+                                }
+                                Ok(None) => {
                                     let trace = engine
                                         .transition_trace(
                                             &left,
@@ -566,37 +1348,78 @@ fn enumerate_from_seeds<'i>(
                                             ),
                                         )
                                         .map_err(error_message)?;
-                                    pending_ids.insert(pending_key, pending_rows.len());
-                                    pending_rows.push(PendingDeepRow {
-                                        left_context: left.clone(),
-                                        left_label,
-                                        input_label,
-                                        token,
-                                        right1,
-                                        right2,
-                                        boundary3,
-                                        admitted3: admitted3.iter().copied().collect(),
-                                        members4: members4.clone(),
-                                        traced_r3_member,
-                                        traced_r4_member,
-                                        settled: settled_pool.intern(&trace.settled),
-                                        left_settled: left_id,
-                                        provenance: notes.intern(trace.notes),
-                                        prospect: prospect_byte(trace.prospect),
-                                        joint: trace.joint_tiebreak,
-                                    });
-                                    trace.settled
+                                    let settled = settled_pool.intern(&trace.settled);
+                                    let provenance = notes.intern(trace.notes);
+                                    let first = pass.cursor.first;
+                                    let row = pending.push(
+                                        PendingDeepRow {
+                                            admitted3: 0,
+                                            base: first,
+                                            next: log.pending_head(first),
+                                            identity3,
+                                            members4: members4_id,
+                                            left: left_ref,
+                                            token: TokenCode::of(
+                                                token,
+                                                "a pending row's input token",
+                                            ),
+                                            right1: TokenCode::of(
+                                                right1,
+                                                "a pending row's right1 token",
+                                            ),
+                                            right2: slot.0,
+                                            boundary3: boundary3.map(|boundary| {
+                                                TokenCode::of(
+                                                    boundary,
+                                                    "a pending row's boundary3 token",
+                                                )
+                                            }),
+                                            traced_r3_member: TokenCode::of(
+                                                traced_r3_member,
+                                                "a pending row's traced_r3_member token",
+                                            ),
+                                            traced_r4_member: traced_r4_member.map(|member| {
+                                                TokenCode::of(
+                                                    member,
+                                                    "a pending row's traced_r4_member token",
+                                                )
+                                            }),
+                                            settled: ShortSettled::of(
+                                                settled,
+                                                "a pending row's settled record",
+                                            ),
+                                            left_settled: left_id.map(|id| {
+                                                ShortSettled::of(
+                                                    id,
+                                                    "a pending row's left_settled record",
+                                                )
+                                            }),
+                                            provenance: ShortNotes::of(
+                                                provenance,
+                                                "a pending row's provenance",
+                                            ),
+                                            flags: Flags::new(trace.prospect, trace.joint_tiebreak),
+                                        },
+                                        &admitted3,
+                                    );
+                                    log.set_pending_head(first, row);
+                                    settled
                                 }
                             };
-                            worklist.push(Item {
-                                left: LeftContext::letter(index, settled),
-                                rune: right1.letter(),
-                                right1: Some(right2),
-                                right2_allowed: Some(Rc::new(admitted3.iter().copied().collect())),
-                                right3_allowed: members4
-                                    .as_ref()
-                                    .map(|group| Rc::new(group.iter().copied().collect())),
-                            });
+                            items.push(
+                                &mut worklist,
+                                Item {
+                                    left: lefts.letter(index, &settled_pool, settled),
+                                    rune: right1.letter(),
+                                    right1: Some(right2),
+                                    right2_allowed: Some(Rc::new(
+                                        admitted3.iter().copied().collect(),
+                                    )),
+                                    right3_allowed: members4
+                                        .as_ref()
+                                        .map(|group| Rc::new(group.iter().copied().collect())),
+                                },
+                            );
                         }
                     }
                     continue;
@@ -660,42 +1483,48 @@ fn enumerate_from_seeds<'i>(
                             labels.slot(index, right3),
                             labels.slot(index, right4),
                         ];
-                        // A worklist item with different slot restrictions can reach a window key already recorded. The recorded settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit goes straight to the successor enqueue, whose slot restrictions still differ per item. The left-state comparison checks that premise and fails only if `cell_label` stops being injective over settled lefts.
-                        let shard = transitions.shard_mut(&window_key);
-                        let settled = if let Some(existing) = shard.get(&window_key) {
-                            if existing.left_settled != left_id {
+                        let pass = visit.get_or_insert_with(|| {
+                            log.visit(
+                                [window_key[0], window_key[1], window_key[2]],
+                                left_id,
+                                &pending,
+                            )
+                        });
+                        let slots = [window_key[3], window_key[4], window_key[5]];
+                        // A worklist item with different slot restrictions can reach a window key already recorded, behind a base another item reached. The recorded settled state is what a re-trace would return, because the left label is injective into the trace's inputs, so a hit goes straight to the successor enqueue, whose slot restrictions still differ per item. The left-state comparison checks that premise and fails only if `cell_label` stops being injective over settled lefts.
+                        let settled = match pass.recorded(&slots, left_id) {
+                            Err(recorded) => {
                                 return Err(partition_error(
                                     index,
                                     &labels.spelled(&window_key),
-                                    existing.left_settled.map(|id| settled_pool.get(id)),
+                                    recorded.map(|id| settled_pool.get(id)),
                                     left.settled.as_ref(),
                                 ));
                             }
-                            settled_pool.get(existing.settled).clone()
-                        } else {
-                            let trace = engine
-                                .transition_trace(
-                                    &left,
-                                    token,
-                                    Slots::new(
-                                        right1,
-                                        right2,
-                                        right3.unwrap_or(EDGE),
-                                        right4.unwrap_or(EDGE),
-                                    ),
-                                )
-                                .map_err(error_message)?;
-                            shard.insert(
-                                window_key,
-                                Row {
-                                    settled: settled_pool.intern(&trace.settled),
-                                    left_settled: left_id,
-                                    provenance: notes.intern(trace.notes),
-                                    prospect: prospect_byte(trace.prospect),
-                                    joint: trace.joint_tiebreak,
-                                },
-                            );
-                            trace.settled
+                            Ok(Some(settled)) => settled,
+                            Ok(None) => {
+                                let trace = engine
+                                    .transition_trace(
+                                        &left,
+                                        token,
+                                        Slots::new(
+                                            right1,
+                                            right2,
+                                            right3.unwrap_or(EDGE),
+                                            right4.unwrap_or(EDGE),
+                                        ),
+                                    )
+                                    .map_err(error_message)?;
+                                let settled = settled_pool.intern(&trace.settled);
+                                let row = LogRow::new(
+                                    slots,
+                                    settled,
+                                    notes.intern(trace.notes),
+                                    Flags::new(trace.prospect, trace.joint_tiebreak),
+                                );
+                                log.append(&mut pass.cursor, row, left_id);
+                                settled
+                            }
                         };
 
                         if right1.kind() == TokenKind::Letter {
@@ -717,13 +1546,16 @@ fn enumerate_from_seeds<'i>(
                                     )),
                                 }
                             };
-                            worklist.push(Item {
-                                left: LeftContext::letter(index, settled),
-                                rune: right1.letter(),
-                                right1: Some(right2),
-                                right2_allowed: successor_allowed,
-                                right3_allowed: right4.map(singleton),
-                            });
+                            items.push(
+                                &mut worklist,
+                                Item {
+                                    left: lefts.letter(index, &settled_pool, settled),
+                                    rune: right1.letter(),
+                                    right1: Some(right2),
+                                    right2_allowed: successor_allowed,
+                                    right3_allowed: right4.map(singleton),
+                                },
+                            );
                         }
                     }
                 }
@@ -733,12 +1565,26 @@ fn enumerate_from_seeds<'i>(
 
     let mut deep_classes: Vec<(String, Vec<String>)> = Vec::new();
     let mut named_classes: HashSet<String> = HashSet::default();
-    // The member cross-check, and the emission of the class rows: for every multi-member row, the last admitted third-slot member is re-traced at the row's actual left (and the last r4 member at the representative third), and its stored row fields must all equal the representative's. This checks, on every build, the left-class assumption the fibers rely on at actual lefts, entries and adjustments.
-    for pending in &pending_rows {
-        let (label3, admitted3) = match pending.boundary3 {
-            Some(token) => (labels.token(index, token), vec![token]),
+    // The member cross-check, and the emission of the class rows into the row log: for every multi-member row, the last admitted third-slot member is re-traced at the row's actual left (and the last r4 member at the representative third), and its stored row fields must all equal the representative's. This checks, on every build, the left-class assumption the fibers rely on at actual lefts, entries and adjustments.
+    for (position, row) in pending.rows.iter().enumerate() {
+        let left_context = lefts.get(row.left);
+        let token = row.token.token(index);
+        let right1 = row.right1.token(index);
+        let right2 = row.right2.token(index);
+        let traced_r3_member = row.traced_r3_member.token(index);
+        let traced_r4_member = row.traced_r4_member.map(|code| code.token(index));
+        let members4 = row.members4.map(|list| lists.get(list));
+        let (label3, admitted3) = match row.boundary3 {
+            Some(code) => {
+                let boundary = code.token(index);
+                (labels.token(index, boundary), vec![boundary])
+            }
             None => {
-                let mut members: Vec<RightToken> = pending.admitted3.iter().copied().collect();
+                let mut members: Vec<RightToken> = pending
+                    .admitted(PendingId::at(position))
+                    .into_iter()
+                    .map(|ordinal| RightToken::Letter(index.rune_at_ordinal(ordinal), ordinal))
+                    .collect();
                 members.sort_by(|left, right| {
                     index
                         .resolve(left.letter())
@@ -754,7 +1600,7 @@ fn enumerate_from_seeds<'i>(
                 )
             }
         };
-        let label4 = match pending.members4.as_deref() {
+        let label4 = match members4 {
             None => labels.intern(NA_LABEL),
             Some(group) if group[0].kind() != TokenKind::Letter => labels.token(index, group[0]),
             Some(group) => labels.intern_owned(deep_label(
@@ -766,100 +1612,90 @@ fn enumerate_from_seeds<'i>(
                     .collect(),
             )),
         };
+        let [input_label, left_label, right1_label] = log.base(row.base);
         let window_key: WindowKey = [
-            pending.input_label,
-            pending.left_label,
-            labels.token(index, pending.right1),
-            labels.token(index, pending.right2),
+            input_label,
+            left_label,
+            right1_label,
+            labels.token(index, right2),
             label3,
             label4,
         ];
-        let traced_r4_member = pending.traced_r4_member.unwrap_or(EDGE);
-        if pending.boundary3.is_none() && admitted3.len() > 1 {
-            let last3 = cross_check_member(&admitted3, pending.traced_r3_member);
+        if row.boundary3.is_none() && admitted3.len() > 1 {
+            let last3 = cross_check_member(&admitted3, traced_r3_member);
             let cross_check = engine
                 .transition_trace(
-                    &pending.left_context,
-                    pending.token,
-                    Slots::new(pending.right1, pending.right2, last3, traced_r4_member),
+                    left_context,
+                    token,
+                    Slots::new(right1, right2, last3, traced_r4_member.unwrap_or(EDGE)),
                 )
                 .map_err(error_message)?;
-            if !pending.matches_stored_fields(&settled_pool, &notes, &cross_check) {
+            if !row.matches_stored_fields(&settled_pool, &notes, &cross_check) {
                 return Err(member_mismatch(
                     index,
                     &labels.spelled(&window_key),
                     last3,
-                    pending,
-                    settled_pool.get(pending.settled),
-                    notes.get(pending.provenance),
+                    row,
+                    settled_pool.get(row.settled()),
+                    notes.get(row.provenance()),
                     &cross_check,
                 ));
             }
         }
-        if let Some(group) = pending.members4.as_deref()
+        if let Some(group) = members4
             && group[0].kind() == TokenKind::Letter
             && group.len() > 1
         {
             let last4 = group[group.len() - 1];
             let cross_check = engine
                 .transition_trace(
-                    &pending.left_context,
-                    pending.token,
-                    Slots::new(
-                        pending.right1,
-                        pending.right2,
-                        pending.traced_r3_member,
-                        last4,
-                    ),
+                    left_context,
+                    token,
+                    Slots::new(right1, right2, traced_r3_member, last4),
                 )
                 .map_err(error_message)?;
-            if !pending.matches_stored_fields(&settled_pool, &notes, &cross_check) {
+            if !row.matches_stored_fields(&settled_pool, &notes, &cross_check) {
                 return Err(member_mismatch(
                     index,
                     &labels.spelled(&window_key),
                     last4,
-                    pending,
-                    settled_pool.get(pending.settled),
-                    notes.get(pending.provenance),
+                    row,
+                    settled_pool.get(row.settled()),
+                    notes.get(row.provenance()),
                     &cross_check,
                 ));
             }
         }
-        let shard = transitions.shard_mut(&window_key);
-        if shard.contains_key(&window_key) {
+        let class_row = LogRow::new(
+            [window_key[3], window_key[4], window_key[5]],
+            row.settled(),
+            row.provenance(),
+            row.flags,
+        );
+        if !log.append_new(row.base, class_row, row.left_settled()) {
             return Err(format!(
                 "deep-class window {:?} collides with an existing row",
                 labels.spelled(&window_key)
             ));
         }
-        shard.insert(
-            window_key,
-            Row {
-                settled: pending.settled,
-                left_settled: pending.left_settled,
-                provenance: pending.provenance,
-                prospect: pending.prospect,
-                joint: pending.joint,
-            },
-        );
     }
 
     if let Some(lines) = cache_stats.as_mut() {
-        lines.push(
-            CacheSize::of("transitions", transitions.len(), transitions.capacity()).line(&config),
-        );
-        lines.push(CacheSize::of("seen", seen.len(), seen.capacity()).line(&config));
+        lines.push(format!(
+            "[c] {config} row_log bytes={} fragments={} revisited_bases={}",
+            log.bytes(),
+            log.fragments.len(),
+            log.revisits
+        ));
+        lines.push(CacheSize::of("seen", items.len(), items.capacity()).line(&config));
         lines.push(
             CacheSize::of("settled_ids", settled_pool.len(), settled_pool.capacity()).line(&config),
         );
         lines.push(CacheSize::of("notes", notes.len(), notes.capacity()).line(&config));
         lines.push(CacheSize::of("labels", labels.len(), labels.capacity()).line(&config));
         lines.push(
-            CacheSize::of("pending_rows", pending_rows.len(), pending_rows.capacity())
+            CacheSize::of("pending_rows", pending.rows.len(), pending.rows.capacity())
                 .line(&config),
-        );
-        lines.push(
-            CacheSize::of("pending_ids", pending_ids.len(), pending_ids.capacity()).line(&config),
         );
         for size in engine.cache_stats() {
             lines.push(size.line(&config));
@@ -897,11 +1733,13 @@ fn enumerate_from_seeds<'i>(
             resident_kb()
         ));
     }
-    // Nothing reads these past the stats above, so they are freed here instead of at the return, and everything from here to the return runs without them: the snapshot build, the memo write, the drain, the sort and the partition check.
+    // Nothing reads these past the stats above, so they are freed here instead of at the return, and everything from here to the return runs without them: the snapshot build, the memo write, the drain, the sort and the partition check. The row log keeps its chains and fragment headers for the drain.
     drop(worklist);
-    drop(seen);
-    drop(pending_rows);
-    drop(pending_ids);
+    drop(items);
+    drop(pending);
+    drop(lists);
+    drop(lefts);
+    log.forget_bases();
 
     // Taken here, before the memos are released: the drain, the sort and the partition check that follow do not change what the product reports as fired, and the partition check's re-traces are left out of it. The cross-check traces above are included.
     let cited_provenance = engine
@@ -960,27 +1798,7 @@ fn enumerate_from_seeds<'i>(
         .collect();
     // Rank tuples compare in the same order as the label texts, while the rows keep their product-local ids.
     let ranks = labels.ranks();
-    // One shard at a time, so each shard's table is freed once its rows have moved.
-    let mut rows: Vec<TransitionRow> = Vec::with_capacity(transitions.len());
-    for shard in transitions.into_shards() {
-        rows.extend(shard.into_iter().map(|(key, row)| {
-            let [input_glyph, left, right1, right2, right3, right4] = key;
-            TransitionRow {
-                input_glyph,
-                left,
-                right1,
-                right2,
-                right3,
-                right4,
-                settled: row.settled,
-                left_settled: row.left_settled,
-                provenance: row.provenance,
-                prospect: row.prospect,
-                joint: row.joint,
-            }
-        }));
-    }
-    rows.sort_unstable_by_key(|row| row.labels().map(|label| ranks[label.0 as usize]));
+    let rows = log.drain(&ranks);
     if let Some(lines) = cache_stats.as_mut() {
         lines.push(format!(
             "[c] {config} resident_after_sort kb={}",
@@ -1034,17 +1852,11 @@ fn enumerate_from_seeds<'i>(
 }
 
 /// The seeds the fixpoint starts from: every letter against every boundary left, boundary-major, unrestricted. The worklist pops them from the back.
-fn contract_seeds(options: &WindowOptions<'_>) -> Vec<Item> {
+fn contract_seeds(options: &WindowOptions<'_>) -> Vec<Seed> {
     let mut seeds = Vec::with_capacity(SEED_KINDS.len() * options.letters.len());
     for kind in SEED_KINDS {
         for &rune in &options.letters {
-            seeds.push(Item {
-                left: LeftContext::boundary(kind),
-                rune,
-                right1: None,
-                right2_allowed: None,
-                right3_allowed: None,
-            });
+            seeds.push((kind, rune));
         }
     }
     seeds
@@ -1232,8 +2044,8 @@ fn member_mismatch(
         stored_row_text(
             index,
             expected_settled,
-            i64::from(expected.prospect),
-            expected.joint,
+            i64::from(expected.flags.prospect()),
+            expected.flags.joint(),
             expected_notes
         )
     )
@@ -1656,12 +2468,381 @@ mod tests {
     /// The two heights the ordinary fixtures join at.
     const HEIGHTS: &[(&str, &str)] = &[("baseline", "0"), ("x-height", "5")];
 
-    /// A row is fourteen bytes of fields padded to sixteen, and its optional left index takes four bytes whether present or absent. A `TransitionRow` adds six four-byte labels and is padded to forty.
+    /// A row of the row log is eleven bytes of fields padded to twelve, and a chunk holds the rows 64 KiB holds. A fragment header is twenty-four bytes and a base index entry sixteen, beside its control byte. A pending class-grain row is forty-eight bytes with its first `admitted3` word, and the worklist's stack holds four bytes an item. A product row's optional left index takes four bytes whether present or absent, and a `TransitionRow` adds six four-byte labels and is padded to forty.
     #[test]
     fn a_row_is_its_fields_and_no_padding() {
-        assert_eq!(std::mem::size_of::<Option<SettledId>>(), 4);
-        assert_eq!(std::mem::size_of::<Row>(), 16);
-        assert_eq!(std::mem::size_of::<TransitionRow>(), 40);
+        assert_eq!(size_of::<LogRow>(), 12);
+        assert_eq!(ROWS_PER_CHUNK, 5461);
+        assert_eq!(size_of::<Fragment>(), 24);
+        assert_eq!(size_of::<(BaseKey, FragmentId)>(), 16);
+        assert_eq!(size_of::<PendingDeepRow>(), 48);
+        assert_eq!(size_of::<ItemId>(), 4);
+        assert_eq!(size_of::<Option<SettledId>>(), 4);
+        assert_eq!(size_of::<TransitionRow>(), 40);
+    }
+
+    /// One row of the row log behind `slots`, with provenance zero, no prospect and no joint tiebreak.
+    fn log_row(slots: [Label; 3], settled: usize) -> LogRow {
+        LogRow::new(
+            slots,
+            SettledId::at(settled),
+            NotesId::at(0),
+            Flags::new(0, false),
+        )
+    }
+
+    /// A pending row of the base whose first fragment is `base`, found there by `slot`, with every field the row log does not read at its first id.
+    fn pending_row(
+        base: FragmentId,
+        next: Option<PendingId>,
+        slot: PendingSlot,
+        left_settled: Option<SettledId>,
+    ) -> PendingDeepRow {
+        PendingDeepRow {
+            admitted3: 0,
+            base,
+            next,
+            identity3: slot.1,
+            members4: slot.2,
+            left: LeftId::at(0),
+            token: TokenCode::of(EDGE, "a test row's token"),
+            right1: TokenCode::of(EDGE, "a test row's right1"),
+            right2: slot.0,
+            boundary3: None,
+            traced_r3_member: TokenCode::of(EDGE, "a test row's third member"),
+            traced_r4_member: None,
+            settled: ShortSettled::of(SettledId::at(0), "a test row's settled record"),
+            left_settled: left_settled.map(|id| ShortSettled::of(id, "a test row's left")),
+            provenance: ShortNotes::of(NotesId::at(0), "a test row's provenance"),
+            flags: Flags::new(0, false),
+        }
+    }
+
+    /// A pass over a base no item reached before reads nothing back, and every window it reaches is new. A revisit reads the base's rows and pending rows back as they stood when it began: a window or pending row the base holds from the same left state is a hit, the same one from another left state is refused with the state it was recorded from, which the enumeration reports as `partition_error`, and one the base does not hold is a miss, whose row a later revisit finds in a fragment chained from the base's last one.
+    #[test]
+    fn a_revisited_base_reads_its_rows_back_and_appends_its_misses() {
+        let mut labels = LabelPool::default();
+        let [pea, edge, tea, may, na, space] =
+            ["qsPea", "#EDGE", "qsTea", "qsMay", "#NA", "space"].map(|text| labels.intern(text));
+        let mut pending = PendingRows::new(3);
+        let mut log = RowLog::default();
+        let base = [pea, edge, tea];
+        let left = Some(SettledId::at(4));
+        let held_slot: PendingSlot = (
+            TokenCode::of(EDGE, "a test slot's right2"),
+            ListId::at(0),
+            None,
+        );
+        let other_slot: PendingSlot = (held_slot.0, ListId::at(1), None);
+
+        let mut first = log.visit(base, left, &pending);
+        assert!(first.local.is_none());
+        assert_eq!(first.recorded(&[may, na, na], left), Ok(None));
+        log.append(&mut first.cursor, log_row([may, na, na], 1), left);
+        log.append(&mut first.cursor, log_row([edge, na, na], 2), left);
+        let held = pending.push(
+            pending_row(
+                first.cursor.first,
+                log.pending_head(first.cursor.first),
+                held_slot,
+                left,
+            ),
+            &[],
+        );
+        log.set_pending_head(first.cursor.first, held);
+        // Another base of the same input between the two passes, so the revisit cannot extend the base's fragment.
+        let mut elsewhere = log.visit([pea, edge, may], None, &pending);
+        log.append(&mut elsewhere.cursor, log_row([space, na, na], 3), None);
+
+        let mut second = log.visit(base, left, &pending);
+        assert_eq!(
+            second.recorded(&[may, na, na], left),
+            Ok(Some(SettledId::at(1)))
+        );
+        assert_eq!(second.recorded(&[may, na, na], None), Err(left));
+        assert_eq!(second.recorded(&[space, na, na], left), Ok(None));
+        assert_eq!(second.pending(&held_slot, left, &pending), Ok(Some(held)));
+        assert_eq!(second.pending(&held_slot, None, &pending), Err(left));
+        assert_eq!(second.pending(&other_slot, left, &pending), Ok(None));
+        log.append(&mut second.cursor, log_row([space, na, na], 3), left);
+        assert_eq!(
+            log.fragments.len(),
+            3,
+            "the miss opens a fragment of the base past the other base's"
+        );
+
+        let third = log.visit(base, left, &pending);
+        assert_eq!(
+            third.recorded(&[space, na, na], left),
+            Ok(Some(SettledId::at(3)))
+        );
+        assert_eq!(third.local.as_ref().map(|local| local.rows.len()), Some(3));
+        assert_eq!(log.revisits, 2);
+        let rows = log.drain(&labels.ranks());
+        assert_eq!(
+            rows.iter()
+                .filter(|row| row.right1 == tea && row.left_settled == left)
+                .count(),
+            3
+        );
+    }
+
+    /// The pending walk appends a class row to its base only when none of the base's rows carries the row's key, whether a label row or a class row appended before it holds that key, and the enumeration reports a refusal as a collision. A row under a new key joins the base.
+    #[test]
+    fn a_class_row_whose_key_its_base_holds_collides() {
+        let mut labels = LabelPool::default();
+        let [pea, edge, tea, may, na] =
+            ["qsPea", "#EDGE", "qsTea", "qsMay", "#NA"].map(|text| labels.intern(text));
+        let pending = PendingRows::new(3);
+        let mut log = RowLog::default();
+        let mut visit = log.visit([pea, edge, tea], None, &pending);
+        log.append(&mut visit.cursor, log_row([tea, may, na], 1), None);
+        let first = visit.cursor.first;
+        assert!(!log.append_new(first, log_row([tea, may, na], 2), None));
+        assert!(log.append_new(first, log_row([tea, pea, na], 2), None));
+        assert!(!log.append_new(first, log_row([tea, pea, na], 2), None));
+        assert!(log.append_new(first, log_row([tea, pea, may], 2), None));
+        assert_eq!(log.drain(&labels.ranks()).len(), 3);
+    }
+
+    /// The drain decodes each input's chain in input-rank order and sorts each input's rows as one slice, which is the product's whole key order. Here the rows go to four bases of two inputs in turn and then to one base past a chunk's capacity, under labels interned in an order unlike their texts', and the drain returns every appended row in the order of its key's texts.
+    #[test]
+    fn the_drain_returns_every_row_in_key_order() {
+        let mut labels = LabelPool::default();
+        let slots: Vec<Label> = (0..20)
+            .rev()
+            .map(|slot| labels.intern(&format!("s{slot:02}")))
+            .collect();
+        let [tea, pea, space, edge] =
+            ["qsTea", "qsPea", "space", "#EDGE"].map(|text| labels.intern(text));
+        let bases: [BaseKey; 4] = [
+            [tea, space, slots[0]],
+            [tea, edge, slots[0]],
+            [pea, space, slots[1]],
+            [pea, edge, slots[1]],
+        ];
+        let lefts = [None, Some(SettledId::at(9)), None, Some(SettledId::at(8))];
+        let pending = PendingRows::new(3);
+        let mut log = RowLog::default();
+        let mut visits: Vec<Visit> = bases
+            .iter()
+            .zip(lefts)
+            .map(|(base, left)| log.visit(*base, left, &pending))
+            .collect();
+        let mut expected: Vec<TransitionRow> = Vec::new();
+        for step in 0..ROWS_PER_CHUNK + 400 {
+            let which = if step < 400 { step % 4 } else { 1 };
+            let [right2, right3, right4] = [
+                slots[step / 400 % 20],
+                slots[step / 20 % 20],
+                slots[step % 20],
+            ];
+            let settled = SettledId::at(step % 7);
+            let provenance = NotesId::at(step % 3);
+            let flags = Flags::new(i64::from(step % 2 == 1), step % 5 == 0);
+            log.append(
+                &mut visits[which].cursor,
+                LogRow::new([right2, right3, right4], settled, provenance, flags),
+                lefts[which],
+            );
+            let [input_glyph, left, right1] = bases[which];
+            expected.push(TransitionRow {
+                input_glyph,
+                left,
+                right1,
+                right2,
+                right3,
+                right4,
+                settled,
+                left_settled: lefts[which],
+                provenance,
+                prospect: flags.prospect(),
+                joint: flags.joint(),
+            });
+        }
+        assert!(log.chains.iter().any(|chain| chain.chunks.len() > 1));
+        expected.sort_by(|one, other| one.key(&labels).cmp(&other.key(&labels)));
+        assert_eq!(log.drain(&labels.ranks()), expected);
+    }
+
+    /// One capacity case: the text its panic carries, and the narrowing that panics.
+    type CapacityCase = (&'static str, Box<dyn Fn()>);
+
+    /// Each field the row log, the pending rows and the worklist narrow panics past its capacity with a message naming the field, instead of wrapping to a low id, as `TraceSettledId` panics past its range (#266).
+    #[test]
+    fn a_narrowed_field_past_its_capacity_panics_naming_the_field() {
+        let index = deep_alphabet();
+        let pea = fixtures::sym(&index, "qsPea");
+        let fits = Label(0);
+        let past = Label(65_535);
+        let settled = SettledId::at(0);
+        let notes = NotesId::at(0);
+        let flags = Flags::new(0, false);
+        let four_bytes = u32::MAX as usize;
+        let letter = move |ordinal: u16| {
+            RightToken::Letter(
+                pea,
+                Ordinal::new(ordinal).expect("an ordinal is one or more"),
+            )
+        };
+        let cases: Vec<CapacityCase> = vec![
+            (
+                "a row's right2 label 65535",
+                Box::new(move || {
+                    let _ = LogRow::new([past, fits, fits], settled, notes, flags);
+                }),
+            ),
+            (
+                "a row's right3 label 65535",
+                Box::new(move || {
+                    let _ = LogRow::new([fits, past, fits], settled, notes, flags);
+                }),
+            ),
+            (
+                "a row's right4 label 65535",
+                Box::new(move || {
+                    let _ = LogRow::new([fits, fits, past], settled, notes, flags);
+                }),
+            ),
+            (
+                "a row's settled record 65535",
+                Box::new(move || {
+                    let _ = LogRow::new([fits; 3], SettledId::at(65_535), notes, flags);
+                }),
+            ),
+            (
+                "a row's provenance 65535",
+                Box::new(move || {
+                    let _ = LogRow::new([fits; 3], settled, NotesId::at(65_535), flags);
+                }),
+            ),
+            (
+                "a fragment's input label 65535",
+                Box::new(move || {
+                    let _ = Fragment::new([past, fits, fits], None, 0);
+                }),
+            ),
+            (
+                "a fragment's left label 65535",
+                Box::new(move || {
+                    let _ = Fragment::new([fits, past, fits], None, 0);
+                }),
+            ),
+            (
+                "a fragment's right1 label 65535",
+                Box::new(move || {
+                    let _ = Fragment::new([fits, fits, past], None, 0);
+                }),
+            ),
+            (
+                "a fragment's left_settled record 65535",
+                Box::new(move || {
+                    let _ = Fragment::new([fits; 3], Some(SettledId::at(65_535)), 0);
+                }),
+            ),
+            (
+                "a fragment's chain position 4294967296",
+                Box::new(move || {
+                    let _ = Fragment::new([fits; 3], None, four_bytes + 1);
+                }),
+            ),
+            (
+                "a pending row's right1 token names rune ordinal 65531",
+                Box::new(move || {
+                    let _ = TokenCode::of(letter(65_531), "a pending row's right1 token");
+                }),
+            ),
+            (
+                "left state id 65535",
+                Box::new(|| {
+                    let _ = LeftId::at(65_535);
+                }),
+            ),
+            (
+                "fragment id 4294967295",
+                Box::new(move || {
+                    let _ = FragmentId::at(four_bytes);
+                }),
+            ),
+            (
+                "pending row id 4294967295",
+                Box::new(move || {
+                    let _ = PendingId::at(four_bytes);
+                }),
+            ),
+            (
+                "member list id 4294967295",
+                Box::new(move || {
+                    let _ = ListId::at(four_bytes);
+                }),
+            ),
+            (
+                "worklist item id 4294967295",
+                Box::new(move || {
+                    let _ = ItemId::at(four_bytes);
+                }),
+            ),
+            (
+                "a prospect is a junction count, zero or one",
+                Box::new(|| {
+                    let _ = Flags::new(2, false);
+                }),
+            ),
+            (
+                "admitted3 holds modeled runes' ordinals, and 65 is past the 64",
+                Box::new(move || {
+                    let mut rows = PendingRows::new(64);
+                    let slot = (TokenCode::of(EDGE, "right2"), ListId::at(0), None);
+                    let row = rows.push(pending_row(FragmentId::at(0), None, slot, None), &[]);
+                    rows.admit(row, &[letter(65)]);
+                }),
+            ),
+        ];
+        for (field, case) in cases {
+            let payload =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(case)).expect_err(field);
+            let message = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap_or_default();
+            assert!(
+                message.contains(field),
+                "{message:?} does not name {field:?}"
+            );
+        }
+    }
+
+    /// Past sixty-four runes a pending row's `admitted3` takes words of its own beyond the one the row holds: an item ORs each ordinal into whichever word holds it, in place, a second row's words stay its own, and each set reads back every ordinal it was given, ascending, with a boundary member left out.
+    #[test]
+    fn admitted3_widens_past_sixty_four_runes() {
+        let index = deep_alphabet();
+        let pea = fixtures::sym(&index, "qsPea");
+        let letter = |ordinal: u16| {
+            RightToken::Letter(
+                pea,
+                Ordinal::new(ordinal).expect("an ordinal is one or more"),
+            )
+        };
+        let slot: PendingSlot = (TokenCode::of(EDGE, "right2"), ListId::at(0), None);
+        let mut rows = PendingRows::new(130);
+        let first = rows.push(
+            pending_row(FragmentId::at(0), None, slot, None),
+            &[letter(70), letter(1)],
+        );
+        let second = rows.push(
+            pending_row(FragmentId::at(0), None, slot, None),
+            &[letter(130), EDGE],
+        );
+        rows.admit(first, &[letter(65), letter(64), letter(70)]);
+        let ordinals = |id| {
+            rows.admitted(id)
+                .iter()
+                .map(|ordinal| ordinal.get())
+                .collect::<Vec<u16>>()
+        };
+        assert_eq!(ordinals(first), [1, 64, 65, 70]);
+        assert_eq!(ordinals(second), [130]);
     }
 
     /// The registry the fixpoint fixtures share: `fixtures::four_family_registry` with the height table passed in, so a test can declare two heights at one y beside the ordinary heights.
@@ -2523,7 +3704,7 @@ mod tests {
     }
 
     /// The contract seeds in reverse order, so the seed production pops first is popped last here.
-    fn reversed_seeds(options: &WindowOptions<'_>) -> Vec<Item> {
+    fn reversed_seeds(options: &WindowOptions<'_>) -> Vec<Seed> {
         let mut seeds = contract_seeds(options);
         seeds.reverse();
         seeds
