@@ -1311,41 +1311,71 @@ class TestTheMemoryDerivedThreadDefault:
         budget = 18_000_000_000 - memory_budget.os_reserve_bytes(total_bytes=18_000_000_000) - fixed
         assert every == budget // kernel_exec.DELTA_SLOT_BYTES
 
-    def test_deltas_are_started_from_scratch_beside_default_while_their_peaks_fit(self):
-        """`table_build_booking_bytes` books each delta started from scratch beside `default` at `SCRATCH_PEAK_BYTES` less its parked product in place of a delta's slot, and books such a build at no less than its start, where `default` and each of them hold a `SCRATCH_PEAK_BYTES` together; the count is capped at the delta count and one less than the width, as the crate caps it. `deltas_from_scratch` is the largest count up to the delta count whose booking fits the memory less the reserve and what runs beside, so over a range of invented machines it never shrinks as the memory grows and covers every count from none to every delta. A from-scratch build starts nothing beside `default`."""
+    def test_deltas_are_started_from_scratch_beside_default_while_their_peaks_fit(self, monkeypatch):
+        """`table_build_booking_bytes` books each delta started from scratch beside `default` at `SCRATCH_PEAK_BYTES` less its parked product in place of a delta's slot, and books such a build at no less than its start, where each of them holds a `SCRATCH_PEAK_BYTES` and `default` an `UNCAPPED_SCRATCH_PEAK_BYTES` while fewer of them start from scratch than there are deltas, since a delta then reads `default`'s whole memo, or one more `SCRATCH_PEAK_BYTES` once every delta does; the count is capped at the delta count and one less than the width, as the crate caps it. The start is checked with the uncapped term as it stands and raised far enough above the capped one to bind, so the two terms cannot stand in for each other. `deltas_from_scratch` is the largest count up to the delta count whose booking fits the memory less the reserve and what runs beside, so over a range of invented machines it never shrinks as the memory grows and covers every count whose booking is below the booking of every larger count, which with the uncapped term as it stands is every count from none to every delta. With the uncapped term raised, a build that starts every delta from scratch books less than one that starts some but not all of them, so the count goes from none straight to every delta, which a count that stopped at the first booking that misses would never reach. A from-scratch build starts nothing beside `default`."""
         fixed = kernel_exec.DEFAULT_MEMO_BYTES + CONFIG_COUNT * kernel_exec.PARKED_FOLD_BYTES
         deltas = CONFIG_COUNT - 1
         slot = kernel_exec.SCRATCH_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES
-        for count in range(CONFIG_COUNT + 1):
-            taken = min(count, deltas)
-            wave = (
-                fixed
-                + taken * slot
-                + (deltas - taken) * kernel_exec.DELTA_SLOT_BYTES
-                + kernel_exec.FOLD_PREPARATION_BYTES
-            )
-            assert kernel_exec.table_build_booking_bytes(
-                CONFIG_COUNT, configs=CONFIG_COUNT, scratch_beside_default=count
-            ) == (max(wave, (1 + taken) * kernel_exec.SCRATCH_PEAK_BYTES) if taken else wave)
+        for raised in (0, 20_000_000_000):
+            with monkeypatch.context() as patched:
+                patched.setattr(
+                    kernel_exec,
+                    "UNCAPPED_SCRATCH_PEAK_BYTES",
+                    kernel_exec.UNCAPPED_SCRATCH_PEAK_BYTES + raised,
+                )
+                for count in range(CONFIG_COUNT + 1):
+                    taken = min(count, deltas)
+                    wave = (
+                        fixed
+                        + taken * slot
+                        + (deltas - taken) * kernel_exec.DELTA_SLOT_BYTES
+                        + kernel_exec.FOLD_PREPARATION_BYTES
+                    )
+                    lead = (
+                        kernel_exec.SCRATCH_PEAK_BYTES
+                        if taken == deltas
+                        else kernel_exec.UNCAPPED_SCRATCH_PEAK_BYTES
+                    )
+                    assert kernel_exec.table_build_booking_bytes(
+                        CONFIG_COUNT, configs=CONFIG_COUNT, scratch_beside_default=count
+                    ) == (max(wave, lead + taken * kernel_exec.SCRATCH_PEAK_BYTES) if taken else wave), (
+                        raised,
+                        count,
+                    )
+                seen = []
+                for total in range(16_000_000_000, 32_000_000_000, 100_000_000):
+                    usable = total - memory_budget.os_reserve_bytes(total_bytes=total)
+                    count = kernel_exec.deltas_from_scratch(
+                        CONFIG_COUNT, configs=CONFIG_COUNT, total_bytes=total
+                    )
+                    fits = [
+                        taken
+                        for taken in range(CONFIG_COUNT)
+                        if kernel_exec.table_build_booking_bytes(
+                            CONFIG_COUNT, configs=CONFIG_COUNT, scratch_beside_default=taken
+                        )
+                        <= usable
+                    ]
+                    assert count == max(fits, default=0), (raised, total)
+                    assert not seen or count >= seen[-1], (raised, total)
+                    seen.append(count)
+                if raised:
+                    assert set(seen) == {0, deltas}
+                else:
+                    booked = [
+                        kernel_exec.table_build_booking_bytes(
+                            CONFIG_COUNT, configs=CONFIG_COUNT, scratch_beside_default=taken
+                        )
+                        for taken in range(CONFIG_COUNT)
+                    ]
+                    assert {
+                        taken
+                        for taken in range(CONFIG_COUNT)
+                        if all(booked[taken] < later for later in booked[taken + 1 :])
+                    } <= set(seen)
         assert kernel_exec.table_build_booking_bytes(
             1, configs=CONFIG_COUNT, scratch_beside_default=deltas
         ) == kernel_exec.table_build_booking_bytes(1, configs=CONFIG_COUNT)
-        seen = []
-        for total in range(16_000_000_000, 32_000_000_000, 100_000_000):
-            usable = total - memory_budget.os_reserve_bytes(total_bytes=total)
-            count = kernel_exec.deltas_from_scratch(CONFIG_COUNT, configs=CONFIG_COUNT, total_bytes=total)
-            fits = [
-                taken
-                for taken in range(CONFIG_COUNT)
-                if kernel_exec.table_build_booking_bytes(
-                    CONFIG_COUNT, configs=CONFIG_COUNT, scratch_beside_default=taken
-                )
-                <= usable
-            ]
-            assert count == max(fits, default=0), total
-            assert not seen or count >= seen[-1], total
-            seen.append(count)
-        assert set(range(CONFIG_COUNT)) <= set(seen)
         roomy = 1_000_000_000_000
         usable = roomy - memory_budget.os_reserve_bytes(total_bytes=roomy)
         whole = kernel_exec.table_build_booking_bytes(CONFIG_COUNT, configs=CONFIG_COUNT)
@@ -1358,11 +1388,11 @@ class TestTheMemoryDerivedThreadDefault:
         assert kernel_exec.deltas_from_scratch(2, configs=2, total_bytes=roomy, from_scratch=True) == 0
 
     def test_a_build_without_default_s_memo_books_each_slot_from_scratch(self, monkeypatch, tmp_path):
-        """A set without `default` enumerates every configuration from scratch, so its slots book `SCRATCH_PEAK_BYTES` less a parked product, not a delta's slot, and its width is that division, capped at the configuration count. On an invented 15 GB machine a two-configuration build that shares `default`'s memo runs both at once, while the from-scratch division fits one. `run_m1.build_tables` asks for that width exactly when `default` is not in the set it builds."""
+        """A set without `default` enumerates every configuration from scratch, so its slots book `SCRATCH_PEAK_BYTES` less a parked product, not a delta's slot, and its width is that division, capped at the configuration count. On an invented 13 GB machine, whose 5.0 GB beside the reserve holds a two-configuration build that shares `default`'s memo at 4.6 GB, both run at once, while the from-scratch division fits one: the memo and two parked products leave 1.2 GB, and `SCRATCH_PEAK_BYTES` (2.1 GB) less a parked product (1.2 GB) is 0.9 GB a slot. `run_m1.build_tables` asks for that width exactly when `default` is not in the set it builds."""
         fixed = kernel_exec.DEFAULT_MEMO_BYTES + 2 * kernel_exec.PARKED_FOLD_BYTES
         slot = kernel_exec.SCRATCH_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES
         assert kernel_exec.table_build_booking_bytes(2, configs=2, from_scratch=True) == fixed + 2 * slot
-        total = 15_000_000_000
+        total = 13_000_000_000
         budget = total - memory_budget.os_reserve_bytes(total_bytes=total) - fixed
         assert budget // slot < 2 == kernel_exec.kernel_threads_default(configs=2, total_bytes=total)
         assert (

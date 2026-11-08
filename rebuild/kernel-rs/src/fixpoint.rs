@@ -14,10 +14,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::deep_slots::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
-use crate::engine::{CacheSize, Engine, EngineModes, MemoCeilings, Slots};
+use crate::engine::{CacheSize, Engine, EngineModes, MemoCeilings, Slots, TraceCeiling};
 use crate::error::SettleError;
 use crate::fiber::DeepFiberDeriver;
-use crate::hash::{HashMap, HashSet};
+use crate::hash::{Eviction, HashMap, HashSet};
 use crate::index::{Ordinal, SpecIndex};
 use crate::liveness::ProspectLiveness;
 use crate::memo::{MemoSnapshot, SharedMemo};
@@ -70,17 +70,24 @@ impl Default for EnumerationModes {
     }
 }
 
-/// The ceilings every table enumeration's engine holds its prospect and candidate memos to: 2^20 buckets for the prospect memo and 2^22 for the candidate memo, which hold 917,504 and 3,670,016 entries before they are cleared ([`MemoCeilings`]). Without them both memos grow with the windows an enumeration settles, beside the trace memo, which has no ceiling. What an engine holds with them is booked in `kernel_exec.SCRATCH_PEAK_BYTES` and `kernel_exec.DELTA_SLOT_BYTES`, whose comments carry the readings. `build-tables` takes `--prospect-memo-buckets=` and `--candidates-memo-buckets=` to set others.
+/// The ceilings every table enumeration's engine holds its prospect and candidate memos to: 2^20 buckets for the prospect memo and 2^22 for the candidate memo, which hold 917,504 and 3,670,016 entries before they are cleared ([`MemoCeilings`]). Without them both memos grow with the windows an enumeration settles, beside the trace memo, which [`TABLE_TRACE_CEILING`] holds. What an engine holds with them is booked in `kernel_exec.SCRATCH_PEAK_BYTES` and `kernel_exec.DELTA_SLOT_BYTES`, whose comments carry the readings. `build-tables` takes `--prospect-memo-buckets=` and `--candidates-memo-buckets=` to set others.
 pub const TABLE_MEMO_CEILINGS: MemoCeilings =
     MemoCeilings::new(1 << 20, 1 << 22).expect("both are powers of two of at least eight");
 
-/// What one enumeration may read before settling a window itself, whether it returns its own memo ([`crate::memo`]), and the ceilings on its engine's prospect and candidate memos. The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Without it, the enumeration releases its memo at the release point ([`enumerate_for_tables`]). `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot. `memo_ceilings` is [`TABLE_MEMO_CEILINGS`] unless the caller sets others, which changes no product or memo.
+/// The ceiling every table enumeration's engine holds its trace memo to when no other enumeration reads that memo ([`MemoAccess`]): 2^25 buckets, which hold 29,360,128 entries across the sixteen shards before a shard makes room by a clear, keeping the windows whose first slot alone is known, and leaving out the windows with a concrete third slot and a known fourth ([`TraceCeiling`]). An engine whose memo another enumeration reads keeps every window, since a reader's hits on a memo that forgets would be lost. What an engine holds with it is booked in `kernel_exec.SCRATCH_PEAK_BYTES`, and what one without it holds in `kernel_exec.UNCAPPED_SCRATCH_PEAK_BYTES`. `build-tables` takes `--trace-memo-buckets=`, `--trace-memo-entries=`, `--trace-memo-policy=` and `--no-trace-memo-skip` to set another.
+///
+/// No engine reaches it at 45 runes, where each holds 20.07M to 20.68M windows; it is set for 57 runes, and #618's first reading prices it at 45 by holding `default` alone to the entry counts that stand in at 45 for each ceiling at 57 (`--trace-memo-entries=`): 9.9M and 13.4M for this one, and 5.0M and 6.7M for half of it, 14,680,064 entries at 2^24 buckets, three runs each (`var/keep/ram-inventory/v4/change6-reading/`). Against eleven builds at this ceiling that evict nothing, this one's counts add 2.0 to 4.5 s and 3.7 to 8.9% to the instructions retired, and the smaller one's 7.4 to 9.9 s and 16.6 to 19.5%, a mean above this one's band by more than the band's width at both matched counts (6.7M against 13.4M, 5.0M against 9.9M), so this ceiling stands over the 3.7 GB across six engines at 57 runes that the smaller would save (#618's decision 1). Those 2.0 to 4.5 s are under the 4.2 to 13.9 s #618 priced the re-settling at, so no first-lookahead part table replaces it (its decision 2). A full shard is cleared rather than half-dropped because the half-drop reads 1.0 to 7.2 s slower at every ceiling at which a shard evicts, at 38 runes and at 45.
+pub const TABLE_TRACE_CEILING: TraceCeiling = TraceCeiling::new(1 << 25, Eviction::Clear, true)
+    .expect("a power of two of at least eight buckets a shard");
+
+/// What one enumeration may read before settling a window itself, whether it returns its own memo ([`crate::memo`]), and the ceilings on its engine's memos. The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Without it, the enumeration releases its memo at the release point ([`enumerate_for_tables`]). `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot. `memo_ceilings` is [`TABLE_MEMO_CEILINGS`] and `trace_ceiling` [`TABLE_TRACE_CEILING`] unless the caller sets others, which changes no product. The trace ceiling holds the engine's trace memo only when `keep_memo` is not set, so the memo another enumeration reads keeps every window.
 #[derive(Debug)]
 pub struct MemoAccess {
     pub shared_memos: Vec<SharedMemo>,
     pub keep_memo: bool,
     pub publish_verdicts: Vec<HashSet<Sym>>,
     pub memo_ceilings: MemoCeilings,
+    pub trace_ceiling: TraceCeiling,
 }
 
 impl Default for MemoAccess {
@@ -90,6 +97,7 @@ impl Default for MemoAccess {
             keep_memo: false,
             publish_verdicts: Vec::new(),
             memo_ceilings: TABLE_MEMO_CEILINGS,
+            trace_ceiling: TABLE_TRACE_CEILING,
         }
     }
 }
@@ -1011,7 +1019,7 @@ pub fn enumerate_for_tables<'i>(
     enumerate_from_seeds(index, features, modes, contract_seeds, cache_stats, access)
 }
 
-/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings (`memo_clears`), the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
+/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings and a trace memo shard made room at its own (`memo_clears`), the trace memo's capacity being its tables' level, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
 ///
 /// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_with_cache_stats(
@@ -1050,6 +1058,7 @@ fn enumerate_from_seeds<'i>(
             // The rows read only the settled triple, the prospect, the joint tiebreak and the notes, never how a trace was decided.
             explain_ranking: false,
             memo_ceilings: Some(access.memo_ceilings),
+            trace_ceiling: (!access.keep_memo).then_some(access.trace_ceiling),
             ..EngineModes::default()
         },
     );
@@ -1659,9 +1668,10 @@ fn enumerate_from_seeds<'i>(
             lines.push(size.line(&config));
         }
         lines.push(format!(
-            "[c] {config} memo_clears prospect={} candidates={}",
+            "[c] {config} memo_clears prospect={} candidates={} trace={}",
             engine.prospect_memo_clears(),
-            engine.candidates_memo_clears()
+            engine.candidates_memo_clears(),
+            engine.trace_memo_evictions()
         ));
         lines.push(format!(
             "[c] {config} elimination_text bytes={}",

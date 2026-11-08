@@ -1,4 +1,4 @@
-//! The crate's hash maps and sets: [`HashMap`] and [`HashSet`] are the standard library's tables on [`FastHasher`], a multiply-rotate hasher with an avalanche finalizer, in place of the standard `RandomState` SipHash. Every module imports the two aliases from here and constructs them through `Default`, so no call site names the hasher. [`ShardedMap`] splits one map over many of these tables, for a map large enough that one table's doubling would set a peak.
+//! The crate's hash maps and sets: [`HashMap`] and [`HashSet`] are the standard library's tables on [`FastHasher`], a multiply-rotate hasher with an avalanche finalizer, in place of the standard `RandomState` SipHash. Every module imports the two aliases from here and constructs them through `Default`, so no call site names the hasher. [`ShardedMap`] splits one map over many of these tables, for a map large enough that one table's doubling would set a peak, and [`ShardCeiling`] holds such a map's shards to one table size.
 //!
 //! The crate's map keys are small `Copy` structs of packed integers: `TraceKey`, `CandidatesKey` and `ProspectKey` in `engine.rs` (each a run of `u16` field ordinals and one packed word of token kinds), `Pointer` beside them, `Candidate` in `types.rs`, `Sym` in `model.rs`, `StanceId` in `index.rs`, the fixpoint's base keys, and the replay's window keys. The three memo keys write their fields packed into two to four words (their `Hash` impls in `engine.rs`), and the others' derived `Hash` makes one write per field. The tables they key are the largest the build holds (`--cache-stats` reports their sizes). The standard SipHash-1-3 has no integer fast path: every write goes through its byte buffer, it runs a compression round per eight bytes, and `finish` runs four more. Settlement pays that on every probe. This hasher folds each word into the state with one rotate, one xor and one multiply.
 //!
@@ -17,7 +17,15 @@ pub type HashSet<T, S = BuildHasherDefault<FastHasher>> = std::collections::Hash
 /// How many bits of a key's hash pick its [`ShardedMap`] shard: four, for sixteen shards, so a doubling allocates a sixteenth of what one table's would. More shards would not lower a peak further: each shard spends more of its growth in tables small enough for the macOS allocator's medium regions, which keep a freed table's pages in the resident size, though not in the footprint, while a freed large table goes back to the system at once. The comment on `SCRATCH_PEAK_BYTES` in `rebuild/pipeline/kernel_exec.py` has the readings.
 const SHARD_BITS: u32 = 4;
 
-/// A hash map split into [`HashMap`] shards by bits of each key's hash that no shard's table reads, so that it grows one shard at a time. A table grows by allocating one of twice as many buckets and moving every entry across before freeing the old one, so while it doubles it holds both, one and a half times the size it grows to; a table of millions of windows that doubles beside the memos near an enumeration's peak raises that peak by its whole new size. The shards take keys at one rate, since the bits that pick a shard are as uniform as the rest of the hash, so they reach each size at about the point one table holding every key would, one after another, and each doubling holds only one shard's two tables beside the others. [`ShardedMap::get`] and [`ShardedMap::insert`] pick the key's shard on each call; a caller that looks a key up and then inserts it can reach the shard once through [`ShardedMap::shard_mut`] and call the table's own methods there.
+/// How many bits of a key's hash a half-drop picks its bit from: the bits below the shard index, which within one shard are as uniform as the rest of the hash, where the shard index's own bits are the same for every key the shard holds.
+const HALF_DROP_BITS: u32 = 64 - 7 - SHARD_BITS;
+
+/// A key's hash under the crate's hasher, the one every [`HashMap`] computes.
+fn key_hash<K: Hash>(key: &K) -> u64 {
+    BuildHasherDefault::<FastHasher>::default().hash_one(key)
+}
+
+/// A hash map split into [`HashMap`] shards by bits of each key's hash that no shard's table reads, so that it grows one shard at a time. A table grows by allocating one of twice as many buckets and moving every entry across before freeing the old one, so while it doubles it holds both, one and a half times the size it grows to; a table of millions of windows that doubles beside the memos near an enumeration's peak raises that peak by its whole new size. The shards take keys at one rate, since the bits that pick a shard are as uniform as the rest of the hash, so they reach each size at about the point one table holding every key would, one after another, and each doubling holds only one shard's two tables beside the others. [`ShardedMap::get`] and [`ShardedMap::insert`] pick the key's shard on each call; a caller that looks a key up and then inserts it can reach the shard once through [`ShardedMap::shard_mut`] and call the table's own methods there. [`ShardedMap::insert_within`] inserts while holding every shard to a [`ShardCeiling`].
 #[derive(Clone, Debug)]
 pub struct ShardedMap<K, V> {
     shards: Vec<HashMap<K, V>>,
@@ -34,8 +42,7 @@ impl<K, V> Default for ShardedMap<K, V> {
 impl<K: Hash + Eq, V> ShardedMap<K, V> {
     /// The index of the shard that holds `key`: the bits just below the hash's top seven. Hashbrown picks a bucket with the low bits and compares the top seven as the control byte, so the keys one shard holds still spread over its buckets and its control bytes.
     fn index(key: &K) -> usize {
-        let hash = BuildHasherDefault::<FastHasher>::default().hash_one(key);
-        (hash >> (64 - 7 - SHARD_BITS)) as usize & ((1 << SHARD_BITS) - 1)
+        (key_hash(key) >> (64 - 7 - SHARD_BITS)) as usize & ((1 << SHARD_BITS) - 1)
     }
 
     /// The shard that holds `key`, or would hold it once inserted. Insert into it only `key` itself: a different key put there is in the wrong shard, so no later lookup finds it.
@@ -58,6 +65,30 @@ impl<K: Hash + Eq, V> ShardedMap<K, V> {
         self.shard_mut(&key).insert(key, value)
     }
 
+    /// Map `key` to `value` in its shard without growing the shard's table past `ceiling`, and return whether the shard made room first ([`ShardCeiling`]). `pinned` names the entries a shard keeps when it makes room.
+    pub fn insert_within(
+        &mut self,
+        key: K,
+        value: V,
+        ceiling: &mut ShardCeiling,
+        pinned: impl Fn(&K) -> bool,
+    ) -> bool {
+        let at = Self::index(&key);
+        let shard = &mut self.shards[at];
+        if shard.len() < shard.capacity().min(ceiling.shard_entries) {
+            shard.insert(key, value);
+            return false;
+        }
+        let full =
+            ceiling.levels[at] >= ceiling.shard_entries && shard.len() >= ceiling.shard_entries / 2;
+        if full {
+            ceiling.make_room(at, shard, &pinned);
+        }
+        shard.insert(key, value);
+        ceiling.levels[at] = ceiling.levels[at].max(shard.capacity());
+        full
+    }
+
     /// The shards' lengths added up.
     pub fn len(&self) -> usize {
         self.shards.iter().map(HashMap::len).sum()
@@ -76,6 +107,86 @@ impl<K: Hash + Eq, V> ShardedMap<K, V> {
     /// The shards, to be drained one at a time, so that a drain into another collection frees each shard's table once its entries have moved instead of holding every table until the last entry has.
     pub fn into_shards(self) -> std::vec::IntoIter<HashMap<K, V>> {
         self.shards.into_iter()
+    }
+}
+
+/// How a shard held to a [`ShardCeiling`] makes room when its next insert would double its table past the ceiling or take it past the ceiling's entries. Either way the table keeps its buckets, and the pinned entries stay while they fill less than half of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Eviction {
+    /// Empty the shard with `clear()` and put the pinned entries back.
+    Clear,
+    /// Drop the unpinned entries whose hash has one bit set, about half of them, by `retain`. The bit moves on at each of the shard's drops, so no entry outlives every drop. `retain` leaves most dropped entries' slots as tombstones, which an insert reuses but `capacity()` stops counting, so the shard makes room again once its inserts have used what the drop freed or have brought it back to its share of the ceiling's entries; a drop that frees no slot an insert can take and leaves the table at least half full is followed by a clear.
+    HalfDrop,
+}
+
+/// What holds every shard of a [`ShardedMap`] to one table size, for [`ShardedMap::insert_within`]. A shard's table doubles as usual until it reaches the ceiling's share of the buckets, and from then on an insert that would double it makes room first ([`Eviction`]). Hashbrown grows or rehashes a table only on an insert that finds no free slot, which is when `len()` equals `capacity()`, and then it rehashes in place, allocating nothing, when the table would stay at most half full, and doubles otherwise. So a shard at the ceiling makes room exactly when its `len()` equals its `capacity()` and it holds at least half of what its table holds. The trigger is `capacity()` and not a count of entries alone because a half-drop's tombstones lower `capacity()`: a shard that made room at a fixed count would run out of free slots below that count, and hashbrown would double it. A ceiling may also hold each shard to fewer entries than its share of the buckets holds, for a ceiling between two powers of two ([`ShardCeiling::holding`]): its table then doubles until it holds that share of the entries, and a shard that holds at least half that share makes room when its `len()` reaches the share or equals its `capacity()`, whichever comes first, so the count stops it below its table's room and the capacity trigger still keeps a table that tombstones fill first from doubling.
+#[derive(Clone, Debug)]
+pub struct ShardCeiling {
+    /// The most entries one shard holds at the ceiling: seven eighths of its share of the buckets, or its share of a lower entry count.
+    shard_entries: usize,
+    eviction: Eviction,
+    /// Each shard's table capacity as of its last growth or rehash, which `capacity()` stops reporting once a half-drop leaves tombstones.
+    levels: Vec<usize>,
+    /// How many times each shard has made room, which picks the bit its next half-drop reads.
+    drops: Vec<u32>,
+}
+
+impl ShardCeiling {
+    /// Whether `buckets` is a ceiling: a power of two that gives each shard at least eight buckets, the smallest table hashbrown fills to seven eighths.
+    pub const fn accepts(buckets: usize) -> bool {
+        buckets.is_power_of_two() && buckets >= 8 << SHARD_BITS
+    }
+
+    /// The most entries a map held to `buckets` buckets holds before a shard makes room: seven eighths of each shard's share.
+    pub const fn entries(buckets: usize) -> usize {
+        ((buckets >> SHARD_BITS) / 8 * 7) << SHARD_BITS
+    }
+
+    /// Whether a map held to `buckets` buckets may hold `entries` entries in all: at least one a shard, and no more than [`ShardCeiling::entries`] gives the buckets.
+    pub const fn holding(buckets: usize, entries: usize) -> bool {
+        Self::accepts(buckets) && entries >> SHARD_BITS > 0 && entries <= Self::entries(buckets)
+    }
+
+    /// The bookkeeping for a map of `buckets` buckets and `entries` entries in all, which [`ShardCeiling::holding`] must accept. Each shard holds `entries`' share, rounded down.
+    pub fn new(buckets: usize, entries: usize, eviction: Eviction) -> Self {
+        assert!(
+            Self::holding(buckets, entries),
+            "a ceiling gives each shard a power of two of at least eight buckets and at least one entry, and no more entries than its buckets hold"
+        );
+        Self {
+            shard_entries: entries >> SHARD_BITS,
+            eviction,
+            levels: vec![0; 1 << SHARD_BITS],
+            drops: vec![0; 1 << SHARD_BITS],
+        }
+    }
+
+    /// The shards' table capacities added up, each as of its last growth or rehash: what the map's tables hold room for. Once every shard has reached the ceiling, that is [`ShardCeiling::entries`] for a ceiling of the buckets' whole room, and for a lower entry count sixteen times the room of the smallest table that holds a shard's share.
+    pub fn level(&self) -> usize {
+        self.levels.iter().sum()
+    }
+
+    /// Make room in the shard at `at`, whose next insert would double its table or take it past its share of the entries: half-drop it when that frees a slot an insert can take or leaves the table under half full, and clear it otherwise, putting back the entries `pinned` names while they fill less than half the table.
+    fn make_room<K: Hash + Eq, V>(
+        &mut self,
+        at: usize,
+        shard: &mut HashMap<K, V>,
+        pinned: &impl Fn(&K) -> bool,
+    ) {
+        let drops = self.drops[at];
+        self.drops[at] += 1;
+        if self.eviction == Eviction::HalfDrop {
+            let bit = drops % HALF_DROP_BITS;
+            shard.retain(|key, _| pinned(key) || (key_hash(key) >> bit) & 1 == 0);
+            if shard.len() < shard.capacity() || shard.len() < self.shard_entries / 2 {
+                return;
+            }
+        }
+        let kept: Vec<(K, V)> = shard.extract_if(|key, _| pinned(key)).collect();
+        shard.clear();
+        if kept.len() < self.shard_entries / 2 {
+            shard.extend(kept);
+        }
     }
 }
 
@@ -228,6 +339,102 @@ mod tests {
         }
         drained.sort_unstable();
         assert_eq!(drained, (0..count).collect::<Vec<u32>>());
+    }
+
+    /// A map held to the smallest ceiling, sixteen shards of eight buckets, never lets a shard's table pass the seven entries eight buckets hold, under either eviction, and makes room many times over. With two keys a shard pinned, fewer than half of what a shard holds, every pinned key survives every eviction; with every key pinned, a shard drops them all rather than outgrow its table. Every key the map still holds maps to the value it was given.
+    #[test]
+    fn a_sharded_map_held_to_a_ceiling_never_outgrows_it_and_keeps_its_pinned_entries() {
+        let keys = 0..4096u32;
+        let mut per_shard = [0usize; 1 << SHARD_BITS];
+        let two_a_shard: HashSet<u32> = keys
+            .clone()
+            .filter(|key| {
+                let count = &mut per_shard[ShardedMap::<u32, u32>::index(key)];
+                *count += 1;
+                *count <= 2
+            })
+            .collect();
+        let every: HashSet<u32> = keys.clone().collect();
+        for eviction in [Eviction::Clear, Eviction::HalfDrop] {
+            for pinned in [&two_a_shard, &every] {
+                let mut ceiling = ShardCeiling::new(128, ShardCeiling::entries(128), eviction);
+                let mut map: ShardedMap<u32, u32> = ShardedMap::default();
+                let mut made_room = 0;
+                for key in keys.clone() {
+                    made_room += usize::from(map.insert_within(
+                        key,
+                        key * 3,
+                        &mut ceiling,
+                        |key| pinned.contains(key),
+                    ));
+                    assert!(
+                        map.shards.iter().all(|shard| shard.capacity() <= 7),
+                        "{eviction:?} after {key}"
+                    );
+                }
+                assert!(made_room > 100, "{eviction:?} made room {made_room} times");
+                assert_eq!(ceiling.level(), ShardCeiling::entries(128), "{eviction:?}");
+                if pinned.len() < every.len() {
+                    for key in pinned {
+                        assert_eq!(map.get(key), Some(&(key * 3)), "{eviction:?} kept {key}");
+                    }
+                }
+                for shard in map.into_shards() {
+                    for (key, value) in shard {
+                        assert_eq!(value, key * 3);
+                    }
+                }
+            }
+        }
+    }
+
+    /// A map held to fewer entries than its buckets hold, twenty a shard under tables of up to sixty-four buckets, never lets a shard hold more than twenty entries or its table grow past the twenty-eight that thirty-two buckets hold, the smallest table that holds twenty, under either eviction, and makes room many times over. Every pinned key survives every eviction, and every key the map still holds maps to the value it was given. An entry count of no entry a shard, or of more than the buckets hold, is no ceiling.
+    #[test]
+    fn a_sharded_map_held_to_an_entry_count_between_two_powers_of_two_stays_under_it() {
+        let keys = 0..4096u32;
+        let mut per_shard = [0usize; 1 << SHARD_BITS];
+        let pinned: HashSet<u32> = keys
+            .clone()
+            .filter(|key| {
+                let count = &mut per_shard[ShardedMap::<u32, u32>::index(key)];
+                *count += 1;
+                *count <= 2
+            })
+            .collect();
+        let entries = 20 << SHARD_BITS;
+        for eviction in [Eviction::Clear, Eviction::HalfDrop] {
+            let mut ceiling = ShardCeiling::new(1024, entries, eviction);
+            let mut map: ShardedMap<u32, u32> = ShardedMap::default();
+            let mut made_room = 0;
+            for key in keys.clone() {
+                made_room += usize::from(
+                    map.insert_within(key, key * 3, &mut ceiling, |key| pinned.contains(key)),
+                );
+                assert!(
+                    map.shards
+                        .iter()
+                        .all(|shard| shard.len() <= 20 && shard.capacity() <= 28),
+                    "{eviction:?} after {key}"
+                );
+            }
+            assert!(made_room > 100, "{eviction:?} made room {made_room} times");
+            assert_eq!(ceiling.level(), 28 << SHARD_BITS, "{eviction:?}");
+            for key in &pinned {
+                assert_eq!(map.get(key), Some(&(key * 3)), "{eviction:?} kept {key}");
+            }
+            for shard in map.into_shards() {
+                for (key, value) in shard {
+                    assert_eq!(value, key * 3);
+                }
+            }
+        }
+        assert!(ShardCeiling::holding(1024, 1 << SHARD_BITS));
+        assert!(!ShardCeiling::holding(1024, (1 << SHARD_BITS) - 1));
+        assert!(ShardCeiling::holding(1024, ShardCeiling::entries(1024)));
+        assert!(!ShardCeiling::holding(
+            1024,
+            ShardCeiling::entries(1024) + 1
+        ));
     }
 
     #[test]

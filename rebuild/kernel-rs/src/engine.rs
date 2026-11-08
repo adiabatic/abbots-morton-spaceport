@@ -15,7 +15,7 @@ use std::num::NonZeroU16;
 use std::rc::Rc;
 
 use crate::error::SettleError;
-use crate::hash::{HashMap, HashSet, ShardedMap};
+use crate::hash::{Eviction, HashMap, HashSet, ShardCeiling, ShardedMap};
 use crate::index::{Ordinal, Read, SpecIndex, StanceId};
 use crate::memo::{MemoSnapshot, SharedMemo, SnapshotVerdicts};
 use crate::model::{
@@ -169,6 +169,58 @@ impl MemoCeilings {
     }
 }
 
+/// The ceiling on an engine's trace memo: the buckets its sixteen shards' tables may reach together, a power of two that gives each shard at least eight ([`ShardCeiling::accepts`]); the entries they may hold together, what those buckets hold unless [`TraceCeiling::holding`] lowers it; how a shard at that ceiling makes room ([`Eviction`]); and whether the memo leaves out the windows with a concrete third slot and a known fourth ([`TraceKey::concrete_deep_slots`]). A shard keeps the windows whose first slot alone is known ([`TraceKey::first_slot_only`]) through every eviction while they fill less than half its table. The memo stays a pure cache: a window it forgot or never stored is settled again, firing the pointers and journaling the delta it fired the first time, so no trace, fired set or table changes, and the cost is the second settlement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TraceCeiling {
+    buckets: usize,
+    entries: usize,
+    eviction: Eviction,
+    skip_concrete_deep: bool,
+}
+
+impl TraceCeiling {
+    /// A ceiling of `buckets` buckets, made room under by `eviction`, leaving out the windows with concrete deep slots when `skip_concrete_deep` is set, or `None` unless [`ShardCeiling::accepts`] the bucket count.
+    pub const fn new(buckets: usize, eviction: Eviction, skip_concrete_deep: bool) -> Option<Self> {
+        if !ShardCeiling::accepts(buckets) {
+            return None;
+        }
+        Some(Self {
+            buckets,
+            entries: ShardCeiling::entries(buckets),
+            eviction,
+            skip_concrete_deep,
+        })
+    }
+
+    /// This ceiling held to `entries` entries over all the shards, below what its buckets hold, for a ceiling between two powers of two, or `None` unless [`ShardCeiling::holding`] accepts the count.
+    pub const fn holding(self, entries: usize) -> Option<Self> {
+        if !ShardCeiling::holding(self.buckets, entries) {
+            return None;
+        }
+        Some(Self { entries, ..self })
+    }
+
+    /// The ceiling in buckets, over all the shards.
+    pub const fn buckets(self) -> usize {
+        self.buckets
+    }
+
+    /// The ceiling in entries, over all the shards.
+    pub const fn entries(self) -> usize {
+        self.entries
+    }
+
+    /// How a shard at the ceiling makes room.
+    pub const fn eviction(self) -> Eviction {
+        self.eviction
+    }
+
+    /// Whether the memo leaves out the windows with a concrete third slot and a known fourth.
+    pub const fn skip_concrete_deep(self) -> bool {
+        self.skip_concrete_deep
+    }
+}
+
 /// The modes an engine is built with. The crate reads no environment, so the caller passes them. [`Default`] gives the default modes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EngineModes {
@@ -184,6 +236,8 @@ pub struct EngineModes {
     pub explain_ranking: bool,
     /// The ceilings on the prospect and candidate memos, or `None` for neither. Only the table fixpoint sets them ([`crate::fixpoint::TABLE_MEMO_CEILINGS`]); every other engine keeps both unbounded, among them the case verbs' that the explain report and the probe settle through, and the string replay's.
     pub memo_ceilings: Option<MemoCeilings>,
+    /// The ceiling on the trace memo, or `None` for a memo that keeps every window it settles. Only the table fixpoint sets it ([`crate::fixpoint::TABLE_TRACE_CEILING`]), and only on an enumeration whose memo no other enumeration reads, since a shared memo that forgot a window would lose its reader that hit ([`crate::fixpoint::MemoAccess`]). Without `trace_memo` it does nothing.
+    pub trace_ceiling: Option<TraceCeiling>,
 }
 
 impl Default for EngineModes {
@@ -195,6 +249,7 @@ impl Default for EngineModes {
             trace_memo: false,
             explain_ranking: true,
             memo_ceilings: None,
+            trace_ceiling: None,
         }
     }
 }
@@ -405,6 +460,17 @@ impl TraceKey {
             .into_iter()
             .chain(std::iter::once(self.token))
             .chain(self.runes.iter().flatten().copied())
+    }
+
+    /// Whether only the first slot is known, the other three `UNKNOWN`: the `[a, U, U, U]` tier, which a probe's top window asks at its third level and every window at its fourth, so the whole walk reads it. A memo at its ceiling keeps it ([`TraceCeiling`]).
+    pub(crate) fn first_slot_only(&self) -> bool {
+        (2..=4).all(|slot| self.kinds.get(slot) == TokenKind::Unknown)
+    }
+
+    /// Whether the third slot is a letter or a boundary other than the edge and the fourth is known: windows that take a large share of a configuration's memo and serve few of its repeat reads (`var/keep/ram-inventory/design-disk-backed.md`). A memo at its ceiling does not store them ([`TraceCeiling`]).
+    pub(crate) fn concrete_deep_slots(&self) -> bool {
+        !matches!(self.kinds.get(3), TokenKind::Edge | TokenKind::Unknown)
+            && self.kinds.get(4) != TokenKind::Unknown
     }
 
     /// The left's kind.
@@ -952,18 +1018,58 @@ impl TraceEntry {
     }
 }
 
-/// The window memo and its fired journal, with the settled and notes pools its entries index. The delta is an id in the entry, not a second map on the same twenty-byte key, which would cost the key and its hash-table slack again for a value only read with its trace. It resolves through [`Engine::deltas`] because the candidate, closure and prospect memos store their deltas in the same table (issue #167). The pools belong to the memo, not to a fixpoint, because the memo lives no longer than a fixpoint and is released as one piece. The entries are a [`ShardedMap`], because a configuration's memo grows to tens of millions of windows and one table's doubling near the end of an enumeration would hold the whole old table beside the new one. `rankings` uses the same key and is filled only when the engine records rankings, so a fixpoint's memo has no ranking slot per entry, and an explain-mode hit returns the ranking its miss recorded.
+/// The window memo and its fired journal, with the settled and notes pools its entries index. The delta is an id in the entry, not a second map on the same twenty-byte key, which would cost the key and its hash-table slack again for a value only read with its trace. It resolves through [`Engine::deltas`] because the candidate, closure and prospect memos store their deltas in the same table (issue #167). The pools belong to the memo, not to a fixpoint, because the memo lives no longer than a fixpoint and is released as one piece. The entries are a [`ShardedMap`], because a configuration's memo grows to tens of millions of windows and one table's doubling near the end of an enumeration would hold the whole old table beside the new one; a memo held to a [`TraceCeiling`] keeps each shard's table at the ceiling's share and forgets windows to stay there. `rankings` uses the same key and is filled only when the engine records rankings, so a fixpoint's memo has no ranking slot per entry, and an explain-mode hit returns the ranking its miss recorded.
 #[derive(Clone, Debug, Default)]
 struct TraceMemo {
     entries: ShardedMap<TraceKey, TraceEntry>,
     settled: SettledPool,
     notes: NotesPool,
     rankings: HashMap<TraceKey, Box<TraceRanking>>,
+    /// What holds the entries to a [`TraceCeiling`], or `None` for a memo that keeps every window.
+    bound: Option<TraceBound>,
+}
+
+/// A trace memo's [`TraceCeiling`] at work: the shards' bookkeeping, and whether the windows with concrete deep slots are left out.
+#[derive(Clone, Debug)]
+struct TraceBound {
+    shards: ShardCeiling,
+    skip_concrete_deep: bool,
 }
 
 impl TraceMemo {
-    /// Record one settled window: the trace's settled record and notes stored in the pools, the ranking stored separately when the trace has one, and the ids of the delta and read set the capture journaled.
-    fn insert(&mut self, key: TraceKey, trace: &TransitionTrace, delta: DeltaId, reads: ReadsId) {
+    /// An empty memo, held to `ceiling` when there is one.
+    fn within(ceiling: Option<TraceCeiling>) -> Self {
+        Self {
+            bound: ceiling.map(|ceiling| TraceBound {
+                shards: ShardCeiling::new(ceiling.buckets, ceiling.entries, ceiling.eviction),
+                skip_concrete_deep: ceiling.skip_concrete_deep,
+            }),
+            ..Self::default()
+        }
+    }
+
+    /// What the entries' tables hold room for: their capacities, each shard's as of its last growth or rehash in a memo held to a ceiling, since a half-drop's tombstones leave `capacity()` short of the table.
+    fn level(&self) -> usize {
+        self.bound
+            .as_ref()
+            .map_or_else(|| self.entries.capacity(), |bound| bound.shards.level())
+    }
+
+    /// Record one settled window: the trace's settled record and notes stored in the pools, the ranking stored separately when the trace has one, and the ids of the delta and read set the capture journaled. A memo held to a ceiling stores nothing for a window its ceiling leaves out, and returns whether a shard made room for the entry.
+    fn insert(
+        &mut self,
+        key: TraceKey,
+        trace: &TransitionTrace,
+        delta: DeltaId,
+        reads: ReadsId,
+    ) -> bool {
+        if self
+            .bound
+            .as_ref()
+            .is_some_and(|bound| bound.skip_concrete_deep && key.concrete_deep_slots())
+        {
+            return false;
+        }
         let entry = TraceEntry::new(
             TraceSettledId::at(self.settled.intern(&trace.settled).index()),
             TraceNotesId::at(self.notes.intern(trace.notes.clone()).index()),
@@ -973,9 +1079,18 @@ impl TraceMemo {
             trace.joint_tiebreak,
             trace.decided_stage,
         );
-        self.entries.insert(key, entry);
         if let Some(ranking) = &trace.ranking {
             self.rankings.insert(key, ranking.clone());
+        }
+        match self.bound.as_mut() {
+            Some(bound) => {
+                self.entries
+                    .insert_within(key, entry, &mut bound.shards, TraceKey::first_slot_only)
+            }
+            None => {
+                self.entries.insert(key, entry);
+                false
+            }
         }
     }
 
@@ -1024,6 +1139,9 @@ pub struct Engine<'i> {
     explain_ranking: bool,
     /// The window memo, present only in trace-memo mode. It is the engine's largest collection and sets the enumeration's peak memory, which is why its entries are ids into the [`TraceMemo`] pools instead of whole traces (issue #165). A hit rebuilds the trace from the pools, and the caller sees the same trace a stored one would give.
     trace_cache: Option<TraceMemo>,
+    /// The ceiling the trace memo is held to, which the empty memo [`Engine::release_memos`] and [`Engine::take_memo`] leave in its place is held to as well, and how many times a shard has made room, for the cache stats.
+    trace_ceiling: Option<TraceCeiling>,
+    trace_evictions: u64,
     /// Finished memos of other enumerations this engine may read, in lookup order, each behind an exclusion that says which keys it may not supply ([`crate::memo`]). A window the engine's own memo misses is looked up here before it is settled. A hit is returned, with its delta replayed, as an own hit is, but is not copied into the own memo: the shared memos are read-only across a whole fan-out, and copying each hit would rebuild the memory the sharing saves.
     shared_memos: Vec<SharedMemo>,
     /// Per shared memo, which of its delta ids this engine has already added to its fired set, so a second hit on the same shared delta skips the set.
@@ -1080,7 +1198,11 @@ impl<'i> Engine<'i> {
             exit_sources_cache: HashMap::default(),
             pairing_sets: HashMap::default(),
             explain_ranking: modes.explain_ranking,
-            trace_cache: modes.trace_memo.then(TraceMemo::default),
+            trace_cache: modes
+                .trace_memo
+                .then(|| TraceMemo::within(modes.trace_ceiling)),
+            trace_ceiling: modes.trace_ceiling,
+            trace_evictions: 0,
             shared_memos: Vec::new(),
             shared_memo_fired: Vec::new(),
             shared_memo_hits: Vec::new(),
@@ -1138,7 +1260,7 @@ impl<'i> Engine<'i> {
         let memo = self.trace_cache.take()?;
         let deltas = std::mem::take(&mut self.deltas);
         let reads = std::mem::take(&mut self.reads);
-        self.trace_cache = Some(TraceMemo::default());
+        self.trace_cache = Some(TraceMemo::within(self.trace_ceiling));
         self.candidates_cache = CandidatesMemo::default();
         self.prospect_cache = HashMap::default();
         self.closure_cache = HashMap::default();
@@ -1209,11 +1331,19 @@ impl<'i> Engine<'i> {
         self.candidates_clears
     }
 
+    /// How many times a shard of the trace memo has made room at its ceiling, by a clear or a half-drop.
+    pub fn trace_memo_evictions(&self) -> u64 {
+        self.trace_evictions
+    }
+
     /// Drop every memo this engine holds, keeping the fired set and the small per-stance tables. After a fixpoint's last trace comes a drain and sort of the whole product, and keeping the window memos alive through it would set the enumeration's peak memory.
     ///
     /// Every memo is a pure cache: each entry replays the pointers its computation fired, so after a release the next evaluation fires them again, and no later result changes. A caller that reports the fired set, such as the table fixpoint, reads [`Engine::fired`] before releasing, so evaluations after the release are left out of the report. Each memo's pools go with its entries, since an id means nothing without its table, and the delta and reads pools go with every memo that indexes them.
     pub fn release_memos(&mut self) {
-        self.trace_cache = self.trace_cache.as_ref().map(|_| TraceMemo::default());
+        self.trace_cache = self
+            .trace_cache
+            .as_ref()
+            .map(|_| TraceMemo::within(self.trace_ceiling));
         self.candidates_cache = CandidatesMemo::default();
         self.prospect_cache = HashMap::default();
         self.closure_cache = HashMap::default();
@@ -1227,7 +1357,7 @@ impl<'i> Engine<'i> {
         &self.fired
     }
 
-    /// The fired-pointer delta this engine journaled while settling one window, in first-fired order, or `None` when the window was never traced through this engine. The corpus carries this per-window delta beside its result. It exists only in trace-memo mode.
+    /// The fired-pointer delta this engine journaled while settling one window, in first-fired order, or `None` when this engine's memo does not hold the window: it was never traced through this engine, or a memo held to a [`TraceCeiling`] forgot it or never stored it. The corpus carries this per-window delta beside its result. It exists only in trace-memo mode.
     pub fn trace_delta(
         &self,
         left: &LeftContext,
@@ -1241,7 +1371,7 @@ impl<'i> Engine<'i> {
         Some(self.deltas.get(entry.delta))
     }
 
-    /// The runes and classes this engine read while settling one window, as the set its capture journaled, or `None` when that window was never traced through this engine.
+    /// The runes and classes this engine read while settling one window, as the set its capture journaled, or `None` when this engine's memo does not hold the window: it was never traced through this engine, or a memo held to a [`TraceCeiling`] forgot it or never stored it.
     pub fn trace_reads(
         &self,
         left: &LeftContext,
@@ -1255,7 +1385,7 @@ impl<'i> Engine<'i> {
         Some(self.reads.get(entry.reads))
     }
 
-    /// Every memo this engine holds, as `--cache-stats` reports them: each one's length and capacity. The rows follow the fields' declaration order, each memo's pools after its entries, so two runs' cache stats line up row for row.
+    /// Every memo this engine holds, as `--cache-stats` reports them: each one's length and capacity, the trace memo's capacity being its tables' level ([`TraceMemo::level`]). The rows follow the fields' declaration order, each memo's pools after its entries, so two runs' cache stats line up row for row.
     pub fn cache_stats(&self) -> Vec<CacheSize> {
         let mut out = vec![
             CacheSize::of("fired", self.fired.len(), self.fired.capacity()),
@@ -1313,7 +1443,7 @@ impl<'i> Engine<'i> {
             out.push(CacheSize::of(
                 "trace_cache",
                 memo.entries.len(),
-                memo.entries.capacity(),
+                memo.level(),
             ));
             out.push(CacheSize::of(
                 "trace_settled",
@@ -3493,10 +3623,12 @@ impl<'i> Engine<'i> {
         let Captured { delta, reads } = self.end_capture();
         let delta = self.deltas.intern(delta);
         let reads = self.reads.intern(reads);
-        self.trace_cache
+        let made_room = self
+            .trace_cache
             .as_mut()
             .expect("the memo is what brought us here")
             .insert(key, &trace, delta, reads);
+        self.trace_evictions += u64::from(made_room);
         Ok(trace)
     }
 
@@ -6206,11 +6338,8 @@ mod tests {
         }
     }
 
-    /// A memo ceiling clears the prospect and candidate memos without moving a window. In each prospect mode, two trace-memo engines over the mini spec, one holding both memos to eight buckets and one holding neither, settle the same windows in the same order to the same result, fired delta and read set, and end with the same fired set, while neither of the capped engine's two tables passes the seven entries eight buckets hold. The windows are every input letter after the edge, a space and each left the edge's windows settle to, before every pair of letters and boundaries, with a letter, a boundary or an unknown third. The capped engine clears its candidate memo in both modes. Its prospect memo is cleared in the candidacy mode, which memoizes every ask. The simulated mode holds only the asks whose replayed settlement raised, and whether any of these windows raises is a fact about the fixture rather than the ceiling, so that mode's prospect clears go unchecked.
-    #[test]
-    fn a_memo_ceiling_clears_the_prospect_and_candidate_memos_and_moves_no_window() {
-        let index = fixtures::mini();
-        let ss03 = fixtures::sym(&index, "ss03");
+    /// The windows the memo ceiling tests settle over the mini spec under `ss03`, in order: every input letter after the edge, a space and each left the edge's windows settle to, before every pair of letters and boundaries, with a letter, a boundary or an unknown third, and the edge fourth.
+    fn ceiling_windows(index: &SpecIndex, ss03: Sym) -> Vec<(LeftContext, RightToken, Slots)> {
         let letters: Vec<RightToken> = index
             .runes()
             .iter()
@@ -6221,12 +6350,12 @@ mod tests {
             LeftContext::boundary(TokenKind::Edge),
             LeftContext::boundary(TokenKind::Space),
         ];
-        let mut scout = Engine::new(&index, [ss03]);
+        let mut scout = Engine::new(index, [ss03]);
         for &token in &letters {
             for &right1 in &rights {
                 let edge = LeftContext::boundary(TokenKind::Edge);
                 if let Ok(trace) = scout.transition_trace(&edge, token, Slots::pair(right1, EDGE)) {
-                    let left = LeftContext::letter(&index, trace.settled);
+                    let left = LeftContext::letter(index, trace.settled);
                     if !lefts.contains(&left) {
                         lefts.push(left);
                     }
@@ -6234,6 +6363,31 @@ mod tests {
             }
         }
         assert!(lefts.len() > 2, "the edge's windows settle to letter lefts");
+        let mut windows = Vec::new();
+        for left in &lefts {
+            for &token in &letters {
+                for &right1 in &rights {
+                    for &right2 in &rights {
+                        for right3 in rights.iter().copied().chain([UNKNOWN]) {
+                            windows.push((
+                                left.clone(),
+                                token,
+                                Slots::new(right1, right2, right3, EDGE),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        windows
+    }
+
+    /// A memo ceiling clears the prospect and candidate memos without moving a window. In each prospect mode, two trace-memo engines over the mini spec, one holding both memos to eight buckets and one holding neither, settle the same windows ([`ceiling_windows`]) in the same order to the same result, fired delta and read set, and end with the same fired set, while neither of the capped engine's two tables passes the seven entries eight buckets hold. The capped engine clears its candidate memo in both modes. Its prospect memo is cleared in the candidacy mode, which memoizes every ask. The simulated mode holds only the asks whose replayed settlement raised, and whether any of these windows raises is a fact about the fixture rather than the ceiling, so that mode's prospect clears go unchecked.
+    #[test]
+    fn a_memo_ceiling_clears_the_prospect_and_candidate_memos_and_moves_no_window() {
+        let index = fixtures::mini();
+        let ss03 = fixtures::sym(&index, "ss03");
+        let windows = ceiling_windows(&index, ss03);
         for simulated_prospect in [true, false] {
             let engine = |memo_ceilings| {
                 Engine::with_modes(
@@ -6252,35 +6406,26 @@ mod tests {
                 MemoCeilings::new(8, 8).expect("eight buckets is a ceiling"),
             ));
             let mut unbounded = engine(None);
-            for left in &lefts {
-                for &token in &letters {
-                    for &right1 in &rights {
-                        for &right2 in &rights {
-                            for right3 in rights.iter().copied().chain([UNKNOWN]) {
-                                let slots = Slots::new(right1, right2, right3, EDGE);
-                                let window =
-                                    format!("{simulated_prospect} {left:?} {token:?} {slots:?}");
-                                let ours = capped.transition_trace(left, token, slots);
-                                assert_eq!(
-                                    ours,
-                                    unbounded.transition_trace(left, token, slots),
-                                    "{window}"
-                                );
-                                if ours.is_ok() {
-                                    assert_eq!(
-                                        capped.trace_delta(left, token, slots),
-                                        unbounded.trace_delta(left, token, slots),
-                                        "{window}"
-                                    );
-                                    assert_eq!(
-                                        capped.trace_reads(left, token, slots),
-                                        unbounded.trace_reads(left, token, slots),
-                                        "{window}"
-                                    );
-                                }
-                            }
-                        }
-                    }
+            for (left, token, slots) in &windows {
+                let (token, slots) = (*token, *slots);
+                let window = format!("{simulated_prospect} {left:?} {token:?} {slots:?}");
+                let ours = capped.transition_trace(left, token, slots);
+                assert_eq!(
+                    ours,
+                    unbounded.transition_trace(left, token, slots),
+                    "{window}"
+                );
+                if ours.is_ok() {
+                    assert_eq!(
+                        capped.trace_delta(left, token, slots),
+                        unbounded.trace_delta(left, token, slots),
+                        "{window}"
+                    );
+                    assert_eq!(
+                        capped.trace_reads(left, token, slots),
+                        unbounded.trace_reads(left, token, slots),
+                        "{window}"
+                    );
                 }
             }
             assert_eq!(capped.fired(), unbounded.fired(), "{simulated_prospect}");
@@ -6292,6 +6437,96 @@ mod tests {
             assert_eq!(unbounded.candidates_memo_clears(), 0);
             assert!(capped.prospect_cache.capacity() <= 7);
             assert!(capped.candidates_cache.entries.capacity() <= 7);
+        }
+    }
+
+    /// A trace ceiling forgets windows without moving one. Under each eviction, a trace-memo engine over the mini spec whose trace memo is held to 2^11 buckets, 112 entries a shard, and one whose memo keeps every window settle the same windows in the same order: first every left, input and first slot of [`ceiling_windows`] with the other three slots unknown, then those windows themselves. Both give every window the same trace, the capped engine's fired delta and read set are the other's wherever its memo still holds the window, and both end with the same fired set. The capped engine makes room and its tables never pass the entries the ceiling holds; it holds none of the windows with a concrete third slot and a known fourth, and still holds every window whose first slot alone is known, a tier that fills less than half of each shard here.
+    #[test]
+    fn a_trace_ceiling_forgets_windows_and_moves_none() {
+        const TRACE_BUCKETS: usize = 1 << 11;
+        let index = fixtures::mini();
+        let ss03 = fixtures::sym(&index, "ss03");
+        let mut windows: Vec<(LeftContext, RightToken, Slots)> = Vec::new();
+        let deep = ceiling_windows(&index, ss03);
+        for (left, token, slots) in &deep {
+            let first = (
+                left.clone(),
+                *token,
+                Slots::new(slots.right1, UNKNOWN, UNKNOWN, UNKNOWN),
+            );
+            if !windows.contains(&first) {
+                windows.push(first);
+            }
+        }
+        windows.extend(deep);
+        for eviction in [Eviction::Clear, Eviction::HalfDrop] {
+            let engine = |trace_ceiling| {
+                Engine::with_modes(
+                    &index,
+                    [ss03],
+                    EngineModes {
+                        trace_memo: true,
+                        explain_ranking: false,
+                        trace_ceiling,
+                        ..EngineModes::default()
+                    },
+                )
+            };
+            let mut capped = engine(Some(
+                TraceCeiling::new(TRACE_BUCKETS, eviction, true).expect("a ceiling"),
+            ));
+            let mut unbounded = engine(None);
+            for (left, token, slots) in &windows {
+                let (token, slots) = (*token, *slots);
+                let window = format!("{eviction:?} {left:?} {token:?} {slots:?}");
+                let ours = capped.transition_trace(left, token, slots);
+                assert_eq!(
+                    ours,
+                    unbounded.transition_trace(left, token, slots),
+                    "{window}"
+                );
+                if ours.is_ok()
+                    && let Some(delta) = capped.trace_delta(left, token, slots)
+                {
+                    assert_eq!(
+                        Some(delta),
+                        unbounded.trace_delta(left, token, slots),
+                        "{window}"
+                    );
+                    assert_eq!(
+                        capped.trace_reads(left, token, slots),
+                        unbounded.trace_reads(left, token, slots),
+                        "{window}"
+                    );
+                }
+            }
+            assert_eq!(capped.fired(), unbounded.fired(), "{eviction:?}");
+            assert_eq!(unbounded.trace_memo_evictions(), 0);
+            let held = capped.trace_cache.as_ref().expect("a trace memo");
+            let every = unbounded.trace_cache.as_ref().expect("a trace memo");
+            let keys: Vec<TraceKey> = every
+                .entries
+                .clone()
+                .into_shards()
+                .flat_map(|shard| shard.into_keys())
+                .collect();
+            assert!(capped.trace_memo_evictions() > 0, "{eviction:?}");
+            assert!(
+                held.level() <= ShardCeiling::entries(TRACE_BUCKETS),
+                "{eviction:?}"
+            );
+            let pinned = keys.iter().filter(|key| key.first_slot_only());
+            let deep = keys.iter().filter(|key| key.concrete_deep_slots());
+            assert!(pinned.clone().count() > 0 && deep.clone().count() > 0);
+            for key in pinned {
+                assert!(held.entries.contains_key(key), "{eviction:?} kept {key:?}");
+            }
+            for key in deep {
+                assert!(
+                    !held.entries.contains_key(key),
+                    "{eviction:?} left out {key:?}"
+                );
+            }
         }
     }
 

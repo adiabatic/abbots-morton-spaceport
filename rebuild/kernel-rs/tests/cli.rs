@@ -16,6 +16,9 @@ const CONFIGS: [(&str, Option<&str>); 2] = [("default", None), ("ss03", Some("--
 /// The smallest ceilings `build-tables` takes on each engine's prospect and candidate memos, eight buckets each. Every configuration of the fixture clears both memos many times at them, so a test comparing files across builds at these ceilings compares them across those clears.
 const SMALL_MEMO_CEILINGS: [&str; 2] = ["--prospect-memo-buckets=8", "--candidates-memo-buckets=8"];
 
+/// The smallest ceiling `build-tables` takes on each engine's trace memo, 128 buckets, eight a shard, which every configuration of the fixture whose memo no other reads passes many times.
+const SMALL_TRACE_CEILING: &str = "--trace-memo-buckets=128";
+
 /// This test's own scratch directory, cleared first so that files from a previous run cannot pass for this run's output. It is under `target/`, which is gitignored.
 fn scratch(name: &str) -> PathBuf {
     let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -546,9 +549,12 @@ fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_unclear
                 .lines()
                 .find_map(|stat| stat.strip_prefix(line.as_str()))
                 .unwrap_or_else(|| panic!("{token} reports its clears: {stderr}"));
-            let (prospect, candidates) = rest
+            let (prospect, rest) = rest
                 .split_once(" candidates=")
                 .expect("the line counts both memos");
+            let (candidates, _) = rest
+                .split_once(" trace=")
+                .expect("and the trace memo's evictions");
             counted.push((
                 prospect.parse().expect("a count"),
                 candidates.parse().expect("a count"),
@@ -625,6 +631,149 @@ fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_unclear
         ]);
         assert_eq!(output.status.code(), Some(2), "{flag} given twice");
         let output = run(&["enumerate", word(&spec), &twice]);
+        assert_eq!(output.status.code(), Some(2), "{flag} on enumerate");
+    }
+}
+
+/// How many times `token`'s trace memo made room at its ceiling in one `--cache-stats` run, as its `memo_clears` line counts them.
+fn trace_evictions(stderr: &str, token: &str) -> u64 {
+    let prefix = format!("[c] {token} memo_clears ");
+    stderr
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix.as_str()))
+        .and_then(|rest| rest.rsplit_once(" trace="))
+        .unwrap_or_else(|| panic!("{token} reports its trace memo's evictions: {stderr}"))
+        .1
+        .parse()
+        .expect("as a count")
+}
+
+/// Holding the trace memo to a ceiling changes no file. Table builds at [`SMALL_TRACE_CEILING`], clearing a full shard, half-dropping it, or storing every window it settles, and at an entry count between two powers of two, five entries a shard under the default buckets, half-dropping a shard that reaches it, write the tables and digests of a build at the default ceiling, which the fixture never reaches, with `ss03` started from scratch beside `default`, where no engine reads another's memo and both are held to the ceiling, and with `ss03` as a delta, where `default` keeps every window for it to read. The cache stats count each configuration's evictions on its `memo_clears` line: none at the default ceiling and none for `default` while a delta reads its memo, some for every other engine at the small ceiling, whose `trace_cache` capacity never passes the 112 entries that ceiling holds, the room of eight buckets a shard, the smallest table that holds five. A trace ceiling that is not a power of two of at least 128, an entry count under one a shard or over what the buckets hold, a policy other than `clear` or `half`, a value flag given twice, and any of the four flags on `enumerate` are usage errors.
+#[test]
+fn a_table_build_holding_its_trace_memos_to_a_small_ceiling_files_the_bytes_an_unheld_one_files() {
+    let root = scratch("cli-trace-ceiling");
+    let spec = spec_at(&root);
+    let beside = "--scratch-beside-default=1";
+    let arms: [(&str, &[&str]); 6] = [
+        ("default-ceiling", &[beside]),
+        (
+            "clear",
+            &[SMALL_TRACE_CEILING, "--trace-memo-policy=clear", beside],
+        ),
+        (
+            "half",
+            &[SMALL_TRACE_CEILING, "--trace-memo-policy=half", beside],
+        ),
+        (
+            "store-all",
+            &[SMALL_TRACE_CEILING, "--no-trace-memo-skip", beside],
+        ),
+        (
+            "entries",
+            &[
+                "--trace-memo-entries=80",
+                "--trace-memo-policy=half",
+                beside,
+            ],
+        ),
+        ("delta", &[SMALL_TRACE_CEILING]),
+    ];
+    let mut answers: Vec<String> = Vec::new();
+    for (arm, extra) in arms {
+        let outdir = root.join(arm);
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(&outdir),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            "--threads=2",
+            "--cache-stats",
+        ];
+        arguments.extend(extra);
+        let output = run(&arguments);
+        assert!(output.status.success(), "{arm}: {}", stderr_of(&output));
+        let stderr = stderr_of(&output);
+        for (token, _) in CONFIGS {
+            let evictions = trace_evictions(&stderr, token);
+            let kept = arm == "delta" && token == "default";
+            if arm == "default-ceiling" || kept {
+                assert_eq!(evictions, 0, "{arm} {token}");
+                continue;
+            }
+            assert!(evictions > 0, "{arm} {token}");
+            let prefix = format!("[c] {token} trace_cache len=");
+            let capacity: usize = stderr
+                .lines()
+                .find(|stat| stat.starts_with(prefix.as_str()))
+                .and_then(|stat| stat.rsplit_once(" cap="))
+                .and_then(|(_, capacity)| capacity.parse().ok())
+                .unwrap_or_else(|| panic!("{arm} {token} reports its trace memo: {stderr}"));
+            assert!(capacity <= 112, "{arm} {token} {capacity}");
+        }
+        answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
+        if arm == "default-ceiling" {
+            continue;
+        }
+        for (token, _) in CONFIGS {
+            for family in ["settlement", "joins", "windows"] {
+                let name = format!("{family}-{token}.tsv");
+                assert_eq!(
+                    std::fs::read(root.join("default-ceiling").join(&name))
+                        .expect("the build at the default ceiling wrote it"),
+                    std::fs::read(outdir.join(&name)).expect("and so did this one"),
+                    "{arm} {name}"
+                );
+            }
+        }
+    }
+    assert!(
+        answers.iter().all(|answer| *answer == answers[0]),
+        "{answers:?}"
+    );
+    let misused = root.join("misuse");
+    let misuse = |flags: &[&str]| {
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(&misused),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+        ];
+        arguments.extend(flags);
+        run(&arguments).status.code()
+    };
+    for value in ["", "0", "64", "100", "+128", "128.0"] {
+        let flag = format!("--trace-memo-buckets={value}");
+        assert_eq!(misuse(&[&flag]), Some(2), "{flag}");
+    }
+    for (buckets, entries) in [("128", "15"), ("128", "113"), ("128", "0"), ("128", "+80")] {
+        let buckets = format!("--trace-memo-buckets={buckets}");
+        let entries = format!("--trace-memo-entries={entries}");
+        assert_eq!(
+            misuse(&[&buckets, &entries]),
+            Some(2),
+            "{buckets} {entries}"
+        );
+    }
+    for value in ["", "drop", "Clear"] {
+        let flag = format!("--trace-memo-policy={value}");
+        assert_eq!(misuse(&[&flag]), Some(2), "{flag}");
+    }
+    for twice in [
+        SMALL_TRACE_CEILING,
+        "--trace-memo-entries=80",
+        "--trace-memo-policy=half",
+    ] {
+        assert_eq!(misuse(&[twice, twice]), Some(2), "{twice} given twice");
+    }
+    for flag in [
+        SMALL_TRACE_CEILING,
+        "--trace-memo-entries=80",
+        "--trace-memo-policy=half",
+        "--no-trace-memo-skip",
+    ] {
+        let output = run(&["enumerate", word(&spec), flag]);
         assert_eq!(output.status.code(), Some(2), "{flag} on enumerate");
     }
 }

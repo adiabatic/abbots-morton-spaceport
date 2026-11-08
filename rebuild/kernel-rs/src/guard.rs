@@ -36,6 +36,7 @@ const GUARD_MODES: EngineModes = EngineModes {
     trace_memo: false,
     explain_ranking: true,
     memo_ceilings: None,
+    trace_ceiling: None,
 };
 
 impl<'i> GuardState<'i> {
