@@ -1443,7 +1443,7 @@ def scratch_beside_default_budget(
 def replay_threads_budget(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> int:
-    """Return the string replay's width for this cycle, the `--replay-threads` the plan passes run_m1: memory, less the reserve and gate:make-test's pytest pool, divided by `kernel_exec.REPLAY_PEAK_BYTES` (one configuration's length-4 walk). The pool is the one `kernel_threads_budget` subtracts, because it runs for the whole run_m1 step and the replay runs inside that step; a pass that skips the gate subtracts nothing. `kernel_exec.replay_threads_default` does the arithmetic, and `AMS_REPLAY_THREADS` overrides it, as it does for a bare run_m1.
+    """Return the string replay's width for this cycle, the `--replay-threads` the plan passes run_m1: memory, less the reserve and gate:make-test's pytest pool, divided by `kernel_exec.REPLAY_PEAK_BYTES` (one configuration's length-4 walk and the absorb of its window memo beside it), the number of walks that run at once. The pool is the one `kernel_threads_budget` subtracts, because it runs for the whole run_m1 step and the replay runs inside that step; a pass that skips the gate subtracts nothing. `kernel_exec.replay_threads_default` does the arithmetic, and `AMS_REPLAY_THREADS` overrides it, as it does for a bare run_m1.
 
     The result is capped at the configuration count and the usable cores, as in `kernel_threads_budget`. On every fleet machine the memory result exceeds the configuration count with or without the pool subtracted, so the subtraction matters only on a smaller machine, and without the cap the plan line would name a width the run never takes. With it, the plan line and the argv show the real width, and `run_m1._replay_threads`'s own `min()` changes nothing. A stated AMS_REPLAY_THREADS above the configuration count is cut to it here, as the crate and `run_m1._replay_threads` would cut it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
@@ -1456,7 +1456,7 @@ def replay_threads_budget(
 def replay_threads_derivation(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> str:
-    """Return `replay_threads_budget`'s width as a clause for the plan line, computed from the same terms so the clause always explains the printed width. It gives the number of waves the width makes of the configuration count, then either the AMS_REPLAY_THREADS value the width came from (with the cap or the floor of one, when either changed it) or `memory_budget.describe_fit` over the budget's terms and cap. A stated width is described as stated, because arithmetic that gives a different number would contradict the width printed beside it."""
+    """Return `replay_threads_budget`'s width as a clause for the plan line, computed from the same terms so the clause always explains the printed width. It gives the number of waves of walks, each walk with its absorb beside it, the width makes of the configuration count, then either the AMS_REPLAY_THREADS value the width came from (with the cap or the floor of one, when either changed it) or `memory_budget.describe_fit` over the budget's terms and cap. A stated width is described as stated, because arithmetic that gives a different number would contradict the width printed beside it."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
     from rebuild.tools import memory_budget

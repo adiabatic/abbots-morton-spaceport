@@ -14,6 +14,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import threading
 import weakref
 import zlib
 from array import array
@@ -3310,7 +3311,7 @@ def _texts_to_depth(spec, max_length=3):
 
 
 class TestCrateEmittedSettleMemo:
-    """The string replay writes a window memo in the crate's label format, and `absorb_replay_memo` converts it into a settle memo file. The main test sweeps a walk over a file the crate wrote: a key converted wrongly misses instead of returning a wrong outcome, so the check on the label conversion is that the walk settles nothing (`fresh_windows`), and the check on outcomes is the settled stream against the unmemoized reference. The other tests hold the converted file to the same rules as one the conformance sweep writes (stamp, family keys, per-family retirement) and check the conversion's refusals."""
+    """The string replay writes a window memo in the crate's label format, and the build's streaming absorb (`read_replay_memo`, then the finished file staged and moved into place) converts it into a settle memo file. The byte proof holds that absorb to the in-memory one (`absorb_replay_memo`) over the same dump. The main test sweeps a walk over a file the crate wrote: a key converted wrongly misses instead of returning a wrong outcome, so the check on the label conversion is that the walk settles nothing (`fresh_windows`), and the check on outcomes is the settled stream against the unmemoized reference. The other tests hold the converted file to the same rules as one the conformance sweep writes (stamp, family keys, per-family retirement) and check the conversion's refusals."""
 
     STAMP = "replay-stamp-a"
 
@@ -3332,15 +3333,113 @@ class TestCrateEmittedSettleMemo:
     def _memo(self, tmp_path, config="default", stamp=STAMP, keys=None):
         return conform.SettleMemoFile(tmp_path / f"settle-memo-{config}.bin", stamp, dict(keys or {}))
 
+    @staticmethod
+    def _absorb(dump, memo, spec, config):
+        """Absorb `dump` as a full replay does: `read_replay_memo` over its bytes, then the finished file staged beside `memo.path` and moved into place, returning the row count."""
+        with dump.open("rb") as stream:
+            rows = conform.read_replay_memo(stream, spec, config, dump)
+        os.replace(rows.finish(memo).stage(memo.path), memo.path)
+        return rows.rows
+
+    @staticmethod
+    def _through_fifo(dump, memo, spec, config, fifo):
+        """Absorb `dump` as `_absorb` does, its bytes fed through a FIFO at `fifo` by a thread of their own, as the crate writes a full replay's memo, and return the file's bytes."""
+        fifo.unlink(missing_ok=True)
+        os.mkfifo(fifo)
+        data = dump.read_bytes()
+
+        def feed():
+            with fifo.open("wb") as sink:
+                sink.write(data)
+
+        writer = threading.Thread(target=feed, daemon=True)
+        writer.start()
+        try:
+            with fifo.open("rb") as stream:
+                rows = conform.read_replay_memo(stream, spec, config, fifo)
+        finally:
+            writer.join()
+            fifo.unlink()
+        os.replace(rows.finish(memo).stage(memo.path), memo.path)
+        return memo.path.read_bytes()
+
+    def test_a_dump_through_a_fifo_absorbs_to_the_bytes_the_in_memory_absorb_writes(
+        self, spec, dumps_dir, tmp_path, monkeypatch
+    ):
+        """The streaming absorb lays out the file `absorb_replay_memo` lays out from the same dump, byte for byte: over the crate's narrow dumps for `default` and `ss03`; over a wide dump with more than 65,536 labels, so the dump's rows and the file's id columns are both `I`; and over a dump whose rows use two pairs of record ids as their lefts, each pair sharing one display name that no raw label spells, which takes the row check over the same columns, where the second pair's merged ids lie past the first repeat, and merges each pair's rows into one, and still matches. Only that last dump reaches the row check."""
+        checked: list[object] = []
+        check = conform._check_respelled_rows
+        monkeypatch.setattr(
+            conform,
+            "_check_respelled_rows",
+            lambda *arguments: (checked.append(arguments[-1]), check(*arguments)),
+        )
+
+        def same(dump, config, name):
+            in_memory = self._memo(tmp_path / "in-memory" / name, config)
+            streamed = self._memo(tmp_path / "streamed" / name, config)
+            conform.absorb_replay_memo(dump, in_memory, spec, config)
+            assert self._through_fifo(dump, streamed, spec, config, tmp_path / "memo.fifo") == (
+                in_memory.path.read_bytes()
+            ), name
+            header = conform._settle_memo_header(streamed)
+            assert header is not None, name
+            return header
+
+        for config in ("default", "ss03"):
+            assert same(kernel_exec.replay_memo_dump(dumps_dir, config), config, config)["typecode"] == "H"
+        head, labels, records, body = _dump_parts(kernel_exec.replay_memo_dump(dumps_dir, "default"))
+        rows = list(struct.iter_unpack("<7H", body))
+        filler = [f"qsFiller{index}".encode() for index in range(1 << 16)]
+        wide = tmp_path / "wide.bin"
+        _write_dump(
+            wide,
+            {**head, "width": 4},
+            [*labels, *filler],
+            records,
+            [(row[0], row[1] + len(filler) if row[1] >= len(labels) else row[1], *row[2:]) for row in rows],
+        )
+        assert same(wide, "default", "wide")["typecode"] == "I"
+        assert not checked
+
+        def twin(line):
+            record = json.loads(line)
+            return json.dumps(
+                {**record, "extension": record["extension"] + 1}, separators=(",", ":")
+            ).encode()
+
+        shown, _ = conform._replay_memo_tables(labels, records, spec, "default", "the fixture's dump")
+        fresh: dict[str, bytes] = {}
+        for name, line in zip(shown[len(labels) :], records):
+            if name not in shown[: len(labels)]:
+                fresh.setdefault(name, line)
+        first, other = list(fresh.values())[:2]
+        names = [line.decode() for line in labels]
+        edge, na, pea, tea = (names.index(label) for label in ("#EDGE", "#NA", "qsPea", "qsTea"))
+        repeated = tmp_path / "repeated.bin"
+        _write_dump(
+            repeated,
+            head,
+            labels,
+            [first, twin(first), other, twin(other)],
+            [
+                (pea, len(labels), tea, edge, na, na, 0),
+                (pea, len(labels) + 1, tea, edge, na, na, 0),
+                (pea, len(labels) + 2, tea, edge, na, na, 2),
+                (pea, len(labels) + 3, tea, edge, na, na, 2),
+                (tea, len(labels), pea, edge, na, na, 1),
+            ],
+        )
+        assert same(repeated, "default", "repeated")["rows"] == 3
+        assert checked == [repeated, tmp_path / "memo.fifo"]
+
     @pytest.mark.parametrize("config", ["default", "ss03"])
     def test_the_absorbed_memo_serves_every_window_the_walk_reaches_and_settles_alike(
         self, spec, dumps_dir, tmp_path, config
     ):
         """The sweep to the replay's maximum length, with a walk carrying the crate-written file, settles nothing (every key the walk forms is one the conversion wrote), and its streams and names equal the unmemoized reference. `ss03` exercises the marker renaming on the input and right slots, `default` the unrenamed labels."""
         memo = self._memo(tmp_path, config)
-        entries = conform.absorb_replay_memo(
-            kernel_exec.replay_memo_dump(dumps_dir, config), memo, spec, config
-        )
+        entries = self._absorb(kernel_exec.replay_memo_dump(dumps_dir, config), memo, spec, config)
         assert entries > 0 and conform.settle_memo_standing(memo)
         walker, _ = TestSettledWindowWalk._sweep(
             TestSettledWindowWalk(),
@@ -3360,7 +3459,7 @@ class TestCrateEmittedSettleMemo:
     ):
         """A walk built with `promote=False`, as the conformance sweep builds it, over the crate-written file settles every text to depth 3 from the store's columns, with the same streams and names as an unmemoized walk, no crate call and nothing added to `windows`. The rows it reached are exactly the distinct windows the reference walk memoized."""
         memo = self._memo(tmp_path)
-        conform.absorb_replay_memo(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
+        self._absorb(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
         texts = _texts_to_depth(spec, 3)
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
@@ -3375,7 +3474,7 @@ class TestCrateEmittedSettleMemo:
     ):
         """A probe is served from the store or not at all: a window with a label missing from the file's table misses at the label lookup, a window of known labels that the file does not hold misses at its index slot, and neither calls the crate or marks a row reached."""
         memo = self._memo(tmp_path)
-        conform.absorb_replay_memo(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
+        self._absorb(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         walker._load_memo()
         store = walker._cold
@@ -3392,7 +3491,7 @@ class TestCrateEmittedSettleMemo:
     ):
         """`audit_dedupe` with `promote=False`: a memo key that several distinct raw case lines share is served from the store without entering `windows`, and `_drain_audit` compares each later line's settlement with the outcome the store's probe returns. The only crate calls are the audit's own extra rows, and the walk's streams still equal the unmemoized reference."""
         memo = self._memo(tmp_path)
-        conform.absorb_replay_memo(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
+        self._absorb(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
         texts = _texts_to_depth(spec, 4)
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         walker = conform._SettledWindowWalk(
@@ -3423,11 +3522,11 @@ class TestCrateEmittedSettleMemo:
             (truncated, "default"),
         ]:
             with pytest.raises(kernel_exec.KernelRunError):
-                conform.absorb_replay_memo(dump, memo, spec, config)
+                self._absorb(dump, memo, spec, config)
             assert memo.path.read_bytes() == before
         absent = self._memo(tmp_path / "absent")
         with pytest.raises(kernel_exec.KernelRunError):
-            conform.absorb_replay_memo(truncated, absent, spec, "default")
+            self._absorb(truncated, absent, spec, "default")
         assert not absent.path.exists()
 
     def test_the_absorbed_file_carries_its_stamp_and_keys_and_retires_by_family(
@@ -3436,9 +3535,7 @@ class TestCrateEmittedSettleMemo:
         """The converted file behaves under `StaleMask` like one the conformance sweep wrote: under the stamp and family keys it was written with every entry loads and none is stale, a change to one family's key retires exactly the entries whose windows name that family, and another stamp reads as no file."""
         keys = {name: f"{name}@0" for name in spec.registry.families}
         memo = self._memo(tmp_path, keys=keys)
-        entries = conform.absorb_replay_memo(
-            kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default"
-        )
+        entries = self._absorb(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
         loaded = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         loaded._load_memo()
         assert loaded.memo_windows == entries and loaded.stale_windows == 0
@@ -3478,7 +3575,7 @@ class TestCrateEmittedSettleMemo:
             [(pea, record_id, tea, edge, na, na, 0), (pea, record_id + 1, tea, edge, na, na, 0)],
         )
         memo = self._memo(tmp_path)
-        assert conform.absorb_replay_memo(dump, memo, spec, "default") == 2
+        assert self._absorb(dump, memo, spec, "default") == 2
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         walker._load_memo()
         assert walker.memo_windows == 1 and len(walker._cold) == 1
@@ -3491,7 +3588,7 @@ class TestCrateEmittedSettleMemo:
         )
         refused = self._memo(tmp_path / "refused")
         with pytest.raises(kernel_exec.KernelRunError, match="two ways"):
-            conform.absorb_replay_memo(dump, refused, spec, "default")
+            self._absorb(dump, refused, spec, "default")
         assert not refused.path.exists()
 
 

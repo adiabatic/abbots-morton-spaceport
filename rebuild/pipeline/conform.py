@@ -8,7 +8,7 @@ The conformance sweep does not check rule coverage; other stages do. Read-back (
 
 What only the conformance sweep checks is what needs the real binary: HarfBuzz's application semantics (lookup interaction across features, backtrack reading settled glyphs across subtable breaks, default-ignorable skipping, class matching, Extension indirection) and whether the 6-slot window abstraction is sufficient. Certificates cannot test the second, because they are built from that abstraction. `make conform-deep` (rebuild/tools/deep_sweep.py) runs the same sweep, split-buffer check included, at maximum length 5 or more on demand, less the texts a configuration other than `default` settles and shapes as `default` does. It becomes due when `emit_gsub.behavior_classes`, the font-compilation code, or the uharfbuzz version changes, so a rune edit that adds no new rule shape does not make it due. Read-back's boundary-glyphs stage checks the ZWNJ glyph's zero advance and empty outline once per build, so the conformance sweep does not check them per shaped slot.
 
-Settlement goes through `_SettledWindowWalk`'s per-configuration window memo: the crate settles each distinct raw window once, in a batch, and every recurrence is a lookup. The oracle's rows are the conformance sweep's texts, so the two share the memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family like the oracle row cache. The string replay fills that file on every full replay (`absorb_replay_memo`, from the window memo the `replay-strings` subcommand writes). So a window is settled once per configuration until a rune it names changes, and a cold pass does its settling in the replay instead of in the oracle.
+Settlement goes through `_SettledWindowWalk`'s per-configuration window memo: the crate settles each distinct raw window once, in a batch, and every recurrence is a lookup. The oracle's rows are the conformance sweep's texts, so the two share the memo through one file per configuration under rebuild/out/m1 (`SettleMemoFile`), keyed per family like the oracle row cache. The string replay fills that file on every full replay (`read_replay_memo`, from the window memo the `replay-strings` subcommand writes into a FIFO). So a window is settled once per configuration until a rune it names changes, and a cold pass does its settling in the replay instead of in the oracle.
 
 The section 6 oracle gate is in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier) and rebuild/pipeline/oracle_positions.py (the position comparison), which the enumeration's stamp leaves out. This module holds what they consume. `_compare_row` compares one baseline row's ligation (clusters), per-junction classification, and cell identity with the settled stream through the alias map, and returns the `DivergentRow` the oracle classifies. `_cached_verdict` and `_served_verdict` convert between that result and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's sample of served rows and checks them against the store. `_compare_row` and the walk are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is derived from, which is why they live here and the classifier does not.
 
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import functools
 import gzip
+import hashlib
 import itertools
 import json
 import mmap
@@ -78,6 +79,10 @@ SETTLE_MEMO_FORMAT = "ams-settle-memo/3"
 SETTLE_MEMO_PART_FORMAT = "ams-settle-memo-part/1"
 # Windows per block when a walk encodes its memo entries, for a part or for a whole-file save. Each part block is its own pickle, so a walk writes its fresh windows out, and an absorb reads them in, this many at a time instead of holding the whole part twice.
 SETTLE_MEMO_BLOCK = 65536
+# Rows per block when the replay's streaming absorb reads the crate's window memo (`read_replay_memo`): 0.46 MB of a narrow memo and 0.92 MB of a wide one, so each block and its remapped copies stay under a megabyte, the size of block the spawn worker's allocator reuses from one block to the next.
+REPLAY_MEMO_BLOCK_ROWS = 1 << 15
+# The longest head, label or record line the streaming absorb reads before it refuses the memo as malformed.
+_REPLAY_MEMO_LINE_CAP = 1 << 16
 _SETTLE_MEMO_READ_ERRORS = (
     OSError,
     struct.error,
@@ -539,6 +544,8 @@ _MEMO_MIX = (
 _MEMO_HASH_BITS = 64
 _MEMO_HEADER_CAP = 1 << 26
 _MemoTypecode = Literal["H", "I"]
+_MemoColumn = array | memoryview
+_MEMO_TYPECODE_OF_WIDTH: dict[int, _MemoTypecode] = {2: "H", 4: "I"}
 
 
 def _memo_typecode(count: int) -> _MemoTypecode:
@@ -562,7 +569,7 @@ def _memo_slots(columns: Sequence[Sequence[int]], slots: int) -> Iterator[int]:
 
 
 def _memo_index(
-    columns: Sequence[array], values: array, index: array | None = None, indexed: int = 0
+    columns: Sequence[_MemoColumn], values: _MemoColumn, index: array | None = None, indexed: int = 0
 ) -> tuple[array, bytearray | None]:
     """Build the open-addressed index over `columns` and return it with a keep mask. The index has the smallest power-of-two slot count at least 2N, each slot holding row + 1 or 0 for empty, probed linearly from `_memo_slots`. A row whose key an earlier row already holds gives that row its value and is dropped, as a later dict entry replaces an earlier one in place. The mask is None when every key is distinct, and otherwise flags the rows to keep.
 
@@ -628,13 +635,23 @@ def _memo_copy(column: array, source: Sequence[int]) -> bool:
     return True
 
 
-def _memo_bytes(column: array) -> bytes:
-    """`column` as the little-endian bytes the file stores."""
+def _memo_view(column: _MemoColumn) -> memoryview:
+    """`column` as the little-endian bytes the file stores: a view over the column itself on a little-endian host, so a write copies nothing, and a byteswapped copy on a big-endian one."""
+    view = memoryview(column)
     if sys.byteorder == "little":
-        return column.tobytes()
-    copied = array(column.typecode, column)
+        return view.cast("B")
+    copied = array(_MEMO_TYPECODE_OF_WIDTH[view.itemsize])
+    copied.frombytes(view.cast("B"))
     copied.byteswap()
-    return copied.tobytes()
+    return memoryview(copied).cast("B")
+
+
+def _zeroed_column(typecode: _MemoTypecode, rows: int) -> memoryview:
+    """A column of `rows` zero ids of `typecode` in anonymous memory, which the system maps zeroed a page at a time as the column is first written, so a column preallocated from a memo's head holds no page before its rows arrive, and goes back to the system whole once its last view is released."""
+    size = rows * array(typecode).itemsize
+    if not size:
+        return memoryview(array(typecode))
+    return memoryview(mmap.mmap(-1, size)).cast(typecode)
 
 
 class _MemoStore:
@@ -964,7 +981,7 @@ class _MemoStore:
 
 @dataclass(frozen=True)
 class SettleMemoFile:
-    """Where one configuration's settle memo file lives between phases, and the keys a walk must match to read it. The string replay fills the file on every full replay from the crate's window memo (`absorb_replay_memo`). The witness stage, the oracle, and the conformance sweep each map it, settle only what it lacks, and write back what they added.
+    """Where one configuration's settle memo file lives between phases, and the keys a walk must match to read it. The string replay fills the file on every full replay from the crate's window memo (`read_replay_memo`). The witness stage, the oracle, and the conformance sweep each map it, settle only what it lacks, and write back what they added.
 
     `stamp` is the whole-file stamp (`oracle_cache.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure, the capability features, the engine's settlement flags, and the configuration). `family_keys` holds the per-family rune keys (`oracle_cache.settle_family_keys`). The two keys follow the oracle row cache's reasoning: a window's settlement depends only on the rune files its six slots name (a formed ligature label names its rune directly, and every ligature rune whose components all appear among the slots counts too). So a file with another stamp is treated as absent, and a file with the same stamp serves every entry that names no changed family and drops the rest.
     """
@@ -1053,28 +1070,28 @@ def settle_memo_standing(memo: SettleMemoFile) -> bool:
     return _settle_memo_header(memo) is not None
 
 
-def _write_settle_memo(
-    memo: SettleMemoFile,
-    labels: Sequence[str],
-    outcomes: Sequence[Settled],
-    columns: Sequence[array],
-    values: array,
-    path: Path | None = None,
-    standing: tuple[array, int, int, int] | None = None,
-) -> bool:
-    """Write a settle memo file in the layout `_MemoStore` maps, and return whether it was written. This is the only writer of that layout.
+@dataclass(frozen=True)
+class _MemoTables:
+    """The two tables a settle memo file holds and how the caller's ids map onto them. `table` lists each label once and `items` each outcome once; `canon` maps each id of the caller's label list to its label's first id, and `canon_outcomes` each id of its outcome list to its outcome's first equal. `typecode` and `value_typecode` are the column typecodes the two tables need."""
 
-    The layout is: an eight-byte little-endian length, then the header pickle (the format, `memo.stamp`, `memo.family_keys`, the row count `rows`, the table sizes `labels` and `outcomes`, the index size `slots`, the column typecodes `typecode` and `value_typecode`, and the byte length `tables` of the next pickle), then the label and outcome tables as one pickle, then the six id columns, the value column, and the probe index as fixed-width little-endian arrays. Every section starts on an eight-byte boundary.
+    table: list[str]
+    canon: list[int]
+    items: list[Settled]
+    canon_outcomes: list[int]
+    typecode: _MemoTypecode
+    value_typecode: _MemoTypecode
 
-    `labels` and `outcomes` are the tables that the caller's `columns` and `values` index, and they may contain repeats. Each repeated label is merged onto its first id and each repeated outcome onto its first equal, and the columns are remapped to match, so the file's tables list each entry once. An id column uses `H` while its table fits in sixteen bits and `I` otherwise. `_memo_index` then builds the index and merges a repeated key onto its first row, with the later entry's outcome, so the file holds one row per window.
+    @property
+    def merges_labels(self) -> bool:
+        return len(self.table) < len(self.canon)
 
-    With `H` columns a window costs 12 key bytes, 2 value bytes, and 4 bytes per index slot over the index's 2N to 4N slots: 22 to 30 bytes uncompressed on disk, depending on where the row count falls below its power of two. The `[t] settle_memo` lines count the windows, and `du` on `rebuild/out/m1/settle-memo-*.bin` reports the file sizes; both grow with the alphabet. While writing, the heap holds the caller's columns, the remapped copies, and the index at once, roughly the file's size plus the columns'. The serial conformance sweep's save, a `--jobs 1` oracle's save, the replay's absorb, each part absorb, and the pooled conformance sweep's absorb (`absorb_sweep_memo`) hold that much once per configuration.
+    @property
+    def merges_outcomes(self) -> bool:
+        return len(self.items) < len(self.canon_outcomes)
 
-    `standing` is a standing file's index with its row, label, and outcome counts. It says that the first rows of `columns`, up to that row count, are that file's live rows in its own id space with none dropped before them. The index is then copied and only the later rows are inserted (`absorb_settle_memo_parts` merging parts into a file with no stale rows). The writer checks that its merges leave those ids unchanged and that the index has room, and builds a new index otherwise.
 
-    The file is written to `<path>.<pid>.tmp` and moved into place with `os.replace`. A reader that mapped the old file keeps it unchanged until it closes, and a reader that opens afterward maps the whole new file, so no reader sees a partial file. `path` defaults to `memo.path`. If the filesystem refuses the write, this prints a warning and returns False without failing the build, because every reader settles what the file lacks.
-    """
-    path = memo.path if path is None else Path(path)
+def _memo_tables(labels: Sequence[str], outcomes: Sequence[Settled]) -> _MemoTables:
+    """Merge each repeated label onto its first id and each repeated outcome onto its first equal (`_MemoTables`)."""
     label_ids: dict[str, int] = {}
     table: list[str] = []
     canon: list[int] = []
@@ -1091,63 +1108,135 @@ def _write_settle_memo(
         if outcome_id == len(items):
             items.append(outcome)
         canon_outcomes.append(outcome_id)
-    typecode = _memo_typecode(len(table))
-    value_typecode = _memo_typecode(len(items))
-    if len(table) < len(canon):
-        folded = [array(typecode, map(canon.__getitem__, column)) for column in columns]
+    return _MemoTables(
+        table, canon, items, canon_outcomes, _memo_typecode(len(table)), _memo_typecode(len(items))
+    )
+
+
+@dataclass(frozen=True)
+class FinishedSettleMemo:
+    """A settle memo file finished in memory and not yet written: its header and table pickles and its sections, the six id columns, the value column and the probe index, in `_write_settle_memo`'s layout, with the row count the header states. `pieces` yields its bytes in file order with the padding between sections, each section a view over its column, so writing or hashing it copies no column. `stage` writes it beside the file it will replace, and `digest` hashes it."""
+
+    header: bytes
+    tables: bytes
+    sections: tuple[_MemoColumn, ...]
+    rows: int
+
+    def pieces(self) -> Iterator[bytes | memoryview]:
+        yield _MEMO_PREFIX.pack(len(self.header))
+        yield self.header
+        yield bytes(-(_MEMO_PREFIX.size + len(self.header)) % 8)
+        yield self.tables
+        yield bytes(-len(self.tables) % 8)
+        for section in self.sections:
+            view = _memo_view(section)
+            yield view
+            yield bytes(-view.nbytes % 8)
+
+    def stage(self, path: Path) -> Path:
+        """Write the file to `<path>.<pid>.tmp` beside `path`, the name `_write_settle_memo` stages under, and return that path. An `OSError` removes what it wrote and propagates."""
+        staged = Path(path).with_name(f"{Path(path).name}.{os.getpid()}.tmp")
+        try:
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            with open(staged, "wb") as handle:
+                for piece in self.pieces():
+                    handle.write(piece)
+        except OSError:
+            with suppress(OSError):
+                staged.unlink()
+            raise
+        return staged
+
+    def digest(self) -> tuple[int, str]:
+        """The file's size in bytes and the sha256 of its bytes in order, read from heap without writing them."""
+        hasher = hashlib.sha256()
+        size = 0
+        for piece in self.pieces():
+            hasher.update(piece)
+            size += memoryview(piece).nbytes
+        return size, hasher.hexdigest()
+
+
+def _finish_settle_memo(
+    memo: SettleMemoFile,
+    tables: _MemoTables,
+    columns: Sequence[_MemoColumn],
+    values: _MemoColumn,
+    index: array | None = None,
+    indexed: int = 0,
+) -> FinishedSettleMemo:
+    """Index `columns` and `values`, already in `tables`' id space and typecodes, and lay them out as a file under `memo`'s stamp and family keys: `_memo_index` builds the index and merges a repeated key onto its first row with the later row's value, the merged rows are dropped and the index renumbered, and the header and tables are pickled. `index` and `indexed` pass a standing file's index as `_memo_index` takes them."""
+    index, keep = _memo_index(columns, values, index, indexed)
+    if keep is not None:
+        columns = [array(tables.typecode, itertools.compress(column, keep)) for column in columns]
+        values = array(tables.value_typecode, itertools.compress(values, keep))
+        renumber = array("I", [0])
+        renumber.extend(itertools.accumulate(keep))
+        index = array("I", map(renumber.__getitem__, index))
+    pickled = pickle.dumps((tables.table, tables.items), protocol=5)
+    header = pickle.dumps(
+        {
+            "format": SETTLE_MEMO_FORMAT,
+            "stamp": memo.stamp,
+            "family_keys": dict(memo.family_keys),
+            "rows": len(values),
+            "labels": len(tables.table),
+            "outcomes": len(tables.items),
+            "slots": len(index),
+            "typecode": tables.typecode,
+            "value_typecode": tables.value_typecode,
+            "tables": len(pickled),
+        },
+        protocol=5,
+    )
+    return FinishedSettleMemo(header, pickled, (*columns, values, index), len(values))
+
+
+def _write_settle_memo(
+    memo: SettleMemoFile,
+    labels: Sequence[str],
+    outcomes: Sequence[Settled],
+    columns: Sequence[array],
+    values: array,
+    path: Path | None = None,
+    standing: tuple[array, int, int, int] | None = None,
+) -> bool:
+    """Write a settle memo file in the layout `_MemoStore` maps, and return whether it was written. This and `read_replay_memo`'s streaming absorb are the only writers of that layout, and both lay it out through `_finish_settle_memo` and `FinishedSettleMemo`.
+
+    The layout is: an eight-byte little-endian length, then the header pickle (the format, `memo.stamp`, `memo.family_keys`, the row count `rows`, the table sizes `labels` and `outcomes`, the index size `slots`, the column typecodes `typecode` and `value_typecode`, and the byte length `tables` of the next pickle), then the label and outcome tables as one pickle, then the six id columns, the value column, and the probe index as fixed-width little-endian arrays. Every section starts on an eight-byte boundary.
+
+    `labels` and `outcomes` are the tables that the caller's `columns` and `values` index, and they may contain repeats. Each repeated label is merged onto its first id and each repeated outcome onto its first equal, and the columns are remapped to match, so the file's tables list each entry once (`_memo_tables`). An id column uses `H` while its table fits in sixteen bits and `I` otherwise. `_memo_index` then builds the index and merges a repeated key onto its first row, with the later entry's outcome, so the file holds one row per window.
+
+    With `H` columns a window costs 12 key bytes, 2 value bytes, and 4 bytes per index slot over the index's 2N to 4N slots: 22 to 30 bytes uncompressed on disk, depending on where the row count falls below its power of two. The `[t] settle_memo` lines count the windows, and `du` on `rebuild/out/m1/settle-memo-*.bin` reports the file sizes; both grow with the alphabet. While writing, the heap holds the caller's columns, the remapped copies, and the index at once, roughly the file's size plus the columns'. The serial conformance sweep's save, a `--jobs 1` oracle's save, each part absorb, and the pooled conformance sweep's absorb (`absorb_sweep_memo`) hold that much once per configuration. The replay's streaming absorb holds the remapped columns alone, since it remaps each block of rows as it arrives (`read_replay_memo`).
+
+    `standing` is a standing file's index with its row, label, and outcome counts. It says that the first rows of `columns`, up to that row count, are that file's live rows in its own id space with none dropped before them. The index is then copied and only the later rows are inserted (`absorb_settle_memo_parts` merging parts into a file with no stale rows). The writer checks that its merges leave those ids unchanged and that the index has room, and builds a new index otherwise.
+
+    The file is written to `<path>.<pid>.tmp` (`FinishedSettleMemo.stage`), each section as one write of a view over its array, and moved into place with `os.replace`. A reader that mapped the old file keeps it unchanged until it closes, and a reader that opens afterward maps the whole new file, so no reader sees a partial file. `path` defaults to `memo.path`. If the filesystem refuses the write, this prints a warning and returns False without failing the build, because every reader settles what the file lacks.
+    """
+    path = memo.path if path is None else Path(path)
+    tables = _memo_tables(labels, outcomes)
+    typecode = tables.typecode
+    if tables.merges_labels:
+        folded = [array(typecode, map(tables.canon.__getitem__, column)) for column in columns]
     else:
         folded = [column if column.typecode == typecode else array(typecode, column) for column in columns]
-    folded_values = array(value_typecode, map(canon_outcomes.__getitem__, values))
+    folded_values = array(tables.value_typecode, map(tables.canon_outcomes.__getitem__, values))
     reused: array | None = None
     indexed = 0
     if standing is not None:
         reused, indexed, standing_labels, standing_outcomes = standing
         if (
             indexed > len(folded_values)
-            or canon[:standing_labels] != list(range(standing_labels))
-            or canon_outcomes[:standing_outcomes] != list(range(standing_outcomes))
+            or tables.canon[:standing_labels] != list(range(standing_labels))
+            or tables.canon_outcomes[:standing_outcomes] != list(range(standing_outcomes))
         ):
             reused, indexed = None, 0
-    index, keep = _memo_index(folded, folded_values, reused, indexed)
-    if keep is not None:
-        folded = [array(typecode, itertools.compress(column, keep)) for column in folded]
-        folded_values = array(value_typecode, itertools.compress(folded_values, keep))
-        renumber = array("I", [0])
-        renumber.extend(itertools.accumulate(keep))
-        index = array("I", map(renumber.__getitem__, index))
-    tables = pickle.dumps((table, items), protocol=5)
-    header = pickle.dumps(
-        {
-            "format": SETTLE_MEMO_FORMAT,
-            "stamp": memo.stamp,
-            "family_keys": dict(memo.family_keys),
-            "rows": len(folded_values),
-            "labels": len(table),
-            "outcomes": len(items),
-            "slots": len(index),
-            "typecode": typecode,
-            "value_typecode": value_typecode,
-            "tables": len(tables),
-        },
-        protocol=5,
-    )
-    staged = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    finished = _finish_settle_memo(memo, tables, folded, folded_values, reused, indexed)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(staged, "wb") as handle:
-            handle.write(_MEMO_PREFIX.pack(len(header)))
-            handle.write(header)
-            handle.write(bytes(-(_MEMO_PREFIX.size + len(header)) % 8))
-            handle.write(tables)
-            handle.write(bytes(-len(tables) % 8))
-            for section in (*folded, folded_values, index):
-                blob = _memo_bytes(section)
-                handle.write(blob)
-                handle.write(bytes(-len(blob) % 8))
-        os.replace(staged, path)
+        os.replace(finished.stage(path), path)
     except OSError as error:
         with suppress(OSError):
-            staged.unlink()
+            path.with_name(f"{path.name}.{os.getpid()}.tmp").unlink()
         print(f"[warn] settle memo: {path} not written ({error})", file=sys.stderr, flush=True)
         return False
     return True
@@ -1385,59 +1474,94 @@ def _ambiguous_ids(spelling: Sequence[str], used: Iterable[int]) -> set[int]:
     return ambiguous
 
 
-def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, config: str) -> int:
-    """Write the crate's window memo for `config` (`kernel_exec.replay_memo_dump`, written by the `replay-strings` subcommand) as the configuration's settle memo file under `memo`'s stamp and family keys, and return the row count.
-
-    The dump names every window in the crate's form: the input as the raw rune name or its `.noentry` locked copy, the rights as raw labels, and the left as a boundary label or an index into its record table. This function converts that to the `formed_labels` form. Each label is renamed through `model.raw_rename_map` once, each record is decoded through `kernel_exec.settled_of_row` once, and each record's left label is its `geometry.display_name`. The conversion touches only a few thousand strings, and the rows pass through as integer columns: the walk's label table is the renamed label table followed by the records' display names, which is the id space the dump's left column already indexes.
-
-    A dump with another format token, a malformed head, another configuration, or a row byte count that does not match its head raises `KernelRunError` and writes nothing. Two crate keys can become one walk key only through two ids with the same label, so the row-level check runs only over rows that use such an id. If two such rows settle differently, this raises instead of writing the file, because a wrong memo would give wrong results, while a missing one only makes the readers settle the windows themselves.
-    """
-    features = features_for_config(config)
-    data = dump.read_bytes()
-    head_line, _, _ = data.partition(b"\n")
+def _replay_memo_head(
+    head_line: bytes, name: object, config: str
+) -> tuple[int, int, int, int, _MemoTypecode]:
+    """A window memo's head line, its newline stripped, checked and read as the row, label and record counts, the column width and its typecode. Another format token, a malformed head or another configuration raises `KernelRunError`."""
     marker, _, head_json = head_line.decode(errors="replace").partition("\t")
     if marker != f"# {kernel_exec.REPLAY_MEMO_FORMAT}":
         raise kernel_exec.KernelRunError(
-            f"{dump} is not a {kernel_exec.REPLAY_MEMO_FORMAT} window memo: {marker!r}"
+            f"{name} is not a {kernel_exec.REPLAY_MEMO_FORMAT} window memo: {marker!r}"
         )
     try:
         head = json.loads(head_json)
     except ValueError as error:
-        raise kernel_exec.KernelRunError(f"{dump} carries a malformed head: {error}") from None
+        raise kernel_exec.KernelRunError(f"{name} carries a malformed head: {error}") from None
     if (
         not isinstance(head, dict)
         or {"config", "max_length", "rows", "labels", "records", "width"} - head.keys()
     ):
-        raise kernel_exec.KernelRunError(f"{dump} carries a malformed head: {head!r}")
+        raise kernel_exec.KernelRunError(f"{name} carries a malformed head: {head!r}")
     if head["config"] != config:
-        raise kernel_exec.KernelRunError(f"{dump} names {head['config']!r} where {config!r} was expected")
+        raise kernel_exec.KernelRunError(f"{name} names {head['config']!r} where {config!r} was expected")
     try:
         rows, label_count, record_count, width = (
             int(head[key]) for key in ("rows", "labels", "records", "width")
         )
     except TypeError, ValueError:
-        raise kernel_exec.KernelRunError(f"{dump} carries a malformed head: {head!r}") from None
-    typecode = {2: "H", 4: "I"}.get(width)
+        raise kernel_exec.KernelRunError(f"{name} carries a malformed head: {head!r}") from None
+    typecode = _MEMO_TYPECODE_OF_WIDTH.get(width)
     if typecode is None or array(typecode).itemsize != width or min(rows, label_count, record_count) < 0:
-        raise kernel_exec.KernelRunError(f"{dump} carries a malformed head: {head!r}")
+        raise kernel_exec.KernelRunError(f"{name} carries a malformed head: {head!r}")
+    return rows, label_count, record_count, width, typecode
+
+
+def _replay_memo_tables(
+    label_lines: Sequence[bytes], record_lines: Sequence[bytes], spec: ResolvedSpec, config: str, name: object
+) -> tuple[list[str], list[Settled]]:
+    """A window memo's label table and records in the walk's id space: each label renamed through `model.raw_rename_map` once, then each record's `geometry.display_name`, which is the id space the memo's left column indexes, beside the records decoded through `kernel_exec.settled_of_row`."""
+    renames = raw_rename_map(spec, features_for_config(config))
+    try:
+        labels = [renames.get(label, label) for label in (line.decode() for line in label_lines)]
+        records = [kernel_exec.settled_of_row(json.loads(line)) for line in record_lines]
+        labels += [geometry.display_name(spec, item.cell) for item in records]
+    except (UnicodeDecodeError, ValueError, KeyError, TypeError) as error:
+        raise kernel_exec.KernelRunError(f"{name} carries a table this spec cannot read: {error}") from None
+    return labels, records
+
+
+def _check_respelled_rows(
+    columns: Sequence[Sequence[int]],
+    values: Sequence[int],
+    labels: Sequence[str],
+    ambiguous_lefts: set[int],
+    ambiguous_slots: set[int],
+    name: object,
+) -> None:
+    """Raise `KernelRunError` when two rows that use an ambiguous id (`_ambiguous_ids`), a left in `ambiguous_lefts` or another slot in `ambiguous_slots`, spell the same walk key and settle differently."""
+    seen: dict[tuple[str, ...], int] = {}
+    for row in zip(*columns, values):
+        if row[1] in ambiguous_lefts or any(row[slot] in ambiguous_slots for slot in (0, 2, 3, 4, 5)):
+            key = tuple(map(labels.__getitem__, row[:6]))
+            if seen.setdefault(key, row[6]) != row[6]:
+                raise kernel_exec.KernelRunError(
+                    f"{name} settles the window {key!r} two ways once respelled; nothing in it can be trusted"
+                )
+
+
+def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, config: str) -> int:
+    """Write the crate's window memo for `config`, a dump on disk that `replay-strings --memo-dir` wrote, as the configuration's settle memo file under `memo`'s stamp and family keys, and return the row count. This is the in-memory form of the absorb: it reads the whole dump, slices its seven columns out of it, and writes them through `_write_settle_memo`. The build's replay reads each memo through a FIFO as it arrives instead (`read_replay_memo`), and gives the same file's bytes from the same dump.
+
+    The dump names every window in the crate's form: the input as the raw rune name or its `.noentry` locked copy, the rights as raw labels, and the left as a boundary label or an index into its record table. This function converts that to the `formed_labels` form. Each label is renamed through `model.raw_rename_map` once, each record is decoded through `kernel_exec.settled_of_row` once, and each record's left label is its `geometry.display_name` (`_replay_memo_tables`). The conversion touches only a few thousand strings, and the rows pass through as integer columns: the walk's label table is the renamed label table followed by the records' display names, which is the id space the dump's left column already indexes.
+
+    A dump with another format token, a malformed head, another configuration, or a row byte count that does not match its head raises `KernelRunError` and writes nothing. Two crate keys can become one walk key only through two ids with the same label, so the row-level check runs only over rows that use such an id (`_check_respelled_rows`). If two such rows settle differently, this raises instead of writing the file, because a wrong memo would give wrong results, while a missing one only makes the readers settle the windows themselves.
+    """
+    data = dump.read_bytes()
+    head_line, _, _ = data.partition(b"\n")
+    rows, label_count, record_count, width, typecode = _replay_memo_head(head_line, dump, config)
     parts = data.split(b"\n", 1 + label_count + record_count)
     body = parts[-1] if len(parts) == 2 + label_count + record_count else b""
     if len(body) != rows * 7 * width:
         raise kernel_exec.KernelRunError(
             f"{dump} holds {len(body)} row bytes where its head counts {rows} rows of {7 * width}"
         )
-    renames = raw_rename_map(spec, features)
-    try:
-        labels = [
-            renames.get(label, label) for label in (line.decode() for line in parts[1 : 1 + label_count])
-        ]
-        records = [
-            kernel_exec.settled_of_row(json.loads(line))
-            for line in parts[1 + label_count : 1 + label_count + record_count]
-        ]
-        labels += [geometry.display_name(spec, item.cell) for item in records]
-    except (UnicodeDecodeError, ValueError, KeyError, TypeError) as error:
-        raise kernel_exec.KernelRunError(f"{dump} carries a table this spec cannot read: {error}") from None
+    labels, records = _replay_memo_tables(
+        parts[1 : 1 + label_count],
+        parts[1 + label_count : 1 + label_count + record_count],
+        spec,
+        config,
+        dump,
+    )
     flat = array(typecode)
     flat.frombytes(body)
     if sys.byteorder == "big":
@@ -1454,18 +1578,111 @@ def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, con
             labels, set().union(*(set(columns[slot]) for slot in (0, 2, 3, 4, 5)))
         )
         if ambiguous_lefts or ambiguous_slots:
-            seen: dict[tuple[str, ...], int] = {}
-            for row in zip(*columns):
-                if row[1] in ambiguous_lefts or any(row[slot] in ambiguous_slots for slot in (0, 2, 3, 4, 5)):
-                    key = tuple(labels[label_id] for label_id in row[:6])
-                    if seen.setdefault(key, row[6]) != row[6]:
-                        raise kernel_exec.KernelRunError(
-                            f"{dump} settles the window {key!r} two ways once respelled; nothing in it can be trusted"
-                        )
+            _check_respelled_rows(columns[:6], columns[6], labels, ambiguous_lefts, ambiguous_slots, dump)
 
     if not _write_settle_memo(memo, labels, records, columns[:6], columns[6]):
         raise kernel_exec.KernelRunError(f"{memo.path} could not be written")
     return rows
+
+
+@dataclass(frozen=True)
+class ReplayMemoRows:
+    """One configuration's window memo read into memory by `read_replay_memo`: the settle memo file's merged tables (`_MemoTables`), its six key columns and its value column, already in those tables' id space and typecodes, each in anonymous memory of its own (`_zeroed_column`), and the memo's row count. `finish` indexes them and lays the file out (`_finish_settle_memo`)."""
+
+    tables: _MemoTables
+    columns: tuple[memoryview, ...]
+    values: memoryview
+    rows: int
+
+    def finish(self, memo: SettleMemoFile) -> FinishedSettleMemo:
+        return _finish_settle_memo(memo, self.tables, self.columns, self.values)
+
+
+def _memo_line(stream: IO[bytes], name: object) -> bytes:
+    line = stream.readline(_REPLAY_MEMO_LINE_CAP)
+    if not line.endswith(b"\n"):
+        raise kernel_exec.KernelRunError(f"{name} ends or overruns a line inside its head or tables")
+    return line[:-1]
+
+
+def _remapped(source: memoryview, canon: Sequence[int] | None, typecode: _MemoTypecode) -> memoryview:
+    """One block's slice of a column in the file's id space and typecode: `source` mapped through `canon` when the merge moves an id, else `source` itself when its typecode is the file's, else a converted copy."""
+    if canon is not None:
+        return memoryview(array(typecode, map(canon.__getitem__, source)))
+    if source.format == typecode:
+        return source
+    return memoryview(array(typecode, source))
+
+
+def read_replay_memo(stream: IO[bytes], spec: ResolvedSpec, config: str, name: object) -> ReplayMemoRows:
+    """Read the crate's window memo for `config` from `stream` as it arrives, a FIFO the crate writes in the build's replay (`run_m1.run_replay_strings`), into the columns of its settle memo file, and return them (`ReplayMemoRows`). `name` names the memo in a refusal. It reads the head and the two tables first, so before any row it knows the row count, both typecodes, the label merge (`canon`), the outcome merge and the slot count (`_memo_tables`; `absorb_replay_memo` says how the tables convert). It preallocates the seven columns from the head's row count in anonymous memory (`_zeroed_column`), whose pages the system maps only as the rows that fill them arrive, and reads the rows `REPLAY_MEMO_BLOCK_ROWS` at a time, checking each block's ids against the tables and de-interleaving it into the columns, the six key columns through `canon` and the value column through the outcome merge wherever `_write_settle_memo` would move an id, so no column grows, no row passes through Python one at a time, and the rows the crate frees a chunk at a time as it writes them are held about once between the two processes, never twice.
+
+    The tables alone repeat record display names, so whether two crate keys can become one walk key is decided by the ids the rows use, by role, lefts apart from the other slots (`_ambiguous_ids`). Once every row is in heap, and before anything is laid out, that check runs; a hit sends the rows through `absorb_replay_memo`'s row check over the same columns (`_check_respelled_rows`), and `ReplayMemoRows.finish` then merges any repeated walk key as `_write_settle_memo` does. So the file this gives is the one `absorb_replay_memo` writes from the same dump, byte for byte. A stream with another format token, a malformed head, another configuration, an id past its table, fewer or more row bytes than its head counts, or two rows that settle one walk key differently raises `KernelRunError` and leaves nothing. A reader that raises closes the stream, which breaks the crate's pipe at its next write.
+    """
+    rows, label_count, record_count, width, dump_typecode = _replay_memo_head(
+        _memo_line(stream, name), name, config
+    )
+    lines = [_memo_line(stream, name) for _ in range(label_count + record_count)]
+    labels, records = _replay_memo_tables(lines[:label_count], lines[label_count:], spec, config, name)
+    del lines
+    tables = _memo_tables(labels, records)
+    columns = tuple(_zeroed_column(tables.typecode, rows) for _ in range(6))
+    values = _zeroed_column(tables.value_typecode, rows)
+    targets = [*columns, values]
+    label_canon = tables.canon if tables.merges_labels else None
+    outcome_canon = tables.canon_outcomes if tables.merges_outcomes else None
+    track_lefts = len(set(labels)) < len(labels)
+    track_slots = len(set(labels[:label_count])) < label_count
+    used_lefts: set[int] = set()
+    used_slots: set[int] = set()
+    row_bytes = 7 * width
+    done = 0
+    while done < rows:
+        count = min(rows - done, REPLAY_MEMO_BLOCK_ROWS)
+        size = count * row_bytes
+        block = stream.read(size)
+        if len(block) != size:
+            raise kernel_exec.KernelRunError(
+                f"{name} holds {done * row_bytes + len(block)} row bytes where its head counts {rows} rows of {row_bytes}"
+            )
+        if sys.byteorder == "little":
+            flat = memoryview(block).cast(dump_typecode)
+        else:
+            swapped = array(dump_typecode)
+            swapped.frombytes(block)
+            swapped.byteswap()
+            flat = memoryview(swapped)
+        slots = [flat[slot::7] for slot in range(7)]
+        if max(max(slots[slot]) for slot in (0, 2, 3, 4, 5)) >= label_count:
+            raise kernel_exec.KernelRunError(f"{name} indexes a label past its table")
+        if max(slots[1]) >= len(labels) or max(slots[6]) >= record_count:
+            raise kernel_exec.KernelRunError(f"{name} indexes a record past its table")
+        if track_lefts:
+            used_lefts.update(slots[1])
+        if track_slots:
+            for slot in (0, 2, 3, 4, 5):
+                used_slots.update(slots[slot])
+        for slot in range(6):
+            targets[slot][done : done + count] = _remapped(slots[slot], label_canon, tables.typecode)
+        targets[6][done : done + count] = _remapped(slots[6], outcome_canon, tables.value_typecode)
+        done += count
+    if stream.read(1):
+        raise kernel_exec.KernelRunError(
+            f"{name} holds more row bytes than its head counts, {rows} rows of {row_bytes}"
+        )
+    ambiguous_lefts = _ambiguous_ids(labels, used_lefts)
+    ambiguous_slots = _ambiguous_ids(labels, used_slots)
+    if ambiguous_lefts or ambiguous_slots:
+        canon = tables.canon
+        _check_respelled_rows(
+            columns,
+            values,
+            tables.table,
+            {canon[label_id] for label_id in ambiguous_lefts},
+            {canon[label_id] for label_id in ambiguous_slots},
+            name,
+        )
+    return ReplayMemoRows(tables, columns, values, rows)
 
 
 class _SettledWindowWalk:
@@ -1477,7 +1694,7 @@ class _SettledWindowWalk:
 
     A horizon walk may also name `max_windows`, a ceiling on `windows`. Before a wave whose settles could take `windows` past it, `_run` empties `windows` and counts a release in `releases`, and the walk continues, settling again any window it meets after that. Each state carries its own settled stream, so a release costs only the settles of windows met again, counted in `fresh_windows` with the rest. The ceiling is counted in windows, not bytes, so a release happens at the same point on every machine. It also caps `batch`, so one wave never settles more than the ceiling. A ceiling at the most entries a dict holds before it doubles keeps `windows` in one table, so the walk's peak has a bound that does not depend on how many texts it walks.
 
-    `memo` names the file this walk shares with the other walks over the same texts. The string replay fills it on a full replay (`absorb_replay_memo`), and the witness stage, the oracle, and the conformance sweep each map it and settle what it lacks. It is mapped on the first wave that would otherwise reach the crate, so a walk that settles nothing (an oracle pass whose rows are all served) never opens it. `save_memo` writes it back only when this walk settled a window the file lacked, or pruned one. `_write_settle_memo` describes the file layout, and `_MemoStore` how a walk maps it: the tables go on the heap, and the columns and index stay pages of the mapping, shared in the page cache by every walk that maps the file. An entry whose window names a family whose key changed since the file was written is dropped at load (`oracle_cache.StaleMask` at label grain, including the ligature clause).
+    `memo` names the file this walk shares with the other walks over the same texts. The string replay fills it on a full replay (`read_replay_memo`), and the witness stage, the oracle, and the conformance sweep each map it and settle what it lacks. It is mapped on the first wave that would otherwise reach the crate, so a walk that settles nothing (an oracle pass whose rows are all served) never opens it. `save_memo` writes it back only when this walk settled a window the file lacked, or pruned one. `_write_settle_memo` describes the file layout, and `_MemoStore` how a walk maps it: the tables go on the heap, and the columns and index stay pages of the mapping, shared in the page cache by every walk that maps the file. An entry whose window names a family whose key changed since the file was written is dropped at load (`oracle_cache.StaleMask` at label grain, including the ligature clause).
 
     Loaded entries stay in `_cold`, the `_MemoStore` over the mapping, which marks each row it returns as reached. With `promote` (a constructor keyword, on by default) a hit is also copied into `windows`, so the oracle and the witness stage run the store's probe once per window and a dict lookup after that. The conformance sweep runs with `promote=False` and serves every window from the columns: it reaches nearly every loaded window, so promoted copies would cost the key tuples the columns exist to avoid. `save_memo(prune=True)` keeps only the reached rows. The conformance sweep walks every text every pass, so an entry it never reached is a window no text produces any more (its left slot named a settlement an edit has since changed), and keeping it would grow the file with every rune edit. The serial sweep prunes in its own save. The pooled sweep's units each walk a share of the texts, so none of them may prune: each writes its part and returns its `reached` flags (`memo_reach`), and the parent prunes through `absorb_sweep_memo` over the union of those flags. A pruning save writes the fresh windows first and then the reached rows in file order, a permutation of what a promoting walk would write; no reader can tell the difference, because a load does not depend on row order and the file holds one row per window. The oracle does not prune, because it does not walk the rows its row cache serves, so their windows are never reached. Its whole-file save writes `windows` and then, in file order, every live row `windows` does not hold.
 

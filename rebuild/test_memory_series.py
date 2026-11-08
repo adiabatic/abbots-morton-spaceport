@@ -176,6 +176,241 @@ def test_the_cache_lines_go_to_tables_resident_and_stats_by_configuration():
     }
 
 
+def _replay_run(walks, absorbs, readings, commands, *, passed=True):
+    """A replay child's run as `run_replay_child` returns it, with no machine to read."""
+    child = ms.ChildRun(
+        0, b"", "", 2.0, 1.0, 1, 1, QUIET, tuple(ms.Sample(at, 1, 1, QUIET) for at in (0.5, 1.0, 1.5)), QUIET
+    )
+    return ms.ReplayRun(
+        child,
+        tuple(ms.ReplayReading(at, reading) for at, reading in readings),
+        commands,
+        {"passed": passed, "walks": walks, "absorbs": absorbs},
+    )
+
+
+def _replay_walk(config, worker, lines=()):
+    return {
+        "counts": {"texts": 10, "windows": 20, "skipped": 0},
+        "error": None,
+        "lines": [f"[t] replay[{config}] 1.5s", *lines],
+        "peaks": [300, 280, 2.5],
+        "worker": worker,
+    }
+
+
+def _replay_absorb(rows):
+    return {
+        "resident": 120,
+        "footprint": 110,
+        "cpu": 0.75,
+        "entries": rows,
+        "seconds": 0.25,
+        "warning": None,
+        "digest": [4096, "ab" * 32],
+    }
+
+
+def test_a_replay_line_sums_each_walk_with_its_absorb_and_every_process_at_each_sample(tmp_path):
+    """A replay line tells each walk's crate by the configuration its command names and each absorb worker by the pid its walk reports, and ignores every other process below the child. A configuration's pair is its two processes summed at each sample, the step's combined peak every crate and worker summed, and the line's peak the sample of the highest combined footprint. Each configuration keeps its walk's and its absorb's own peaks and CPU seconds, its counts, its file's size and digest, its `[t]` lines and, from its `[c]` lines, the unit count, its largest unit's tables and resident size after release, the side memo and the row store. A replay that fails stops the run."""
+    binary = f"/checkout/{ms.BINARY_NAME}"
+    commands = {
+        11: "python -c from multiprocessing.spawn import spawn_main",
+        12: "python -c from multiprocessing.spawn import spawn_main",
+        21: f"{binary} replay-strings spec.json out --configs=default --max-length=4",
+        22: f"{binary} replay-strings spec.json out --configs=ss03 --max-length=4",
+        30: "python -c from multiprocessing.resource_tracker import main",
+    }
+    readings = [
+        (0.5, {11: (50, 40), 12: (50, 40), 21: (100, 90), 30: (999, 999)}),
+        (1.0, {11: (60, 50), 12: (70, 60), 21: (400, 300), 22: (200, 150)}),
+        (1.5, {11: (90, 80), 12: (80, 70), 22: (100, 100)}),
+    ]
+    cached = [
+        "[c] default unit=1 walk_memo len=5 cap=8",
+        "[c] default unit=1 trace_cache len=40 cap=64",
+        "[c] default unit=1 resident_after_release kb=2",
+        "[c] default unit=2 walk_memo len=7 cap=8",
+        "[c] default unit=2 trace_cache len=50 cap=64",
+        "[c] default unit=2 resident_after_release kb=3",
+        "[c] default side_memo len=3 cap=4",
+        "[c] default units count=2",
+        "[c] default row_store rows=15 bytes=4194304 chunks=1",
+        "[c] default resident_after_walk kb=4",
+    ]
+    walks = {"default": _replay_walk("default", 11, cached), "ss03": _replay_walk("ss03", 12)}
+    absorbs = {"default": _replay_absorb(20), "ss03": _replay_absorb(20)}
+    meters = iter(_reading(at, 1000 * at) for at in (0.0, 1.0, 5.0))
+    measured = ms.measure_replay_line(
+        ["child"],
+        ["default", "ss03"],
+        idle_s=0,
+        after_s=0,
+        meter=lambda: next(meters),
+        machine=lambda: QUIET,
+        sleep=lambda seconds: None,
+        run=lambda arguments, **rest: _replay_run(walks, absorbs, readings, commands),
+    )
+    default, ss03 = measured["configs_measured"]["default"], measured["configs_measured"]["ss03"]
+    assert default["pair"] == {"resident": 460, "footprint": 350} and ss03["pair"] == {
+        "resident": 270,
+        "footprint": 210,
+    }
+    assert measured["combined"] == {"resident": 730, "footprint": 560}
+    assert (measured["peak"]["at_s"], measured["peak"]["resident"], measured["peak"]["footprint"]) == (
+        1.0,
+        730,
+        560,
+    )
+    assert (measured["end"]["resident"], measured["end"]["footprint"]) == (270, 250)
+    assert default["walk"] == {"peak_resident": 300, "peak_footprint": 280, "cpu_s": 2.5}
+    assert default["absorb"] == {
+        "peak_resident": 120,
+        "peak_footprint": 110,
+        "cpu_s": 0.75,
+        "seconds": 0.25,
+        "rows": 20,
+        "bytes": 4096,
+        "sha256": "ab" * 32,
+        "warning": None,
+    }
+    assert default["counts"] == {"texts": 10, "windows": 20, "skipped": 0}
+    assert default["phases"] == {"replay[default]": 1.5}
+    assert default["cache"] == {
+        "units": 2,
+        "largest_unit": {
+            "unit": 2,
+            "tables": {"walk_memo": [7, 8, 0.875], "trace_cache": [50, 64, 0.781]},
+            "resident_after_release": 3 * 1024,
+        },
+        "side_memo": [3, 4, 0.75],
+        "row_store": {"rows": 15, "bytes": 4194304, "chunks": 1},
+        "resident_after_walk": 4 * 1024,
+    }
+    assert measured["samples"] == 3 and measured["written"]["end"]["seconds"] == 1.0
+    failed = {**walks, "ss03": {**walks["ss03"], "error": "ss03: 1 first-match-wins replay disagreement(s)"}}
+    meters = iter(_reading(at, 0) for at in (0.0, 1.0))
+    with pytest.raises(SystemExit, match="the replay failed: ss03"):
+        ms.measure_replay_line(
+            ["child"],
+            ["default", "ss03"],
+            idle_s=0,
+            after_s=0,
+            meter=lambda: next(meters),
+            machine=lambda: QUIET,
+            run=lambda arguments, **rest: _replay_run(failed, absorbs, readings, commands, passed=False),
+        )
+
+
+def test_a_replay_child_takes_the_series_build_only_when_told(monkeypatch, tmp_path, capsys):
+    """The replay child marks the kernel built (`kernel_exec._BUILT`) before its replay only with `--built`, which the series passes once its own build has succeeded, so a line runs no `cargo build`, and a child run without it leaves the flag as it was, so the replay builds as run_m1's does."""
+    import pickle
+
+    from rebuild.pipeline import run_m1
+    from rebuild.tools import memory_series_child
+
+    seen: list[bool] = []
+
+    def replay_and_absorb(spec, out_dir, memos, threads, **rest):
+        seen.append(kernel_exec._BUILT)
+        return run_m1.FullReplay({}, {}, True)
+
+    spec = tmp_path / "spec.pickle"
+    spec.write_bytes(pickle.dumps(fixtures.mini_spec()))
+    monkeypatch.setattr(run_m1, "replay_and_absorb", replay_and_absorb)
+    arguments = ["replay", "--spec", str(spec), "--spec-dump", "dump.json", "--out", str(tmp_path)]
+    arguments += ["--configs", "default", "--width", "1"]
+    for told in (False, True):
+        monkeypatch.setattr(kernel_exec, "_BUILT", False)
+        assert memory_series_child.main([*arguments, *(["--built"] if told else [])]) == 0
+    assert seen == [False, True]
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["passed"]
+
+
+def test_a_replay_run_builds_each_cut_once_and_records_every_named_line(monkeypatch, tmp_path):
+    """A replay run builds each distinct cut's tables once, before any line, at the table holder's flags with the allocator's large cache off, writes each cut's spec dump and a pickle the child reads, and measures every named line in order, a count named twice twice, at the width a bare run_m1 derives or the one stated, each child told the series has built the kernel and run in the series' own environment, without the allocator setting, which reaches the walks alone; it records each line under the replay holder with the cut, the width and the configurations, then the fit, and removes the cuts' tables however it ends."""
+    built: list = []
+    measured: list = []
+    environments: list = []
+
+    def build_replay_tables(spec_path, cut_dir, configs, flags, stamp, *, env):
+        built.append((spec_path.name, cut_dir.name, tuple(configs)))
+        environments.append(("tables", env))
+        cut_dir.mkdir(parents=True)
+
+    def measure_replay_line(arguments, configs, *, env, **rest):
+        spec = arguments[arguments.index("--spec") + 1]
+        measured.append((Path(spec).name, arguments[arguments.index("--width") + 1], tuple(configs)))
+        assert "--built" in arguments
+        environments.append(("line", env))
+        walk = {
+            "counts": {"texts": 1, "windows": 2 * len(measured), "skipped": 0},
+            "walk": {"peak_resident": 10 * len(measured), "peak_footprint": 9, "cpu_s": 1.0},
+            "absorb": {"peak_resident": 5, "peak_footprint": 4, "cpu_s": 0.5},
+            "pair": {"resident": 15, "footprint": 13},
+            "cache": {"largest_unit": None, "row_store": {"bytes": 4}},
+        }
+        return {
+            "combined": {"resident": 20, "footprint": 18},
+            "written": {"end": None, "after": None},
+            "configs_measured": {config: walk for config in configs},
+        }
+
+    monkeypatch.delenv(spec_load.M1_RUNES_ENV, raising=False)
+    for name in kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(ms, "ROOT", tmp_path)
+    monkeypatch.setattr(ms.spec_load, "load_default_spec", fixtures.mini_spec)
+    monkeypatch.setattr(ms.kernel_exec, "ensure_built", lambda: None)
+    monkeypatch.setattr(ms, "build_replay_tables", build_replay_tables)
+    monkeypatch.setattr(ms, "measure_replay_line", measure_replay_line)
+    monkeypatch.setattr(ms, "_head", lambda: "head")
+    monkeypatch.setattr(ms.os, "sync", lambda: None)
+    monkeypatch.setattr(ms.time, "sleep", lambda seconds: None)
+    out = tmp_path / "series.txt"
+    assert (
+        ms.main(
+            [
+                "--holder",
+                "replay",
+                "3",
+                "4",
+                "3",
+                "--configs",
+                "default",
+                "--replay-threads",
+                "1",
+                "--out",
+                str(out),
+            ]
+        )
+        == 0
+    )
+    assert built == [("spec-r3.json", "r3", ("default",)), ("spec-r4.json", "r4", ("default",))]
+    assert measured == [
+        ("spec-r3.pickle", "1", ("default",)),
+        ("spec-r4.pickle", "1", ("default",)),
+        ("spec-r3.pickle", "1", ("default",)),
+    ]
+    text = out.read_text(encoding="utf-8").splitlines()
+    recorded = [json.loads(line) for line in text if line.startswith("{")]
+    assert [(line["step"], line["runes"], line["width"], line["configs"]) for line in recorded] == [
+        ("replay", 3, 1, ["default"]),
+        ("replay", 4, 1, ["default"]),
+        ("replay", 3, 1, ["default"]),
+    ]
+    assert recorded[0]["walks"]["default"]["counts"]["windows"] == 2
+    assert any(line.startswith("replay fit over 3 lines") for line in text)
+    assert not (tmp_path / ms.TREE_PATH / ms.REPLAY).exists()
+    allocator = set(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT)
+    lines = [env for kind, env in environments if kind == "line"]
+    assert len(lines) == 3 and all(env is not None and not allocator & set(env) for env in lines)
+    if sys.platform == "darwin":
+        assert all(
+            env is not None and allocator <= set(env) for kind, env in environments if kind == "tables"
+        )
+
+
 def test_the_peak_moment_is_the_sample_with_the_highest_footprint():
     """`start` is the machine before the spawn with no child figures, `peak` the sample whose footprint is highest though another's resident set is higher, and `end` the machine after the reap beside the last sample's child figures. The maxima cover every reading."""
 
@@ -636,15 +871,30 @@ def test_the_corpus_inputs_are_refused_when_the_live_corpus_or_the_pack_is_not_b
 
 
 def test_the_holder_picks_which_lines_and_flags_a_run_takes():
-    """Rune counts name cut lines for either holder, and `load-x1` and `load-x2` name the corpus holder's load lines; a load line or a corpus width under the table holder, and a table flag under the corpus holder, are refused."""
+    """Rune counts name cut lines for every holder, a count named twice twice, and `load-x1` and `load-x2` name the corpus holder's load lines; the replay holder takes `--configs` and `--replay-threads`. A load line under another holder, a corpus width under the table or replay holder, a table width under the corpus or replay holder, the replay's width under another holder, and a width below one are refused."""
     args = ms.parse_arguments(["--holder", "corpus", "30", "load-x1", "45", "--jobs", "4"])
     assert (args.holder, args.sizes, args.loads, args.jobs) == ("corpus", [30, 45], [1], 4)
     assert (ms.parse_arguments(["34"]).holder, ms.parse_arguments(["34"]).sizes) == ("tables", [34])
+    replay = ms.parse_arguments(
+        ["--holder", "replay", "45", "45", "--configs", "default", "--replay-threads", "1"]
+    )
+    assert (replay.holder, replay.sizes, replay.configs, replay.replay_threads) == (
+        "replay",
+        [45, 45],
+        "default",
+        1,
+    )
     for refused in (
         ["load-x1"],
         ["--jobs", "2"],
+        ["--replay-threads", "2"],
         ["--holder", "corpus", "--kernel-threads", "2"],
+        ["--holder", "corpus", "--replay-threads", "2"],
         ["--holder", "corpus", "load-x3"],
+        ["--holder", "replay", "load-x1"],
+        ["--holder", "replay", "--kernel-threads", "2"],
+        ["--holder", "replay", "--write-jobs", "2"],
+        ["--holder", "replay", "--replay-threads", "0"],
     ):
         with pytest.raises(SystemExit):
             ms.parse_arguments(refused)

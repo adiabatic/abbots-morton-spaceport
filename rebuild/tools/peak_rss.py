@@ -256,6 +256,12 @@ def parse_time_output(text: str) -> int | None:
 
 def reap_peak_rss_bytes(proc: subprocess.Popen) -> int | None:
     """Reap `proc` with `os.wait4`, set `proc.returncode` as Popen would (a negative signal number on a kill), and return the child's peak RSS in bytes. The figure is the largest peak among the child and every descendant the child reaped, so for a step that runs a pool it is the largest single process in that tree. `RUSAGE_CHILDREN` cannot give this per-step figure, because it covers every child reaped so far, across steps. Returns None when the child is already reaped or another waiter reaps it first (the interrupt path's `terminate_all` also waits); the caller's own `proc.wait()` then works as usual."""
+    usage = _reap_usage(proc)
+    return None if usage is None else maxrss_to_bytes(usage.ru_maxrss)
+
+
+def _reap_usage(proc: subprocess.Popen) -> resource.struct_rusage | None:
+    """Reap `proc` with `os.wait4`, set `proc.returncode` as Popen would, and return the rusage the reap gives, or None when it cannot reap it (`reap_peak_rss_bytes`)."""
     if proc.returncode is not None or not hasattr(os, "wait4"):
         return None
     try:
@@ -263,18 +269,19 @@ def reap_peak_rss_bytes(proc: subprocess.Popen) -> int | None:
     except ChildProcessError:
         return None
     proc.returncode = os.waitstatus_to_exitcode(status)
-    return maxrss_to_bytes(rusage.ru_maxrss)
+    return rusage
 
 
 class ReapedPeaks(NamedTuple):
-    """A reaped child's two peak lines in bytes, either None where it cannot be read: `resident`, as `reap_peak_rss_bytes` reads it, and `footprint`, its own lifetime peak footprint (`peak_footprint_bytes`)."""
+    """A reaped child's two peak lines in bytes and its CPU time, each None where it cannot be read: `resident`, as `reap_peak_rss_bytes` reads it, `footprint`, its own lifetime peak footprint (`peak_footprint_bytes`), and `cpu`, the user and system seconds of the rusage the reap gives."""
 
     resident: int | None
     footprint: int | None
+    cpu: float | None = None
 
 
 def reap_peaks_bytes(proc: subprocess.Popen) -> ReapedPeaks:
-    """Reap `proc` as `reap_peak_rss_bytes` does, reading its peak footprint first. A child's peak footprint is readable only until it is reaped, so this waits for it to exit without reaping it (`os.waitid` with `WNOWAIT`), reads `peak_footprint_bytes(proc.pid)` while it is a zombie, and only then reaps it with `os.wait4`. The footprint is the child's own, not its descendants'. It is None where `os.waitid` is missing, when the child is already reaped or another waiter reaps it first, and on Linux, where a zombie's `/proc/<pid>/status` carries no `VmHWM`."""
+    """Reap `proc` as `reap_peak_rss_bytes` does, reading its peak footprint first. A child's peak footprint is readable only until it is reaped, so this waits for it to exit without reaping it (`os.waitid` with `WNOWAIT`), reads `peak_footprint_bytes(proc.pid)` while it is a zombie, and only then reaps it with `os.wait4`, whose rusage gives its resident peak and its CPU seconds. The footprint is the child's own, not its descendants'. It is None where `os.waitid` is missing, when the child is already reaped or another waiter reaps it first, and on Linux, where a zombie's `/proc/<pid>/status` carries no `VmHWM`."""
     footprint = None
     if proc.returncode is None and hasattr(os, "waitid"):
         try:
@@ -283,4 +290,7 @@ def reap_peaks_bytes(proc: subprocess.Popen) -> ReapedPeaks:
             pass
         else:
             footprint = peak_footprint_bytes(proc.pid)
-    return ReapedPeaks(reap_peak_rss_bytes(proc), footprint)
+    usage = _reap_usage(proc)
+    if usage is None:
+        return ReapedPeaks(None, footprint)
+    return ReapedPeaks(maxrss_to_bytes(usage.ru_maxrss), footprint, usage.ru_utime + usage.ru_stime)

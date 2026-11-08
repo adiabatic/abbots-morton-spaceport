@@ -3165,7 +3165,7 @@ def test_the_deltas_from_scratch_take_the_pytest_pool_off_the_machine_as_the_wid
 
 
 def test_replay_threads_budget_takes_the_pytest_pool_off_the_machine_first():
-    """The replay width subtracts gate:make-test's pool before dividing, as the kernel width does. So the gated width is never wider than the skipped-gate width, and where the cap does not bind, the pool is what separates them. Both are capped at the configuration count and the cores."""
+    """The replay width subtracts gate:make-test's pool before dividing, as the kernel width does. So the gated width is never wider than the skipped-gate width, and where the cap does not bind, the pool is what separates them. Both are capped at the configuration count and the cores. The invented machine holds two and a half walks beside the pool at six cores, so the gated width is two by division, and the skipped-gate width, which keeps the pool's memory for walks, lies between that and the cap."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import REPLAY_PEAK_BYTES
 
@@ -3173,9 +3173,15 @@ def test_replay_threads_budget_takes_the_pytest_pool_off_the_machine_first():
     beside = ac.replay_threads_budget(ncores=8, total_bytes=MACHINE_36_GB)
     assert 1 <= beside <= solo <= len(SETTLEMENT_CONFIGS)
     assert ac.replay_threads_budget(ncores=2, total_bytes=MACHINE_44_GB) == 2
-    narrow_machine = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + 300_000_000
-    assert ac.replay_threads_budget(skip_make_test=True, ncores=8, total_bytes=narrow_machine) == 3
-    assert ac.replay_threads_budget(ncores=8, total_bytes=narrow_machine) == 2
+    pool = ac.make_test_pool_width(ncores=6) * ac._font_suite_worker_bytes()
+    narrow_machine = 8_000_000_000 + pool + 2 * REPLAY_PEAK_BYTES + REPLAY_PEAK_BYTES // 2
+    gated = ac.replay_threads_budget(ncores=6, total_bytes=narrow_machine)
+    assert gated == 2
+    assert (
+        gated
+        < ac.replay_threads_budget(skip_make_test=True, ncores=6, total_bytes=narrow_machine)
+        < len(SETTLEMENT_CONFIGS)
+    )
 
 
 def test_every_configuration_replays_in_one_wave_with_the_test_gates_running_on_both_fleet_machines():
@@ -3212,7 +3218,7 @@ def test_the_replay_plan_line_explains_the_width_it_prints_on_every_route(monkey
     derived = ac.replay_threads_derivation(ncores=10, total_bytes=MACHINE_32_GIB)
     assert derived.startswith(f"every settlement configuration in one wave; {count} at ")
     assert "AMS_REPLAY_THREADS" not in derived
-    narrow_machine = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + 300_000_000
+    narrow_machine = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + REPLAY_PEAK_BYTES // 2
     narrow = ac.replay_threads_derivation(skip_make_test=True, ncores=8, total_bytes=narrow_machine)
     assert narrow.startswith(f"2 waves over {count} settlement configurations; 3 at ")
     monkeypatch.setenv("AMS_REPLAY_THREADS", "2")

@@ -4,6 +4,7 @@ No test skips. On a machine without `cargo` these tests fail with the remedy `Ke
 """
 
 import fcntl
+import io
 import itertools
 import json
 import os
@@ -78,6 +79,56 @@ try:
     )
 except KeyboardInterrupt:
     print("interrupted", flush=True)
+"""
+
+
+_ORPHANED_WORKERS = """
+import multiprocessing
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+
+from rebuild.pipeline import kernel_exec, run_m1
+
+
+def park(where, scratch):
+    state = run_m1._REPLAY_WORKER
+    state.reports.put((where, os.getpid()))
+    if where == "slot":
+        state.gate.acquire()
+    elif where == "verdict":
+        state.decided.wait()
+    elif where == "walk":
+        spawn = kernel_exec._spawn_kernel
+
+        def spawned(arguments, **rest):
+            process = spawn(arguments, **rest)
+            state.reports.put(("crate", process.pid))
+            return process
+
+        kernel_exec._spawn_kernel = spawned
+        kernel_exec.stream_payloads(
+            {"memo": Path(scratch) / "memo.bin"},
+            lambda _name, source: source.read(),
+            lambda: kernel_exec._run_kernel_reaped(["/bin/sleep", "120"], "replay-strings", timeout=600),
+        )
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    context = multiprocessing.get_context("spawn")
+    gate, reports, decided = context.Semaphore(0), context.Queue(), context.Event()
+    shared = (gate, reports, decided, context.Value("b", 0), context.Value("i", 0), 4, False)
+    pool = run_m1._spawn_pool(4, 4, initializer=run_m1._replay_worker_init, initargs=(False, "spec.json", *shared))
+    for where in ("slot", "verdict", "walk"):
+        pool.submit(park, where, sys.argv[1])
+    for _ in range(4):
+        print(*reports.get(), flush=True)
+    pool.submit(park, "idle", sys.argv[1]).result()
+    print(*reports.get(), flush=True)
+    time.sleep(600)
 """
 
 
@@ -1771,46 +1822,174 @@ class TestTheReplayStage:
             (run_m1.REPLAY_POOL_UNIT, 3, {"per walk": 3_000_000_000})
         ]
 
-    def test_each_absorb_that_answers_records_its_workers_peak_footprint(self, monkeypatch, tmp_path):
-        """After a full replay, each settle-memo absorb that answers records its worker's peak footprint as one `<config> absorb` reading of a `replay-absorb` pool record, the row `make job-costs` reads it under; an absorb whose dump the crate never wrote warns and records nothing. The pool is stubbed with threads, so the stubbed absorb and footprint reach the workers."""
+    @staticmethod
+    def _in_threads(monkeypatch):
+        """Run a full replay's absorb workers as threads of this process, so a stubbed walk and footprint reach them: the spawn pool becomes a thread pool that runs the same initializer, whose marks this undoes when the test ends."""
         from concurrent.futures import ThreadPoolExecutor
 
+        monkeypatch.setattr(kernel_exec, "_BUILT", kernel_exec._BUILT)
+        monkeypatch.setattr(run_m1, "_REPLAY_WORKER", None)
+        monkeypatch.setattr(
+            run_m1,
+            "_spawn_pool",
+            lambda jobs, units, *, max_tasks_per_child=None, initializer=None, initargs=(): ThreadPoolExecutor(
+                max_workers=units, initializer=initializer, initargs=initargs
+            ),
+        )
+
+    @staticmethod
+    def _walked(asked: list, peak: int = 400_000_000, refused: str | None = None):
+        """A stubbed `kernel_exec.replay_memo_walk` that records each call's spec dump and configuration and hands the worker's reader an empty window memo, or for `refused` a stream with no head, as a walk the crate never wrote a memo for gives."""
+        from rebuild.tools.peak_rss import ReapedPeaks
+
+        def walk(spec_path, out_dir, config, *, max_length, symbols, read, cache_stats=False):
+            asked.append((spec_path, config))
+            head = json.dumps(
+                {"config": config, "max_length": max_length, "rows": 0, "labels": 0, "records": 0, "width": 2}
+            )
+            memo = b"" if config == refused else f"# {kernel_exec.REPLAY_MEMO_FORMAT}\t{head}\n".encode()
+            return kernel_exec.ReplayWalk(
+                {"texts": 1, "windows": 1, "skipped": 0},
+                (f"[t] replay[{config}] 0.1s", "[t] replay_total 0.1s"),
+                ReapedPeaks(peak, peak - 1, 1.0),
+                read(io.BytesIO(memo)),
+            )
+
+        return walk
+
+    def test_each_walk_and_each_absorb_that_answers_records_its_own_peak(self, monkeypatch, tmp_path, capsys):
+        """A full replay records one `replay-walk` observation a configuration, that walk's own crate peak, and one `<config> absorb` observation of the `replay-absorb` record a worker that read its memo whole, its peak footprint, the row `make job-costs` reads it under; an absorb whose memo the crate never wrote warns, records nothing and writes no file, and the other configurations' files move into place. Each walk's `[t]` lines come out tagged with its configuration where they carry no bracket. The workers run as threads, so the stubbed walk and footprint reach them."""
         from rebuild.tools import calibrate_budgets, cycle_timings
 
-        def replay_strings(
-            spec,
-            out_dir,
-            configs,
-            *,
-            max_length,
-            families,
-            threads,
-            timings=False,
-            memo_dir=None,
-            on_peak=None,
-        ):
-            for config in configs:
-                if config != "ss08":
-                    kernel_exec.replay_memo_dump(out_dir, config).write_bytes(b"")
-            return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
-
-        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
-        monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs, units: ThreadPoolExecutor(max_workers=units))
-        monkeypatch.setattr(run_m1.conform, "absorb_replay_memo", lambda dump, memo, spec, config: 7)
+        self._in_threads(monkeypatch)
+        asked: list = []
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
+        monkeypatch.setattr(kernel_exec, "replay_memo_walk", self._walked(asked, refused="ss08"))
         monkeypatch.setattr(run_m1, "peak_footprint_self_bytes", lambda: 315_000_000)
         digests = {name: f"d-{name}" for name in SPEC.runes}
         inputs = oracle_cache.SettleMemoInputs(rune_digests=dict(digests), oracle_code="code", data="data")
-        run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)
-        records = [
-            record
-            for record in cycle_timings.load_pool_records(cycle_timings.JOURNAL)
-            if record["unit"] == run_m1.REPLAY_ABSORB_POOL_UNIT
-        ]
-        assert [record["worker_peak_rss_bytes"] for record in records] == [
+        assert run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)["pass"]
+        records = cycle_timings.load_pool_records(cycle_timings.JOURNAL)
+        assert [
+            record["worker_peak_rss_bytes"] for record in records if record["unit"] == run_m1.REPLAY_POOL_UNIT
+        ] == [dict.fromkeys(conform.SETTLEMENT_CONFIGS, 400_000_000)]
+        absorbs = [record for record in records if record["unit"] == run_m1.REPLAY_ABSORB_POOL_UNIT]
+        assert [record["worker_peak_rss_bytes"] for record in absorbs] == [
             {f"{config} absorb": 315_000_000 for config in conform.SETTLEMENT_CONFIGS if config != "ss08"}
         ]
-        assert [record["worker_reading"] for record in records] == ["footprint"]
+        assert [record["worker_reading"] for record in absorbs] == ["footprint"]
         assert any(run_m1.REPLAY_ABSORB_POOL_UNIT in unit.pool_units for unit in calibrate_budgets.UNITS)
+        memos = conform.settle_memo_files(tmp_path, SPEC, inputs)
+        assert [config for config, memo in memos.items() if conform.settle_memo_standing(memo)] == [
+            config for config in conform.SETTLEMENT_CONFIGS if config != "ss08"
+        ]
+        captured = capsys.readouterr()
+        assert "not absorbed" in captured.out and "replay-windows-ss08.bin" in captured.out
+        assert "[t] replay[ss03] 0.1s" in captured.err and "[t] replay_total[ss03] 0.1s" in captured.err
+        assert not list(tmp_path.glob("replay-windows-*")) and not list(tmp_path.glob("*.tmp"))
+
+    def test_the_workers_take_the_parents_build_and_spec_dump(self, monkeypatch, tmp_path):
+        """The parent builds the kernel and dumps the spec once, and its workers' initializer marks the kernel built only from the parent's word: every walk gets the parent's spec dump, no worker dumps one of its own, and an initializer told the parent never built leaves `_BUILT` as it was, so a worker cannot skip cargo after a crate edit."""
+        self._in_threads(monkeypatch)
+        asked: list = []
+        built: list = []
+        dumps: list = []
+        dump = tmp_path / "parent-spec.json"
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: built.append("built"))
+        monkeypatch.setattr(kernel_exec, "_spec_dump", lambda spec: (dumps.append(spec), dump)[1])
+        monkeypatch.setattr(kernel_exec, "replay_memo_walk", self._walked(asked))
+        memos = conform.settle_memo_files(
+            tmp_path, SPEC, oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        )
+        replayed = run_m1.replay_and_absorb(SPEC, tmp_path, memos, 2)
+        assert replayed.passed and built == ["built"] and dumps == [SPEC]
+        assert sorted(asked) == sorted((dump, config) for config in conform.SETTLEMENT_CONFIGS)
+        assert kernel_exec._BUILT
+        monkeypatch.setattr(kernel_exec, "_BUILT", False)
+        run_m1._replay_worker_init(False, str(dump), None, None, None, None, None, 0, False)
+        assert not kernel_exec._BUILT
+        run_m1._replay_worker_init(True, str(dump), None, None, None, None, None, 0, False)
+        assert kernel_exec._BUILT
+
+    def test_a_narrow_replay_stages_a_file_at_once_while_a_walk_waits_and_a_red_one_removes_it(
+        self, monkeypatch, tmp_path
+    ):
+        """Below the configuration count a worker whose file is finished while a walk still waits for a slot stages it at once and waits for the verdict holding no file, so the walks running and the files held never outnumber the width, and a red replay removes every file staged that way; at the configuration count no worker stages before the verdict, so a red replay stages nothing. The workers run as threads with a disagreement in `ss08`'s walk; at width 1 every worker but the last to take the slot stages early, `ss08`'s own excepted."""
+        self._in_threads(monkeypatch)
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
+        monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
+        walked = self._walked([])
+
+        def walk(spec_path, out_dir, config, **rest):
+            if config == "ss08":
+                raise kernel_exec.ReplayDisagreement("ss08: a window settles two ways")
+            return walked(spec_path, out_dir, config, **rest)
+
+        staged: list = []
+        stage = conform.FinishedSettleMemo.stage
+        monkeypatch.setattr(
+            conform.FinishedSettleMemo,
+            "stage",
+            lambda self, path: (staged.append(path), stage(self, path))[1],
+        )
+        monkeypatch.setattr(kernel_exec, "replay_memo_walk", walk)
+        memos = conform.settle_memo_files(
+            tmp_path, SPEC, oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        )
+        configs = len(conform.SETTLEMENT_CONFIGS)
+        for width, early in ((1, {configs - 2, configs - 1}), (configs, {0})):
+            staged.clear()
+            replayed = run_m1.replay_and_absorb(SPEC, tmp_path, memos, width)
+            assert not replayed.passed and replayed.failure().config == "ss08"
+            assert len(staged) in early, width
+            assert not list(tmp_path.glob("settle-memo-*")) and not list(tmp_path.glob("*.tmp"))
+
+    def test_a_worker_whose_parent_has_gone_stops_wherever_it_waits(self, tmp_path):
+        """A stop that ends a full replay's parent alone, as the artifact cycle's driver's SIGTERM to `uv run` ends run_m1, leaves no absorb worker behind, wherever the worker waits: for a slot, for the verdict, idle in its pool after its task, or inside a walk, whose crate it kills and reaps and whose FIFO it removes before it ends. A real spawn pool under the replay's initializer stands in for the replay, a parent that never sets the verdict and never frees a slot, and a `sleep` for the crate; the parent ends at SIGTERM's default action, with no cleanup of its own."""
+        script = tmp_path / "orphaned_workers.py"
+        script.write_text(_ORPHANED_WORKERS)
+        scratch = tmp_path / "scratch"
+        scratch.mkdir()
+        log = tmp_path / "orphaned_workers.log"
+        pids: dict[str, int] = {}
+        with log.open("w") as errors:
+            parent = subprocess.Popen(
+                [sys.executable, str(script), str(scratch)],
+                cwd=kernel_exec.REPO_ROOT,
+                env={**os.environ, "PYTHONPATH": str(kernel_exec.REPO_ROOT)},
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=errors,
+                text=True,
+            )
+            try:
+                assert parent.stdout is not None
+                for _ in range(5):
+                    where, pid = parent.stdout.readline().split()
+                    pids[where] = int(pid)
+                time.sleep(0.5)
+                parent.terminate()
+                parent.wait(timeout=60)
+            finally:
+                if parent.poll() is None:
+                    parent.kill()
+                    parent.wait()
+
+        def alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            return True
+
+        assert sorted(pids) == ["crate", "idle", "slot", "verdict", "walk"], log.read_text()
+        deadline = time.monotonic() + 30
+        while (left := [where for where, pid in pids.items() if alive(pid)]) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        for where in left:
+            os.kill(pids[where], signal.SIGKILL)
+        assert not left, log.read_text()
+        assert not list(scratch.iterdir())
 
     def test_the_stage_walks_at_its_own_width_and_a_stated_one_is_only_ever_narrowed(
         self, monkeypatch, tmp_path
@@ -1846,8 +2025,24 @@ class TestTheReplayStage:
         assert run_m1._replay_threads(None) == min(kernel_exec.replay_threads_default(), count, 2)
         assert run_m1._replay_threads(count) == min(count, 2)
 
+    @staticmethod
+    def _absorbing(asked: list):
+        """A stubbed `run_m1.replay_and_absorb` that records the configurations it was asked to walk and absorb and passes them all."""
+
+        def replay_and_absorb(spec, out_dir, memos, threads, **rest):
+            asked.append(("absorbed", tuple(memos)))
+            walks = {
+                config: run_m1.ReplayWalkReport(
+                    config, {"texts": 1, "windows": 1, "skipped": 0}, None, False, (), None, 0
+                )
+                for config in memos
+            }
+            return run_m1.FullReplay(walks, {}, True)
+
+        return replay_and_absorb
+
     def test_a_memo_file_absent_or_restamped_widens_the_walk_and_asks_for_a_dump(self, monkeypatch, tmp_path):
-        """When a configuration's settle memo file is absent or has another stamp while the replay's structure stamp still matches, a build that would otherwise walk nothing walks every text and asks for the window memo dumps that refill it. A rune edit walks that rune's families and asks for no dumps, and a pass where every memo file is current and nothing moved walks nothing. A missing dump (the stub writes none) is a warning and does not fail the stage."""
+        """When a configuration's settle memo file is absent or has another stamp while the replay's structure stamp still matches, a build that would otherwise walk nothing walks every text, each configuration beside the absorb that refills its file (`run_m1.replay_and_absorb`). A rune edit walks that rune's families in one crate process and asks for no memo, and a pass where every memo file is current and nothing moved walks nothing."""
         asked: list = []
 
         def replay_strings(
@@ -1866,6 +2061,7 @@ class TestTheReplayStage:
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
 
         monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        monkeypatch.setattr(run_m1, "replay_and_absorb", self._absorbing(asked))
         monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
         digests = {name: f"d-{name}" for name in SPEC.runes}
         monkeypatch.setattr(run_m1.fingerprint, "rune_digests", lambda root: dict(digests))
@@ -1874,7 +2070,7 @@ class TestTheReplayStage:
 
         first = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
         assert first["pass"] and first["families"] is None
-        assert asked == [(None, tmp_path)]
+        assert asked == [("absorbed", tuple(conform.SETTLEMENT_CONFIGS))]
         for memo in memos.values():
             assert conform._write_settle_memo(memo, *conform._memo_columns([]))
         again = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
@@ -1889,49 +2085,126 @@ class TestTheReplayStage:
         assert conform._write_settle_memo(restamped, *conform._memo_columns([]))
         assert not conform.settle_memo_standing(memos["ss03"])
         widened = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
-        assert widened["families"] is None and asked[-1] == (None, tmp_path)
+        assert widened["families"] is None and asked[-1] == ("absorbed", tuple(conform.SETTLEMENT_CONFIGS))
         assert not list(tmp_path.glob("replay-windows-*.bin"))
 
     def test_a_narrowed_replay_walks_and_keys_only_the_configurations_it_names(self, monkeypatch, tmp_path):
-        """With `configs=["default"]`, the stage asks the crate for `default` alone and handles only `default`'s window memo dump. With no `configs` it asks for every settlement configuration and handles every dump. `conform.settle_memo_files` returns every configuration either way, so the filtering happens in this stage."""
+        """With `configs=["default"]`, the stage walks and absorbs `default` alone and clears only `default`'s window memo path. With no `configs` it walks and absorbs every settlement configuration and clears every path. `conform.settle_memo_files` returns every configuration either way, so the filtering happens in this stage."""
         asked: list = []
         dumps: list = []
-
-        def replay_strings(
-            spec,
-            out_dir,
-            configs,
-            *,
-            max_length,
-            families,
-            threads,
-            timings=False,
-            memo_dir=None,
-            on_peak=None,
-        ):
-            asked.append((tuple(configs), memo_dir))
-            return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
 
         def replay_memo_dump(out_dir, config):
             dumps.append(config)
             return tmp_path / f"replay-windows-{config}.bin"
 
-        monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
+        monkeypatch.setattr(run_m1, "replay_and_absorb", self._absorbing(asked))
         monkeypatch.setattr(kernel_exec, "replay_memo_dump", replay_memo_dump)
         digests = {name: f"d-{name}" for name in SPEC.runes}
         inputs = oracle_cache.SettleMemoInputs(rune_digests=dict(digests), oracle_code="code", data="data")
         assert set(conform.settle_memo_files(tmp_path, SPEC, inputs)) == set(conform.SETTLEMENT_CONFIGS)
 
         narrowed = run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs, configs=["default"])
-        assert asked == [(("default",), tmp_path)]
+        assert asked == [("absorbed", ("default",))]
         assert list(narrowed["configs"]) == ["default"]
         assert set(dumps) == {"default"}
 
         dumps.clear()
         whole = run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)
-        assert asked[-1] == (tuple(conform.SETTLEMENT_CONFIGS), tmp_path)
+        assert asked[-1] == ("absorbed", tuple(conform.SETTLEMENT_CONFIGS))
         assert list(whole["configs"]) == list(conform.SETTLEMENT_CONFIGS)
         assert set(dumps) == set(conform.SETTLEMENT_CONFIGS)
+
+    @pytest.fixture(scope="class")
+    def tables_dir(self, tmp_path_factory):
+        out_dir = tmp_path_factory.mktemp("replay-stage-tables")
+        run_m1.build_tables(SPEC, out_dir)
+        return out_dir
+
+    @staticmethod
+    def _tables(tables_dir, out_dir):
+        """A copy of every configuration's settlement table under `out_dir`, which the replay reads and beside which it writes the settle memo files."""
+        out_dir.mkdir(parents=True)
+        for config in conform.SETTLEMENT_CONFIGS:
+            name = f"settlement-{config}.tsv"
+            (out_dir / name).write_text((tables_dir / name).read_text())
+        return out_dir
+
+    def test_a_full_replay_walks_each_configuration_in_a_crate_of_its_own_beside_its_absorb(
+        self, tables_dir, tmp_path, capsys
+    ):
+        """A full replay with memo inputs runs one `replay-strings` process a configuration, each writing its own `spec_parse[<config>]` line, and one absorb worker beside each, at widths 1 and 2 alike: it answers the counts the one-process walk answers, writes every configuration's settle memo file, leaves no FIFO and no staged file, and records each walk's own peak and each absorb's footprint, one observation a configuration."""
+        from rebuild.tools import cycle_timings
+
+        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        for width in (1, 2):
+            out_dir = self._tables(tables_dir, tmp_path / f"w{width}")
+            summary = run_m1.run_replay_strings(SPEC, out_dir, None, replay_threads=width, memo_inputs=inputs)
+            assert summary["pass"] and list(summary["configs"]) == list(conform.SETTLEMENT_CONFIGS)
+            assert summary["configs"] == kernel_exec.replay_strings(
+                SPEC,
+                out_dir,
+                conform.SETTLEMENT_CONFIGS,
+                max_length=run_m1.REPLAY_MAX_LENGTH,
+                families=None,
+                threads=2,
+            )
+            err = capsys.readouterr().err
+            assert [
+                config for config in conform.SETTLEMENT_CONFIGS if f"[t] spec_parse[{config}] " in err
+            ] == list(conform.SETTLEMENT_CONFIGS)
+            memos = conform.settle_memo_files(out_dir, SPEC, inputs)
+            assert all(conform.settle_memo_standing(memo) for memo in memos.values())
+            assert not list(out_dir.glob("replay-windows-*")) and not list(out_dir.glob("*.tmp"))
+        records = cycle_timings.load_pool_records(cycle_timings.JOURNAL)
+        walks = [record for record in records if record["unit"] == run_m1.REPLAY_POOL_UNIT]
+        assert [(record["width"], sorted(record["worker_peak_rss_bytes"])) for record in walks] == [
+            (width, sorted(conform.SETTLEMENT_CONFIGS)) for width in (1, 2)
+        ]
+        absorbs = [record for record in records if record["unit"] == run_m1.REPLAY_ABSORB_POOL_UNIT]
+        assert [sorted(record["worker_peak_rss_bytes"]) for record in absorbs] == [
+            sorted(f"{config} absorb" for config in conform.SETTLEMENT_CONFIGS)
+        ] * 2
+
+    def test_a_red_walk_in_any_configuration_writes_no_settle_memo_byte(
+        self, tables_dir, tmp_path, monkeypatch
+    ):
+        """A disagreement in one configuration's walk, not the first's, makes a replay at the configuration count red with that walk's message and no counts, every absorb discards its file, so no settle memo file appears and a standing one keeps its bytes and its inode, and no FIFO or staged file is left."""
+        monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
+        out_dir = self._tables(tables_dir, tmp_path / "red")
+        table = out_dir / "settlement-ss04.tsv"
+        lines = table.read_text().splitlines()
+        fields = lines[2].split("\t")
+        fields[6] = f"{fields[0]}.perturbed"
+        lines[2] = "\t".join(fields)
+        table.write_text("\n".join(lines) + "\n")
+        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        standing = conform.settle_memo_files(out_dir, SPEC, inputs)["default"]
+        assert conform._write_settle_memo(standing, *conform._memo_columns([]))
+        before = (standing.path.read_bytes(), standing.path.stat().st_ino)
+        summary = run_m1.run_replay_strings(
+            SPEC, out_dir, None, replay_threads=len(conform.SETTLEMENT_CONFIGS), memo_inputs=inputs
+        )
+        assert not summary["pass"] and summary["configs"] == {}
+        assert "ss04" in summary["error"] and ".perturbed" in summary["error"]
+        assert (standing.path.read_bytes(), standing.path.stat().st_ino) == before
+        assert [path.name for path in out_dir.glob("settle-memo-*")] == [standing.path.name]
+        assert not list(out_dir.glob("replay-windows-*")) and not list(out_dir.glob("*.tmp"))
+
+    def test_a_settle_memo_file_that_cannot_be_moved_into_place_is_a_warning_and_the_others_move(
+        self, tables_dir, tmp_path, capsys
+    ):
+        """A configuration whose settle memo file cannot be replaced, here because a directory stands at its path, is a warning on a passing replay; every other configuration's file moves into place, and the staged file is removed."""
+        out_dir = self._tables(tables_dir, tmp_path / "blocked")
+        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        memos = conform.settle_memo_files(out_dir, SPEC, inputs)
+        memos["ss03"].path.mkdir()
+        summary = run_m1.run_replay_strings(SPEC, out_dir, None, replay_threads=2, memo_inputs=inputs)
+        assert summary["pass"]
+        assert f"{memos['ss03'].path} not written" in capsys.readouterr().out
+        assert [config for config, memo in memos.items() if conform.settle_memo_standing(memo)] == [
+            config for config in conform.SETTLEMENT_CONFIGS if config != "ss03"
+        ]
+        assert not list(out_dir.glob("replay-windows-*")) and not list(out_dir.glob("*.tmp"))
 
     def test_a_narrowed_replay_with_a_stamp_is_refused_before_it_walks(self, monkeypatch, tmp_path):
         """A narrowed `configs` with an `inputs` stamp raises before the crate is called or any record is written. `replay_families` reads a stamped record as a passing walk of every text in every settlement configuration, which a narrowed walk is not."""

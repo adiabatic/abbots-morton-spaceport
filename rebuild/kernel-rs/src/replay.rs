@@ -4,11 +4,12 @@
 //!
 //! Ligatures form first, greedy and longest-first over the modeled sequences, and a match is skipped when the section 5.7 guard blocks it over the two raw tokens after it. This restates `settle.form_ligatures` over [`GuardState`], so the walk settles the token stream the emitted formation lookup produces.
 //!
-//! The walk's memo is also the build's settle memo. After a passing walk, [`Replay::write_window_memo`] writes it per configuration: one row per distinct window, keyed on the input rune, the settled left, and the four raw rights, with every distinct settled record beside it. That is the key `conform._SettledWindowWalk` uses, in this crate's labels. The input is its `right_token_label`, or after a ZWNJ the ZWNJ lock's locked name. The rights are raw labels. The left is a boundary label where the reach stops and otherwise an index into the record table, because `cell_label` and `geometry.display_name` are two formats of one function of the cell and the Python side converts an index to its own label. The marker renaming also happens on the Python side (`conform.absorb_replay_memo`, over `model.raw_rename_map`), so the crate never needs a configuration's marker names and the file holds only raw labels and record indexes. The file is uncompressed, like every file this crate writes, and `run_m1.run_replay_strings` reads and deletes it in the same phase.
+//! The walk's memo is also the build's settle memo. A walk asked for it keeps a row store ([`RowStore`]): one row a distinct window, filed when the walk first settles the window, keyed on the input rune, the settled left, and the four raw rights, beside the settled record. That is the key `conform._SettledWindowWalk` uses, in this crate's labels. The input is its `right_token_label`, or after a ZWNJ the ZWNJ lock's locked name. The rights are raw labels. The left is a boundary label where the reach stops and otherwise an index into the record table, because `cell_label` and `geometry.display_name` are two formats of one function of the cell and the Python side converts an index to its own label. The marker renaming also happens on the Python side (`conform.read_replay_memo`, over `model.raw_rename_map`), so the crate never needs a configuration's marker names and the memo holds only raw labels and record indexes. After a passing walk, [`Replay::write_window_memo`] writes the store at the path it is given, uncompressed like every file this crate writes. On a full replay `kernel_exec.replay_memo_walk` puts a FIFO at that path, read by the configuration's absorb worker as the rows arrive (`run_m1.replay_and_absorb`), so the memo never reaches the disk; a reader that closes the FIFO early ends the write and not the walk.
 //!
-//! Within the walk, each window key is settled once per configuration, and every later occurrence is a memo lookup. When the text set sets a ceiling, the walk clears its memo and the engine's memos together before any text that could exceed it. A window met again after a release is settled again with the same result, because every memo here is a pure cache and a left label names one left state. A walk can write its memo only if it never released it. A miss costs one engine call in the same process, with no batched round trip and no shaper, which is why walking every text is affordable here and not in Python. The cost still grows with the number of distinct raw windows, which is the alphabet size to the power of the maximum length, so each build walks to the conformance sweep's maximum length (`run_m1.REPLAY_MAX_LENGTH`) and deeper walks belong to the periodic sweep. Under the window locality rule in `doc/rebuild-design.md` §10, a rune edit needs only the texts naming an edited family or a rune whose records read one, so `run_m1` passes those families and the walk skips every other text. A walk can also be narrowed to the texts ending in one alphabet symbol ([`TextSet::last`]), which is how the deep replay (`rebuild/tools/deep_replay.py`) runs in units of one configuration and one last symbol.
+//! The walk is partitioned by last symbol. With no last symbol given, each symbol of the alphabet in turn is a unit: the texts ending in it, lengths 1 through the maximum, in the order a walk narrowed to that symbol walks them. Within a unit each window key is settled once and every later occurrence is a memo lookup, and after each unit the walk releases its memo and its engine's memos, so it holds one unit's memos at a time. A window whose key can recur in a text ending in another symbol stays in a side memo that the unit releases leave alone, so no window is settled twice and a walk's window count is its count of distinct windows. The key alone decides that at the window's first settle ([`Replay::crosses`]): a window crosses units when a boundary in its rights, or four letters there, leave room for another raw token within the maximum length, a superset of the windows that do cross. When the text set sets a ceiling, the walk also clears its memos, the side memo with them, before any text that could exceed it. A window met again after a ceiling release is settled again with the same result, because every memo here is a pure cache and a left label names one left state. A walk can write its memo only if it never released it under a ceiling. A miss costs one engine call in the same process, with no batched round trip and no shaper, which is why walking every text is affordable here and not in Python. The cost still grows with the number of distinct raw windows, which is the alphabet size to the power of the maximum length, so each build walks to the conformance sweep's maximum length (`run_m1.REPLAY_MAX_LENGTH`) and deeper walks belong to the periodic sweep. Under the window locality rule in `doc/rebuild-design.md` §10, a rune edit needs only the texts naming an edited family or a rune whose records read one, so `run_m1` passes those families and the walk skips every other text. A walk can also be narrowed to the texts ending in one alphabet symbol ([`TextSet::last`]), one unit with no unit release, which is how the deep replay (`rebuild/tools/deep_replay.py`) runs in units of one configuration and one last symbol.
 
-use std::io::Write as _;
+use std::collections::VecDeque;
+use std::io::Write;
 use std::path::Path;
 use std::rc::Rc;
 
@@ -25,7 +26,7 @@ use crate::types::{
     settled_json,
 };
 
-/// One configuration's walk totals: the texts walked, the window settles made and checked, and the texts the family filter left out. `windows` counts each distinct window once on a walk that never releases its memo, and again each time a window is met after a release.
+/// One configuration's walk totals: the texts walked, the window settles made and checked, and the texts the family filter left out. `windows` counts each distinct window once, unit releases and the side memo notwithstanding, on a walk that never releases its memos under a ceiling, and again each time a window is met after a ceiling release.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub texts: u64,
@@ -36,14 +37,14 @@ pub struct Report {
 /// How many disagreements a walk names before it stops: enough to show a pattern while keeping the error message short.
 const NAMED_DISAGREEMENTS: usize = 5;
 
-/// The texts one walk covers and the ceiling on its memos. The texts are every text of length 1 through `max_length` over the alphabet, narrowed to the texts ending in `last` when a symbol is given, and to the texts naming one of `families` when a set is given.
+/// The texts one walk covers and the ceiling on its memos. The texts are every text of length 1 through `max_length` over the alphabet, narrowed to the texts ending in `last` when a symbol is given, and to the texts naming one of `families` when a set is given. With no `last`, the walk takes the texts one last symbol at a time, a unit each, in alphabet order.
 #[derive(Clone, Copy, Debug)]
 pub struct TextSet<'a> {
     pub max_length: usize,
     pub families: Option<&'a [Sym]>,
-    /// The alphabet symbol every walked text ends in, or `None` for every last symbol. The walks over each symbol of the alphabet partition the texts between them, as the deep sweep's units do (`run_m1_gates.sweep_units`). A text the narrowing leaves out is not walked and not counted, so `skipped` counts only the texts ending in `last` that the family filter leaves out.
+    /// The alphabet symbol every walked text ends in, or `None` for every last symbol. The walks over each symbol of the alphabet partition the texts between them, as the deep sweep's units do (`run_m1_gates.sweep_units`) and as a walk with no `last` takes its units. A text the narrowing leaves out is not walked and not counted, so `skipped` counts only the texts ending in `last` that the family filter leaves out.
     pub last: Option<RightToken>,
-    /// The most windows the walk keeps memoized, or one text's windows when the ceiling is below the maximum length. A text of `length` raw tokens settles at most `length` new windows, because formation only merges tokens, so before any text that could push the walk memo past the ceiling, the walk releases that memo and its engine's memos. `None` never releases.
+    /// The most windows the walk keeps memoized, its memo and its side memo together, or one text's windows when the ceiling is below the maximum length. A text of `length` raw tokens settles at most `length` new windows, because formation only merges tokens, so before any text that could push the walk's memos past the ceiling, the walk releases them and its engine's memos. `None` never releases under a ceiling; the unit releases happen either way.
     pub memo_windows: Option<usize>,
 }
 
@@ -69,7 +70,7 @@ impl<'a> TextSet<'a> {
     }
 }
 
-/// The sweep's alphabet, after `labels.spec_alphabet`: every modeled letter with a code point and every registered boundary token, in code point order. The texts are walked in this order, so disagreements are found in it too. A rune's code point is its own record's, or its registry family's when the record has none; `labels.spec_alphabet` reads only the record's. Where both are set they agree, because `spec_load` rejects a rune whose code point differs from its family's.
+/// The sweep's alphabet, after `labels.spec_alphabet`: every modeled letter with a code point and every registered boundary token, in code point order. A walk takes its units in this order, each the texts ending in one symbol, and within a unit takes the texts by length and then in this order position by position, so a disagreement is found first in the first unit's texts, which are not always the shortest. A rune's code point is its own record's, or its registry family's when the record has none; `labels.spec_alphabet` reads only the record's. Where both are set they agree, because `spec_load` rejects a rune whose code point differs from its family's.
 pub fn alphabet(index: &SpecIndex) -> Result<Vec<RightToken>, String> {
     Ok(coded_alphabet(index)?
         .into_iter()
@@ -281,10 +282,6 @@ impl Labels {
         &self.texts[id as usize]
     }
 
-    fn id_of(&self, text: &str) -> Option<u32> {
-        self.ids.get(text).copied()
-    }
-
     pub(crate) fn len(&self) -> usize {
         self.texts.len()
     }
@@ -361,8 +358,14 @@ impl RuleIndex {
 /// The head token of the window memo file `write_window_memo` writes. `kernel_exec.REPLAY_MEMO_FORMAT` is the Python copy.
 pub const MEMO_FORMAT: &str = "ams-m1-replay-memo/1";
 
-/// How many rows are encoded between writes, so the writer holds one block's bytes beyond the memo itself.
+/// How many rows are encoded between writes, so the writer holds one block's bytes beyond the row store chunk it is writing.
 const MEMO_BLOCK_ROWS: usize = 1 << 14;
+
+/// The ids one row store row holds: the input label, the left label, the four right labels, and the record id.
+const ROW_IDS: usize = 7;
+
+/// The bytes one narrow row store chunk takes. macOS's allocator keeps a freed block of up to 2.0 MB resident in the process and returns one of 2.2 MB or more to the system (`var/keep/ram-inventory/v2/skeptic-wa/medium_threshold_probe.py`), so a chunk this size, and a widened one at twice it, goes back to the system as soon as the writer frees it.
+const ROW_CHUNK_BYTES: usize = 4 << 20;
 
 /// One memoized window: the input rune, the settled left's label, and the four right labels, `#NA` after a boundary or the edge.
 type WindowKey = (Sym, u32, [u32; 4]);
@@ -374,6 +377,151 @@ struct Outcome {
     label: u32,
 }
 
+/// What became of a window memo [`Replay::write_window_memo`] wrote.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Filed {
+    /// The reader took every row.
+    Whole,
+    /// The reader closed the file before the end, as an absorb worker that stops reading its FIFO does. The walk's answer stands, and the reader reports its own failure.
+    ReaderGone,
+}
+
+/// One chunk of a [`RowStore`], at the store's width, allocated whole and never grown.
+enum RowChunk {
+    Narrow(Vec<u16>),
+    Wide(Vec<u32>),
+}
+
+impl RowChunk {
+    fn ids(&self) -> usize {
+        match self {
+            Self::Narrow(ids) => ids.len(),
+            Self::Wide(ids) => ids.len(),
+        }
+    }
+
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Narrow(ids) => ids.capacity() * std::mem::size_of::<u16>(),
+            Self::Wide(ids) => ids.capacity() * std::mem::size_of::<u32>(),
+        }
+    }
+
+    /// The `at`th row's ids.
+    fn row(&self, at: usize) -> [u32; ROW_IDS] {
+        let mut row = [0; ROW_IDS];
+        let start = at * ROW_IDS;
+        for (slot, id) in row.iter_mut().enumerate() {
+            *id = match self {
+                Self::Narrow(ids) => u32::from(ids[start + slot]),
+                Self::Wide(ids) => ids[start + slot],
+            };
+        }
+        row
+    }
+}
+
+/// The rows of a walk that writes its memo: one row a distinct window, filed when the walk first settles the window, in that order across every unit. A row is [`ROW_IDS`] raw ids, the integers [`Replay::write_window_memo`] compacts: the input label, the left label, the four right labels, and the record id. The ids are `u16` while every id fits and `u32` from the first that does not, when the store widens every chunk it holds. The chunks hold a fixed number of rows each, [`ROW_CHUNK_BYTES`] at the narrow width, and are shared by every unit, so the store allocates a chunk at a time and frees one at a time as the writer takes them ([`RowStore::take_chunk`]). It also marks every label a row references, so the compaction the writer applies is known when the walk ends.
+pub(crate) struct RowStore {
+    chunks: VecDeque<RowChunk>,
+    chunk_rows: usize,
+    rows: usize,
+    wide: bool,
+    referenced: Vec<bool>,
+}
+
+impl RowStore {
+    pub(crate) fn new() -> Self {
+        Self::with_chunk_rows(ROW_CHUNK_BYTES / (ROW_IDS * std::mem::size_of::<u16>()))
+    }
+
+    fn with_chunk_rows(chunk_rows: usize) -> Self {
+        Self {
+            chunks: VecDeque::new(),
+            chunk_rows,
+            rows: 0,
+            wide: false,
+            referenced: Vec::new(),
+        }
+    }
+
+    /// Files one row. `left_is_label` says the left is a label the file's table holds, a boundary or the edge, rather than a record's label, which the file writes as the record's id.
+    pub(crate) fn push(&mut self, row: [u32; ROW_IDS], left_is_label: bool) {
+        if !self.wide && row.iter().any(|id| u16::try_from(*id).is_err()) {
+            self.widen();
+        }
+        let full = self
+            .chunks
+            .back()
+            .is_none_or(|chunk| chunk.ids() == self.chunk_rows * ROW_IDS);
+        if full {
+            let capacity = self.chunk_rows * ROW_IDS;
+            self.chunks.push_back(if self.wide {
+                RowChunk::Wide(Vec::with_capacity(capacity))
+            } else {
+                RowChunk::Narrow(Vec::with_capacity(capacity))
+            });
+        }
+        match self.chunks.back_mut().expect("a chunk with room") {
+            RowChunk::Narrow(ids) => ids.extend(
+                row.iter()
+                    .map(|id| u16::try_from(*id).expect("a narrow store holds only narrow ids")),
+            ),
+            RowChunk::Wide(ids) => ids.extend_from_slice(&row),
+        }
+        self.rows += 1;
+        for (slot, label) in row[..ROW_IDS - 1].iter().enumerate() {
+            if slot == 1 && !left_is_label {
+                continue;
+            }
+            let label = *label as usize;
+            if label >= self.referenced.len() {
+                self.referenced.resize(label + 1, false);
+            }
+            self.referenced[label] = true;
+        }
+    }
+
+    fn widen(&mut self) {
+        for chunk in &mut self.chunks {
+            if let RowChunk::Narrow(ids) = chunk {
+                let mut wide = Vec::with_capacity(self.chunk_rows * ROW_IDS);
+                wide.extend(ids.iter().map(|id| u32::from(*id)));
+                *chunk = RowChunk::Wide(wide);
+            }
+        }
+        self.wide = true;
+    }
+
+    /// The oldest chunk the store holds, now the caller's, so it is freed when the caller drops it.
+    fn take_chunk(&mut self) -> Option<RowChunk> {
+        self.chunks.pop_front()
+    }
+
+    /// Whether a row references this label.
+    fn references(&self, label: u32) -> bool {
+        self.referenced
+            .get(label as usize)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// How many rows the store has filed.
+    pub(crate) fn rows(&self) -> usize {
+        self.rows
+    }
+
+    /// How many bytes its chunks hold allocated.
+    pub(crate) fn bytes(&self) -> usize {
+        self.chunks.iter().map(RowChunk::bytes).sum()
+    }
+
+    /// How many chunks it holds.
+    pub(crate) fn chunks(&self) -> usize {
+        self.chunks.len()
+    }
+}
+
 /// One configuration's walk over its text set, with the disagreements it has found.
 pub struct Replay<'i> {
     index: &'i SpecIndex,
@@ -382,15 +530,23 @@ pub struct Replay<'i> {
     labels: Labels,
     rules: RuleIndex,
     memo: HashMap<WindowKey, Outcome>,
+    /// The windows a later unit can meet again ([`Replay::crosses`]), kept through the unit releases.
+    side: HashMap<WindowKey, Outcome>,
+    /// The maximum length of a walk taken by unit, which [`Replay::crosses`] reads, or `None` while every window stays in `memo`.
+    partition: Option<usize>,
+    /// For a walk that writes its memo ([`Replay::keep_rows`]), every window it has settled, one row each.
+    rows: Option<RowStore>,
     pool: SettledPool,
     id_labels: Vec<u32>,
     input_labels: HashMap<Sym, u32>,
     locked_labels: HashMap<Sym, u32>,
     disagreements: Vec<String>,
-    /// Every window a disagreement has been named for, so a window met again after a release is not named twice.
+    /// Every window a disagreement has been named for, so a window met again after a ceiling release is not named twice.
     disagreed: HashSet<WindowKey>,
     /// How many times the walk has released its memos under the text set's ceiling.
     releases: u64,
+    /// How many units the walk has released its memos after.
+    units: u64,
     /// For a walk with the cache stats on, the configuration its lines report under and the `[c]` lines gathered at each release so far. `None` when the cache stats are off.
     cache_stats: Option<(String, Vec<String>)>,
 }
@@ -420,6 +576,9 @@ impl<'i> Replay<'i> {
             labels,
             rules,
             memo: HashMap::default(),
+            side: HashMap::default(),
+            partition: None,
+            rows: None,
             pool: SettledPool::default(),
             id_labels: Vec::new(),
             input_labels: HashMap::default(),
@@ -427,6 +586,7 @@ impl<'i> Replay<'i> {
             disagreements: Vec::new(),
             disagreed: HashSet::default(),
             releases: 0,
+            units: 0,
             cache_stats: None,
         }
     }
@@ -436,13 +596,19 @@ impl<'i> Replay<'i> {
         self.cache_stats = Some((config.to_owned(), Vec::new()));
     }
 
-    /// The cache stats' `[c]` lines: the ones gathered at releases, then the current state of the walk memo and the walk's other tables, every engine memo, the elimination text they hold, the release count, and the process's resident size. Empty when the cache stats are off or were already taken.
+    /// Has this walk file every window it settles in a row store from here on, which [`Replay::write_window_memo`] writes. A walk that writes its memo calls it before it walks.
+    pub fn keep_rows(&mut self) {
+        self.rows = Some(RowStore::new());
+    }
+
+    /// The cache stats' `[c]` lines: the ones gathered at unit and ceiling releases, then the current state of the walk memo, the side memo and the walk's other tables, every engine memo, the elimination text they hold, the ceiling release and unit counts, what the row store holds, and the process's resident size. Empty when the cache stats are off or were already taken.
     pub fn take_cache_stats(&mut self) -> Vec<String> {
         let Some((config, mut lines)) = self.cache_stats.take() else {
             return Vec::new();
         };
         let walk = [
             CacheSize::of("walk_memo", self.memo.len(), self.memo.capacity()),
+            CacheSize::of("side_memo", self.side.len(), self.side.capacity()),
             CacheSize::of("walk_pool", self.pool.len(), self.pool.capacity()),
             CacheSize::of(
                 "walk_id_labels",
@@ -475,6 +641,13 @@ impl<'i> Replay<'i> {
             self.engine.elimination_text_bytes()
         ));
         lines.push(format!("[c] {config} releases count={}", self.releases));
+        lines.push(format!("[c] {config} units count={}", self.units));
+        let (rows, bytes, chunks) = self.rows.as_ref().map_or((0, 0, 0), |store| {
+            (store.rows(), store.bytes(), store.chunks())
+        });
+        lines.push(format!(
+            "[c] {config} row_store rows={rows} bytes={bytes} chunks={chunks}"
+        ));
         lines.push(format!(
             "[c] {config} resident_after_walk kb={}",
             resident_kb()
@@ -482,11 +655,23 @@ impl<'i> Replay<'i> {
         lines
     }
 
-    /// Clears the walk memo and the engine's memos. The pool, the labels, and the named disagreements stay. A window settled again afterward gets the same record under the same label, because the walk memo keys a window on its left's label and, by the fixpoint's partition premise (`fixpoint`'s `partition_error`), a label names one left state. Clearing keeps the walk memo's allocated buckets, so the memo does not grow through every capacity doubling again after each release. With the cache stats on, it records the memos' sizes and the resident size before the release, and the resident size after it, under `release=<k>`.
+    /// Clears the walk memo, the side memo and the engine's memos under the text set's ceiling, a release `releases` counts. The pool, the labels, the row store and the named disagreements stay. A window settled again afterward gets the same record under the same label, because the walk memo keys a window on its left's label and, by the fixpoint's partition premise (`fixpoint`'s `partition_error`), a label names one left state. Clearing keeps the walk memo's allocated buckets, so the memo does not grow through every capacity doubling again after each release. With the cache stats on, it records the memo's and the engine's sizes and the resident size before the release, and the resident size after it, under `release=<k>`.
     fn release(&mut self) {
         let release = self.releases + 1;
+        self.clear_memos(&format!("release={release}"), true);
+        self.releases = release;
+    }
+
+    /// Clears the walk memo and the engine's memos once a unit's texts are walked, keeping the side memo, which holds every window a later unit can meet. It is not a ceiling release: `releases` does not count it and [`Replay::write_window_memo`] files after it, since every window the unit settled is in the row store and none is settled again. With the cache stats on, it records what [`Replay::release`] records, under `unit=<k>`.
+    fn release_unit(&mut self) {
+        let unit = self.units + 1;
+        self.clear_memos(&format!("unit={unit}"), false);
+        self.units = unit;
+    }
+
+    fn clear_memos(&mut self, qualifier: &str, side: bool) {
         if let Some((config, lines)) = self.cache_stats.as_mut() {
-            let stage = format!("{config} release={release}");
+            let stage = format!("{config} {qualifier}");
             lines.push(
                 CacheSize::of("walk_memo", self.memo.len(), self.memo.capacity()).line(&stage),
             );
@@ -499,17 +684,19 @@ impl<'i> Replay<'i> {
             ));
         }
         self.memo.clear();
+        if side {
+            self.side.clear();
+        }
         self.engine.release_memos();
-        self.releases = release;
         if let Some((config, lines)) = self.cache_stats.as_mut() {
             lines.push(format!(
-                "[c] {config} release={release} resident_after_release kb={}",
+                "[c] {config} {qualifier} resident_after_release kb={}",
                 resident_kb()
             ));
         }
     }
 
-    /// Walks and checks every text of `text_set`, under its memo ceiling if it has one. A disagreement between the rules and the engine is an error that names the texts it was found in. A window the engine returns an error for is also an error, as it is in the conformance sweep. The walk stops early once it has named `NAMED_DISAGREEMENTS` disagreements.
+    /// Walks and checks every text of `text_set`, a unit a last symbol when it names none, under its memo ceiling if it has one. A disagreement between the rules and the engine is an error that names the texts it was found in. A window the engine returns an error for is also an error, as it is in the conformance sweep. The walk stops early once it has named `NAMED_DISAGREEMENTS` disagreements.
     pub fn walk_texts(&mut self, text_set: TextSet<'_>) -> Result<Report, String> {
         let alphabet = alphabet(self.index)?;
         if alphabet.is_empty() {
@@ -518,61 +705,62 @@ impl<'i> Replay<'i> {
         let wanted = text_set
             .families
             .map(|families| wanted_positions(self.index, &alphabet, families));
-        let last = match text_set.last {
-            Some(symbol) => Some(
+        let units: Vec<usize> = match text_set.last {
+            Some(symbol) => vec![
                 alphabet
                     .iter()
                     .position(|token| *token == symbol)
                     .ok_or_else(|| "the last symbol is not in the walk's alphabet".to_owned())?,
-            ),
-            None => None,
+            ],
+            None => (0..alphabet.len()).collect(),
         };
+        self.partition = text_set.last.is_none().then_some(text_set.max_length);
         let mut report = Report::default();
         let mut positions: Vec<usize> = Vec::new();
         let mut raw: Vec<RightToken> = Vec::new();
         let mut formed: Vec<RightToken> = Vec::new();
-        for length in 1..=text_set.max_length {
-            positions.clear();
-            positions.resize(length, 0);
-            let free = match last {
-                Some(position) => {
-                    positions[length - 1] = position;
-                    length - 1
-                }
-                None => length,
-            };
-            loop {
-                let named = wanted
-                    .as_ref()
-                    .is_none_or(|wanted| positions.iter().any(|position| wanted[*position]));
-                if named {
-                    if let Some(ceiling) = text_set.memo_windows
-                        && !self.memo.is_empty()
-                        && self.memo.len() + length > ceiling
-                    {
-                        self.release();
+        for last in units {
+            for length in 1..=text_set.max_length {
+                positions.clear();
+                positions.resize(length, 0);
+                positions[length - 1] = last;
+                let free = length - 1;
+                loop {
+                    let named = wanted
+                        .as_ref()
+                        .is_none_or(|wanted| positions.iter().any(|position| wanted[*position]));
+                    if named {
+                        if let Some(ceiling) = text_set.memo_windows
+                            && !(self.memo.is_empty() && self.side.is_empty())
+                            && self.memo.len() + self.side.len() + length > ceiling
+                        {
+                            self.release();
+                        }
+                        raw.clear();
+                        raw.extend(positions.iter().map(|position| alphabet[*position]));
+                        self.walk_text(&raw, &mut formed, &mut report)?;
+                        if self.disagreements.len() >= NAMED_DISAGREEMENTS {
+                            return Err(self.error_message());
+                        }
+                    } else {
+                        report.skipped += 1;
                     }
-                    raw.clear();
-                    raw.extend(positions.iter().map(|position| alphabet[*position]));
-                    self.walk_text(&raw, &mut formed, &mut report)?;
-                    if self.disagreements.len() >= NAMED_DISAGREEMENTS {
-                        return Err(self.error_message());
+                    let mut advanced = false;
+                    for slot in (0..free).rev() {
+                        positions[slot] += 1;
+                        if positions[slot] < alphabet.len() {
+                            advanced = true;
+                            break;
+                        }
+                        positions[slot] = 0;
                     }
-                } else {
-                    report.skipped += 1;
-                }
-                let mut advanced = false;
-                for slot in (0..free).rev() {
-                    positions[slot] += 1;
-                    if positions[slot] < alphabet.len() {
-                        advanced = true;
+                    if !advanced {
                         break;
                     }
-                    positions[slot] = 0;
                 }
-                if !advanced {
-                    break;
-                }
+            }
+            if self.partition.is_some() {
+                self.release_unit();
             }
         }
         if self.disagreements.is_empty() {
@@ -582,7 +770,7 @@ impl<'i> Replay<'i> {
         }
     }
 
-    /// Forms one text's ligatures, then settles it left to right through the memo. Each memo miss is checked against the rules when it is settled, and a disagreeing window is named only the first time it is met.
+    /// Forms one text's ligatures, then settles it left to right through the memos. Each memo miss is checked against the rules when it is settled, filed in the row store when the walk keeps one, and kept in the side memo when it crosses units ([`Replay::crosses`]) and in the walk memo otherwise. A disagreeing window is named only the first time it is met.
     pub fn walk_text(
         &mut self,
         raw: &[RightToken],
@@ -610,8 +798,14 @@ impl<'i> Replay<'i> {
             };
             let rights = self.window_rights(&labels, at);
             let key = (rune, left_label, rights);
-            let outcome = match self.memo.get(&key) {
-                Some(outcome) => *outcome,
+            let crosses = self.crosses(left_label, &rights);
+            let held = if crosses {
+                self.side.get(&key)
+            } else {
+                self.memo.get(&key)
+            };
+            let outcome = match held.copied() {
+                Some(outcome) => outcome,
                 None => {
                     let left = match at {
                         0 => LeftContext::boundary(TokenKind::Edge),
@@ -658,13 +852,49 @@ impl<'i> Replay<'i> {
                             self.labels.text(predicted)
                         ));
                     }
-                    self.memo.insert(key, outcome);
+                    if let Some(rows) = self.rows.as_mut() {
+                        rows.push(
+                            [
+                                input,
+                                left_label,
+                                rights[0],
+                                rights[1],
+                                rights[2],
+                                rights[3],
+                                u32::try_from(outcome.id.index()).expect("an id is a u32"),
+                            ],
+                            self.labels.stops_reach(left_label),
+                        );
+                    }
+                    if crosses {
+                        self.side.insert(key, outcome);
+                    } else {
+                        self.memo.insert(key, outcome);
+                    }
                     outcome
                 }
             };
             previous = Some(outcome);
         }
         Ok(())
+    }
+
+    /// Whether a window's key can recur in a text ending in another symbol, so that the window belongs in the side memo, decided from the key alone and the maximum length of a walk taken by unit. The window's text holds at least the left's raw token (none at the edge), the input's, and each right's up to and including the first that stops the reach, or all four when none does, counting each as one raw token. When a boundary or four letters end the rights and that count leaves room for another raw token, the text can go on past the window to any last symbol; a right that is the edge ends the text inside the window, so its last symbol is the key's. Counting a formed ligature as one raw token makes this a superset of the windows that cross, which costs only side-memo entries, while a window it missed would be settled again in a later unit. A walk not taken by unit keeps every window in its walk memo.
+    fn crosses(&self, left: u32, rights: &[u32; 4]) -> bool {
+        let Some(max_length) = self.partition else {
+            return false;
+        };
+        let mut tokens = usize::from(left != self.labels.edge) + 1;
+        for right in rights {
+            tokens += 1;
+            if self.labels.stops_reach(*right) {
+                if *right == self.labels.edge {
+                    return false;
+                }
+                break;
+            }
+        }
+        tokens < max_length
     }
 
     fn token_label(&mut self, token: RightToken) -> u32 {
@@ -726,96 +956,108 @@ impl<'i> Replay<'i> {
         }
     }
 
-    /// Writes the memo to `path` for the Python side to absorb. The file has:
+    /// Writes the row store to `path` for the Python side to absorb, and says whether its reader took every row. The file has:
     ///
     /// 1. A `# ams-m1-replay-memo/1<tab><head json>` line naming the configuration, the maximum length, the row count, the label and record counts, and the column width.
     /// 2. The label table, one referenced label per line in id order.
     /// 3. One `settled_json` line per interned record, in id order.
     /// 4. The rows, seven little-endian integers each, `u16` when every index fits and `u32` otherwise.
     ///
-    /// A row is the input label, the left, the four rights, and the record index. The input is the rune's raw label, or its locked name when the left is the ZWNJ and the ZWNJ lock replaces the rune. The left alone decides this, because every right slot after a ZWNJ is `#NA`, so a letter after a ZWNJ never appears in one. The left is a label index when its label stops the reach (the edge and the three boundaries), and otherwise the record's id plus the label count, so both kinds share one column and the reader tells them apart by the label count in the head. Two ids with the same `cell_label` are written as the first, as the walk's own key already merged them. The rows are written in blocks, so the only large buffer beyond the memo is one block. A walk that released its memo under a ceiling returns an error before creating the file, because its memo holds only what it settled since the last release.
+    /// A row is the input label, the left, the four rights, and the record index. The input is the rune's raw label, or its locked name when the left is the ZWNJ and the ZWNJ lock replaces the rune. The left alone decides this, because every right slot after a ZWNJ is `#NA`, so a letter after a ZWNJ never appears in one. The left is a label index when its label stops the reach (the edge and the three boundaries), and otherwise the record's id plus the label count, so both kinds share one column and the reader tells them apart by the label count in the head. Two ids with the same `cell_label` are written as the first, as the walk's own key already merged them. The rows come in the order the walk first settled their windows, unit by unit, a block at a time, and each row store chunk is freed once its rows are written, so the writer holds one block beyond the chunks still to write.
+    ///
+    /// `path` may be a FIFO, which `File::create` opens without truncating. A reader that closes it before the end breaks the pipe: the write stops, the row store is freed, and this returns [`Filed::ReaderGone`], not an error, because the walk passed and only its reader is gone. Any other write error is an error. A walk that kept no rows ([`Replay::keep_rows`]) or released its memos under a ceiling returns an error before creating the file, because its rows are not every window it settled.
     pub fn write_window_memo(
         &mut self,
         path: &Path,
         config: &str,
         max_length: usize,
-    ) -> Result<(), String> {
+    ) -> Result<Filed, String> {
+        let fail = |error: std::io::Error| format!("{}: {error}", path.display());
+        if let Some(reason) = self.memo_refusal() {
+            return Err(format!("{}: {reason}", path.display()));
+        }
+        let file = std::fs::File::create(path).map_err(fail)?;
+        self.send_window_memo(file, config, max_length)
+            .map_err(fail)
+    }
+
+    /// Why this walk cannot file its memo, or `None` when it can.
+    fn memo_refusal(&self) -> Option<String> {
         if self.releases > 0 {
-            return Err(format!(
-                "{}: the walk released its memo {} time(s) under its ceiling, so the memo holds only the windows settled since the last release; a walk that writes its memo walks with no ceiling",
-                path.display(),
+            return Some(format!(
+                "the walk released its memo {} time(s) under its ceiling, so it settled some windows more than once and holds only those settled since the last release; a walk that writes its memo walks with no ceiling",
                 self.releases
             ));
         }
-        let zwnj = self
-            .labels
-            .id_of("uni200C")
-            .expect("the label pool spells the ZWNJ from birth");
-        let mut inputs: HashMap<Sym, (u32, u32)> = HashMap::default();
-        let walked: Vec<(Sym, u32)> = self
-            .input_labels
-            .iter()
-            .map(|(rune, label)| (*rune, *label))
-            .collect();
-        for (rune, raw) in walked {
-            let locked = self.locked_label(rune, raw);
-            inputs.insert(rune, (raw, locked));
+        if self.rows.is_none() {
+            return Some(
+                "the walk kept no rows; a walk that writes its memo keeps them from its start"
+                    .to_owned(),
+            );
         }
+        None
+    }
+
+    /// [`Replay::write_window_memo`]'s write into any sink, taking the row store, which is freed however the write ends.
+    fn send_window_memo<W: Write>(
+        &mut self,
+        sink: W,
+        config: &str,
+        max_length: usize,
+    ) -> std::io::Result<Filed> {
+        if let Some(reason) = self.memo_refusal() {
+            return Err(std::io::Error::other(reason));
+        }
+        let mut store = self.rows.take().expect("a walk that may file has rows");
+        match self.encode_window_memo(&mut store, sink, config, max_length) {
+            Ok(()) => Ok(Filed::Whole),
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(Filed::ReaderGone),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn encode_window_memo<W: Write>(
+        &self,
+        store: &mut RowStore,
+        sink: W,
+        config: &str,
+        max_length: usize,
+    ) -> std::io::Result<()> {
         let mut id_of_label: HashMap<u32, usize> = HashMap::default();
         for (id, label) in self.id_labels.iter().enumerate() {
             id_of_label.entry(*label).or_insert(id);
         }
-        let input_of = |rune: Sym, left: u32| -> Result<u32, String> {
-            let (raw, locked) = inputs.get(&rune).copied().ok_or_else(|| {
-                format!("{} was settled but never labeled", self.index.resolve(rune))
-            })?;
-            Ok(if left == zwnj { locked } else { raw })
-        };
-        let mut referenced = vec![false; self.labels.len()];
-        for (rune, left, rights) in self.memo.keys() {
-            referenced[input_of(*rune, *left)? as usize] = true;
-            if self.labels.stops_reach(*left) {
-                referenced[*left as usize] = true;
-            }
-            for right in rights {
-                referenced[*right as usize] = true;
-            }
-        }
         let mut compact: Vec<u32> = vec![u32::MAX; self.labels.len()];
         let mut table: Vec<u32> = Vec::new();
-        for (id, wanted) in referenced.iter().enumerate() {
-            if *wanted {
-                compact[id] = u32::try_from(table.len()).expect("fewer labels than ids");
-                table.push(u32::try_from(id).expect("an id is a u32"));
+        for (label, slot) in (0u32..).zip(compact.iter_mut()) {
+            if store.references(label) {
+                *slot = u32::try_from(table.len()).expect("fewer labels than ids");
+                table.push(label);
             }
         }
         let labels = table.len();
         let records = self.pool.len();
-        let rows = self.memo.len();
+        let rows = store.rows();
         let wide = labels + records > usize::from(u16::MAX) + 1;
         let width: usize = if wide { 4 } else { 2 };
-        let fail = |error: std::io::Error| format!("{}: {error}", path.display());
-        let file = std::fs::File::create(path).map_err(fail)?;
-        let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
+        let mut out = std::io::BufWriter::with_capacity(1 << 20, sink);
         writeln!(
             out,
             "# {MEMO_FORMAT}\t{{\"config\":{},\"max_length\":{max_length},\"rows\":{rows},\"labels\":{labels},\"records\":{records},\"width\":{width}}}",
             json_string(config)
-        )
-        .map_err(fail)?;
+        )?;
         for id in &table {
-            writeln!(out, "{}", self.labels.text(*id)).map_err(fail)?;
+            writeln!(out, "{}", self.labels.text(*id))?;
         }
         for id in 0..records {
             writeln!(
                 out,
                 "{}",
                 settled_json(self.index, self.pool.get(SettledId::at(id)))
-            )
-            .map_err(fail)?;
+            )?;
         }
         let label_count = u32::try_from(labels).expect("fewer labels than ids");
-        let mut block: Vec<u8> = Vec::with_capacity(MEMO_BLOCK_ROWS * 7 * width);
+        let mut block: Vec<u8> = Vec::with_capacity(MEMO_BLOCK_ROWS * ROW_IDS * width);
         let push = |block: &mut Vec<u8>, value: u32| {
             if wide {
                 block.extend_from_slice(&value.to_le_bytes());
@@ -828,37 +1070,36 @@ impl<'i> Replay<'i> {
             }
         };
         let mut pending = 0;
-        for ((rune, left, rights), outcome) in &self.memo {
-            let input = compact[input_of(*rune, *left)? as usize];
-            let left_column = if self.labels.stops_reach(*left) {
-                compact[*left as usize]
-            } else {
-                let id = id_of_label.get(left).copied().ok_or_else(|| {
-                    format!(
-                        "the settled left {} names no interned record",
-                        self.labels.text(*left)
-                    )
-                })?;
-                label_count + u32::try_from(id).expect("an id is a u32")
-            };
-            push(&mut block, input);
-            push(&mut block, left_column);
-            for right in rights {
-                push(&mut block, compact[*right as usize]);
-            }
-            push(
-                &mut block,
-                u32::try_from(outcome.id.index()).expect("an id is a u32"),
-            );
-            pending += 1;
-            if pending == MEMO_BLOCK_ROWS {
-                out.write_all(&block).map_err(fail)?;
-                block.clear();
-                pending = 0;
+        while let Some(chunk) = store.take_chunk() {
+            for at in 0..chunk.ids() / ROW_IDS {
+                let [input, left, right1, right2, right3, right4, record] = chunk.row(at);
+                let left_column = if self.labels.stops_reach(left) {
+                    compact[left as usize]
+                } else {
+                    let id = id_of_label.get(&left).copied().ok_or_else(|| {
+                        std::io::Error::other(format!(
+                            "the settled left {} names no interned record",
+                            self.labels.text(left)
+                        ))
+                    })?;
+                    label_count + u32::try_from(id).expect("an id is a u32")
+                };
+                push(&mut block, compact[input as usize]);
+                push(&mut block, left_column);
+                for right in [right1, right2, right3, right4] {
+                    push(&mut block, compact[right as usize]);
+                }
+                push(&mut block, record);
+                pending += 1;
+                if pending == MEMO_BLOCK_ROWS {
+                    out.write_all(&block)?;
+                    block.clear();
+                    pending = 0;
+                }
             }
         }
-        out.write_all(&block).map_err(fail)?;
-        out.flush().map_err(fail)
+        out.write_all(&block)?;
+        out.flush()
     }
 
     fn spell_window(&self, rune: Sym, left: u32, rights: [u32; 4]) -> String {
@@ -940,14 +1181,19 @@ mod tests {
         assert!(report.windows > 0);
     }
 
-    /// The walk's engine keeps its trace memo and no ranking, whatever modes the caller passes. The helper passes the default modes, which include the ranking, and the walk still memoizes windows without recording a ranking or holding any elimination text.
+    /// The walk's engine keeps its trace memo and no ranking, whatever modes the caller passes. The helper passes the default modes, which include the ranking, and a walk over one last symbol's texts, one unit with no unit release after it, still memoizes windows without recording a ranking or holding any elimination text.
     #[test]
     fn a_replays_engine_keeps_no_ranking() {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
+        let tokens = alphabet(&index).expect("the fixture has an alphabet");
         let mut walk = replay(&index, &rules);
-        walk.walk_texts(TextSet::all(3))
-            .expect("the table is complete");
+        walk.walk_texts(TextSet {
+            last: Some(tokens[2]),
+            ..TextSet::all(3)
+        })
+        .expect("the table is complete");
+        assert_eq!(walk.units, 0);
         let sizes = walk.engine.cache_stats();
         let row = |name: &str| {
             sizes
@@ -977,7 +1223,7 @@ mod tests {
         assert!(error.contains("at position"), "{error}");
     }
 
-    /// One walk of the fixture over `text_set` under `ceiling`. The fixture's table has no disagreement at any ceiling.
+    /// One walk of the fixture over `text_set` under `ceiling`, keeping its rows. The fixture's table has no disagreement at any ceiling.
     fn capped<'i>(
         index: &'i SpecIndex,
         rules: &[Rule],
@@ -985,6 +1231,7 @@ mod tests {
         ceiling: usize,
     ) -> (Replay<'i>, Report) {
         let mut walk = replay(index, rules);
+        walk.keep_rows();
         let report = walk
             .walk_texts(TextSet {
                 memo_windows: Some(ceiling),
@@ -1001,7 +1248,7 @@ mod tests {
             .collect()
     }
 
-    /// The `len` of every `walk_memo` row the cache stats wrote, release rows and the end-of-walk row alike.
+    /// The `len` of every `walk_memo` row the cache stats wrote, ceiling release rows, unit release rows and the end-of-walk row alike.
     fn walk_memo_lens(lines: &[String]) -> Vec<usize> {
         lines
             .iter()
@@ -1015,19 +1262,60 @@ mod tests {
             .collect()
     }
 
-    /// Every window in `walk`'s memo has the id and label `uncapped`'s memo has for it.
-    fn memo_agrees(walk: &Replay<'_>, uncapped: &Replay<'_>, at: &str) {
-        for (key, outcome) in &walk.memo {
-            let expected = uncapped
-                .memo
-                .get(key)
-                .unwrap_or_else(|| panic!("{at}: a window the uncapped walk never reached"));
-            assert_eq!(outcome.id, expected.id, "{at}");
-            assert_eq!(outcome.label, expected.label, "{at}");
+    /// A window as text: its input's label, its left's, and its four rights', which two walks that interned their labels in different orders spell alike.
+    type Spelled = (String, String, [String; 4]);
+
+    /// A memo key as the row store files it: the input's raw label, or its locked one after the ZWNJ.
+    fn spelled_key(walk: &Replay<'_>, (rune, left, rights): &WindowKey) -> Spelled {
+        let raw = walk.input_labels[rune];
+        let input = if walk.labels.text(*left) == "uni200C" {
+            walk.locked_labels.get(rune).copied().unwrap_or(raw)
+        } else {
+            raw
+        };
+        let text = |label: u32| walk.labels.text(label).to_owned();
+        (text(input), text(*left), rights.map(text))
+    }
+
+    /// Every window `walk`'s row store holds, spelled, with the record filed beside it, asserting that no window is filed twice.
+    fn filed_windows(walk: &Replay<'_>) -> HashMap<Spelled, Settled> {
+        let store = walk.rows.as_ref().expect("the walk kept rows");
+        let text = |label: u32| walk.labels.text(label).to_owned();
+        let mut filed: HashMap<Spelled, Settled> = HashMap::default();
+        for chunk in &store.chunks {
+            for at in 0..chunk.ids() / ROW_IDS {
+                let row = chunk.row(at);
+                let key = (
+                    text(row[0]),
+                    text(row[1]),
+                    [text(row[2]), text(row[3]), text(row[4]), text(row[5])],
+                );
+                let record = walk.pool.get(SettledId::at(row[6] as usize)).clone();
+                assert!(
+                    filed.insert(key.clone(), record).is_none(),
+                    "{key:?} is filed twice"
+                );
+            }
+        }
+        filed
+    }
+
+    /// Every window in `walk`'s memo and side memo has the record `filed` holds for it, under that record's cell label.
+    fn memo_agrees(walk: &Replay<'_>, filed: &HashMap<Spelled, Settled>, at: &str) {
+        for (key, outcome) in walk.memo.iter().chain(&walk.side) {
+            let expected = filed
+                .get(&spelled_key(walk, key))
+                .unwrap_or_else(|| panic!("{at}: a window the uncapped walk never filed"));
+            assert_eq!(walk.pool.get(outcome.id), expected, "{at}");
+            assert_eq!(
+                walk.labels.text(outcome.label),
+                cell_label(walk.index, &expected.cell),
+                "{at}"
+            );
         }
     }
 
-    /// A walk under a memo ceiling returns what the uncapped walk returns: the same texts and skipped count, the same records interned in the same order under the same labels, and the uncapped id and label for every window left in its memo. The ceilings tested release before every text (1), now and then (7), a few times (half the window count), and never (the window count plus the maximum length, a ceiling at which the release rule never fires). A white-box pass walks each text from released memos and checks that each of its windows settles at the uncapped walk's id and label, which covers every window of the text set. Only `windows` differs, because it counts each re-settle. The memo never holds more than the ceiling, or one text's windows when the ceiling is below the maximum length. The cache-stats rows, taken at every release and at the end of the walk, show the same bound, and turning the cache stats on does not change when releases happen.
+    /// A walk under a memo ceiling returns what the uncapped walk returns: the same texts and skipped count, the same records interned in the same order under the same labels, and the record and label the uncapped walk filed for every window left in its memos. The ceilings tested release before every text (1), now and then (7), a few times (half a unit's share of the windows, which the largest unit's memos pass), and never (the window count plus the maximum length, a ceiling at which the release rule never fires). Every walk takes its texts a unit a last symbol and releases its memos after each unit, which is not a ceiling release: the uncapped walk counts none, and its window count is the count of windows its row store files. A white-box pass walks each text from released memos, in length order rather than by unit, and checks that each of its windows settles at the record and label the uncapped walk filed, which covers every window of the text set. Only `windows` differs, because it counts each re-settle. The memos never hold more than the ceiling, or one text's windows when the ceiling is below the maximum length. The cache-stats rows, taken at every ceiling release, every unit release and the end of the walk, show the same bound, and turning the cache stats on does not change when releases happen.
     #[test]
     fn a_capped_walk_answers_every_text_an_uncapped_walk_answers() {
         let index = fixtures::mini();
@@ -1035,10 +1323,15 @@ mod tests {
         let max_length = 4;
         let text_set = TextSet::all(max_length);
         let mut uncapped = replay(&index, &rules);
+        uncapped.keep_rows();
         let whole = uncapped
             .walk_texts(text_set)
             .expect("the table is complete");
+        assert_eq!(uncapped.releases, 0);
+        assert!(uncapped.units > 0);
+        let filed = filed_windows(&uncapped);
         let windows = usize::try_from(whole.windows).expect("a window count fits");
+        assert_eq!(filed.len(), windows);
 
         let (never, never_report) = capped(&index, &rules, text_set, windows + max_length);
         assert_eq!(never.releases, 0);
@@ -1047,14 +1340,15 @@ mod tests {
         let (every, every_report) = capped(&index, &rules, text_set, 1);
         assert!(every.releases > 0);
         assert!(every_report.windows > whole.windows);
-        assert!(every.memo.len() <= max_length);
+        assert!(every.memo.len() + every.side.len() <= max_length);
 
         let (some, some_report) = capped(&index, &rules, text_set, 7);
         assert!(some.releases > 0);
         assert!(some_report.windows > whole.windows);
-        assert!(some.memo.len() <= 7);
+        assert!(some.memo.len() + some.side.len() <= 7);
 
-        let half = windows / 2;
+        let units = alphabet(&index).expect("the fixture has an alphabet").len();
+        let half = windows / units / 2;
         let (few, few_report) = capped(&index, &rules, text_set, half);
         assert!(few.releases > 0);
         assert!(few_report.windows > whole.windows);
@@ -1073,8 +1367,8 @@ mod tests {
         let lens = walk_memo_lens(&with_stats.take_cache_stats());
         assert_eq!(
             lens.len() as u64,
-            with_stats.releases + 1,
-            "one row per release and one at the end"
+            with_stats.releases + with_stats.units + 1,
+            "one row per ceiling release, one per unit release and one at the end"
         );
         assert!(lens.iter().all(|len| *len <= half), "{lens:?}");
 
@@ -1091,7 +1385,7 @@ mod tests {
             assert_eq!(walk.id_labels, uncapped.id_labels, "{at}");
             assert_eq!(walk.labels.texts, uncapped.labels.texts, "{at}");
             assert_eq!(walk.input_labels, uncapped.input_labels, "{at}");
-            memo_agrees(walk, &uncapped, &at);
+            memo_agrees(walk, &filed, &at);
         }
 
         let tokens = alphabet(&index).expect("the fixture has an alphabet");
@@ -1102,13 +1396,45 @@ mod tests {
             cold.release();
             cold.walk_text(&raw, &mut formed, &mut report)
                 .expect("the fixture's texts settle");
-            memo_agrees(&cold, &uncapped, &spell_text(&index, &raw));
+            memo_agrees(&cold, &filed, &spell_text(&index, &raw));
         }
         assert_eq!(report.texts, whole.texts);
         assert!(cold.disagreements.is_empty(), "{:?}", cold.disagreements);
     }
 
-    /// Every text of length 1 through `max_length` over `tokens`, in the order [`Replay::walk_texts`] walks them.
+    /// A walk taken a unit a last symbol settles each window once. At maximum lengths 3, 4 and 5 its window count is the count of distinct windows the unpartitioned reference settles, the white-box loop that walks every text in length order through one memo it never releases, and its row store files exactly the windows and records the reference's files, each once. The walk releases its memos after every unit and never under a ceiling, and it keeps the windows that cross units in its side memo.
+    #[test]
+    fn a_walk_by_last_symbol_settles_and_files_each_window_once() {
+        let index = fixtures::mini();
+        let rules = folded_rules(&index);
+        let tokens = alphabet(&index).expect("the fixture has an alphabet");
+        for max_length in [3, 4, 5] {
+            let at = format!("at {max_length}");
+            let mut walk = replay(&index, &rules);
+            walk.keep_rows();
+            let report = walk
+                .walk_texts(TextSet::all(max_length))
+                .expect("the table is complete");
+            let mut reference = replay(&index, &rules);
+            reference.keep_rows();
+            let mut settled = Report::default();
+            let mut formed = Vec::new();
+            for raw in texts(&tokens, max_length) {
+                reference
+                    .walk_text(&raw, &mut formed, &mut settled)
+                    .expect("the fixture's texts settle");
+            }
+            assert_eq!(report.texts, settled.texts, "{at}");
+            assert_eq!(report.windows, settled.windows, "{at}");
+            assert_eq!(report.windows as usize, reference.memo.len(), "{at}");
+            assert_eq!(walk.units as usize, tokens.len(), "{at}");
+            assert_eq!(walk.releases, 0, "{at}");
+            assert!(!walk.side.is_empty() && walk.memo.is_empty(), "{at}");
+            assert_eq!(filed_windows(&walk), filed_windows(&reference), "{at}");
+        }
+    }
+
+    /// Every text of length 1 through `max_length` over `tokens`, by length and then position by position in alphabet order: the unpartitioned order the white-box tests walk through `walk_text`.
     fn texts(tokens: &[RightToken], max_length: usize) -> Vec<Vec<RightToken>> {
         let mut out = Vec::new();
         for length in 1..=max_length {
@@ -1401,18 +1727,22 @@ mod tests {
         }
     }
 
-    /// The written memo covers everything the walk settled: one row per window the report counted, a head row count that agrees, every input and right inside the label table, every left inside the label table or the record table after it, and every value inside the record table.
+    /// The written memo covers everything the walk settled: one row per window the report counted, a head row count that agrees, every input and right inside the label table, every left inside the label table or the record table after it, and every value inside the record table. Writing it hands the row store over, so the walk holds no rows afterward.
     #[test]
     fn the_window_memo_files_one_row_per_settled_window_inside_its_tables() {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
+        walk.keep_rows();
         let report = walk
             .walk_texts(TextSet::all(3))
             .expect("the table is complete");
         let path = scratch("replay-memo-complete").join("replay-windows-default.bin");
-        walk.write_window_memo(&path, "default", 3)
-            .expect("the memo files");
+        assert_eq!(
+            walk.write_window_memo(&path, "default", 3),
+            Ok(Filed::Whole)
+        );
+        assert!(walk.rows.is_none());
         let filed = read_memo(&path);
         assert_eq!(filed.head["config"], "default");
         assert_eq!(filed.head["max_length"], 3);
@@ -1435,7 +1765,7 @@ mod tests {
         assert!(filed.labels.iter().any(|label| label == EDGE_LABEL));
     }
 
-    /// A walk that released its memo fails to write it and creates no file, because the memo holds only what the walk settled since the last release. A walk whose ceiling never caused a release writes every window it settled, one row per window, as an uncapped walk does.
+    /// A walk that released its memo under a ceiling fails to write it and creates no file, because it settled some windows more than once, and so does a walk that kept no rows. A walk whose ceiling never caused a release writes every window it settled, one row per window, as an uncapped walk does, though it released its memos after every unit.
     #[test]
     fn a_walk_that_released_its_memo_refuses_to_file_it() {
         let index = fixtures::mini();
@@ -1449,6 +1779,16 @@ mod tests {
         assert!(refusal.contains("released its memo"), "{refusal}");
         assert!(!path.exists(), "a refused memo creates no file");
 
+        let mut rowless = replay(&index, &rules);
+        rowless
+            .walk_texts(TextSet::all(3))
+            .expect("the table is complete");
+        let refusal = rowless
+            .write_window_memo(&path, "default", 3)
+            .expect_err("a walk that kept no rows has no memo to file");
+        assert!(refusal.contains("kept no rows"), "{refusal}");
+        assert!(!path.exists(), "a refused memo creates no file");
+
         let mut uncapped = replay(&index, &rules);
         let windows = uncapped
             .walk_texts(TextSet::all(3))
@@ -1457,10 +1797,11 @@ mod tests {
         let ceiling = usize::try_from(windows).expect("a window count fits") + 3;
         let (mut never, report) = capped(&index, &rules, TextSet::all(3), ceiling);
         assert_eq!(never.releases, 0);
+        assert!(never.units > 0);
         assert_eq!(report.windows, windows);
         never
             .write_window_memo(&path, "default", 3)
-            .expect("a memo no release touched files");
+            .expect("a memo no ceiling release touched files");
         let filed = read_memo(&path);
         assert_eq!(filed.rows.len() as u64, report.windows);
         assert_eq!(filed.head["rows"], filed.rows.len());
@@ -1472,6 +1813,7 @@ mod tests {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
+        walk.keep_rows();
         let pea = fixtures::sym(&index, "qsPea");
         let it = fixtures::sym(&index, "qsIt");
         let mut report = Report::default();
@@ -1556,6 +1898,7 @@ mod tests {
         let index = fixtures::mini();
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
+        walk.keep_rows();
         walk.walk_texts(TextSet::all(3))
             .expect("the table is complete");
         let path = scratch("replay-memo-lefts").join("replay-windows-default.bin");
@@ -1593,6 +1936,98 @@ mod tests {
             let record = crate::cases::parse_settled_json(&index, &value).expect("reads back");
             assert_eq!(&record, walk.pool.get(SettledId::at(id)));
         }
+    }
+
+    /// The row store holds narrow ids until one passes 65,535, then widens every chunk it holds and keeps every row it filed. It fills a chunk before it starts the next, marks the labels its rows reference (the left only when it is a label, never the record), and hands its chunks over oldest first, holding one fewer chunk and fewer bytes after each.
+    #[test]
+    fn the_row_store_widens_past_sixteen_bits_and_frees_each_chunk_it_hands_over() {
+        let mut store = RowStore::with_chunk_rows(3);
+        let row = |base: u32| -> [u32; ROW_IDS] { std::array::from_fn(|slot| base + slot as u32) };
+        for base in [0, 10, 20, 30] {
+            store.push(row(base), base != 10);
+        }
+        assert_eq!((store.rows(), store.chunks()), (4, 2));
+        assert!(!store.wide);
+        assert_eq!(store.bytes(), 2 * 3 * ROW_IDS * 2);
+        assert!(store.references(1) && store.references(21) && !store.references(11));
+        assert!(!store.references(6) && !store.references(16));
+        store.push(row(65_530), true);
+        assert!(store.wide, "65,536 is past sixteen bits");
+        assert_eq!((store.rows(), store.chunks()), (5, 2));
+        assert_eq!(store.bytes(), 2 * 3 * ROW_IDS * 4);
+        assert!(store.references(65_535) && !store.references(65_536));
+        let mut handed: Vec<[u32; ROW_IDS]> = Vec::new();
+        while let Some(chunk) = store.take_chunk() {
+            assert!(matches!(chunk, RowChunk::Wide(_)));
+            assert_eq!(store.bytes(), store.chunks() * 3 * ROW_IDS * 4);
+            handed.extend((0..chunk.ids() / ROW_IDS).map(|at| chunk.row(at)));
+        }
+        assert_eq!((store.chunks(), store.bytes()), (0, 0));
+        assert_eq!(handed, vec![row(0), row(10), row(20), row(30), row(65_530)]);
+    }
+
+    /// A sink that takes `room` bytes and then answers every write with `refusal`, as a FIFO whose reader has gone answers with a broken pipe.
+    struct Refusing {
+        room: usize,
+        refusal: std::io::ErrorKind,
+    }
+
+    impl Write for Refusing {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.room == 0 {
+                return Err(self.refusal.into());
+            }
+            let taken = bytes.len().min(self.room);
+            self.room -= taken;
+            Ok(taken)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A memo whose reader goes away partway is filed as [`Filed::ReaderGone`], not as an error, and the walk's row store is freed. Any other write error stays an error, and a memo its reader takes whole is [`Filed::Whole`].
+    #[test]
+    fn a_memo_whose_reader_goes_away_frees_its_rows_and_is_no_error() {
+        let index = fixtures::mini();
+        let rules = folded_rules(&index);
+        let walked = || {
+            let mut walk = replay(&index, &rules);
+            walk.keep_rows();
+            walk.walk_texts(TextSet::all(3))
+                .expect("the table is complete");
+            walk
+        };
+        let mut gone = walked();
+        let sink = Refusing {
+            room: 100,
+            refusal: std::io::ErrorKind::BrokenPipe,
+        };
+        assert_eq!(
+            gone.send_window_memo(sink, "default", 3)
+                .expect("a reader gone is no error"),
+            Filed::ReaderGone
+        );
+        assert!(gone.rows.is_none(), "the row store is freed");
+        let mut full = walked();
+        let sink = Refusing {
+            room: 100,
+            refusal: std::io::ErrorKind::StorageFull,
+        };
+        let error = full
+            .send_window_memo(sink, "default", 3)
+            .expect_err("any other write error stays one");
+        assert_eq!(error.kind(), std::io::ErrorKind::StorageFull);
+        let mut whole = walked();
+        let mut taken: Vec<u8> = Vec::new();
+        assert_eq!(
+            whole
+                .send_window_memo(&mut taken, "default", 3)
+                .expect("a whole memo files"),
+            Filed::Whole
+        );
+        assert!(taken.starts_with(format!("# {MEMO_FORMAT}\t").as_bytes()));
     }
 
     /// `_window_rights`: a boundary at the first slot makes every deeper one `#NA`, the edge does the same, and a letter run reads all four.

@@ -1,8 +1,12 @@
-"""The memory series' corpus child (`rebuild/tools/memory_series.py`, "The corpus step"): one corpus line's build, `build.build_m1` called as a library over the line's inputs at the stated widths. It points the timings journal at the line's `--journal`, installs the mark reporter (`memory_tally.report_marks`), which prints each mark with this process's resident set and footprint (`[m]`) and on a load line (`--load`) stops the build at the plan's mark, makes a load line's substitutions (`substitute_for_load`), and prints this process's own rusage and its reaped children's (`[r]`) before it exits.
+"""The memory series' children (`rebuild/tools/memory_series.py`): one corpus line's build ("The corpus step") or one replay line's full replay ("The replay step").
 
-The child is a module of its own, whose top-level imports are the standard library and modules the build imports itself, because multiprocessing's spawn imports the launching process's main module into every worker the build starts. Run as this module, the build's parent and each of its units, write and signature workers hold the build's modules and this one beside them, where a cycle's build, run as `python -m rebuild.review.build`, holds the build's modules alone; the series' own imports, the table step's among them, reach neither.
+A corpus child runs `build.build_m1` as a library over the line's inputs at the stated widths. It points the timings journal at the line's `--journal`, installs the mark reporter (`memory_tally.report_marks`), which prints each mark with this process's resident set and footprint (`[m]`) and on a load line (`--load`) stops the build at the plan's mark, makes a load line's substitutions (`substitute_for_load`), and prints this process's own rusage and its reaped children's (`[r]`) before it exits.
 
-Run as: python -m rebuild.tools.memory_series_child --inputs JSON --audit FIFO --out DIR --journal FILE --jobs N --signature-jobs N --write-jobs N [--load], which the series does once a corpus line.
+A replay child (`replay` before its flags) runs `run_m1.replay_and_absorb` over the line's cut, as a full replay of run_m1 runs it, at the stated width, with each crate's cache stats on and each absorb hashing its finished file and then discarding it, so the line writes no settle memo; it prints what the replay did as one JSON line (`replay_main`).
+
+The child is a module of its own, whose top-level imports are the standard library and modules the build imports itself, because multiprocessing's spawn imports the launching process's main module into every worker the build starts. Run as this module, the build's parent and each of its units, write and signature workers hold the build's modules and this one beside them, where a cycle's build, run as `python -m rebuild.review.build`, holds the build's modules alone; a replay's absorb workers likewise hold run_m1's modules and this one, where run_m1's own hold run_m1's alone. The series' own imports, the table step's among them, reach none of them.
+
+Run as: python -m rebuild.tools.memory_series_child --inputs JSON --audit FIFO --out DIR --journal FILE --jobs N --signature-jobs N --write-jobs N [--load], which the series does once a corpus line, or python -m rebuild.tools.memory_series_child replay --spec PICKLE --spec-dump JSON --out DIR --configs a,b --width N [--built], once a replay line.
 """
 
 from __future__ import annotations
@@ -10,6 +14,7 @@ from __future__ import annotations
 import argparse
 import functools
 import json
+import pickle
 import resource
 import sys
 from collections.abc import Mapping, Sequence
@@ -99,7 +104,66 @@ def substitute_for_load(build: ModuleType, unit_cache: ModuleType) -> None:
     setattr(build, "merge_ink_duplicate_units", lambda *arguments: None)
 
 
+# The stamp of the settle memo files a replay line's absorbs lay out and never write.
+REPLAY_STAMP = "memory-series-replay"
+
+
+def replay_main(argv: Sequence[str]) -> int:
+    """Run one replay line's full replay (`run_m1.replay_and_absorb`) over the cut pickled at `--spec`, whose dump the crate reads from `--spec-dump`, with its tables under `--out`, over `--configs` at `--width`, every crate's cache stats on and every absorb hashing its file and discarding it. `--built` marks the kernel built (`kernel_exec._BUILT`), which the series passes once its own build has succeeded, so the replay runs no `cargo build` inside the line; without it the replay builds as run_m1's does. Print what it did as one JSON line on stdout, its last: each walk's counts or error, its crate's lines, peaks and CPU seconds, and its absorb worker's pid, and each absorb's peaks, CPU seconds, rows, seconds, warning and file digest."""
+    parser = argparse.ArgumentParser(prog="python -m rebuild.tools.memory_series_child replay")
+    parser.add_argument("--spec", type=Path, required=True)
+    parser.add_argument("--spec-dump", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--configs", required=True)
+    parser.add_argument("--width", type=int, required=True)
+    parser.add_argument(
+        "--built", action="store_true", help="the series' own `kernel_exec.ensure_built()` has succeeded"
+    )
+    args = parser.parse_args(argv)
+    from rebuild.pipeline import conform, kernel_exec, run_m1
+
+    if args.built:
+        kernel_exec._BUILT = True
+
+    with args.spec.open("rb") as handle:
+        spec = pickle.load(handle)
+    memos = {
+        config: conform.SettleMemoFile(args.out / f"settle-memo-{config}.bin", REPLAY_STAMP, {})
+        for config in args.configs.split(",")
+    }
+    replayed = run_m1.replay_and_absorb(
+        spec, args.out, memos, args.width, cache_stats=True, keep=False, digest=True, spec_path=args.spec_dump
+    )
+    walks = {
+        config: {
+            "counts": walk.counts,
+            "error": walk.error,
+            "lines": list(walk.lines),
+            "peaks": None if walk.peaks is None else list(walk.peaks),
+            "worker": walk.worker,
+        }
+        for config, walk in replayed.walks.items()
+    }
+    absorbs = {
+        config: {
+            "resident": absorb.resident,
+            "footprint": absorb.footprint,
+            "cpu": absorb.cpu,
+            "entries": absorb.entries,
+            "seconds": absorb.seconds,
+            "warning": absorb.warning,
+            "digest": None if absorb.digest is None else list(absorb.digest),
+        }
+        for config, absorb in replayed.absorbs.items()
+    }
+    print(json.dumps({"passed": replayed.passed, "walks": walks, "absorbs": absorbs}), flush=True)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["replay"]:
+        return replay_main(argv[1:])
     parser = argparse.ArgumentParser(prog="python -m rebuild.tools.memory_series_child")
     parser.add_argument(
         "--inputs", required=True, help="the line's inputs, as `CorpusInputs.to_json` writes them"

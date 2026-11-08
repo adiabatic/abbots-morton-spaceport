@@ -1177,7 +1177,68 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
     );
 }
 
-/// The replay's cache stats through the binary. `--cache-stats` leaves the answer lines byte for byte as the plain walk prints them. Without `--timings` it writes only `[c]` lines to stderr: for each configuration, the walk's own memo, every engine memo with the trace memo's ranking pool empty, an elimination-text size of zero, and the resident size after the walk. With `--timings`, a configuration's cache-stats lines come before its `replay[<config>]` phase line. Under a memo ceiling of a third of the walk's window count, each release reports the walk memo and the engine's memos under `release=<k>` with the resident size before and after, the walk reports its release count, and no `walk_memo` row exceeds the ceiling.
+/// The window memo through a FIFO, as `run_m1` reads it: with a FIFO at a configuration's memo path, the bytes a reader takes from it are the bytes the same walk writes to a file, and the answer lines are the same. A reader that opens the FIFO and closes it at once leaves the walk answered: the run exits 0 with the same answer lines and nothing on stderr.
+#[test]
+fn a_replay_memo_written_through_a_fifo_is_the_memo_written_to_a_file() {
+    let root = scratch("cli-replay-memo-fifo");
+    let spec = spec_at(&root);
+    let outdir = root.join("tables");
+    let built = run(&[
+        "build-tables",
+        word(&spec),
+        word(&outdir),
+        "--configs=default,ss03",
+        "--inputs=cli-stamp",
+    ]);
+    assert!(built.status.success(), "{}", stderr_of(&built));
+    let replay = |memos: &Path| {
+        run(&[
+            "replay-strings",
+            word(&spec),
+            word(&outdir),
+            "--configs=default",
+            "--max-length=4",
+            &format!("--memo-dir={}", word(memos)),
+        ])
+    };
+    let files = root.join("files");
+    std::fs::create_dir_all(&files).expect("the memo directory is makeable");
+    let filed = replay(&files);
+    assert!(filed.status.success(), "{}", stderr_of(&filed));
+    let written = std::fs::read(files.join("replay-windows-default.bin")).expect("the memo file");
+
+    let piped = root.join("piped");
+    std::fs::create_dir_all(&piped).expect("the memo directory is makeable");
+    let fifo = piped.join("replay-windows-default.bin");
+    let made = Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success(), "the FIFO is made");
+    let reading = fifo.clone();
+    let reader = std::thread::spawn(move || std::fs::read(reading));
+    let through = replay(&piped);
+    let taken = reader
+        .join()
+        .expect("the reader thread ends")
+        .expect("the FIFO reads to its end");
+    assert!(through.status.success(), "{}", stderr_of(&through));
+    assert_eq!(
+        through.stdout, filed.stdout,
+        "the answer lines are unchanged"
+    );
+    assert_eq!(taken, written, "the FIFO carries the file's bytes");
+
+    let closing = fifo.clone();
+    let closer = std::thread::spawn(move || drop(std::fs::File::open(closing)));
+    let closed = replay(&piped);
+    closer.join().expect("the closing reader ends");
+    assert_eq!(closed.status.code(), Some(0), "{}", stderr_of(&closed));
+    assert_eq!(closed.stdout, filed.stdout, "the walk is still answered");
+    assert!(closed.stderr.is_empty(), "{}", stderr_of(&closed));
+}
+
+/// The replay's cache stats through the binary. `--cache-stats` leaves the answer lines byte for byte as the plain walk prints them. Without `--timings` it writes only `[c]` lines to stderr: for each configuration, the walk's own memo and its side memo, every engine memo with the trace memo's ranking pool empty, an elimination-text size of zero, a unit count of one a symbol of the fixture's six with each unit's release reported under `unit=<k>`, an empty row store for a walk that writes no memo, and the resident size after the walk. With `--timings`, a configuration's cache-stats lines come before its `replay[<config>]` phase line. Under a memo ceiling of a third of one unit's share of the walk's window count, one sixth, each release reports the walk memo and the engine's memos under `release=<k>` with the resident size before and after, the walk reports its release count, and no `walk_memo` row exceeds the ceiling.
 #[test]
 fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone() {
     let root = scratch("cli-replay-cache-stats");
@@ -1221,8 +1282,13 @@ fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone()
     for (token, _) in CONFIGS {
         for prefix in [
             format!("[c] {token} walk_memo len="),
+            format!("[c] {token} side_memo len="),
             format!("[c] {token} trace_cache len="),
             format!("[c] {token} trace_rankings len=0 "),
+            format!("[c] {token} unit=6 walk_memo len="),
+            format!("[c] {token} unit=6 resident_after_release kb="),
+            format!("[c] {token} units count=6"),
+            format!("[c] {token} row_store rows=0 bytes=0 chunks=0"),
             format!("[c] {token} resident_after_walk kb="),
         ] {
             assert!(
@@ -1260,7 +1326,7 @@ fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone()
     let walked = answers(&bare)
         .remove("default")
         .expect("default is answered");
-    let ceiling = (walked.windows / 3).max(1);
+    let ceiling = (walked.windows / 6 / 3).max(1);
     let ceiling_flag = format!("--memo-windows={ceiling}");
     let released = replay(&["--cache-stats", &ceiling_flag]);
     assert!(released.status.success(), "{}", stderr_of(&released));

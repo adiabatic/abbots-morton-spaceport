@@ -996,7 +996,7 @@ pub struct ReplayAnswer {
     pub timed: Vec<String>,
 }
 
-/// Replays every configuration's persisted rules over `text_set`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the text set, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two engine mode flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo_dir`, each passing walk writes its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]). A walk that fails writes nothing. A walk that released its memo under the text set's ceiling fails instead of writing, and the `replay-strings` CLI rejects `--memo-dir` with `--memo-windows`, so no command line can request that.
+/// Replays every configuration's persisted rules over `text_set`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the text set, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two engine mode flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo_dir`, each passing walk writes its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]), where `run_m1` puts a FIFO its absorb worker reads; a reader that closes it early leaves the walk's answer standing. A walk that fails writes nothing. A walk that released its memo under the text set's ceiling fails instead of writing, and the `replay-strings` CLI rejects `--memo-dir` with `--memo-windows`, so no command line can request that.
 #[allow(clippy::too_many_arguments)]
 pub fn run_configs_replay(
     index: &SpecIndex,
@@ -1019,7 +1019,7 @@ pub fn replay_memo_path(memo_dir: &Path, token: &str) -> PathBuf {
     memo_dir.join(format!("replay-windows-{token}.bin"))
 }
 
-/// Replays one configuration: reads its rules back and walks its text set. When asked, it returns the cache stats' `[c]` lines and a `replay[<config>]` timing line. With a `memo_dir`, it then writes the window memo, timed as `replay_memo[<config>]`. The walk's clock stops before the cache stats are taken, so the end-of-walk resident-size sample is not counted in the walk's time; the samples a walk with cache stats takes at each release under the text set's ceiling are.
+/// Replays one configuration: reads its rules back and walks its text set, a unit a last symbol unless the text set names one ([`replay::Replay::walk_texts`]). When asked, it returns the cache stats' `[c]` lines and a `replay[<config>]` timing line. With a `memo_dir`, the walk files every window it settles in its row store ([`replay::Replay::keep_rows`]) and then writes the window memo from it, timed as `replay_memo[<config>]`; a reader that closes the memo before its end stops the write and not the walk. The walk's clock stops before the cache stats are taken, so the end-of-walk resident-size sample is not counted in the walk's time; the samples a walk with cache stats takes at each unit release and each release under the text set's ceiling are.
 pub fn run_config_replay(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -1044,6 +1044,9 @@ pub fn run_config_replay(
     let mut walk = replay::Replay::new(index, config.features.clone(), engine_modes, &rules);
     if report.cache_stats {
         walk.with_cache_stats(token);
+    }
+    if memo_dir.is_some() {
+        walk.keep_rows();
     }
     let walked = walk.walk_texts(text_set)?;
     let elapsed = started.elapsed();

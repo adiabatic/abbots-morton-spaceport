@@ -1067,7 +1067,7 @@ def main(argv: list[str] | None = None) -> None:
         type=int,
         default=None,
         help=(
-            "how many settlement configurations the string replay after the build walks at once in its one crate process, capped at the configuration count and the cores this process may actually run on; a replay engine's peak memory is estimated on its own rather than at the table build's width, so the default is derived from this machine — on this one "
+            "how many settlement configurations the string replay after the build walks at once, each in a crate process of its own beside the worker that absorbs its window memo on a full replay and as threads of one crate process on a narrowed one, capped at the configuration count and the cores this process may actually run on; a walk and its absorb are estimated together on their own rather than at the table build's width, so the default is derived from this machine — on this one "
             f"{describe_fit(kernel_exec.REPLAY_PEAK_BYTES, cap=len(conform.SETTLEMENT_CONFIGS))}, nothing co-resident since the build's process has exited — which AMS_REPLAY_THREADS short-circuits and this flag beats in turn"
         ),
     )
