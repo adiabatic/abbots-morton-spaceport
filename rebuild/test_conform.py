@@ -4352,11 +4352,9 @@ class TestSettleMemoFile:
         """Every window the file at `memo.path` holds, as the six-tuples a walk keys on."""
         return {window for window, _outcome in self._decoded(memo, spec)}
 
-    @pytest.mark.parametrize("restricted", [False, True])
-    def test_a_refusal_is_not_written_and_is_asked_again(
-        self, spec, guard, tmp_path, monkeypatch, restricted
-    ):
-        """A refusal is memoized only for the tolerant walk that met it. The file holds outcomes only, so the next walk to reach that window asks the crate again and gets whatever the crate returns then. A walk restricted to its texts' asks memoizes the refusal the same way and raises at that key on its own walk, because a refusal is kept in `windows` and never written to the file the restriction filters."""
+    @pytest.mark.parametrize("form", ["whole", "returns_fresh", "restricted"])
+    def test_a_refusal_is_not_written_and_is_asked_again(self, spec, guard, tmp_path, monkeypatch, form):
+        """A refusal is memoized only for the tolerant walk that met it. The file holds outcomes only, so the next walk to reach that window asks the crate again and gets whatever the crate returns then. A walk that returns its fresh windows, as an oracle range does, leaves the refusal out of its part, so the file the absorb writes holds none either. A walk restricted to its texts' asks, whose memo is read-only, memoizes the refusal the same way and raises at that key on its own walk, because a refusal is kept in `windows`, and it writes neither the file nor a part."""
         clean, refusing_text = chr(0xE665) + chr(0xE670), chr(0xE665) + chr(0xE652)
         original = kernel_exec.settle_windows
 
@@ -4375,18 +4373,26 @@ class TestSettleMemoFile:
             {},
             guard,
             on_error="drop",
-            memo=replace(memo, returns_fresh=True) if restricted else memo,
+            memo={
+                "whole": memo,
+                "returns_fresh": replace(memo, returns_fresh=True),
+                "restricted": replace(memo, read_only=True),
+            }[form],
         )
-        if restricted:
+        if form == "restricted":
             walker.load_only_asked_by([clean, refusing_text])
         walker.prefill([clean, refusing_text])
         refused = [key for key, value in walker.windows.items() if isinstance(value, conform._RefusedWindow)]
         assert refused
         with pytest.raises(settle.SettleError):
             walker.walk(refusing_text)
+        if form == "restricted":
+            assert not walker.save_memo() and walker.fresh_memo is None
+            assert not memo.path.exists()
+            return
         assert walker.save_memo()
-        if restricted:
-            assert walker.fresh_memo is not None
+        if form == "returns_fresh":
+            assert walker.fresh_memo is not None and not memo.path.exists()
             assert walker.fresh_memo.rows == walker.fresh_windows - len(refused)
             assert conform.absorb_settle_memo(memo, spec, [walker.fresh_memo]).written
 
@@ -4492,10 +4498,8 @@ class TestSettleMemoFile:
         assert third._settle_calls == 0 and third.fresh_windows == 0
         assert set(third.windows) >= only_one | only_two | set(seed.windows)
 
-    def test_a_restricted_walk_returns_only_its_fresh_windows_and_the_absorb_keeps_the_standing_ones(
-        self, spec, guard, tmp_path
-    ):
-        """As in the witness stage, a walk that loads only the rows its texts can ask cannot tell a dropped row from an unreached one, so it returns exactly the windows it settled fresh and leaves the shared file alone, and the absorb produces the existing rows plus the fresh ones. A whole-file save from such a walk would drop every row its load dropped."""
+    def test_a_restricted_walk_serves_only_its_asks_and_leaves_the_file_alone(self, spec, guard, tmp_path):
+        """As in the witness stage, a walk that loads only the rows its texts can ask cannot tell a dropped row from an unreached one, so it never prunes or replaces the file, and since such a walk is the witness stage's, which writes nothing back, its memo is read-only: it serves exactly the rows whose five settlement-independent slots are among its asks, counts the rest as unasked, settles the windows the file lacks fresh, and then writes nothing, returns no fresh windows, and leaves the file's bytes as they were. A whole-file save from such a walk would drop every row its load dropped."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         half = len(texts) // 2
@@ -4506,31 +4510,24 @@ class TestSettleMemoFile:
 
         rest = texts[half:]
         restricted = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
+            spec, frozenset(), {}, guard, memo=replace(memo, read_only=True)
         )
         asks = restricted.load_only_asked_by(rest)
-        restricted.walk_many(rest)
+        reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        assert restricted.walk_many(rest) == reference.walk_many(rest)
         kept = {window for window in seed.windows if (window[0],) + tuple(window[2:]) in asks}
         assert 0 < len(kept) < len(seed.windows)
         assert restricted.memo_windows == len(kept)
         assert restricted.unasked_windows == len(seed.windows) - len(kept)
         fresh = set(restricted.windows) - set(seed.windows)
         assert fresh and restricted.fresh_windows == len(fresh)
-        assert restricted.save_memo() and restricted.fresh_memo is not None
+        assert not restricted.save_memo() and restricted.fresh_memo is None
         assert memo.path.read_bytes() == standing
-        assert _fresh_rows(restricted.fresh_memo) == fresh
-
-        assert conform.absorb_settle_memo(memo, spec, [restricted.fresh_memo]).written
-        assert self._rows(memo, spec) == set(seed.windows) | fresh
-        third = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
-        reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
-        assert third.walk_many(texts) == reference.walk_many(texts)
-        assert third._settle_calls == 0 and third.fresh_windows == 0
 
     def test_a_restricted_load_serves_the_rows_an_absorb_added_under_the_standing_spellings(
         self, spec, guard, tmp_path
     ):
-        """The steady state of the file the witness stage reads. A walk's fresh windows carry their own label table, and the absorb maps each label onto the id the existing file already uses for it, so the file names each label once and a restricted load tests rows in one id space. Seeded whole, extended by one restricted walk's fresh windows, and read by a second restricted walk over the same texts, the file serves every row that walk asks, existing and absorbed alike, and the walk settles nothing."""
+        """The steady state of the file the witness stage reads. A walk's fresh windows carry their own label table, and the absorb maps each label onto the id the existing file already uses for it, so the file names each label once and a restricted load tests rows in one id space. Seeded whole, extended by an oracle range's fresh windows (an unrestricted walk that returns them), and read by a restricted walk over the same texts, the file serves every row that walk asks, existing and absorbed alike, and the walk settles nothing and writes nothing."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         half = len(texts) // 2
@@ -4539,10 +4536,11 @@ class TestSettleMemoFile:
         assert seed.save_memo()
 
         rest = texts[half:]
-        returning = replace(memo, returns_fresh=True)
         standing_labels = set(itertools.chain.from_iterable(seed.windows))
-        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=returning)
-        asks = first.load_only_asked_by(rest)
+        asks = conform._SettledWindowWalk(spec, frozenset(), {}, guard).load_only_asked_by(rest)
+        first = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
+        )
         first.walk_many(rest)
         assert first.fresh_windows and first.save_memo() and first.fresh_memo is not None
         part_labels = {
@@ -4561,7 +4559,8 @@ class TestSettleMemoFile:
         rows = self._rows(memo, spec)
         kept = {window for window in rows if (window[0],) + tuple(window[2:]) in asks}
         assert len(kept) > first.fresh_windows
-        again = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=returning)
+        absorbed = memo.path.read_bytes()
+        again = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=replace(memo, read_only=True))
         assert again.load_only_asked_by(rest) == asks
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         assert again.walk_many(rest) == reference.walk_many(rest)
@@ -4569,6 +4568,7 @@ class TestSettleMemoFile:
         assert again.unasked_windows == len(rows) - len(kept)
         assert again._settle_calls == 0 and again.fresh_windows == 0
         assert not again.save_memo() and again.fresh_memo is None
+        assert memo.path.read_bytes() == absorbed
 
     def _header(self, memo) -> dict:
         with open(memo.path, "rb") as handle:
@@ -4587,7 +4587,6 @@ class TestSettleMemoFile:
         first = conform._SettledWindowWalk(
             spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
         )
-        first.load_only_asked_by(texts[-3:])
         first.walk_many(texts[-3:])
         assert first.fresh_windows and first.save_memo() and first.fresh_memo is not None
         assert standing["slots"] >= 2 * (standing["rows"] + first.fresh_windows), "no room to extend in place"
@@ -4767,79 +4766,53 @@ class TestSettleMemoFile:
         assert walker.save_memo(prune=True) and walker.pruned_windows == len(rows) - len(repeated)
         assert self._ordered(memo, spec) == [(window, outcome[0]) for window, outcome in repeated]
 
-    def test_two_ranges_settling_one_window_absorb_into_one_row(self, spec, guard, tmp_path):
-        """The production case of a repeated window: two row ranges that both settle a window both return it, and the absorb folds the pair onto one row, so the file's row count equals the dict's and a walk over the file reaches every window once."""
+    @pytest.mark.parametrize("standing", [False, True])
+    def test_two_ranges_settling_one_window_absorb_into_one_row(self, spec, guard, tmp_path, standing):
+        """The production case of a repeated window: two row ranges that both settle a window both return it, and the absorb folds the pair onto one row, so the file's row count equals the dict's and a walk over the file reaches every window once. Over a standing file from which no row drops, the absorb extends the standing index with the ranges' rows instead of rebuilding it (`index=reused`): the later range's copy of a window patches the row the earlier range's copy appended, every standing row keeps its place, and the slot count stands."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
-        third = len(texts) // 3
-        piles = (texts[: 2 * third], texts[third:])
+        header: dict = {}
+        standing_rows: list = []
+        if standing:
+            seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+            seed.walk_many(texts[:-6])
+            assert seed.save_memo()
+            header = self._header(memo)
+            standing_rows = self._ordered(memo, spec)
+            piles = (texts[-6:-2], texts[-4:])
+        else:
+            third = len(texts) // 3
+            piles = (texts[: 2 * third], texts[third:])
         parts = []
         for pile in piles:
             walker = conform._SettledWindowWalk(
                 spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
             )
-            walker.load_only_asked_by(pile)
             walker.walk_many(pile)
             assert walker.fresh_windows and walker.save_memo() and walker.fresh_memo is not None
             parts.append(walker.fresh_memo)
         filed = [_fresh_rows(part) for part in parts]
-        assert filed[0] & filed[1]
+        assert filed[0] & filed[1] and filed[1] - filed[0]
         absorbed = conform.absorb_settle_memo(memo, spec, parts)
         assert absorbed.written and absorbed.patched == len(filed[0] & filed[1])
+        if standing:
+            assert absorbed.index == "reused" and absorbed.carried == header["rows"]
+            after = self._header(memo)
+            assert after["slots"] == header["slots"]
+            assert after["rows"] == header["rows"] + len(filed[0] | filed[1])
+            assert self._ordered(memo, spec)[: len(standing_rows)] == standing_rows
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
         expected = self._dict_of(walker, memo, spec)
         walker._load_memo()
         store = walker._cold
-        assert len(store.values) == len(store) == len(expected) == len(filed[0] | filed[1])
-        assert list(store.items()) == list(expected.items())
-        reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
-        assert walker.walk_many(texts) == reference.walk_many(texts)
-        assert walker.fresh_windows == 0 and store.reached_count() == len(expected)
-
-    def test_a_range_that_mapped_the_file_before_the_witness_absorb_merges_onto_the_rows_it_added(
-        self, spec, guard, tmp_path
-    ):
-        """The oracle runs beside the witness stage, so a row range can map the file before the witness stage's absorb takes effect, settle windows that absorb then adds to the existing rows, and have its fresh windows absorbed after it. No existing row was retired, so the absorb extends the existing index with the range's rows instead of rebuilding it. Each window the file already holds maps onto its existing row and the rest are appended, so every existing row keeps its place, the file holds one row per window and reads as a dict of it does, and a walk over every text settles nothing."""
-        texts = self._texts(spec, 2)
-        memo = self._memo(tmp_path)
-        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
-        seed.walk_many(texts[:-6])
-        assert seed.save_memo()
-
-        returning = replace(memo, returns_fresh=True)
-        ranged = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=returning)
-        ranged.walk_many(texts[-4:])
-        assert ranged.fresh_windows and ranged.save_memo() and ranged.fresh_memo is not None
-        witness_walk = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=returning)
-        witness_walk.load_only_asked_by(texts[-6:-2])
-        witness_walk.walk_many(texts[-6:-2])
-        assert witness_walk.fresh_windows and witness_walk.save_memo() and witness_walk.fresh_memo is not None
-        filed = _fresh_rows(ranged.fresh_memo)
-        folded = _fresh_rows(witness_walk.fresh_memo)
-        assert filed & folded and filed - folded
-
-        assert conform.absorb_settle_memo(memo, spec, [witness_walk.fresh_memo]).written
-        standing = self._header(memo)
-        standing_rows = self._ordered(memo, spec)
-        assert folded <= {window for window, _ in standing_rows}
-        absorbed = conform.absorb_settle_memo(memo, spec, [ranged.fresh_memo])
-        assert absorbed.index == "reused" and absorbed.carried == standing["rows"]
-        assert absorbed.patched == len(filed & folded)
-        after = self._header(memo)
-        assert after["slots"] == standing["slots"]
-        assert after["rows"] == standing["rows"] + len(filed - folded)
-        assert self._ordered(memo, spec)[: len(standing_rows)] == standing_rows
-
-        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
-        expected = self._dict_of(walker, memo, spec)
-        walker._load_memo()
-        store = walker._cold
-        assert len(store.values) == len(store) == len(expected) == after["rows"]
+        rows = len(standing_rows) + len(filed[0] | filed[1])
+        assert len(store.values) == len(store) == len(expected) == rows
         assert list(store.items()) == list(expected.items())
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         assert walker.walk_many(texts) == reference.walk_many(texts)
         assert walker._settle_calls == 0 and walker.fresh_windows == 0
+        assert store.reached_count() == len(expected)
 
     def _swept(self, spec, guard, memo, last=None, max_length=2) -> conform.ConformanceConfigResult:
         """`default`'s conformance sweep over the mini alphabet with a stand-in font, whole or, with `last`, one unit."""
@@ -5000,7 +4973,6 @@ class TestSettleMemoFile:
         ranged = conform._SettledWindowWalk(
             spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
         )
-        ranged.load_only_asked_by(texts[-3:])
         ranged.walk_many(texts[-3:])
         assert ranged.save_memo() and ranged.fresh_memo is not None
         assert conform.absorb_settle_memo(memo, spec, [ranged.fresh_memo]).written
@@ -5015,15 +4987,18 @@ class TestSettleMemoFile:
         with pytest.raises(AssertionError, match="a unit sweep returns its fresh windows"):
             self._swept(spec, guard, self._memo(tmp_path), last=conform.spec_alphabet(spec)[0])
 
-    def test_a_restriction_returns_its_fresh_windows_and_never_prunes(self, spec, guard, tmp_path):
-        """Two checks that tie restricted loading to returning fresh windows: a walk whose memo would replace the shared file whole may not restrict its load, and a restricted walk may not prune, since after a restricted load a dropped row and an unreached window look the same."""
+    def test_a_restriction_takes_a_read_only_memo_and_never_prunes(self, spec, guard, tmp_path):
+        """The checks that tie restricted loading to a read-only memo: a walk whose memo would replace the shared file whole, or return its fresh windows for an absorb, may not restrict its load; a memo is never both read-only and returning; and a restricted walk may not prune, since after a restricted load a dropped row and an unreached window look the same."""
         texts = self._texts(spec, 1)
         memo = self._memo(tmp_path)
-        whole = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
-        with pytest.raises(AssertionError, match="a restricted walk returns its fresh windows"):
-            whole.load_only_asked_by(texts)
+        for refused in (memo, replace(memo, returns_fresh=True)):
+            walk = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=refused)
+            with pytest.raises(AssertionError, match="a restricted walk's memo is read-only"):
+                walk.load_only_asked_by(texts)
+        with pytest.raises(AssertionError, match="a read-only memo returns no fresh windows"):
+            replace(memo, returns_fresh=True, read_only=True)
         restricted = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
+            spec, frozenset(), {}, guard, memo=replace(memo, read_only=True)
         )
         restricted.load_only_asked_by(texts)
         with pytest.raises(AssertionError, match="a restricted walk never prunes"):

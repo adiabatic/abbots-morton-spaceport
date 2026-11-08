@@ -96,7 +96,7 @@ def test_a_certificate_the_registry_refuses_is_reported_against_its_rule_under_a
 
     monkeypatch.setattr(settle, "tokens_from_codepoints", refusing)
     report = witness.check_rule_certificates(
-        spec, frozenset(), decision, guard, memo=dataclasses.replace(memo, returns_fresh=True)
+        spec, frozenset(), decision, guard, memo=dataclasses.replace(memo, read_only=True)
     )
     assert not report.passed
     assert len(report.failures) == 1
@@ -129,9 +129,10 @@ def test_a_rule_with_no_certificate_vouches_for_nothing(spec, tables, guard):
     assert "certificate(s) for" in report.failures[0]
 
 
-def test_the_witness_stage_writes_a_summary_and_shares_the_settle_memo(spec, tables, tmp_path):
-    """The build stage over the mini tables writes one passing summary with a record per configuration. It also seeds the settle memo file that later phases load with the windows the certificates settled, so a second run over the same tables serves them all from the file. A third run writes the second's summary again, so `witness_summary.json` stays in place, keeping its inode and its modification time, here set long ago so that any write would move it."""
+def test_the_witness_stage_writes_a_summary_and_no_settle_memo_byte(spec, tables, guard, tmp_path):
+    """The build stage over the mini tables writes one passing summary with a record per configuration, and no settle memo byte. A run with no file leaves none, so a second run over the same tables settles the same windows fresh again and serves none. A third run writes the second's summary again, so `witness_summary.json` stays in place, keeping its inode and its modification time, here set long ago so that any write would move it. A file another phase wrote, holding every window `default`'s certificates reach, serves them all, and keeps its bytes and its modification time."""
     inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+    memos = conform.settle_memo_files(tmp_path, spec, inputs)
     summary = run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs)
     assert summary["pass"]
     assert summary["failures"] == []
@@ -140,32 +141,74 @@ def test_the_witness_stage_writes_a_summary_and_shares_the_settle_memo(spec, tab
         record = summary["configs"][config]
         assert record["rules"] == record["witnessed"] == len(tables[config][0].rules)
         assert record["fresh_windows"] and not record["served_windows"]
-        assert conform.settle_memo_files(tmp_path, spec, inputs)[config].path.is_file()
+        assert not memos[config].path.exists()
     assert (tmp_path / "witness_summary.json").is_file()
     again = run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs)
     for config in CONFIGS:
-        assert again["configs"][config]["served_windows"] and not again["configs"][config]["fresh_windows"]
+        record = again["configs"][config]
+        assert not record["served_windows"]
+        assert record["fresh_windows"] == summary["configs"][config]["fresh_windows"]
+        assert not memos[config].path.exists()
     written = tmp_path / "witness_summary.json"
     os.utime(written, ns=(1_000_000_000, 1_000_000_000))
     inode = written.stat().st_ino
     assert run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs) == again
     assert (written.stat().st_ino, written.stat().st_mtime_ns) == (inode, 1_000_000_000)
 
+    seeded = memos["default"]
+    seed = conform._SettledWindowWalk(spec, conform.features_for_config("default"), {}, guard, memo=seeded)
+    seed.walk_many(
+        sorted({witness._token_text(spec, tokens) for tokens in tables["default"][0].certificates})
+    )
+    assert seed.save_memo()
+    os.utime(seeded.path, ns=(1_000_000_000, 1_000_000_000))
+    standing = seeded.path.read_bytes()
+    served = run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs)["configs"]["default"]
+    assert served["served_windows"] == len(seed.windows) and not served["fresh_windows"]
+    assert seeded.path.read_bytes() == standing and seeded.path.stat().st_mtime_ns == 1_000_000_000
+    assert not memos["ss03"].path.exists()
 
-def test_the_stage_in_a_process_of_its_own_writes_what_it_writes_in_process(spec, tables, tmp_path):
-    """The build runs the stage in one spawned process (`run_m1._spawn_rule_witnesses`), which gets each configuration's decision table without its join table and runs its own formation-guard sweep. Over the mini tables it returns the summary the stage returns in this process, writes the same `witness_summary.json` and settle memo files, and reports its own peak memory."""
+
+def test_the_stage_in_a_process_of_its_own_writes_what_it_writes_in_process(
+    spec, tables, tmp_path, monkeypatch
+):
+    """The build runs the stage in one spawned worker (`run_m1._spawn_rule_witnesses`), which gets the spec, the guard verdicts and the guard sources once, through its pool's initializer, and then one task a configuration, in the tables' order, each carrying that configuration's decision table without its join table and its read-only settle memo, submitted only once the task before it has returned. Over the mini tables it returns the summary the stage returns in this process, writes the same `witness_summary.json` and nothing else, and reports its own peak memory."""
     inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
     here, apart = tmp_path / "here", tmp_path / "apart"
     here.mkdir()
     apart.mkdir()
     summary = run_m1.run_rule_witnesses(spec, tables, here, inputs)
+    submissions: list[tuple] = []
+    spawn_pool = run_m1._spawn_pool
+
+    def recording_pool(*args, **kwargs):
+        pool = spawn_pool(*args, **kwargs)
+        submit = pool.submit
+        futures = []
+
+        def recorded(fn, *task, **rest):
+            assert all(
+                future.done() for future in futures
+            ), "a task was submitted before the one before it returned"
+            submissions.append(task)
+            futures.append(submit(fn, *task, **rest))
+            return futures[-1]
+
+        monkeypatch.setattr(pool, "submit", recorded)
+        return pool
+
+    monkeypatch.setattr(run_m1, "_spawn_pool", recording_pool)
     spawned, peak = run_m1._spawn_rule_witnesses(spec, tables, apart, inputs)
     assert summary["pass"] and spawned == summary
     assert peak > 0
     assert (apart / "witness_summary.json").read_bytes() == (here / "witness_summary.json").read_bytes()
-    for config in CONFIGS:
-        written = conform.settle_memo_files(apart, spec, inputs)[config].path
-        assert written.read_bytes() == conform.settle_memo_files(here, spec, inputs)[config].path.read_bytes()
+    assert sorted(path.name for path in apart.iterdir()) == sorted(path.name for path in here.iterdir())
+    assert sorted(path.name for path in apart.iterdir()) == ["witness_summary.json"]
+    memos = conform.settle_memo_files(apart, spec, inputs)
+    assert [config for config, _decision, _memo in submissions] == list(tables)
+    for config, decision, memo in submissions:
+        assert decision is tables[config][0]
+        assert memo == dataclasses.replace(memos[config], read_only=True)
 
 
 def _memo_rows(memo, spec) -> set[tuple[str, ...]]:
@@ -183,12 +226,13 @@ def _ask_of(window) -> tuple[str, ...]:
 
 
 def test_the_stage_loads_only_the_windows_its_certificates_can_ask(spec, tables, guard, tmp_path):
-    """The file is seeded the way the conformance sweep seeds it: every mini-alphabet string up to length 2, walked and saved whole, which holds more windows than the certificates ask. The stage serves exactly the rows whose five settlement-independent slots are among its asks, and witnesses every rule. Afterwards the file holds every seeded row plus the windows the stage settled fresh. That shows the part-plus-absorb write drops nothing. It also shows the ask set covers everything the walk asks, because a row the load dropped and the walk then needed would be settled again and counted fresh without adding a row."""
+    """The file is seeded the way the conformance sweep seeds it: every mini-alphabet string up to length 2, walked and saved whole, which holds more windows than the certificates ask. The stage serves exactly the rows whose five settlement-independent slots are among its asks, and witnesses every rule, and afterwards each file holds the bytes it was seeded with. It settles fresh exactly the windows an unrestricted walk over the same file and texts settles, which shows the ask set covers everything the walk asks: a row the load dropped and the walk then needed would be settled again and counted fresh."""
     inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
     memos = conform.settle_memo_files(tmp_path, spec, inputs)
     alphabet = sorted(conform.spec_alphabet(spec))
     texts = ["".join(combo) for length in (1, 2) for combo in itertools.product(alphabet, repeat=length)]
     seeded = {}
+    standing = {}
     for config in CONFIGS:
         features = conform.features_for_config(config)
         seed = conform._SettledWindowWalk(spec, features, {}, guard, memo=memos[config])
@@ -196,6 +240,7 @@ def test_the_stage_loads_only_the_windows_its_certificates_can_ask(spec, tables,
         assert seed.save_memo()
         seeded[config] = _memo_rows(memos[config], spec)
         assert seeded[config] == set(seed.windows)
+        standing[config] = memos[config].path.read_bytes()
     summary = run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs)
     assert summary["pass"]
     for config in CONFIGS:
@@ -208,9 +253,12 @@ def test_the_stage_loads_only_the_windows_its_certificates_can_ask(spec, tables,
         kept = {window for window in seeded[config] if _ask_of(window) in asks}
         assert 0 < len(kept) < len(seeded[config])
         assert record["served_windows"] == len(kept)
-        after = _memo_rows(memos[config], spec)
-        assert after >= seeded[config]
-        assert len(after) == len(seeded[config]) + record["fresh_windows"]
+        unrestricted = conform._SettledWindowWalk(
+            spec, conform.features_for_config(config), {}, guard, memo=memos[config]
+        )
+        unrestricted.walk_many(pile)
+        assert record["fresh_windows"] == unrestricted.fresh_windows
+        assert memos[config].path.read_bytes() == standing[config]
 
 
 def test_a_restricted_walk_settles_a_text_outside_its_asks_fresh_and_alike(spec, guard, tmp_path):
@@ -225,7 +273,7 @@ def test_a_restricted_walk_settles_a_text_outside_its_asks_fresh_and_alike(spec,
     expected = unrestricted.walk(outside)
     assert unrestricted.memo_windows == len(seed.windows) and unrestricted.fresh_windows == 0
     restricted = conform._SettledWindowWalk(
-        spec, frozenset(), {}, guard, memo=dataclasses.replace(memo, returns_fresh=True)
+        spec, frozenset(), {}, guard, memo=dataclasses.replace(memo, read_only=True)
     )
     asks = restricted.load_only_asked_by([inside])
     assert asks and not any(_ask_of(window) in asks for window in seed.windows)
@@ -262,13 +310,15 @@ def test_mini_spec_emitted_rules_all_fold_from_certified_rules(spec, tables, gua
 
 
 def test_a_guard_certificate_settles_under_the_configuration_it_names(spec, tables, guard):
-    """A guard rule's certificate (`witness.GUARD_MARKER`, the configuration the rule's window is live in, then the tokens) is settled under that configuration, with its decision table naming the settled glyphs, and the table's own rules must fire the rule there. Recast as guards from `default`, the default table's certificates still fire their rules, and the report counts them as guards; with no table given for the configuration they name, each one fails."""
+    """A guard rule's certificate (`witness.GUARD_MARKER`, the configuration the rule's window is live in, then the tokens) is settled under that configuration, with its decision table's reachable cells naming the settled glyphs (`witness.guard_sources`, which the witness stage hands its worker in place of the tables), and the table's own rules must fire the rule there. Recast as guards from `default`, the default table's certificates still fire their rules, and the report counts them as guards; with no cells given for the configuration they name, each one fails."""
     decision, _joins = tables["default"]
     recast = dataclasses.replace(
         decision,
         certificates=tuple((witness.GUARD_MARKER, "default", *tokens) for tokens in decision.certificates),
     )
-    report = witness.check_rule_certificates(spec, frozenset(), recast, guard, sources=tables)
+    report = witness.check_rule_certificates(
+        spec, frozenset(), recast, guard, sources=witness.guard_sources(tables)
+    )
     assert report.passed, report.failures
     assert report.guards == len(decision.rules)
     unnamed = witness.check_rule_certificates(spec, frozenset(), recast, guard)
