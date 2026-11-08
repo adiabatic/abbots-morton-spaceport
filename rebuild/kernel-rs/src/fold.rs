@@ -6,7 +6,7 @@
 //!
 //! Expansion order is `table.Window.key` order, reached without a global sort. The product's rows are already in key order, so rows sharing an (input, left, right1, right2) prefix are contiguous, and sorting each such run by its two deep labels leaves the whole vector in key order. The per-run sort is stable, so rows that tie on the full key keep their class-row order.
 //!
-//! A build of several configurations runs the same steps through [`Prepared`]: the expansion, the prospect pass and the row chains once, then the rule fold, again for each input that takes in windows another configuration keeps live ([`crate::crossconfig`]), then the checks and the certificates over the configuration's own rows and the imported ones ([`Prepared::finish`]). An imported row reaches [`crate::rulefold`] through a [`MergedRows`] view beside the own rows; the prospect pass, the join fold, the reachable-cells check, the row chains, the windows and the digest read only the own rows.
+//! A build of several configurations runs the same steps through [`Prepared`]: the expansion, the prospect pass and the row chains once, then the rule fold, again for each input that takes in windows another configuration keeps live ([`crate::crossconfig`]), then the checks and the certificates over the configuration's own rows and the imported ones ([`Prepared::finish`]). Between its first rule fold and the exchange the product waits parked ([`Parked`]): its class rows coded against the previous row in blocks, one joint bit a label-grain row and its row chains as stretches, so that every configuration's product waits compact beside the deltas still enumerating; once every configuration has parked, each reads its product back whole ([`Parked::unpark`]). An imported row reaches [`crate::rulefold`] through a [`MergedRows`] view beside the own rows; the prospect pass, the join fold, the reachable-cells check, the row chains, the windows and the digest read only the own rows.
 //!
 //! The replay that checks the outcome partition also records, for each rule, up to [`crate::certificate::ROW_CAP`] of the replayed rows that first-match it, preferring the rows with the shortest row chains. [`crate::certificate`] completes the chain of one of those rows into a string the rule first-matches at the row's own position. These certificates, one per rule, are written into the windows head beside the rules, and the witness stage settles each one to show that every rule is reachable.
 
@@ -24,7 +24,7 @@ use crate::stream::{
     FixpointProduct, Label, LabelPool, TransitionRow, cell_key, cell_key_repr, key_repr,
     python_repr, python_tuple,
 };
-use crate::types::{AdjustmentToken, CellId, Settled, Side};
+use crate::types::{AdjustmentToken, CellId, NotesId, Settled, SettledId, Side};
 
 type FoldReporter<'a> = dyn FnMut(&str, Duration) + 'a;
 
@@ -133,7 +133,7 @@ pub struct Folded {
 /// The lefts a first-match-wins replay has to cover, per input glyph.
 pub type ReplayLefts = HashMap<Rc<str>, HashSet<Rc<str>>>;
 
-/// One label-grain row: the index (`class_row`) of the class row it expanded from, its two deep labels as ids in the product's label pool, and the joint flag the prospect pass sets. Everything else about the row is read from the class row. A configuration's expansion runs to tens of millions of rows and stays parked through the cross-configuration exchange, so the row holds pool ids, not shared strings, in sixteen bytes.
+/// One label-grain row: the index (`class_row`) of the class row it expanded from, its two deep labels as ids in the product's label pool, and the joint flag the prospect pass sets. Everything else about the row is read from the class row. A configuration's expansion runs to tens of millions of rows and is held through the cross-configuration exchange, so the row holds pool ids, not shared strings, in sixteen bytes.
 pub struct FoldRow {
     pub class_row: u32,
     pub right3: Label,
@@ -709,6 +709,586 @@ impl Prepared {
             },
             replay_lefts,
         })
+    }
+}
+
+/// How many coded bytes a parked block of class rows reaches before it ends at the next near-slot run boundary. The longest run is a few dozen class rows, so a block passes this by little, and its 27-byte index entry costs a few hundredths of a byte a class row.
+const PARKED_BLOCK_BYTES: usize = 4 << 10;
+
+/// The size of the chunks a parked product's coded class rows are held in. Reading the product back frees each chunk once its bytes are decoded.
+const PARKED_CHUNK_BYTES: usize = 1 << 20;
+
+impl Prepared {
+    /// The product as it waits parked for the cross-configuration exchange ([`Parked`]): the class rows coded in blocks, one joint bit a label-grain row, and the row chains as stretches ([`certificate::ParkedChains`]), each vector dropped once it is coded. An id, a dictionary index or a chain length past what its code holds is refused, naming the field.
+    pub fn park(self) -> Result<Parked, String> {
+        self.park_in(PARKED_BLOCK_BYTES, PARKED_CHUNK_BYTES)
+    }
+
+    fn park_in(self, block_bytes: usize, chunk_bytes: usize) -> Result<Parked, String> {
+        let Self {
+            mut product,
+            fold_rows,
+            runs,
+            chains,
+        } = self;
+        let transitions = std::mem::take(&mut product.transitions);
+        let rows = ParkedRows::code(&transitions, &product, &fold_rows, block_bytes, chunk_bytes)?;
+        drop(transitions);
+        let joints = JointBits::of(&fold_rows);
+        drop(fold_rows);
+        let chains = chains.park()?;
+        Ok(Parked {
+            product,
+            runs,
+            rows,
+            joints,
+            chains,
+        })
+    }
+}
+
+/// A [`Prepared`] product parked between its first rule fold and the rendezvous before the cross-configuration exchange, inside its slot, so that every configuration's product waits compact beside the deltas still enumerating. Its class rows, its label-grain expansion and its row chains are coded ([`ParkedRows`], [`JointBits`], [`certificate::ParkedChains`]); the rest of the product stays as it is: its label pool, whose texts are `Rc`s, its outcome, settled and provenance tables, its deep classes and cells, and each input's run of the expansion. [`Parked::unpark`] reads it back whole.
+pub struct Parked {
+    product: FixpointProduct,
+    runs: Vec<(usize, usize)>,
+    rows: ParkedRows,
+    joints: JointBits,
+    chains: certificate::ParkedChains,
+}
+
+impl Parked {
+    /// The product read back whole: the class rows from their blocks, freeing each chunk once its bytes are decoded, the expansion by [`expand`] with each row's joint flag from its bit, and the row chains from their stretches. The expansion interns no label, since every deep class's members were interned when the product was prepared, and each block's first label-grain row is where the expansion of its first class row starts.
+    pub fn unpark(self) -> Prepared {
+        let Self {
+            mut product,
+            runs,
+            rows,
+            joints,
+            chains,
+        } = self;
+        let (transitions, starts) = rows.decode(&product.labels);
+        product.transitions = transitions;
+        let labels = product.labels.len();
+        let mut fold_rows = expand(&mut product);
+        assert_eq!(
+            product.labels.len(),
+            labels,
+            "reading a parked product back interns no label"
+        );
+        joints.apply(&mut fold_rows);
+        for [class_row, fold_row] in starts {
+            assert_eq!(
+                fold_rows.partition_point(|row| (row.class_row as usize) < class_row),
+                fold_row,
+                "a parked block's first label-grain row is where its first class row's expansion starts"
+            );
+        }
+        Prepared {
+            product,
+            fold_rows,
+            runs,
+            chains: chains.unpark(),
+        }
+    }
+
+    /// The bytes the coded forms hold: the class rows' chunks, block index and pairs dictionary, the joint bits and the chain stretches.
+    pub fn bytes(&self) -> usize {
+        self.rows.bytes() + self.joints.bytes() + self.chains.bytes()
+    }
+
+    pub fn class_rows(&self) -> usize {
+        self.rows.rows
+    }
+
+    pub fn fold_rows(&self) -> usize {
+        self.joints.rows
+    }
+
+    pub fn stretches(&self) -> usize {
+        self.chains.len()
+    }
+}
+
+/// The label-grain rows' joint flags, one bit a row in row order.
+struct JointBits {
+    words: Vec<u64>,
+    rows: usize,
+}
+
+impl JointBits {
+    fn of(fold_rows: &[FoldRow]) -> Self {
+        let mut words = vec![0u64; fold_rows.len().div_ceil(64)];
+        for (at, row) in fold_rows.iter().enumerate() {
+            words[at / 64] |= u64::from(row.joint) << (at % 64);
+        }
+        Self {
+            words,
+            rows: fold_rows.len(),
+        }
+    }
+
+    fn apply(self, fold_rows: &mut [FoldRow]) {
+        assert_eq!(
+            fold_rows.len(),
+            self.rows,
+            "the expansion read back has as many rows as the joint bits"
+        );
+        for (at, row) in fold_rows.iter_mut().enumerate() {
+            row.joint = self.words[at / 64] >> (at % 64) & 1 == 1;
+        }
+    }
+
+    fn bytes(&self) -> usize {
+        self.words.capacity() * size_of::<u64>()
+    }
+}
+
+/// The low three bits of a parked class row's header byte, which hold the depth of its first label that differs from the previous row's. The five bits above them are the header's flags, which [`ParkedRows`] describes in this order.
+const DEPTH_BITS: u8 = 0b111;
+const OUTCOME_CHANGED: u8 = 1 << 3;
+const PROVENANCE_CHANGED: u8 = 1 << 4;
+const PROSPECT: u8 = 1 << 5;
+const JOINT: u8 = 1 << 6;
+const SETTLED_UNIMPLIED: u8 = 1 << 7;
+
+/// The fields a parked class row codes its six labels as, which a refusal names.
+const LABEL_FIELDS: [&str; 6] = [
+    "input_glyph",
+    "left",
+    "right1",
+    "right2",
+    "right3",
+    "right4",
+];
+
+/// How many bytes a class row takes in full: its six labels, its settled record, its left_settled and its provenance as two-byte ids, and its prospect and joint flag in one byte.
+const FULL_ROW_BYTES: usize = 19;
+
+/// One parked block's index entry, 27 bytes with no padding: its first class row in full, its byte offset in the coded bytes, and the index of its first label-grain row.
+struct BlockEntry {
+    first: [u8; FULL_ROW_BYTES],
+    offset: [u8; 4],
+    fold_row: [u8; 4],
+}
+
+/// A product's class rows as they wait parked ([`Parked`]), coded against the previous row in key order, in blocks that end at near-slot run boundaries, and held in chunks.
+///
+/// A row's code starts with a header byte. Its low three bits hold the depth of the first label that differs from the previous row's (six when none does); then come one bit each for an outcome that differs, a provenance that differs, the prospect and the joint flag, and a last bit for a settled record or a left_settled that differs where the labels do not say so. The labels from that depth follow: the input, the left and right1 as two-byte ids; right2 as a two-byte id when an earlier label differs and otherwise as a varint of how far its rank rose, one byte for nearly every row; right3 and right4 as their index into a dictionary of the pairs the product holds, one byte for each of the first 255 pairs and, past them, the byte 255 followed by the index in two bytes. Then come the settled record's id when the outcome bit or the last bit is set, the left_settled's id (zero for none) when the input or the left differs or the last bit is set, and the provenance's id when its bit is set. Every field that is not written is the previous row's, so no field is inferred from another. A label, provenance or pair id is its index and a settled record's is its index plus one, and an id past what two bytes hold is refused, naming the field.
+///
+/// Each block's index entry ([`BlockEntry`]) holds its first row in full, so a block decodes alone, and its first label-grain row starts a near-slot run, since the expansion sorts each run on its own.
+struct ParkedRows {
+    chunks: Vec<Vec<u8>>,
+    coded: usize,
+    blocks: Vec<BlockEntry>,
+    pairs: Vec<[Label; 2]>,
+    rows: usize,
+}
+
+impl ParkedRows {
+    fn code(
+        rows: &[TransitionRow],
+        product: &FixpointProduct,
+        fold_rows: &[FoldRow],
+        block_bytes: usize,
+        chunk_bytes: usize,
+    ) -> Result<Self, String> {
+        let ranks = product.labels.ranks();
+        let mut out = ChunkWriter {
+            chunks: Vec::new(),
+            chunk_bytes,
+            written: 0,
+        };
+        let mut blocks: Vec<BlockEntry> = Vec::new();
+        let mut pairs = PairDictionary::default();
+        let mut block_start = 0;
+        for (at, row) in rows.iter().enumerate() {
+            let opens_block = at.checked_sub(1).is_none_or(|before| {
+                near_slots(&rows[before]) != near_slots(row)
+                    && out.written - block_start >= block_bytes
+            });
+            if !opens_block {
+                code_row(&mut out, &rows[at - 1], row, product, &ranks, &mut pairs)?;
+                continue;
+            }
+            block_start = out.written;
+            let fold_row = fold_rows.partition_point(|fold| (fold.class_row as usize) < at);
+            blocks.push(BlockEntry {
+                first: full_row(row)?,
+                offset: block_field(out.written, "offset")?,
+                fold_row: block_field(fold_row, "first label-grain row")?,
+            });
+        }
+        if let Some(last) = out.chunks.last_mut() {
+            last.shrink_to_fit();
+        }
+        blocks.shrink_to_fit();
+        Ok(Self {
+            chunks: out.chunks,
+            coded: out.written,
+            blocks,
+            pairs: pairs.pairs,
+            rows: rows.len(),
+        })
+    }
+
+    /// The class rows in key order, with each block's first class row and first label-grain row.
+    fn decode(self, labels: &LabelPool) -> (Vec<TransitionRow>, Vec<[usize; 2]>) {
+        let Self {
+            chunks,
+            coded,
+            blocks,
+            pairs,
+            rows: count,
+        } = self;
+        let ranks = labels.ranks();
+        let mut by_rank: Vec<Label> = vec![Label(0); ranks.len()];
+        for (id, &rank) in ranks.iter().enumerate() {
+            by_rank[rank as usize] = Label(id as u32);
+        }
+        let mut input = ChunkReader {
+            chunks: chunks.into_iter(),
+            current: Vec::new(),
+            at: 0,
+            read: 0,
+        };
+        let mut rows: Vec<TransitionRow> = Vec::with_capacity(count);
+        let mut starts: Vec<[usize; 2]> = Vec::with_capacity(blocks.len());
+        for (at, block) in blocks.iter().enumerate() {
+            let end = blocks
+                .get(at + 1)
+                .map_or(coded, |next| u32::from_le_bytes(next.offset) as usize);
+            starts.push([rows.len(), u32::from_le_bytes(block.fold_row) as usize]);
+            let mut row = row_in_full(&block.first);
+            while input.read < end {
+                let next = decode_row(&mut input, &row, &ranks, &by_rank, &pairs);
+                rows.push(std::mem::replace(&mut row, next));
+            }
+            rows.push(row);
+        }
+        assert_eq!(
+            rows.len(),
+            count,
+            "a parked product reads back every class row"
+        );
+        (rows, starts)
+    }
+
+    fn bytes(&self) -> usize {
+        self.chunks.iter().map(Vec::capacity).sum::<usize>()
+            + self.chunks.capacity() * size_of::<Vec<u8>>()
+            + self.blocks.capacity() * size_of::<BlockEntry>()
+            + self.pairs.capacity() * size_of::<[Label; 2]>()
+    }
+}
+
+/// The byte that stands in a parked row's code for a right3 and right4 pair past the dictionary's first 255, followed by the pair's two-byte index.
+const PAIR_ESCAPE: u8 = u8::MAX;
+
+/// The right3 and right4 pairs a parked product's rows name, each at the index it was first given.
+#[derive(Default)]
+struct PairDictionary {
+    ids: HashMap<[Label; 2], u16>,
+    pairs: Vec<[Label; 2]>,
+}
+
+impl PairDictionary {
+    fn id(&mut self, pair: [Label; 2]) -> Result<u16, String> {
+        if let Some(&id) = self.ids.get(&pair) {
+            return Ok(id);
+        }
+        let id = short_id(self.pairs.len(), "right3 and right4 pair")?;
+        self.ids.insert(pair, id);
+        self.pairs.push(pair);
+        Ok(id)
+    }
+}
+
+/// Writes the coded bytes into chunks of `chunk_bytes`, starting a chunk when the last one is full.
+struct ChunkWriter {
+    chunks: Vec<Vec<u8>>,
+    chunk_bytes: usize,
+    written: usize,
+}
+
+impl ChunkWriter {
+    fn byte(&mut self, byte: u8) {
+        match self.chunks.last_mut() {
+            Some(chunk) if chunk.len() < self.chunk_bytes => chunk.push(byte),
+            _ => {
+                let mut chunk = Vec::with_capacity(self.chunk_bytes);
+                chunk.push(byte);
+                self.chunks.push(chunk);
+            }
+        }
+        self.written += 1;
+    }
+
+    fn short(&mut self, code: u16) {
+        for byte in code.to_le_bytes() {
+            self.byte(byte);
+        }
+    }
+
+    fn varint(&mut self, mut value: u32) {
+        while value >= 0x80 {
+            self.byte((value & 0x7f) as u8 | 0x80);
+            value >>= 7;
+        }
+        self.byte(value as u8);
+    }
+
+    fn pair(&mut self, id: u16) {
+        match u8::try_from(id) {
+            Ok(byte) if byte != PAIR_ESCAPE => self.byte(byte),
+            _ => {
+                self.byte(PAIR_ESCAPE);
+                self.short(id);
+            }
+        }
+    }
+}
+
+/// Reads the coded bytes back in order, dropping each chunk once the next one is needed.
+struct ChunkReader {
+    chunks: std::vec::IntoIter<Vec<u8>>,
+    current: Vec<u8>,
+    at: usize,
+    read: usize,
+}
+
+impl ChunkReader {
+    fn byte(&mut self) -> u8 {
+        if self.at == self.current.len() {
+            self.current = self
+                .chunks
+                .next()
+                .expect("a parked row's code ends inside the coded bytes");
+            self.at = 0;
+        }
+        let byte = self.current[self.at];
+        self.at += 1;
+        self.read += 1;
+        byte
+    }
+
+    fn short(&mut self) -> u16 {
+        u16::from_le_bytes([self.byte(), self.byte()])
+    }
+
+    fn pair(&mut self) -> usize {
+        match self.byte() {
+            PAIR_ESCAPE => usize::from(self.short()),
+            byte => usize::from(byte),
+        }
+    }
+
+    fn varint(&mut self) -> u32 {
+        let mut value = 0u32;
+        let mut shift = 0;
+        loop {
+            let byte = self.byte();
+            value |= u32::from(byte & 0x7f) << shift;
+            if byte & 0x80 == 0 {
+                return value;
+            }
+            shift += 7;
+        }
+    }
+}
+
+/// A block index entry's four-byte field, or the refusal naming the field whose value is past what four bytes hold.
+fn block_field(value: usize, field: &str) -> Result<[u8; 4], String> {
+    u32::try_from(value)
+        .map(u32::to_le_bytes)
+        .map_err(|_| format!("a parked block's {field} {value} is past what four bytes hold"))
+}
+
+/// An id's two-byte code, or the refusal naming the field whose id is past what two bytes hold.
+fn short_id(id: usize, field: &str) -> Result<u16, String> {
+    u16::try_from(id).map_err(|_| {
+        format!("a parked class row's {field} id {id} is past the 65,535 two bytes hold")
+    })
+}
+
+fn label_code(label: Label, field: &str) -> Result<u16, String> {
+    short_id(label.0 as usize, field)
+}
+
+fn settled_code(id: SettledId, field: &str) -> Result<u16, String> {
+    short_id(id.index() + 1, field)
+}
+
+fn left_settled_code(id: Option<SettledId>) -> Result<u16, String> {
+    id.map_or(Ok(0), |id| settled_code(id, "left_settled"))
+}
+
+fn settled_of(code: u16) -> SettledId {
+    SettledId::at(usize::from(code) - 1)
+}
+
+fn left_settled_of(code: u16) -> Option<SettledId> {
+    (code != 0).then(|| settled_of(code))
+}
+
+/// The prospect's bit: a prospect is a junction count, zero or one, and any other value is refused.
+fn prospect_bit(prospect: i8) -> Result<u8, String> {
+    match prospect {
+        0 => Ok(0),
+        1 => Ok(PROSPECT),
+        other => Err(format!(
+            "a parked class row's prospect {other} is neither zero nor one"
+        )),
+    }
+}
+
+fn full_row(row: &TransitionRow) -> Result<[u8; FULL_ROW_BYTES], String> {
+    let mut codes = [0u16; 9];
+    for (slot, label) in row.labels().into_iter().enumerate() {
+        codes[slot] = label_code(label, LABEL_FIELDS[slot])?;
+    }
+    codes[6] = settled_code(row.settled, "settled")?;
+    codes[7] = left_settled_code(row.left_settled)?;
+    codes[8] = short_id(row.provenance.index(), "provenance")?;
+    let mut full = [0u8; FULL_ROW_BYTES];
+    for (at, code) in codes.into_iter().enumerate() {
+        full[2 * at..2 * at + 2].copy_from_slice(&code.to_le_bytes());
+    }
+    full[FULL_ROW_BYTES - 1] = prospect_bit(row.prospect)? | if row.joint { JOINT } else { 0 };
+    Ok(full)
+}
+
+fn row_in_full(full: &[u8; FULL_ROW_BYTES]) -> TransitionRow {
+    let code = |at: usize| u16::from_le_bytes([full[2 * at], full[2 * at + 1]]);
+    let label = |at: usize| Label(u32::from(code(at)));
+    let flags = full[FULL_ROW_BYTES - 1];
+    TransitionRow {
+        input_glyph: label(0),
+        left: label(1),
+        right1: label(2),
+        right2: label(3),
+        right3: label(4),
+        right4: label(5),
+        settled: settled_of(code(6)),
+        left_settled: left_settled_of(code(7)),
+        provenance: NotesId::at(usize::from(code(8))),
+        prospect: i8::from(flags & PROSPECT != 0),
+        joint: flags & JOINT != 0,
+    }
+}
+
+/// Codes `row` against `before`, the row ahead of it in its block, as [`ParkedRows`] describes.
+fn code_row(
+    out: &mut ChunkWriter,
+    before: &TransitionRow,
+    row: &TransitionRow,
+    product: &FixpointProduct,
+    ranks: &[u32],
+    pairs: &mut PairDictionary,
+) -> Result<(), String> {
+    let labels = row.labels();
+    let depth = labels
+        .iter()
+        .zip(before.labels())
+        .position(|(label, earlier)| *label != earlier)
+        .unwrap_or(labels.len());
+    let outcome_changed =
+        product.outcomes[row.settled.index()] != product.outcomes[before.settled.index()];
+    let left_written = depth <= 1;
+    let unimplied = (row.settled != before.settled && !outcome_changed)
+        || (row.left_settled != before.left_settled && !left_written);
+    let provenance_changed = row.provenance != before.provenance;
+    let mut header = depth as u8 | prospect_bit(row.prospect)?;
+    for (set, bit) in [
+        (outcome_changed, OUTCOME_CHANGED),
+        (provenance_changed, PROVENANCE_CHANGED),
+        (row.joint, JOINT),
+        (unimplied, SETTLED_UNIMPLIED),
+    ] {
+        if set {
+            header |= bit;
+        }
+    }
+    out.byte(header);
+    for (slot, label) in labels.iter().enumerate().take(3).skip(depth) {
+        out.short(label_code(*label, LABEL_FIELDS[slot])?);
+    }
+    match depth {
+        0..=2 => out.short(label_code(row.right2, LABEL_FIELDS[3])?),
+        3 => out.varint(
+            ranks[row.right2.0 as usize]
+                .checked_sub(ranks[before.right2.0 as usize])
+                .expect(
+                    "the product's rows are in key order, so right2's rank rises inside a base",
+                ),
+        ),
+        _ => {}
+    }
+    if depth <= 5 {
+        out.pair(pairs.id([row.right3, row.right4])?);
+    }
+    if outcome_changed || unimplied {
+        out.short(settled_code(row.settled, "settled")?);
+    }
+    if left_written || unimplied {
+        out.short(left_settled_code(row.left_settled)?);
+    }
+    if provenance_changed {
+        out.short(short_id(row.provenance.index(), "provenance")?);
+    }
+    Ok(())
+}
+
+/// Reads back the row [`code_row`] coded against `before`.
+fn decode_row(
+    input: &mut ChunkReader,
+    before: &TransitionRow,
+    ranks: &[u32],
+    by_rank: &[Label],
+    pairs: &[[Label; 2]],
+) -> TransitionRow {
+    let header = input.byte();
+    let depth = usize::from(header & DEPTH_BITS);
+    let mut labels = before.labels();
+    for label in labels.iter_mut().take(3).skip(depth) {
+        *label = Label(u32::from(input.short()));
+    }
+    match depth {
+        0..=2 => labels[3] = Label(u32::from(input.short())),
+        3 => labels[3] = by_rank[(ranks[before.right2.0 as usize] + input.varint()) as usize],
+        _ => {}
+    }
+    if depth <= 5 {
+        [labels[4], labels[5]] = pairs[input.pair()];
+    }
+    let unimplied = header & SETTLED_UNIMPLIED != 0;
+    let settled = if header & OUTCOME_CHANGED != 0 || unimplied {
+        settled_of(input.short())
+    } else {
+        before.settled
+    };
+    let left_settled = if depth <= 1 || unimplied {
+        left_settled_of(input.short())
+    } else {
+        before.left_settled
+    };
+    let provenance = if header & PROVENANCE_CHANGED != 0 {
+        NotesId::at(usize::from(input.short()))
+    } else {
+        before.provenance
+    };
+    let [input_glyph, left, right1, right2, right3, right4] = labels;
+    TransitionRow {
+        input_glyph,
+        left,
+        right1,
+        right2,
+        right3,
+        right4,
+        settled,
+        left_settled,
+        provenance,
+        prospect: i8::from(header & PROSPECT != 0),
+        joint: header & JOINT != 0,
     }
 }
 
@@ -2374,6 +2954,144 @@ mod tests {
             error,
             "the product's rows are not in key order: ('qsIt', '#EDGE', 'qsTea', '#NA', '#NA', '#NA') follows ('qsIt', 'qsMay.x', 'qsTea', '#NA', '#NA', '#NA')"
         );
+    }
+
+    /// Parking a prepared product and reading it back gives the class rows, the label-grain rows with their joint flags, and the row chains it parked, field for field. The products are every one the mini fixture enumerates, under no feature and under `ss03`, at class grain and at label grain, and a bench product that takes every path of a row's code the fixture does not: a first changed label at right3, at right4 and at none, a right2 whose rank rises past what one varint byte holds, a settled record and a left_settled that change where the labels do not say so, and a deep-class row whose label-grain rows' joint flags differ from its own, and a second bench product whose rows name 300 right3 and right4 pairs, past the 255 a pair's one-byte index holds. Each is parked in blocks of the shipped size and in blocks of a few rows held in chunks of seven bytes, so that blocks start mid-chunk and codes cross chunks.
+    #[test]
+    fn a_parked_product_reads_back_the_rows_and_chains_it_parked() {
+        let index = fixtures::mini();
+        let label_grain = EnumerationModes {
+            deep_classes: false,
+            ..DEFAULT_MODES
+        };
+        let mut products: Vec<FixpointProduct> = Vec::new();
+        for modes in [DEFAULT_MODES, label_grain] {
+            for features in [Vec::new(), vec![fixtures::sym(&index, "ss03")]] {
+                products.push(
+                    enumerate_transitions(&index, &features, modes)
+                        .expect("the fixture's fixpoint closes and settles"),
+                );
+            }
+        }
+        let bench = Bench::new();
+        for filler in 0..200 {
+            bench.labels.borrow_mut().intern(&format!("Da{filler:03}"));
+        }
+        let class = deep_class_id(&["D".to_owned(), "E".to_owned()]);
+        let mut coded = bench.product(
+            vec![
+                bench.row(
+                    ["qsIt", "#EDGE", "qsMay", "C", &class, "#NA", "qsIt.x"],
+                    1,
+                    true,
+                ),
+                bench.row(
+                    ["qsIt", "#EDGE", "qsMay", "C", "F", "G", "qsIt.x"],
+                    0,
+                    false,
+                ),
+                bench.row(
+                    ["qsIt", "#EDGE", "qsMay", "C", "F", "H", "qsIt.x"],
+                    0,
+                    false,
+                ),
+                bench.row(
+                    ["qsIt", "#EDGE", "qsMay", "C", "F", "H", "qsIt.y"],
+                    0,
+                    false,
+                ),
+                bench.row(
+                    ["qsMay", "qsIt.x", "C", "D", "#NA", "#NA", "qsMay.y"],
+                    0,
+                    true,
+                ),
+                bench.row(
+                    ["qsMay", "qsIt.x", "C", "E", "#NA", "#NA", "qsMay.y"],
+                    0,
+                    false,
+                ),
+                bench.joined(
+                    ["qsMay", "qsMay.y", "C", "#NA", "#NA", "#NA", "qsMay.z"],
+                    bench.cell.clone(),
+                    0,
+                ),
+                bench.joined(
+                    ["qsMay", "qsMay.y", "D", "#NA", "#NA", "#NA", "qsMay.z"],
+                    bench.cell.clone(),
+                    1,
+                ),
+            ],
+            vec![(class, vec!["D".to_owned(), "E".to_owned()])],
+        );
+        coded.notes.push(vec!["note".to_owned()]);
+        coded.transitions[1].provenance = NotesId::at(1);
+        products.push(coded);
+        let paired = Bench::new();
+        let rows: Vec<TransitionRow> = (0..300)
+            .map(|member| {
+                let right2 = if member < 150 { "C" } else { "D" };
+                let right3 = format!("D{member:03}");
+                paired.row(
+                    ["qsIt", "#EDGE", "qsMay", right2, &right3, "#NA", "qsIt.x"],
+                    0,
+                    false,
+                )
+            })
+            .collect();
+        products.push(paired.product(rows, Vec::new()));
+        let fold_fields = |rows: &[FoldRow]| -> Vec<(u32, Label, Label, bool)> {
+            rows.iter()
+                .map(|row| (row.class_row, row.right3, row.right4, row.joint))
+                .collect()
+        };
+        let mut most_pairs = 0;
+        for product in products {
+            for (block_bytes, chunk_bytes) in [(PARKED_BLOCK_BYTES, PARKED_CHUNK_BYTES), (16, 7)] {
+                let expected = Prepared::new(product.clone(), None).expect("the product prepares");
+                let parked = Prepared::new(product.clone(), None)
+                    .expect("the product prepares")
+                    .park_in(block_bytes, chunk_bytes)
+                    .expect("the product parks");
+                if chunk_bytes == 7 {
+                    assert!(parked.rows.blocks.len() > 1 && parked.rows.chunks.len() > 1);
+                }
+                most_pairs = most_pairs.max(parked.rows.pairs.len());
+                let read_back = parked.unpark();
+                assert_eq!(read_back.product, expected.product);
+                assert_eq!(read_back.product.transitions, expected.product.transitions);
+                assert_eq!(
+                    fold_fields(&read_back.fold_rows),
+                    fold_fields(&expected.fold_rows)
+                );
+                certificate::assert_same_chains(&expected.chains, &read_back.chains);
+            }
+        }
+        assert!(
+            most_pairs > usize::from(PAIR_ESCAPE),
+            "a product's pairs pass the dictionary's one-byte indexes"
+        );
+    }
+
+    /// A product whose label ids pass what two bytes hold is refused when it parks, naming the field, instead of parking a code that wrapped.
+    #[test]
+    fn a_product_past_what_a_parked_row_codes_is_refused_naming_the_field() {
+        let bench = Bench::new();
+        for filler in 0..=u16::MAX {
+            bench.labels.borrow_mut().intern(&format!("filler{filler}"));
+        }
+        let row = bench.row(
+            ["qsIt", "#EDGE", "#EDGE", "#NA", "#NA", "#NA", "qsIt.x"],
+            0,
+            false,
+        );
+        let product = bench.product(vec![row], Vec::new());
+        let Err(refused) = Prepared::new(product, None)
+            .expect("the product prepares")
+            .park()
+        else {
+            panic!("a label id past 65,535 is refused");
+        };
+        assert!(refused.contains("input_glyph id 65536"), "{refused}");
     }
 
     /// The fold reads `is_entry_bearing` off the input's rune, and a name the spec models no rune for has no such rune. The fold returns an error instead of treating the input as never locked and emitting ZWNJ guards for it. A name the spec interned as something other than a rune, such as a stance, gets the same error as an unknown name.

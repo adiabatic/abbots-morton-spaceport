@@ -44,7 +44,7 @@ from rebuild.test_verdict_update import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 1.4 GB, six parked fold products at PARKED_FOLD_BYTES (1.2 GB), DELTA_SLOT_BYTES at 0.4 GB and FOLD_PREPARATION_BYTES at 0.4 GB, the whole wave is booked at 11.0 GB, so 20 GB, which leaves 12.0 GB after `memory_budget`'s reserve, fits the whole wave alone and five deltas beside an eight-core machine's pytest pool, 21 GB, which leaves 13.0 GB, fits four beside a stated nine-worker pool, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
+# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 1.4 GB, six parked fold products at PARKED_FOLD_BYTES (0.2 GB), DELTA_SLOT_BYTES at 1.4 GB and FOLD_PREPARATION_BYTES at 1.4 GB, the whole wave is booked at 11.0 GB, above the rendezvous's 9.0 GB at READ_BACK_FOLD_BYTES (1.5 GB) a configuration, so 20 GB, which leaves 12.0 GB after `memory_budget`'s reserve, fits the whole wave alone and five deltas beside an eight-core machine's pytest pool, 21 GB, which leaves 13.0 GB, fits five beside a stated nine-worker pool where the twelve-core pool leaves it the whole wave, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
 MACHINE_44_GB = 44_000_000_000
 MACHINE_21_GB = 21_000_000_000
 MACHINE_20_GB = 20_000_000_000
@@ -3102,7 +3102,7 @@ def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
     """The make-test child inherits this process's environment, so a width already set in PYTEST_XDIST_AUTO_NUM_WORKERS is the width its pool takes. The cycle reserves memory for that width, so the memory set aside for the pool matches the pool that runs."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
     assert ac.make_test_pool_width(ncores=1) == 9
-    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_21_GB) == 4
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_21_GB) == 5
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "64")
     assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_21_GB) == 1
 

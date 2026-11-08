@@ -1045,7 +1045,7 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help=(
             "how many worker slots the kernel's table build runs at once beside default's memo, each holding a delta configuration or default's fold preparation, capped at the configuration count and the cores this process may actually run on; the ceiling is memory rather than CPU, so the default is derived from this machine rather than checked in — on this one "
-            f"{kernel_exec.describe_kernel_threads(configs=len(conform.SETTLEMENT_CONFIGS))}, the booking being default's retained memo, every configuration's parked fold product, what each delta in flight adds beyond its own, and default's fold preparation in a slot of its own once every delta has one — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn; the string replay after the build has its own width, --replay-threads"
+            f"{kernel_exec.describe_kernel_threads(configs=len(conform.SETTLEMENT_CONFIGS))}, the booking being default's retained memo, every configuration's parked fold product, what each delta in flight adds beyond its own, and default's fold preparation in a slot of its own once every delta has one, and no less than every configuration's product read back at the rendezvous — which AMS_KERNEL_THREADS short-circuits and this flag beats in turn; the string replay after the build has its own width, --replay-threads"
         ),
     )
     parser.add_argument(

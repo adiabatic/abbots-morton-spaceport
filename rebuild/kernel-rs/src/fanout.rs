@@ -93,11 +93,12 @@ fn fold_timing_line(label: &str, elapsed: Duration) -> String {
     format!("[t] {label} {:.3}s", elapsed.as_secs_f64())
 }
 
-/// What a run writes to stderr besides its output: phase timings and the `--cache-stats` lines. Both are off by default. A run with neither writes nothing to stderr on a clean exit. `_forward_stderr` in rebuild/pipeline/kernel_exec.py relies on this: when timings were not requested, it fails on any stderr after a clean exit.
+/// What a run writes to stderr besides its output: phase timings and the `--cache-stats` lines. Both are off by default. A run with neither writes nothing to stderr on a clean exit. `_forward_stderr` in rebuild/pipeline/kernel_exec.py relies on this: when timings were not requested, it fails on any stderr after a clean exit. `heap` says whether a table build's cache stats include its two heap readings (`parked_heap` and `read_back_heap`, [`table_thread`]), each a run of `/usr/bin/heap` that takes a few tenths of a second; `--cache-stats` sets it with the rest.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub timings: bool,
     pub cache_stats: bool,
+    pub heap: bool,
 }
 
 impl Report {
@@ -106,6 +107,7 @@ impl Report {
         Self {
             timings,
             cache_stats: false,
+            heap: false,
         }
     }
 
@@ -340,8 +342,8 @@ const EXCHANGE_ROUNDS: usize = 64;
 ///
 /// Every configuration runs on a thread of its own from its enumeration to its files, because its product and window options hold `Rc`s and cannot cross threads (`EnumeratedTables`). The threads meet on a `Board`, which grants `workers` slots in ticket order and holds the rendezvous of the exchange:
 ///
-/// - Each configuration enumerates, then prepares its fold ([`fold::Prepared`]), folds its rules from its own rows, and publishes them in canonical labels ([`crossconfig::SharedRules`]), all inside one slot.
-/// - Once every configuration has published, the exchange runs in rounds ([`crossconfig`]). In each, every configuration evaluates every configuration's rules over its own rows, for the inputs any configuration refolded in the last round, and leaves each other configuration the rows that configuration answers wrongly where the shipped order lets that answer fire, and the rows one of the evaluator's own rules answers where that configuration publishes the rule's key with another outcome, wherever that configuration's own rule ships ([`crossconfig::exports`]); then every configuration takes in what it was left, refolds the inputs that gained rows, and publishes again. The rounds end when no configuration took in anything, and a configuration fails if another still publishes one of its rule keys with another outcome ([`crossconfig::one_outcome_per_key`]), which the emitter refuses. The exchange holds no slot: what a configuration holds through it is its parked product, expansion and row chains, and the evaluation adds little.
+/// - Each configuration enumerates, then prepares its fold ([`fold::Prepared`]), folds its rules from its own rows, publishes them in canonical labels ([`crossconfig::SharedRules`]), and parks its prepared product ([`fold::Parked`]), all inside one slot, so that every product waits compact beside the deltas still enumerating.
+/// - Once every configuration has published and parked, each reads its product back whole ([`fold::Parked::unpark`]), and the exchange runs in rounds ([`crossconfig`]). In each, every configuration evaluates every configuration's rules over its own rows, for the inputs any configuration refolded in the last round, and leaves each other configuration the rows that configuration answers wrongly where the shipped order lets that answer fire, and the rows one of the evaluator's own rules answers where that configuration publishes the rule's key with another outcome, wherever that configuration's own rule ships ([`crossconfig::exports`]); then every configuration takes in what it was left, refolds the inputs that gained rows, and publishes again. The rounds end when no configuration took in anything, and a configuration fails if another still publishes one of its rule keys with another outcome ([`crossconfig::one_outcome_per_key`]), which the emitter refuses. The exchange holds no slot: what a configuration holds through it is its product read back, expansion and row chains included, and the evaluation adds little.
 /// - Each configuration then finishes its fold inside a slot: the partition replay over its own and its imported rows, the certificates, the three artifact files, and the digest.
 ///
 /// When `default_memo_sharing` is on and the set has the no-feature configuration and at least one other, `default` enumerates on the calling thread, taking no slot. Beside it, the head of [`delta_worklist`] that [`scratch_tiers`] takes from at most `scratch_beside_default` entries, capped at one less than `workers`, enumerates from scratch on threads of their own from the start, each taking a slot in that order; with none of them, `default` enumerates alone. `default` keeps its memo only while a delta is left to read it ([`default_access`]). The calling thread then continues as `default`'s thread, whose preparation takes the next slot, while each remaining delta takes a slot in [`delta_worklist`] order and reads `default`'s memo behind an exclusion of its own unlocking runes; `default`'s memo is freed when the last delta has enumerated. A failure or a panic in `default`'s enumeration halts the board, so the configurations enumerating beside it stop at their next turn. When `default_memo_sharing` is off, or the set has no `default` or nothing beside it, there is no in-process memo to share, and every configuration enumerates from scratch, reading no memo and keeping none, and takes its slot in list order.
@@ -706,7 +708,7 @@ fn settle_ends(
     }
 }
 
-/// One configuration's table build on its own thread, from its enumeration to its files, as [`run_configs_tables`] describes. `enumerate` runs inside the slot `ticket` is due. When asked, the timing lines are the enumeration's `enumerate[<config>]` after the cache stats' `[c]` lines, then `fold.prefixes[<config>]`, then, with the cache stats, `[c] <config> resident_parked`, the process's resident size once every configuration has parked its prepared product and before the exchange's first round, and on the first-listed configuration's thread `[c] <config> parked_heap`, the bytes the process's malloc zones hold allocated at that point ([`crate::fixpoint::heap_bytes`]), which every other thread waits for before the exchange starts and which `kernel_exec.PARKED_FOLD_BYTES` is set from, then `fold.exchange[<config>]` (the time this configuration spent evaluating, taking in and refolding, without the waits), and `fold.partition[<config>]` at millisecond precision, then `fold[<config>]`, which covers the preparation and the finish.
+/// One configuration's table build on its own thread, from its enumeration to its files, as [`run_configs_tables`] describes. `enumerate` runs inside the slot `ticket` is due. When asked, the timing lines are the enumeration's `enumerate[<config>]` after the cache stats' `[c]` lines, then `fold.prefixes[<config>]`, then, with the cache stats, `[c] <config> parked bytes= class_rows= fold_rows= stretches=`, the bytes its parked product's coded forms hold ([`fold::Parked::bytes`]) and how many class rows, label-grain rows and chain stretches they code, then `[c] <config> resident_parked`, the process's resident size once every configuration has parked its prepared product and before any reads it back, and, with the report's heap readings ([`Report`]), on the first-listed configuration's thread `[c] <config> parked_heap`, the bytes the process's malloc zones hold allocated at that point ([`crate::fixpoint::heap_bytes`]), which every other thread waits for before it reads its product back and which `kernel_exec.PARKED_FOLD_BYTES` is set from, and `[c] <config> read_back_heap`, the same once every configuration has read its product back, which every other thread waits for before the exchange starts and which `kernel_exec.READ_BACK_FOLD_BYTES` rests on as its floor, then `fold.exchange[<config>]` (the time this configuration spent evaluating, taking in and refolding, without the waits), and `fold.partition[<config>]` at millisecond precision, then `fold[<config>]`, which covers the preparation, the parking, the reading back and the finish.
 fn table_thread<'a>(
     run: &TableRun<'a>,
     listed: usize,
@@ -757,6 +759,16 @@ fn table_thread<'a>(
         )),
         None,
     );
+    let parked = prepared.park().map_err(fail)?;
+    if run.report.cache_stats {
+        timed.push(format!(
+            "[c] {token} parked bytes={} class_rows={} fold_rows={} stretches={}",
+            parked.bytes(),
+            parked.class_rows(),
+            parked.fold_rows(),
+            parked.stretches()
+        ));
+    }
     let mut folding = started.elapsed();
     run.board.give_slot();
 
@@ -767,9 +779,22 @@ fn table_thread<'a>(
             "[c] {token} resident_parked kb={}",
             crate::fixpoint::resident_kb()
         ));
-        if listed == 0 {
+        if listed == 0 && run.report.heap {
             timed.push(format!(
                 "[c] {token} parked_heap bytes={}",
+                crate::fixpoint::heap_bytes()
+            ));
+        }
+        run.board.meet()?;
+    }
+    let started = Instant::now();
+    let prepared = parked.unpark();
+    folding += started.elapsed();
+    if run.report.cache_stats && run.report.heap {
+        run.board.meet()?;
+        if listed == 0 {
+            timed.push(format!(
+                "[c] {token} read_back_heap bytes={}",
                 crate::fixpoint::heap_bytes()
             ));
         }
@@ -1429,8 +1454,33 @@ mod tests {
             .expect("as a count")
     }
 
-    /// What one width of the table fan-out wrote: every configuration's digest, and every configuration's files as [`table_files`] reads them.
-    type Filed = (Vec<String>, Vec<Vec<(String, Vec<u8>)>>);
+    /// The bytes, class rows, label-grain rows and chain stretches one configuration's `parked` cache-stats line reports.
+    fn parked_counts(timed: &[String]) -> [u64; 4] {
+        let line = timed
+            .iter()
+            .find_map(|line| line.strip_prefix("[c] ")?.split_once(" parked "))
+            .unwrap_or_else(|| panic!("the cache stats report the parked product: {timed:?}"))
+            .1;
+        let mut counts = [0u64; 4];
+        for (count, (field, name)) in
+            counts
+                .iter_mut()
+                .zip(line.split(' ').map(|field| field.split_once('=')).zip([
+                    "bytes",
+                    "class_rows",
+                    "fold_rows",
+                    "stretches",
+                ]))
+        {
+            let (key, value) = field.expect("each field is a name and a count");
+            assert_eq!(key, name, "{line}");
+            *count = value.parse().expect("a count");
+        }
+        counts
+    }
+
+    /// What one width of the table fan-out wrote: every configuration's digest, every configuration's files as [`table_files`] reads them, and every configuration's [`parked_counts`].
+    type Filed = (Vec<String>, Vec<Vec<(String, Vec<u8>)>>, Vec<[u64; 4]>);
 
     /// The files one configuration's table build writes, read back as bytes: the three tables.
     fn table_files(outdir: &Path, token: &str) -> Vec<(String, Vec<u8>)> {
@@ -1479,7 +1529,7 @@ mod tests {
             .expect("a directory can occupy a settlement table's path");
     }
 
-    /// The table fan-out writes the same bytes at every width and on every schedule, over the set whose claim order differs from its listed order. Tables and digests match per configuration at 0, 1, 2, and 8 workers. At 2, one worker takes the heavy delta and the lead claims the cheap one after `default`'s fold, which is the case the claim order is for. At 8, the deltas enumerate while `default`'s fold runs on the calling thread. They match too when every configuration enumerates from scratch, which shows that reading `default`'s memo changes no table, and when `default` publishes no verdicts, so that every delta runs every liveness probe instead of being served `default`'s. So must those of the case that enumerates deltas from scratch beside `default`, as many as the width leaves room for: none at 0 and 1 workers, the heavy delta at 2, and both at 8, where no delta reads `default`'s memo and `default` keeps none. Every run reports its cache stats, whose `shared_memo_hits` lines show that each case ran its own schedule: a delta over `default`'s memo takes windows from it, and a configuration enumerated from scratch takes none.
+    /// The table fan-out writes the same bytes at every width and on every schedule, over the set whose claim order differs from its listed order. Tables and digests match per configuration at 0, 1, 2, and 8 workers. At 2, one worker takes the heavy delta and the lead claims the cheap one after `default`'s fold, which is the case the claim order is for. At 8, the deltas enumerate while `default`'s fold runs on the calling thread. They match too when every configuration enumerates from scratch, which shows that reading `default`'s memo changes no table, and when `default` publishes no verdicts, so that every delta runs every liveness probe instead of being served `default`'s. So must those of the case that enumerates deltas from scratch beside `default`, as many as the width leaves room for: none at 0 and 1 workers, the heavy delta at 2, and both at 8, where no delta reads `default`'s memo and `default` keeps none. Every run reports its cache stats, whose `shared_memo_hits` lines show that each case ran its own schedule: a delta over `default`'s memo takes windows from it, and a configuration enumerated from scratch takes none. Each configuration's `parked` line reports the same bytes, class rows, label-grain rows and chain stretches in every case, and the first-listed configuration reports the heap once every product has parked and once every product is read back in the one case that asks for the heap readings, two workers sharing `default`'s memo, and in no other.
     #[test]
     fn a_table_fan_out_files_the_same_bytes_at_every_width() {
         let index = fixtures::mini();
@@ -1506,6 +1556,7 @@ mod tests {
         ] {
             for workers in [0, 1, 2, 8] {
                 let outdir = root.join(arm).join(format!("at-{workers}"));
+                let heap = arm == "shared" && workers == 2;
                 let answers = run_configs_tables(
                     &index,
                     &configs,
@@ -1516,6 +1567,7 @@ mod tests {
                     Report {
                         timings: false,
                         cache_stats: true,
+                        heap,
                     },
                     sharing.clone(),
                 )
@@ -1536,14 +1588,38 @@ mod tests {
                         assert!(hits > 0, "{run}: {token} reads default's memo");
                     }
                 }
+                let parked: Vec<[u64; 4]> = answers
+                    .iter()
+                    .map(|answer| parked_counts(&answer.timed))
+                    .collect();
+                assert!(
+                    parked
+                        .iter()
+                        .all(|[bytes, class_rows, fold_rows, stretches]| {
+                            *bytes > 0
+                                && *class_rows > 0
+                                && fold_rows >= class_rows
+                                && *stretches > 0
+                        }),
+                    "{run}: {parked:?}"
+                );
+                for reading in [" parked_heap bytes=", " read_back_heap bytes="] {
+                    assert_eq!(
+                        answers[0].timed.iter().any(|line| line.contains(reading)),
+                        heap,
+                        "{run}: {:?}",
+                        answers[0].timed
+                    );
+                }
                 let digests: Vec<String> =
                     answers.iter().map(|answer| answer.digest.clone()).collect();
                 let files: Vec<_> = configs
                     .iter()
                     .map(|config| table_files(&outdir, config.token))
                     .collect();
-                if let Some((expected_digests, expected_files)) = &expected {
+                if let Some((expected_digests, expected_files, expected_parked)) = &expected {
                     assert_eq!(&digests, expected_digests, "{run}");
+                    assert_eq!(&parked, expected_parked, "{run}");
                     same_files(
                         &files,
                         expected_files,
@@ -1551,7 +1627,7 @@ mod tests {
                         "the shared case at no workers",
                     );
                 } else {
-                    expected = Some((digests, files));
+                    expected = Some((digests, files, parked));
                 }
             }
         }

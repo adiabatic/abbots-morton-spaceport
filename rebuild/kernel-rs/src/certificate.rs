@@ -201,6 +201,88 @@ impl RowChains {
         chain.reverse();
         Some(chain)
     }
+
+    /// The chains as they wait parked ([`ParkedChains`]). A chain length past what a stretch's byte holds is refused, naming the field.
+    pub fn park(self) -> Result<ParkedChains, String> {
+        let Self { dist, parent } = self;
+        let opens =
+            |row: usize| row == 0 || dist[row] != dist[row - 1] || parent[row] != parent[row - 1];
+        let count = (0..dist.len()).filter(|&row| opens(row)).count();
+        let mut parked = ParkedChains {
+            starts: Vec::with_capacity(count),
+            dists: Vec::with_capacity(count),
+            parents: Vec::with_capacity(count),
+            rows: dist.len(),
+        };
+        for row in (0..dist.len()).filter(|&row| opens(row)) {
+            let length = match dist[row] {
+                UNREACHED => PARKED_UNREACHED,
+                length => u8::try_from(length)
+                    .ok()
+                    .filter(|byte| *byte != PARKED_UNREACHED)
+                    .ok_or_else(|| {
+                        format!(
+                            "a parked row chain's dist {length} is past the {} a stretch's byte holds",
+                            PARKED_UNREACHED - 1
+                        )
+                    })?,
+            };
+            parked.starts.push(u32::try_from(row).map_err(|_| {
+                format!("a parked stretch's start row {row} is past what four bytes hold")
+            })?);
+            parked.dists.push(length);
+            parked.parents.push(parent[row]);
+        }
+        Ok(parked)
+    }
+}
+
+/// The byte a parked stretch holds for [`UNREACHED`]; every finite chain length it holds is below it.
+const PARKED_UNREACHED: u8 = u8::MAX;
+
+/// Every row's shortest row chain as it waits parked for the cross-configuration exchange ([`crate::fold::Parked`]): the stretches of consecutive rows that share a parent and a chain length, each its first row, its length in a byte and its parent. The three fields are three arrays, because as one struct padding would take a stretch from nine bytes to twelve. A successor query gives its parent and length to contiguous runs of rows in key order, so a stretch usually spans several rows.
+pub struct ParkedChains {
+    starts: Vec<u32>,
+    dists: Vec<u8>,
+    parents: Vec<u32>,
+    rows: usize,
+}
+
+impl ParkedChains {
+    /// Every row's chain length and parent again, as [`RowChains::over`] found them.
+    pub fn unpark(self) -> RowChains {
+        let mut dist: Vec<u32> = Vec::with_capacity(self.rows);
+        let mut parent: Vec<u32> = Vec::with_capacity(self.rows);
+        for (at, (&length, &from)) in self.dists.iter().zip(&self.parents).enumerate() {
+            let end = self
+                .starts
+                .get(at + 1)
+                .map_or(self.rows, |&next| next as usize);
+            let length = match length {
+                PARKED_UNREACHED => UNREACHED,
+                length => u32::from(length),
+            };
+            dist.resize(end, length);
+            parent.resize(end, from);
+        }
+        RowChains { dist, parent }
+    }
+
+    /// How many stretches the rows' chains take.
+    pub fn len(&self) -> usize {
+        self.starts.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.starts.is_empty()
+    }
+
+    /// The bytes the three arrays hold.
+    pub fn bytes(&self) -> usize {
+        self.starts.capacity() * size_of::<u32>()
+            + self.dists.capacity()
+            + self.parents.capacity() * size_of::<u32>()
+    }
 }
 
 /// Asserts that two row-chain searches found the same parent and distance for every row.
@@ -779,6 +861,30 @@ mod tests {
             }
         }
         ranges
+    }
+
+    /// Parked chains read back every row's length and parent, an unreached row and the longest length a stretch's byte holds among them, in one stretch for each run of rows that share both. A chain one row longer is refused, naming the field.
+    #[test]
+    fn parked_chains_read_back_every_length_a_byte_holds_and_refuse_a_longer_one() {
+        let dist = vec![0, 0, 254, 254, 254, UNREACHED, UNREACHED, 1];
+        let parent = vec![UNREACHED, UNREACHED, 0, 0, 1, UNREACHED, UNREACHED, 0];
+        let chains = RowChains {
+            dist: dist.clone(),
+            parent: parent.clone(),
+        };
+        let parked = chains.park().expect("every length fits a stretch's byte");
+        assert_eq!(parked.len(), 5);
+        let read_back = parked.unpark();
+        assert_eq!(read_back.dist, dist);
+        assert_eq!(read_back.parent, parent);
+        let longer = RowChains {
+            dist: vec![0, 255],
+            parent: vec![UNREACHED, 0],
+        };
+        let Err(refused) = longer.park() else {
+            panic!("a length of 255 is refused");
+        };
+        assert!(refused.contains("dist 255"), "{refused}");
     }
 
     /// The signature is the exact query through its last carried slot: text behind the first deep `#NA` cannot split it, while a carried label can.

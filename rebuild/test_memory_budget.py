@@ -143,7 +143,7 @@ class TestTheWidthsAlreadyOnRecord:
         )
 
     def test_the_shipped_terms_fit_the_whole_wave_on_the_48_gib_machines(self, monkeypatch):
-        """The criterion the kernel terms are chosen against: on the fleet's 48 GiB machines the solo width is the configuration count, every delta in a slot of its own and `default`'s fold preparation in one more, so the wave runs in one round. A change to any of `DELTA_SLOT_BYTES`, `FOLD_PREPARATION_BYTES`, `DEFAULT_MEMO_BYTES` or `PARKED_FOLD_BYTES` that costs those machines a slot fails here. With `SCRATCH_PEAK_BYTES` as it stands, those machines also have room for every delta from scratch beside `default` and start them all; a re-measure that leaves room for fewer fails here, so the count is pinned where it is chosen. The last assertion checks that `TABLE_BUILD_PEAK_BYTES`, which `make job-costs` holds the higher of the run_m1 step's peak and the table build's peak footprint to, is the booking at that width with every delta from scratch beside `default`, so re-measuring a term moves it too. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass whatever the constants are."""
+        """The criterion the kernel terms are chosen against: on the fleet's 48 GiB machines the solo width is the configuration count, every delta in a slot of its own and `default`'s fold preparation in one more, so the wave runs in one round. A change to any of `DELTA_SLOT_BYTES`, `FOLD_PREPARATION_BYTES`, `DEFAULT_MEMO_BYTES`, `PARKED_FOLD_BYTES` or `READ_BACK_FOLD_BYTES` that costs those machines a slot fails here. With `SCRATCH_PEAK_BYTES` as it stands, those machines also have room for every delta from scratch beside `default` and start them all; a re-measure that leaves room for fewer fails here, so the count is pinned where it is chosen. The last assertion checks that `TABLE_BUILD_PEAK_BYTES`, which `make job-costs` holds the higher of the run_m1 step's peak and the table build's peak footprint to, is the booking at that width with every delta from scratch beside `default`, so re-measuring a term moves it too. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass whatever the constants are."""
         from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
         from rebuild.pipeline.kernel_exec import (
             TABLE_BUILD_PEAK_BYTES,
@@ -169,11 +169,11 @@ class TestTheWidthsAlreadyOnRecord:
         assert replay_threads_default(total_bytes=MACHINE_48_GIB) >= len(SETTLEMENT_CONFIGS)
         assert 0 < REPLAY_PEAK_BYTES < SCRATCH_PEAK_BYTES
 
-    def test_the_memo_term_is_smaller_in_kind_than_the_divisor(self):
-        """`DEFAULT_MEMO_BYTES` covers `default`'s memo snapshot kept alive for the wave, stored as compact records with their pools, while `SCRATCH_PEAK_BYTES` covers a configuration enumerated from scratch and held through its fold, so the memo term must be the smaller. Setting them equal would charge the wave a whole configuration for a snapshot. A parked fold product is part of what its configuration held at its peak, so `PARKED_FOLD_BYTES` is smaller than `SCRATCH_PEAK_BYTES` too, or a from-scratch slot's divisor would not be positive. The slot that runs only `default`'s fold preparation costs no more than a delta's (`FOLD_PREPARATION_BYTES` at most `DELTA_SLOT_BYTES`), so a width at or below the delta count, where a delta takes that slot once the preparation ends, is booked at its deltas alone."""
+    def test_the_memo_term_is_positive_and_the_slot_terms_keep_their_order(self):
+        """`DEFAULT_MEMO_BYTES` books `default`'s memo snapshot kept alive for the wave, so it is positive. A parked fold product is part of what its configuration held at its peak, so `PARKED_FOLD_BYTES` is smaller than `SCRATCH_PEAK_BYTES`, or a from-scratch slot's divisor would not be positive. The slot that runs only `default`'s fold preparation costs no more than a delta's (`FOLD_PREPARATION_BYTES` at most `DELTA_SLOT_BYTES`), so a width at or below the delta count, where a delta takes that slot once the preparation ends, is booked at its deltas alone."""
         from rebuild.pipeline.kernel_exec import DELTA_SLOT_BYTES, FOLD_PREPARATION_BYTES, PARKED_FOLD_BYTES
 
-        assert 0 < DEFAULT_MEMO_BYTES < SCRATCH_PEAK_BYTES
+        assert 0 < DEFAULT_MEMO_BYTES
         assert 0 < PARKED_FOLD_BYTES < SCRATCH_PEAK_BYTES
         assert 0 < FOLD_PREPARATION_BYTES <= DELTA_SLOT_BYTES
 

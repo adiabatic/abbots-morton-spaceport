@@ -20,7 +20,7 @@
 //!
 //! Concurrency is per configuration. `enumerate-configs`, `build-tables`, and `replay-strings` run at most `--threads` configurations at once: one when the flag is absent, and never more than the machine's available parallelism or the number of configurations. When the set includes `default` and `--no-default-memo-sharing` is not given, `build-tables` enumerates `default` first, beside the configurations `--scratch-beside-default=` starts from scratch, and then runs the other configurations at that width, with `default`'s fold preparation in one of the worker slots, and holds every configuration's prepared product until the exchange ends. [`ams_m1_kernel::fanout`] explains why the output bytes do not depend on the schedule and why one configuration's worklist stays sequential. Peak memory grows roughly linearly with the width, because each configuration in flight holds its whole working set, so a machine with less memory than cores should pass a smaller `--threads`.
 //!
-//! `--cache-stats` is accepted by `enumerate`, `enumerate-configs`, `build-tables`, and `replay-strings`. It writes `[c] <config> <collection> len=<n> cap=<m>` lines to stderr, one per memo or table, plus the size of the elimination text the memos hold and the process's resident size at several points. [`ams_m1_kernel::fixpoint::enumerate_with_cache_stats`] lists the enumeration's sample points, among them what its row log holds (`row_log bytes= fragments= revisited_bases=`) and how many times its engine cleared the prospect and candidate memos at their ceilings and a trace memo shard made room at its own (`memo_clears prospect= candidates= trace=`), a table build adds `resident_parked` once every configuration has parked its prepared fold product (`fanout::table_thread`), and [`ams_m1_kernel::replay::Replay::take_cache_stats`] what the replay reports when a walk ends, including the release count (`releases count=`). Under `--memo-windows=`, each release also adds memo sizes and resident sizes labeled `release=<k>`. Memory decisions about this crate are made from these lines, because arithmetic on struct definitions only estimates what a run with `--cache-stats` measures. The cache stats cost nothing when they are not requested and never change stdout, the stream, or the replay's answer lines. Their lines go into the same buffer as `--timings` and are written in `--configs` order. The two flags are independent.
+//! `--cache-stats` is accepted by `enumerate`, `enumerate-configs`, `build-tables`, and `replay-strings`. It writes `[c] <config> <collection> len=<n> cap=<m>` lines to stderr, one per memo or table, plus the size of the elimination text the memos hold and the process's resident size at several points. [`ams_m1_kernel::fixpoint::enumerate_with_cache_stats`] lists the enumeration's sample points, among them what its row log holds (`row_log bytes= fragments= revisited_bases=`) and how many times its engine cleared the prospect and candidate memos at their ceilings and a trace memo shard made room at its own (`memo_clears prospect= candidates= trace=`), a table build adds what each configuration's parked product holds (`parked bytes= class_rows= fold_rows= stretches=`), `resident_parked` once every configuration has parked its prepared fold product, and the heap once every configuration has parked and once every configuration has read its product back (`parked_heap`, `read_back_heap`; `fanout::table_thread`), and [`ams_m1_kernel::replay::Replay::take_cache_stats`] what the replay reports when a walk ends, including the release count (`releases count=`). Under `--memo-windows=`, each release also adds memo sizes and resident sizes labeled `release=<k>`. Memory decisions about this crate are made from these lines, because arithmetic on struct definitions only estimates what a run with `--cache-stats` measures. The cache stats cost nothing when they are not requested and never change stdout, the stream, or the replay's answer lines. Their lines go into the same buffer as `--timings` and are written in `--configs` order. The two flags are independent.
 //!
 //! `--timings` is accepted by `enumerate`, `enumerate-configs`, `build-tables`, `replay-strings`, and `replay-emitted`. It writes `[t] <label> <secs>s` lines to stderr at one decimal place, the format `rebuild/tools/console.py` defines and `rebuild/tools/cycle_timings.py` parses. The lines are `spec_parse` (reading, parsing, and indexing the spec) where a spec is read, then each configuration's phases (such as `enumerate[<config>]`, `emit[<config>]`, `fold[<config>]`, or `replay[<config>]`), then the run's total. A table build also reports `fold.prefixes[<config>]`, `fold.exchange[<config>]` and `fold.partition[<config>]` at millisecond precision before each `fold[<config>]` line. Every line is buffered and written after the last configuration finishes, in `--configs` order, so stderr is the same at any thread count. With neither diagnostic flag, nothing is written to stderr on a clean exit, because `kernel_exec` treats any stderr on a clean exit as a failure unless it asked for timings.
 //!
@@ -920,6 +920,7 @@ fn enumerate(plan: &EnumeratePlan<'_>) -> Result<(), String> {
     let report = fanout::Report {
         timings: plan.timings,
         cache_stats: plan.cache_stats,
+        heap: plan.cache_stats,
     };
     let mut clock = Timings::new(report);
     let started = Instant::now();
@@ -957,6 +958,7 @@ fn enumerate_configs(plan: &ConfigsPlan<'_>) -> Result<(), String> {
     let report = fanout::Report {
         timings: plan.timings,
         cache_stats: plan.cache_stats,
+        heap: plan.cache_stats,
     };
     let mut clock = Timings::new(report);
     let started = Instant::now();
@@ -1001,6 +1003,7 @@ fn build_tables(plan: &TablesPlan<'_>) -> Result<(), String> {
     let report = fanout::Report {
         timings: plan.timings,
         cache_stats: plan.cache_stats,
+        heap: plan.cache_stats,
     };
     let mut clock = Timings::new(report);
     let started = Instant::now();
@@ -1059,6 +1062,7 @@ fn replay_strings(plan: &ReplayPlan<'_>) -> Result<(), String> {
     let report = fanout::Report {
         timings: plan.timings,
         cache_stats: plan.cache_stats,
+        heap: plan.cache_stats,
     };
     let mut clock = Timings::new(report);
     let started = Instant::now();
