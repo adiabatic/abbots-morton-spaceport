@@ -647,7 +647,7 @@ def _slot_text(members: tuple[str, ...] | None) -> str:
 
 
 def emitted_order_tsv(spec: ResolvedSpec, tables_by_config: Mapping) -> str:
-    """The shipped settlement order as a settlement TSV that the crate reads with `artifacts::read_settlement_tsv`. It has one line per emitted row in FEA order, with marker-renamed labels as they appear in the glyph stream. The provenance column lists the table rules the row was folded from as `<configuration>#<rule index>`, so an error can name them. The crate's `replay-emitted` subcommand checks each configuration's rows against this file (`run_m1.run_emitted_order`). The header names `EMITTED_ORDER_CONFIG` as its configuration because the order covers all of them."""
+    """The shipped settlement order as a settlement TSV that the crate reads with `artifacts::read_settlement_tsv`. It has one line per emitted row in FEA order, with marker-renamed labels as they appear in the glyph stream. The provenance column lists the table rules the row was folded from as `<configuration>#<rule index>`, so an error can name them. The crate's `replay-emitted` subcommand checks each configuration's rows against this order, which `run_m1.run_emitted_order` hands it through a pipe beside the count of its rules. The header names `EMITTED_ORDER_CONFIG` as its configuration because the order covers all of them."""
     lines = [
         f"# settlement table, config {EMITTED_ORDER_CONFIG}",
         "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance",

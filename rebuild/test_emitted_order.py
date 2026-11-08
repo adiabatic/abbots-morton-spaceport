@@ -1,6 +1,7 @@
-"""Tests for the shipped-order stage on the mini fixture. `run_m1.run_emitted_order` runs the crate's `replay-emitted` subcommand, which walks every configuration's rows first-match against the order `emit_gsub._ordered_settle_rules` emits. The build runs this stage over its own tables; these tests cover the order and context files the crate reads, the stage's summary, and the failure that names the row and rule when the order gives a row a different outcome from its table."""
+"""Tests for the shipped-order stage on the mini fixture. `run_m1.run_emitted_order` runs the crate's `replay-emitted` subcommand, which walks every configuration's rows first-match against the order `emit_gsub._ordered_settle_rules` emits. The build runs this stage over its own tables; these tests cover the order and context the crate reads from its inherited pipes, the stage's summary, the failure that names the row and rule when the order gives a row a different outcome from its table, and a walk that ends before it reads its pipes or reads an order shorter than its count."""
 
 import dataclasses
+import threading
 
 import pytest
 
@@ -177,20 +178,52 @@ def fold_open_slot(key: tuple[str, ...]) -> int | None:
     )
 
 
+def walk_inputs(spec, tables, config="default"):
+    """The keyword arguments `run_m1.run_emitted_order` hands `kernel_exec.replay_emitted` for one configuration of `tables`: the order and its rule count, and the configuration's context, each encoded."""
+    order = emit_gsub.emitted_order_tsv(spec, tables)
+    decision, _joins = tables[config]
+    return {
+        "config": config,
+        "order": order.encode(),
+        "order_rules": len(order.splitlines()) - 2,
+        "context": emit_gsub.emitted_context_tsv(spec, config, decision).encode(),
+    }
+
+
 def test_the_kernel_interface_refuses_a_missing_enumeration(spec, built, tmp_path):
     out_dir, tables = built
-    decision, _joins = tables["default"]
-    order = tmp_path / "order.tsv"
-    order.write_text(emit_gsub.emitted_order_tsv(spec, tables))
-    context = tmp_path / "context.tsv"
-    context.write_text(emit_gsub.emitted_context_tsv(spec, "default", decision))
-    with pytest.raises(kernel_exec.KernelRunError):
+    with pytest.raises(kernel_exec.KernelRunError, match="windows-default.tsv.gz"):
         kernel_exec.replay_emitted(
             tmp_path / "windows-default.tsv.gz",
-            config="default",
             table=out_dir / "settlement-default.tsv",
-            order=order,
-            context=context,
+            **walk_inputs(spec, tables),
+        )
+
+
+def test_a_walk_that_ends_before_it_reads_its_pipes_fails_and_leaves_no_writer_behind(spec, built, tmp_path):
+    """The crate reads its settlement table before any pipe, so a table path that does not exist ends the walk before it reads the order, the context or the windows. The order is padded past what a pipe holds and the windows are the real packed enumeration, so their writers are still writing when the crate exits and must end on the broken pipe instead of blocking. The walk fails naming the table, and no thread the call started outlives it."""
+    out_dir, tables = built
+    inputs = walk_inputs(spec, tables)
+    inputs["order"] = inputs["order"].ljust(1 << 20, b"\n")
+    before = set(threading.enumerate())
+    with pytest.raises(kernel_exec.KernelRunError, match="no-such-table.tsv"):
+        kernel_exec.replay_emitted(
+            table.windows_path(out_dir, "default"), table=tmp_path / "no-such-table.tsv", **inputs
+        )
+    assert [thread for thread in threading.enumerate() if thread not in before] == []
+
+
+def test_an_order_shorter_than_its_count_is_refused_naming_both_counts(spec, built):
+    """The crate counts the rules it reads from the order against the count it is handed, so an order that ends early at a line boundary, which would read as a shorter order, fails the walk instead, naming both counts."""
+    out_dir, tables = built
+    inputs = walk_inputs(spec, tables)
+    rules = inputs["order_rules"]
+    inputs["order_rules"] = rules + 1
+    with pytest.raises(
+        kernel_exec.KernelRunError, match=f"holds {rules} rules where --order-rules= names {rules + 1}"
+    ):
+        kernel_exec.replay_emitted(
+            table.windows_path(out_dir, "default"), table=out_dir / "settlement-default.tsv", **inputs
         )
 
 

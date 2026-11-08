@@ -614,10 +614,10 @@ class TestThePacking:
         real = kernel_exec.build_table_files
         fifos = {}
 
-        def build_table_files(spec_path, out_dir, configs, **rest):
+        def build_table_files(spec_bytes, out_dir, configs, **rest):
             for config in configs:
                 fifos[config] = stat.S_ISFIFO(kernel_exec.windows_payload(out_dir, config).lstat().st_mode)
-            return real(spec_path, out_dir, configs, **rest)
+            return real(spec_bytes, out_dir, configs, **rest)
 
         monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
         run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
@@ -649,7 +649,7 @@ class TestThePacking:
         else:
             payload = gzip.decompress(before["default"])
 
-            def build_table_files(spec_path, out_dir, configs, **_rest):
+            def build_table_files(spec_bytes, out_dir, configs, **_rest):
                 if failure == "an interrupt":
                     raise KeyboardInterrupt
                 with kernel_exec.windows_payload(out_dir, "default").open("wb") as sink:
@@ -702,7 +702,7 @@ class TestThePacking:
         tables, _digests = run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, packing=packing)
         walked: list = []
 
-        def replay_emitted(windows, *, config, table, order, context, timings=False):
+        def replay_emitted(windows, *, config, table, order, order_rules, context, timings=False):
             assert release[config].is_set(), f"{config}'s walk started before its pack was released"
             assert windows.is_file(), f"{config}'s walk started before its pack was on disk"
             walked.append(config)
@@ -740,7 +740,7 @@ class TestThePacking:
         full = threading.Event()
         inside = {"count": 0, "peak": 0}
 
-        def replay_emitted(windows, *, config, table, order, context, timings=False):
+        def replay_emitted(windows, *, config, table, order, order_rules, context, timings=False):
             with lock:
                 inside["count"] += 1
                 inside["peak"] = max(inside["peak"], inside["count"])

@@ -175,7 +175,7 @@ class TestTheInvocationInterface:
             waited.append((verb, timeout))
             raise kernel_exec._no_answer(arguments, verb, timeout)
 
-        def reaped(arguments, verb, *, timeout, env=None):
+        def reaped(arguments, verb, *, timeout, env=None, pipes=None):
             return run(arguments, verb, timeout=timeout)
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", run)
@@ -188,7 +188,7 @@ class TestTheInvocationInterface:
         calls = [
             lambda: kernel_exec.enumerate_configs(spec_path, tmp_path / "streams", ["default"], threads=1),
             lambda: kernel_exec.build_table_files(
-                spec_path, tmp_path / "tables", configs, inputs=STAMP, threads=2, symbols=47
+                kernel_io.spec_bytes(SPEC), tmp_path / "tables", configs, inputs=STAMP, threads=2, symbols=47
             ),
             lambda: kernel_exec._settle_cases(spec_path, [case], frozenset()),
             lambda: kernel_exec._guard_verdicts(SPEC, spec_path),
@@ -225,7 +225,7 @@ class TestTheInvocationInterface:
         """On macOS, `build_table_files` spawns `build-tables`, and `replay_strings` spawns `replay-strings` for the string replay and for each deep replay unit, with this process's environment and `KERNEL_ALLOCATOR_ENVIRONMENT` (`MallocLargeCache=0`), so the tables a memo outgrows go back to the system as they are freed. Elsewhere each passes no environment, which leaves the child this process's own."""
         environments = []
 
-        def reaped(arguments, verb, *, timeout, env=None):
+        def reaped(arguments, verb, *, timeout, env=None, pipes=None):
             environments.append((verb, env))
             raise kernel_exec._no_answer(arguments, verb, timeout)
 
@@ -234,7 +234,12 @@ class TestTheInvocationInterface:
         monkeypatch.setenv("AMS_SOME_SETTING", "kept")
         calls = [
             lambda: kernel_exec.build_table_files(
-                tmp_path / "spec.json", tmp_path / "tables", ["default"], inputs=STAMP, threads=1, symbols=47
+                kernel_io.spec_bytes(SPEC),
+                tmp_path / "tables",
+                ["default"],
+                inputs=STAMP,
+                threads=1,
+                symbols=47,
             ),
             lambda: kernel_exec.replay_strings(
                 SPEC, tmp_path, ["default"], max_length=4, families=None, threads=1, memo_dir=tmp_path
@@ -311,7 +316,9 @@ class TestTheInvocationInterface:
             def wait(self):
                 return -9
 
-        monkeypatch.setattr(kernel_exec, "_spawn_kernel", lambda arguments, *, stdin, env=None: Hung())
+        monkeypatch.setattr(
+            kernel_exec, "_spawn_kernel", lambda arguments, *, stdin, env=None, pass_fds=(): Hung()
+        )
         started = time.monotonic()
         with pytest.raises(kernel_exec.KernelRunError, match="on replay-strings"):
             kernel_exec._run_kernel_reaped(["ams-m1-kernel"], "replay-strings", timeout=0.2)
@@ -347,6 +354,21 @@ class TestTheInvocationInterface:
             return
         os.kill(child, signal.SIGKILL)
         pytest.fail("the child outlived the interrupt")
+
+    def test_a_crate_that_exits_before_it_reads_its_spec_fails_and_leaves_no_writer_behind(self, tmp_path):
+        """A configuration named twice is a usage error `build-tables` gives before it reads its spec, so the crate exits without reading the pipe its spec comes through. The dump is padded past what a pipe holds with the whitespace JSON allows, so its writer is still writing when the crate exits and must end on the broken pipe instead of blocking. The build fails as a usage error, and no thread the call started outlives it."""
+        kernel_exec.ensure_built()
+        before = set(threading.enumerate())
+        with pytest.raises(kernel_exec.KernelRunError, match="usage error"):
+            kernel_exec.build_table_files(
+                kernel_io.spec_bytes(SPEC).ljust(1 << 20),
+                tmp_path / "tables",
+                ["default", "default"],
+                inputs=STAMP,
+                threads=1,
+                symbols=len(conform.spec_alphabet(SPEC)),
+            )
+        assert [thread for thread in threading.enumerate() if thread not in before] == []
 
     def test_a_missing_binary_names_the_recipe_that_builds_one(self, monkeypatch, tmp_path):
         monkeypatch.setattr(kernel_exec, "BINARY", tmp_path / "ams-m1-kernel")
@@ -857,7 +879,7 @@ class TestTheKernelInvocation:
         seen = []
 
         def build_table_files(
-            spec_path,
+            spec_bytes,
             out_dir,
             configs,
             *,
@@ -995,8 +1017,6 @@ class TestTheKernelInvocation:
     def test_a_configuration_delta_files_the_bytes_a_from_scratch_build_files(self, monkeypatch, tmp_path):
         """Every configuration after `default`, enumerated as a delta over `default`'s memo, writes the same settlement TSV, join TSV, and window enumeration, byte for byte, and returns the same digest as the same configuration enumerated on its own (the window locality rule applied across configurations). The four runs build the mini fixture narrowed to ·Tea, ·Day, ·May and ·It (`spec_load.narrowed`), whose window enumerations are a small fraction of the whole fixture's. There `ss03` allows `·May ~x~ ·Tea.half` and `ss04` allows `·Day ~b~ ·It ~b~ ·May`, so those deltas have windows to share and windows to settle themselves. The memo-sharing run claims its deltas heaviest-first (`fanout::delta_worklist`), and its results must still match the from-scratch run configuration by configuration. So must those of a run three wide that starts the two heaviest deltas from scratch beside `default` and runs `ss04` and `ss05` as deltas: `ss03` and `ss03+ss05` unlock the same two runes, ·Tea and ·May, where `ss04` and `ss05` unlock one each, so the first two form the top tier the crate takes whole (`fanout::scratch_tiers`). A run that serves the deltas none of `default`'s liveness verdicts writes the sharing run's tables, byte for byte. Each run's crate is asked for its own schedule: the sharing run passes none of the schedule flags, and each other run passes only its own."""
         spec = spec_load.narrowed(SPEC, ("qsTea", "qsDay", "qsMay", "qsIt"))
-        spec_path = tmp_path / "spec.json"
-        kernel_io.write_spec(spec, spec_path)
         kernel_exec.ensure_built()
         run_kernel_reaped = kernel_exec._run_kernel_reaped
         schedules = {}
@@ -1020,7 +1040,7 @@ class TestTheKernelInvocation:
             ("unserved", True, 2, 0, False),
         ):
             answers[name] = kernel_exec.build_table_files(
-                spec_path,
+                kernel_io.spec_bytes(spec),
                 tmp_path / name,
                 conform.SETTLEMENT_CONFIGS,
                 inputs=STAMP,
@@ -1049,7 +1069,7 @@ class TestTheKernelInvocation:
         """`build-tables` requires a stamp, so a build called without `inputs` passes `kernel_exec.UNSTAMPED_WINDOWS`. The build then keeps only the payload's head and drops the rest as it arrives, so that stamp never reaches an artifact."""
         seen = []
 
-        def build_table_files(spec_path, out_dir, configs, *, inputs, **rest):
+        def build_table_files(spec_bytes, out_dir, configs, *, inputs, **rest):
             seen.append(inputs)
             raise Reached
 
@@ -1113,8 +1133,6 @@ class TestThePayloadPath:
     def test_the_crate_writes_its_payload_through_what_the_caller_put_at_the_path(self, tmp_path):
         """With nothing at the path, as a test leaves it, the crate writes the payload as a file whose head reads back under the build's stamp. With a symbolic link to the null device there, as a reading that wants no payload puts, the link is left as it was and nothing is written through it, and the build answers with the same digest and settlement table. The build is `default` over the mini fixture narrowed to ·Tea, ·May and ·It."""
         spec = spec_load.narrowed(SPEC, ("qsTea", "qsMay", "qsIt"))
-        spec_path = tmp_path / "spec.json"
-        kernel_io.write_spec(spec, spec_path)
         kernel_exec.ensure_built()
         built = {}
         for put in ("nothing", "null device"):
@@ -1123,7 +1141,7 @@ class TestThePayloadPath:
             if put == "null device":
                 kernel_exec.windows_payload(out_dir, "default").symlink_to(os.devnull)
             built[put] = kernel_exec.build_table_files(
-                spec_path,
+                kernel_io.spec_bytes(spec),
                 out_dir,
                 ["default"],
                 inputs=STAMP,

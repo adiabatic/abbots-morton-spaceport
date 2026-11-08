@@ -1,6 +1,6 @@
 """Serialization at the kernel interface between the Python pipeline and the Rust kernel (`rebuild/kernel-rs/`): the resolved-spec dump the kernel reads and the transition stream it writes.
 
-The resolved-spec dump (`spec_json` / `spec_of` and the file wrappers `write_spec` / `read_spec`) carries a whole `model.ResolvedSpec` through canonical JSON and back. The transition stream (`write_transitions` / `read_transitions`) carries a whole `table.FixpointProduct`. The windows artifact that `table.read_windows` reads is a separate format.
+The resolved-spec dump (`spec_json` / `spec_of`, the bytes `spec_bytes` hands `build-tables` through a pipe, and the file wrappers `write_spec` / `read_spec`) carries a whole `model.ResolvedSpec` through canonical JSON and back. The transition stream (`write_transitions` / `read_transitions`) carries a whole `table.FixpointProduct`. The windows artifact that `table.read_windows` reads is a separate format.
 
 Canonical means byte-reproducible. Every dataclass field is written, defaults included and `None` as `null`. Separators are compact and the output is ASCII. Mappings keep their iteration order and are never key-sorted, because collection order in a resolved spec affects settlement: stance declaration order ranks the stances `policy.order` omits, exit declaration order is the final tiebreak's last key, and a rune's policy lists are gathered in declaration order. The resolved membership sets (the values of `Policy.groups` and `ScriptRegistry.predicate_classes`) are `frozenset`s and have no order, so they are written sorted to keep the dump stable across runs.
 
@@ -184,10 +184,15 @@ def spec_of(text: str) -> ResolvedSpec:
     return _decode(ResolvedSpec, {key: item for key, item in payload.items() if key != "format"})
 
 
+def spec_bytes(spec: ResolvedSpec) -> bytes:
+    """Returns the canonical dump with a trailing newline as UTF-8 bytes: what `write_spec` writes and what `kernel_exec.build_table_files` hands `build-tables` through an inherited pipe. The dump is ASCII, so the encoding changes no byte."""
+    return (spec_json(spec) + "\n").encode("utf-8")
+
+
 def write_spec(spec: ResolvedSpec, path: Path) -> None:
-    """Writes the canonical dump as plain text with a trailing newline. It is not gzipped like the artifacts under `rebuild/out/`, so it can be read with grep and diff."""
+    """Writes `spec_bytes`, the canonical dump as plain text with a trailing newline, so a file holds exactly what `build-tables` reads through its pipe. It is not gzipped like the artifacts under `rebuild/out/`, so it can be read with grep and diff."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(spec_json(spec) + "\n")
+    path.write_bytes(spec_bytes(spec))
 
 
 def read_spec(path: Path) -> ResolvedSpec:

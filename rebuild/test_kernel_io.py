@@ -149,8 +149,10 @@ class TestRoundTrip:
         assert payload["format"] == kernel_io.SPEC_FORMAT
 
     def test_a_written_file_reads_back_as_the_same_spec(self, spec, tmp_path):
+        """The file holds exactly the bytes `build-tables` reads through its pipe, and reads back as the spec."""
         path = tmp_path / "nested" / "spec.json"
         kernel_io.write_spec(spec, path)
+        assert path.read_bytes() == kernel_io.spec_bytes(spec)
         assert kernel_io.read_spec(path) == spec
 
     def test_the_declared_container_types_come_back(self, spec):

@@ -4,13 +4,13 @@ The semantics defaults live here beside the flags that pass them to the kernel. 
 
 The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build. `make kernel-build` runs the same build by hand through `main`.
 
-`build_table_files` is what `run_m1` calls. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines and the process's own resident peak and peak footprint (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest; `rebuild/kernel-rs/src/memo.rs` gives the argument. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`); when every delta does, `default` keeps no memo. The memo lives only inside the process: every build enumerates cold, and none reads or writes a memo file. Before any table is written, the configurations exchange windows (`rebuild/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
+`build_table_files` is what `run_m1` calls. It hands the crate the spec dump (`kernel_io.spec_bytes`) through a pipe the crate inherits (`_InheritedPipes`), which the crate reads once, front to back, before it opens any payload, so the dump never reaches the disk. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines and the process's own resident peak and peak footprint (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest; `rebuild/kernel-rs/src/memo.rs` gives the argument. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`); when every delta does, `default` keeps no memo. The memo lives only inside the process: every build enumerates cold, and none reads or writes a memo file. Before any table is written, the configurations exchange windows (`rebuild/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
 
 `enumerate_configs` is the stream fan-out. One process enumerates every named configuration and writes each one's transition stream to its own file. Nothing on the build's path calls it; `enumerate_transitions` and the tests do.
 
 The table build's width is limited by memory, because a live configuration holds its whole working set until it has emitted. Each configuration runs on its own thread from its enumeration to its files, and its prepared product waits parked and compact from the end of its preparation until every configuration has parked, so at the end of the delta wave every configuration's parked product is resident beside the last delta's enumeration; then every configuration reads its product back whole for the cross-configuration exchange (`doc/parallelism.md`). `table_build_booking_bytes` is the memory a build at a given width is booked at: `DEFAULT_MEMO_BYTES` for the `default` memo snapshot kept alive for the wave, `PARKED_FOLD_BYTES` for each configuration's parked product, `DELTA_SLOT_BYTES` for each delta in flight beyond its parked product, and `FOLD_PREPARATION_BYTES` for a slot that runs only `default`'s fold preparation, which a width above the delta count has, and every width is booked at no less than the rendezvous, `READ_BACK_FOLD_BYTES` for each configuration's product read back. A build in which every configuration enumerates from scratch books each slot at `SCRATCH_PEAK_BYTES` less its parked product instead, and so does each delta a build starts from scratch beside `default`, in place of a delta's slot; such a build is booked at no less than its start, one `SCRATCH_PEAK_BYTES` for each of them and, for `default`, `UNCAPPED_SCRATCH_PEAK_BYTES` while a delta is left to read its memo, or one more `SCRATCH_PEAK_BYTES` once none is. `kernel_threads_default` is the widest width, up to the configuration count, whose booking fits the machine's memory less the reserve that policy states, floored at one; `deltas_from_scratch` then decides how many deltas start from scratch beside `default` at that width, and never narrows it. A larger machine, or a container limited by its cgroup, gets its own width without editing a constant. `AMS_KERNEL_THREADS` overrides the arithmetic in either direction. The artifacts are byte-identical at any width, so the override changes only memory use. Callers cap the width, a stated one included, at the number of settlement configurations (`conform.SETTLEMENT_CONFIGS`; the overlay configuration is never enumerated) and at the usable cores. The string replay after a build has its own divisor, `REPLAY_PEAK_BYTES`. `replay_threads_default` divides by it with nothing subtracted first, because the replay's engines are built after the build process has exited and no memo outlives it. `AMS_REPLAY_THREADS` overrides it.
 
-`build_tables` and `enumerate_transitions` are the single-configuration forms, and neither writes anything that outlives the call. A single configuration has no other configuration to take windows from, so `build_tables` gives the same windows and joins as a build of the whole set but can give a different settlement table. Each dumps one spec to a scratch directory. `build_tables` runs `build-tables` into that directory and reads the two tables back through `table.read_windows` and `table.read_join_tsv`. `enumerate_transitions` enumerates the raw product as a stream and parses it into a `table.FixpointProduct`. Only tests call either.
+`build_tables` and `enumerate_transitions` are the single-configuration forms, and neither writes anything that outlives the call. A single configuration has no other configuration to take windows from, so `build_tables` gives the same windows and joins as a build of the whole set but can give a different settlement table. `build_tables` hands `build-tables` its spec through a pipe, as `build_table_files` does, runs it into a scratch directory, and reads the two tables back through `table.read_windows` and `table.read_join_tsv`. `enumerate_transitions` dumps one spec to a scratch directory, enumerates the raw product into it as a stream and parses that into a `table.FixpointProduct`. Only tests call either.
 
 `guard_sweep` runs `guard-sweep` once and returns the complete mapping from `(ligature, first raw slot, second raw slot)` to the configuration-independent formation verdict. It is memoized per spec identity, so a process sweeps a spec once however many callers ask. `guard_sweep_under` returns the same mapping for one named configuration instead of quantifying over the powerset. It is not memoized, because only tests read it; they compare each configuration's verdicts with the quantified ones.
 
@@ -336,17 +336,22 @@ def _relink_lock(mode: int) -> _RelinkLock:
 
 
 def _spawn_kernel(
-    arguments: list[str], *, stdin: bool, env: Mapping[str, str] | None = None
+    arguments: list[str],
+    *,
+    stdin: int | None,
+    env: Mapping[str, str] | None = None,
+    pass_fds: Sequence[int] = (),
 ) -> subprocess.Popen:
-    """Spawn the binary with the relink lock held shared for the spawn only, the moment a concurrent `cargo build` could make the path disappear, so the caller waits without the lock and a long enumeration never blocks a build elsewhere. With `stdin`, the child's stdin is a pipe; without it, the child inherits this process's stdin. With `env`, the child runs with that environment instead of this process's. Raises `KernelRunError` for a missing binary."""
+    """Spawn the binary with the relink lock held shared for the spawn only, the moment a concurrent `cargo build` could make the path disappear, so the caller waits without the lock and a long enumeration never blocks a build elsewhere. `stdin` is the child's standard input as `subprocess.Popen` takes it: `subprocess.PIPE` for a pipe the caller writes through `communicate`, a descriptor the child reads, or None for this process's own. With `env`, the child runs with that environment instead of this process's. `pass_fds` are the descriptors the child inherits at their own numbers (`_InheritedPipes`); `subprocess` closes every other descriptor in the child, so a child spawned beside another call's never holds that call's pipes. Raises `KernelRunError` for a missing binary."""
     try:
         with _relink_lock(fcntl.LOCK_SH):
             return subprocess.Popen(
                 arguments,
-                stdin=subprocess.PIPE if stdin else None,
+                stdin=stdin,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=env,
+                pass_fds=pass_fds,
             )
     except FileNotFoundError:
         raise _no_binary() from None
@@ -368,7 +373,7 @@ def _run_kernel(
     arguments: list[str], verb: str, stdin: bytes | None = None, *, timeout: float
 ) -> subprocess.CompletedProcess:
     """Run the binary to completion (`_spawn_kernel`) and return its exit code and output, waiting at most `timeout` seconds, the limit the caller states for its verb. With `stdin`, the child's stdin carries those bytes and is then closed. Raises `KernelRunError` for a missing binary or a call that has not answered within `timeout`, after killing it."""
-    process = _spawn_kernel(arguments, stdin=stdin is not None)
+    process = _spawn_kernel(arguments, stdin=subprocess.PIPE if stdin is not None else None)
     try:
         stdout, stderr = process.communicate(stdin, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -383,11 +388,146 @@ def _allocator_environment() -> dict[str, str] | None:
     return {**os.environ, **KERNEL_ALLOCATOR_ENVIRONMENT} if sys.platform == "darwin" else None
 
 
+def _feed_bytes(data: bytes) -> Callable[[int], None]:
+    """An `_InheritedPipes` input that writes `data` whole through a view of it, so however many pipes carry one object, none copies it."""
+
+    def write(descriptor: int) -> None:
+        view = memoryview(data)
+        while view:
+            view = view[os.write(descriptor, view) :]
+
+    return write
+
+
+def _feed_gunzipped(path: Path) -> Callable[[int], None]:
+    """An `_InheritedPipes` input that writes the gzip file at `path` decompressed, a megabyte at a time, because the crate has no decompressor."""
+
+    def write(descriptor: int) -> None:
+        with gzip.open(path, "rb") as source, os.fdopen(descriptor, "wb", 1 << 20, closefd=False) as sink:
+            shutil.copyfileobj(source, sink, length=1 << 20)
+
+    return write
+
+
+class _InheritedPipes:
+    """The inputs one crate process reads through pipes it inherits, so none reaches the disk. `inputs` maps each input's label to the function that writes it into a descriptor without closing it (`_feed_bytes`, `_feed_gunzipped`). Each input gets its own `os.pipe()`, whose two descriptors no child inherits unless it is named to the spawn; the read end goes to the child through `pass_fds`, which keeps its number, so the child opens it as `path(label)`, `/dev/fd/<number>`, except the input `stdin` names, which is the child's standard input. Since `subprocess` closes every descriptor outside `pass_fds` in a child, calls spawning at once from several threads never hand one child another call's write end, which would keep that call's pipe from ever ending.
+
+    `_run_kernel_reaped` runs it. This process closes its read ends right after the spawn, and after a failed spawn too (`close_read_ends`): a read end it kept would keep a child that exits early from breaking the pipe, and the writer would block for good. Then one daemon thread a pipe writes its input and closes the write end (`start`), so a writer an interrupted call leaves never holds the interpreter open. Each writer takes its write end from this object under a lock as it begins, so every write end has one owner, the writer that took it or this object, and only its owner closes it. A broken pipe ends a writer quietly, since the child has exited or closed the pipe, as `replay-emitted` does at its disagreement limit, and the child's exit status says why; Python ignores SIGPIPE, so the write raises `BrokenPipeError` instead of ending the process. Once the child is reaped, every writer is joined (`finish`): a writer that failed any other way fails the call, and a child that exited 0 must not have broken any input's pipe, so every writer wrote all of its input into its pipe. That checks what was written, not what the child read: an input that fits in a pipe's buffer is written whole whether or not the child reads it. A wait that ends in an exception kills and reaps the child, then closes every write end no writer has taken and joins every writer that took one (`abort`), so none is left blocked and no writer outlives the call; a writer whose start the exception cut short before it took its write end finds it closed and ends without writing. As a context manager it closes, on exit, every descriptor no writer has taken over, so a call that never spawns leaks none.
+    """
+
+    def __init__(self, inputs: Mapping[str, Callable[[int], None]], *, stdin: str | None = None) -> None:
+        self._inputs = dict(inputs)
+        self._stdin = stdin
+        self._read: dict[str, int] = {}
+        self._write: dict[str, int] = {}
+        self._lock = threading.Lock()
+        self._writers: dict[str, threading.Thread] = {}
+        self._broken: list[str] = []
+        self._failures: list[tuple[str, BaseException]] = []
+        try:
+            for label in self._inputs:
+                self._read[label], self._write[label] = os.pipe()
+        except BaseException:
+            self.close()
+            raise
+
+    def __enter__(self) -> _InheritedPipes:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def path(self, label: str) -> str:
+        """The path the child opens one input's pipe at."""
+        return f"/dev/fd/{self._read[label]}"
+
+    @property
+    def stdin(self) -> int | None:
+        """The read end the child takes as its standard input, as `_spawn_kernel` takes `stdin`."""
+        return None if self._stdin is None else self._read[self._stdin]
+
+    @property
+    def pass_fds(self) -> tuple[int, ...]:
+        """The read ends the child inherits at their own numbers."""
+        return tuple(descriptor for label, descriptor in self._read.items() if label != self._stdin)
+
+    def close_read_ends(self) -> None:
+        while self._read:
+            _label, descriptor = self._read.popitem()
+            os.close(descriptor)
+
+    def start(self) -> None:
+        for label in list(self._write):
+            writer = threading.Thread(target=self._run, args=(label,), name=f"input {label}", daemon=True)
+            writer.start()
+            self._writers[label] = writer
+
+    def _run(self, label: str) -> None:
+        with self._lock:
+            descriptor = self._write.pop(label, None)
+            if descriptor is None:
+                return
+            self._writers[label] = threading.current_thread()
+        try:
+            try:
+                self._inputs[label](descriptor)
+            finally:
+                os.close(descriptor)
+        except BrokenPipeError:
+            self._broken.append(label)
+        except BaseException as error:
+            self._failures.append((label, error))
+
+    def join(self) -> None:
+        for writer in list(self._writers.values()):
+            writer.join()
+
+    def abort(self) -> None:
+        """Close every write end no writer has taken, then join every writer, for a wait that ended in an exception, which may have cut a writer's start short."""
+        self._close_write_ends()
+        self.join()
+
+    def finish(self, verb: str, returncode: int) -> None:
+        """Join every writer once the child is reaped, then raise `KernelRunError` for a writer that failed other than on a broken pipe, naming its input, or for a broken pipe under a child that exited 0, which ended without taking every byte."""
+        self.join()
+        if self._failures:
+            label, error = self._failures[0]
+            raise KernelRunError(f"{label}: {error}") from error
+        if returncode == 0 and self._broken:
+            raise KernelRunError(
+                f"the kernel exited 0 on {verb} without reading all of {', '.join(sorted(self._broken))}"
+            )
+
+    def close(self) -> None:
+        self.close_read_ends()
+        self._close_write_ends()
+
+    def _close_write_ends(self) -> None:
+        with self._lock:
+            while self._write:
+                _label, descriptor = self._write.popitem()
+                os.close(descriptor)
+
+
 def _run_kernel_reaped(
-    arguments: list[str], verb: str, *, timeout: float, env: Mapping[str, str] | None = None
+    arguments: list[str],
+    verb: str,
+    *,
+    timeout: float,
+    env: Mapping[str, str] | None = None,
+    pipes: _InheritedPipes | None = None,
 ) -> tuple[subprocess.CompletedProcess, ReapedPeaks]:
-    """`_run_kernel` with no stdin, returning beside the result the child process's own resident peak and peak footprint in bytes (`peak_rss.reap_peaks_bytes`), either None where it cannot be read. `communicate` reaps the child with `waitpid`, which discards its resource usage and its footprint, so this drains each pipe on a thread of its own and, once both are closed, waits for the child's exit, reads its peak footprint and reaps it with `os.wait4`. The crate starts no process of its own, so both figures are the crate's. `env` is the child's environment, as `_spawn_kernel` takes it. Raises `KernelRunError` for a missing binary, or for a timeout after killing the child. An interrupt while it waits kills and reaps the child before it propagates, so no crate outlives its caller's cleanup, which for `build_table_files` includes ending each read of a payload FIFO (`stream_payloads`)."""
-    process = _spawn_kernel(arguments, stdin=False, env=env)
+    """`_run_kernel` with the child's inputs on inherited pipes or none, returning beside the result the child process's own resident peak and peak footprint in bytes (`peak_rss.reap_peaks_bytes`), either None where it cannot be read. `communicate` reaps the child with `waitpid`, which discards its resource usage and its footprint, so this drains each pipe on a thread of its own and, once both are closed, waits for the child's exit, reads its peak footprint and reaps it with `os.wait4`. The crate starts no process of its own, so both figures are the crate's. `env` is the child's environment, as `_spawn_kernel` takes it. With `pipes`, the child inherits their read ends and their writers run while it does, and once it is reaped they are joined and checked (`_InheritedPipes`); without them, it inherits this process's standard input. Raises `KernelRunError` for a missing binary, for a timeout after killing the child, or for an input whose writer failed, or whose pipe broke under a child that exited 0. An interrupt while it waits kills and reaps the child before it propagates, and then closes every write end no writer has taken and joins the writers (`_InheritedPipes.abort`), so no crate outlives its caller's cleanup, which for `build_table_files` includes ending each read of a payload FIFO (`stream_payloads`), and no writer outlives the call."""
+    try:
+        process = _spawn_kernel(
+            arguments,
+            stdin=pipes.stdin if pipes is not None else None,
+            env=env,
+            pass_fds=pipes.pass_fds if pipes is not None else (),
+        )
+    finally:
+        if pipes is not None:
+            pipes.close_read_ends()
     assert process.stdout is not None and process.stderr is not None
     drained: dict[str, bytes] = {}
 
@@ -401,6 +541,8 @@ def _run_kernel_reaped(
     ]
     deadline = time.monotonic() + timeout
     try:
+        if pipes is not None:
+            pipes.start()
         for reader in readers:
             reader.start()
         for reader in readers:
@@ -408,15 +550,21 @@ def _run_kernel_reaped(
     except BaseException:
         process.kill()
         process.wait()
+        if pipes is not None:
+            pipes.abort()
         raise
     if any(reader.is_alive() for reader in readers):
         process.kill()
         for reader in readers:
             reader.join()
         process.wait()
+        if pipes is not None:
+            pipes.join()
         raise _no_answer(arguments, verb, timeout)
     peaks = reap_peaks_bytes(process)
     returncode = process.wait()
+    if pipes is not None:
+        pipes.finish(verb, returncode)
     return subprocess.CompletedProcess(arguments, returncode, drained["stdout"], drained["stderr"]), peaks
 
 
@@ -555,7 +703,7 @@ class TableBuild:
 
 
 def build_table_files(
-    spec_path: Path,
+    spec_bytes: bytes,
     out_dir: Path,
     configs: Sequence[str],
     *,
@@ -570,6 +718,8 @@ def build_table_files(
 ) -> TableBuild:
     """Every named configuration folded in the crate: its settlement TSV, its join TSV, its plain window enumeration stamped `inputs`, and the table digest of the pair, returned as `TableBuild.digests` (`{config: digest}`) beside the `[t]` lines `--timings` made the crate write.
 
+    `spec_bytes` is the spec dump (`kernel_io.spec_bytes`). The crate reads it as its spec positional, `/dev/fd/<number>`, from a pipe it inherits (`_InheritedPipes`), once, front to back, before it opens any payload, so the dump never reaches the disk.
+
     This is `enumerate-configs` plus the fold in one process, so there is no stream between them: the fold runs on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json. The crate opens its path (`windows_payload`) with `File::create`, so the caller decides where the payload goes by what it puts at that path before the call: `run_m1.build_tables`, which packs it into the `.gz` artifact, and `rebuild/tools/scaling_sweep.py`, which counts it, a FIFO each reads it through (`stream_payloads`); a reading that wants no payload, a symbolic link to the null device; and a caller that wants the file, such as this module's `build_tables` and the tests, nothing.
 
     One process handles every named configuration because the configurations after `default` are enumerated as deltas over it. `default` enumerates first and keeps its trace memo. Each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and settles only the rest, `threads` worker slots at a time, with `default`'s fold preparation in one of them. `rebuild/kernel-rs/src/memo.rs` gives the argument; the window locality rule, applied across configurations, makes the shared results exact. `default_memo_sharing=False` enumerates every configuration from scratch, and `rebuild/test_kernel_exec.py` checks that it writes the same tables as the delta build. `scratch_beside_default` starts up to that many of the heaviest deltas from scratch beside `default` instead, in whole tiers of equal unlocking-rune count, which writes the same tables and holds what `table_build_booking_bytes` books for it (`deltas_from_scratch` decides it); when every delta starts that way, `default` keeps no memo. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts beside it, and a delta served one reruns only the probe's asks that name one of its own unlocking runes (`rebuild/kernel-rs/src/liveness.rs`); `verdict_sharing=False` runs every probe whole, and `rebuild/test_kernel_exec.py` checks that it writes the same tables.
@@ -582,27 +732,32 @@ def build_table_files(
 
     The digests are returned on stdout, one JSON object per line in the order the configurations were named, because a digest is a value the caller keeps and reports, not a separate artifact. Raises `KernelRunError` for every kind of failure the CLI contract distinguishes, and for a clean exit whose output names a different set of configurations from the one requested.
     """
-    arguments = [
-        str(BINARY),
-        "build-tables",
-        str(spec_path),
-        str(out_dir),
-        f"--configs={','.join(configs)}",
-        f"--inputs={inputs}",
-        f"--threads={threads}",
-        *mode_flags(),
-    ]
-    if not default_memo_sharing:
-        arguments.append("--no-default-memo-sharing")
-    if not verdict_sharing:
-        arguments.append("--no-verdict-sharing")
-    if scratch_beside_default:
-        arguments.append(f"--scratch-beside-default={scratch_beside_default}")
-    if timings:
-        arguments.append("--timings")
-    finished, peaks = _run_kernel_reaped(
-        arguments, "build-tables", timeout=build_tables_timeout(symbols), env=_allocator_environment()
-    )
+    with _InheritedPipes({"spec": _feed_bytes(spec_bytes)}) as pipes:
+        arguments = [
+            str(BINARY),
+            "build-tables",
+            pipes.path("spec"),
+            str(out_dir),
+            f"--configs={','.join(configs)}",
+            f"--inputs={inputs}",
+            f"--threads={threads}",
+            *mode_flags(),
+        ]
+        if not default_memo_sharing:
+            arguments.append("--no-default-memo-sharing")
+        if not verdict_sharing:
+            arguments.append("--no-verdict-sharing")
+        if scratch_beside_default:
+            arguments.append(f"--scratch-beside-default={scratch_beside_default}")
+        if timings:
+            arguments.append("--timings")
+        finished, peaks = _run_kernel_reaped(
+            arguments,
+            "build-tables",
+            timeout=build_tables_timeout(symbols),
+            env=_allocator_environment(),
+            pipes=pipes,
+        )
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -877,77 +1032,44 @@ def replay_emitted(
     *,
     config: str,
     table: Path,
-    order: Path,
-    context: Path,
+    order: bytes,
+    order_rules: int,
+    context: bytes,
     timings: bool = False,
 ) -> dict[str, int]:
-    """Walk one configuration's packed window enumeration against the shipped settlement order with the crate's `replay-emitted` subcommand (`rebuild/kernel-rs/src/shipped_order.rs`). Returns `{rows, checked_per_member, open_rows, continued}` on a clean walk, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class contained their deep class only in part, `open_rows` the rows whose key leaves a slot open after a letter (every continuation of which the walk checks), and `continued` those whose continuations it searched because their deciding rule constrains the open slot or a later one. `windows` is the `.gz` the build packed (`table.windows_path`). It is decompressed here and streamed to the subcommand's standard input, because the crate reads the plain payload and has no decompressor. `table` is the configuration's settlement TSV, `order` the file `emit_gsub.emitted_order_tsv` writes, and `context` the one `emit_gsub.emitted_context_tsv` writes. A disagreement raises `EmittedOrderDisagreement` with the crate's message; every other failure raises `KernelRunError`."""
+    """Walk one configuration's packed window enumeration against the shipped settlement order with the crate's `replay-emitted` subcommand (`rebuild/kernel-rs/src/shipped_order.rs`). Returns `{rows, checked_per_member, open_rows, continued}` on a clean walk, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class contained their deep class only in part, `open_rows` the rows whose key leaves a slot open after a letter (every continuation of which the walk checks), and `continued` those whose continuations it searched because their deciding rule constrains the open slot or a later one. `windows` is the `.gz` the build packed (`table.windows_path`). It is decompressed here and streamed to the subcommand's standard input, because the crate reads the plain payload and has no decompressor. `table` is the configuration's settlement TSV. `order` is the text `emit_gsub.emitted_order_tsv` returns, encoded, and `context` the text `emit_gsub.emitted_context_tsv` returns, encoded; each reaches the crate on a pipe of its own that it inherits and opens as `/dev/fd/<number>` (`_InheritedPipes`), written whole from the object passed, so callers that walk at once can share one `order` and none copies it. The crate reads the table, the order and the context in turn, then the windows, so no writer waits on another. `order_rules` is the number of rules `order` holds, which the crate checks the order it read against, so an order that ends short is refused rather than walked. A disagreement raises `EmittedOrderDisagreement` with the crate's message; every other failure raises `KernelRunError`."""
     ensure_built()
-    arguments = [
-        str(BINARY),
-        "replay-emitted",
-        "-",
-        f"--config={config}",
-        f"--table={table}",
-        f"--order={order}",
-        f"--context={context}",
-    ]
-    if timings:
-        arguments.append("--timings")
-    read_end, write_end = os.pipe()
-    try:
-        with _relink_lock(fcntl.LOCK_SH):
-            process = subprocess.Popen(
-                arguments, stdin=read_end, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-    except FileNotFoundError:
-        os.close(read_end)
-        os.close(write_end)
-        raise _no_binary() from None
-    os.close(read_end)
-
-    unreadable: list[OSError] = []
-
-    def pump() -> None:
-        # The subcommand stops reading after its disagreement limit, so a pipe closed under the writer means the walk has already finished, not a kernel interface failure. The sink is opened first so that a payload that cannot be opened still closes the subcommand's standard input.
-        try:
-            with os.fdopen(write_end, "wb", buffering=1 << 20) as sink:
-                try:
-                    with gzip.open(windows, "rb") as source:
-                        shutil.copyfileobj(source, sink, length=1 << 20)
-                except BrokenPipeError:
-                    raise
-                except OSError as error:
-                    unreadable.append(error)
-        except BrokenPipeError:
-            pass
-
-    writer = threading.Thread(target=pump, name=f"replay-emitted[{config}]", daemon=True)
-    writer.start()
-    try:
-        stdout, stderr = process.communicate(timeout=TIMEOUT)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.communicate()
-        raise KernelRunError(
-            f"the kernel gave no answer within {TIMEOUT} seconds on replay-emitted ({' '.join(arguments)})"
-        ) from None
-    finally:
-        writer.join()
-    if unreadable:
-        raise KernelRunError(f"{windows}: {unreadable[0]}")
-    errors = stderr.decode(errors="replace").strip()
-    if process.returncode == 2:
+    inputs = {
+        "order": _feed_bytes(order),
+        "context": _feed_bytes(context),
+        str(windows): _feed_gunzipped(windows),
+    }
+    with _InheritedPipes(inputs, stdin=str(windows)) as pipes:
+        arguments = [
+            str(BINARY),
+            "replay-emitted",
+            "-",
+            f"--config={config}",
+            f"--table={table}",
+            f"--order={pipes.path('order')}",
+            f"--order-rules={order_rules}",
+            f"--context={pipes.path('context')}",
+        ]
+        if timings:
+            arguments.append("--timings")
+        finished, _peaks = _run_kernel_reaped(arguments, "replay-emitted", timeout=TIMEOUT, pipes=pipes)
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
         raise KernelRunError(
             f"kernel does not support replay-emitted yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
         )
-    if process.returncode != 0:
+    if finished.returncode != 0:
         if "shipped-order disagreement" in errors:
             raise EmittedOrderDisagreement(errors)
-        raise KernelRunError(f"the kernel exited {process.returncode} on replay-emitted: {errors}")
+        raise KernelRunError(f"the kernel exited {finished.returncode} on replay-emitted: {errors}")
     _forward_stderr(errors, timings, arguments, verb="replay-emitted")
     try:
-        answer = json.loads(stdout.decode())
+        answer = json.loads(finished.stdout.decode())
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise KernelRunError(f"the kernel's replay-emitted answer is not one JSON line: {error}") from None
     if (
@@ -1534,16 +1656,13 @@ def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> Fixpo
 
 
 def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, JoinTable]:
-    """One configuration's decision and join tables, in memory, leaving no files: one `build-tables` process over a scratch spec dump, then the windows payload and the join TSV read back. The rows are read in full here, unlike on the build's own path, because a caller of this function wants the table, and the table is fixture-sized; `run_m1.build_tables` builds the live alphabet's. The crate raises its own errors during enumeration and folding (E-UNACCEPTED-EXIT, and the fold's checks listed in `rebuild/kernel-rs/src/fold.rs`), so a returned table has passed them."""
+    """One configuration's decision and join tables, in memory, leaving no files: one `build-tables` process (`build_table_files`) into a scratch directory, then the windows payload and the join TSV read back from it. The rows are read in full here, unlike on the build's own path, because a caller of this function wants the table, and the table is fixture-sized; `run_m1.build_tables` builds the live alphabet's. The crate raises its own errors during enumeration and folding (E-UNACCEPTED-EXIT, and the fold's checks listed in `rebuild/kernel-rs/src/fold.rs`), so a returned table has passed them."""
     with tempfile.TemporaryDirectory() as scratch:
-        directory = Path(scratch)
-        spec_path = directory / "spec.json"
-        kernel_io.write_spec(spec, spec_path)
+        tables = Path(scratch)
         ensure_built()
         config = feature_config_token(features)
-        tables = directory / "tables"
         build_table_files(
-            spec_path,
+            kernel_io.spec_bytes(spec),
             tables,
             [config],
             inputs=UNSTAMPED_WINDOWS,

@@ -30,7 +30,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import IO, Callable, Mapping, Sequence
@@ -318,7 +318,7 @@ def build_tables(
     configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
     scratch_beside_default: int | None = None,
 ) -> tuple[dict[str, tuple], dict[str, str]]:
-    """Build the decision and join tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, then one crate `build-tables` process (`kernel_exec.build_table_files`) enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo, or from scratch beside `default` (`scratch_beside_default`), prepares its fold as it finishes, and, once every configuration has exchanged the windows the others keep live (`rebuild/kernel-rs/src/crossconfig.rs`), finishes each fold. The crate writes the settlement TSV, the join TSV and the window enumeration itself; nothing is folded on the Python side.
+    """Build the decision and join tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, into a pipe one crate `build-tables` process inherits and reads it from (`kernel_exec.build_table_files`), so the dump never reaches the disk. That process enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo, or from scratch beside `default` (`scratch_beside_default`), prepares its fold as it finishes, and, once every configuration has exchanged the windows the others keep live (`rebuild/kernel-rs/src/crossconfig.rs`), finishes each fold. The crate writes the settlement TSV, the join TSV and the window enumeration itself; nothing is folded on the Python side.
 
     A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A narrowed set writes the same windows and join tables as the whole set, but its settlement tables can differ, since it has fewer configurations to import windows from. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over, so its width is derived from the from-scratch bound. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
 
@@ -347,11 +347,11 @@ def build_tables(
     deferred = packing is not None
     packers = packing if packing is not None else Packing(_core_bound_threads(len(configs)))
     keep_windows = out_dir is not None and inputs is not None
-    with tempfile.TemporaryDirectory() as scratch:
-        directory = Path(scratch)
-        spec_path = directory / "spec.json"
-        kernel_io.write_spec(spec, spec_path)
-        tables_dir = directory / "tables" if out_dir is None else out_dir
+    spec_bytes = kernel_io.spec_bytes(spec)
+    with ExitStack() as scratch:
+        tables_dir = (
+            out_dir if out_dir is not None else Path(scratch.enter_context(tempfile.TemporaryDirectory()))
+        )
         tables_dir.mkdir(parents=True, exist_ok=True)
         for path in stale_table_files(tables_dir):
             path.unlink(missing_ok=True)
@@ -364,7 +364,7 @@ def build_tables(
                 {config: kernel_exec.windows_payload(tables_dir, config) for config in configs},
                 lambda config, source: _take_windows(source, staged.get(config)),
                 lambda: kernel_exec.build_table_files(
-                    spec_path,
+                    spec_bytes,
                     tables_dir,
                     list(configs),
                     inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
@@ -1143,7 +1143,7 @@ def run_emitted_order(
     out_dir: Path,
     ready: Callable[[str], None] | None = None,
 ) -> dict:
-    """Run the shipped-order stage: replay the settlement order the emitter ships (every configuration's table folded into one lookup and sorted by `emit_gsub._ordered_settle_rules`), first match wins, against every row of every configuration's window enumeration. The crate's `replay-emitted` subcommand (`rebuild/kernel-rs/src/shipped_order.rs`) does this, one process per configuration over the packed enumeration the build just wrote under `out_dir`. Each row, renamed into the stream its configuration's marker lookups produce, must be matched by the first emitted rule of its input that admits it, with the row's own outcome. A `#NA` after a letter stands for every label in that slot and every later one (`fold::open_slot`, the reading the cross-configuration exchange uses), so for such a row the first match must give the row's outcome on every continuation the configuration's stream can carry, the row's own configuration's rules included. Where an emitted lookahead class admits only part of the row's deep class, which a rule folded from another configuration's fiber partition can do while still giving every member the row's outcome, each member is checked separately. A row matched with a different outcome fails the build, naming the configuration, the row, the continuation of its open slot, the emitted rule that fired and the table's own rule.
+    """Run the shipped-order stage: replay the settlement order the emitter ships (every configuration's table folded into one lookup and sorted by `emit_gsub._ordered_settle_rules`), first match wins, against every row of every configuration's window enumeration. The crate's `replay-emitted` subcommand (`rebuild/kernel-rs/src/shipped_order.rs`) does this, one process per configuration over the packed enumeration the build just wrote under `out_dir`. The order is built once (`emit_gsub.emitted_order_tsv`), its rules counted for the summary's `rules`, and encoded once, and each walk builds its configuration's context (`emit_gsub.emitted_context_tsv`); each walk's crate reads both from pipes it inherits (`kernel_exec.replay_emitted`), so neither reaches the disk, and every walk's order is written from the one encoded copy. The count goes to the crate beside the order, so a walk whose order ends short fails instead of walking a shorter one. Each row, renamed into the stream its configuration's marker lookups produce, must be matched by the first emitted rule of its input that admits it, with the row's own outcome. A `#NA` after a letter stands for every label in that slot and every later one (`fold::open_slot`, the reading the cross-configuration exchange uses), so for such a row the first match must give the row's outcome on every continuation the configuration's stream can carry, the row's own configuration's rules included. Where an emitted lookahead class admits only part of the row's deep class, which a rule folded from another configuration's fiber partition can do while still giving every member the row's outcome, each member is checked separately. A row matched with a different outcome fails the build, naming the configuration, the row, the continuation of its open slot, the emitted rule that fired and the table's own rule.
 
     This is the only check of the shipped order that reads the tables. The fold's partition check, the string replay and the witness stage each walk a configuration's rules in that configuration's own order, and read-back compares the font with the plan, not the plan with the tables. Without this stage the shipped order would be checked only by the HarfBuzz conformance sweep, which is keyed on code and behavior classes and skips a rune edit that adds no new rule shape. So this runs on every build, on the tables the build just folded, and a rune edit that reorders the fold without adding a rule shape fails here instead of at the next code change. It costs O(rows) per configuration and settles nothing. Every configuration walks at once up to the cores (`_core_bound_threads`), each in one small single-threaded process that holds the rules and labels and no memo or engine. Its other scratch, the per-row candidate lists and the continuation search's, is reused from row to row and bounded by the largest input's emitted rules and the labels their slots name, so the memory-derived width of the table build and the string replay does not apply to this pool. `ready`, when given, is called with the configuration's name on the walker thread before its enumeration is opened; the build passes `Packing.wait`, so each walk starts as soon as its own pack is written instead of after the whole build's.
     """
@@ -1152,47 +1152,47 @@ def run_emitted_order(
     configs = [config for config in conform.SETTLEMENT_CONFIGS if config in tables]
     threads = _core_bound_threads(len(configs))
     summary: dict = {"pass": True, "configs": {}, "error": None}
-    with tempfile.TemporaryDirectory() as scratch:
-        directory = Path(scratch)
-        order = directory / "emitted-order.tsv"
-        order.write_text(emit_gsub.emitted_order_tsv(spec, tables))
-        summary["rules"] = sum(1 for _ in order.read_text().splitlines()) - 2
+    text = emit_gsub.emitted_order_tsv(spec, tables)
+    rules = len(text.splitlines()) - 2
+    order = text.encode()
+    del text
+    summary["rules"] = rules
 
-        def walk_one(config: str) -> tuple[str, dict[str, int]]:
-            started = time.perf_counter()
-            entry = tables[config]
-            decision = entry[0] if isinstance(entry, (tuple, list)) else entry
-            context = directory / f"context-{config}.tsv"
-            context.write_text(emit_gsub.emitted_context_tsv(spec, config, decision))
-            if ready is not None:
-                ready(config)
-            answer = kernel_exec.replay_emitted(
-                table_module.windows_path(out_dir, config),
-                config=config,
-                table=out_dir / f"settlement-{config}.tsv",
-                order=order,
-                context=context,
-                timings=True,
-            )
-            console.timing(
-                f"emitted_order[{config}]",
-                time.perf_counter() - started,
-                " ".join(f"{key}={answer[key]}" for key in kernel_exec.EMITTED_COUNTS),
-            )
-            return config, answer
+    def walk_one(config: str) -> tuple[str, dict[str, int]]:
+        started = time.perf_counter()
+        entry = tables[config]
+        decision = entry[0] if isinstance(entry, (tuple, list)) else entry
+        context = emit_gsub.emitted_context_tsv(spec, config, decision).encode()
+        if ready is not None:
+            ready(config)
+        answer = kernel_exec.replay_emitted(
+            table_module.windows_path(out_dir, config),
+            config=config,
+            table=out_dir / f"settlement-{config}.tsv",
+            order=order,
+            order_rules=rules,
+            context=context,
+            timings=True,
+        )
+        console.timing(
+            f"emitted_order[{config}]",
+            time.perf_counter() - started,
+            " ".join(f"{key}={answer[key]}" for key in kernel_exec.EMITTED_COUNTS),
+        )
+        return config, answer
 
-        with ThreadPoolExecutor(max_workers=threads, thread_name_prefix="emitted-walk") as walkers:
-            futures = [walkers.submit(walk_one, config) for config in configs]
-            for finished in as_completed(futures):
-                try:
-                    config, answer = finished.result()
-                except kernel_exec.EmittedOrderDisagreement as error:
-                    summary["pass"] = False
-                    summary["error"] = str(error)
-                    for other in futures:
-                        other.cancel()
-                    break
-                summary["configs"][config] = answer
+    with ThreadPoolExecutor(max_workers=threads, thread_name_prefix="emitted-walk") as walkers:
+        futures = [walkers.submit(walk_one, config) for config in configs]
+        for finished in as_completed(futures):
+            try:
+                config, answer = finished.result()
+            except kernel_exec.EmittedOrderDisagreement as error:
+                summary["pass"] = False
+                summary["error"] = str(error)
+                for other in futures:
+                    other.cancel()
+                break
+            summary["configs"][config] = answer
     summary["configs"] = {
         config: summary["configs"][config] for config in configs if config in summary["configs"]
     }

@@ -847,7 +847,7 @@ fn a_table_build_without_a_stamp_is_a_usage_error() {
     }
 }
 
-/// `replay-emitted` through the binary. Given as its order a table's own settlement TSV, with the marker renames the context file declares applied, it accounts for every row of the table's enumeration, whether the windows come from a file or from stdin. The answer counts the rows that leave a slot open after a letter, none of which needs the continuation search. A context file with a line that is not a `rename`, `class`, or `foreign` record exits 1 naming the file. A command line missing one of the three files, or with a mode flag, exits 2.
+/// `replay-emitted` through the binary. Given as its order a table's own settlement TSV, with the marker renames the context file declares applied, it accounts for every row of the table's enumeration, whether the windows come from a file or from stdin. The answer counts the rows that leave a slot open after a letter, none of which needs the continuation search. A context file with a line that is not a `rename`, `class`, or `foreign` record exits 1 naming the file, and so does an order whose rule count is not the one `--order-rules=` names, naming both counts. A command line missing one of the three files or the rule count, or with a mode flag, exits 2.
 #[test]
 fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     let root = scratch("cli-emitted");
@@ -903,6 +903,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         }
         renamed.push('\n');
     }
+    let order_rules = renamed.lines().count() - 2;
     std::fs::write(&order, renamed).expect("the order file is writable");
     let rows = std::fs::read_to_string(&windows)
         .expect("the enumeration landed")
@@ -911,6 +912,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         - 2;
     let table_flag = format!("--table={}", word(&table));
     let order_flag = format!("--order={}", word(&order));
+    let rules_flag = format!("--order-rules={order_rules}");
     let context_flag = format!("--context={}", word(&context));
     let output = run(&[
         "replay-emitted",
@@ -918,6 +920,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         "--config=ss03",
         &table_flag,
         &order_flag,
+        &rules_flag,
         &context_flag,
     ]);
     assert!(output.status.success(), "{}", stderr_of(&output));
@@ -939,6 +942,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
             "--config=ss03",
             &table_flag,
             &order_flag,
+            &rules_flag,
             &context_flag,
             "--timings",
         ])
@@ -969,6 +973,7 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         "--config=ss03",
         &table_flag,
         &order_flag,
+        &rules_flag,
         &format!("--context={}", word(&stray)),
     ]);
     assert_eq!(refused.status.code(), Some(1));
@@ -977,6 +982,24 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         "{}",
         stderr_of(&refused)
     );
+    let short = run(&[
+        "replay-emitted",
+        word(&windows),
+        "--config=ss03",
+        &table_flag,
+        &order_flag,
+        &format!("--order-rules={}", order_rules + 1),
+        &context_flag,
+    ]);
+    assert_eq!(short.status.code(), Some(1));
+    assert!(
+        stderr_of(&short).contains(&format!(
+            "order.tsv: the order holds {order_rules} rules where --order-rules= names {}",
+            order_rules + 1
+        )),
+        "{}",
+        stderr_of(&short)
+    );
 
     let missing = run(&[
         "replay-emitted",
@@ -984,14 +1007,25 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         "--config=ss03",
         &table_flag,
         &order_flag,
+        &rules_flag,
     ]);
     assert_eq!(missing.status.code(), Some(2));
+    let uncounted = run(&[
+        "replay-emitted",
+        word(&windows),
+        "--config=ss03",
+        &table_flag,
+        &order_flag,
+        &context_flag,
+    ]);
+    assert_eq!(uncounted.status.code(), Some(2));
     let with_mode_flag = run(&[
         "replay-emitted",
         word(&windows),
         "--config=ss03",
         &table_flag,
         &order_flag,
+        &rules_flag,
         &context_flag,
         "--follower-prefer-slots-off",
     ]);
