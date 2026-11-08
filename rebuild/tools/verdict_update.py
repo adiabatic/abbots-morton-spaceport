@@ -8,6 +8,8 @@ The standing fill runs with `--open-only --require-reach`, its persistent memo, 
 
 The accepted list (`rebuild.review.accepted`; `--accepted`, by default rebuild/accepted-units.txt beside --autosave, which only a store named verdicts-autosave.json has, so the cycle names it for its prepared store) is read once and handed to every step: in process to the carry and the merges, and by path to the fills and the complaint list. The served corpus (`--served-corpus`) is where the carry counts the list's units among the prior verdicts. Every carry of the store, through --verdicts or --store-snapshot, hands the merge the store's skips as tombstones (`skip_clears`), since the carry drops every skip. The store's override section, its records and tombstones on listed units (`accepted.Overrides`), travels in neither the carried file nor those tombstones: the merge keeps the section of the store it merges into, which is the store the carry read or the cycle's copy of it, whole, a stamp move turning its skips into tombstones (`merge_verdicts`), so an override or a clear on an accepted unit survives the pass whatever corpus its unit is on. With nothing to merge, a store that does not pair with the list is refused before the first fill, as one the carry cannot read is.
 
+On a pass that lands, the cycle names the snapshot it copied the prepared store from (`--prepared-from`). At its end the update compares the store at --autosave with that snapshot, size first and then in chunks (`output_sink.same_bytes`), and when every step left it as the snapshot's bytes, because every merge skips its write when it changes nothing, it records that beside the store for the land (`landing.record_unchanged`), which then leaves the live store in place (`landing`'s module docstring says when). Its completion line ends `r_unchanged=true` or `r_unchanged=false` then, and names nothing without `--prepared-from`.
+
 The update refuses before it parses its command line while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
 """
 
@@ -24,7 +26,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rebuild.review import accepted, unit_index  # noqa: E402
+from rebuild.pipeline import output_sink  # noqa: E402
+from rebuild.review import accepted, landing, unit_index  # noqa: E402
 from rebuild.review.accepted import Accepted  # noqa: E402
 from rebuild.review.journal import AUTOSAVE_NAME, JOURNAL_NAME, beside_store, journal_path_for  # noqa: E402
 from rebuild.review.landing import SNAPSHOT_NAME  # noqa: E402
@@ -42,6 +45,7 @@ CORPUS = ROOT / "rebuild/out/review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
 DUPLICATE_FILL_NAME = "verdicts-duplicate-fill.json"
 STANDING_FILL_NAME = "verdicts-standing-fill.json"
+R_UNCHANGED = "r_unchanged"
 STORE_CARRIED_NOTE = "the store's snapshot is carried onto the corpus by unit id before the merge, because it is stamped for an older corpus or is not an ams-review-verdicts/1 document and the merge would set the store aside and keep none of its verdicts; the carry refuses a snapshot it cannot read, and the merge keeps the snapshot's skips as tombstones"
 
 
@@ -175,6 +179,12 @@ def main(argv: list[str] | None = None) -> int:
         help="with --carry-out, and --verdicts or --merge-master: the snapshot of the store that --autosave copies, as the snapshot step left it, so it may be missing. With --verdicts alone it is carried beside them when it exists. With --merge-master it is carried only when the merge would set that store aside, because the snapshot is stamped for an older corpus or is not an ams-review-verdicts/1 document: a snapshot stamped for an older corpus, or one that is not such a document but holds a readable `verdicts` list, is carried onto the corpus by unit id, its skips kept as tombstones, and the master merged into the result, so the store's verdicts are kept, and one the carry cannot read is refused by the carry, which names it (`carry_verdicts.resolve_prior`). A missing snapshot, or an ams-review-verdicts/1 document stamped for the corpus or a newer one, is not carried",
     )
     parser.add_argument("--autosave", type=pathlib.Path, default=AUTOSAVE)
+    parser.add_argument(
+        "--prepared-from",
+        type=pathlib.Path,
+        metavar="SNAPSHOT",
+        help="the snapshot the cycle copied --autosave from (`landing.snapshot`): at its end the update records beside --autosave whether it left the store as the snapshot's bytes, for the land (`landing.record_unchanged`), and names it on its completion line as r_unchanged",
+    )
     parser.add_argument(
         "--accepted",
         type=pathlib.Path,
@@ -434,7 +444,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         if code:
             return code
-    print(console.COMPLETE_LINE + "duplicate, standing, duplicate", flush=True)
+    unchanged = ""
+    if args.prepared_from is not None:
+        same = output_sink.same_bytes(args.autosave, args.prepared_from)
+        landing.record_unchanged(args.autosave, same)
+        unchanged = f" {R_UNCHANGED}={'true' if same else 'false'}"
+    print(console.COMPLETE_LINE + "duplicate, standing, duplicate" + unchanged, flush=True)
     return 0
 
 

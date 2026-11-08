@@ -21,6 +21,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from rebuild.pipeline import output_sink
+
 EXPORT_FORMAT = "ams-review-verdicts/1"
 SCAN_STATE_FORMAT = "ams-journal-scan/3"
 JOURNAL_NAME = "verdicts-journal.ndjson"
@@ -703,7 +705,7 @@ def base_due(events, at: str, *, marker: Path | None = None) -> bool:
 
 
 def save_scan_state(path, state: ScanState | None) -> None:
-    """Write `state` to `path` for a later scan to resume from, replacing the file atomically, or remove the file when there is no state to resume from. A state a scan produced is safe to save, because a later scan resumes from it only after checking it against the journal (`_holds`)."""
+    """Write `state` to `path` for a later scan to resume from, replacing the file atomically (`output_sink.replace_output`), or remove the file when there is no state to resume from. A file that already holds the state, as after a pass whose journal did not grow, is left in place. A state a scan produced is safe to save, because a later scan resumes from it only after checking it against the journal (`_holds`)."""
     path = Path(path)
     if state is None or state.inode is None:
         path.unlink(missing_ok=True)
@@ -730,10 +732,7 @@ def save_scan_state(path, state: ScanState | None) -> None:
             for mark in state.marks
         ],
     }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, separators=(",", ":")))
-    os.replace(tmp, path)
+    output_sink.replace_output(path, json.dumps(payload, separators=(",", ":")), keep_if_equal=True)
 
 
 def load_scan_state(path) -> ScanState | None:

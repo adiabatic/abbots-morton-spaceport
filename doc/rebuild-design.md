@@ -396,7 +396,7 @@ The designed fallback is two-strata staged-wave emission: stratum 1 over raw fac
 
 ## 8. Generated artifacts
 
-The build writes two diff-stable tables per settlement configuration under `rebuild/out/m1/`, so a change in the font's behavior shows up as a table diff. `rebuild/out/` is gitignored and every build rewrites these files, so a hand edit does not survive a build.
+The build writes two diff-stable tables per settlement configuration under `rebuild/out/m1/`, so a change in the font's behavior shows up as a table diff. `rebuild/out/` is gitignored and every build writes these files, leaving one in place only when its bytes come out the same, so a hand edit does not survive a build.
 
 - **The settlement table** (`settlement-<config>.tsv`, one per configuration in `conform.SETTLEMENT_CONFIGS`; the ss10 overlay settles nothing and has none). Each row is one rule: an input rune, a class of settled left glyphs, four raw lookahead classes, the outcome cell, a `joint` flag, and provenance pointers to the YAML records that shaped it. Its diff is the diff of the font's settlement behavior.
 - **The join table** (`joins-<config>.tsv`): one row per reachable pair of adjacent cells, with the join height or `break`, the summed extension, and a kern. The §9 defect gates and the review corpus's table diff read it. The crate writes `kern` as 0 on every row, because the rebuild emits no kerning yet (§12).

@@ -1,4 +1,4 @@
-"""The review facts: the counts and structural facts a corpus build reduces its state to, and the regenerator that writes them to rebuild/review-facts-pins.json, the last accepted review facts. Every non-staging artifact-cycle pass rewrites that file from the corpus's review-facts.json sidecar and names what moved in its invariant block. Committing the rewritten file accepts the new review facts. No gate checks the checked-in numbers, so a changed count is something to read, not a failure.
+"""The review facts: the counts and structural facts a corpus build reduces its state to, and the regenerator that writes them to rebuild/review-facts-pins.json, the last accepted review facts. Every non-staging artifact-cycle pass regenerates that file from the corpus's review-facts.json sidecar, writing it only when its bytes change, and names what moved in its invariant block. Committing the rewritten file accepts the new review facts. No gate checks the checked-in numbers, so a changed count is something to read, not a failure.
 
 The file has two blocks so the cycle can say what kind of change a pass made. `volatile` holds the manifest, built, audit, ink, and unmatched_groups groups, which change with every migrated letter. The unmatched_groups group counts the pre-merge units in each change group, the UNMATCHED units and the units re-routed out of an `ink_identical` class because their picture changes, and under `rerouted` how many each `ink_identical` class re-routed, so a broken identical claim shows as a number rather than as change-group growth. `invariant` holds the structural facts a person should review when they change: which classes the corpus ships, which classes the build machine-approves, which are exempt from individual verdicts, and which change groups the corpus reaches. Its class lists are in ledger order and then `CHANGE_GROUP_ORDER` (`class_rank`), not in the manifest's section order, so a class that changes section does not reorder them. The invariant block repeats structure that the volatile groups' keys already carry. Both blocks come from one emission, so they cannot disagree, and the separate block lets `invariant_delta` name a new class or a new no-verdict exemption in one summary line and lets the cycle print a diff of that block alone. `rebuild/out/cycle_summary.json` also records the corpus's totals. The machine-approved and change-group lists are recorded nowhere else, because both are emergent: a class is machine-approved when the build approved at least one of its units through any machine check, whatever the ledger declares. `ledger_coverage` compares the ledger's declarations with them.
 
@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
+from rebuild.pipeline import output_sink
 from rebuild.review.audit import (
     BATCH_SIZE,
     NO_VERDICT,
@@ -545,9 +546,12 @@ def build_facts(
 
 
 def write_facts(out_dir: Path, facts: dict) -> None:
-    """Write the sidecar beside the manifest as compact JSON."""
-    path = Path(out_dir) / FACTS_FILENAME
-    path.write_text(json.dumps(facts, separators=(",", ":"), ensure_ascii=True) + "\n", encoding="utf-8")
+    """Write the sidecar beside the manifest as compact JSON, leaving a sidecar that already holds those bytes in place (`output_sink.write_output`)."""
+    output_sink.write_output(
+        Path(out_dir) / FACTS_FILENAME,
+        json.dumps(facts, separators=(",", ":"), ensure_ascii=True) + "\n",
+        keep_if_equal=True,
+    )
 
 
 def load_facts(out_dir: Path, manifest: dict) -> dict:
@@ -597,8 +601,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    PINS_PATH.write_text(_dumps(compute_pins(args.corpus)), encoding="utf-8")
-    print(f"Wrote {PINS_PATH.relative_to(REPO_ROOT)}", file=sys.stderr)
+    shown = PINS_PATH.relative_to(REPO_ROOT)
+    if output_sink.write_output(PINS_PATH, _dumps(compute_pins(args.corpus)), keep_if_equal=True):
+        print(f"Wrote {shown}", file=sys.stderr)
+    else:
+        print(f"{shown} unchanged, left in place", file=sys.stderr)
     return 0
 
 

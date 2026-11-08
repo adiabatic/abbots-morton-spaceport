@@ -48,6 +48,7 @@ from rebuild.pipeline import (
     kernel_exec,
     kernel_io,
     oracle_cache,
+    output_sink,
     readback,
     spec_load,
     surface,
@@ -819,7 +820,9 @@ def _run_glyph_chain(
     readback_report = readback.verify_font(
         font_path, gsub_plan, emit_gpos.cursive_registrations(curs_glyphs, spec=spec)
     )
-    (out_dir / "readback_summary.json").write_text(json.dumps(readback_report, indent=2) + "\n")
+    output_sink.write_output(
+        out_dir / "readback_summary.json", json.dumps(readback_report, indent=2) + "\n", keep_if_equal=True
+    )
     _build_phase_lines.append(
         console.timing("readback", time.perf_counter() - start, readback_tokens(readback_report, commit))
     )
@@ -837,7 +840,9 @@ def _run_glyph_chain(
         **_defect_summary_fields(defect_report),
         "font": str(font_path),
     }
-    (out_dir / "pipeline_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    output_sink.write_output(
+        out_dir / "pipeline_summary.json", json.dumps(summary, indent=2) + "\n", keep_if_equal=True
+    )
     return summary
 
 
@@ -1099,7 +1104,9 @@ def run_rule_witnesses(
                 f"rules={report.rules} witnessed={len(report.witnessed)} guards={report.guards} served={report.served} unasked={report.unasked} fresh={report.fresh}",
             )
     summary = {"pass": not failures, "configs": per_config, "failures": failures[:50]}
-    (out_dir / "witness_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    output_sink.write_output(
+        out_dir / "witness_summary.json", json.dumps(summary, indent=2) + "\n", keep_if_equal=True
+    )
     return summary
 
 
@@ -1196,7 +1203,9 @@ def run_emitted_order(
     summary["configs"] = {
         config: summary["configs"][config] for config in configs if config in summary["configs"]
     }
-    (out_dir / EMITTED_ORDER_SUMMARY).write_text(json.dumps(summary, indent=2) + "\n")
+    output_sink.write_output(
+        out_dir / EMITTED_ORDER_SUMMARY, json.dumps(summary, indent=2) + "\n", keep_if_equal=True
+    )
     return summary
 
 

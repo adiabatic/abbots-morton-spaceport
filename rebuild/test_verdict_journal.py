@@ -883,6 +883,24 @@ def test_a_scan_that_meets_a_line_still_being_appended_stops_before_it(tmp_path,
     assert journal.scan(path, resume=raced.state).state == journal.scan(path).state
 
 
+def test_a_scan_state_saved_again_over_a_journal_that_has_not_grown_is_left_in_place(tmp_path):
+    """Retention saves the scan state after every green pass. While the journal has not grown, the state comes out the same, so the file keeps its inode and its modification time, here set long ago so that any write would move it; once the journal grows, the new state replaces it."""
+    path = tmp_path / "journal.ndjson"
+    _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
+    state_path = tmp_path / "cycle" / "journal-scan.json"
+    journal.save_scan_state(state_path, journal.scan(path).state)
+    os.utime(state_path, ns=(1_000_000_000, 1_000_000_000))
+    inode = state_path.stat().st_ino
+    resumed = journal.scan(path, resume=journal.load_scan_state(state_path)).state
+    journal.save_scan_state(state_path, resumed)
+    assert (state_path.stat().st_ino, state_path.stat().st_mtime_ns) == (inode, 1_000_000_000)
+    _append_base(path, "S2", "S1", ["u-1"], ["u-2"], "2026-07-10T03:00:00Z")
+    journal.save_scan_state(state_path, journal.scan(path).state)
+    assert journal.load_scan_state(state_path) == journal.scan(path).state
+    assert state_path.stat().st_mtime_ns != 1_000_000_000
+    assert sorted(entry.name for entry in state_path.parent.iterdir()) == ["journal-scan.json"]
+
+
 def test_a_saved_scan_state_in_another_format_or_unreadable_is_not_resumed(tmp_path):
     state_path = tmp_path / "journal-scan.json"
     assert journal.load_scan_state(state_path) is None

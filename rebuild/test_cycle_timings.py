@@ -3,7 +3,10 @@ import json
 import os
 import re
 import socket
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -402,6 +405,44 @@ def test_finish_records_what_the_pass_wrote_with_its_basis_and_write_class(tmp_p
         "class": "narrowed",
     }
     assert writes is not None and writes.block == run["written"] and writes.ceiling is None
+
+
+# One process's writes through `output_sink`'s helper: an output written fresh, written again with the same bytes, which it leaves in place, and replaced with other bytes.
+HELPER_CALLS = """
+import sys
+from pathlib import Path
+from rebuild.pipeline import output_sink
+target = Path(sys.argv[1])
+output_sink.write_output(target, b"same", keep_if_equal=True)
+output_sink.write_output(target, b"same", keep_if_equal=True)
+output_sink.replace_output(target, b"other!", keep_if_equal=True)
+"""
+
+
+def test_the_run_lines_outputs_block_sums_every_processs_helper_calls_and_removes_the_counts_file(tmp_path):
+    """Every process of a pass inherits the counts file the cycle names (`OUTPUT_COUNTS_ENV`, `CycleTimings.open_output_counts`), and each call through `output_sink`'s helper appends its line there. The run line's `written` block sums them all as `outputs`, here three processes' four bytes written and kept and six replaced, and the file is gone once the run line is written. A pass with no helper call has no `outputs` block."""
+    path = tmp_path / "j.ndjson"
+    timings = ct.CycleTimings(path, meter=_Meter())
+    counts = timings.open_output_counts(tmp_path / "cycle")
+    env = {**os.environ, ct.OUTPUT_COUNTS_ENV: str(counts)}
+    root = Path(__file__).resolve().parent.parent
+    for index in range(3):
+        target = tmp_path / f"output-{index}"
+        subprocess.run([sys.executable, "-c", HELPER_CALLS, str(target)], env=env, cwd=root, check=True)
+    timings.finish({"exit": "ok", "plan": {}})
+    assert _lines(path)[-1]["written"]["outputs"] == {
+        "files": 6,
+        "bytes": 30,
+        "changed_bytes": 30,
+        "kept_bytes": 12,
+    }
+    assert not counts.exists()
+
+    quiet = ct.CycleTimings(path, meter=_Meter())
+    unused = quiet.open_output_counts(tmp_path / "cycle")
+    quiet.finish({"exit": "ok", "plan": {}})
+    assert "outputs" not in _lines(path)[-1]["written"]
+    assert not unused.exists()
 
 
 @pytest.mark.parametrize("fault", ["raises", "self-check"])

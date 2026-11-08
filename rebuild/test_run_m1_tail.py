@@ -4,6 +4,7 @@ import functools
 import gzip
 import itertools
 import json
+import os
 import shutil
 import stat
 import threading
@@ -133,6 +134,29 @@ class TestTheBranches:
             gates.close()
         assert summary["configs"] == list(CONFIGS)
         assert not barrier.broken
+
+    def test_a_build_whose_summaries_come_out_the_same_leaves_the_glyph_chains_summaries_in_place(
+        self, monkeypatch, tmp_path
+    ):
+        """A second build over the same tables writes the same `pipeline_summary.json` and `readback_summary.json`, so both stay in place, each keeping its inode and its modification time, here set long ago so that any write would move it."""
+        events: list = []
+        _stub_chain(monkeypatch, events)
+        _stub_gates(monkeypatch, events)
+        summaries = [tmp_path / "pipeline_summary.json", tmp_path / "readback_summary.json"]
+
+        def build() -> None:
+            _summary, gates = _run(tmp_path)
+            try:
+                gates.join()
+            finally:
+                gates.close()
+
+        build()
+        for path in summaries:
+            os.utime(path, ns=(1_000_000_000, 1_000_000_000))
+        kept = [(path.stat().st_ino, 1_000_000_000) for path in summaries]
+        build()
+        assert [(path.stat().st_ino, path.stat().st_mtime_ns) for path in summaries] == kept
 
     def test_the_witness_stage_starts_after_the_replay_has_returned(self, monkeypatch, tmp_path):
         """The replay writes the settle memo file and the witness stage loads it, so the witness stage waits for the replay even though the walk runs beside both."""

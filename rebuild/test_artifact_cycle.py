@@ -465,7 +465,7 @@ def test_dry_run_plan_skip_conform():
 
 
 def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
-    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and is handed the snapshot of the store, which it carries beside another master when the snapshot step found a store, and merges and fills into the prepared copy of the store in the pass's scratch directory, journaling there, so it never writes the live store. The carried file and both fill files go in the scratch directory too, so the pass leaves none of them at the repository root. The prepared copy has no accepted list beside it, so the pass names the one beside the live store."""
+    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and is handed the snapshot of the store, which it carries beside another master when the snapshot step found a store, and merges and fills into the prepared copy of the store in the pass's scratch directory, journaling there, so it never writes the live store. It is told which snapshot that copy was taken from, so it can record for the land whether it left the copy as the snapshot's bytes. The carried file and both fill files go in the scratch directory too, so the pass leaves none of them at the repository root. The prepared copy has no accepted list beside it, so the pass names the one beside the live store."""
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
     assert names.index("store-snapshot") == names.index("corpus-build") + 1
@@ -493,8 +493,9 @@ def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
         "--autosave",
     ]
     assert argv[14] == str(plan.scratch_dir / ac.landing.PREPARED_NAME)
-    assert argv[15:17] == ["--journal", str(plan.scratch_dir / "journal.ndjson")]
-    assert argv[17:21] == [
+    assert argv[15:17] == ["--prepared-from", str(snapshot)]
+    assert argv[17:19] == ["--journal", str(plan.scratch_dir / "journal.ndjson")]
+    assert argv[19:23] == [
         "--duplicate-out",
         str(plan.scratch_dir / ac.DUPLICATE_FILL_NAME),
         "--standing-out",
@@ -3579,7 +3580,7 @@ def test_cycle_summary_payload_records_an_assets_refresh():
 
 
 def test_the_land_row_says_whether_the_land_journaled_a_base_or_sets_and_clears():
-    """The land row names what the land journaled, so whether a land that moved the stamp wrote a base shows in the cycle's output and not only in the journal."""
+    """The land row names what the land journaled, so whether a land that moved the stamp wrote a base shows in the cycle's output and not only in the journal, and says when the land left the store in place because the verdict update changed nothing."""
     landed = {"landed": True, "records": 1200, "new_stamp": "B", "locked_s": 0.4}
     as_base = {**landed, "journal_base": True, "journal_sets": 1200, "journal_clears": 0}
     as_diff = {**landed, "journal_base": False, "journal_sets": 3, "journal_clears": 1500}
@@ -3588,6 +3589,10 @@ def test_the_land_row_says_whether_the_land_journaled_a_base_or_sets_and_clears(
         "landed 1,200 verdicts on B, journaled as 3 sets and 1,500 clears, store locked 0.4 s"
     )
     assert "journaled" not in ac.land_detail({**landed, "journal_base": None})
+    assert ac.land_detail({**landed, "journal_base": None, "store_kept": True, "overlaid": 2}) == (
+        "left the store's 1,200 verdicts in place on B, since the verdict update changed nothing, "
+        "2 saved during the pass, store locked 0.4 s"
+    )
 
 
 def test_cycle_summary_payload_names_the_gates_only_rerun_and_passes_no_kernel_width_to_it():
@@ -7528,7 +7533,7 @@ def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(
 
 
 def test_the_key_a_pass_records_over_its_landed_store_is_the_next_plans_key(tmp_path):
-    """After a land that laid nothing over the prepared store, the cycle keys the green on the store the land wrote (`store=`), and the next plan keys the live store: the two match while no save has changed a record, whatever `exported_at` each carries, and a save made after the land moves the next plan's key. The master that resolved to the live store is named `autosave` both times."""
+    """After a land that laid nothing over the prepared store, the cycle keys the green on the store the land wrote or left in place (`store=`), and the next plan keys the live store: the two match while no save has changed a record, whatever `exported_at` each carries, and a save made after the land moves the next plan's key. The master that resolved to the live store is named `autosave` both times."""
     corpus = tmp_path / "review"
     corpus.mkdir()
     (corpus / "manifest.json").write_text(
@@ -7738,6 +7743,7 @@ def test_run_cycle_records_no_verdict_update_green_without_schedule_completion(m
 
 
 def test_verdict_update_completed_requires_its_own_completion_line():
+    """The completion line names the schedule, and on a pass that lands it also says whether the update left the prepared store as its snapshot (`r_unchanged=true` or `false`); any other tail is not the update's line."""
     report = ac.CycleReport()
     assert ac._verdict_update_completed(report) is False
     report, _failures = _run_verdict_update(
@@ -7746,6 +7752,15 @@ def test_verdict_update_completed_requires_its_own_completion_line():
     assert ac._verdict_update_completed(report) is False
     report, _failures = _run_verdict_update(_plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE))
     assert ac._verdict_update_completed(report) is True
+    schedule = "duplicate, standing, duplicate\n"
+    for tail, completed in (
+        (" r_unchanged=true", True),
+        (" r_unchanged=false", True),
+        (" r_unchanged=yes", False),
+    ):
+        stdout = _verdict_update_stdout(*_FULL_VERDICT_UPDATE).replace(schedule, schedule[:-1] + tail + "\n")
+        report, _failures = _run_verdict_update(_plan(), stdout)
+        assert ac._verdict_update_completed(report) is completed, tail
 
 
 def test_verdict_update_completion_requires_a_successful_child():
@@ -9196,11 +9211,15 @@ def test_the_land_keeps_the_pass_lock_held_after_the_driver_lets_go(tmp_path):
 
 
 def test_main_runs_a_live_pass_under_the_pass_lock_with_its_own_scratch_directory(tmp_path, monkeypatch):
-    """A live pass holds the pass lock from before its plan, sweeps the scratch directories a killed pass left, and deletes its own when it ends. A dry run holds the lock too, and gets no scratch directory."""
+    """A live pass holds the pass lock from before its plan, sweeps the scratch directories and the counts file a killed pass left, and deletes its own when it ends. A dry run holds the lock too, and gets no scratch directory."""
     _settled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     leftover = cycle_paths.CYCLE_VAR / "20200101T000000Z-dead"
     leftover.mkdir(parents=True)
+    leftover_counts = ct.CycleTimings(tmp_path / "dead-timings.ndjson").open_output_counts(
+        cycle_paths.CYCLE_VAR
+    )
+    leftover_counts.write_text("kept\t4\n")
     seen: list[tuple[bool, Path | None]] = []
 
     def pass_lock_held() -> bool:
@@ -9213,7 +9232,8 @@ def test_main_runs_a_live_pass_under_the_pass_lock_with_its_own_scratch_director
     def run_cycle(plan, report, emit, registry, **_):
         seen.append((pass_lock_held(), plan.scratch_dir))
         assert plan.scratch_dir is not None and plan.scratch_dir.is_dir()
-        assert not leftover.exists()
+        assert not leftover.exists() and not leftover_counts.exists()
+        assert Path(os.environ[ct.OUTPUT_COUNTS_ENV]).read_bytes() == b""
         return 0
 
     monkeypatch.setattr(ac, "_run_cycle", run_cycle)
@@ -10079,7 +10099,7 @@ def test_a_promoting_pass_journals_no_corpus_build_line(monkeypatch, tmp_path):
 
 
 def test_the_verdict_update_green_is_keyed_on_the_landed_store_and_not_after_an_overlay(monkeypatch):
-    """The green is keyed on the store the land wrote, so the next plan, which hashes the live store, matches it only when no save changed the store since. A land that laid saves made during the pass over the prepared store records no green, because the fills never saw those saves."""
+    """The green is keyed on the store the land wrote or left in place, so the next plan, which hashes the live store, matches it only when no save changed the store since. A land that laid saves made during the pass over the prepared store records no green, because the fills never saw those saves."""
     _patch_timing_cycle(monkeypatch)
     keyed: list[Path | None] = []
 
@@ -10503,8 +10523,10 @@ def test_a_cycle_without_timings_still_evaluates_every_gate(monkeypatch):
     assert report.gate_conform == "green"
 
 
-def test_main_hands_its_run_id_to_every_child_through_the_environment(tmp_path, monkeypatch):
-    """`main` puts its run id in the environment, and every child inherits it. gate:make-test's wrapper and run_m1's CLI record their own check line unless this variable is set, so it keeps each check to one line. It is set on this process, not passed in a child's argv, because it must survive a Make recipe. The autouse fixture in rebuild/conftest.py removes it after the test, because a leftover run id would silence every check-recording test the worker ran next."""
+def test_main_hands_its_run_id_and_its_counts_file_to_every_child_through_the_environment(
+    tmp_path, monkeypatch
+):
+    """`main` puts its run id in the environment, and every child inherits it. gate:make-test's wrapper and run_m1's CLI record their own check line unless this variable is set, so it keeps each check to one line. It is set on this process, not passed in a child's argv, because it must survive a Make recipe. The pass's counts file goes the same way (`cycle_timings.OUTPUT_COUNTS_ENV`), so every write through `output_sink`'s helper in any child counts toward the pass: it exists, empty, while the pass runs, and is gone once `main` returns, here from a pass that ended without its run line. The autouse fixture in rebuild/conftest.py removes both variables after the test, because a leftover run id would silence every check-recording test the worker ran next."""
     _settled_repo(tmp_path, monkeypatch)
     ac.record_verdict_update_green("plu")
     monkeypatch.setenv(ct.CYCLE_RUN_ENV, "a-stale-run-id")
@@ -10514,11 +10536,15 @@ def test_main_hands_its_run_id_to_every_child_through_the_environment(tmp_path, 
     def fake_cycle(plan, report, emit, registry, **kw):
         seen["env"] = os.environ.get(ct.CYCLE_RUN_ENV)
         seen["run_id"] = kw["timings"].run_id
+        seen["counts"] = Path(os.environ[ct.OUTPUT_COUNTS_ENV])
+        seen["held"] = seen["counts"].read_bytes()
         return 0
 
     monkeypatch.setattr(ac, "_run_cycle", fake_cycle)
     assert ac.main([]) == 0
     assert seen["env"] == seen["run_id"]
+    assert seen["counts"].name == f"output-counts-{seen['run_id']}.tsv" and seen["held"] == b""
+    assert not seen["counts"].exists()
 
 
 def test_main_runs_the_pass_under_the_stop_handlers(tmp_path, monkeypatch, _stop_dispositions):

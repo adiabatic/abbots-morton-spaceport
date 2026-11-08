@@ -35,7 +35,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import IO, Callable, Iterable, Iterator, Literal, Mapping, Protocol, Sequence, cast
 
-from rebuild.pipeline import geometry, kernel_exec, oracle_cache, settle
+from rebuild.pipeline import geometry, kernel_exec, oracle_cache, output_sink, settle
 from rebuild.pipeline.labels import (
     BOUNDARY_GLYPH_NAMES,
     _BOUNDARY_KIND_LABELS,
@@ -143,7 +143,7 @@ class ConformReport:
             "notes": self.notes,
         }
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(summary, indent=2) + "\n")
+        output_sink.write_output(path, json.dumps(summary, indent=2) + "\n", keep_if_equal=True)
 
 
 def zwnj_slots(text: str, shaped: list[dict]) -> set[int]:

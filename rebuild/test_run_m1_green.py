@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import os
 import pickle
 import time
 import zlib
@@ -26,6 +27,8 @@ from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
 from rebuild.tools import cycle_paths, green_record
 from rebuild.tools import cycle_timings as ct
+
+LONG_AGO_NS = 1_000_000_000
 
 STAGE_A = {"data": "d", "baselines": "b", "pipeline_code": "p"}
 
@@ -455,6 +458,23 @@ def test_a_failed_manual_pin_gate_clears_the_record(monkeypatch, tmp_path):
     assert ac.read_green_record(store) is None
 
 
+def test_a_manual_pin_summary_that_comes_out_the_same_is_left_in_place(monkeypatch, tmp_path):
+    """A second run of the Manual-pin gate whose summary comes out the same leaves `manual_pins_summary.json` in place, keeping its inode and its modification time, here set long ago so that any write would move it."""
+    monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: None)
+    monkeypatch.setattr(run_m1_gates.manual_pins, "run_gate", lambda font, spec: None)
+    monkeypatch.setattr(
+        run_m1_gates.manual_pins,
+        "summarize",
+        lambda report: {"pass": True, "disagreements": [], "pins_in_scope": 4, "replayed": 4},
+    )
+    summary = tmp_path / "manual_pins_summary.json"
+    run_m1_gates.run_manual_pin_gate(tmp_path)
+    os.utime(summary, ns=(LONG_AGO_NS, LONG_AGO_NS))
+    inode = summary.stat().st_ino
+    run_m1_gates.run_manual_pin_gate(tmp_path)
+    assert (summary.stat().st_ino, summary.stat().st_mtime_ns) == (inode, LONG_AGO_NS)
+
+
 def test_a_manual_pin_gate_with_nothing_in_scope_clears_the_record(monkeypatch, tmp_path):
     """`pass` is `not disagreements`, so a gate that replayed no pin reports a pass. run_m1 also requires pins in scope, so an empty replay fails the build."""
     store = tmp_path / "run-m1-green.json"
@@ -849,6 +869,16 @@ class TestOracleFanIn:
         assert lines[0] == oracle.ORACLE_AUDIT_HEADER
         assert [line.split("\t")[0] for line in lines[1:]] == list(conform.ORACLE_CONFIGS)
         assert self._files_left(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
+
+    def test_an_oracle_summary_that_comes_out_the_same_is_left_in_place(self, monkeypatch, tmp_path):
+        """A second oracle run whose summary comes out the same leaves `oracle_summary.json` in place, keeping its inode and its modification time, here set long ago so that any write would move it."""
+        self._pool(monkeypatch, self._worker())
+        summary = tmp_path / "oracle_summary.json"
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
+        os.utime(summary, ns=(LONG_AGO_NS, LONG_AGO_NS))
+        inode = summary.stat().st_ino
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
+        assert (summary.stat().st_ino, summary.stat().st_mtime_ns) == (inode, LONG_AGO_NS)
 
     def test_the_summary_counts_every_ranges_multi_matched_rows(self, monkeypatch, tmp_path):
         """The gate reads `multi_matched` from `oracle_summary.json`, so the file must hold the sum of the counts the ranges return (one per configuration when nothing is cut, one per range when the tables are), or a ledger with overlapping entries would pass. Every range reports at least two, and each cut range one more than the range before it, so a summary that counted ranges instead of summing their counts would be short."""
@@ -1824,7 +1854,7 @@ class TestGatesOnly:
         assert (reported.status, reported.failures) == red
 
     def test_it_rewrites_only_the_defect_fields_of_the_builds_summary(self, monkeypatch, tmp_path):
-        """The defect gate writes its result into the summary the build left, so the evaluator reads this pass's defect result, not the one from before the bless. The rest of the summary belongs to the build and is left as it was, since this pass compiles no font and counts no GSUB rule."""
+        """The defect gate writes its result into the summary the build left, so the evaluator reads this pass's defect result, not the one from before the bless. The rest of the summary belongs to the build and is left as it was, since this pass compiles no font and counts no GSUB rule. A second pass whose defect fields come out the same leaves the file in place, keeping its inode and its modification time, here set long ago so that any write would move it."""
         report = defects.DefectReport(
             flags=[defects.Defect("W-CONTACT", "qsAh~qsBay", "grazes")],
             unused_records=["qsZoo", "qsAh"],
@@ -1852,6 +1882,11 @@ class TestGatesOnly:
             "unused_records": ["qsAh", "qsZoo"],
             "waiting_on_unmigrated": ["qsNo"],
         }
+        summary = tmp_path / "pipeline_summary.json"
+        os.utime(summary, ns=(LONG_AGO_NS, LONG_AGO_NS))
+        inode = summary.stat().st_ino
+        run_m1_gates.run_gates_only(out_dir=tmp_path)
+        assert (summary.stat().st_ino, summary.stat().st_mtime_ns) == (inode, LONG_AGO_NS)
 
     def test_a_defect_error_exits_red_before_the_pin_gate_and_clears_the_green(self, monkeypatch, tmp_path):
         """A bless that does not cover a contact fails here under the defect gate with the failure the cycle files for a full build that stopped there (`artifact_cycle._defect_gate_failure`), which names the first error, and stops the pass before any pin is replayed. The pass clears the green its key matches, because the failure contradicts it."""
@@ -2081,15 +2116,15 @@ class TestGatesOnly:
             json.dumps({"format": fingerprint.FORMAT, **{name: "before" for name in STAGE_A}})
         )
         summary = tmp_path / "pipeline_summary.json"
-        write_text = Path.write_text
+        write_bytes = Path.write_bytes
         at_summary_write = []
 
         def watched(path, *args, **kwargs):
             if path == summary:
                 at_summary_write.append(fingerprint.read_stage_a(tmp_path))
-            return write_text(path, *args, **kwargs)
+            return write_bytes(path, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "write_text", watched)
+        monkeypatch.setattr(Path, "write_bytes", watched)
         run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert at_summary_write == [None]
 

@@ -413,6 +413,57 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     }
 }
 
+/// A second table build into the same directory leaves each settlement and join table whose bytes come out the same in place, so each keeps its inode and modification time, and a table path linked to the null device, as `memory_series.route` links both, is written through and stays a link.
+#[test]
+fn a_second_table_build_leaves_its_unchanged_tables_in_place() {
+    use std::os::unix::fs::MetadataExt;
+    let root = scratch("cli-tables-kept");
+    let spec = spec_at(&root);
+    let outdir = root.join("tables");
+    let build = || {
+        let output = run(&[
+            "build-tables",
+            word(&spec),
+            word(&outdir),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            "--threads=2",
+        ]);
+        assert!(output.status.success(), "{}", stderr_of(&output));
+    };
+    let tables: Vec<PathBuf> = CONFIGS
+        .iter()
+        .flat_map(|(token, _)| {
+            ["settlement", "joins"].map(|family| outdir.join(format!("{family}-{token}.tsv")))
+        })
+        .collect();
+    let identities = || -> Vec<(u64, i64, i64)> {
+        tables
+            .iter()
+            .map(|path| {
+                let metadata = std::fs::symlink_metadata(path).expect("every table lands");
+                (metadata.ino(), metadata.mtime(), metadata.mtime_nsec())
+            })
+            .collect()
+    };
+    build();
+    let first = identities();
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    build();
+    assert_eq!(identities(), first, "the second build rewrote a table");
+    let linked = outdir.join("joins-ss03.tsv");
+    std::fs::remove_file(&linked).expect("the table is removable");
+    std::os::unix::fs::symlink("/dev/null", &linked).expect("a link can stand at a table path");
+    build();
+    assert!(
+        std::fs::symlink_metadata(&linked)
+            .expect("the link is there")
+            .file_type()
+            .is_symlink(),
+        "the build replaced the link"
+    );
+}
+
 /// Sharing `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--no-default-memo-sharing`, which enumerates every configuration from scratch. Serving the deltas `default`'s liveness verdicts changes no file either: a build with `--no-verdict-sharing` writes the sharing build's tables and digests. Each build's cache stats show the schedule its flag asks for: `ss03` takes windows from `default`'s memo in the sharing build and the one serving no verdicts, and none in the build from scratch. Every build here runs at [`SMALL_MEMO_CEILINGS`].
 #[test]
 fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files() {

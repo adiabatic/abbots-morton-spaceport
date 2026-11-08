@@ -2795,7 +2795,9 @@ class TestFontBlindComparison:
 
 class TestConformSummary:
     def test_a_conformance_summary_stays_in_its_established_shape(self, tmp_path):
+        """The summary keeps its fields, and a second sweep whose summary comes out the same, as gate:conform's or either deep sweep's, leaves the file in place, keeping its inode and its modification time, here set long ago so that any write would move it."""
         import json
+        import os
 
         report = conform.merge_conformance_results(Path("M1.otf"), [])
         path = tmp_path / "conform_summary.json"
@@ -2810,6 +2812,10 @@ class TestConformSummary:
             "pass",
             "notes",
         }
+        os.utime(path, ns=(1_000_000_000, 1_000_000_000))
+        inode = path.stat().st_ino
+        report.write(path)
+        assert (path.stat().st_ino, path.stat().st_mtime_ns) == (inode, 1_000_000_000)
 
 
 class _SilentShaper:

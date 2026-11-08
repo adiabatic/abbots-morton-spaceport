@@ -1,6 +1,7 @@
 """Tests for the shipped-order stage on the mini fixture. `run_m1.run_emitted_order` runs the crate's `replay-emitted` subcommand, which walks every configuration's rows first-match against the order `emit_gsub._ordered_settle_rules` emits. The build runs this stage over its own tables; these tests cover the order and context the crate reads from its inherited pipes, the stage's summary, the failure that names the row and rule when the order gives a row a different outcome from its table, and a walk that ends before it reads its pipes or reads an order shorter than its count."""
 
 import dataclasses
+import os
 import threading
 
 import pytest
@@ -75,6 +76,7 @@ def test_the_context_file_carries_the_marker_renaming_the_deep_classes_and_the_f
 
 
 def test_the_stage_answers_every_row_of_every_configuration(spec, built):
+    """Every configuration's walk answers its rows, and a second walk over the same tables writes the same summary, so `emitted_order_summary.json` stays in place, keeping its inode and its modification time, here set long ago so that any write would move it."""
     out_dir, tables = built
     summary = run_m1.run_emitted_order(spec, tables, out_dir)
     assert summary["pass"], summary["error"]
@@ -85,7 +87,11 @@ def test_the_stage_answers_every_row_of_every_configuration(spec, built):
         assert summary["configs"][config]["rows"] >= len(decision.rules)
         assert summary["configs"][config]["open_rows"] > 0
         assert summary["configs"][config]["continued"] == 0
-    assert (out_dir / run_m1.EMITTED_ORDER_SUMMARY).is_file()
+    written = out_dir / run_m1.EMITTED_ORDER_SUMMARY
+    os.utime(written, ns=(1_000_000_000, 1_000_000_000))
+    inode = written.stat().st_ino
+    assert run_m1.run_emitted_order(spec, tables, out_dir) == summary
+    assert (written.stat().st_ino, written.stat().st_mtime_ns) == (inode, 1_000_000_000)
 
 
 def test_an_order_that_answers_a_row_differently_is_refused_naming_the_row(spec, built, monkeypatch):

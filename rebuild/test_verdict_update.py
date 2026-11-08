@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped. A direct merge into a store stamped for the corpus that holds a record the carry refuses fails the update at its merge, naming the store, with the store and the journal as they were. With no `--journal`, every merge appends to the journal beside the store, and with no `--duplicate-out` or `--standing-out` the fill files are written beside it, so a run on a copy writes nothing at the repo root. On a pass that carries the store onto a new stamp beside an accepted list, the store's override dated before the close-out survives, its skip on an accepted unit leaves a tombstone, an override or tombstone on an accepted unit the new corpus lacks leaves a tombstone that keeps it blank when a later pass brings it back, and every fill and the complaint list are named the list."""
+"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped. A direct merge into a store stamped for the corpus that holds a record the carry refuses fails the update at its merge, naming the store, with the store and the journal as they were. With no `--journal`, every merge appends to the journal beside the store, and with no `--duplicate-out` or `--standing-out` the fill files are written beside it, so a run on a copy writes nothing at the repo root. On a pass that carries the store onto a new stamp beside an accepted list, the store's override dated before the close-out survives, its skip on an accepted unit leaves a tombstone, an override or tombstone on an accepted unit the new corpus lacks leaves a tombstone that keeps it blank when a later pass brings it back, and every fill and the complaint list are named the list. On a pass that lands, the update says on its completion line whether it left the prepared store as the snapshot it was copied from, and records it for the land only when it did."""
 
 import json
 import pathlib
@@ -666,6 +666,29 @@ def test_the_schedule_matches_the_bounded_reference_with_real_operations(
     assert (
         capsys.readouterr().out.splitlines()[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
     )
+
+
+def test_the_update_records_for_the_land_whether_it_left_the_prepared_store_as_its_snapshot(
+    tmp_path, monkeypatch, capsys
+):
+    """On a pass that lands, the cycle names the snapshot it copied the prepared store from (`--prepared-from`). A run whose fills change the store ends its completion line `r_unchanged=false` and records nothing for the land. A run over a store those fills already settled, where every merge changes nothing and so writes nothing, leaves the store's inode and modification time as they were, ends it `r_unchanged=true`, and records the store for the land (`landing.prepared_unchanged`), which any later write to the store cancels."""
+    paths = _integration_fixture(tmp_path / "current", monkeypatch)
+    snapshot = tmp_path / "run" / landing.SNAPSHOT_NAME
+    snapshot.parent.mkdir()
+    complete = console.COMPLETE_LINE + "duplicate, standing, duplicate"
+    snapshot.write_bytes(paths["autosave"].read_bytes())
+    assert _actual_update(paths, extra=["--prepared-from", str(snapshot)]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == complete + " r_unchanged=false"
+    assert not landing.prepared_unchanged(paths["autosave"])
+    snapshot.write_bytes(paths["autosave"].read_bytes())
+    before = paths["autosave"].stat()
+    assert _actual_update(paths, extra=["--prepared-from", str(snapshot)]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == complete + " r_unchanged=true"
+    after = paths["autosave"].stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+    assert landing.prepared_unchanged(paths["autosave"])
+    paths["autosave"].write_bytes(paths["autosave"].read_bytes())
+    assert not landing.prepared_unchanged(paths["autosave"])
 
 
 @pytest.mark.parametrize("failure", ["manifest", "rules", "reach"])

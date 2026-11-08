@@ -41,7 +41,7 @@ from itertools import batched, chain, combinations
 from pathlib import Path
 from typing import BinaryIO, NoReturn, cast
 
-from rebuild.pipeline import fingerprint, spec_load
+from rebuild.pipeline import fingerprint, output_sink, spec_load
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
 from rebuild.review import app_index, facts, tablediff, unit_cache, unit_index
 from rebuild.review.audit import (
@@ -569,20 +569,10 @@ def unit_to_json(
     return fragment
 
 
-def _write_into_place(target: Path, write: Callable[[Path], object]) -> None:
-    """Have `write` fill a `.partial` file beside `target`, then rename it into place, so a tab that fetches the file mid-write gets the old bytes or the new ones, never a truncated file. An exception from `write` leaves `target` as it was and removes the partial file."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    staging = target.with_name(target.name + ".partial")
-    try:
-        write(staging)
-        staging.replace(target)
-    finally:
-        staging.unlink(missing_ok=True)
-
-
 def _copy_font(
     source: Path, out_dir: Path, name: str, family: str, repo_root: Path, expected_sha256: str
 ) -> dict:
+    """Copy one font into the corpus as `fonts/<name>` and return its manifest record. The copy is renamed into place (`output_sink.replace_output`), so a tab that fetches it mid-copy gets the old font or the new one, and it is checked against `expected_sha256`, the digest the build took when it loaded the font, so the units never describe a font other than the one shipped beside them. A copy already there with that digest is left in place, since it is that font."""
     target = out_dir / "fonts" / name
 
     def copy_checked(staging: Path) -> None:
@@ -594,7 +584,7 @@ def _copy_font(
                 "so the units would describe a font other than the one shipped beside them; rebuild the corpus"
             )
 
-    _write_into_place(target, copy_checked)
+    output_sink.replace_output(target, writer=copy_checked, sha256=expected_sha256, keep_if_equal=True)
     try:
         rel = str(source.resolve().relative_to(repo_root))
     except ValueError:
@@ -609,23 +599,22 @@ def _copy_font(
 
 
 def copy_static(out_dir: Path, static_dir: Path = STATIC_DIR) -> list[str]:
+    """Copy the static app files (`fingerprint.static_files`) into `out_dir`, and a fallback `index.html` naming the build and serve commands when the listing holds no `index.html`, and return their paths relative to it. Each file is renamed into place (`output_sink.replace_output`), so a tab that fetches it mid-copy gets the old bytes or the new ones, and one that already holds the bytes it would get is left in place."""
     copied: list[str] = []
     if static_dir.is_dir():
         for source in fingerprint.static_files(static_dir):
             rel = source.relative_to(static_dir)
-            _write_into_place(out_dir / rel, partial(shutil.copyfile, source))
+            output_sink.replace_output(out_dir / rel, source=source, keep_if_equal=True)
             copied.append(str(rel))
     if "index.html" not in copied:
         fallback = _FALLBACK_INDEX.format(build=BUILD_COMMAND, serve=SERVE_COMMAND)
-        _write_into_place(
-            out_dir / "index.html", lambda staging: staging.write_text(fallback, encoding="utf-8")
-        )
+        output_sink.replace_output(out_dir / "index.html", fallback, keep_if_equal=True)
         copied.append("index.html")
     return copied
 
 
 def refresh_assets(out_dir: Path, repo_root: Path = REPO_ROOT) -> list[str]:
-    """Copy `rebuild/review/static/` over an already-built corpus and restamp only the manifest's `static` fingerprint component. An app JS, CSS or HTML edit changes only that component, and no unit depends on it. Everything else stays as the build left it: `generated_at` and `repo_head`, every shard, the per-unit index, both app sidecars, and the unit-cache store. The autosave is keyed on `generated_at`, so a verdict session in progress is unaffected, and the sidecars and the store stay current because `unit_index.manifest_sha256` leaves this component out of the manifest's identity. `_check_output_files` runs afterwards to confirm that. If it finds errors, the original manifest is restored, because a restamped manifest over sidecars that do not match it would look fresh to the next cycle, which would then skip the build that could repair it."""
+    """Copy `rebuild/review/static/` over an already-built corpus (`copy_static`, which leaves a file whose bytes come out the same in place) and restamp only the manifest's `static` fingerprint component. An app JS, CSS or HTML edit changes only that component, and no unit depends on it. Everything else stays as the build left it: `generated_at` and `repo_head`, every shard, the per-unit index, both app sidecars, and the unit-cache store. The autosave is keyed on `generated_at`, so a verdict session in progress is unaffected, and the sidecars and the store stay current because `unit_index.manifest_sha256` leaves this component out of the manifest's identity. `_check_output_files` runs afterwards to confirm that. If it finds errors, the original manifest is restored, because a restamped manifest over sidecars that do not match it would look fresh to the next cycle, which would then skip the build that could repair it."""
     out_dir = Path(out_dir)
     repo_root = Path(repo_root)
     manifest_path = out_dir / "manifest.json"

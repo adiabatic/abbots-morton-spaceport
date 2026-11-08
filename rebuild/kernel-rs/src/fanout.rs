@@ -6,7 +6,7 @@
 
 use std::cmp::Reverse;
 use std::collections::BTreeSet;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -911,7 +911,7 @@ fn table_thread<'a>(
     Ok(TableAnswer { digest, timed })
 }
 
-/// Writes one configuration's three artifact files and returns its table digest.
+/// Writes one configuration's three artifact files and returns its table digest. The settlement and join tables go through [`write_text`], which leaves a table whose bytes come out the same in place; the windows rows are written whole every time.
 fn write_tables(run: &TableRun<'_>, token: &str, folded: &fold::Folded) -> Result<String, String> {
     let settlement = run.outdir.join(format!("settlement-{token}.tsv"));
     write_text(&settlement, &artifacts::settlement_tsv(&folded.decision))?;
@@ -1071,8 +1071,42 @@ pub fn run_config_replay(
     })
 }
 
+/// Writes `text` to `path` with [`std::fs::write`], unless `path` is a regular file that already holds exactly those bytes, which it leaves alone, so an unchanged table keeps its inode and modification time. Anything else at the path, a missing file or the null-device links `memory_series.route` puts at both table paths among them, is written with [`std::fs::write`], through the link and never by replacing it.
 fn write_text(path: &Path, text: &str) -> Result<(), String> {
-    std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))
+    let fail = |error: std::io::Error| format!("{}: {error}", path.display());
+    if holds_exactly(path, text.as_bytes()).map_err(fail)? {
+        return Ok(());
+    }
+    std::fs::write(path, text).map_err(fail)
+}
+
+/// Whether `path` is a regular file holding exactly `bytes`. It compares the file's length first and then reads it in chunks into one small buffer on the stack, so it holds no second copy of a table, and it opens nothing but a regular file.
+fn holds_exactly(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    if !metadata.is_file() || metadata.len() != bytes.len() as u64 {
+        return Ok(false);
+    }
+    let mut file = std::fs::File::open(path)?;
+    let mut chunk = [0u8; 1 << 16];
+    let mut offset = 0;
+    loop {
+        let read = match file.read(&mut chunk) {
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        if read == 0 {
+            return Ok(offset == bytes.len());
+        }
+        if bytes.len() - offset < read || chunk[..read] != bytes[offset..offset + read] {
+            return Ok(false);
+        }
+        offset += read;
+    }
 }
 
 /// Runs one configuration into its own file under `outdir`. Every error names the configuration, since a caller running several has no other way to tell which one failed, and a filesystem error also names the file.
@@ -1926,6 +1960,40 @@ mod tests {
         })
         .expect_err("both items fail");
         assert_eq!(error, "ss09: blocked");
+    }
+
+    /// A table write whose bytes come out the same leaves the file alone, so it keeps its inode and modification time. Other bytes of the same length, and a missing file, are written, and a link to the null device at the path, as `memory_series.route` puts at both table paths, is written through and stays a link.
+    #[test]
+    fn a_table_write_leaves_a_table_whose_bytes_come_out_the_same_in_place() {
+        use std::os::unix::fs::MetadataExt;
+        let outdir = scratch("write-text");
+        std::fs::create_dir_all(&outdir).expect("the scratch directory is makeable");
+        let identity = |path: &Path| {
+            let metadata = std::fs::metadata(path).expect("the table is there");
+            (metadata.ino(), metadata.mtime(), metadata.mtime_nsec())
+        };
+        let table = outdir.join("settlement-default.tsv");
+        write_text(&table, "rule one\n").expect("a missing table is written");
+        let written = identity(&table);
+        std::thread::sleep(Duration::from_millis(10));
+        write_text(&table, "rule one\n").expect("an unchanged table is left in place");
+        assert_eq!(identity(&table), written);
+        write_text(&table, "rule two\n").expect("a changed table is written");
+        assert_eq!(
+            std::fs::read_to_string(&table).expect("readable"),
+            "rule two\n"
+        );
+        assert_ne!(identity(&table), written);
+        let linked = outdir.join("joins-default.tsv");
+        std::os::unix::fs::symlink("/dev/null", &linked).expect("a link can stand at a table path");
+        write_text(&linked, "join\n").expect("a link to the null device is written through");
+        assert!(
+            std::fs::symlink_metadata(&linked)
+                .expect("the link is there")
+                .file_type()
+                .is_symlink()
+        );
+        std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
 
     /// The board's slots go to tickets in order and never more than its width at once: three threads asking with tickets 2, 1 and 0 on a one-slot board hold it in ticket order, each releasing before the next takes it.

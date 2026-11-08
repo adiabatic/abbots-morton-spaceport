@@ -326,6 +326,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     global _guard_installed
+    os.environ.pop(cycle_timings.OUTPUT_COUNTS_ENV, None)
     config.pluginmanager.register(_FixtureRecorder(), "rebuild-fixture-recorder")
     if _guard_installed:
         return
@@ -462,6 +463,8 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     `cycle_timings.CYCLE_RUN_ENV` (AMS_CYCLE_RUN) is removed from the environment, because run_m1's CLI and the make-test gate wrapper skip recording their check line when it is set. It can come from outside, because the rebuild suite runs as a cycle child and inherits a real pass's run id, or from inside, because `artifact_cycle.main` sets it on this process and it would stay set for whatever test the xdist worker runs next. `setenv` comes before `delenv` so that `delenv` cannot raise on an absent variable and so that teardown restores the variable's original state, removing any value the test set. A test that wants to be a cycle's child sets the variable itself.
 
+    `cycle_timings.OUTPUT_COUNTS_ENV` (AMS_OUTPUT_COUNTS) is removed the same way, and `pytest_configure` removes it before any fixture runs, the session fixtures that build the mini corpus among them. A rebuild suite a cycle runs inherits the pass's counts file, which is under var/cycle/, so a test's write through `output_sink`'s helper would count toward the pass and trip the guard; `artifact_cycle.main` sets it on this process too.
+
     `standing_client.SOCKET` defaults to a path under `var/`, and every test that drives either standing tool would otherwise query a live daemon. It points at a socket under tmp_path that nothing binds, so the auto mode falls back silently. A daemon test binds its own socket under tmp_path and names it.
 
     Three steps delete stale artifacts before rebuilding them: the unlink of run_m1's three summaries and of gate:conform's summary, each just before its subprocess spawns, and the retention pass. Redirecting the constants covers the unlinks. Retention resolves most of its targets from `artifact_cycle.ROOT` at call time, so it is switched off instead (`cycle_paths.RETENTION_ENABLED`), and `_finish` then records a retention result with no lines. Otherwise a test reaching a green finish with `record_greens` set would delete the root's autosave stashes and compact the verdict journal, even under a cycle or review server running in another terminal. A test that wants the real retention calls `artifact_cycle.run_retention` with a plan whose `artifact_cycle.ROOT` points somewhere disposable, and a test asserting that `_finish` reaches retention sets the switch back on and patches `run_retention`. The readiness checklist is switched off the same way (`cycle_paths.READINESS_ENABLED`), because it reads the served corpus and the root autosave; a test asserting that `_finish` prints it sets the switch and patches `readiness_block`. The reload the cycle sends to a listening review server after an assets refresh or a pass that moved the served corpus is switched off too (`cycle_paths.REVIEW_RELOAD_ENABLED`), because it goes to the live port and would reload the reviewer's open tabs.
@@ -484,8 +487,9 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
     monkeypatch.setattr(cycle_paths, "REVIEW_RELOAD_ENABLED", False)
     monkeypatch.setattr(cycle_timings, "JOURNAL", tmp_path / "cycle-timings.ndjson")
     monkeypatch.setattr(standing_client, "SOCKET", tmp_path / "standing-daemon.sock")
-    monkeypatch.setenv(cycle_timings.CYCLE_RUN_ENV, "")
-    monkeypatch.delenv(cycle_timings.CYCLE_RUN_ENV)
+    for name in (cycle_timings.CYCLE_RUN_ENV, cycle_timings.OUTPUT_COUNTS_ENV):
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
 
 
 @pytest.fixture

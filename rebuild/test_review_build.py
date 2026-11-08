@@ -9,6 +9,7 @@ import gzip
 import hashlib
 import json
 import multiprocessing
+import os
 import re
 import shutil
 import subprocess
@@ -798,6 +799,33 @@ def test_the_app_and_font_copies_never_leave_a_truncated_file_in_place(tmp_path,
         review_build._copy_font(font, corpus, "after.otf", "AMS Review After", tmp_path, "0" * 64)
     assert (corpus / "fonts" / "after.otf").read_bytes() == b"the font the units describe"
     assert not list(corpus.rglob("*.partial"))
+
+
+def test_a_second_copy_into_the_same_corpus_leaves_the_unchanged_app_files_and_fonts_in_place(tmp_path):
+    """`copy_static` and `_copy_font` leave a copy that already holds the bytes they would put there in place, so a corpus build over an unchanged app and unchanged fonts rewrites none of them, and each keeps its inode and modification time, here set long ago so that any write would move it. `_copy_font` compares the copy with the digest the build took at load, so the font it keeps is the one the units describe. A changed app file is copied into place, and the fallback index.html a tree without one gets is kept the same way."""
+    static = tmp_path / "static"
+    static.mkdir()
+    (static / "app.js").write_text("app\n")
+    font_digest = hashlib.sha256((MINI / "M1.otf").read_bytes()).hexdigest()
+    corpus = tmp_path / "corpus"
+    copies = [corpus / "app.js", corpus / "index.html", corpus / "fonts" / "after.otf"]
+
+    def copy() -> dict:
+        review_build.copy_static(corpus, static)
+        return review_build._copy_font(
+            MINI / "M1.otf", corpus, "after.otf", "AMS Review After", REPO_ROOT, font_digest
+        )
+
+    first = copy()
+    for path in copies:
+        os.utime(path, ns=(1_000_000_000, 1_000_000_000))
+    before = {path: (path.stat().st_ino, path.stat().st_mtime_ns) for path in copies}
+    assert copy() == first
+    assert {path: (path.stat().st_ino, path.stat().st_mtime_ns) for path in copies} == before
+    (static / "app.js").write_text("new\n")
+    copy()
+    assert (corpus / "app.js").read_text() == "new\n"
+    assert (corpus / "app.js").stat().st_mtime_ns != 1_000_000_000
 
 
 def _padded(count: int, filler: int = 0) -> list[dict]:

@@ -1,6 +1,6 @@
 """Tests for the land (`rebuild/review/landing.py`), which moves a pass's corpus and verdict store into place together under the store's lock beside a running review server.
 
-The overlay keeps every set and clear the live store gained after the snapshot over the prepared store, among them a clear on a unit the snapshot held no verdict for, which lands at its own `at` over a fill, an older tombstone, or nothing in the prepared store, except on a stamp change, where it sends a set on a unit outside the new corpus's human units to the orphan document, drops a clear on such a unit, and drops a skip and clears the verdict the skip replaced; a tombstone the live store shares with the snapshot is kept only for a unit the prepared store holds no verdict for, and on a stamp change only for a surviving unit. A land whose live store moved to another stamp since the snapshot aborts and keeps the staged tree, and so does a guarded land whose stamp change would orphan more than the limit of the live store's verdicts other than skips, and a land whose live store, snapshot or prepared store holds a record the carry refuses, which writes nothing. The tree swap and its fallback where the filesystem refuses the swap call, the discard rename that never deletes, the discard a land leaves to its caller, the copy-on-write clone, the stash link, the event naming the stash, which holds the sets and clears from the replaced store until the journal's last base is a day old and a base after that, either of which replays to the landed store's tombstones too, the read of the journal resumed from retention's scan state, and the empty store a pass that carries nothing lands, which keeps the override section whole and which it journals as a base because its sets and clears would reach its record count. After a store write the journal missed (a server save whose append failed, was cut short or never ran, or a store copied back after a refused re-key undo) the land journals a base and removes the marker that write left, and the journal restores the live store from that land on. A land killed at each step of its locked section is finished or dropped by the next holder of the lock, which first cuts off what the dead land half appended to the journal, or the sets and clears it appended whole; one whose result is gone is swapped back out, or refused when the old corpus is gone too, and one whose store or result holds a record the carry refuses is refused, by a land after it too. The review server's request path does the same while the lock is free and waits while it is held, and its locked save path refuses while a dead land's intent is there and reads the served corpus only under the lock. Every save applied through that path while two lands run, or a later save on its unit, ends in the landed store, in an orphan document, or, for a save the pass's snapshot already held on a unit the new corpus lacks, in the old corpus's stash. The code digest the server advertises on /capabilities covers exactly the protocol's modules and the modules its /status judges freshness with. Last, the accepted list beside the store: the land names it in its result and aborts, moving nothing, when the live store does not pair with it or it changed since the snapshot; its orphan guard counts the accepted units of the live corpus in both terms, so a wholesale id move is refused on a store a close-out emptied, and an override on a unit the live corpus lacks in neither; a set back to an accepted record made during the pass lands as that, not as a clear; and a stamp change leaves a tombstone on each accepted unit the new corpus lacks that the live store holds a record or tombstone for.
+The overlay keeps every set and clear the live store gained after the snapshot over the prepared store, among them a clear on a unit the snapshot held no verdict for, which lands at its own `at` over a fill, an older tombstone, or nothing in the prepared store, except on a stamp change, where it sends a set on a unit outside the new corpus's human units to the orphan document, drops a clear on such a unit, and drops a skip and clears the verdict the skip replaced; a tombstone the live store shares with the snapshot is kept only for a unit the prepared store holds no verdict for, and on a stamp change only for a surviving unit. A land whose live store moved to another stamp since the snapshot aborts and keeps the staged tree, and so does a guarded land whose stamp change would orphan more than the limit of the live store's verdicts other than skips, and a land whose live store, snapshot or prepared store holds a record the carry refuses, which writes nothing. The tree swap and its fallback where the filesystem refuses the swap call, the discard rename that never deletes, the discard a land leaves to its caller, the copy-on-write clone, the stash link, the event naming the stash, which holds the sets and clears from the replaced store until the journal's last base is a day old and a base after that, either of which replays to the landed store's tombstones too, the read of the journal resumed from retention's scan state, and the empty store a pass that carries nothing lands, which keeps the override section whole and which it journals as a base because its sets and clears would reach its record count. After a store write the journal missed (a server save whose append failed, was cut short or never ran, or a store copied back after a refused re-key undo) the land journals a base and removes the marker that write left, and the journal restores the live store from that land on. A land killed at each step of its locked section is finished or dropped by the next holder of the lock, which first cuts off what the dead land half appended to the journal, or the sets and clears it appended whole; one whose result is gone is swapped back out, or refused when the old corpus is gone too, and one whose store or result holds a record the carry refuses is refused, by a land after it too. The review server's request path does the same while the lock is free and waits while it is held, and its locked save path refuses while a dead land's intent is there and reads the served corpus only under the lock. Every save applied through that path while two lands run, or a later save on its unit, ends in the landed store, in an orphan document, or, for a save the pass's snapshot already held on a unit the new corpus lacks, in the old corpus's stash. The code digest the server advertises on /capabilities covers exactly the protocol's modules and the modules its /status judges freshness with. Last, the accepted list beside the store: the land names it in its result and aborts, moving nothing, when the live store does not pair with it or it changed since the snapshot; its orphan guard counts the accepted units of the live corpus in both terms, so a wholesale id move is refused on a store a close-out emptied, and an override on a unit the live corpus lacks in neither; a set back to an accepted record made during the pass lands as that, not as a clear; and a stamp change leaves a tombstone on each accepted unit the new corpus lacks that the live store holds a record or tombstone for. A land whose prepared store the verdict update recorded as its snapshot's bytes leaves the store and the journal in place after every kind of save the server makes during the pass, as a land without the record over a copy of the same tree shows it would change neither, still swaps a staged corpus, and leaves a recovery only its discard; a prepared store written since, a live store the overlay would not give back, and a journal not yet there get the land's result written over the store and journaled.
 """
 
 import errno
@@ -19,6 +19,7 @@ from rebuild.review.store_lock import holder, lock_path_for, store_lock
 from rebuild.review.verdict_store import (
     ServedCorpus,
     VerdictStore,
+    file_signature,
     orphan_path,
     orphans_dir_for,
     stash_path_for,
@@ -1205,3 +1206,170 @@ def test_a_stamp_change_keeps_the_override_section_whole_on_the_accepted_units_t
     landed = json.loads(repo["autosave"].read_text())
     assert landed["verdicts"] == [] and "cleared" not in landed
     assert accepted.Overrides.of(landed) == accepted.Overrides({ACCEPT_A: override}, {**tombstone, **clear})
+
+
+KEPT_AT = "2026-11-07T00:00:00Z"
+SERVER_SAVES = {
+    "nothing": [],
+    "a set": [{"sets": [record("u-3", at=KEPT_AT)]}],
+    "a change": [{"sets": [record("u-1", "reject", at=KEPT_AT)]}],
+    "a clear": [{"clears": [{"unit": "u-2", "base_at": "2026-09-01T00:00:00Z", "at": KEPT_AT}]}],
+    "a set after a clear": [
+        {"clears": [{"unit": "u-2", "base_at": "2026-09-01T00:00:00Z", "at": KEPT_AT}]},
+        {"sets": [record("u-2", "either", at="2026-11-07T00:10:00Z")]},
+    ],
+    "an override set": [{"sets": [record(ACCEPT_A, "reject", at=KEPT_AT)]}],
+    "an override set and cleared": [
+        {"sets": [record(ACCEPT_A, "reject", at=KEPT_AT)]},
+        {"clears": [{"unit": ACCEPT_A, "base_at": KEPT_AT, "at": "2026-11-07T00:10:00Z"}]},
+    ],
+    "an override set back to the accepted record": [
+        {"sets": [record(ACCEPT_B, "approve", at=CLOSED_AT, note="")]},
+    ],
+}
+
+
+def unchanged_pass(repo) -> None:
+    """Snapshot a store that names an accepted list and holds records, a tombstone and an override, with its journal there, and record the prepared store as the verdict update records one it left as the snapshot's bytes."""
+    field = write_list(repo, {ACCEPT_A: "approve", ACCEPT_B: "approve"})
+    override = record(ACCEPT_B, "reject", at="2026-11-06T00:00:00Z")
+    snapshotted = named(
+        document("A", [record("u-1"), record("u-2")], {"u-5": "2026-09-02T00:00:00Z"}), field, [override]
+    )
+    write(repo["autosave"], snapshotted)
+    journal.record_transition(
+        repo["journal"],
+        source="merge",
+        stamp="A",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[record("u-1"), record("u-2"), override],
+        new_cleared={"u-5": "2026-09-02T00:00:00Z"},
+        accepted=field,
+    )
+    landing.snapshot(repo["autosave"], repo["run"])
+    landing.record_unchanged(repo["run"] / landing.PREPARED_NAME, True)
+
+
+def save(repo, deltas) -> None:
+    """Apply each delta through the review server's locked save path, as a tab's saves during the pass are."""
+    store = VerdictStore(repo["autosave"], repo["journal"])
+    for delta in deltas:
+        body = {"format": DELTA_FORMAT, "manifest_generated_at": "A", **delta}
+        status, answer = receive_autosave_locked(
+            store, json.dumps(body).encode(), lambda: ServedCorpus("A", frozenset({"u-1", "u-2", "u-3"}))
+        )
+        assert status == 200, answer
+
+
+def held(store: landing.Store | None):
+    assert store is not None
+    return store.records, store.cleared, store.overrides, store.accepted
+
+
+@pytest.mark.parametrize("saves", SERVER_SAVES)
+def test_a_land_whose_prepared_store_is_its_snapshot_leaves_the_store_and_the_journal_in_place(repo, saves):
+    """When the verdict update left the prepared store R as the snapshot S's bytes, laying the live store C's saves since S over R gives C itself for every kind of save the server makes, so the land writes no result, renames nothing over the store and appends nothing to the journal: the store keeps its inode and modification time, which the review server's reload check reads, and the land links it as the store it landed. The proof is the land without the record over a copy of the same tree, which lands C's records, tombstones, override section and `accepted` field and journals nothing."""
+    unchanged_pass(repo)
+    save(repo, SERVER_SAVES[saves])
+    twin = repo["root"].with_name("twin")
+    shutil.copytree(repo["root"], twin)
+    (twin / repo["run"].relative_to(repo["root"]) / landing.UNCHANGED_NAME).unlink()
+    signature = file_signature(repo["autosave"])
+    journaled = repo["journal"].read_bytes()
+
+    result = land(repo, corpus=repo["live"], staged=None, live=None)
+    assert result.landed and result.store_kept and result.journal_base is None
+    assert file_signature(repo["autosave"]) == signature
+    assert repo["journal"].read_bytes() == journaled
+    assert (repo["run"] / landing.LANDED_NAME).stat().st_ino == repo["autosave"].stat().st_ino
+    assert not (repo["run"] / landing.LANDING_NAME).exists()
+    assert not landing.intent_path_for(repo["autosave"]).exists()
+
+    def at(path: Path) -> Path:
+        return twin / path.relative_to(repo["root"])
+
+    today = land(
+        repo,
+        autosave=at(repo["autosave"]),
+        journal_path=at(repo["journal"]),
+        run_dir=at(repo["run"]),
+        prepared=at(repo["run"] / landing.PREPARED_NAME),
+        corpus=at(repo["live"]),
+        staged=None,
+        live=None,
+        accepted_path=accepted.path_for(at(repo["autosave"])),
+    )
+    assert today.landed and not today.store_kept and today.overlaid == result.overlaid
+    assert held(landing.read_store(at(repo["autosave"]))) == held(landing.read_store(repo["autosave"]))
+    assert at(repo["journal"]).read_bytes() == journaled
+
+
+def test_a_land_that_leaves_the_store_in_place_still_swaps_its_staged_corpus(repo):
+    """A corpus rebuilt on the same stamp, whose verdict update changed nothing, is swapped in under the store's lock, its swapped-out tree discarded, while the store keeps its inode and modification time."""
+    unchanged_pass(repo)
+    corpus(repo["next"], "A", ["u-1", "u-2", "u-3"], marker="rebuilt")
+    signature = file_signature(repo["autosave"])
+    result = land(repo)
+    assert result.landed and result.store_kept
+    assert (repo["live"] / "units-000.json").read_text() == "rebuilt"
+    assert not repo["next"].exists() and not landing.discard_path_for(repo["live"]).exists()
+    assert file_signature(repo["autosave"]) == signature
+    assert not landing.intent_path_for(repo["autosave"]).exists()
+
+
+@pytest.mark.parametrize(
+    "how", ["prepared store written since", "store not laid over as itself", "no journal yet"]
+)
+def test_a_land_that_would_change_the_store_or_its_journal_lands_its_result(repo, how):
+    """The land leaves the store in place only when it would change nothing. A prepared store written after the verdict update recorded it, here with a fill, is landed with the fill. A live store that the snapshot's saves laid over R would not give back, here one a hand restore during the pass left without a record and without its tombstone, gets the land's result written over it, with a tombstone for the record that went. And with no journal yet, the land writes the result over the store and the seed base that starts the journal."""
+    unchanged_pass(repo)
+    prepared = repo["run"] / landing.PREPARED_NAME
+    if how == "prepared store written since":
+        data = json.loads(prepared.read_text())
+        data["verdicts"].append(record("u-3", note="standing fill"))
+        write(prepared, data)
+    elif how == "store not laid over as itself":
+        data = json.loads(repo["autosave"].read_text())
+        data["verdicts"] = [entry for entry in data["verdicts"] if entry["unit"] != "u-2"]
+        write(repo["autosave"], data)
+    else:
+        repo["journal"].unlink()
+    result = land(repo, corpus=repo["live"], staged=None, live=None)
+    assert result.landed and not result.store_kept
+    landed = landing.read_store(repo["autosave"])
+    assert landed is not None
+    if how == "prepared store written since":
+        assert landed.records["u-3"]["note"] == "standing fill"
+    elif how == "store not laid over as itself":
+        assert "u-2" not in landed.records and "u-2" in landed.cleared
+    else:
+        events = list(journal.iter_events(repo["journal"]))
+        assert [event["source"] for event in events] == ["seed"]
+
+
+def test_a_land_that_left_the_store_in_place_and_died_after_its_swap_needs_only_its_discard(
+    repo, monkeypatch
+):
+    """A land that leaves the store in place writes its intent only to swap a staged corpus, marked `store_kept`. Killed after the swap, it is finished by the next holder of the lock, which discards the swapped-out tree and deletes the intent, and neither replaces the store nor journals it."""
+    unchanged_pass(repo)
+    corpus(repo["next"], "A", ["u-1", "u-2", "u-3"], marker="rebuilt")
+    signature = file_signature(repo["autosave"])
+    journaled = repo["journal"].read_bytes()
+
+    def link(source, target):
+        raise Killed()
+
+    monkeypatch.setattr(landing.os, "link", link)
+    with pytest.raises(Killed):
+        land(repo)
+    monkeypatch.undo()
+    intent = json.loads(landing.intent_path_for(repo["autosave"]).read_text())
+    assert intent["store_kept"] is True
+    assert (repo["live"] / "units-000.json").read_text() == "rebuilt"
+    with landing.locked_store(repo["autosave"]):
+        pass
+    assert not landing.intent_path_for(repo["autosave"]).exists()
+    assert not repo["next"].exists() and not landing.discard_path_for(repo["live"]).exists()
+    assert file_signature(repo["autosave"]) == signature
+    assert repo["journal"].read_bytes() == journaled

@@ -30,6 +30,7 @@ from rebuild.pipeline import (
     manual_pins,
     oracle,
     oracle_cache,
+    output_sink,
     run_m1,
 )
 from rebuild.pipeline import table as table_module
@@ -124,7 +125,9 @@ def run_manual_pin_gate(out_dir: Path = run_m1.OUT_DIR, spec: ResolvedSpec | Non
         spec = load_default_spec()
     report = manual_pins.run_gate(out_dir / "M1.otf", spec)
     summary = manual_pins.summarize(report)
-    (out_dir / "manual_pins_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    output_sink.write_output(
+        out_dir / "manual_pins_summary.json", json.dumps(summary, indent=2) + "\n", keep_if_equal=True
+    )
     return summary
 
 
@@ -725,7 +728,9 @@ def run_oracle(
         summary.setdefault("unmatched_exemplars", []).append(
             f"{row.config} {row.codepoints} {'|'.join(row.baseline_glyphs)} -> {'|'.join(row.new_cells)} {row.divergence_tags}"
         )
-    (out_dir / "oracle_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    output_sink.write_output(
+        out_dir / "oracle_summary.json", json.dumps(summary, indent=2) + "\n", keep_if_equal=True
+    )
     return summary
 
 
@@ -902,7 +907,7 @@ def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: b
     print(f"[t] defect_gates {time.perf_counter() - start:.1f}s", flush=True)
     pipeline_summary.update(defect_fields)
     _retract_stage_a(out_dir)
-    summary_path.write_text(json.dumps(pipeline_summary, indent=2) + "\n")
+    output_sink.write_output(summary_path, json.dumps(pipeline_summary, indent=2) + "\n", keep_if_equal=True)
     defect_failure = _defect_gate_failure(pipeline_summary)
     if defect_failure is not None:
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")

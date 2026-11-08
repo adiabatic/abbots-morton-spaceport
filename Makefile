@@ -2,7 +2,7 @@
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
-	cp reference/DepartureMono-Regular.otf site/
+	cmp -s reference/DepartureMono-Regular.otf site/DepartureMono-Regular.otf || cp reference/DepartureMono-Regular.otf site/
 	cd site && typst compile --font-path . print.typ
 
 check-html-after: all

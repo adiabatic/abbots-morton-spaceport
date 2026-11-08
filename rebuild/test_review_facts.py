@@ -4,6 +4,7 @@ The tests use hand-built audit rows and hand-set machine flags and change groups
 """
 
 import json
+import os
 from collections.abc import Collection
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from rebuild.review.unit_store import UnitStore
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
+LONG_AGO_NS = 1_000_000_000
 
 MERGE_WINDOW = "E650:E665"
 DEFERRED_WINDOW = "E651:E665"
@@ -490,10 +492,16 @@ def _facts(pins: dict, generated_at: str = "2026-01-01T00:00:00Z") -> dict:
 
 
 def test_facts_round_trip(tmp_path):
+    """The sidecar reads back as written, and a second build that writes the same facts leaves it in place, so it keeps its inode and its modification time, here set long ago so that any write would move it."""
     written = _facts(_pins(row_count=2))
     write_facts(tmp_path, written)
-    assert (tmp_path / facts.FACTS_FILENAME).read_text(encoding="utf-8").endswith("}\n")
+    sidecar = tmp_path / facts.FACTS_FILENAME
+    assert sidecar.read_text(encoding="utf-8").endswith("}\n")
     assert load_facts(tmp_path, {"generated_at": "2026-01-01T00:00:00Z"}) == written
+    os.utime(sidecar, ns=(LONG_AGO_NS, LONG_AGO_NS))
+    inode = sidecar.stat().st_ino
+    write_facts(tmp_path, written)
+    assert (sidecar.stat().st_ino, sidecar.stat().st_mtime_ns) == (inode, LONG_AGO_NS)
 
 
 def test_load_facts_refuses_a_missing_wrong_format_or_orphaned_sidecar(tmp_path):
@@ -638,7 +646,7 @@ def _cli_corpus(tmp_path: Path, pins: dict) -> Path:
 
 
 def test_update_copies_the_sidecars_volatile_block_and_reduces_the_invariant_again(tmp_path, monkeypatch):
-    """`--update` copies the sidecar's volatile block into the pins file unchanged and recomputes the invariant block from the corpus's manifest and the sidecar's change-group counts. The file gets the invariant block's current shape even when an older build wrote the sidecar with a different one."""
+    """`--update` copies the sidecar's volatile block into the pins file unchanged and recomputes the invariant block from the corpus's manifest and the sidecar's change-group counts. The file gets the invariant block's current shape even when an older build wrote the sidecar with a different one. A second `--update` over the same corpus leaves the file in place, keeping its inode and modification time."""
     pins_path = tmp_path / "pins.json"
     monkeypatch.setattr(facts, "PINS_PATH", pins_path)
     monkeypatch.setattr(facts, "REPO_ROOT", tmp_path)
@@ -648,6 +656,10 @@ def test_update_copies_the_sidecars_volatile_block_and_reduces_the_invariant_aga
     write_facts(corpus, _facts(stale))
     assert facts.main(["--update", "--corpus", str(corpus)]) == 0
     assert json.loads(pins_path.read_text(encoding="utf-8")) == pins
+    os.utime(pins_path, ns=(LONG_AGO_NS, LONG_AGO_NS))
+    inode = pins_path.stat().st_ino
+    assert facts.main(["--update", "--corpus", str(corpus)]) == 0
+    assert (pins_path.stat().st_ino, pins_path.stat().st_mtime_ns) == (inode, LONG_AGO_NS)
 
 
 _ACCEPTED_INVARIANT = {

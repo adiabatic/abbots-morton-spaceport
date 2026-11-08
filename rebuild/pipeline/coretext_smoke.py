@@ -14,6 +14,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from rebuild.pipeline import output_sink
+
 PIPELINE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = PIPELINE_DIR.parents[1]
 DEFAULT_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
@@ -276,8 +278,10 @@ def main() -> int:
         "results": results,
     }
     summary_path = args.font.parent / "coretext_summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2) + "\n")
-    print(f"summary written to {summary_path}")
+    if output_sink.write_output(summary_path, json.dumps(summary, indent=2) + "\n", keep_if_equal=True):
+        print(f"summary written to {summary_path}")
+    else:
+        print(f"summary unchanged, left in place at {summary_path}")
     return 1 if failures else 0
 
 

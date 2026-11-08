@@ -8,7 +8,7 @@ A "step" line records one subprocess the cycle spawned: the driver's step name (
 
 A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv, and the carry's counts (`artifact_cycle.carry_counts` parses them from the carry's own output line). The plan block names the width of each pooled step (`sweep_jobs`, `corpus_jobs`, `corpus_gates_idle_jobs`, `signature_jobs`, `standing_fill_jobs`, `make_test_workers`, `contracts_workers` and `conform_jobs`), null for a step the pass skipped, and `corpus_gates_idle_jobs` also null on a pass that offers the corpus build no wider width; its `kernel_threads` and `replay_threads` are null only on a gates-only rerun. The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
 
-A metered pass's run line also carries a `written` block, from the write meter's readings as the pass started and after every step had joined (`write_meter.delta`): `basis` (`own`, `shared` or `device`; the meter's docstring says what each means), `bytes` (the pass's writes, an upper bound in the shared basis and the device's in the device one), `diskio_bytes` (the coalition's `byteswritten`, which misses what the kernel flushes on its own), `outsiders_bytes` and `outsiders_unread` in the shared basis only, `review_server_bytes` (the review server's own writes over the pass, which `bytes` leaves out), `device_bytes` and `swap_bytes`, which `machine_wide` names as the whole machine's and neither of which is netted, `class`, the pass's write class (`write_class`), and in the device basis the `warning` that says why. The block is null on a pass whose first or last reading failed, and older run lines lack it. Beside the block, the cycle's run line carries `alphabet`, the M1 alphabet the subset stamp (`SUBSET_STAMP`) records once every step has joined, which is the alphabet the subset tables were last filtered to: `sha256`, a digest of its code points, and `codepoints`, how many it holds (`alphabet_record`). It is null when the stamp is missing or records no alphabet, and older run lines lack it. It sits beside the block so that a pass whose first or last reading failed still records it, since `write_class` compares it with the one the latest pass on this host that finished ok records (`previous_pass_alphabet`) to find a letter batch. Each write class has a ceiling on each host (`PASS_WRITE_CEILING_BYTES`, `write_ceiling`), and a pass over its class's ceiling prints a `[warn]` line and a summary line and never fails.
+A metered pass's run line also carries a `written` block, from the write meter's readings as the pass started and after every step had joined (`write_meter.delta`): `basis` (`own`, `shared` or `device`; the meter's docstring says what each means), `bytes` (the pass's writes, an upper bound in the shared basis and the device's in the device one), `diskio_bytes` (the coalition's `byteswritten`, which misses what the kernel flushes on its own), `outsiders_bytes` and `outsiders_unread` in the shared basis only, `review_server_bytes` (the review server's own writes over the pass, which `bytes` leaves out), `device_bytes` and `swap_bytes`, which `machine_wide` names as the whole machine's and neither of which is netted, `outputs`, what the writes that went through `output_sink`'s helper did over the pass, `class`, the pass's write class (`write_class`), and in the device basis the `warning` that says why. The `outputs` block sums the lines every process of the pass appended to the pass's counts file (`OUTPUT_COUNTS_ENV`, `sum_output_counts`): `files` and `bytes` written, `changed_bytes`, those written to outputs whose content changed, and `kept_bytes`, those not written because an output came out the same; every other write shows only in the step lines' `written_bytes`. A pass with no helper call has no `outputs` block. The counts file is removed when the run line is written, by the cycle when a pass ends without one, and by the next pass when the driver was killed outright (`artifact_cycle.sweep_run_dirs`). The block is null on a pass whose first or last reading failed, and older run lines lack it. Beside the block, the cycle's run line carries `alphabet`, the M1 alphabet the subset stamp (`SUBSET_STAMP`) records once every step has joined, which is the alphabet the subset tables were last filtered to: `sha256`, a digest of its code points, and `codepoints`, how many it holds (`alphabet_record`). It is null when the stamp is missing or records no alphabet, and older run lines lack it. It sits beside the block so that a pass whose first or last reading failed still records it, since `write_class` compares it with the one the latest pass on this host that finished ok records (`previous_pass_alphabet`) to find a letter batch. Each write class has a ceiling on each host (`PASS_WRITE_CEILING_BYTES`, `write_ceiling`), and a pass over its class's ceiling prints a `[warn]` line and a summary line and never fails.
 
 A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak, under `controller_peak_rss_bytes` and `worker_peak_rss_bytes` whichever line the writer reads, and `worker_reading`, which names the line its worker readings are (`resident` or `footprint`); an older line carries no `worker_reading`. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's rebuild-lane spawns do. run_m1 writes them for the string replay's walk and absorbs, the oracle's ranges and absorbs, the conformance sweep and its own process, the review build for its signature, units and write pools, and the deep replay for its walks. The worker readings of the replay's absorbs, the oracle, the conformance sweep, run_m1's own process and the corpus build's units and write pools are peak footprints (`peak_rss.peak_footprint_self_bytes`), and the corpus build's two pools also record their parent's peak footprint as the controller reading; every other reading is a resident peak. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
 
@@ -20,6 +20,7 @@ The file, the module, and the `make cycle-timings` target keep the "cycle-timing
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -51,6 +52,9 @@ POOL_UNIT_ENV = "AMS_POOL_UNIT"
 REFUSED_STATUS = "REFUSED"
 # The variable that tells a spawned check a cycle is recording its check line. The cycle sets it to its run id and every child inherits it; the entry points that check it import the name from here.
 CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
+# The variable that names a pass's counts file to `output_sink`'s helper, and the outcomes its lines carry. They restate `output_sink.OUTPUT_COUNTS_ENV` and its outcomes, because this module must not import rebuild/pipeline (`SUBSET_STAMP`'s comment); rebuild/test_output_sink.py ties the two.
+OUTPUT_COUNTS_ENV = "AMS_OUTPUT_COUNTS"
+OUTPUT_OUTCOMES = ("changed", "written", "kept")
 STEP_NAME_ALIASES = {
     "plumbing": "verdict-update",
     "surface-build": "corpus-build",
@@ -411,8 +415,33 @@ class _Window:
     overlap: set[str] = field(default_factory=set)
 
 
-def _written_block(change: write_meter.WriteDelta, write_class_name: str | None) -> dict:
-    """Return a run line's `written` block from the write meter's delta over the pass. The module docstring lists its fields."""
+def sum_output_counts(path: Path) -> dict | None:
+    """Return the `outputs` block summed from the counts file at `path`, each line `<outcome>\\t<bytes>` as `output_sink` appends it, or None when the file is missing, cannot be read or holds no line, since a counts file never fails the pass. A line in another shape, such as one torn by a process killed mid-append, is skipped."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    sums = dict.fromkeys(OUTPUT_OUTCOMES, 0)
+    counts = dict.fromkeys(OUTPUT_OUTCOMES, 0)
+    for line in text.splitlines():
+        outcome, _, size = line.partition("\t")
+        if outcome in sums and size.isdigit():
+            sums[outcome] += int(size)
+            counts[outcome] += 1
+    if not any(counts.values()):
+        return None
+    return {
+        "files": counts["changed"] + counts["written"],
+        "bytes": sums["changed"] + sums["written"],
+        "changed_bytes": sums["changed"],
+        "kept_bytes": sums["kept"],
+    }
+
+
+def _written_block(
+    change: write_meter.WriteDelta, write_class_name: str | None, outputs: dict | None = None
+) -> dict:
+    """Return a run line's `written` block from the write meter's delta over the pass and the `outputs` block summed from the pass's counts file (`sum_output_counts`), left out when None. The module docstring lists its fields."""
     block: dict = {"basis": change.basis, "bytes": change.bytes, "diskio_bytes": change.diskio_bytes}
     if change.basis == "shared":
         block["outsiders_bytes"] = change.outsiders_bytes
@@ -421,6 +450,8 @@ def _written_block(change: write_meter.WriteDelta, write_class_name: str | None)
     block["device_bytes"] = change.device_bytes
     block["swap_bytes"] = change.swap_bytes
     block["machine_wide"] = ["device_bytes", "swap_bytes"]
+    if outputs is not None:
+        block["outputs"] = outputs
     block["class"] = write_class_name
     if change.warning is not None:
         block["warning"] = change.warning
@@ -431,6 +462,8 @@ class CycleTimings:
     """The journal writer for one cycle run. `wrap_spawn` wraps the driver's spawn callable so each subprocess that ran records a step line when it completes; `record_check` records a check result under this run; `finish` records the run line from the built cycle summary. Appends are serialized by the module lock, because the gate tasks spawn from pool threads, and an unwritable journal warns once and never fails the cycle. Any other keyword argument a caller passes to a spawn, such as a per-child environment, is passed through unchanged.
 
     `subset_stamp`, when given, names the subset stamp `finish` reads the run line's `alphabet` record from (`alphabet_record`); the cycle names `SUBSET_STAMP`.
+
+    `output_counts` is this pass's counts file, None until `open_output_counts` creates it, empty and named for the run, in the directory the cycle gives (its `cycle_paths.CYCLE_VAR`). The cycle names it in `OUTPUT_COUNTS_ENV` for every child; `finish` sums it into the `written` block's `outputs` (`sum_output_counts`) and removes it, and `drop_output_counts` removes it when a pass ends without a run line. A driver killed outright removes neither, so the next pass's sweep deletes every counts file under that directory before it opens its own (`artifact_cycle.sweep_run_dirs`).
 
     `meter`, when given, takes one write-meter reading (`write_meter.read`, with the review server's pid named) and is called with whether to read the device: once here, as the pass starts, without the device at each step's spawn and reap, and with it in `finish`, after every step has joined. `wrap_spawn` sets each window's figure on the step's result as `written_bytes`, with the sorted names of the steps whose windows overlapped it as `written_overlap`, where `record_step` and the driver's summary table read them. The open windows are tracked across threads, because the gate pool's steps run beside the build lane's. A reading never fails the pass: one that raises is dropped and the first such raise prints a `[warn]` line, so a window that lost a reading has no figure and a pass that lost its first or last reading has no `written` block.
     """
@@ -444,6 +477,7 @@ class CycleTimings:
         self.path = path
         self._subset_stamp = subset_stamp
         self.run_id = uuid.uuid4().hex[:12]
+        self.output_counts: Path | None = None
         self.host = socket.gethostname()
         self.started_at = _utc_stamp()
         self._t0 = time.perf_counter()
@@ -505,7 +539,9 @@ class CycleTimings:
     def finish(self, summary: dict) -> PassWrites | None:
         """Record the run line from the built cycle summary, with the pass's `alphabet` record when a subset stamp is named and its `written` block when a meter is set, and return what the meter read, or None without a meter. The block is null when the pass's first or last reading failed. A figure that fell to the device basis prints its reason as a `[warn]` line, and so does a pass over its class's ceiling."""
         alphabet = None if self._subset_stamp is None else alphabet_record(self._subset_stamp)
-        writes = self._pass_writes(summary.get("plan"), alphabet)
+        outputs = None if self.output_counts is None else sum_output_counts(self.output_counts)
+        self.drop_output_counts()
+        writes = self._pass_writes(summary.get("plan"), alphabet, outputs)
         self._append(
             {
                 "format": FORMAT,
@@ -530,7 +566,19 @@ class CycleTimings:
         )
         return writes
 
-    def _pass_writes(self, plan: object, alphabet: dict | None) -> PassWrites | None:
+    def open_output_counts(self, directory: Path) -> Path:
+        """Create this pass's counts file in `directory`, empty, and return its path, which the cycle names in `OUTPUT_COUNTS_ENV`. `output_sink` appends to it and never creates it."""
+        directory.mkdir(parents=True, exist_ok=True)
+        self.output_counts = directory / f"output-counts-{self.run_id}.tsv"
+        self.output_counts.write_bytes(b"")
+        return self.output_counts
+
+    def drop_output_counts(self) -> None:
+        if self.output_counts is not None:
+            with contextlib.suppress(OSError):
+                self.output_counts.unlink(missing_ok=True)
+
+    def _pass_writes(self, plan: object, alphabet: dict | None, outputs: dict | None) -> PassWrites | None:
         if self._meter is None:
             return None
         end = self._read(device=True)
@@ -551,7 +599,7 @@ class CycleTimings:
         if change.warning is not None:
             warn(change.warning)
         ceiling = None if runs is None else write_ceiling(write_class_name, self.host, runs)
-        writes = PassWrites(_written_block(change, write_class_name), write_class_name, ceiling)
+        writes = PassWrites(_written_block(change, write_class_name, outputs), write_class_name, ceiling)
         if writes.over:
             warn(
                 f"this pass wrote {fmt_bytes(change.bytes)}, over the {write_class_name} class's write ceiling of {fmt_bytes(ceiling)}; make cycle-timings ARGS='--writes' lists the class's passes"

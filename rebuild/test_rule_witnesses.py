@@ -7,6 +7,7 @@ The emitted lookup is covered by construction: `emit_gsub._assert_fold_sources` 
 
 import dataclasses
 import itertools
+import os
 from collections import Counter
 
 import pytest
@@ -129,7 +130,7 @@ def test_a_rule_with_no_certificate_vouches_for_nothing(spec, tables, guard):
 
 
 def test_the_witness_stage_writes_a_summary_and_shares_the_settle_memo(spec, tables, tmp_path):
-    """The build stage over the mini tables writes one passing summary with a record per configuration. It also seeds the settle memo file that later phases load with the windows the certificates settled, so a second run over the same tables serves them all from the file."""
+    """The build stage over the mini tables writes one passing summary with a record per configuration. It also seeds the settle memo file that later phases load with the windows the certificates settled, so a second run over the same tables serves them all from the file. A third run writes the second's summary again, so `witness_summary.json` stays in place, keeping its inode and its modification time, here set long ago so that any write would move it."""
     inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
     summary = run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs)
     assert summary["pass"]
@@ -144,6 +145,11 @@ def test_the_witness_stage_writes_a_summary_and_shares_the_settle_memo(spec, tab
     again = run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs)
     for config in CONFIGS:
         assert again["configs"][config]["served_windows"] and not again["configs"][config]["fresh_windows"]
+    written = tmp_path / "witness_summary.json"
+    os.utime(written, ns=(1_000_000_000, 1_000_000_000))
+    inode = written.stat().st_ino
+    assert run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs) == again
+    assert (written.stat().st_ino, written.stat().st_mtime_ns) == (inode, 1_000_000_000)
 
 
 def test_the_stage_in_a_process_of_its_own_writes_what_it_writes_in_process(spec, tables, tmp_path):
