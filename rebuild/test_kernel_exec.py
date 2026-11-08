@@ -741,8 +741,8 @@ class TestTheInvocationInterface:
         monkeypatch.setattr(kernel_exec, "trace_of", original)
         assert [len(answer or ()) for answer in kernel_exec.settle_sequences(SPEC, requests)] == [2, 2, 2]
 
-    def test_one_spec_is_dumped_once_however_many_calls_read_it(self, monkeypatch):
-        """The guard sweep and every settlement batch for one spec read one `spec.json`, written once per process."""
+    def test_one_spec_is_dumped_once_however_many_calls_read_it(self, monkeypatch, tmp_path):
+        """The guard sweep and every settlement batch for one spec read one `spec.json`, written once per process. A pool worker handed its parent's dump (`adopt_spec_dump`) writes none, and the parent's file outlives the adopted entry's eviction, since the parent owns it."""
         dumps = []
         original = kernel_exec.kernel_io.write_spec
 
@@ -757,6 +757,20 @@ class TestTheInvocationInterface:
         settled = kernel_exec.settle_codepoints(SPEC, [0xE665, 0xE670], frozenset(), guard)
         assert [outcome.cell.rune for outcome in settled] == ["qsMay", "qsIt"]
         assert len(dumps) == 1
+
+        parent = tmp_path / "spec.json"
+        original(SPEC, parent)
+        worker = fixtures.mini_spec()
+        kernel_exec.adopt_spec_dump(worker, parent)
+        settled = kernel_exec.settle_codepoints(
+            worker, [0xE665, 0xE670], frozenset(), kernel_exec.guard_sweep(worker)
+        )
+        assert [outcome.cell.rune for outcome in settled] == ["qsMay", "qsIt"]
+        assert len(dumps) == 1
+        held = [fixtures.mini_spec() for _ in range(kernel_exec._SPEC_DUMPS_CAP)]
+        for spec in held:
+            kernel_exec._spec_dump(spec)
+        assert id(worker) not in kernel_exec._SPEC_DUMPS and parent.is_file()
 
     def test_a_second_sweep_of_one_spec_runs_no_second_process(self, monkeypatch):
         """`guard_sweep` memoizes on spec identity: repeated calls with one spec run one `guard-sweep` invocation, and a second spec object that is equal to the first gets its own invocation."""

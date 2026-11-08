@@ -8,7 +8,9 @@ import signal
 import subprocess
 import sys
 import time
-from dataclasses import asdict
+import zlib
+from contextlib import suppress
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -300,6 +302,252 @@ def test_a_replay_line_sums_each_walk_with_its_absorb_and_every_process_at_each_
             machine=lambda: QUIET,
             run=lambda arguments, **rest: _replay_run(failed, absorbs, readings, commands, passed=False),
         )
+
+
+def _absorb_child(peak_footprint, sha256, absorb=None):
+    """An absorb child's run as `run_absorb_child` returns it, with no machine to read."""
+    child = ms.ChildRun(
+        0,
+        b"",
+        "",
+        2.0,
+        1.5,
+        peak_footprint + 13,
+        peak_footprint,
+        QUIET,
+        (ms.Sample(1.0, 7, peak_footprint, QUIET),),
+        QUIET,
+    )
+    return child, {"seconds": 0.75, "rows": 30, "size": 4096, "sha256": sha256, "absorb": absorb}
+
+
+def test_an_absorbs_line_runs_both_absorbs_and_says_whether_their_files_agree(tmp_path):
+    """An absorbs line runs the absorb's child and then the carry-and-append absorb's, each over its own job, between the meter's readings, unlinks any segment a child left, and keeps the absorb's path and row counts, both children's peaks, CPU and seconds, both files' rows, sizes and digests, and whether the digests are equal."""
+    from multiprocessing import shared_memory
+
+    stats = {
+        "index": "rebuilt",
+        "standing": 40,
+        "carried": 20,
+        "fresh": 10,
+        "patched": 2,
+        "dropped": 20,
+        "slots": 128,
+    }
+    left = f"msl{os.getpid()}"
+    shared_memory.SharedMemory(left, create=True, size=8, track=False).close()
+    ran: list[bytes] = []
+
+    def run(payload, **rest):
+        ran.append(payload)
+        return _absorb_child(100, "ab" * 32, stats) if payload == b"absorb" else _absorb_child(300, "ab" * 32)
+
+    meters = iter(_reading(at, 1000 * at) for at in (0.0, 1.0))
+    measured = ms.measure_absorb_line(
+        {"absorb": b"absorb", "carry": b"carry"},
+        [left],
+        idle_s=0,
+        after_s=0,
+        meter=lambda: next(meters),
+        machine=lambda: QUIET,
+        sleep=lambda seconds: None,
+        run=run,
+    )
+    assert ran == [b"absorb", b"carry"]
+    with pytest.raises(FileNotFoundError):
+        shared_memory.SharedMemory(left, track=False)
+    assert measured["absorb"] == stats and measured["same"]
+    assert (
+        measured["peak_footprint"],
+        measured["peak_resident"],
+        measured["cpu_s"],
+        measured["seconds"],
+    ) == (100, 113, 1.5, 0.75)
+    assert measured["carry_and_append"] == {
+        "wall_s": 2.0,
+        "seconds": 0.75,
+        "cpu_s": 1.5,
+        "peak_resident": 313,
+        "peak_footprint": 300,
+        "file_rows": 30,
+        "size": 4096,
+        "sha256": "ab" * 32,
+    }
+    assert measured["peak"]["footprint"] == 100 and measured["written"]["end"]["seconds"] == 1.0
+    meters = iter(_reading(at, 0) for at in (0.0, 1.0))
+    differing = ms.measure_absorb_line(
+        {"absorb": b"absorb", "carry": b"carry"},
+        [],
+        idle_s=0,
+        after_s=0,
+        meter=lambda: next(meters),
+        machine=lambda: QUIET,
+        run=lambda payload, **rest: _absorb_child(1, "ab" * 32 if payload == b"absorb" else "cd" * 32),
+    )
+    assert not differing["same"]
+
+
+def test_the_absorbs_inputs_restate_the_live_rows_under_labels_of_their_own(tmp_path):
+    """A count's standing file holds that many rows: a prefix of the live rows below the live count, and above it the live rows followed by the live rows restated under labels suffixed with their copy, every window distinct and naming the same family. Each path's fresh windows are the ones its absorb takes: the standing file's last rows restated as they stand, the same rows under labels the file lacks, and every row in the units' parts; the prune path drops the file's last rows through the sweep's prune, and the fresh paths read no standing file. A run whose paths read no standing file writes none and makes no tail or new windows, only the units' parts."""
+    spec = fixtures.mini_spec()
+    guard = kernel_exec.guard_sweep(spec)
+    keys = {name: f"{name}@0" for name in spec.registry.families}
+    live = conform.SettleMemoFile(tmp_path / "live.bin", "stamp", keys)
+    walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=live)
+    walker.walk_many([a + b for a in conform.spec_alphabet(spec) for b in conform.spec_alphabet(spec)])
+    assert walker.save_memo()
+    store = conform._MemoStore()
+    store.load(live, spec, None, lambda item: (item, "", ""))
+    try:
+        source = ms._CountRows(store)
+        rows = source.live
+        for name, count in ((rows // 2, rows // 2), (ms.LIVE, rows), (2 * rows + 5, 2 * rows + 5)):
+            made = ms.absorb_count(name, source, live, live.path, tmp_path, 3, True)
+            assert made.standing is not None
+            assert made.rows == count and made.written == (name != ms.LIVE)
+            header = conform._settle_memo_header(replace(live, path=made.standing))
+            assert header is not None and header["rows"] == count
+            windows = [window for window, _outcome in source.rows(0, count)]
+            assert len(set(windows)) == count
+            assert {conform._label_family(window[0]) for window in windows} <= {
+                conform._label_family(label) for label in store.labels
+            }
+            tail = min(ms.ABSORB_TAIL, count)
+            assert sum(part.rows for part in made.tail) == tail and len(made.tail) == ms.ABSORB_RANGES
+            room = min(ms.ABSORB_TAIL, header["slots"] // 2 - count)
+            assert sum(part.rows for part in made.new) == room and len(made.new) == ms.ABSORB_RANGES
+            assert sum(part.rows for part in made.units) == count and len(made.units) == 3
+            absent = tmp_path / "absent.bin"
+            for path in ms.ABSORB_PATHS:
+                memo, parts, sweep = ms.absorb_job(path, made, live, absent)
+                expected = {"fast": made.new, "duplicate": made.tail, "stale": made.tail, "prune": []}
+                assert parts == expected.get(path, made.units)
+                assert (memo.path == absent) == path.startswith("fresh")
+                assert (sweep is not None) == (path in ("prune", "fresh-sweep"))
+                if path == "stale":
+                    assert memo.family_keys[ms.ABSORB_STALE_FAMILY] != keys.get(ms.ABSORB_STALE_FAMILY)
+                if path == "prune":
+                    assert sweep is not None and zlib.decompress(sweep.reached).count(0) == min(
+                        ms.ABSORB_PRUNED, count
+                    )
+        bare = tmp_path / "bare"
+        bare.mkdir()
+        for name, count in ((2 * rows + 5, 2 * rows + 5), (ms.LIVE, rows)):
+            made = ms.absorb_count(name, source, live, live.path, bare, 3, False)
+            assert (made.rows, made.standing, made.written, made.tail, made.new) == (
+                count,
+                None,
+                False,
+                [],
+                [],
+            )
+            assert sum(part.rows for part in made.units) == count and len(made.units) == 3
+            for path in ("fresh", "fresh-sweep"):
+                assert ms.absorb_job(path, made, live, bare / "absent.bin")[1] == made.units
+            with pytest.raises(ValueError, match="no standing file"):
+                ms.absorb_job("fast", made, live, bare / "absent.bin")
+        assert list(bare.iterdir()) == []
+    finally:
+        store.close()
+
+
+def test_an_absorbs_run_makes_each_counts_inputs_once_and_records_every_line(monkeypatch, tmp_path):
+    """An absorbs run clones the live `default` settle memo into its tree, makes each distinct count's inputs once, and measures each named count, a count named twice twice, on every path `--paths` names, in order, each line's two jobs in the series' own environment; it records each line under the absorbs holder with its count, path and row counts, then each path's fit against rows, and removes the clone and every standing file it wrote however it ends. A run whose paths read no standing file writes none. Every segment a line ships is unlinked once the line ends, however it ends, and a run killed before its cleanup leaves their names for the next run's `empty_tree` to unlink."""
+    from multiprocessing import shared_memory
+
+    from rebuild.pipeline import oracle_cache, run_m1
+
+    spec = fixtures.mini_spec()
+    guard = kernel_exec.guard_sweep(spec)
+    out_dir = tmp_path / "m1"
+    out_dir.mkdir()
+    keys = {name: f"{name}@0" for name in spec.registry.families}
+    live = conform.SettleMemoFile(out_dir / "settle-memo-default.bin", "stamp", keys)
+    walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=live)
+    walker.walk_many(list(conform.spec_alphabet(spec)))
+    assert walker.save_memo()
+    made: list = []
+    inputs: list = []
+    measured: list = []
+    shipped: list = []
+    stop: list = []
+    absorb_count = ms.absorb_count
+
+    def counting(name, *args):
+        made.append(name)
+        inputs.append(absorb_count(name, *args))
+        return inputs[-1]
+
+    def measure_absorb_line(jobs, names, *, env, **rest):
+        assert set(jobs) == {"absorb", "carry"} and env is not None
+        for name in names:
+            with suppress(FileNotFoundError):
+                shared_memory.SharedMemory(name, track=False).close()
+                shipped.append(name)
+        if stop:
+            raise ms.artifact_cycle.CycleStopped(signal.SIGTERM)
+        measured.append(len(names))
+        return {
+            "absorb": {"index": "rebuilt"},
+            "peak_footprint": 10 * len(measured),
+            "peak_resident": 12,
+            "same": True,
+            "carry_and_append": {"peak_footprint": 20},
+            "written": {"end": None, "after": None},
+        }
+
+    monkeypatch.delenv(spec_load.M1_RUNES_ENV, raising=False)
+    monkeypatch.setattr(ms, "ROOT", tmp_path)
+    monkeypatch.setattr(ms.spec_load, "load_default_spec", lambda: spec)
+    monkeypatch.setattr(run_m1, "OUT_DIR", out_dir)
+    monkeypatch.setattr(oracle_cache, "settle_memo_inputs", lambda root: "inputs")
+    monkeypatch.setattr(conform, "settle_memo_files", lambda out, spec, inputs: {"default": live})
+    monkeypatch.setattr(ms, "absorb_count", counting)
+    monkeypatch.setattr(ms, "measure_absorb_line", measure_absorb_line)
+    monkeypatch.setattr(ms, "_head", lambda: "head")
+    monkeypatch.setattr(ms.os, "sync", lambda: None)
+    monkeypatch.setattr(ms.time, "sleep", lambda seconds: None)
+    out = tmp_path / "series.txt"
+    assert ms.main(["--holder", "absorbs", "5", "live", "5", "--paths", "fast,fresh", "--out", str(out)]) == 0
+    assert made == [5, ms.LIVE]
+    text = out.read_text(encoding="utf-8").splitlines()
+    recorded = [json.loads(line) for line in text if line.startswith("{")]
+    assert [(line["step"], line["count"], line["path"], line["rows"]) for line in recorded] == [
+        ("absorbs", 5, "fast", 5),
+        ("absorbs", 5, "fresh", 5),
+        ("absorbs", "live", "fast", len(walker.windows)),
+        ("absorbs", "live", "fresh", len(walker.windows)),
+        ("absorbs", 5, "fast", 5),
+        ("absorbs", 5, "fresh", 5),
+    ]
+    assert recorded[1]["standing_rows"] == 0 and recorded[0]["standing_rows"] == 5
+    assert any(line.startswith("absorbs fast over 3 lines") for line in text)
+    assert not (tmp_path / ms.TREE_PATH / ms.ABSORBS).exists()
+    assert live.path.is_file()
+    assert [count.written for count in inputs] == [True, False]
+
+    del made[:], inputs[:]
+    assert ms.main(["--holder", "absorbs", "5", "--paths", "fresh,fresh-sweep", "--out", str(out)]) == 0
+    assert [(count.standing, count.written) for count in inputs] == [(None, False)]
+    before = len(shipped)
+    stop.append(True)
+    assert (
+        ms.main(["--holder", "absorbs", "5", "--paths", "fresh", "--out", str(out)]) == 128 + signal.SIGTERM
+    )
+    assert len(shipped) > before and not (tmp_path / ms.TREE_PATH / ms.ABSORBS).exists()
+    for name in shipped:
+        with pytest.raises(FileNotFoundError):
+            shared_memory.SharedMemory(name, track=False)
+
+    left = f"msk{os.getpid()}"
+    shared_memory.SharedMemory(left, create=True, size=8, track=False).close()
+    record = tmp_path / ms.TREE_PATH / ms.ABSORBS / ms.ABSORB_SEGMENTS
+    record.parent.mkdir(parents=True)
+    record.write_text(f"{left}\n", encoding="utf-8")
+    ms.empty_tree(tmp_path / ms.TREE_PATH)
+    with pytest.raises(FileNotFoundError):
+        shared_memory.SharedMemory(left, track=False)
+    assert list((tmp_path / ms.TREE_PATH).iterdir()) == []
 
 
 def test_a_replay_child_takes_the_series_build_only_when_told(monkeypatch, tmp_path, capsys):
@@ -871,7 +1119,7 @@ def test_the_corpus_inputs_are_refused_when_the_live_corpus_or_the_pack_is_not_b
 
 
 def test_the_holder_picks_which_lines_and_flags_a_run_takes():
-    """Rune counts name cut lines for every holder, a count named twice twice, and `load-x1` and `load-x2` name the corpus holder's load lines; the replay holder takes `--configs` and `--replay-threads`. A load line under another holder, a corpus width under the table or replay holder, a table width under the corpus or replay holder, the replay's width under another holder, and a width below one are refused."""
+    """Rune counts name cut lines for every holder but the absorbs holder, a count named twice twice, and `load-x1` and `load-x2` name the corpus holder's load lines; the replay holder takes `--configs` and `--replay-threads`; the absorbs holder takes row counts and `live`, `1000000 live 9000000 12000000` by default, and `--paths`, every path by default. A load line under another holder, a corpus width under the table or replay holder, a table width under the corpus or replay holder, the replay's width under another holder, a width below one, an absorbs line that is neither a row count nor `live`, a path the holder does not know, `--paths` under another holder, and another holder's flag under the absorbs holder are refused."""
     args = ms.parse_arguments(["--holder", "corpus", "30", "load-x1", "45", "--jobs", "4"])
     assert (args.holder, args.sizes, args.loads, args.jobs) == ("corpus", [30, 45], [1], 4)
     assert (ms.parse_arguments(["34"]).holder, ms.parse_arguments(["34"]).sizes) == ("tables", [34])
@@ -895,9 +1143,27 @@ def test_the_holder_picks_which_lines_and_flags_a_run_takes():
         ["--holder", "replay", "--kernel-threads", "2"],
         ["--holder", "replay", "--write-jobs", "2"],
         ["--holder", "replay", "--replay-threads", "0"],
+        ["--holder", "absorbs", "load-x1"],
+        ["--holder", "absorbs", "lively"],
+        ["--holder", "absorbs", "0"],
+        ["--holder", "absorbs", "--paths", "fast,slow"],
+        ["--holder", "absorbs", "--configs", "default"],
+        ["--holder", "absorbs", "--replay-threads", "2"],
+        ["--holder", "replay", "--paths", "fast"],
     ):
         with pytest.raises(SystemExit):
             ms.parse_arguments(refused)
+    absorbs = ms.parse_arguments(["--holder", "absorbs", "live", "9000000", "live", "--paths", "stale,fast"])
+    assert (absorbs.holder, absorbs.counts, absorbs.paths) == (
+        "absorbs",
+        ["live", 9_000_000, "live"],
+        ["stale", "fast"],
+    )
+    defaults = ms.parse_arguments(["--holder", "absorbs"])
+    assert (defaults.counts, defaults.paths) == (
+        [1_000_000, "live", 9_000_000, 12_000_000],
+        list(ms.ABSORB_PATHS),
+    )
 
 
 def test_a_corpus_run_refuses_while_the_debug_tally_is_on(monkeypatch):

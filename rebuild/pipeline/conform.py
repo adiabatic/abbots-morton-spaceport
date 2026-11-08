@@ -18,7 +18,6 @@ The crate does all settlement, through `kernel_exec`. `_SettledWindowWalk` sends
 from __future__ import annotations
 
 import functools
-import gzip
 import hashlib
 import itertools
 import json
@@ -76,8 +75,7 @@ OVERLAY_MAX_LENGTH = 2
 # How many divergences a configuration's result and the merged report keep in full. Every divergence is counted by kind, but a red sweep at a deep maximum length can diverge on millions of texts, and the summaries print only this many.
 EXEMPLAR_LIMIT = 20
 SETTLE_MEMO_FORMAT = "ams-settle-memo/3"
-SETTLE_MEMO_PART_FORMAT = "ams-settle-memo-part/1"
-# Windows per block when a walk encodes its memo entries, for a part or for a whole-file save. Each part block is its own pickle, so a walk writes its fresh windows out, and an absorb reads them in, this many at a time instead of holding the whole part twice.
+# Windows per block when a walk encodes its memo entries, for a whole-file save or for the fresh windows it hands back (`FreshMemo`). Each fresh block is compressed on its own, so a walk encodes its fresh windows, and an absorb decodes them, this many at a time instead of holding them twice.
 SETTLE_MEMO_BLOCK = 65536
 # Rows per block when the replay's streaming absorb reads the crate's window memo (`read_replay_memo`): 0.46 MB of a narrow memo and 0.92 MB of a wide one, so each block and its remapped copies stay under a megabyte, the size of block the spawn worker's allocator reuses from one block to the next.
 REPLAY_MEMO_BLOCK_ROWS = 1 << 15
@@ -365,6 +363,8 @@ class IsolatedOverlayWalk:
     def walk(self, text: str) -> tuple[list[Settled], list[str]]:
         return self.walk_many([text])[0]
 
+    fresh_memo = None
+
     def save_memo(self) -> bool:
         return False
 
@@ -558,7 +558,7 @@ def _memo_aligned(offset: int) -> int:
     return (offset + 7) & ~7
 
 
-def _memo_slots(columns: Sequence[Sequence[int]], slots: int) -> Iterator[int]:
+def _memo_slots(columns: Sequence[Iterable[int]], slots: int) -> Iterator[int]:
     """The starting index slot of each row of `columns`, in row order, by the hash `_MemoStore.probe` uses: each id times its column's constant in `_MEMO_MIX`, summed modulo 2^64, keeping the top bits that address `slots`. It is built from C-level maps, so a pass over millions of rows runs no Python-level loop."""
     mask = (1 << _MEMO_HASH_BITS) - 1
     shift = _MEMO_HASH_BITS - (slots.bit_length() - 1)
@@ -857,7 +857,7 @@ class _MemoStore:
         return True
 
     def identity(self) -> tuple[int, int, int, int] | None:
-        """The device, inode, size, and modification time of the file this store maps, or None when it maps nothing. A store a probe retired still maps its file and keeps its identity; `retired` says it found the file corrupt. Two stores with the same identity mapped the same version of the file, so their `reached` flags index the same rows (`absorb_sweep_memo`)."""
+        """The device, inode, size, and modification time of the file this store maps, or None when it maps nothing. A store a probe retired still maps its file and keeps its identity; `retired` says it found the file corrupt. Two stores with the same identity mapped the same version of the file, so their `reached` flags index the same rows (`absorb_settle_memo`'s `SweepPrune`)."""
         if self._handle is None:
             return None
         stat = os.fstat(self._handle.fileno())
@@ -957,7 +957,7 @@ class _MemoStore:
         values: array,
         reached: bool | None = None,
     ) -> None:
-        """Append the rows `selector(reached)` chooses to `columns` and `values` in file order, straight from the mapped columns without a key tuple per row. This store's tables are appended to `labels` and `outcomes`, and every id is shifted past what those tables held before. Copying every live row into empty tables and columns of the file's own typecodes is one C-level copy per column (`_memo_copy`), which is the case in `absorb_settle_memo_parts`. Any other copy shifts and filters the ids element by element. The ids are copied unchecked, so a corrupt id reaches the new file and is found there by the probe that reaches it. `_write_settle_memo` merges the labels the two tables share."""
+        """Append the rows `selector(reached)` chooses to `columns` and `values` in file order, straight from the mapped columns without a key tuple per row. This store's tables are appended to `labels` and `outcomes`, and every id is shifted past what those tables held before. Copying every live row into empty tables and columns of the file's own typecodes is one C-level copy per column (`_memo_copy`). Any other copy shifts and filters the ids element by element. The ids are copied unchecked, so a corrupt id reaches the new file and is found there by the probe that reaches it. `_write_settle_memo` merges the labels the two tables share."""
         base_labels, base_outcomes = len(labels), len(outcomes)
         labels.extend(self.labels)
         outcomes.extend(outcome[0] for outcome in self.outcomes)
@@ -984,27 +984,35 @@ class SettleMemoFile:
     """Where one configuration's settle memo file lives between phases, and the keys a walk must match to read it. The string replay fills the file on every full replay from the crate's window memo (`read_replay_memo`). The witness stage, the oracle, and the conformance sweep each map it, settle only what it lacks, and write back what they added.
 
     `stamp` is the whole-file stamp (`oracle_cache.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure, the capability features, the engine's settlement flags, and the configuration). `family_keys` holds the per-family rune keys (`oracle_cache.settle_family_keys`). The two keys follow the oracle row cache's reasoning: a window's settlement depends only on the rune files its six slots name (a formed ligature label names its rune directly, and every ligature rune whose components all appear among the slots counts too). So a file with another stamp is treated as absent, and a file with the same stamp serves every entry that names no changed family and drops the rest.
+
+    `returns_fresh` says a walk keyed with this file may not replace it. Such a walk still reads `path`, but `save_memo` encodes only the windows it settled fresh, in memory (`FreshMemo`, on `_SettledWindowWalk.fresh_memo`), and its caller hands them to `absorb_settle_memo`, which merges them into `path`. Every row range of the pooled oracle returns its fresh windows, whether or not its configuration is split, because a range that replaced the shared file would drop what the other ranges settled, or what the witness stage merged in after the range read the file. Every settlement unit of the pooled conformance sweep returns them for the same reason, beside which rows it reached, so the parent can prune what no unit reached (`MemoReach`). The witness stage's walk returns them too: it loads only the rows its certificate texts can ask for (`_SettledWindowWalk.load_only_asked_by`), so replacing the file would drop every row the load skipped. `run_m1.run_rule_witnesses` absorbs them in its own process before the stage returns, and the oracle's absorbs wait for that.
     """
 
     path: Path
     stamp: str
     family_keys: Mapping[str, str] = field(default_factory=dict)
-    write_path: Path | None = None
+    returns_fresh: bool = False
 
-    @property
-    def writes_part(self) -> bool:
-        """Whether a walk keyed with this file writes a part at `write_path` instead of replacing the file. The walk still reads `path`, but writes only the windows it settled fresh, and `absorb_settle_memo_parts` or `absorb_sweep_memo` later merges the part into `path`.
 
-        Every row range of the pooled oracle writes a part, whether or not its configuration is split, because a range that replaced the shared file would drop what the other ranges settled, or what the witness stage merged in after the range read the file. Every settlement unit of the pooled conformance sweep writes a part for the same reason, and returns which rows it reached, so the parent can prune what no unit reached (`absorb_sweep_memo`). The witness stage also writes a part: its walk loads only the rows its certificate texts can ask for (`_SettledWindowWalk.load_only_asked_by`), so replacing the file would drop every row the load skipped. `run_m1.run_rule_witnesses` absorbs its part before the stage returns, and the oracle's absorbs wait for that.
-        """
-        return self.write_path is not None
+@dataclass(frozen=True)
+class FreshMemo:
+    """The windows a walk keyed with `SettleMemoFile.returns_fresh` settled fresh, as it hands them to `absorb_settle_memo`. `blocks` holds two zlib streams for each of `_memo_blocks`' blocks, compressed one block at a time at level 1: its head, a pickle of the labels and settled records its rows are the first to name and of its row count, and then its rows, the six key columns and the value column, each `array("I")` in native byte order, end to end. A block's ids index every label and record its part's blocks have named so far, so a part's blocks read in order. `rows`, `labels` and `records` count what the blocks hold in all and travel beside them when the blocks are shipped, so a part's size is known without reading a block (the memory series' absorbs lines sum `rows`); the absorb reads every block head itself and takes its tables and typecodes from them.
+
+    A walk holds its part's blocks as bytes. A pool worker ships them into a POSIX shared memory segment and returns the counts with `blocks` empty, and the absorb's worker maps the segment and hands the absorb the mapped pieces as `blocks`, with `release`, which closes the mapping, called once the absorb has read the last of them (`run_m1_gates._absorb_memo`). A part with no rows, every fresh window of which the crate refused, has no blocks and still counts as a part, so its configuration's file is rewritten as it is when any part arrives.
+    """
+
+    blocks: Sequence[bytes | memoryview]
+    rows: int
+    labels: int
+    records: int
+    release: Callable[[], None] | None = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
 class MemoReach:
-    """What one settlement unit of the pooled conformance sweep did with its configuration's settle memo, returned to the parent on its result (`ConformanceConfigResult.memo_reach`) so the parent can prune the file once every unit has finished (`absorb_sweep_memo`).
+    """What one settlement unit of the pooled conformance sweep did with its configuration's settle memo, returned to the parent on its result (`ConformanceConfigResult.memo_reach`) so the parent can prune the file once every unit has finished (`absorb_settle_memo` with a `SweepPrune`).
 
-    `identity` is the mapped file's `_MemoStore.identity`, or None when the walk mapped nothing (the file absent, under another stamp, or unreadable). `retired` says a probe found the file corrupt and retired the store, which zeroed its `reached` flags. `rows` counts the mapped file's rows, dead ones included, `live` the rows the walk could serve, and `loaded` and `stale` are the walk's `memo_windows` and `stale_windows`. `reached` is the store's `reached` flags, one byte per row, zlib-compressed: a unit reaches only the rows its own texts ask for, so the flags compress well. A reached row is never dead (`_MemoStore.selector`). `part` says whether the unit wrote its part, and `seconds` is its `memo_seconds`.
+    `identity` is the mapped file's `_MemoStore.identity`, or None when the walk mapped nothing (the file absent, under another stamp, or unreadable). `retired` says a probe found the file corrupt and retired the store, which zeroed its `reached` flags. `rows` counts the mapped file's rows, dead ones included, `live` the rows the walk could serve, and `loaded` and `stale` are the walk's `memo_windows` and `stale_windows`. `reached` is the store's `reached` flags, one byte per row, zlib-compressed: a unit reaches only the rows its own texts ask for, so the flags compress well. A reached row is never dead (`_MemoStore.selector`). `fresh` holds the windows the unit settled fresh (`FreshMemo`), or None when it settled none; the pool worker ships them to the parent's absorb in shared memory and returns the reach without them (`run_m1_gates._conformance_unit`). `seconds` is its `memo_seconds`.
     """
 
     identity: tuple[int, int, int, int] | None
@@ -1014,15 +1022,25 @@ class MemoReach:
     loaded: int
     stale: int
     reached: bytes
-    part: bool
+    fresh: FreshMemo | None
     seconds: float
 
 
 def settle_memo_line(
-    config: str, seconds: float, loaded: int, stale: int, fresh: int, pruned: int, written: bool
+    config: str,
+    seconds: float,
+    loaded: int,
+    stale: int,
+    fresh: int,
+    pruned: int,
+    written: bool,
+    absorbed: MemoAbsorb | None = None,
 ) -> str:
-    """The `[t] settle_memo` line a phase prints about one configuration's use of its settle memo file: the serial conformance sweep and the oracle through `_SettledWindowWalk.memo_line`, and the pooled conformance sweep's parent once per configuration over its units (`run_m1_gates.run_font_conformance`). Neither restricts its load, so the line has no `unasked=`; the witness stage reports `unasked_windows` on its own `[t] rule_witnesses[<config>]` line."""
-    return f"[t] settle_memo {config} {seconds:.2f}s loaded={loaded} stale={stale} fresh={fresh} pruned={pruned} written={'yes' if written else 'no'}"
+    """The `[t] settle_memo` line a phase prints about one configuration's use of its settle memo file: the serial conformance sweep and the oracle through `_SettledWindowWalk.memo_line`, and the pooled conformance sweep's parent once per configuration over its units (`run_m1_gates.run_font_conformance`). Neither restricts its load, so the line has no `unasked=`; the witness stage reports `unasked_windows` on its own `[t] rule_witnesses[<config>]` line. The pooled sweep's parent passes its configuration's absorb as `absorbed` when one laid a file out, and the line then ends with the absorb's path and row counts (`MemoAbsorb.tokens`, less the `fresh=` the line already holds)."""
+    line = f"[t] settle_memo {config} {seconds:.2f}s loaded={loaded} stale={stale} fresh={fresh} pruned={pruned} written={'yes' if written else 'no'}"
+    if absorbed is not None and absorbed.index is not None:
+        line += " " + absorbed.tokens(fresh=False)
+    return line
 
 
 def settle_memo_files(
@@ -1114,12 +1132,20 @@ def _memo_tables(labels: Sequence[str], outcomes: Sequence[Settled]) -> _MemoTab
 
 
 @dataclass(frozen=True)
+class _MemoPieces:
+    """A section of a settle memo file laid out a piece at a time instead of held whole: `nbytes` is its length, and `pieces`, each time it is called, yields its columns or views in order. `absorb_settle_memo` lays a column out this way when it copies the standing rows straight from the mapping, widened or filtered a block at a time, ahead of the fresh rows, and its values and index when it patches or renumbers them a block at a time."""
+
+    nbytes: int
+    pieces: Callable[[], Iterator[_MemoColumn]]
+
+
+@dataclass(frozen=True)
 class FinishedSettleMemo:
-    """A settle memo file finished in memory and not yet written: its header and table pickles and its sections, the six id columns, the value column and the probe index, in `_write_settle_memo`'s layout, with the row count the header states. `pieces` yields its bytes in file order with the padding between sections, each section a view over its column, so writing or hashing it copies no column. `stage` writes it beside the file it will replace, and `digest` hashes it."""
+    """A settle memo file finished in memory and not yet written: its header and table pickles and its sections, the six id columns, the value column and the probe index, in `_write_settle_memo`'s layout, with the row count the header states. A section is a column or a `_MemoPieces`. `pieces` yields its bytes in file order with the padding between sections, each section a view over its column or over each of its pieces, so writing or hashing it copies no column. `stage` writes it beside the file it will replace, and `digest` hashes it."""
 
     header: bytes
     tables: bytes
-    sections: tuple[_MemoColumn, ...]
+    sections: tuple[_MemoColumn | _MemoPieces, ...]
     rows: int
 
     def pieces(self) -> Iterator[bytes | memoryview]:
@@ -1129,19 +1155,31 @@ class FinishedSettleMemo:
         yield self.tables
         yield bytes(-len(self.tables) % 8)
         for section in self.sections:
-            view = _memo_view(section)
-            yield view
-            yield bytes(-view.nbytes % 8)
+            if isinstance(section, _MemoPieces):
+                length = 0
+                for piece in section.pieces():
+                    view = _memo_view(piece)
+                    length += view.nbytes
+                    yield view
+                if length != section.nbytes:
+                    raise ValueError(
+                        f"a section laid out {length} bytes where its header counts {section.nbytes}"
+                    )
+            else:
+                view = _memo_view(section)
+                length = view.nbytes
+                yield view
+            yield bytes(-length % 8)
 
     def stage(self, path: Path) -> Path:
-        """Write the file to `<path>.<pid>.tmp` beside `path`, the name `_write_settle_memo` stages under, and return that path. An `OSError` removes what it wrote and propagates."""
+        """Write the file to `<path>.<pid>.tmp` beside `path`, the name `_write_settle_memo` stages under, and return that path. An error removes what it wrote and propagates."""
         staged = Path(path).with_name(f"{Path(path).name}.{os.getpid()}.tmp")
         try:
             staged.parent.mkdir(parents=True, exist_ok=True)
             with open(staged, "wb") as handle:
                 for piece in self.pieces():
                     handle.write(piece)
-        except OSError:
+        except BaseException:
             with suppress(OSError):
                 staged.unlink()
             raise
@@ -1155,6 +1193,29 @@ class FinishedSettleMemo:
             hasher.update(piece)
             size += memoryview(piece).nbytes
         return size, hasher.hexdigest()
+
+
+def _settle_memo_head(
+    memo: SettleMemoFile, tables: _MemoTables, rows: int, slots: int
+) -> tuple[bytes, bytes]:
+    """The header and table pickles of a file of `rows` rows over `tables` with an index of `slots` slots, under `memo`'s stamp and family keys: every writer of the layout states its header through this."""
+    pickled = pickle.dumps((tables.table, tables.items), protocol=5)
+    header = pickle.dumps(
+        {
+            "format": SETTLE_MEMO_FORMAT,
+            "stamp": memo.stamp,
+            "family_keys": dict(memo.family_keys),
+            "rows": rows,
+            "labels": len(tables.table),
+            "outcomes": len(tables.items),
+            "slots": slots,
+            "typecode": tables.typecode,
+            "value_typecode": tables.value_typecode,
+            "tables": len(pickled),
+        },
+        protocol=5,
+    )
+    return header, pickled
 
 
 def _finish_settle_memo(
@@ -1173,47 +1234,19 @@ def _finish_settle_memo(
         renumber = array("I", [0])
         renumber.extend(itertools.accumulate(keep))
         index = array("I", map(renumber.__getitem__, index))
-    pickled = pickle.dumps((tables.table, tables.items), protocol=5)
-    header = pickle.dumps(
-        {
-            "format": SETTLE_MEMO_FORMAT,
-            "stamp": memo.stamp,
-            "family_keys": dict(memo.family_keys),
-            "rows": len(values),
-            "labels": len(tables.table),
-            "outcomes": len(tables.items),
-            "slots": len(index),
-            "typecode": tables.typecode,
-            "value_typecode": tables.value_typecode,
-            "tables": len(pickled),
-        },
-        protocol=5,
-    )
+    header, pickled = _settle_memo_head(memo, tables, len(values), len(index))
     return FinishedSettleMemo(header, pickled, (*columns, values, index), len(values))
 
 
-def _write_settle_memo(
+def _settled_memo(
     memo: SettleMemoFile,
     labels: Sequence[str],
     outcomes: Sequence[Settled],
     columns: Sequence[array],
     values: array,
-    path: Path | None = None,
     standing: tuple[array, int, int, int] | None = None,
-) -> bool:
-    """Write a settle memo file in the layout `_MemoStore` maps, and return whether it was written. This and `read_replay_memo`'s streaming absorb are the only writers of that layout, and both lay it out through `_finish_settle_memo` and `FinishedSettleMemo`.
-
-    The layout is: an eight-byte little-endian length, then the header pickle (the format, `memo.stamp`, `memo.family_keys`, the row count `rows`, the table sizes `labels` and `outcomes`, the index size `slots`, the column typecodes `typecode` and `value_typecode`, and the byte length `tables` of the next pickle), then the label and outcome tables as one pickle, then the six id columns, the value column, and the probe index as fixed-width little-endian arrays. Every section starts on an eight-byte boundary.
-
-    `labels` and `outcomes` are the tables that the caller's `columns` and `values` index, and they may contain repeats. Each repeated label is merged onto its first id and each repeated outcome onto its first equal, and the columns are remapped to match, so the file's tables list each entry once (`_memo_tables`). An id column uses `H` while its table fits in sixteen bits and `I` otherwise. `_memo_index` then builds the index and merges a repeated key onto its first row, with the later entry's outcome, so the file holds one row per window.
-
-    With `H` columns a window costs 12 key bytes, 2 value bytes, and 4 bytes per index slot over the index's 2N to 4N slots: 22 to 30 bytes uncompressed on disk, depending on where the row count falls below its power of two. The `[t] settle_memo` lines count the windows, and `du` on `rebuild/out/m1/settle-memo-*.bin` reports the file sizes; both grow with the alphabet. While writing, the heap holds the caller's columns, the remapped copies, and the index at once, roughly the file's size plus the columns'. The serial conformance sweep's save, a `--jobs 1` oracle's save, each part absorb, and the pooled conformance sweep's absorb (`absorb_sweep_memo`) hold that much once per configuration. The replay's streaming absorb holds the remapped columns alone, since it remaps each block of rows as it arrives (`read_replay_memo`).
-
-    `standing` is a standing file's index with its row, label, and outcome counts. It says that the first rows of `columns`, up to that row count, are that file's live rows in its own id space with none dropped before them. The index is then copied and only the later rows are inserted (`absorb_settle_memo_parts` merging parts into a file with no stale rows). The writer checks that its merges leave those ids unchanged and that the index has room, and builds a new index otherwise.
-
-    The file is written to `<path>.<pid>.tmp` (`FinishedSettleMemo.stage`), each section as one write of a view over its array, and moved into place with `os.replace`. A reader that mapped the old file keeps it unchanged until it closes, and a reader that opens afterward maps the whole new file, so no reader sees a partial file. `path` defaults to `memo.path`. If the filesystem refuses the write, this prints a warning and returns False without failing the build, because every reader settles what the file lacks.
-    """
-    path = memo.path if path is None else Path(path)
+) -> FinishedSettleMemo:
+    """`_write_settle_memo`'s file, finished in memory and not yet written."""
     tables = _memo_tables(labels, outcomes)
     typecode = tables.typecode
     if tables.merges_labels:
@@ -1231,7 +1264,12 @@ def _write_settle_memo(
             or tables.canon_outcomes[:standing_outcomes] != list(range(standing_outcomes))
         ):
             reused, indexed = None, 0
-    finished = _finish_settle_memo(memo, tables, folded, folded_values, reused, indexed)
+    return _finish_settle_memo(memo, tables, folded, folded_values, reused, indexed)
+
+
+def _put_settle_memo(finished: FinishedSettleMemo, path: Path) -> bool:
+    """Stage `finished` beside `path` (`FinishedSettleMemo.stage`) and move it into place with `os.replace`, and return whether it was written. If the filesystem refuses the write, this prints a warning and returns False without failing the build, because every reader settles what the file lacks."""
+    path = Path(path)
     try:
         os.replace(finished.stage(path), path)
     except OSError as error:
@@ -1242,34 +1280,34 @@ def _write_settle_memo(
     return True
 
 
+def _write_settle_memo(
+    memo: SettleMemoFile,
+    labels: Sequence[str],
+    outcomes: Sequence[Settled],
+    columns: Sequence[array],
+    values: array,
+    path: Path | None = None,
+    standing: tuple[array, int, int, int] | None = None,
+) -> bool:
+    """Write a settle memo file in the layout `_MemoStore` maps, and return whether it was written. This, `read_replay_memo`'s streaming absorb and `absorb_settle_memo` are the writers of that layout, and all three lay it out through `_settle_memo_head` and `FinishedSettleMemo`.
+
+    The layout is: an eight-byte little-endian length, then the header pickle (the format, `memo.stamp`, `memo.family_keys`, the row count `rows`, the table sizes `labels` and `outcomes`, the index size `slots`, the column typecodes `typecode` and `value_typecode`, and the byte length `tables` of the next pickle), then the label and outcome tables as one pickle, then the six id columns, the value column, and the probe index as fixed-width little-endian arrays. Every section starts on an eight-byte boundary.
+
+    `labels` and `outcomes` are the tables that the caller's `columns` and `values` index, and they may contain repeats. Each repeated label is merged onto its first id and each repeated outcome onto its first equal, and the columns are remapped to match, so the file's tables list each entry once (`_memo_tables`). An id column uses `H` while its table fits in sixteen bits and `I` otherwise. `_memo_index` then builds the index and merges a repeated key onto its first row, with the later entry's outcome, so the file holds one row per window.
+
+    With `H` columns a window costs 12 key bytes, 2 value bytes, and 4 bytes per index slot over the index's 2N to 4N slots: 22 to 30 bytes uncompressed on disk, depending on where the row count falls below its power of two. The `[t] settle_memo` lines count the windows, and `du` on `rebuild/out/m1/settle-memo-*.bin` reports the file sizes; both grow with the alphabet. While writing, the heap holds the caller's columns, the remapped copies, and the index at once, roughly the file's size plus the columns'. The serial conformance sweep's save and a `--jobs 1` oracle's save hold that much once per configuration. `absorb_settle_memo` copies the standing rows straight from the mapping and holds only the fresh rows and the index, and the replay's streaming absorb holds the remapped columns alone, since it remaps each block of rows as it arrives (`read_replay_memo`).
+
+    `standing` is a standing file's index with its row, label, and outcome counts. It says that the first rows of `columns`, up to that row count, are that file's live rows in its own id space with none dropped before them. The index is then copied and only the later rows are inserted. The writer checks that its merges leave those ids unchanged and that the index has room, and builds a new index otherwise. No pipeline caller passes it: it is the form of the carry-and-append absorb that `rebuild/test_conform.py` and the memory series' absorbs holder prove `absorb_settle_memo`'s bytes against.
+
+    The file is written to `<path>.<pid>.tmp` (`FinishedSettleMemo.stage`), each section as one write of a view over its array, and moved into place with `os.replace` (`_put_settle_memo`). A reader that mapped the old file keeps it unchanged until it closes, and a reader that opens afterward maps the whole new file, so no reader sees a partial file. `path` defaults to `memo.path`. If the filesystem refuses the write, this prints a warning and returns False without failing the build, because every reader settles what the file lacks.
+    """
+    return _put_settle_memo(
+        _settled_memo(memo, labels, outcomes, columns, values, standing),
+        memo.path if path is None else Path(path),
+    )
+
+
 _SettleMemoBlock = tuple[list[str], list[Settled], list[array], array]
-
-
-def _write_settle_memo_part(memo: SettleMemoFile, blocks: Iterable[_SettleMemoBlock], path: Path) -> bool:
-    """Write a settle memo part to `path` and return whether it was written (`SettleMemoFile.writes_part`). A part is a gzip stream of pickles: a header with `SETTLE_MEMO_PART_FORMAT`, `memo.stamp`, and `memo.family_keys`, then one pickle per block from `_memo_blocks`. It is written to a temporary file beside `path` and moved into place. A part holds only fresh windows, so it is written one block at a time and does not need the mapped layout; `absorb_settle_memo_parts` reads it back one block at a time through `_read_settle_memo`. If the filesystem refuses the write, this prints a warning and returns False."""
-    path = Path(path)
-    staged = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with gzip.open(staged, "wb", compresslevel=1) as handle:
-            pickle.dump(
-                {
-                    "format": SETTLE_MEMO_PART_FORMAT,
-                    "stamp": memo.stamp,
-                    "family_keys": dict(memo.family_keys),
-                },
-                handle,
-                protocol=5,
-            )
-            for block in blocks:
-                pickle.dump(block, handle, protocol=5)
-        os.replace(staged, path)
-    except OSError as error:
-        with suppress(OSError):
-            staged.unlink()
-        print(f"[warn] settle memo: {path} not written ({error})", file=sys.stderr, flush=True)
-        return False
-    return True
 
 
 def _memo_blocks(items: Iterable[tuple[_Window, _Outcome]]) -> Iterable[_SettleMemoBlock]:
@@ -1318,149 +1356,568 @@ def _memo_columns(
     return labels, outcomes, columns, values
 
 
-def _read_settle_memo(memo: SettleMemoFile, spec: ResolvedSpec) -> Iterator[tuple[_SettleMemoBlock, int]]:
-    """The blocks of the part at `memo.path`, each with the count of stale entries removed from it. A part that is missing, has another stamp, or has an unreadable header yields nothing. A part under this stamp whose family keys changed yields every block minus the entries naming a changed family: by a letter's label, by a formed ligature's label, or by all components of a changed ligature rune (`oracle_cache.StaleMask` at label grain). A changed family the registry cannot place makes the whole part stale, so it yields nothing. A block that will not decode ends the read with a warning, and the blocks before it are still valid, because a block's labels and records are indexed only by that block and later ones. The stale entries are found per block over the label columns, with one bit per label and C-level maps, and removed from the columns."""
-    bits: list[int] = []
-    loaded = 0
+def _fresh_memo(items: Iterable[tuple[_Window, _Outcome]]) -> FreshMemo:
+    """A walk's fresh windows as the part it hands its absorb (`FreshMemo`): each of `_memo_blocks`' blocks as its head and its rows, compressed one block at a time."""
+    blocks: list[bytes] = []
+    rows = labels = records = 0
+    for new_labels, new_items, columns, values in _memo_blocks(items):
+        count = len(values)
+        blocks.append(zlib.compress(pickle.dumps((new_labels, new_items, count), protocol=5), 1))
+        packer = zlib.compressobj(1)
+        packed = [packer.compress(column) for column in (*columns, values)]
+        packed.append(packer.flush())
+        blocks.append(b"".join(packed))
+        rows += count
+        labels += len(new_labels)
+        records += len(new_items)
+    return FreshMemo(blocks, rows, labels, records)
+
+
+# Rows a piece when `absorb_settle_memo` copies, widens, filters, patches or renumbers a section a block at a time: a quarter of a megabyte of `I` ids, so each piece stays well under the size of block the spawn worker's allocator reuses from one block to the next.
+_ABSORB_BLOCK_ROWS = 1 << 16
+_FRESH_MEMO_ERRORS = (
+    zlib.error,
+    pickle.UnpicklingError,
+    EOFError,
+    ValueError,
+    TypeError,
+    IndexError,
+    OverflowError,
+)
+
+
+@dataclass(frozen=True)
+class SweepPrune:
+    """What the pooled conformance sweep's parent tells its configuration's absorb about the units' use of the file (`absorb_settle_memo`): `identity`, the file version every unit mapped (`_MemoStore.identity`); `reached`, the zlib-compressed union of the units' `MemoReach.reached` flags, one byte per row; `prune`, False when the units disagree about the version they mapped; and `discard`, True when a unit's probe retired its store (`MemoReach.retired`)."""
+
+    identity: tuple[int, int, int, int] | None
+    reached: bytes
+    prune: bool
+    discard: bool
+
+
+@dataclass(frozen=True)
+class MemoAbsorb:
+    """What `absorb_settle_memo` did with one configuration's file. `written` says whether it wrote one, `carried` counts the standing rows it kept, `pruned` the live rows the sweep's prune or discard dropped, and `fresh` the rows the parts added to the file once each window that an earlier row already holds merged onto that row, or the rows the parts held when nothing was written. `standing` counts the standing file's rows, dead ones included (0 when it loaded nothing), `parts` the rows the parts held, `patched` the rows that restated a window an earlier row holds and gave that row their outcome instead of taking a row of their own, `index` whether the standing index was copied and extended (`reused`) or built anew (`rebuilt`), None when no file was laid out, and `slots` its slot count."""
+
+    written: bool
+    carried: int
+    pruned: int
+    fresh: int
+    standing: int = 0
+    parts: int = 0
+    patched: int = 0
+    index: str | None = None
+    slots: int = 0
+
+    @property
+    def dropped(self) -> int:
+        """The standing rows not carried: the stale ones, and those the sweep's prune or discard dropped."""
+        return self.standing - self.carried
+
+    def tokens(self, fresh: bool = True) -> str:
+        """The path and counts a `[t]` line reports: `index=`, then the standing, kept, fresh (left out with `fresh` False, for a line that already has one), patched and dropped rows."""
+        counts = [("standing", self.standing), ("kept", self.carried)]
+        if fresh:
+            counts.append(("fresh", self.fresh))
+        counts += [("patched", self.patched), ("dropped", self.dropped)]
+        return " ".join([f"index={self.index}", *(f"{name}={count}" for name, count in counts)])
+
+
+def absorb_settle_memo(
+    memo: SettleMemoFile,
+    spec: ResolvedSpec,
+    parts: Sequence[FreshMemo],
+    sweep: SweepPrune | None = None,
+    emit: Callable[[FinishedSettleMemo], bool] | None = None,
+) -> MemoAbsorb:
+    """Merge `parts`, the fresh windows of the walks that may not replace the shared file (`SettleMemoFile.returns_fresh`: the pooled oracle's row ranges in range order, the pooled conformance sweep's units in unit-slot order, or the witness stage's walk), into one configuration's settle memo file, and return what it did (`MemoAbsorb`). This is the one absorb of fresh windows: `run_m1_gates.run_oracle` and `run_m1_gates.run_font_conformance` run it in a fresh pool process a configuration, and `run_m1.run_rule_witnesses` in the witness stage's own process.
+
+    It maps the standing file read-only and unrestricted (`_MemoStore.load`), so a file that is absent, under another stamp or unreadable contributes nothing, and a row naming a family whose key changed is dead. With `sweep`, the pooled conformance sweep's parent says which rows its units reached: together the units walk every text of the configuration, so a live row none of them reached is a window no text produces any more, and it is dropped, as the serial sweep's `save_memo(prune=True)` drops it. When the file on disk is not the version the units mapped, or its row count differs from the flags', the flags index another version's rows, so this warns and keeps every live row, as it does when `sweep.prune` is False; rows are never lost, only the prune waits for the next sweep. `sweep.discard`, after a unit's probe retired its store, drops every live row under the same version check and keeps only the parts, as the serial sweep's pruning save does after a retirement. With no part and nothing dropped this writes nothing, so the file's bytes and modification time stand.
+
+    It reads every part's block heads first, before any row: the labels and records each block introduces, and its row count. So it merges the tables (`_memo_tables` over the standing tables and every part's, in order), knows the file's typecodes, and preallocates the fresh rows' seven columns from the counts (`_zeroed_column`) before decoding a row, and then decodes each block's rows once, into the file's id space and typecodes, a block at a time, calling each part's `release` once its last block is read. A block that will not decode, or names an id past its part's tables, warns and ends its part there, and the blocks before it stand; the tables are merged again without the blocks it dropped, so the file holds what it would hold had the part ended there.
+
+    It builds the final index in heap before it writes anything, at the slot count `_memo_index` takes from the row count before repeated windows merge, so the index equals the one `_write_settle_memo` builds over the same rows. With no standing row dropped (no dead row, nothing pruned) and room for every row, it copies the standing index and inserts the fresh rows after the standing ones (`index=reused`). Otherwise it inserts the kept standing rows, in file order, and then the fresh rows, over the row numbers they will have (`index=rebuilt`), reading a kept standing row's key through the mapped columns by way of a map of the kept rows' standing row numbers, 4 bytes a kept row. A row whose window an earlier row holds, standing or fresh, takes no slot and gives that row its outcome (a later row's outcome wins, as in a dict), as `_memo_index` merges it. Standing outcomes are patched from a list as their section is written, fresh ones in place.
+
+    Then it writes the file once, in order, staged beside it and moved into place (`_put_settle_memo`, or `emit` in its place for a reader that hashes the file instead), through `_settle_memo_head` and `FinishedSettleMemo`, so its bytes are those `_write_settle_memo` writes over the standing file's carried rows and the parts' blocks appended with their ids shifted past what precedes them: each key column as the standing column's kept rows straight from the mapping (widened, or filtered through the kept map, a block at a time where they need it) followed by the fresh rows' column, the values with the patches applied a block at a time, and the index last, renumbered a block at a time past a merged row. It copies standing ids unchecked, so a corrupt standing id reaches the new file and is found there by the probe that reaches it, which retires the store (`_MemoStore._retire`), instead of raising `IndexError` here.
+
+    It holds the standing file's `dead` and `reached` flags and its selector, 3 bytes a standing row, the kept map, the fresh rows at 14 bytes a row (`H` columns), the index at 4 bytes a slot, and each part's compressed blocks until they are read; the mapped standing pages are the page cache's, and count in its resident set as it reads them. Once a row merges onto an earlier one it also holds the merge's state over every row from the first merged one on, in the order before merging (`_Merged`): a keep flag a row, 1 byte on the heap, and, while the index is written, the renumbering's running counts, 4 bytes a row of anonymous memory it fills whole (`_index_pieces`), and from the first patch two patch columns, 8 bytes a patch as it fills them. A repeated window is decoded into the fresh columns and counted into the slot count before it merges, so windows that two parts both settled, as an all-fresh pass's ranges and units do, add 14 bytes a repeat to the fresh rows and can double the index.
+    """
+    store = _MemoStore()
+    store.load(memo, spec, None, lambda item: (item, "", ""))
+    released: set[int] = set()
+
+    def release(part: FreshMemo) -> None:
+        if id(part) not in released:
+            released.add(id(part))
+            if part.release is not None:
+                part.release()
+
     try:
-        with gzip.open(memo.path, "rb") as handle:
-            header = pickle.load(handle)
-            if (
-                not isinstance(header, dict)
-                or header.get("format") != SETTLE_MEMO_PART_FORMAT
-                or header.get("stamp") != memo.stamp
-            ):
-                return
-            recorded = header.get("family_keys")
-            if not isinstance(recorded, dict):
-                return
-            mask = oracle_cache.StaleMask(spec, oracle_cache.moved_families(recorded, memo.family_keys))
-            if mask.everything:
-                return
-            retiring = bool(mask.moved)
-            while True:
-                try:
-                    new_labels, new_items, columns, values = pickle.load(handle)
-                except EOFError:
-                    break
-                retired = 0
-                if retiring:
-                    bits.extend(mask.bit_of(_label_family(label)) for label in new_labels)
-                    masks = functools.reduce(
-                        lambda left, right: map(operator.or_, left, right),
-                        (map(bits.__getitem__, column) for column in columns),
-                    )
-                    keep = [not mask.stale(window_mask) for window_mask in masks]
-                    retired = len(keep) - sum(keep)
-                    if retired:
-                        columns = [array("I", itertools.compress(column, keep)) for column in columns]
-                        values = array("I", itertools.compress(values, keep))
-                loaded += len(values) + retired
-                yield (new_labels, new_items, columns, values), retired
-    except FileNotFoundError:
-        return
-    except _SETTLE_MEMO_READ_ERRORS as error:
+        return _absorb(memo, store, parts, sweep, emit, release)
+    finally:
+        store.close()
+        for part in parts:
+            release(part)
+
+
+def _sweep_drops(memo: SettleMemoFile, store: _MemoStore, sweep: SweepPrune | None) -> int:
+    """Mark the rows `sweep` keeps as reached in `store` and return the live rows that drops (`absorb_settle_memo`)."""
+    if sweep is None or not sweep.prune:
+        return 0
+    flags = zlib.decompress(sweep.reached)
+    if store.identity() != sweep.identity or len(flags) != len(store.reached):
         print(
-            f"[warn] settle memo: {memo.path} stopped reading after {loaded} windows ({error}); the rest are settled again",
+            f"[warn] settle memo: {memo.path} changed after the conformance sweep's units mapped it; every live row is kept and the prune waits for the next sweep",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 0
+    if sweep.discard:
+        return len(store)
+    store.reached[:] = flags
+    return len(store) - store.reached_count()
+
+
+def _kept_rows(selector: bytearray, kept: int) -> memoryview:
+    """The standing row number of each row `selector` keeps, in order, `I` ids in anonymous memory filled a block at a time."""
+    rows = _zeroed_column("I", kept)
+    at = 0
+    for start in range(0, len(selector), _ABSORB_BLOCK_ROWS):
+        block = array(
+            "I",
+            itertools.compress(
+                range(start, start + _ABSORB_BLOCK_ROWS), selector[start : start + _ABSORB_BLOCK_ROWS]
+            ),
+        )
+        rows[at : at + len(block)] = block
+        at += len(block)
+    return rows
+
+
+class _FreshRows:
+    """The parts' rows as `absorb_settle_memo` decodes them: each part's block heads (`heads`), the tables merged over the standing file's and every part's (`tables`), and the six key columns and the value column in those tables' id space and typecodes (`columns`, `values`), `rows` long."""
+
+    def __init__(
+        self,
+        memo: SettleMemoFile,
+        store: _MemoStore,
+        parts: Sequence[FreshMemo],
+        release: Callable[[FreshMemo], None],
+    ) -> None:
+        self._memo = memo
+        self._labels = store.labels
+        self._items = [outcome[0] for outcome in store.outcomes]
+        self._parts = parts
+        self._release = release
+        self.heads = [self._read_heads(part) for part in parts]
+        self.tables = self._merge()
+        total = sum(count for heads in self.heads for _labels, _items, count in heads)
+        self.columns = [_zeroed_column(self.tables.typecode, total) for _ in range(6)]
+        self.values = _zeroed_column(self.tables.value_typecode, total)
+        self.rows = 0
+        self._decode()
+
+    def _warn(self, rows: int, error: object) -> None:
+        print(
+            f"[warn] settle memo: a part for {self._memo.path} stopped reading after {rows} windows ({error}); the rest are settled again",
             file=sys.stderr,
             flush=True,
         )
 
+    def _read_heads(self, part: FreshMemo) -> list[tuple[list[str], list[Settled], int]]:
+        heads: list[tuple[list[str], list[Settled], int]] = []
+        blocks = part.blocks
+        rows = 0
+        for at in range(0, len(blocks), 2):
+            try:
+                if at + 1 >= len(blocks):
+                    raise ValueError("a block's head with no rows behind it")
+                new_labels, new_items, count = pickle.loads(zlib.decompress(blocks[at]))
+                if (
+                    not isinstance(new_labels, list)
+                    or not isinstance(new_items, list)
+                    or not isinstance(count, int)
+                    or count < 0
+                ):
+                    raise ValueError("a malformed block head")
+            except _FRESH_MEMO_ERRORS as error:
+                self._warn(rows, f"{error}" or type(error).__name__)
+                break
+            heads.append((new_labels, new_items, count))
+            rows += count
+        return heads
 
-def absorb_settle_memo_parts(memo: SettleMemoFile, parts: Sequence[Path], spec: ResolvedSpec) -> bool:
-    """Merge `parts` into one configuration's shared settle memo file, and return True when a file was written. The parts come from the walks that may not replace the file: every row range of the pooled oracle, and the witness stage. The pooled conformance sweep's units write parts too, and `absorb_sweep_memo` merges those.
+    def _merge(self) -> _MemoTables:
+        labels = list(self._labels)
+        items = list(self._items)
+        for heads in self.heads:
+            for new_labels, new_items, _count in heads:
+                labels.extend(new_labels)
+                items.extend(new_items)
+        return _memo_tables(labels, items)
 
-    The new file holds the standing file's live rows as `_MemoStore.load` serves them (under the stamp, minus the entries naming a changed family), then each part's blocks with their ids shifted past the labels and records before them. It is written through `_write_settle_memo`, which merges the labels a part repeats onto the file's ids. When no standing row is stale, it extends the standing index with the parts' rows instead of rebuilding it. The parts are read first, so the columns get the typecodes the whole file needs and the standing rows can be copied whole (`_MemoStore.carry_into`). The file is written under the current family keys, so its header never covers a stale entry, and a reader in another process sees either the old file or the new one.
+    def _decode(self) -> None:
+        label_base, item_base = len(self._labels), len(self._items)
+        for part, heads in zip(self._parts, self.heads):
+            part_labels = sum(len(new_labels) for new_labels, _items, _count in heads)
+            part_items = sum(len(new_items) for _labels, new_items, _count in heads)
+            canon = self.tables.canon[label_base : label_base + part_labels]
+            canon_outcomes = self.tables.canon_outcomes[item_base : item_base + part_items]
+            started = self.rows
+            for block, (_labels, _items, count) in enumerate(heads):
+                try:
+                    self._decode_block(part.blocks[2 * block + 1], count, canon, canon_outcomes)
+                except _FRESH_MEMO_ERRORS as error:
+                    self._warn(self.rows - started, f"{error}" or type(error).__name__)
+                    del heads[block:]
+                    self._remerge()
+                    part_labels = sum(len(new_labels) for new_labels, _items, _count in heads)
+                    part_items = sum(len(new_items) for _labels, new_items, _count in heads)
+                    break
+                self.rows += count
+            label_base += part_labels
+            item_base += part_items
+            self._release(part)
 
-    With no parts on disk this does nothing and returns False. A standing file that is absent or has another stamp contributes nothing, and the parts become the file. A window can arrive twice: two ranges may both settle it, or a range that mapped the file before the witness stage's merge may settle a window that merge has since added. Either way the later entry replaces the earlier one at the earlier row, as in a dict, so the file holds the window once.
-    """
-    present = [Path(part) for part in parts if Path(part).is_file()]
-    if not present:
-        return False
-    return _absorb_parts(memo, present, spec, None)[0]
-
-
-def absorb_sweep_memo(
-    memo: SettleMemoFile,
-    parts: Sequence[Path],
-    spec: ResolvedSpec,
-    identity: tuple[int, int, int, int] | None,
-    reached: bytes,
-    prune: bool,
-    discard: bool,
-) -> tuple[bool, int, int]:
-    """Merge the pooled conformance sweep's parts for one configuration into its shared settle memo file, pruning the rows no unit reached, and return `(written, pruned, fresh)`: whether a file was written, the live rows dropped, and the distinct windows the parts added.
-
-    `reached` is the zlib-compressed union of the units' `MemoReach.reached` flags, one byte per row, and `identity` the file version every unit mapped (`_MemoStore.identity`). Together the units walk every text of the configuration, so a row none of them reached is a window no text produces any more, as for the serial sweep's `save_memo(prune=True)`, and the file this writes holds the same rows as that save: the reached rows in file order, then the parts' windows. When the file on disk is not the version the units mapped, or its row count differs from the flags', the flags index another version's rows, so this warns and keeps every live row. So does `prune=False`, which the caller passes when its units disagree about the version they mapped. Rows are never lost; only the prune waits for the next sweep.
-
-    `discard`, which the caller passes when a unit's probe retired its store (`MemoReach.retired`), drops every live row rather than the unreached ones, under the same version check, and writes only the parts, reporting every live row as pruned. A retired store's flags are zeroed, so the serial sweep's `save_memo(prune=True)` after a retirement carries nothing either, and the next pass reads a whole file instead of retiring again over the same corrupt row.
-
-    With no part on disk and nothing to prune (a current memo), this writes nothing, so the file's bytes and modification time stay as they are. `fresh` counts the written file's rows past the carried ones, which is the parts' windows after `_write_settle_memo` has merged a window two units both settled; when the write fails it is the parts' rows before that merge.
-    """
-    present = [Path(part) for part in parts if Path(part).is_file()]
-    flags = zlib.decompress(reached)
-
-    def narrow(store: _MemoStore) -> int:
-        if not prune:
-            return 0
-        if store.identity() != identity or len(flags) != len(store.reached):
-            print(
-                f"[warn] settle memo: {memo.path} changed after the conformance sweep's units mapped it; every live row is kept and the prune waits for the next sweep",
-                file=sys.stderr,
-                flush=True,
+    def _decode_block(
+        self, piece: bytes | memoryview, count: int, canon: Sequence[int], canon_outcomes: Sequence[int]
+    ) -> None:
+        raw = zlib.decompress(piece)
+        width = array("I").itemsize
+        if len(raw) != 7 * count * width:
+            raise ValueError(f"a block of {len(raw)} row bytes where its head counts {count} rows")
+        flat = memoryview(raw).cast("I")
+        at = self.rows
+        typecode, value_typecode = self.tables.typecode, self.tables.value_typecode
+        for slot, column in enumerate(self.columns):
+            column[at : at + count] = array(
+                typecode, map(canon.__getitem__, flat[slot * count : (slot + 1) * count])
             )
-            return 0
-        if discard:
-            return len(store)
-        store.reached[:] = flags
-        return len(store) - store.reached_count()
+        self.values[at : at + count] = array(
+            value_typecode, map(canon_outcomes.__getitem__, flat[6 * count :])
+        )
 
-    written, carried, pruned, added = _absorb_parts(memo, present, spec, narrow)
-    if not written:
-        return False, 0, added
-    header = _settle_memo_header(memo)
-    return True, pruned, (int(header["rows"]) - carried) if header is not None else added
+    def _remerge(self) -> None:
+        """Merge the tables again after a part ended early, and move the rows decoded so far into the new typecodes when the merge narrowed them. A row decoded so far names only labels and records listed before the part's dropped blocks, whose ids the merge leaves as they were."""
+        before = self.tables
+        self.tables = self._merge()
+        total = sum(count for heads in self.heads for _labels, _items, count in heads)
+        if self.tables.typecode != before.typecode:
+            self.columns = [_moved(column, self.tables.typecode, self.rows, total) for column in self.columns]
+        if self.tables.value_typecode != before.value_typecode:
+            self.values = _moved(self.values, self.tables.value_typecode, self.rows, total)
 
 
-def _absorb_parts(
+def _moved(column: memoryview, typecode: _MemoTypecode, rows: int, total: int) -> memoryview:
+    moved = _zeroed_column(typecode, total)
+    for start in range(0, rows, _ABSORB_BLOCK_ROWS):
+        stop = min(start + _ABSORB_BLOCK_ROWS, rows)
+        moved[start:stop] = array(typecode, column[start:stop])
+    return moved
+
+
+@dataclass
+class _Merged:
+    """The rows `absorb_settle_memo`'s index merged onto an earlier row: `first`, the row number before merging of the first one, `keep`, a flag a row from `first` on, cleared for each merged row, and the patches to standing outcomes, each an earlier standing row and the outcome it takes, in the order they were made."""
+
+    rows: int
+    first: int | None = None
+    keep: bytearray = field(default_factory=bytearray)
+    patch_rows: memoryview | None = None
+    patch_values: memoryview | None = None
+    patches: int = 0
+    merged: int = 0
+
+    def drop(self, row: int) -> None:
+        if self.first is None:
+            self.first = row
+            self.keep = bytearray(b"\x01") * (self.rows - row)
+        self.keep[row - self.first] = 0
+        self.merged += 1
+
+    def patch(self, row: int, value: int) -> None:
+        if self.patch_rows is None or self.patch_values is None:
+            self.patch_rows = _zeroed_column("I", self.rows)
+            self.patch_values = _zeroed_column("I", self.rows)
+        self.patch_rows[self.patches] = row
+        self.patch_values[self.patches] = value
+        self.patches += 1
+
+    def kept(self, block: Sequence[int], typecode: _MemoTypecode, start: int) -> Sequence[int]:
+        """`block`, the rows from `start` in the order before merging, without its merged rows."""
+        first = self.first
+        if first is None or start + len(block) <= first:
+            return block
+        lead = max(first - start, 0)
+        flags = self.keep[start + lead - first : start + len(block) - first]
+        return array(typecode, itertools.chain(block[:lead], itertools.compress(block[lead:], flags)))
+
+
+def _absorb(
     memo: SettleMemoFile,
-    present: Sequence[Path],
-    spec: ResolvedSpec,
-    narrow: Callable[[_MemoStore], int] | None,
-) -> tuple[bool, int, int, int]:
-    """The one carry-and-append path both absorbs share: read the parts at `present`, load the standing file unrestricted, carry its live rows into new columns, append the parts' blocks with their ids shifted past what precedes them, and write the file. `narrow`, when given, runs on the loaded store before anything is carried, marks the rows to keep as reached, and returns how many live rows that drops; only the reached rows are then carried. With no part and nothing dropped, this closes the store and writes nothing. The standing index is reused only when the carried rows are the file's live rows with none dropped and none dead (`_write_settle_memo`'s `standing`). Return whether a file was written, the rows carried, the rows dropped, and the rows the parts held."""
-    read = [[block for block, _ in _read_settle_memo(replace(memo, path=part), spec)] for part in present]
-    introduced_labels = sum(len(block[0]) for blocks in read for block in blocks)
-    introduced_outcomes = sum(len(block[1]) for blocks in read for block in blocks)
-    added = sum(len(block[3]) for blocks in read for block in blocks)
-    store = _MemoStore()
-    store.load(memo, spec, None, lambda item: (item, "", ""))
-    dropped = 0 if narrow is None else narrow(store)
-    if not present and not dropped:
-        store.close()
-        return False, 0, 0, 0
-    labels: list[str] = []
-    outcomes: list[Settled] = []
-    columns = [array(_memo_typecode(len(store.labels) + introduced_labels)) for _ in range(6)]
-    values = array(_memo_typecode(len(store.outcomes) + introduced_outcomes))
-    store.carry_into(labels, outcomes, columns, values, reached=True if dropped else None)
-    carried = len(values)
-    standing = (
-        (store.index_copy(), carried, len(labels), len(outcomes))
-        if not dropped and store.dead.count(1) == 0
-        else None
+    store: _MemoStore,
+    parts: Sequence[FreshMemo],
+    sweep: SweepPrune | None,
+    emit: Callable[[FinishedSettleMemo], bool] | None,
+    release: Callable[[FreshMemo], None],
+) -> MemoAbsorb:
+    standing = len(store.dead)
+    pruned = _sweep_drops(memo, store, sweep)
+    if not parts and not pruned:
+        return MemoAbsorb(False, 0, 0, 0, standing=standing)
+    selector = store.selector(True if pruned else None)
+    carried = selector.count(1)
+    kept = None if carried == standing else _kept_rows(selector, carried)
+    del selector
+    fresh = _FreshRows(memo, store, parts, release)
+    tables = fresh.tables
+    outcomes = len(store.outcomes)
+    value_canon = (
+        None
+        if tables.canon_outcomes[:outcomes] == list(range(outcomes))
+        else tables.canon_outcomes[:outcomes]
     )
-    store.close()
-    for blocks in read:
-        base_labels, base_outcomes = len(labels), len(outcomes)
-        for new_labels, new_items, block_columns, block_values in blocks:
-            labels.extend(new_labels)
-            outcomes.extend(new_items)
-            for column, block in zip(columns, block_columns):
-                column.extend(map(base_labels.__add__, block))
-            values.extend(map(base_outcomes.__add__, block_values))
-    written = _write_settle_memo(memo, labels, outcomes, columns, values, standing=standing)
-    return written, carried, dropped, added
+    rows = carried + fresh.rows
+    reuse = not pruned and kept is None and value_canon is None and len(store.index) >= 2 * rows
+    slots = len(store.index) if reuse else (1 << (2 * rows - 1).bit_length() if rows else 0)
+    index = _zeroed_column("I", slots)
+    if reuse and slots:
+        index[:] = cast(_MemoColumn, store.index)
+    merged = _Merged(rows)
+    standing_columns = store.columns or [array("I")] * 6
+    fresh_columns = [column[: fresh.rows] for column in fresh.columns]
+    fresh_values = fresh.values[: fresh.rows]
+    _absorb_index(
+        index,
+        standing_columns,
+        store.values,
+        kept,
+        carried,
+        fresh_columns,
+        fresh_values,
+        value_canon,
+        merged,
+        reuse,
+    )
+    final = rows - merged.merged
+    header, pickled = _settle_memo_head(memo, tables, final, slots)
+    typecode, value_typecode = tables.typecode, tables.value_typecode
+    key_width, value_width = array(typecode).itemsize, array(value_typecode).itemsize
+    sections: list[_MemoColumn | _MemoPieces] = [
+        _MemoPieces(
+            final * key_width,
+            functools.partial(_column_pieces, standing_column, kept, carried, fresh_column, typecode, merged),
+        )
+        for standing_column, fresh_column in zip(standing_columns, fresh_columns)
+    ]
+    sections.append(
+        _MemoPieces(
+            final * value_width,
+            functools.partial(
+                _value_pieces, store.values, kept, carried, fresh_values, value_typecode, value_canon, merged
+            ),
+        )
+    )
+    sections.append(
+        index
+        if merged.first is None
+        else _MemoPieces(slots * 4, functools.partial(_index_pieces, index, merged))
+    )
+    finished = FinishedSettleMemo(header, pickled, tuple(sections), final)
+    written = (emit or functools.partial(_put_settle_memo, path=memo.path))(finished)
+    return MemoAbsorb(
+        written,
+        carried,
+        pruned,
+        final - carried if written else fresh.rows,
+        standing=standing,
+        parts=fresh.rows,
+        patched=merged.merged,
+        index="reused" if reuse else "rebuilt",
+        slots=slots,
+    )
+
+
+def _absorb_index(
+    index: memoryview,
+    standing: Sequence[Sequence[int]],
+    standing_values: Sequence[int],
+    kept: Sequence[int] | None,
+    carried: int,
+    fresh: Sequence[Sequence[int]],
+    fresh_values: memoryview,
+    value_canon: Sequence[int] | None,
+    merged: _Merged,
+    reused: bool,
+) -> None:
+    """Insert the rows into `index` as `_memo_index` inserts them: the kept standing rows first, unless `reused` says `index` already holds them at their row numbers, and then the fresh rows, each probed linearly from its `_memo_slots` slot. A row whose key an earlier row holds takes no slot; its outcome patches that row's (`_Merged`)."""
+    slots = len(index)
+    mask = slots - 1
+    s0, s1, s2, s3, s4, s5 = standing
+    f0, f1, f2, f3, f4, f5 = fresh
+    if not reused and carried:
+        sources = standing if kept is None else [map(column.__getitem__, kept) for column in standing]
+        for row, slot in enumerate(_memo_slots(sources, slots)):
+            while True:
+                other = index[slot]
+                if not other:
+                    index[slot] = row + 1
+                    break
+                other -= 1
+                at = other if kept is None else kept[other]
+                here = row if kept is None else kept[row]
+                if (
+                    s0[at] == s0[here]
+                    and s1[at] == s1[here]
+                    and s2[at] == s2[here]
+                    and s3[at] == s3[here]
+                    and s4[at] == s4[here]
+                    and s5[at] == s5[here]
+                ):
+                    value = standing_values[here]
+                    if value_canon is not None and value < len(value_canon):
+                        value = value_canon[value]
+                    merged.patch(other, value)
+                    merged.drop(row)
+                    break
+                slot = (slot + 1) & mask
+    for offset, slot in enumerate(_memo_slots(fresh, slots)):
+        row = carried + offset
+        while True:
+            other = index[slot]
+            if not other:
+                index[slot] = row + 1
+                break
+            other -= 1
+            if other < carried:
+                at = other if kept is None else kept[other]
+                if (
+                    s0[at] == f0[offset]
+                    and s1[at] == f1[offset]
+                    and s2[at] == f2[offset]
+                    and s3[at] == f3[offset]
+                    and s4[at] == f4[offset]
+                    and s5[at] == f5[offset]
+                ):
+                    merged.patch(other, fresh_values[offset])
+                    merged.drop(row)
+                    break
+            else:
+                at = other - carried
+                if (
+                    f0[at] == f0[offset]
+                    and f1[at] == f1[offset]
+                    and f2[at] == f2[offset]
+                    and f3[at] == f3[offset]
+                    and f4[at] == f4[offset]
+                    and f5[at] == f5[offset]
+                ):
+                    fresh_values[at] = fresh_values[offset]
+                    merged.drop(row)
+                    break
+            slot = (slot + 1) & mask
+
+
+def _typecode_of(column: Sequence[int]) -> str:
+    return column.format if isinstance(column, memoryview) else cast(array, column).typecode
+
+
+def _column_pieces(
+    standing: Sequence[int],
+    kept: Sequence[int] | None,
+    carried: int,
+    fresh: Sequence[int],
+    typecode: _MemoTypecode,
+    merged: _Merged,
+) -> Iterator[_MemoColumn]:
+    """One key column's section: the standing column's kept rows straight from the mapping, whole where no row of it is dropped, merged or widened, and otherwise a block at a time; then the fresh rows' column, whole up to the first merged row and filtered a block at a time from there."""
+    standing_whole = (
+        kept is None
+        and (merged.first is None or merged.first >= carried)
+        and _typecode_of(standing) == typecode
+    )
+    if standing_whole:
+        if carried:
+            yield cast(_MemoColumn, standing[:carried])
+    else:
+        for start in range(0, carried, _ABSORB_BLOCK_ROWS):
+            stop = min(start + _ABSORB_BLOCK_ROWS, carried)
+            if kept is None:
+                block = array(typecode, standing[start:stop])
+            else:
+                block = array(typecode, map(standing.__getitem__, kept[start:stop]))
+            yield cast(_MemoColumn, merged.kept(block, typecode, start))
+    yield from _fresh_pieces(fresh, carried, typecode, merged)
+
+
+def _fresh_pieces(
+    fresh: Sequence[int], carried: int, typecode: _MemoTypecode, merged: _Merged
+) -> Iterator[_MemoColumn]:
+    first = merged.first
+    rows = len(fresh)
+    lead = rows if first is None else max(min(first - carried, rows), 0)
+    if lead:
+        yield cast(_MemoColumn, fresh[:lead])
+    for start in range(lead, rows, _ABSORB_BLOCK_ROWS):
+        stop = min(start + _ABSORB_BLOCK_ROWS, rows)
+        yield cast(_MemoColumn, merged.kept(fresh[start:stop], typecode, carried + start))
+
+
+def _value_pieces(
+    standing: Sequence[int],
+    kept: Sequence[int] | None,
+    carried: int,
+    fresh: Sequence[int],
+    typecode: _MemoTypecode,
+    value_canon: Sequence[int] | None,
+    merged: _Merged,
+) -> Iterator[_MemoColumn]:
+    """The value column's section: the standing outcomes as `_column_pieces` lays a key column out, with each patch applied in the order it was made, so a later patch to a row wins, and the fresh outcomes, already patched in place."""
+    patches = merged.patches
+    rows, values = merged.patch_rows, merged.patch_values
+    order = sorted(range(patches), key=cast(memoryview, rows).__getitem__) if patches else []
+    if not patches and value_canon is None:
+        yield from _column_pieces(standing, kept, carried, fresh, typecode, merged)
+        return
+    at = 0
+    for start in range(0, carried, _ABSORB_BLOCK_ROWS):
+        stop = min(start + _ABSORB_BLOCK_ROWS, carried)
+        source = standing[start:stop] if kept is None else map(standing.__getitem__, kept[start:stop])
+        if value_canon is not None:
+            source = (value_canon[value] if value < len(value_canon) else value for value in source)
+        block = array(typecode, source)
+        while at < len(order) and cast(memoryview, rows)[order[at]] < stop:
+            block[cast(memoryview, rows)[order[at]] - start] = cast(memoryview, values)[order[at]]
+            at += 1
+        yield cast(_MemoColumn, merged.kept(block, typecode, start))
+    yield from _fresh_pieces(fresh, carried, typecode, merged)
+
+
+def _index_pieces(index: memoryview, merged: _Merged) -> Iterator[_MemoColumn]:
+    """The index renumbered past the merged rows a block at a time: a slot naming a row before the first merged one keeps it, and one naming a later row takes that row's place among the rows kept (`_Merged.keep` counted up to it)."""
+    first = cast(int, merged.first)
+    counts = _zeroed_column("I", len(merged.keep) + 1)
+    total = 0
+    for start in range(0, len(merged.keep), _ABSORB_BLOCK_ROWS):
+        block = array(
+            "I", itertools.accumulate(merged.keep[start : start + _ABSORB_BLOCK_ROWS], initial=total)
+        )
+        counts[start : start + len(block)] = block
+        total = block[-1]
+    for start in range(0, len(index), _ABSORB_BLOCK_ROWS):
+        block = index[start : start + _ABSORB_BLOCK_ROWS]
+        yield array(
+            "I",
+            map(
+                operator.add,
+                map(min, block, itertools.repeat(first)),
+                map(
+                    counts.__getitem__,
+                    map(operator.sub, map(max, block, itertools.repeat(first)), itertools.repeat(first)),
+                ),
+            ),
+        )
 
 
 def _ambiguous_ids(spelling: Sequence[str], used: Iterable[int]) -> set[int]:
@@ -1696,9 +2153,9 @@ class _SettledWindowWalk:
 
     `memo` names the file this walk shares with the other walks over the same texts. The string replay fills it on a full replay (`read_replay_memo`), and the witness stage, the oracle, and the conformance sweep each map it and settle what it lacks. It is mapped on the first wave that would otherwise reach the crate, so a walk that settles nothing (an oracle pass whose rows are all served) never opens it. `save_memo` writes it back only when this walk settled a window the file lacked, or pruned one. `_write_settle_memo` describes the file layout, and `_MemoStore` how a walk maps it: the tables go on the heap, and the columns and index stay pages of the mapping, shared in the page cache by every walk that maps the file. An entry whose window names a family whose key changed since the file was written is dropped at load (`oracle_cache.StaleMask` at label grain, including the ligature clause).
 
-    Loaded entries stay in `_cold`, the `_MemoStore` over the mapping, which marks each row it returns as reached. With `promote` (a constructor keyword, on by default) a hit is also copied into `windows`, so the oracle and the witness stage run the store's probe once per window and a dict lookup after that. The conformance sweep runs with `promote=False` and serves every window from the columns: it reaches nearly every loaded window, so promoted copies would cost the key tuples the columns exist to avoid. `save_memo(prune=True)` keeps only the reached rows. The conformance sweep walks every text every pass, so an entry it never reached is a window no text produces any more (its left slot named a settlement an edit has since changed), and keeping it would grow the file with every rune edit. The serial sweep prunes in its own save. The pooled sweep's units each walk a share of the texts, so none of them may prune: each writes its part and returns its `reached` flags (`memo_reach`), and the parent prunes through `absorb_sweep_memo` over the union of those flags. A pruning save writes the fresh windows first and then the reached rows in file order, a permutation of what a promoting walk would write; no reader can tell the difference, because a load does not depend on row order and the file holds one row per window. The oracle does not prune, because it does not walk the rows its row cache serves, so their windows are never reached. Its whole-file save writes `windows` and then, in file order, every live row `windows` does not hold.
+    Loaded entries stay in `_cold`, the `_MemoStore` over the mapping, which marks each row it returns as reached. With `promote` (a constructor keyword, on by default) a hit is also copied into `windows`, so the oracle and the witness stage run the store's probe once per window and a dict lookup after that. The conformance sweep runs with `promote=False` and serves every window from the columns: it reaches nearly every loaded window, so promoted copies would cost the key tuples the columns exist to avoid. `save_memo(prune=True)` keeps only the reached rows. The conformance sweep walks every text every pass, so an entry it never reached is a window no text produces any more (its left slot named a settlement an edit has since changed), and keeping it would grow the file with every rune edit. The serial sweep prunes in its own save. The pooled sweep's units each walk a share of the texts, so none of them may prune: each returns its fresh windows and its `reached` flags (`memo_reach`), and the parent prunes through `absorb_settle_memo` over the union of those flags. A pruning save writes the fresh windows first and then the reached rows in file order, a permutation of what a promoting walk would write; no reader can tell the difference, because a load does not depend on row order and the file holds one row per window. The oracle does not prune, because it does not walk the rows its row cache serves, so their windows are never reached. Its whole-file save writes `windows` and then, in file order, every live row `windows` does not hold.
 
-    A walk over a set of texts fixed before it runs can restrict the load to the windows those texts can ask for (`load_only_asked_by`). Only a window's left slot depends on settlement, so the other five slots of every window the texts reach can be computed in advance. A file row outside that set is marked dead at load, counted in `unasked_windows`, and never served. Such a walk cannot tell a dropped row from a window no text reaches, so it never prunes and never replaces the shared file. Its memo names a `write_path`, it writes only the windows it settled fresh, as a part (`_write_settle_memo_part`), and `absorb_settle_memo_parts` merges the part into the file.
+    A walk over a set of texts fixed before it runs can restrict the load to the windows those texts can ask for (`load_only_asked_by`). Only a window's left slot depends on settlement, so the other five slots of every window the texts reach can be computed in advance. A file row outside that set is marked dead at load, counted in `unasked_windows`, and never served. Such a walk cannot tell a dropped row from a window no text reaches, so it never prunes and never replaces the shared file. Its memo is `returns_fresh`: it encodes only the windows it settled fresh, in memory (`FreshMemo`), and its caller hands them to `absorb_settle_memo`, which merges them into the file.
 
     Batching is what makes the crate affordable here. `settle-cases` settles independent windows, but a text's next left is the previous window's outcome, so `_run` advances all its texts in waves. Each state runs forward to its first memo miss, each distinct missed key contributes one case line (a key two states reach in the same wave is asked once), and one `kernel_exec.settle_windows` call settles up to `batch` of them before every state advances again. A wave collects at most `batch` new keys and leaves the rest for the next wave, so a caller's chunk size bounds its own memory use and not the call's. `walk` runs the same loop over a single text, so each miss there costs a whole kernel spawn for one window. `single_settles` counts those, so a caller that forgot to `prefill` can see the cost.
 
@@ -1757,6 +2214,7 @@ class _SettledWindowWalk:
         self._refused = 0
         self._outcomes: dict[Settled, _Outcome] = {}
         self._fresh: list[_Window] = []
+        self.fresh_memo: FreshMemo | None = None
         self._settle_calls = 0
         self._audit_seen: set[tuple[settle.LeftContext, settle.RightToken, tuple[settle.RightToken, ...]]] = (
             set()
@@ -1779,9 +2237,11 @@ class _SettledWindowWalk:
         self._run(texts, collect=False)
 
     def load_only_asked_by(self, texts: Sequence[str]) -> set[_Ask]:
-        """Restrict the memo load to the windows `texts` can ask for, and return that ask set. It holds, for every letter position of every text, the window's input and right slots (`_Ask`, the five settlement-independent slots of a `_Window`), computed through the same `_state` and `_window_rights` path `_window` uses. So it covers everything `prefill` and `walk` over these texts can reach: the left slot is the only one settlement decides, and a boundary position never reaches the memo. A row outside the set is dropped at load (`_load_memo`). A dropped row then looks the same as a window no text reaches, so a restricted walk writes a part instead of the file (`save_memo`), and its memo must name a `write_path`. Call this before the first wave loads the file."""
+        """Restrict the memo load to the windows `texts` can ask for, and return that ask set. It holds, for every letter position of every text, the window's input and right slots (`_Ask`, the five settlement-independent slots of a `_Window`), computed through the same `_state` and `_window_rights` path `_window` uses. So it covers everything `prefill` and `walk` over these texts can reach: the left slot is the only one settlement decides, and a boundary position never reaches the memo. A row outside the set is dropped at load (`_load_memo`). A dropped row then looks the same as a window no text reaches, so a restricted walk returns its fresh windows instead of replacing the file (`save_memo`), and its memo must be `returns_fresh`. Call this before the first wave loads the file."""
         assert not self._memo_loaded, "the memo is already loaded"
-        assert self.memo is None or self.memo.writes_part, "a restricted walk writes a part, never the file"
+        assert (
+            self.memo is None or self.memo.returns_fresh
+        ), "a restricted walk returns its fresh windows, never the file"
         asks: set[_Ask] = set()
         for text in texts:
             state = self._state(text)
@@ -1868,7 +2328,7 @@ class _SettledWindowWalk:
 
     def _record(self, window: _Window, item: Settled | None, state: _WalkState) -> None:
         self.fresh_windows += 1
-        if self.memo is not None and self.memo.writes_part:
+        if self.memo is not None and self.memo.returns_fresh:
             self._fresh.append(window)
         store = self._pinned if self.horizon is not None and self._is_pinned(window, state) else self.windows
         if item is None:
@@ -1918,15 +2378,15 @@ class _SettledWindowWalk:
     def save_memo(self, prune: bool = False) -> bool:
         """Write the memo back when this walk settled a window the file lacked or pruned a row, and return True when a file was written. The write goes through `_write_settle_memo`, which replaces the file atomically, and then this walk's mapping of the old file is closed. Refusals are not written, so a later walk that reaches one of those windows asks the crate again.
 
-        `prune` drops the loaded entries this walk never reached, counted in `pruned_windows`. It is only correct for a walk over every text, which is the serial conformance sweep's; a pooled sweep's unit walks a share of them and leaves the prune to `absorb_sweep_memo`. A pruning walk that promotes nothing writes its fresh windows and then the reached rows in file order. Rows are copied into the new file straight from the mapped columns, with their ids shifted past the fresh windows' labels, without a key tuple per row.
+        `prune` drops the loaded entries this walk never reached, counted in `pruned_windows`. It is only correct for a walk over every text, which is the serial conformance sweep's; a pooled sweep's unit walks a share of them and leaves the prune to `absorb_settle_memo`. A pruning walk that promotes nothing writes its fresh windows and then the reached rows in file order. Rows are copied into the new file straight from the mapped columns, with their ids shifted past the fresh windows' labels, without a key tuple per row.
 
-        A walk whose memo names a `write_path` writes only the windows it settled fresh, as a part at that path (`_write_settle_memo_part`), and leaves the shared file to `absorb_settle_memo_parts` or, for the pooled conformance sweep's units, `absorb_sweep_memo`. A walk that restricted its load (`load_only_asked_by`) always writes a part and never prunes, because a row its load dropped looks the same as a window it never reached.
+        A walk whose memo is `returns_fresh` writes nothing: it encodes the windows it settled fresh, in the order it settled them and less its refusals, as `fresh_memo` (`FreshMemo`), returns True when it settled any, and leaves the shared file to its caller's `absorb_settle_memo`. It keeps its mapping open for `memo_reach`. A walk that restricted its load (`load_only_asked_by`) is always of this kind and never prunes, because a row its load dropped looks the same as a window it never reached.
         """
         if prune:
             assert self._asks is None, "a restricted walk never prunes"
         if self.memo is None:
             return False
-        if self.memo.writes_part:
+        if self.memo.returns_fresh:
             if not self.fresh_windows:
                 return False
             started = time.perf_counter()
@@ -1936,9 +2396,9 @@ class _SettledWindowWalk:
                 if not isinstance(outcome := self.windows[window], _RefusedWindow)
             )
             try:
-                return _write_settle_memo_part(
-                    self.memo, _memo_blocks(fresh), cast(Path, self.memo.write_path)
-                )
+                self.fresh_memo = _fresh_memo(fresh)
+                self._fresh = []
+                return True
             finally:
                 self.memo_seconds += time.perf_counter() - started
         store = self._cold
@@ -1981,8 +2441,8 @@ class _SettledWindowWalk:
             written,
         )
 
-    def memo_reach(self, written: bool) -> MemoReach | None:
-        """What this walk did with its memo file, for a unit of the pooled conformance sweep that wrote its part (`written`, `save_memo`'s result) and leaves the prune to the parent (`MemoReach`, `absorb_sweep_memo`), or None for a walk with no memo. It then closes the mapping, which the part branch of `save_memo` leaves open."""
+    def memo_reach(self) -> MemoReach | None:
+        """What this walk did with its memo file, for a unit of the pooled conformance sweep, which returns its fresh windows (`save_memo`, `fresh_memo`) and leaves the prune to the parent (`MemoReach`, `absorb_settle_memo`), or None for a walk with no memo. It then closes the mapping, which `save_memo` leaves open for a walk that returns its fresh windows."""
         if self.memo is None:
             return None
         store = self._cold
@@ -1995,7 +2455,7 @@ class _SettledWindowWalk:
                 loaded=self.memo_windows,
                 stale=self.stale_windows,
                 reached=zlib.compress(bytes(store.reached), 1),
-                part=written,
+                fresh=self.fresh_memo,
                 seconds=self.memo_seconds,
             )
         finally:
@@ -2077,7 +2537,7 @@ class WitnessError(Exception):
 
 @dataclass
 class WitnessReport:
-    """One configuration's certificate check: how many rules the table has, the certificate text each verified rule fired in, one message per rule whose certificate did not fire it, and how many of the witnessed rules are guard rules, whose certificates settle under the configuration that keeps their window live (`witness.GUARD_MARKER`). The last three fields count the walk's windows: `served` the settle memo rows the load kept, stale rows included (`memo_windows`), `unasked` the rows it dropped as outside what the certificates can ask for, and `fresh` the windows the crate settled for this check."""
+    """One configuration's certificate check: how many rules the table has, the certificate text each verified rule fired in, one message per rule whose certificate did not fire it, and how many of the witnessed rules are guard rules, whose certificates settle under the configuration that keeps their window live (`witness.GUARD_MARKER`). Three fields count the walk's windows: `served` the settle memo rows the load kept, stale rows included (`memo_windows`), `unasked` the rows it dropped as outside what the certificates can ask for, and `fresh` the windows the crate settled for this check. `fresh_memo` holds those windows as the walk hands them to `absorb_settle_memo` (`FreshMemo`), or None when it had no memo or settled none."""
 
     config: str
     rules: int
@@ -2087,6 +2547,7 @@ class WitnessReport:
     served: int = 0
     unasked: int = 0
     fresh: int = 0
+    fresh_memo: FreshMemo | None = None
 
     @property
     def passed(self) -> bool:
@@ -2260,7 +2721,7 @@ def _conformance_config(
 ) -> ConformanceConfigResult:
     """One configuration's conformance-sweep run: every string of length 1 to `max_length` over the alphabet, shaped with the font and compared with the settled stream, plus the split-buffer and zero-gap checks. Configurations share nothing, so both the serial `run_conformance` and the process-pool worker call this.
 
-    With `last`, the run sweeps one unit of the configuration: only the texts that end in `last` (`sweep_texts`), in the same order. The units of every symbol in the alphabet partition the configuration's texts, and `merge_unit_results` merges their results into this function's result without `last`. A unit's `settle_memo`, when it has one, names a `write_path`: the unit writes the windows it settled fresh as a part, prints no `[t] settle_memo` line, and returns its use of the file as `result.memo_reach` (`_SettledWindowWalk.memo_reach`), from which the parent prunes the file once every unit of the configuration has finished (`absorb_sweep_memo`). A unit that replaced the shared file would leave it holding only its own share of the rows, so a memo without a `write_path` fails the unit's assertion.
+    With `last`, the run sweeps one unit of the configuration: only the texts that end in `last` (`sweep_texts`), in the same order. The units of every symbol in the alphabet partition the configuration's texts, and `merge_unit_results` merges their results into this function's result without `last`. A unit's `settle_memo`, when it has one, is `returns_fresh`: the unit prints no `[t] settle_memo` line and returns its use of the file, with the windows it settled fresh, as `result.memo_reach` (`_SettledWindowWalk.memo_reach`), from which the parent prunes the file and merges every unit's fresh windows into it once every unit of the configuration has finished (`absorb_settle_memo`). A unit that replaced the shared file would leave it holding only its own share of the rows, so a memo that is not `returns_fresh` fails the unit's assertion.
 
     With `triggers`, a settlement configuration's run shapes only the texts that contain one of its characters (`sweep_texts`), in the same order, which is how the deep sweep skips the texts a configuration settles and shapes as `default` does (`rebuild/tools/deep_sweep.py`). Such a run shares no settle memo, since a memo pruned of every window its texts did not reach would lose the windows of the texts it skipped, and the assertion refuses one.
 
@@ -2271,8 +2732,8 @@ def _conformance_config(
     `progress`, when given, is called with the count of texts shaped so far after each chunk, and after each length for an overlay configuration, so a caller can report a long sweep's progress from another process without the sweep printing anything or paying for a call per text.
     """
     assert (
-        last is None or settle_memo is None or settle_memo.writes_part
-    ), "a unit sweep writes its memo as a part"
+        last is None or settle_memo is None or settle_memo.returns_fresh
+    ), "a unit sweep returns its fresh windows"
     assert not triggers or settle_memo is None, "a sweep that skips texts shares no settle memo"
     assert max_windows is None or settle_memo is None, "a window ceiling is for a walk with no settle memo"
     features = features_for_config(config)
@@ -2330,7 +2791,8 @@ def _conformance_config(
                 progress(result.sequences)
 
     if last is not None and settle_memo is not None:
-        result.memo_reach = walker.memo_reach(walker.save_memo())
+        walker.save_memo()
+        result.memo_reach = walker.memo_reach()
     else:
         memo_line = walker.memo_line(config, walker.save_memo(prune=True))
         if memo_line is not None:
@@ -2352,7 +2814,7 @@ def conformance_config_worker(
     triggers: frozenset[str] = frozenset(),
     max_windows: int | None = None,
 ) -> ConformanceConfigResult:
-    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself, or, for a unit (`last`), reads it and writes its part. `progress`, `last`, `triggers` and `max_windows` are `_conformance_config`'s."""
+    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the file itself, or, for a unit (`last`), reads it and returns its fresh windows on its result's reach. `progress`, `last`, `triggers` and `max_windows` are `_conformance_config`'s."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)

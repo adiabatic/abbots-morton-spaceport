@@ -755,7 +755,10 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         cap=12,
         total_bytes=48_000_000_000,
     )
-    assert f"the oracle runs {oracle_fit}; the 3 settle-memo absorbs that follow the ranges" in oracle_block
+    assert (
+        f"the oracle runs {oracle_fit}; the 3 settle-memo absorbs, one per settlement configuration the oracle compares, each in a range's slot as soon as its configuration's ranges have landed"
+        in oracle_block
+    )
     absorb_block = out.split("\noracle-absorb  ")[1].split("\n\n")[0]
     roomy = memory_budget.describe_fit(CONSTANTS["oracle-absorb"], cap=12, total_bytes=48_000_000_000)
     assert "fit in the range slots they run in, so nothing comes off for them" in absorb_block

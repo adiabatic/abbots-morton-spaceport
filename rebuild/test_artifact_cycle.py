@@ -2518,7 +2518,7 @@ def test_sweep_job_budget_is_the_cores_under_the_oracle_shards_memory_clamp():
 
 
 def test_the_oracle_width_prices_one_absorb_per_settlement_configuration(monkeypatch):
-    """The settle-memo absorbs run on the oracle's pool after the ranges, one per settlement configuration the oracle compares, all at once whatever the width, so the width takes their excess over the range slots they run in off the machine's memory before it divides by `ORACLE_SHARD_BYTES`, and nothing when an absorb fits in a range's slot. An M1-only configuration gets no absorb, because the oracle never compares it."""
+    """The settle-memo absorbs run on the oracle's pool, each in a range's slot once its configuration's ranges have landed, one per settlement configuration the oracle compares, and as many as all of them can run at once whatever the width, so the width takes their excess over the range slots they run in off the machine's memory before it divides by `ORACLE_SHARD_BYTES`, and nothing when an absorb fits in a range's slot. An M1-only configuration gets no absorb, because the oracle never compares it."""
     from rebuild.pipeline.conform import M1_ONLY_CONFIGS, SETTLEMENT_CONFIGS
     from rebuild.tools import memory_budget
 

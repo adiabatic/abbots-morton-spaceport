@@ -203,12 +203,19 @@ def test_parse_inner_timings_reads_the_replay_scope_and_the_subset_refresh():
     ]
 
 
-def test_parse_inner_timings_reads_what_the_oracles_fan_in_held():
-    """run_m1's `oracle_fan_in` line ends with the most the oracle's fan-in held in shared memory at once, which no footprint token can carry, kept as a float. A value its reader rejects is left out."""
-    text = "\n".join(["[t] oracle_fan_in 1.4s held_gb=0.32", "[t] oracle_fan_in 1.0s held_gb=most"])
+def test_parse_inner_timings_reads_what_the_fan_ins_held():
+    """run_m1's `oracle_fan_in` line ends with the most the oracle's fan-in held in shared memory at once and the most its ranges' settle memo segments held, and gate:conform's `conform_fan_in` line with the second figure for its units, none of which a footprint token can carry, each kept as a float. A value its reader rejects is left out."""
+    text = "\n".join(
+        [
+            "[t] oracle_fan_in 1.4s held_gb=0.32 memo_held_gb=0.016",
+            "[t] oracle_fan_in 1.0s held_gb=most memo_held_gb=0.2",
+            "[t] conform_fan_in 0.3s memo_held_gb=0.05",
+        ]
+    )
     assert ct.parse_inner_timings(text) == [
-        {"label": "oracle_fan_in", "elapsed_s": 1.4, "held_gb": 0.32},
-        {"label": "oracle_fan_in", "elapsed_s": 1.0},
+        {"label": "oracle_fan_in", "elapsed_s": 1.4, "held_gb": 0.32, "memo_held_gb": 0.016},
+        {"label": "oracle_fan_in", "elapsed_s": 1.0, "memo_held_gb": 0.2},
+        {"label": "conform_fan_in", "elapsed_s": 0.3, "memo_held_gb": 0.05},
     ]
 
 

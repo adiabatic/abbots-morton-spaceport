@@ -1,4 +1,4 @@
-"""The memory series: measure what the M1 table build, the string replay and the review corpus build hold and write at each of several alphabet cuts, one heavy process at a time, so a change that claims a term is flat shows it across the cuts instead of at the whole alphabet alone. It has the scaling sweep's shape (`rebuild/tools/scaling_sweep.py`), which times one configuration, and measures the whole build instead. It measures one holder a run, which `--holder` picks: the table build (`tables`, the default), whose step the paragraphs up to "The corpus step" describe, the corpus build (`corpus`), whose step they then describe, or the string replay (`replay`), whose step "The replay step" describes.
+"""The memory series: measure what the M1 table build, the string replay and the review corpus build hold and write at each of several alphabet cuts, and what a settle-memo absorb holds at each of several row counts, one heavy process at a time, so a change that claims a term is flat shows it across the cuts instead of at the whole alphabet alone. It has the scaling sweep's shape (`rebuild/tools/scaling_sweep.py`), which times one configuration, and measures the whole build instead. It measures one holder a run, which `--holder` picks: the table build (`tables`, the default), whose step the paragraphs up to "The corpus step" describe, the corpus build (`corpus`), whose step they then describe, the string replay (`replay`), whose step "The replay step" describes, or the oracle's and the conformance sweep's settle-memo absorb (`absorbs`), whose step "The absorbs step" describes.
 
 Each table step is one `build-tables` over the configurations named (every settlement configuration unless `--configs` narrows them) on one alphabet cut, at the flags a bare run_m1 derives on this machine (`bare_flags`, as `run_m1.build_tables` derives them with nothing beside the build: the width and how many deltas start from scratch beside `default`), unless `--kernel-threads` or `--scratch-beside-default` states one. Every step runs the same flags, so the cuts differ only in their alphabet. The cut is `scaling_series.sub_spec`'s, over `scaling_series.series_order`, the rule the alphabet switch (`spec_load.M1_RUNES_ENV`) narrows by too, so a line's `alphabet` is what that switch takes to build the same cut in a tree of the fault kit's kind. The sizes default to `SIZES` below the whole alphabet and the whole alphabet itself, so the largest line is the live build's; positional arguments name other rune counts, and a count named twice is measured twice.
 
@@ -49,7 +49,18 @@ A replay line holds, beside `step` (`replay`), the cut (`runes`, `letters`, `lig
 
 After a replay run's last line the record and stdout get the fit against runes of the windows, the walk, absorb, pair and combined peaks, the walks' CPU time, the row store and the largest unit's walk memo (`replay_report`).
 
-Run as: make memory-series ARGS='[--holder tables] [k ...] [--configs a,b] [--kernel-threads N] [--scratch-beside-default N] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]', ARGS='--holder replay [k ...] [--configs a,b] [--replay-threads W] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]', or ARGS='--holder corpus [k ...] [load-x1] [load-x2] [--jobs N] [--signature-jobs N] [--write-jobs N] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]'.
+The absorbs step measures one settle-memo absorb (`conform.absorb_settle_memo`) a line, over inputs made from the live `default` settle memo at a row count, and beside it the carry-and-append absorb its bytes are proven against over the same inputs (`memory_series_child.carry_and_append_absorb`). The run clones the live memo into `<tree>/absorbs/` with `clonefile(2)` (`build._clone`, which writes no data) and maps the clone. Positional arguments name the row counts, `live` for the live memo's own rows (3,649,648 at 45 runes); the default is `ABSORB_COUNTS`, and a count named twice is measured twice. For each distinct count the run makes the inputs once (`absorb_count`): the `live` count's standing file is the clone, and each other count's is one file written once a run from the live rows, a prefix of them below the live count and, above it, the live rows followed by the live rows restated under labels of their own, `.r<copy>` after every label, so each restated window is one no other row holds and names the same family (`_CountRows`). Such a file holds 14 bytes a row of columns and 4 bytes a slot of index at 2 to 4 slots a row, about 0.02 GB at a million rows, 0.26 GB at nine million and 0.30 GB at twelve million, about 0.6 GB a run at the default counts, and the run removes it as it ends, however it ends. Beside it the run holds each count's fresh windows compressed in memory, as a walk hands them (`conform.FreshMemo`): the standing rows' last `ABSORB_TAIL` rows restating their own windows, the last rows again under labels the file lacks, as many as the file's index has room for beside its own rows (all `ABSORB_TAIL` at the live count, 48,576 at a million rows), each in `ABSORB_RANGES` row ranges, and every row in the `default` sweep's unit count of parts. `--paths` names the paths a count's lines read (`absorb_job`), every one of `ABSORB_PATHS` by default: `fast`, the standing file and the new windows, as many as its index has room for, so its absorb reuses the standing index; `duplicate`, the standing file and the restated windows, each patching a standing outcome; `stale`, the same with `ABSORB_STALE_FAMILY`'s key moved, which drops rows and rebuilds the index; `prune`, the standing file's last `ABSORB_PRUNED` rows unreached and no fresh row, through the sweep's absorb; `fresh`, no standing file and every row fresh in the units' parts, through the oracle's absorb; and `fresh-sweep`, the same through the sweep's. The units' parts split the rows disjointly, so no fresh line merges a row, and none reads the merge state an all-fresh pass's repeated windows bring (`conform.absorb_settle_memo`). A count's standing file, and its tail and new windows, are made only when `--paths` names a path that reads them, so a path that needs no standing file writes none. Each line ships its parts' blocks into POSIX shared memory segments as the pools do, naming each in `ABSORB_SEGMENTS` under the run's directory before making it (`_AbsorbSegments`), and unlinks every one once its two absorbs have run, or however the line ends; a run killed with SIGKILL leaves that record, and the next run's `empty_tree` unlinks the segments it names.
+
+Each line runs two children of `rebuild/tools/memory_series_child.py`'s `absorb` entry, one after the other, each a fresh process sampled as a table step's crate is (`run_absorb_child`): the absorb, then the carry-and-append absorb. Each child gets its own copy of the line's fresh windows in POSIX shared memory segments the harness makes, one a part, and its job (the file, the spec, the segments' names and the parts' counts, and the sweep's prune) pickled on its stdin, as the oracle's and the sweep's pools hand an absorb worker its arguments; it maps each segment and unlinks its name at once, runs its absorb with the finished file hashed in order instead of written, and prints what it did. A line writes nothing but its record. An absorbs line holds, beside `step` (`absorbs`), the count (`count`, `rows`, `standing_rows`, `fresh_rows`, `standing_bytes`) and the path (`path`):
+
+- `absorb`: the absorb's `conform.MemoAbsorb`, the row counts and index path its `[t]` lines report (`written`, `carried`, `pruned`, `fresh`, `standing`, `parts`, `patched`, `dropped`, `index`) and the slot count (`slots`).
+- `wall_s`, `seconds` (the absorb's own), `cpu_s`, `peak_resident`, `peak_footprint`, `start`, `peak` and `end`, `compressor_max`, `swap_used_max`, `samples` and `interval_s`, as a table line holds them, of the absorb's child.
+- `file_rows`, `size` and `sha256` of the file the absorb would write; `carry_and_append`, the same figures and the child's peaks, CPU and seconds for the carry-and-append absorb; and `same`, whether the two files' digests are equal. A line whose files differ prints a `[warn]` line.
+- `written`, as a table line holds it, over both children, and `cpus`, `ram`, `head` and `finished_at`.
+
+After an absorbs run's last line the record and stdout get each path's fit against rows of the absorb's peak footprint and resident and the carry-and-append absorb's peak footprint (`absorbs_report`).
+
+Run as: make memory-series ARGS='[--holder tables] [k ...] [--configs a,b] [--kernel-threads N] [--scratch-beside-default N] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]', ARGS='--holder replay [k ...] [--configs a,b] [--replay-threads W] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]', ARGS='--holder corpus [k ...] [load-x1] [load-x2] [--jobs N] [--signature-jobs N] [--write-jobs N] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]', or ARGS='--holder absorbs [rows|live ...] [--paths a,b] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]'.
 """
 
 from __future__ import annotations
@@ -69,15 +80,16 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
 from array import array
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, suppress
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any, BinaryIO
+from typing import IO, Any, BinaryIO, cast
 
-from rebuild.pipeline import conform, kernel_exec, kernel_io, run_m1, spec_load
+from rebuild.pipeline import conform, kernel_exec, kernel_io, oracle, run_m1, spec_load
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.review import store_lock
 from rebuild.tools import (
@@ -114,11 +126,29 @@ _CACHE_LINE = re.compile(r"^\[c\] (\S+) (.+)$", re.MULTILINE)
 TABLES = "tables"
 CORPUS = "corpus"
 REPLAY = "replay"
-HOLDERS = (TABLES, CORPUS, REPLAY)
+ABSORBS = "absorbs"
+HOLDERS = (TABLES, CORPUS, REPLAY, ABSORBS)
 CORPUS_STEP = "corpus"
 LOAD_STEP = "corpus-load"
 REPLAY_STEP = "replay"
-HOLDER_OF_STEP = {TABLES: TABLES, CORPUS_STEP: CORPUS, LOAD_STEP: CORPUS, REPLAY_STEP: REPLAY}
+ABSORB_STEP = "absorbs"
+HOLDER_OF_STEP = {
+    TABLES: TABLES,
+    CORPUS_STEP: CORPUS,
+    LOAD_STEP: CORPUS,
+    REPLAY_STEP: REPLAY,
+    ABSORB_STEP: ABSORBS,
+}
+# The absorbs holder's row counts: `live` names the live `default` settle memo's own rows.
+LIVE = "live"
+ABSORB_COUNTS = ("1000000", LIVE, "9000000", "12000000")
+ABSORB_PATHS = ("fast", "duplicate", "stale", "prune", "fresh", "fresh-sweep")
+ABSORB_CONFIG = "default"
+ABSORB_TAIL = 170_000
+ABSORB_RANGES = 2
+ABSORB_PRUNED = 20_000
+ABSORB_STALE_FAMILY = "qsI"
+ABSORB_SEGMENTS = "segments"
 REPLAY_SIZES = (34, 38, 41)
 CORPUS_SIZES = (30, 34, 38, 41, 43, 44)
 LOAD_SCALES = (1, 2)
@@ -574,12 +604,14 @@ def measure_step(
 
 
 def empty_tree(tree: Path) -> None:
-    """Make the series' tree at `tree` and empty it of what an earlier run left. A symbolic link at `tree` is refused, since emptying it would empty whatever it names."""
+    """Make the series' tree at `tree` and empty it of what an earlier run left, first unlinking every shared memory segment an absorbs run killed before its cleanup recorded (`_AbsorbSegments`). A symbolic link at `tree` is refused, since emptying it would empty whatever it names."""
     if tree.is_symlink():
         raise SystemExit(
             f"{tree} is a symbolic link; the memory series empties its tree and will not follow one"
         )
     tree.mkdir(parents=True, exist_ok=True)
+    with suppress(OSError):
+        _unlink_segments((tree / ABSORBS / ABSORB_SEGMENTS).read_text(encoding="utf-8").split())
     for path in tree.iterdir():
         if path.is_dir() and not path.is_symlink():
             shutil.rmtree(path)
@@ -1925,6 +1957,476 @@ def run_replay(args: argparse.Namespace, tree: Path) -> int:
         shutil.rmtree(tree / REPLAY, ignore_errors=True)
 
 
+def absorb_counts(lines: Sequence[str]) -> list[int | str]:
+    """The absorbs holder's row counts from its positional arguments: each a count of rows, or `live` for the live `default` settle memo's own; `ABSORB_COUNTS` when none is named."""
+    return [LIVE if text == LIVE else int(text) for text in (lines or ABSORB_COUNTS)]
+
+
+class _CountRows:
+    """The rows of one absorbs count, built from the live `default` settle memo's rows (`conform._MemoStore`, mapped from its clone): row r below the live count is the live row r, and each row past it restates the live row r modulo the live count under labels of its own, every label suffixed with the copy's number, `.r<copy>`, so it names the same family (`conform._label_family`) and its window is one no other row holds. `copy`, when given, restates every row under that copy's labels instead, which gives windows the count's own rows never hold."""
+
+    def __init__(self, store: conform._MemoStore) -> None:
+        self.store = store
+        self.live = len(store.reached)
+        self._tables: dict[int, list[str]] = {0: list(store.labels)}
+
+    def labels(self, copy: int) -> list[str]:
+        table = self._tables.get(copy)
+        if table is None:
+            table = self._tables[copy] = [f"{label}.r{copy}" for label in self.store.labels]
+        return table
+
+    def copies(self, count: int) -> int:
+        """How many copies past the live rows `count` rows restate."""
+        return max(0, -(-count // self.live) - 1)
+
+    def rows(
+        self, start: int, stop: int, copy: int | None = None
+    ) -> Iterator[tuple[conform._Window, conform._Outcome]]:
+        """Rows `start` to `stop` as (window, outcome) pairs, the outcome the store's own object for its value."""
+        store = self.store
+        at = start
+        while at < stop:
+            base, own = divmod(at, self.live)
+            upto = min(stop, (base + 1) * self.live)
+            table = self.labels(base if copy is None else copy)
+            first, last = own, own + upto - at
+            windows = zip(*(map(table.__getitem__, column[first:last]) for column in store.columns))
+            outcomes = map(store.outcomes.__getitem__, store.values[first:last])
+            yield from cast(Iterator[tuple[conform._Window, conform._Outcome]], zip(windows, outcomes))
+            at = upto
+
+    def columns(self, count: int) -> tuple[list[str], list, list[array], array]:
+        """The first `count` rows as the tables and columns `conform._write_settle_memo` takes, built a copy at a time from the mapped columns without a window a row."""
+        store = self.store
+        copies = self.copies(count)
+        labels = [label for copy in range(copies + 1) for label in self.labels(copy)]
+        width = len(store.labels)
+        columns = [array("I") for _ in range(6)]
+        values = array("I")
+        for copy in range(copies + 1):
+            rows = min(self.live, count - copy * self.live)
+            for column, source in zip(columns, store.columns):
+                column.extend(map((copy * width).__add__, source[:rows]))
+            values.extend(store.values[:rows])
+        return labels, [outcome[0] for outcome in store.outcomes], columns, values
+
+
+@dataclass
+class AbsorbCount:
+    """One absorbs count's inputs, made once a run: the standing file, its row count, and the fresh windows each path hands its absorb, compressed as a walk hands them (`conform.FreshMemo`): `tail`, the standing file's last `ABSORB_TAIL` rows restating its own windows, and `new`, its last rows under labels the file lacks, as many of the `ABSORB_TAIL` as its index has room for beside its own rows, each as `ABSORB_RANGES` row ranges, and `units`, every row in the `default` sweep's unit count of parts. `written` says the run wrote the standing file, which it removes as it ends. A run none of whose paths reads a standing file makes none: `standing` is None and `tail` and `new` are empty."""
+
+    name: int | str
+    rows: int
+    standing: Path | None
+    written: bool
+    tail: list[conform.FreshMemo]
+    new: list[conform.FreshMemo]
+    units: list[conform.FreshMemo]
+
+
+def _split(total: int, parts: int) -> list[tuple[int, int]]:
+    return [(total * index // parts, total * (index + 1) // parts) for index in range(parts)]
+
+
+def absorb_count(
+    name: int | str,
+    source: _CountRows,
+    memo: conform.SettleMemoFile,
+    clone: Path,
+    directory: Path,
+    units: int,
+    reads_standing: bool,
+) -> AbsorbCount:
+    """Make one count's inputs (`AbsorbCount`): when `reads_standing` says a path of the run reads a standing file, for `live` the clone of the live memo as that file, and for any other count a file of that many rows (`_CountRows`) written once under the live memo's stamp and keys, and the windows the paths over it take; then every row in the units' parts. Without `reads_standing` it writes no file and makes no tail or new windows."""
+    if not reads_standing:
+        rows = source.live if name == LIVE else int(name)
+        return AbsorbCount(
+            name,
+            rows,
+            None,
+            False,
+            [],
+            [],
+            [conform._fresh_memo(source.rows(start, stop)) for start, stop in _split(rows, units)],
+        )
+    if name == LIVE:
+        rows, standing, written = source.live, clone, False
+    else:
+        rows = int(name)
+        standing = directory / f"standing-{rows}.bin"
+        if not conform._write_settle_memo(replace(memo, path=standing), *source.columns(rows)):
+            raise SystemExit(f"the absorbs holder could not write {standing}")
+        written = True
+    tail = max(0, rows - ABSORB_TAIL)
+    header = conform._settle_memo_header(replace(memo, path=standing))
+    if header is None:
+        raise SystemExit(f"{standing} is not a settle memo under the live memo's stamp")
+    new = max(0, rows - min(ABSORB_TAIL, int(header["slots"]) // 2 - rows))
+    restated = source.copies(rows) + 1
+    return AbsorbCount(
+        name,
+        rows,
+        standing,
+        written,
+        [
+            conform._fresh_memo(source.rows(tail + start, tail + stop))
+            for start, stop in _split(rows - tail, ABSORB_RANGES)
+        ],
+        [
+            conform._fresh_memo(source.rows(new + start, new + stop, copy=restated))
+            for start, stop in _split(rows - new, ABSORB_RANGES)
+        ],
+        [conform._fresh_memo(source.rows(start, stop)) for start, stop in _split(rows, units)],
+    )
+
+
+def absorb_job(
+    path: str, count: AbsorbCount, memo: conform.SettleMemoFile, absent: Path
+) -> tuple[conform.SettleMemoFile, list[conform.FreshMemo], conform.SweepPrune | None]:
+    """One path's absorb over a count's inputs: the file it reads, the fresh windows it is handed, and the sweep's prune, which only the sweep's paths carry. `fast` reads the standing file with the new windows, `duplicate` with the tail's restated ones, and `stale` the same with `ABSORB_STALE_FAMILY`'s key moved; `prune` drops the standing file's last `ABSORB_PRUNED` rows through the sweep's absorb; `fresh` and `fresh-sweep` read no standing file and take every row in the units' parts, through the oracle's absorb and the sweep's."""
+    if path in ("fresh", "fresh-sweep"):
+        fresh = replace(memo, path=absent)
+        if path == "fresh":
+            return fresh, count.units, None
+        return fresh, count.units, conform.SweepPrune(None, zlib.compress(b"", 1), True, False)
+    if count.standing is None:
+        raise ValueError(f"the {count.name} count's inputs hold no standing file for the {path} path")
+    standing = replace(memo, path=count.standing)
+    if path == "fast":
+        return standing, count.new, None
+    if path == "duplicate":
+        return standing, count.tail, None
+    if path == "stale":
+        keys = {**memo.family_keys, ABSORB_STALE_FAMILY: "moved-for-the-absorbs-holder"}
+        return replace(standing, family_keys=keys), count.tail, None
+    if path == "prune":
+        stat = count.standing.stat()
+        kept = max(0, count.rows - ABSORB_PRUNED)
+        flags = zlib.compress(b"\x01" * kept + bytes(count.rows - kept), 1)
+        identity = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        return standing, [], conform.SweepPrune(identity, flags, True, False)
+    raise ValueError(f"{path} is not an absorbs path")
+
+
+def _ship_untracked(pieces: Sequence[bytes | memoryview], name: str) -> oracle.Shipped | None:
+    """`oracle.ship` without the resource tracker's registration, since the absorb child that maps and unlinks the segment runs under a tracker of its own."""
+    from multiprocessing import shared_memory
+
+    lengths = tuple(len(piece) for piece in pieces)
+    if not sum(lengths):
+        return None
+    segment = shared_memory.SharedMemory(name, create=True, size=sum(lengths), track=False)
+    buffer = segment.buf
+    assert buffer is not None
+    try:
+        at = 0
+        for piece in pieces:
+            buffer[at : at + len(piece)] = piece
+            at += len(piece)
+    finally:
+        segment.close()
+    return oracle.Shipped(name, lengths)
+
+
+def _unlink_segments(names: Iterable[str]) -> None:
+    for name in names:
+        with suppress(OSError, ValueError):
+            oracle._unlink_if_made(name, track=False)
+
+
+class _AbsorbSegments:
+    """The names of the shared memory segments an absorbs run ships its lines' parts into, each appended to `record` (`ABSORB_SEGMENTS` under the run's directory) before its segment is made, so that a failure partway through shipping a line, or a SIGKILL, which skips every cleanup, leaves no segment nothing names. `unlink` unlinks every segment named since the last call; the next run's `empty_tree` unlinks every one the record names."""
+
+    def __init__(self, record: Path) -> None:
+        self._record = record
+        self.names: list[str] = []
+
+    def add(self, name: str) -> str:
+        with self._record.open("a", encoding="utf-8") as record:
+            record.write(f"{name}\n")
+        self.names.append(name)
+        return name
+
+    def unlink(self) -> None:
+        _unlink_segments(self.names)
+        self.names.clear()
+
+
+def absorb_payload(
+    writer: str,
+    memo: conform.SettleMemoFile,
+    spec: ResolvedSpec,
+    parts: Sequence[conform.FreshMemo],
+    sweep: conform.SweepPrune | None,
+    prefix: str,
+    segments: _AbsorbSegments,
+) -> bytes:
+    """Ship each part's blocks into a shared memory segment of its own, as a range or a unit ships them, naming each in `segments` before making it, so that the caller unlinks every one a child does not, and return the absorb child's job (`memory_series_child.absorb_main`) pickled."""
+    shipped = []
+    for index, part in enumerate(parts):
+        name = segments.add(f"{prefix}-{index}")
+        shipped.append((_ship_untracked(list(part.blocks), name), replace(part, blocks=())))
+    job = {"writer": writer, "memo": memo, "spec": spec, "parts": shipped, "sweep": sweep}
+    return pickle.dumps(job, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def run_absorb_child(
+    payload: bytes,
+    *,
+    env: Mapping[str, str] | None,
+    interval: float,
+    machine: Callable[[], Machine] = read_machine,
+) -> tuple[ChildRun, dict[str, Any]]:
+    """Run one absorb child (`memory_series_child.absorb_main`) with `payload` on its stdin, sampled as `run_child` samples a crate, and return it with what it printed. A child that exits nonzero, or prints nothing, stops the run."""
+    arguments = [sys.executable, "-m", "rebuild.tools.memory_series_child", "absorb"]
+    begin = machine()
+    origin = time.perf_counter()
+    process = subprocess.Popen(
+        arguments, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
+    )
+    assert process.stdin is not None and process.stdout is not None and process.stderr is not None
+    drained: dict[str, bytes] = {}
+    readers = [
+        threading.Thread(target=_drain, args=(drained, name, stream), daemon=True)
+        for name, stream in (("stdout", process.stdout), ("stderr", process.stderr))
+    ]
+    sampler = Sampler(process.pid, interval, machine, origin)
+    try:
+        sampler.start()
+        for reader in readers:
+            reader.start()
+        with process.stdin:
+            process.stdin.write(payload)
+        for reader in readers:
+            reader.join()
+        os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOWAIT)
+        wall = time.perf_counter() - origin
+        samples = sampler.stop()
+        footprint = peak_rss.peak_footprint_bytes(process.pid)
+        _pid, status, usage = os.wait4(process.pid, 0)
+    except BaseException:
+        sampler.stop()
+        process.kill()
+        process.wait()
+        raise
+    process.returncode = os.waitstatus_to_exitcode(status)
+    stderr = drained["stderr"].decode(errors="replace")
+    lines = [line for line in drained["stdout"].decode(errors="replace").splitlines() if line.strip()]
+    if process.returncode != 0 or not lines or not lines[-1].startswith("{"):
+        raise SystemExit(
+            f"the absorb child exited {process.returncode}: {stderr.strip() or 'it printed nothing'}"
+        )
+    child = ChildRun(
+        process.returncode,
+        drained["stdout"],
+        stderr,
+        wall,
+        usage.ru_utime + usage.ru_stime,
+        peak_rss.maxrss_to_bytes(usage.ru_maxrss),
+        footprint,
+        begin,
+        samples,
+        machine(),
+    )
+    return child, json.loads(lines[-1])
+
+
+def measure_absorb_line(
+    jobs: Mapping[str, bytes],
+    names: Sequence[str],
+    *,
+    idle_s: float = IDLE_S,
+    after_s: float = AFTER_S,
+    interval_s: float = INTERVAL_S,
+    env: Mapping[str, str] | None = None,
+    meter: Callable[[], write_meter.WriteReading] = write_meter.read,
+    machine: Callable[[], Machine] = read_machine,
+    sleep: Callable[[float], None] = time.sleep,
+    run: Callable[..., tuple[ChildRun, dict[str, Any]]] = run_absorb_child,
+) -> dict[str, Any]:
+    """Run one absorbs line between the write meter's readings, as `measure_step` runs a table step: the absorb's child and then the carry-and-append absorb's, each over its own copy of the line's segments (`jobs`), and return the line's measured fields (the module docstring's "The absorbs step"). Any segment in `names` a child left is unlinked. `meter`, `machine`, `sleep` and `run` are the write meter, the machine reading, the wait and the child, which a test replaces."""
+    idle = None
+    if idle_s > 0:
+        idle = meter()
+        sleep(idle_s)
+    start = meter()
+    ran: dict[str, tuple[ChildRun, dict[str, Any]]] = {}
+    try:
+        for writer in ("absorb", "carry"):
+            ran[writer] = run(jobs[writer], env=env, interval=interval_s, machine=machine)
+    finally:
+        _unlink_segments(names)
+    end = meter()
+    rate = None if idle is None else idle_rate(idle, start)
+    child, printed = ran["absorb"]
+    carry, reference = ran["carry"]
+    after: dict[str, object] | None = None
+    if after_s > 0:
+        sleep(after_s)
+        later = meter()
+        swapouts = _difference(child.begin.swapouts, machine().swapouts)
+        after = write_fields(start, later, rate, swapouts)
+    return {
+        "absorb": printed["absorb"],
+        "wall_s": round(child.wall, 3),
+        "seconds": printed["seconds"],
+        "cpu_s": round(child.cpu, 3),
+        "peak_resident": child.peak_resident,
+        "peak_footprint": child.peak_footprint,
+        "samples": len(child.samples),
+        "interval_s": interval_s,
+        **moments(child),
+        "file_rows": printed["rows"],
+        "size": printed["size"],
+        "sha256": printed["sha256"],
+        "carry_and_append": {
+            "wall_s": round(carry.wall, 3),
+            "seconds": reference["seconds"],
+            "cpu_s": round(carry.cpu, 3),
+            "peak_resident": carry.peak_resident,
+            "peak_footprint": carry.peak_footprint,
+            "file_rows": reference["rows"],
+            "size": reference["size"],
+            "sha256": reference["sha256"],
+        },
+        "same": printed["sha256"] == reference["sha256"],
+        "written": {
+            "idle_s": idle_s,
+            "idle_rate": None if rate is None else round(rate),
+            "end": write_fields(start, end, rate, _difference(child.begin.swapouts, carry.end.swapouts)),
+            "after_s": after_s,
+            "after": after,
+        },
+    }
+
+
+def absorbs_report(lines: Sequence[Mapping]) -> list[str]:
+    """Return each path's fit against the standing file's rows, or the fresh rows for a path with no standing file (`scaling_sweep.fit`), of the absorb's peak footprint and resident, and of the carry-and-append absorb's peak footprint, with how many of the path's lines read the same bytes as the carry-and-append absorb."""
+    report: list[str] = []
+    for path in dict.fromkeys(line["path"] for line in lines):
+        own = [line for line in lines if line["path"] == path]
+        rows = [line["rows"] for line in own]
+        if len(set(rows)) < 2:
+            report.append(f"absorbs {path}: the fit needs two row counts; this run has {len(set(rows))}")
+            continue
+        figures = {
+            "peak footprint": [line["peak_footprint"] for line in own],
+            "peak resident": [line["peak_resident"] for line in own],
+            "carry-and-append peak footprint": [line["carry_and_append"]["peak_footprint"] for line in own],
+        }
+        same = sum(1 for line in own if line["same"])
+        report.append(
+            f"absorbs {path} over {len(own)} lines (rows {min(rows)}..{max(rows)}), {same} the same as the carry-and-append absorb"
+        )
+        report.extend(
+            f"  {label} ~ rows^{scaling_sweep.exponent(scaling_sweep.fit(rows, values))}"
+            for label, values in figures.items()
+        )
+    return report
+
+
+def run_absorbs(args: argparse.Namespace, tree: Path) -> int:
+    """Run the absorbs holder's lines (the module docstring's "The absorbs step") under the held lock: clone the live `default` settle memo into the tree, make each distinct count's inputs once (`absorb_count`), a standing file only when a path of `--paths` reads one, then for each named count, in order, and each path of `--paths` measure one line (`measure_absorb_line`), recording each as it finishes, then the fit (`absorbs_report`). Every segment a line ships is unlinked as the line ends, however it ends (`_AbsorbSegments`), and the clone and every standing file the run wrote are removed as it ends, however it ends."""
+    from rebuild.pipeline import oracle_cache, run_m1_gates
+    from rebuild.review import build
+
+    spec = spec_load.load_default_spec()
+    live = conform.settle_memo_files(run_m1.OUT_DIR, spec, oracle_cache.settle_memo_inputs(run_m1.REPO_ROOT))[
+        ABSORB_CONFIG
+    ]
+    if not conform.settle_memo_standing(live):
+        raise SystemExit(f"{live.path} is not a settle memo under this tree's stamp; a cycle pass refills it")
+    empty_tree(tree)
+    directory = tree / ABSORBS
+    directory.mkdir()
+    clone = directory / "live.bin"
+    store = conform._MemoStore()
+    try:
+        if not build._clone(live.path, clone):
+            raise SystemExit(
+                f"{live.path} could not be cloned without writing it; the absorbs holder writes no copy"
+            )
+        memo = replace(live, path=clone)
+        store.load(memo, spec, None, lambda item: (item, "", ""))
+        if store.retired or not len(store.reached):
+            raise SystemExit(f"{clone} loaded no rows")
+        source = _CountRows(store)
+        units = sum(
+            1
+            for unit in run_m1_gates.sweep_units(conform.spec_alphabet(spec), conform.SWEEP_MAX_LENGTH)
+            if unit.config == ABSORB_CONFIG
+        )
+        reads_standing = any(not path.startswith("fresh") for path in args.paths)
+        counts: dict[int | str, AbsorbCount] = {}
+        for name in dict.fromkeys(args.counts):
+            _progress(f"{name}: making the inputs its lines read")
+            counts[name] = absorb_count(name, source, live, clone, directory, units, reads_standing)
+        absent = directory / "absent.bin"
+        env = corpus_environment()
+        head = _head()
+        lines: list[dict[str, Any]] = []
+        record = Record(args.out, ABSORBS)
+        os.sync()
+        time.sleep(SETTLE_S)
+        token = os.urandom(4).hex()
+        segments = _AbsorbSegments(directory / ABSORB_SEGMENTS)
+        for number, name in enumerate(args.counts):
+            count = counts[name]
+            for path in args.paths:
+                _progress(
+                    f"{name} {path}: {args.idle_seconds:g} s idle, the two absorbs, then {args.after_seconds:g} s before the meter's last reading"
+                )
+                file, parts, sweep = absorb_job(path, count, live, absent)
+                jobs: dict[str, bytes] = {}
+                try:
+                    for writer in ("absorb", "carry"):
+                        prefix = f"s{token}-{number}-{ABSORB_PATHS.index(path)}{writer[0]}"
+                        jobs[writer] = absorb_payload(writer, file, spec, parts, sweep, prefix, segments)
+                    measured = measure_absorb_line(
+                        jobs,
+                        list(segments.names),
+                        idle_s=args.idle_seconds,
+                        after_s=args.after_seconds,
+                        interval_s=args.interval,
+                        env=env,
+                    )
+                finally:
+                    segments.unlink()
+                _warn_meter(f"{name} {path}", measured["written"])
+                if not measured["same"]:
+                    _warn(f"{name} {path}: the absorb's file differs from the carry-and-append absorb's")
+                line: dict[str, Any] = {
+                    "step": ABSORB_STEP,
+                    "count": name,
+                    "path": path,
+                    "rows": count.rows,
+                    "standing_rows": 0 if path.startswith("fresh") else count.rows,
+                    "fresh_rows": sum(part.rows for part in parts),
+                    "standing_bytes": (
+                        None
+                        if count.standing is None or path.startswith("fresh")
+                        else count.standing.stat().st_size
+                    ),
+                    **measured,
+                    "cpus": memory_budget.usable_cores(),
+                    "ram": memory_budget.total_memory_bytes(),
+                    "head": head,
+                    "finished_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                }
+                lines.append(line)
+                text = json.dumps(line)
+                print(text, flush=True)
+                record.add(text)
+        for text in ("", *absorbs_report(lines)):
+            print(text, flush=True)
+            record.add(text)
+        return 0
+    finally:
+        store.close()
+        shutil.rmtree(directory, ignore_errors=True)
+
+
 def holder_sections(text: str) -> dict[str, list[str]]:
     """Split a record's lines by the holder each belongs to: a JSON line by its `step` (`HOLDER_OF_STEP`), and every other line, the fit, by the JSON line before it."""
     sections: dict[str, list[str]] = {holder: [] for holder in HOLDERS}
@@ -1979,19 +2481,23 @@ def _progress(text: str) -> None:
 def parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python -m rebuild.tools.memory_series",
-        description="Measure what the M1 table build, the string replay or the review corpus build holds and writes at each of several alphabet cuts, one build at a time, writing nothing but its record.",
+        description="Measure what the M1 table build, the string replay, the review corpus build or a settle-memo absorb holds and writes at each of several alphabet cuts or row counts, one build at a time, writing nothing but its record.",
     )
     parser.add_argument(
         "--holder",
         choices=HOLDERS,
         default=TABLES,
-        help="the build to measure: the table build (the default), the review corpus build, or the string replay with its settle-memo absorbs",
+        help="the build to measure: the table build (the default), the review corpus build, the string replay with its settle-memo absorbs, or the oracle's and the conformance sweep's settle-memo absorb",
     )
     parser.add_argument(
         "lines",
         nargs="*",
         metavar="k",
-        help=f"the rune counts to cut alphabets at, and for the corpus holder the load lines ({', '.join(f'{LOAD_PREFIX}{scale}' for scale in LOAD_SCALES)}); by default {', '.join(map(str, SIZES))} below the whole alphabet and the whole alphabet for the table holder, {', '.join(map(str, REPLAY_SIZES))} below it and the whole alphabet for the replay holder, and {', '.join(map(str, CORPUS_SIZES))} below it, the whole alphabet and both load lines for the corpus holder",
+        help=f"the rune counts to cut alphabets at, for the corpus holder the load lines ({', '.join(f'{LOAD_PREFIX}{scale}' for scale in LOAD_SCALES)}) too, and for the absorbs holder the row counts, `{LIVE}` for the live default settle memo's own; by default {', '.join(map(str, SIZES))} below the whole alphabet and the whole alphabet for the table holder, {', '.join(map(str, REPLAY_SIZES))} below it and the whole alphabet for the replay holder, {', '.join(map(str, CORPUS_SIZES))} below it, the whole alphabet and both load lines for the corpus holder, and {' '.join(ABSORB_COUNTS)} for the absorbs holder",
+    )
+    parser.add_argument(
+        "--paths",
+        help=f"the absorbs to measure at each row count, comma-separated, of {', '.join(ABSORB_PATHS)}; every one by default (absorbs holder)",
     )
     parser.add_argument(
         "--configs",
@@ -2053,6 +2559,22 @@ def parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     named_loads = [text for text in args.lines if text in loads]
     if args.holder != CORPUS and named_loads:
         parser.error(f"{', '.join(named_loads)} name corpus lines; pass --holder {CORPUS}")
+    args.counts = []
+    args.paths = list(ABSORB_PATHS) if args.paths is None else args.paths.split(",")
+    if args.holder == ABSORBS:
+        if any(not text.isdecimal() and text != LIVE for text in args.lines):
+            parser.error(f"an absorbs line is a row count or {LIVE}")
+        args.counts = absorb_counts(args.lines)
+        args.lines = []
+        unknown = [path for path in args.paths if path not in ABSORB_PATHS]
+        if unknown or not args.paths:
+            parser.error(
+                f"--paths names {', '.join(unknown) or 'nothing'}; the paths are {', '.join(ABSORB_PATHS)}"
+            )
+        if any(count != LIVE and int(count) < 1 for count in args.counts):
+            parser.error("a row count is at least 1")
+    elif args.paths != list(ABSORB_PATHS):
+        parser.error(f"--paths applies to the {ABSORBS} holder")
     if any(not text.isdecimal() for text in args.lines if text not in loads):
         parser.error(f"a line is a rune count or one of {', '.join(loads)}")
     args.sizes = [int(text) for text in args.lines if text not in loads]
@@ -2075,6 +2597,15 @@ def parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
         REPLAY: (
             ("--kernel-threads", args.kernel_threads),
             ("--scratch-beside-default", args.scratch_beside_default),
+            ("--jobs", args.jobs),
+            ("--signature-jobs", args.signature_jobs),
+            ("--write-jobs", args.write_jobs),
+        ),
+        ABSORBS: (
+            ("--configs", args.configs),
+            ("--kernel-threads", args.kernel_threads),
+            ("--scratch-beside-default", args.scratch_beside_default),
+            ("--replay-threads", args.replay_threads),
             ("--jobs", args.jobs),
             ("--signature-jobs", args.signature_jobs),
             ("--write-jobs", args.write_jobs),
@@ -2221,7 +2752,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def run_series(args: argparse.Namespace) -> int:
-    """Hold the series' lock (`store_lock.hold_flock` on `<tree>.lock`), refusing when another run holds it, and run the holder `args` names: the corpus holder's lines (`run_corpus`), the replay holder's (`run_replay`), or the table holder's steps and then the whole-series fit (`report`)."""
+    """Hold the series' lock (`store_lock.hold_flock` on `<tree>.lock`), refusing when another run holds it, and run the holder `args` names: the corpus holder's lines (`run_corpus`), the replay holder's (`run_replay`), the absorbs holder's (`run_absorbs`), or the table holder's steps and then the whole-series fit (`report`)."""
     configs = configs_from(args.configs) if args.configs else list(conform.SETTLEMENT_CONFIGS)
     tree = ROOT / TREE_PATH
     lock = store_lock.lock_path_for(tree)
@@ -2234,6 +2765,8 @@ def run_series(args: argparse.Namespace) -> int:
             return run_corpus(args, tree)
         if args.holder == REPLAY:
             return run_replay(args, tree)
+        if args.holder == ABSORBS:
+            return run_absorbs(args, tree)
         spec = spec_load.load_default_spec()
         order = scaling_series.series_order(spec)
         sizes = args.sizes or default_sizes(len(order))

@@ -1,12 +1,14 @@
-"""The memory series' children (`rebuild/tools/memory_series.py`): one corpus line's build ("The corpus step") or one replay line's full replay ("The replay step").
+"""The memory series' children (`rebuild/tools/memory_series.py`): one corpus line's build ("The corpus step"), one replay line's full replay ("The replay step"), or one absorbs line's absorb ("The absorbs step").
 
 A corpus child runs `build.build_m1` as a library over the line's inputs at the stated widths. It points the timings journal at the line's `--journal`, installs the mark reporter (`memory_tally.report_marks`), which prints each mark with this process's resident set and footprint (`[m]`) and on a load line (`--load`) stops the build at the plan's mark, makes a load line's substitutions (`substitute_for_load`), and prints this process's own rusage and its reaped children's (`[r]`) before it exits.
 
 A replay child (`replay` before its flags) runs `run_m1.replay_and_absorb` over the line's cut, as a full replay of run_m1 runs it, at the stated width, with each crate's cache stats on and each absorb hashing its finished file and then discarding it, so the line writes no settle memo; it prints what the replay did as one JSON line (`replay_main`).
 
+An absorb child (`absorb`) reads its job from stdin, maps the parts' shared memory segments as the pools' absorb worker maps them, runs `conform.absorb_settle_memo` or the carry-and-append absorb its bytes are proven against (`carry_and_append_absorb`), hashes the file it would write instead of writing it, and prints what it did as one JSON line (`absorb_main`).
+
 The child is a module of its own, whose top-level imports are the standard library and modules the build imports itself, because multiprocessing's spawn imports the launching process's main module into every worker the build starts. Run as this module, the build's parent and each of its units, write and signature workers hold the build's modules and this one beside them, where a cycle's build, run as `python -m rebuild.review.build`, holds the build's modules alone; a replay's absorb workers likewise hold run_m1's modules and this one, where run_m1's own hold run_m1's alone. The series' own imports, the table step's among them, reach none of them.
 
-Run as: python -m rebuild.tools.memory_series_child --inputs JSON --audit FIFO --out DIR --journal FILE --jobs N --signature-jobs N --write-jobs N [--load], which the series does once a corpus line, or python -m rebuild.tools.memory_series_child replay --spec PICKLE --spec-dump JSON --out DIR --configs a,b --width N [--built], once a replay line.
+Run as: python -m rebuild.tools.memory_series_child --inputs JSON --audit FIFO --out DIR --journal FILE --jobs N --signature-jobs N --write-jobs N [--load], which the series does once a corpus line, python -m rebuild.tools.memory_series_child replay --spec PICKLE --spec-dump JSON --out DIR --configs a,b --width N [--built], once a replay line, or python -m rebuild.tools.memory_series_child absorb with its job on stdin, twice an absorbs line.
 """
 
 from __future__ import annotations
@@ -160,10 +162,125 @@ def replay_main(argv: Sequence[str]) -> int:
     return 0
 
 
+def carry_and_append_absorb(memo, spec, parts, sweep=None):
+    """The carry-and-append absorb `conform.absorb_settle_memo`'s bytes are proven against, for the absorbs holder's comparison line, over the parts' blocks as `absorb_settle_memo` reads them: every part's blocks decoded and held at once, the standing file loaded unrestricted, the rows `sweep` keeps marked, the kept rows carried into new columns (`conform._MemoStore.carry_into`), each part's blocks appended with their ids shifted past the labels and records before them, and the file finished in memory as `conform._write_settle_memo` lays it out, with the standing index when no row dropped and none is dead. Return the finished file (`conform.FinishedSettleMemo`), or None where nothing would be written."""
+    import zlib
+    from array import array
+
+    from rebuild.pipeline import conform
+
+    read = []
+    for part in parts:
+        blocks = []
+        for at in range(0, len(part.blocks), 2):
+            new_labels, new_items, count = pickle.loads(zlib.decompress(part.blocks[at]))
+            flat = array("I")
+            flat.frombytes(zlib.decompress(part.blocks[at + 1]))
+            blocks.append(
+                (
+                    new_labels,
+                    new_items,
+                    [flat[slot * count : (slot + 1) * count] for slot in range(6)],
+                    flat[6 * count :],
+                )
+            )
+        read.append(blocks)
+        if part.release is not None:
+            part.release()
+    introduced_labels = sum(len(block[0]) for blocks in read for block in blocks)
+    introduced_outcomes = sum(len(block[1]) for blocks in read for block in blocks)
+    store = conform._MemoStore()
+    store.load(memo, spec, None, lambda item: (item, "", ""))
+    dropped = 0
+    if sweep is not None and sweep.prune:
+        flags = zlib.decompress(sweep.reached)
+        if store.identity() == sweep.identity and len(flags) == len(store.reached):
+            if sweep.discard:
+                dropped = len(store)
+            else:
+                store.reached[:] = flags
+                dropped = len(store) - store.reached_count()
+    if not parts and not dropped:
+        store.close()
+        return None
+    labels: list = []
+    outcomes: list = []
+    columns = [array(conform._memo_typecode(len(store.labels) + introduced_labels)) for _ in range(6)]
+    values = array(conform._memo_typecode(len(store.outcomes) + introduced_outcomes))
+    store.carry_into(labels, outcomes, columns, values, reached=True if dropped else None)
+    carried = len(values)
+    standing = (
+        (store.index_copy(), carried, len(labels), len(outcomes))
+        if not dropped and store.dead.count(1) == 0
+        else None
+    )
+    store.close()
+    for blocks in read:
+        base_labels, base_outcomes = len(labels), len(outcomes)
+        for new_labels, new_items, block_columns, block_values in blocks:
+            labels.extend(new_labels)
+            outcomes.extend(new_items)
+            for column, block in zip(columns, block_columns):
+                column.extend(map(base_labels.__add__, block))
+            values.extend(map(base_outcomes.__add__, block_values))
+    del read
+    return conform._settled_memo(memo, labels, outcomes, columns, values, standing)
+
+
+def absorb_main() -> int:
+    """Run one absorbs line's absorb (`memory_series`' "The absorbs step") over the job pickled on stdin: `writer`, `absorb` for `conform.absorb_settle_memo` or `carry` for the carry-and-append absorb (`carry_and_append_absorb`); `memo`, the settle memo file; `spec`; `parts`, each a shared memory segment's name and lengths (`oracle.Shipped`) and its fresh windows' counts, as the oracle's and the sweep's pools hand an absorb its parts; and `sweep`, the sweep's prune or None. It maps each segment and unlinks its name at once, as the pools' absorb worker does (`run_m1_gates._absorb_memo`), runs the absorb with the finished file hashed in order instead of written, and prints, as one JSON line on stdout, its last, the absorb's seconds, the file's row count, size and sha256, and for `absorb` the absorb's path and row counts. It writes nothing."""
+    import time
+    from dataclasses import asdict, replace
+
+    from rebuild.pipeline import conform, oracle
+
+    job = pickle.load(sys.stdin.buffer)
+    mapped = []
+    parts = []
+    for shipped, counts in job["parts"]:
+        if shipped is None:
+            parts.append(counts)
+            continue
+        segment = oracle._Mapped(shipped)
+        mapped.append(segment)
+        parts.append(replace(counts, blocks=segment.pieces, release=segment.close))
+    hashed: list = []
+
+    def emit(finished) -> bool:
+        hashed.append((finished.rows, *finished.digest()))
+        return True
+
+    started = time.perf_counter()
+    try:
+        if job["writer"] == "absorb":
+            absorbed = conform.absorb_settle_memo(job["memo"], job["spec"], parts, job["sweep"], emit)
+            stats = {**asdict(absorbed), "dropped": absorbed.dropped}
+        else:
+            finished = carry_and_append_absorb(job["memo"], job["spec"], parts, job["sweep"])
+            if finished is not None:
+                emit(finished)
+            del finished
+            stats = None
+    finally:
+        for segment in mapped:
+            segment.close()
+    seconds = time.perf_counter() - started
+    rows, size, sha256 = hashed[0] if hashed else (None, None, None)
+    print(
+        json.dumps(
+            {"seconds": round(seconds, 3), "rows": rows, "size": size, "sha256": sha256, "absorb": stats}
+        ),
+        flush=True,
+    )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["replay"]:
         return replay_main(argv[1:])
+    if argv[:1] == ["absorb"]:
+        return absorb_main()
     parser = argparse.ArgumentParser(prog="python -m rebuild.tools.memory_series_child")
     parser.add_argument(
         "--inputs", required=True, help="the line's inputs, as `CorpusInputs.to_json` writes them"

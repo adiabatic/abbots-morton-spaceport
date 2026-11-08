@@ -96,7 +96,7 @@ def test_a_certificate_the_registry_refuses_is_reported_against_its_rule_under_a
 
     monkeypatch.setattr(settle, "tokens_from_codepoints", refusing)
     report = witness.check_rule_certificates(
-        spec, frozenset(), decision, guard, memo=dataclasses.replace(memo, write_path=tmp_path / "part.gz")
+        spec, frozenset(), decision, guard, memo=dataclasses.replace(memo, returns_fresh=True)
     )
     assert not report.passed
     assert len(report.failures) == 1
@@ -225,7 +225,7 @@ def test_a_restricted_walk_settles_a_text_outside_its_asks_fresh_and_alike(spec,
     expected = unrestricted.walk(outside)
     assert unrestricted.memo_windows == len(seed.windows) and unrestricted.fresh_windows == 0
     restricted = conform._SettledWindowWalk(
-        spec, frozenset(), {}, guard, memo=dataclasses.replace(memo, write_path=tmp_path / "part.gz")
+        spec, frozenset(), {}, guard, memo=dataclasses.replace(memo, returns_fresh=True)
     )
     asks = restricted.load_only_asked_by([inside])
     assert asks and not any(_ask_of(window) in asks for window in seed.windows)

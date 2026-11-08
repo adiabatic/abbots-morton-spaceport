@@ -1196,8 +1196,8 @@ class TestOracleAudit:
         joined = "\n".join([oracle.ORACLE_AUDIT_HEADER, *lines]) + "\n"
         assert (tmp_path / "divergence-audit.tsv").read_bytes() == joined.encode("utf-8")
 
-    def test_the_two_oracle_paths_write_the_same_file(self, spec, tmp_path):
-        """`--jobs 1` writes the audit as it goes, and the pool's ranges return their lines for the parent's in-order writer. Both must produce the same bytes. The two paths run here over the same hand-made subset tables: a pending alias makes every row diverge and an empty ledger leaves every divergence UNMATCHED, so every row reaches the file through each path."""
+    def test_the_two_oracle_paths_write_the_same_file(self, spec, tmp_path, monkeypatch):
+        """`--jobs 1` writes the audit as it goes, and the pool's ranges return their lines for the parent's in-order writer. Both must produce the same bytes. The two paths run here over the same hand-made subset tables: a pending alias makes every row diverge and an empty ledger leaves every divergence UNMATCHED, so every row reaches the file through each path. Each range settles through the parent's spec dump, handed to it as its parent hands it, and writes no `spec.json` of its own."""
         tables = tmp_path / "tables"
         tables.mkdir()
         for config, rows in (
@@ -1226,13 +1226,28 @@ class TestOracleAudit:
 
         fanned = tmp_path / "fanned"
         fanned.mkdir()
+        parent = tmp_path / "parent-spec.json"
+        kernel_exec.kernel_io.write_spec(spec, parent)
+
+        def refused(*args):
+            raise AssertionError("a range wrote a spec dump of its own")
+
+        monkeypatch.setattr(kernel_exec.kernel_io, "write_spec", refused)
         shards = [oracle.OracleShard(config) for config in configs]
         with oracle.InOrderWriter(fanned, shards, configs=configs) as writer:
             for shard in reversed(shards):
                 writer.land(
                     shard,
                     oracle.oracle_config_worker(
-                        spec, tables, aliases, ledger, shard.config, None, None, ship_to=writer.ship_to(shard)
+                        mini_spec(),
+                        tables,
+                        aliases,
+                        ledger,
+                        shard.config,
+                        None,
+                        None,
+                        ship_to=writer.ship_to(shard),
+                        spec_path=parent,
                     ),
                 )
         assert (fanned / "divergence-audit.tsv").read_bytes() == (
@@ -1302,7 +1317,7 @@ class TestOracleAudit:
 
     @pytest.mark.parametrize("stop", ("between landings", "in a landing"))
     def test_a_fan_in_that_stops_partway_leaves_no_segment_behind(self, monkeypatch, tmp_path, stop):
-        """A pass can stop between two landings (a range raises, the pool breaks, SIGINT reaches the parent) or in one, when the disk fills as the writer writes the lines now due. By then the writer holds a landed range's lines that wait on an earlier range and a cut configuration's segment short of its last range, and a range may have shipped bytes whose result the writer never took. Shared memory outlives every process that maps it until it is unlinked, so the writer closes and unlinks all of it as the block unwinds, holds no mapping afterward, and stages nothing."""
+        """A pass can stop between two landings (a range raises, the pool breaks, SIGINT reaches the parent) or in one, when the disk fills as the writer writes the lines now due. By then the writer holds a landed range's lines that wait on an earlier range and a cut configuration's segment short of its last range, a range may have shipped bytes whose result the writer never took, and no absorb has mapped any range's settle memo segment. Shared memory outlives every process that maps it until it is unlinked, so the writer closes and unlinks all of it as the block unwinds, holds no mapping afterward, and stages nothing."""
         stamp = oracle_cache.EnvironmentStamp(lines=("subset\tdigest",))
         cache = oracle.OracleRowCache({"default": stamp}, {}, write_dir=tmp_path / "scratch")
         ranges = self._cut("default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"] * 3, 3)
@@ -1316,6 +1331,7 @@ class TestOracleAudit:
             result = self._result(writer, shard, part)
             result.pass_ordinal = 1
             result.store_segment = oracle.ship([gzip.compress(b"records\n")], writer.ship_to(shard).store)
+            result.memo_blocks = oracle.ship([b"head", b"rows"], writer.ship_to(shard).memo)
             return shard, result
 
         writer = oracle.InOrderWriter(tmp_path, [shard for shard, _ in ranges], cache, ("default",))
@@ -1323,7 +1339,11 @@ class TestOracleAudit:
         with pytest.raises((RuntimeError, OSError), match=failure):
             with writer:
                 for shard, _ in ranges:
-                    names += [writer.ship_to(shard).audit, writer.ship_to(shard).store]
+                    names += [
+                        writer.ship_to(shard).audit,
+                        writer.ship_to(shard).store,
+                        writer.ship_to(shard).memo,
+                    ]
                 waiting = [shipped(writer, shard, part) for shard, part in ranges[1:]]
                 writer.land(*waiting[1])
                 assert writer._waiting and writer._segments
@@ -1338,20 +1358,27 @@ class TestOracleAudit:
         assert list(tmp_path.iterdir()) == []
 
     def test_a_pooled_fan_in_leaves_the_resource_tracker_nothing_to_clean_up(self, tmp_path):
-        """A range's segment is made in a spawned worker and unlinked in the parent, and the resource tracker the two share unlinks, with a warning, whatever is still registered when the last process holding it exits. The worker registers the segment as it makes it, and the parent's attach and unlink register it again and unregister it, so a run that lands every range leaves the tracker nothing, and so does one that stops before landing any, because the writer's exit unlinks every segment it named. The tracker exits with the run, so the run is a child process here, and its stderr must carry no warning."""
+        """A range's segment is made in a spawned worker and unlinked in the process that maps it, the parent for its audit lines and a fresh absorb worker for its settle memo windows, and the resource tracker they all share unlinks, with a warning, whatever is still registered when the last process holding it exits. The worker registers the segment as it makes it, and the mapping process's attach and unlink register it again and unregister it, so a run that lands every range and absorbs its windows leaves the tracker nothing, and so does one that stops before landing any, because the writer's exit unlinks every segment it named, the settle memo segment no absorb mapped among them. The tracker exits with the run, so the run is a child process here, and its stderr must carry no warning."""
         script = "\n".join(
             [
                 "import sys, zlib",
                 "from pathlib import Path",
-                "from rebuild.pipeline import oracle, run_m1",
+                "from rebuild.pipeline import conform, oracle, run_m1, run_m1_gates",
                 "out, mode = Path(sys.argv[1]), sys.argv[2]",
                 'shards = [oracle.OracleShard("default", 0, 1, 0, 2), oracle.OracleShard("default", 1, None, 1, 2)]',
                 'line = zlib.compress(b"default\\tE650\\tcell\\ta\\tqsPea\\tqsPea.half\\n")',
+                'fresh = conform._fresh_memo([(("qsPea", "#EDGE", "#EDGE", "#EDGE", "#EDGE", "#EDGE"), ("settled", "", ""))])',
+                'memo = conform.SettleMemoFile(out / "settle-memo-default.bin", "stamp")',
                 'with oracle.InOrderWriter(out, shards, configs=("default",)) as writer:',
-                "    names = [writer.ship_to(shard).audit for shard in shards]",
+                "    names = [writer.ship_to(shard).audit for shard in shards] + [writer.ship_to(shards[0]).memo]",
                 "    print(*names, flush=True)",
-                "    with run_m1._spawn_pool(2, len(shards)) as pool:",
-                "        shipped = [future.result() for future in [pool.submit(oracle.ship, [line], name) for name in names]]",
+                "    with run_m1._spawn_pool(2, len(shards), max_tasks_per_child=1) as pool:",
+                "        shipped = [future.result() for future in [pool.submit(oracle.ship, [line], name) for name in names[:2]]]",
+                "        blocks = pool.submit(oracle.ship, list(fresh.blocks), names[2]).result()",
+                '        if mode == "land":',
+                "            counts = conform.FreshMemo((), fresh.rows, fresh.labels, fresh.records)",
+                "            absorbed, _seconds, _peak = pool.submit(run_m1_gates._absorb_memo, memo, None, [(blocks, counts)]).result()",
+                "            assert absorbed.written and absorbed.fresh == 1",
                 '    if mode == "stop":',
                 '        raise SystemExit("stopped before landing")',
                 "    for shard, audit in zip(shards, shipped):",
@@ -1371,25 +1398,23 @@ class TestOracleAudit:
             assert run.returncode == status, run.stderr
             assert "resource_tracker" not in run.stderr
             names = run.stdout.split()
-            assert len(names) == 2
+            assert len(names) == 3
             for name in names:
                 with pytest.raises(FileNotFoundError):
                     shared_memory.SharedMemory(name, track=False)
             assert (out / "divergence-audit.tsv").is_file() == (mode == "land")
+            assert (out / "settle-memo-default.bin").is_file() == (mode == "land")
 
     def test_the_scratch_goes_whether_or_not_the_oracle_got_that_far(self, tmp_path):
         scratch = oracle.oracle_audit_scratch(tmp_path)
-        for path in (
-            oracle_cache.scratch_store_path(scratch, "default"),
-            oracle.settle_memo_part(scratch, "ss03", 0),
-        ):
+        for path in (oracle_cache.scratch_store_path(scratch, "default"), scratch / oracle.SEGMENT_RECORD):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"")
         oracle.discard_oracle_audit_scratch(tmp_path)
         assert list(tmp_path.iterdir()) == []
 
     def test_a_sweep_takes_a_dead_run_s_scratch_and_leaves_a_live_one_s(self, tmp_path):
-        """The pid in the scratch directory name matters in both directions. A killed run skips its `finally`, so without this sweep its staged files would stay on disk indefinitely, and a SIGKILL of its whole process group also leaves in the kernel the shared memory segments of the ranges that had shipped and not landed, which only the names its writer recorded there can find. A running pid is another oracle using the same out_dir (a `--gates-only` pass beside a cycle), and deleting its directory would remove the audit it is staging."""
+        """The pid in the scratch directory name matters in both directions. A killed run skips its `finally`, so without this sweep its staged files would stay on disk indefinitely, and a SIGKILL of its whole process group also leaves in the kernel the shared memory segments of the ranges that had shipped and not landed, and the settle memo segments no absorb had mapped, which only the names its writer recorded there can find. A running pid is another oracle using the same out_dir (a `--gates-only` pass beside a cycle), and deleting its directory would remove the audit it is staging."""
         finished = subprocess.Popen([sys.executable, "-c", ""])
         finished.wait()
         stale = tmp_path / f"divergence-audit.parts.{finished.pid}"
@@ -1400,15 +1425,17 @@ class TestOracleAudit:
         with pytest.raises(ValueError, match="no audit rows"):
             with dead:
                 shutil.copy(oracle.oracle_audit_scratch(tmp_path / "dead") / oracle.SEGMENT_RECORD, stale)
-        left = dead.ship_to(shards[1]).store
-        shared_memory.SharedMemory(left, create=True, size=8, track=False).close()
+        left = [dead.ship_to(shards[1]).store, dead.ship_to(shards[0]).memo]
+        for name in left:
+            shared_memory.SharedMemory(name, create=True, size=8, track=False).close()
         live = tmp_path / f"divergence-audit.parts.{os.getppid()}"
         live.mkdir()
         (live / "divergence-audit.tsv").write_text("")
         oracle.discard_oracle_audit_scratch(tmp_path)
         assert not stale.exists()
-        with pytest.raises(FileNotFoundError):
-            shared_memory.SharedMemory(left, track=False)
+        for name in left:
+            with pytest.raises(FileNotFoundError):
+                shared_memory.SharedMemory(name, track=False)
         assert (live / "divergence-audit.tsv").is_file()
 
     def test_a_scratch_name_is_not_mistaken_for_an_artifact(self):
@@ -2704,7 +2731,7 @@ class TestOracleRowRanges:
         assert oracle.merge_config_shards(results).notes == ["default: subset table missing at x"]
 
     def test_a_range_runs_with_the_collector_held_and_leaves_it_as_it_found_it(self):
-        """A range worker collects once before its range runs, so the cycles a previous task left are freed rather than frozen, then holds the cyclic collector off with the heap it loaded frozen. On exit the collector is enabled again if it was, the heap it froze is unfrozen, and a heap something else had frozen stays frozen."""
+        """A range worker collects once before its range runs, so the cycles its start and its own setup left are freed rather than frozen, then holds the cyclic collector off with the heap it loaded frozen. On exit the collector is enabled again if it was, the heap it froze is unfrozen, and a heap something else had frozen stays frozen."""
 
         class Node:
             partner: object = None
@@ -3300,6 +3327,82 @@ def _write_dump(
     dump.write_bytes(text + b"".join(line + b"\n" for line in [*labels, *records]) + body)
 
 
+def _fresh_blocks(fresh: conform.FreshMemo) -> list[conform._SettleMemoBlock]:
+    """A walk's fresh windows decoded block by block into what `conform._memo_blocks` yields: the labels and records each block introduces, its six key columns and its value column."""
+    blocks: list[conform._SettleMemoBlock] = []
+    for at in range(0, len(fresh.blocks), 2):
+        new_labels, new_items, count = pickle.loads(zlib.decompress(fresh.blocks[at]))
+        flat = array("I")
+        flat.frombytes(zlib.decompress(fresh.blocks[at + 1]))
+        blocks.append(
+            (
+                new_labels,
+                new_items,
+                [flat[slot * count : (slot + 1) * count] for slot in range(6)],
+                flat[6 * count :],
+            )
+        )
+    return blocks
+
+
+def _fresh_rows(fresh: conform.FreshMemo) -> set[tuple[str, ...]]:
+    """Every window a walk's fresh windows hold, as the six-tuples a walk keys on."""
+    rows: set[tuple[str, ...]] = set()
+    labels: list[str] = []
+    for new_labels, _items, columns, _values in _fresh_blocks(fresh):
+        labels.extend(new_labels)
+        rows.update(tuple(labels[label_id] for label_id in row) for row in zip(*columns))
+    return rows
+
+
+def _carry_and_append_absorb(
+    memo: conform.SettleMemoFile,
+    spec,
+    parts: Sequence[conform.FreshMemo],
+    path: Path,
+    sweep: conform.SweepPrune | None = None,
+) -> bool:
+    """The carry-and-append absorb `conform.absorb_settle_memo`'s bytes are proven against, kept here as that algorithm, over the same blocks: decode every part's blocks, load the standing file unrestricted, mark the rows the sweep keeps, carry the kept rows into new columns (`_MemoStore.carry_into`), append each part's blocks with their ids shifted past the labels and records before them, and write it all through `_write_settle_memo` to `path`, passing the standing index when no row was dropped and none is dead. With no part and nothing dropped it writes nothing and returns False."""
+    read = [_fresh_blocks(part) for part in parts]
+    introduced_labels = sum(len(block[0]) for blocks in read for block in blocks)
+    introduced_outcomes = sum(len(block[1]) for blocks in read for block in blocks)
+    store = conform._MemoStore()
+    store.load(memo, spec, None, lambda item: (item, "", ""))
+    dropped = 0
+    if sweep is not None and sweep.prune:
+        flags = zlib.decompress(sweep.reached)
+        if store.identity() == sweep.identity and len(flags) == len(store.reached):
+            if sweep.discard:
+                dropped = len(store)
+            else:
+                store.reached[:] = flags
+                dropped = len(store) - store.reached_count()
+    if not parts and not dropped:
+        store.close()
+        return False
+    labels: list[str] = []
+    outcomes: list = []
+    columns = [array(conform._memo_typecode(len(store.labels) + introduced_labels)) for _ in range(6)]
+    values = array(conform._memo_typecode(len(store.outcomes) + introduced_outcomes))
+    store.carry_into(labels, outcomes, columns, values, reached=True if dropped else None)
+    carried = len(values)
+    standing = (
+        (store.index_copy(), carried, len(labels), len(outcomes))
+        if not dropped and store.dead.count(1) == 0
+        else None
+    )
+    store.close()
+    for blocks in read:
+        base_labels, base_outcomes = len(labels), len(outcomes)
+        for new_labels, new_items, block_columns, block_values in blocks:
+            labels.extend(new_labels)
+            outcomes.extend(new_items)
+            for column, block in zip(columns, block_columns):
+                column.extend(map(base_labels.__add__, block))
+            values.extend(map(base_outcomes.__add__, block_values))
+    return conform._write_settle_memo(memo, labels, outcomes, columns, values, path=path, standing=standing)
+
+
 def _texts_to_depth(spec, max_length=3):
     """Every text of the fixture alphabet up to `max_length` characters, the text set the memo tests walk."""
     alphabet = conform.spec_alphabet(spec)
@@ -3835,13 +3938,10 @@ class TestSettleMemoFile:
         """The file at `memo.path` as a dict of window tuples, with every outcome through `walker._outcome` so the objects are the ones the walk shares with `windows`. The store's `items` order and `len` are checked against it."""
         return dict(self._decoded(memo, spec, walker._outcome))
 
-    def _stream(self, path) -> bytes:
-        return gzip.decompress(Path(path).read_bytes())
-
     def test_the_store_reads_the_file_as_a_dict_does_and_the_carry_forward_files_the_same_rows(
         self, spec, guard, tmp_path
     ):
-        """The store must read the file as a dict does: `items` iterates the live rows in the dict's order with the dict's outcomes, and `len` is the dict's length. Then a whole-file save without pruning (a walk with no `write_path`, as in the `--jobs 1` oracle), over a walk that reached some rows and settled others fresh, must write the same rows in the same order as a dict-backed walk: `windows` first, then every loaded entry `windows` does not hold, in file order, copied from the mapped columns."""
+        """The store must read the file as a dict does: `items` iterates the live rows in the dict's order with the dict's outcomes, and `len` is the dict's length. Then a whole-file save without pruning (a walk whose memo is not `returns_fresh`, as in the `--jobs 1` oracle), over a walk that reached some rows and settled others fresh, must write the same rows in the same order as a dict-backed walk: `windows` first, then every loaded entry `windows` does not hold, in file order, copied from the mapped columns."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
@@ -3875,25 +3975,37 @@ class TestSettleMemoFile:
         )
         assert self._ordered(memo, spec) == self._ordered(replace(memo, path=carried), spec)
 
-    def test_a_part_holds_the_fresh_windows_in_the_order_they_were_settled(self, spec, guard, tmp_path):
-        """A part holds only the fresh windows, in the order they were settled, as a gzip stream of pickles; nothing from the loaded store goes into it."""
+    def test_a_walk_returns_its_fresh_windows_in_the_order_it_settled_them(self, spec, guard, tmp_path):
+        """A walk whose memo is `returns_fresh` writes no file and hands back only its fresh windows, in the order it settled them, one block of `_memo_blocks` at a time; nothing from the loaded store goes into them, and the counts beside the blocks are what the blocks hold."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
         assert seed.save_memo()
-        part = tmp_path / "part.gz"
-        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=replace(memo, write_path=part))
-        walker.walk_many(self._texts(spec, 3))
-        assert walker.fresh_windows and walker.save_memo()
-        expected = tmp_path / "expected.gz"
-        assert conform._write_settle_memo_part(
-            memo,
-            conform._memo_blocks(
-                (window, cast(conform._Outcome, walker.windows[window])) for window in walker._fresh
-            ),
-            expected,
+        standing = memo.path.read_bytes()
+        walker = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
         )
-        assert self._stream(part) == self._stream(expected)
+        walker.walk_many(self._texts(spec, 3))
+        order = list(walker._fresh)
+        assert walker.fresh_windows and walker.save_memo() and walker.fresh_memo is not None
+        assert memo.path.read_bytes() == standing
+        expected = list(
+            conform._memo_blocks((window, cast(conform._Outcome, walker.windows[window])) for window in order)
+        )
+        fresh = walker.fresh_memo
+        assert [
+            (labels, items, [list(column) for column in columns], list(values))
+            for labels, items, columns, values in _fresh_blocks(fresh)
+        ] == [
+            (labels, items, [list(column) for column in columns], list(values))
+            for labels, items, columns, values in expected
+        ]
+        assert (fresh.rows, fresh.labels, fresh.records) == (
+            len(order),
+            sum(len(block[0]) for block in expected),
+            sum(len(block[1]) for block in expected),
+        )
+        assert not set(order) & set(seed.windows)
 
     def _ordered(self, memo, spec) -> list[tuple[tuple[str, ...], settle.Settled]]:
         """Every row of the file at `memo.path` in file order, as its window tuple and settled item."""
@@ -4177,17 +4289,6 @@ class TestSettleMemoFile:
         """Every window the file at `memo.path` holds, as the six-tuples a walk keys on."""
         return {window for window, _outcome in self._decoded(memo, spec)}
 
-    def _part_rows(self, part, memo, spec) -> set[tuple[str, ...]]:
-        """Every window the part at `part` holds, as the six-tuples a walk keys on."""
-        rows: set[tuple[str, ...]] = set()
-        labels: list[str] = []
-        for (new_labels, _items, columns, _values), _retired in conform._read_settle_memo(
-            replace(memo, path=part), spec
-        ):
-            labels.extend(new_labels)
-            rows.update(tuple(labels[label_id] for label_id in row) for row in zip(*columns))
-        return rows
-
     @pytest.mark.parametrize("restricted", [False, True])
     def test_a_refusal_is_not_written_and_is_asked_again(
         self, spec, guard, tmp_path, monkeypatch, restricted
@@ -4205,14 +4306,13 @@ class TestSettleMemoFile:
 
         monkeypatch.setattr(kernel_exec, "settle_windows", injecting)
         memo = self._memo(tmp_path)
-        part = tmp_path / "part.gz"
         walker = conform._SettledWindowWalk(
             spec,
             frozenset(),
             {},
             guard,
             on_error="drop",
-            memo=replace(memo, write_path=part) if restricted else memo,
+            memo=replace(memo, returns_fresh=True) if restricted else memo,
         )
         if restricted:
             walker.load_only_asked_by([clean, refusing_text])
@@ -4223,7 +4323,9 @@ class TestSettleMemoFile:
             walker.walk(refusing_text)
         assert walker.save_memo()
         if restricted:
-            assert conform.absorb_settle_memo_parts(memo, [part], spec)
+            assert walker.fresh_memo is not None
+            assert walker.fresh_memo.rows == walker.fresh_windows - len(refused)
+            assert conform.absorb_settle_memo(memo, spec, [walker.fresh_memo]).written
 
         monkeypatch.setattr(kernel_exec, "settle_windows", original)
         again = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -4293,10 +4395,10 @@ class TestSettleMemoFile:
         ]
         assert len(oracle_line) == 1 and oracle_line[0].endswith("fresh=0 pruned=0 written=no")
 
-    def test_the_ranges_parts_absorb_into_the_file_without_dropping_each_others_windows(
+    def test_the_ranges_fresh_windows_absorb_into_the_file_without_dropping_each_others(
         self, spec, guard, tmp_path
     ):
-        """Two walks over the same existing file, each settling windows the other does not and each writing only what it settled as a part beside the file. Neither touches the shared file, and the parent's absorb produces one file that a third walk reads whole: every existing window and both parts' windows, with no crate call. A range that replaced the file whole would lose the other range's windows."""
+        """Two walks over the same existing file, each settling windows the other does not and each returning only what it settled fresh. Neither touches the shared file, and the parent's absorb produces one file that a third walk reads whole: every existing window and both walks' fresh windows, with no crate call. A range that replaced the file whole would lose the other range's windows."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         half = len(texts) // 2
@@ -4306,14 +4408,10 @@ class TestSettleMemoFile:
         standing = memo.path.read_bytes()
 
         rest = texts[half:]
-        parts = [tmp_path / "part.0.gz", tmp_path / "part.1.gz"]
-        one = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(memo, write_path=parts[0])
-        )
+        returning = replace(memo, returns_fresh=True)
+        one = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=returning)
         one.walk_many(rest[: len(rest) // 2])
-        two = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(memo, write_path=parts[1])
-        )
+        two = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=returning)
         two.walk_many(rest[len(rest) // 2 :])
         assert one.fresh_windows and two.fresh_windows
         only_one = set(one.windows) - set(two.windows) - set(seed.windows)
@@ -4321,19 +4419,19 @@ class TestSettleMemoFile:
         assert only_one and only_two
         assert one.save_memo() and two.save_memo()
         assert memo.path.read_bytes() == standing
-        assert all(part.is_file() for part in parts)
+        assert one.fresh_memo is not None and two.fresh_memo is not None
 
-        assert conform.absorb_settle_memo_parts(memo, parts, spec)
+        assert conform.absorb_settle_memo(memo, spec, [one.fresh_memo, two.fresh_memo]).written
         third = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         assert third.walk_many(texts) == reference.walk_many(texts)
         assert third._settle_calls == 0 and third.fresh_windows == 0
         assert set(third.windows) >= only_one | only_two | set(seed.windows)
 
-    def test_a_restricted_walk_files_only_its_fresh_windows_and_the_absorb_keeps_the_standing_ones(
+    def test_a_restricted_walk_returns_only_its_fresh_windows_and_the_absorb_keeps_the_standing_ones(
         self, spec, guard, tmp_path
     ):
-        """As in the witness stage, a walk that loads only the rows its texts can ask cannot tell a dropped row from an unreached one, so it writes a part holding exactly the windows it settled fresh and leaves the shared file alone, and the absorb produces the existing rows plus the fresh ones. A whole-file save from such a walk would drop every row its load dropped."""
+        """As in the witness stage, a walk that loads only the rows its texts can ask cannot tell a dropped row from an unreached one, so it returns exactly the windows it settled fresh and leaves the shared file alone, and the absorb produces the existing rows plus the fresh ones. A whole-file save from such a walk would drop every row its load dropped."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         half = len(texts) // 2
@@ -4343,9 +4441,8 @@ class TestSettleMemoFile:
         standing = memo.path.read_bytes()
 
         rest = texts[half:]
-        part = tmp_path / "part.gz"
         restricted = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(memo, write_path=part)
+            spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
         )
         asks = restricted.load_only_asked_by(rest)
         restricted.walk_many(rest)
@@ -4355,21 +4452,21 @@ class TestSettleMemoFile:
         assert restricted.unasked_windows == len(seed.windows) - len(kept)
         fresh = set(restricted.windows) - set(seed.windows)
         assert fresh and restricted.fresh_windows == len(fresh)
-        assert restricted.save_memo()
+        assert restricted.save_memo() and restricted.fresh_memo is not None
         assert memo.path.read_bytes() == standing
-        assert self._part_rows(part, memo, spec) == fresh
+        assert _fresh_rows(restricted.fresh_memo) == fresh
 
-        assert conform.absorb_settle_memo_parts(memo, [part], spec)
+        assert conform.absorb_settle_memo(memo, spec, [restricted.fresh_memo]).written
         assert self._rows(memo, spec) == set(seed.windows) | fresh
         third = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         assert third.walk_many(texts) == reference.walk_many(texts)
         assert third._settle_calls == 0 and third.fresh_windows == 0
 
-    def test_a_restricted_load_serves_the_rows_a_part_absorbed_under_the_standing_spellings(
+    def test_a_restricted_load_serves_the_rows_an_absorb_added_under_the_standing_spellings(
         self, spec, guard, tmp_path
     ):
-        """The steady state of the file the witness stage reads. A part writes its own label table, and the absorb maps each label onto the id the existing file already uses for it, so the file names each label once and a restricted load tests rows in one id space. Seeded whole, extended by one restricted walk's part, and read by a second restricted walk over the same texts, the file serves every row that walk asks, existing and absorbed alike, and the walk settles nothing."""
+        """The steady state of the file the witness stage reads. A walk's fresh windows carry their own label table, and the absorb maps each label onto the id the existing file already uses for it, so the file names each label once and a restricted load tests rows in one id space. Seeded whole, extended by one restricted walk's fresh windows, and read by a second restricted walk over the same texts, the file serves every row that walk asks, existing and absorbed alike, and the walk settles nothing."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         half = len(texts) // 2
@@ -4378,19 +4475,17 @@ class TestSettleMemoFile:
         assert seed.save_memo()
 
         rest = texts[half:]
-        part = tmp_path / "part.gz"
+        returning = replace(memo, returns_fresh=True)
         standing_labels = set(itertools.chain.from_iterable(seed.windows))
-        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=replace(memo, write_path=part))
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=returning)
         asks = first.load_only_asked_by(rest)
         first.walk_many(rest)
-        assert first.fresh_windows and first.save_memo()
+        assert first.fresh_windows and first.save_memo() and first.fresh_memo is not None
         part_labels = {
-            label
-            for (new_labels, *_rest), _retired in conform._read_settle_memo(replace(memo, path=part), spec)
-            for label in new_labels
+            label for new_labels, *_rest in _fresh_blocks(first.fresh_memo) for label in new_labels
         }
         assert part_labels & standing_labels & set(itertools.chain.from_iterable(asks))
-        assert conform.absorb_settle_memo_parts(memo, [part], spec)
+        assert conform.absorb_settle_memo(memo, spec, [first.fresh_memo]).written
         store = conform._MemoStore()
         store.load(memo, spec, None, lambda item: (item, "", ""))
         try:
@@ -4402,16 +4497,14 @@ class TestSettleMemoFile:
         rows = self._rows(memo, spec)
         kept = {window for window in rows if (window[0],) + tuple(window[2:]) in asks}
         assert len(kept) > first.fresh_windows
-        again = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(memo, write_path=tmp_path / "again.gz")
-        )
+        again = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=returning)
         assert again.load_only_asked_by(rest) == asks
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         assert again.walk_many(rest) == reference.walk_many(rest)
         assert again.memo_windows == len(kept)
         assert again.unasked_windows == len(rows) - len(kept)
         assert again._settle_calls == 0 and again.fresh_windows == 0
-        assert not again.save_memo()
+        assert not again.save_memo() and again.fresh_memo is None
 
     def _header(self, memo) -> dict:
         with open(memo.path, "rb") as handle:
@@ -4419,7 +4512,7 @@ class TestSettleMemoFile:
             return pickle.loads(handle.read(length))
 
     def test_the_absorbed_file_names_each_spelling_once_and_answers_every_row(self, spec, guard, tmp_path):
-        """The absorbed file's label table names each label once (the writer maps the part's labels onto the existing ids), so the store's id map is its label table inverted, and the index returns for every row the outcome a dict of the file holds, one row per distinct window. No existing row was retired, so the absorb extends the existing index in place: the file keeps the existing slot count, the existing rows keep their positions, and the existing columns are copied whole at the file's own typecode."""
+        """The absorbed file's label table names each label once (the absorb maps the fresh windows' labels onto the existing ids), so the store's id map is its label table inverted, and the index returns for every row the outcome a dict of the file holds, one row per distinct window. No existing row was retired, so the absorb extends the existing index in place: the file keeps the existing slot count, the existing rows keep their positions, and the existing columns are copied whole at the file's own typecode."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -4427,20 +4520,19 @@ class TestSettleMemoFile:
         assert seed.save_memo()
         standing = self._header(memo)
         standing_rows = self._ordered(memo, spec)
-        part = tmp_path / "part.gz"
-        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=replace(memo, write_path=part))
+        first = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
+        )
         first.load_only_asked_by(texts[-3:])
         first.walk_many(texts[-3:])
-        assert first.fresh_windows and first.save_memo()
+        assert first.fresh_windows and first.save_memo() and first.fresh_memo is not None
         assert standing["slots"] >= 2 * (standing["rows"] + first.fresh_windows), "no room to extend in place"
-        assert conform.absorb_settle_memo_parts(memo, [part], spec)
-        absorbed = self._header(memo)
-        assert (
-            absorbed["slots"] == standing["slots"]
-            and absorbed["rows"] == standing["rows"] + first.fresh_windows
-        )
+        absorbed = conform.absorb_settle_memo(memo, spec, [first.fresh_memo])
+        assert absorbed.written and absorbed.index == "reused" and absorbed.carried == standing["rows"]
+        after = self._header(memo)
+        assert after["slots"] == standing["slots"] and after["rows"] == standing["rows"] + first.fresh_windows
         assert self._ordered(memo, spec)[: len(standing_rows)] == standing_rows
-        assert absorbed["typecode"] == standing["typecode"] == "H"
+        assert after["typecode"] == standing["typecode"] == "H"
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         expected = self._dict_of(walker, memo, spec)
@@ -4453,6 +4545,136 @@ class TestSettleMemoFile:
         for window, outcome in expected.items():
             assert store.probe(window) is outcome
         assert store.reached_count() == len(expected)
+
+    def _windows(self, spec, guard) -> list[tuple[conform._Window, conform._Outcome]]:
+        """Every window the mini alphabet's texts of up to three letters reach, with its outcome, in the order a walk settles them."""
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        walker.walk_many(self._texts(spec, 3))
+        return list(cast(dict[conform._Window, conform._Outcome], walker.windows).items())
+
+    @staticmethod
+    def _restated(rows, copy: int) -> list[tuple[conform._Window, conform._Outcome]]:
+        """`rows` under labels of their own, each label suffixed so it names the same family (`conform._label_family`) and no window of `rows`."""
+        return [
+            (cast(conform._Window, tuple(f"{label}.r{copy}" for label in window)), outcome)
+            for window, outcome in rows
+        ]
+
+    @staticmethod
+    def _wide(rows, count: int) -> list[tuple[conform._Window, conform._Outcome]]:
+        """`count` windows of six labels no other window names, more labels than an `H` column can index once `count` passes 10,923, each with an outcome of `rows`."""
+        prefixes = ("qsPea.w", "qsTea.w", "x", "y", "z", "v")
+        return [
+            (
+                cast(
+                    conform._Window,
+                    tuple(f"{prefix}{6 * index + slot}" for slot, prefix in enumerate(prefixes)),
+                ),
+                rows[index % len(rows)][1],
+            )
+            for index in range(count)
+        ]
+
+    @pytest.mark.parametrize(
+        "case, index",
+        [
+            ("fast", "reused"),
+            ("fresh-against-fresh", "reused"),
+            ("duplicate", "reused"),
+            ("stale", "rebuilt"),
+            ("prune", "rebuilt"),
+            ("fresh", "rebuilt"),
+            ("typecode-I", "reused"),
+            ("widen", "rebuilt"),
+            ("canon", "rebuilt"),
+        ],
+    )
+    def test_the_absorb_writes_the_bytes_the_carry_and_append_absorb_writes(
+        self, spec, guard, tmp_path, case, index
+    ):
+        """`absorb_settle_memo` writes the file byte for byte as the carry-and-append absorb writes it from the same blocks in the same order (`_carry_and_append_absorb`, through `_write_settle_memo` with the standing index when no row dropped): with the standing index reused for new windows (`fast`), with two ranges restating each other's windows, the later outcome winning (`fresh-against-fresh`), with every fresh row restating a standing window and patching its outcome (`duplicate`), with a moved family's rows dropped and the index rebuilt over the kept rows through the kept-row map (`stale`), with the sweep's prune and no fresh row (`prune`), with no standing file (`fresh`), over `I` standing columns (`typecode-I`), with `H` standing columns widened to `I` by labels the fresh rows bring (`widen`), and with labels repeated across the standing table and the parts merging through `canon` onto their first ids (`canon`)."""
+        rows = self._windows(spec, guard)
+        keys = {name: f"{name}@0" for name in spec.registry.families}
+        memo = self._memo(tmp_path, keys=keys)
+        outcomes = list(dict.fromkeys(outcome for _, outcome in rows))
+        swapped = [
+            (window, next(other for other in outcomes if other is not outcome))
+            for window, outcome in rows[-50:]
+        ]
+        wide = self._wide(rows, 12_000)
+        sweep = None
+        standing: list = []
+        parts: list = []
+        if case == "fast":
+            standing, parts = rows[:-60], [rows[-60:-30], rows[-30:]]
+        elif case == "fresh-against-fresh":
+            standing, parts = rows[:-60], [rows[-60:-20], [*swapped[-10:], *rows[-40:]]]
+        elif case == "duplicate":
+            standing, parts = rows, [swapped[:25], swapped[25:]]
+        elif case == "stale":
+            standing, parts = rows + self._restated(rows, 1), [rows[-40:], self._restated(rows, 2)[:30]]
+        elif case == "fresh":
+            parts = [self._restated(rows, copy) for copy in range(4)]
+        elif case == "typecode-I":
+            standing, parts = wide, [rows[:100], wide[:50]]
+        elif case == "widen":
+            standing, parts = rows, [wide[:6000], [*wide[6000:], *rows[:50]]]
+        elif case == "canon":
+            standing, parts = rows[:30], [rows[10:80], rows[60:120], []]
+        else:
+            standing = rows + self._restated(rows, 1)
+        if standing:
+            assert conform._write_settle_memo(memo, *conform._memo_columns(standing))
+        if case == "stale":
+            memo = replace(memo, family_keys={**keys, "qsTea": "qsTea@1"})
+        if case == "prune":
+            store = conform._MemoStore()
+            store.load(memo, spec, None, lambda item: (item, "", ""))
+            identity, count = store.identity(), len(store.reached)
+            store.close()
+            flags = bytes(int(row % 7 != 0) for row in range(count))
+            sweep = conform.SweepPrune(identity, zlib.compress(flags, 1), True, False)
+        fresh = [conform._fresh_memo(part) for part in parts]
+        reference, written = tmp_path / "reference.bin", tmp_path / "absorbed.bin"
+        assert _carry_and_append_absorb(memo, spec, fresh, reference, sweep)
+        absorbed = conform.absorb_settle_memo(
+            memo, spec, fresh, sweep, emit=lambda finished: conform._put_settle_memo(finished, written)
+        )
+        assert absorbed.written and absorbed.index == index
+        assert written.read_bytes() == reference.read_bytes()
+        typecode = self._header(replace(memo, path=written))["typecode"]
+        assert typecode == ("I" if case in ("typecode-I", "widen") else "H")
+        if case == "widen":
+            assert self._header(memo)["typecode"] == "H"
+        if case in ("fresh-against-fresh", "duplicate"):
+            assert absorbed.patched == 30 if case == "fresh-against-fresh" else absorbed.patched == 50
+
+    @pytest.mark.parametrize("piece", ["head", "rows"])
+    def test_a_block_that_will_not_decode_warns_and_ends_its_part_there(
+        self, spec, guard, tmp_path, capsys, piece
+    ):
+        """A block whose head or rows will not decode ends its part at that block with a warning: the part's blocks before it and the parts after it are absorbed, and the file is the one the part would give had it ended there, its tables merged without the labels the dropped blocks introduce."""
+        rows = self._windows(spec, guard)
+        memo = self._memo(tmp_path)
+        assert conform._write_settle_memo(memo, *conform._memo_columns(rows[:100]))
+        many = [window for copy in range(50) for window in self._restated(rows, copy)]
+        first = conform._fresh_memo(many[: 2 * conform.SETTLE_MEMO_BLOCK])
+        last = conform._fresh_memo(rows[100:200])
+        assert len(first.blocks) == 4
+        blocks = list(first.blocks)
+        blocks[2 if piece == "head" else 3] = b"not a zlib stream"
+        torn = replace(first, blocks=blocks)
+        reference, written = tmp_path / "reference.bin", tmp_path / "absorbed.bin"
+        assert _carry_and_append_absorb(
+            memo, spec, [replace(first, blocks=first.blocks[:2]), last], reference
+        )
+        capsys.readouterr()
+        absorbed = conform.absorb_settle_memo(
+            memo, spec, [torn, last], emit=lambda finished: conform._put_settle_memo(finished, written)
+        )
+        assert f"stopped reading after {conform.SETTLE_MEMO_BLOCK} windows" in capsys.readouterr().err
+        assert absorbed.parts == conform.SETTLE_MEMO_BLOCK + 100
+        assert written.read_bytes() == reference.read_bytes()
 
     def test_a_window_listed_twice_is_written_as_one_row_with_the_later_outcome(self, spec, guard, tmp_path):
         """The writer's fold, on a memo that lists one window twice with two outcomes: the file holds one row at the first entry's position with the later entry's outcome, as a dict of the entries would. So `len`, `items` order and every probe match the dict, and a pruning save counts and writes only the distinct windows."""
@@ -4481,23 +4703,25 @@ class TestSettleMemoFile:
         assert walker.save_memo(prune=True) and walker.pruned_windows == len(rows) - len(repeated)
         assert self._ordered(memo, spec) == [(window, outcome[0]) for window, outcome in repeated]
 
-    def test_two_parts_filing_one_window_absorb_into_one_row(self, spec, guard, tmp_path):
-        """The production case of a repeated window: two row ranges that both settle a window both write it, and the absorb folds the pair onto one row, so the file's row count equals the dict's and a walk over the file reaches every window once."""
+    def test_two_ranges_settling_one_window_absorb_into_one_row(self, spec, guard, tmp_path):
+        """The production case of a repeated window: two row ranges that both settle a window both return it, and the absorb folds the pair onto one row, so the file's row count equals the dict's and a walk over the file reaches every window once."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         third = len(texts) // 3
         piles = (texts[: 2 * third], texts[third:])
-        parts = [tmp_path / f"part-{index}.gz" for index in range(2)]
-        for pile, part in zip(piles, parts):
+        parts = []
+        for pile in piles:
             walker = conform._SettledWindowWalk(
-                spec, frozenset(), {}, guard, memo=replace(memo, write_path=part)
+                spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
             )
             walker.load_only_asked_by(pile)
             walker.walk_many(pile)
-            assert walker.fresh_windows and walker.save_memo()
-        filed = [self._part_rows(part, memo, spec) for part in parts]
+            assert walker.fresh_windows and walker.save_memo() and walker.fresh_memo is not None
+            parts.append(walker.fresh_memo)
+        filed = [_fresh_rows(part) for part in parts]
         assert filed[0] & filed[1]
-        assert conform.absorb_settle_memo_parts(memo, parts, spec)
+        absorbed = conform.absorb_settle_memo(memo, spec, parts)
+        assert absorbed.written and absorbed.patched == len(filed[0] & filed[1])
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
         expected = self._dict_of(walker, memo, spec)
@@ -4509,56 +4733,45 @@ class TestSettleMemoFile:
         assert walker.walk_many(texts) == reference.walk_many(texts)
         assert walker.fresh_windows == 0 and store.reached_count() == len(expected)
 
-    def test_a_range_part_filed_before_the_witness_fold_absorbs_onto_the_rows_that_fold_added(
-        self, spec, guard, tmp_path, monkeypatch
+    def test_a_range_that_mapped_the_file_before_the_witness_absorb_merges_onto_the_rows_it_added(
+        self, spec, guard, tmp_path
     ):
-        """The oracle runs beside the witness stage, so a row range can map the file before the witness stage's absorb takes effect, settle windows that absorb then adds to the existing rows, and have its part absorbed after it. No existing row was retired, so the writer extends the existing index with the part's rows instead of rebuilding it. Each window the file already holds maps onto its existing row and the rest are appended, so every existing row keeps its place, the file holds one row per window and reads as a dict of it does, and a walk over every text settles nothing."""
+        """The oracle runs beside the witness stage, so a row range can map the file before the witness stage's absorb takes effect, settle windows that absorb then adds to the existing rows, and have its fresh windows absorbed after it. No existing row was retired, so the absorb extends the existing index with the range's rows instead of rebuilding it. Each window the file already holds maps onto its existing row and the rest are appended, so every existing row keeps its place, the file holds one row per window and reads as a dict of it does, and a walk over every text settles nothing."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(texts[:-6])
         assert seed.save_memo()
 
-        ranged_part, witness_part = tmp_path / "range.gz", tmp_path / "witness.gz"
-        ranged = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(memo, write_path=ranged_part)
-        )
+        returning = replace(memo, returns_fresh=True)
+        ranged = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=returning)
         ranged.walk_many(texts[-4:])
-        assert ranged.fresh_windows and ranged.save_memo()
-        witness_walk = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(memo, write_path=witness_part)
-        )
+        assert ranged.fresh_windows and ranged.save_memo() and ranged.fresh_memo is not None
+        witness_walk = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=returning)
         witness_walk.load_only_asked_by(texts[-6:-2])
         witness_walk.walk_many(texts[-6:-2])
-        assert witness_walk.fresh_windows and witness_walk.save_memo()
-        filed = self._part_rows(ranged_part, memo, spec)
-        folded = self._part_rows(witness_part, memo, spec)
+        assert witness_walk.fresh_windows and witness_walk.save_memo() and witness_walk.fresh_memo is not None
+        filed = _fresh_rows(ranged.fresh_memo)
+        folded = _fresh_rows(witness_walk.fresh_memo)
         assert filed & folded and filed - folded
 
-        assert conform.absorb_settle_memo_parts(memo, [witness_part], spec)
+        assert conform.absorb_settle_memo(memo, spec, [witness_walk.fresh_memo]).written
         standing = self._header(memo)
         standing_rows = self._ordered(memo, spec)
         assert folded <= {window for window, _ in standing_rows}
-        extended: list[tuple[bool, int]] = []
-        indexing = conform._memo_index
-
-        def recording(columns, values, index=None, indexed=0):
-            extended.append((index is not None and len(index) >= 2 * len(values), indexed))
-            return indexing(columns, values, index, indexed)
-
-        monkeypatch.setattr(conform, "_memo_index", recording)
-        assert conform.absorb_settle_memo_parts(memo, [ranged_part], spec)
-        assert extended == [(True, standing["rows"])]
-        absorbed = self._header(memo)
-        assert absorbed["slots"] == standing["slots"]
-        assert absorbed["rows"] == standing["rows"] + len(filed - folded)
+        absorbed = conform.absorb_settle_memo(memo, spec, [ranged.fresh_memo])
+        assert absorbed.index == "reused" and absorbed.carried == standing["rows"]
+        assert absorbed.patched == len(filed & folded)
+        after = self._header(memo)
+        assert after["slots"] == standing["slots"]
+        assert after["rows"] == standing["rows"] + len(filed - folded)
         assert self._ordered(memo, spec)[: len(standing_rows)] == standing_rows
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
         expected = self._dict_of(walker, memo, spec)
         walker._load_memo()
         store = walker._cold
-        assert len(store.values) == len(store) == len(expected) == absorbed["rows"]
+        assert len(store.values) == len(store) == len(expected) == after["rows"]
         assert list(store.items()) == list(expected.items())
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         assert walker.walk_many(texts) == reference.walk_many(texts)
@@ -4580,13 +4793,11 @@ class TestSettleMemoFile:
             last=last,
         )
 
-    def _unit_fold(self, spec, guard, memo, scratch) -> tuple[bool, int, int]:
-        """`default`'s units over every symbol, each writing its part under `scratch`, folded as the pooled sweep's parent folds them: the units' reaches OR-ed into one mask and absorbed by `absorb_sweep_memo`, which discards the file's rows when any unit retired its store."""
-        scratch.mkdir()
-        parts, reaches = [], []
-        for index, symbol in enumerate(conform.spec_alphabet(spec)):
-            parts.append(scratch / f"default.{index}.gz")
-            reach = self._swept(spec, guard, replace(memo, write_path=parts[-1]), last=symbol).memo_reach
+    def _unit_fold(self, spec, guard, memo) -> tuple[conform.MemoAbsorb, list[conform.FreshMemo]]:
+        """`default`'s units over every symbol, each returning its fresh windows, folded as the pooled sweep's parent folds them: the units' reaches OR-ed into one mask and absorbed with every unit's fresh windows in unit-slot order, discarding the file's rows when any unit retired its store. Return the absorb and the units' fresh windows."""
+        reaches = []
+        for symbol in conform.spec_alphabet(spec):
+            reach = self._swept(spec, guard, replace(memo, returns_fresh=True), last=symbol).memo_reach
             assert reach is not None
             reaches.append(reach)
         assert len({(reach.identity, reach.rows) for reach in reaches}) == 1
@@ -4595,11 +4806,13 @@ class TestSettleMemoFile:
             union |= int.from_bytes(zlib.decompress(reach.reached), "little")
         mask = zlib.compress(union.to_bytes(reaches[0].rows, "little"), 1)
         retired = any(reach.retired for reach in reaches)
-        return conform.absorb_sweep_memo(memo, parts, spec, reaches[0].identity, mask, True, retired)
+        parts = [reach.fresh for reach in reaches if reach.fresh is not None]
+        prune = conform.SweepPrune(reaches[0].identity, mask, True, retired)
+        return conform.absorb_settle_memo(memo, spec, parts, prune), parts
 
     @pytest.mark.parametrize("start", ["absent", "current", "unreached"])
     def test_the_units_fold_files_the_rows_one_pruning_walk_files(self, spec, guard, tmp_path, start):
-        """The pooled conformance sweep's units each walk the texts that end in one symbol, write what they settled fresh as a part, and return the rows they reached; the parent ORs the reaches and absorbs the parts. That must leave the file holding the rows one pruning walk over every text leaves, from a file that is absent, current (nothing is written, so its bytes and modification time stand), or current plus rows no text reaches (exactly those are pruned)."""
+        """The pooled conformance sweep's units each walk the texts that end in one symbol, return what they settled fresh, and return the rows they reached; the parent ORs the reaches and absorbs the units' fresh windows. That must leave the file holding the rows one pruning walk over every text leaves, from a file that is absent, current (nothing is written, so its bytes and modification time stand), or current plus rows no text reaches (exactly those are pruned)."""
         whole, units = tmp_path / "whole", tmp_path / "units"
         whole.mkdir()
         units.mkdir()
@@ -4614,21 +4827,22 @@ class TestSettleMemoFile:
         seeded = len(self._rows(reference, spec)) if start != "absent" else 0
 
         self._swept(spec, guard, reference)
-        written, pruned, fresh = self._unit_fold(spec, guard, memo, tmp_path / "scratch")
+        absorbed, _parts = self._unit_fold(spec, guard, memo)
         expected = {window: outcome[0] for window, outcome in self._decoded(reference, spec)}
         assert {window: outcome[0] for window, outcome in self._decoded(memo, spec)} == expected
         if start == "absent":
-            assert written and pruned == 0 and fresh == len(expected)
+            assert absorbed.written and absorbed.pruned == 0 and absorbed.fresh == len(expected)
         elif start == "current":
-            assert (written, pruned, fresh) == (False, 0, 0)
+            assert (absorbed.written, absorbed.pruned, absorbed.fresh) == (False, 0, 0)
             assert memo.path.read_bytes() == before and memo.path.stat().st_mtime_ns == mtime
         else:
-            assert written and fresh == 0 and pruned == seeded - len(expected) > 0
+            assert absorbed.written and absorbed.fresh == 0 and absorbed.pruned == seeded - len(expected) > 0
+            assert absorbed.index == "rebuilt" and absorbed.dropped == absorbed.pruned
 
-    def test_a_unit_files_only_its_part_and_leaves_the_file_and_the_line_to_the_parent(
+    def test_a_unit_returns_only_its_fresh_windows_and_leaves_the_file_and_the_line_to_the_parent(
         self, spec, guard, tmp_path, capsys
     ):
-        """A unit walk writes the windows it settled fresh as its part and nothing else: the shared file keeps its bytes, the unit prints no `[t] settle_memo` line, and its reach names the version of the file it mapped, which the parent's absorb checks before it prunes."""
+        """A unit walk returns the windows it settled fresh on its reach and writes nothing: the shared file keeps its bytes, the unit prints no `[t] settle_memo` line, and its reach names the version of the file it mapped, which the parent's absorb checks before it prunes."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 1))
@@ -4637,13 +4851,12 @@ class TestSettleMemoFile:
         stat = memo.path.stat()
         capsys.readouterr()
 
-        part = tmp_path / "part.gz"
         reach = self._swept(
-            spec, guard, replace(memo, write_path=part), last=conform.spec_alphabet(spec)[-1]
+            spec, guard, replace(memo, returns_fresh=True), last=conform.spec_alphabet(spec)[-1]
         ).memo_reach
-        assert reach is not None and reach.part and not reach.retired
+        assert reach is not None and reach.fresh is not None and not reach.retired
         assert memo.path.read_bytes() == standing
-        assert self._part_rows(part, memo, spec)
+        assert _fresh_rows(reach.fresh) and reach.fresh.rows == len(_fresh_rows(reach.fresh))
         assert reach.identity == (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
         assert reach.rows == reach.live == reach.loaded == len(seed.windows)
         assert "[t] settle_memo" not in capsys.readouterr().err
@@ -4651,31 +4864,31 @@ class TestSettleMemoFile:
     def test_a_sweep_absorb_over_another_version_of_the_file_keeps_every_row(
         self, spec, guard, tmp_path, capsys
     ):
-        """When the file on disk is not the version the units mapped, their reached flags index another file's rows, so the absorb warns, prunes nothing, and appends the parts to every live row."""
+        """When the file on disk is not the version the units mapped, their reached flags index another file's rows, so the absorb warns, prunes nothing, and appends the units' fresh windows to every live row."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 1))
         assert seed.save_memo()
         standing = self._rows(memo, spec)
-        part = tmp_path / "part.gz"
         reach = self._swept(
-            spec, guard, replace(memo, write_path=part), last=conform.spec_alphabet(spec)[0]
+            spec, guard, replace(memo, returns_fresh=True), last=conform.spec_alphabet(spec)[0]
         ).memo_reach
-        assert reach is not None and reach.identity is not None
+        assert reach is not None and reach.identity is not None and reach.fresh is not None
         capsys.readouterr()
 
         nothing = zlib.compress(bytes(reach.rows), 1)
-        written, pruned, fresh = conform.absorb_sweep_memo(
-            memo, [part], spec, (0, 0, 0, 0), nothing, True, False
+        absorbed = conform.absorb_settle_memo(
+            memo, spec, [reach.fresh], conform.SweepPrune((0, 0, 0, 0), nothing, True, False)
         )
-        assert written and pruned == 0 and fresh == len(self._part_rows(part, memo, spec))
-        assert self._rows(memo, spec) == standing | self._part_rows(part, memo, spec)
+        fresh = _fresh_rows(reach.fresh)
+        assert absorbed.written and absorbed.pruned == 0 and absorbed.fresh == len(fresh)
+        assert self._rows(memo, spec) == standing | fresh
         assert "changed after the conformance sweep's units mapped it" in capsys.readouterr().err
 
-    def test_a_sweep_over_a_corrupt_file_rewrites_it_from_the_parts_alone(
+    def test_a_sweep_over_a_corrupt_file_rewrites_it_from_the_fresh_windows_alone(
         self, spec, guard, tmp_path, capsys
     ):
-        """A row whose value id runs past every outcome table retires the store of each unit whose texts reach it. That unit still names the file's version, marks itself retired, and settles its windows fresh, and the absorb then writes only the parts, as the serial sweep's pruning save does after a retirement: the corrupt row is not carried into the rewrite, every live row of the old file counts as pruned, and the next walk loads the file without retiring it."""
+        """A row whose value id runs past every outcome table retires the store of each unit whose texts reach it. That unit still names the file's version, marks itself retired, and settles its windows fresh, and the absorb then writes only the units' fresh windows, as the serial sweep's pruning save does after a retirement: the corrupt row is not carried into the rewrite, every live row of the old file counts as pruned, and the next walk loads the file without retiring it."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
@@ -4692,68 +4905,100 @@ class TestSettleMemoFile:
         memo.path.write_bytes(bytes(whole))
         capsys.readouterr()
 
-        scratch = tmp_path / "scratch"
-        written, pruned, _fresh = self._unit_fold(spec, guard, memo, scratch)
+        absorbed, parts = self._unit_fold(spec, guard, memo)
         assert "retired (an id past its tables)" in capsys.readouterr().err
-        assert written and pruned == header["rows"]
-        parts = set().union(*(self._part_rows(part, memo, spec) for part in scratch.iterdir()))
-        assert self._rows(memo, spec) == parts
+        assert absorbed.written and absorbed.pruned == header["rows"]
+        assert self._rows(memo, spec) == set().union(*map(_fresh_rows, parts))
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         walker.walk_many(self._texts(spec, 2))
         assert not walker._cold.retired
         assert "[warn] settle memo:" not in capsys.readouterr().err
 
+    def test_a_corrupt_standing_id_travels_to_the_probe_that_retires_the_store(
+        self, spec, guard, tmp_path, capsys
+    ):
+        """The absorb copies standing ids from the mapping unchecked, so a value id past every outcome table reaches the new file instead of raising in the absorb, and the first probe that reaches the row there retires the store, as it would have in the old file."""
+        memo = self._memo(tmp_path)
+        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        texts = self._texts(spec, 2)
+        seed.walk_many(texts[:-3])
+        assert seed.save_memo()
+        header = self._header(memo)
+        whole = bytearray(memo.path.read_bytes())
+        (length,) = conform._MEMO_PREFIX.unpack_from(whole)
+        offset = conform._memo_aligned(conform._MEMO_PREFIX.size + length)
+        offset = conform._memo_aligned(offset + header["tables"])
+        for _ in range(6):
+            offset = conform._memo_aligned(offset + header["rows"] * array(header["typecode"]).itemsize)
+        bad = array(header["value_typecode"], [(1 << (8 * array(header["value_typecode"]).itemsize)) - 1])
+        whole[offset : offset + bad.itemsize] = bad.tobytes()
+        memo.path.write_bytes(bytes(whole))
+        ranged = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
+        )
+        ranged.load_only_asked_by(texts[-3:])
+        ranged.walk_many(texts[-3:])
+        assert ranged.save_memo() and ranged.fresh_memo is not None
+        assert conform.absorb_settle_memo(memo, spec, [ranged.fresh_memo]).written
+        capsys.readouterr()
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        walker.walk_many(texts)
+        assert walker._cold.retired
+        assert "retired (an id past its tables)" in capsys.readouterr().err
+
     def test_a_unit_whose_memo_would_replace_the_file_is_refused(self, spec, guard, tmp_path):
-        """A unit walks a share of the texts, so a whole-file save from it would leave the shared file holding only that share's rows. A unit whose memo names no `write_path` fails its assertion before it walks anything."""
-        with pytest.raises(AssertionError, match="a unit sweep writes its memo as a part"):
+        """A unit walks a share of the texts, so a whole-file save from it would leave the shared file holding only that share's rows. A unit whose memo does not return its fresh windows fails its assertion before it walks anything."""
+        with pytest.raises(AssertionError, match="a unit sweep returns its fresh windows"):
             self._swept(spec, guard, self._memo(tmp_path), last=conform.spec_alphabet(spec)[0])
 
-    def test_a_restriction_needs_a_part_and_never_prunes(self, spec, guard, tmp_path):
-        """Two checks that tie restricted loading to part writing: a walk whose memo would replace the shared file whole may not restrict its load, and a restricted walk may not prune, since after a restricted load a dropped row and an unreached window look the same."""
+    def test_a_restriction_returns_its_fresh_windows_and_never_prunes(self, spec, guard, tmp_path):
+        """Two checks that tie restricted loading to returning fresh windows: a walk whose memo would replace the shared file whole may not restrict its load, and a restricted walk may not prune, since after a restricted load a dropped row and an unreached window look the same."""
         texts = self._texts(spec, 1)
         memo = self._memo(tmp_path)
         whole = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
-        with pytest.raises(AssertionError):
+        with pytest.raises(AssertionError, match="a restricted walk returns its fresh windows"):
             whole.load_only_asked_by(texts)
         restricted = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(memo, write_path=tmp_path / "part.gz")
+            spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
         )
         restricted.load_only_asked_by(texts)
-        with pytest.raises(AssertionError):
+        with pytest.raises(AssertionError, match="a restricted walk never prunes"):
             restricted.save_memo(prune=True)
 
-    def test_a_part_alone_becomes_the_file_and_a_restamped_file_contributes_nothing(
+    def test_fresh_windows_alone_become_the_file_and_a_restamped_file_contributes_nothing(
         self, spec, guard, tmp_path
     ):
         texts = self._texts(spec, 2)
         absent = self._memo(tmp_path)
-        part = tmp_path / "part.0.gz"
         walker = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(absent, write_path=part)
+            spec, frozenset(), {}, guard, memo=replace(absent, returns_fresh=True)
         )
         walker.walk_many(texts)
-        assert walker.save_memo() and not absent.path.exists()
-        assert conform.absorb_settle_memo_parts(absent, [part], spec)
+        assert walker.save_memo() and not absent.path.exists() and walker.fresh_memo is not None
+        assert conform.absorb_settle_memo(absent, spec, [walker.fresh_memo]).written
         again = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=absent)
         again.walk_many(texts)
         assert again._settle_calls == 0 and again.memo_windows == len(walker.windows)
 
         restamped = self._memo(tmp_path, "tables-stamp-b")
         fresh = conform._SettledWindowWalk(
-            spec, frozenset(), {}, guard, memo=replace(restamped, write_path=part)
+            spec, frozenset(), {}, guard, memo=replace(restamped, returns_fresh=True)
         )
         fresh.walk_many(texts[: len(texts) // 2])
-        assert fresh.save_memo()
-        assert conform.absorb_settle_memo_parts(restamped, [part], spec)
+        assert fresh.save_memo() and fresh.fresh_memo is not None
+        absorbed = conform.absorb_settle_memo(restamped, spec, [fresh.fresh_memo])
+        assert absorbed.written and absorbed.standing == absorbed.carried == 0
         loaded = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=restamped)
         loaded.walk_many(texts[: len(texts) // 2])
         assert loaded._settle_calls == 0 and loaded.memo_windows == len(fresh.windows)
-        assert not conform.absorb_settle_memo_parts(restamped, [tmp_path / "nowhere.gz"], spec)
+        mtime = restamped.path.stat().st_mtime_ns
+        assert not conform.absorb_settle_memo(restamped, spec, []).written
+        assert restamped.path.stat().st_mtime_ns == mtime
 
-    def test_absorbing_parts_restamps_the_file_and_retires_what_the_new_keys_retire(
+    def test_absorbing_fresh_windows_restamps_the_file_and_retires_what_the_new_keys_retire(
         self, spec, guard, tmp_path
     ):
-        """A part written under keys naming ·Tea as moved is absorbed into a file written under the old keys. The result must carry the new keys without the entries those keys retire. Otherwise a stale settlement would sit under a header whose keys say it is current, and no later run could retire it."""
+        """A walk's fresh windows, settled under keys naming ·Tea as moved, are absorbed into a file written under the old keys. The result must carry the new keys without the entries those keys retire. Otherwise a stale settlement would sit under a header whose keys say it is current, and no later run could retire it."""
         texts = self._texts(spec)
         keys = {name: f"{name}@0" for name in spec.registry.families}
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=self._memo(tmp_path, keys=keys))
@@ -4768,14 +5013,14 @@ class TestSettleMemoFile:
         edited = _tea_prefers_half_before_may(spec)
         edited_guard = kernel_exec.guard_sweep(edited)
         moved = self._memo(tmp_path, keys={**keys, "qsTea": "qsTea@1"})
-        part = tmp_path / "part.0.gz"
         ranged = conform._SettledWindowWalk(
-            edited, frozenset(), {}, edited_guard, memo=replace(moved, write_path=part)
+            edited, frozenset(), {}, edited_guard, memo=replace(moved, returns_fresh=True)
         )
         ranged.walk_many(texts[: len(texts) // 3])
         assert ranged.stale_windows == len(naming) and ranged.fresh_windows
-        assert ranged.save_memo()
-        assert conform.absorb_settle_memo_parts(moved, [part], edited)
+        assert ranged.save_memo() and ranged.fresh_memo is not None
+        absorbed = conform.absorb_settle_memo(moved, edited, [ranged.fresh_memo])
+        assert absorbed.written and absorbed.index == "rebuilt" and absorbed.dropped == len(naming)
 
         reference = conform._SettledWindowWalk(edited, frozenset(), {}, edited_guard)
         expected = reference.walk_many(texts)

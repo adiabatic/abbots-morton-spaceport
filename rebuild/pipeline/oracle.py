@@ -6,7 +6,7 @@ The rows the oracle classifies are produced in conform.py. `_compare_row` and `_
 
 `compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, junctions, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
 
-run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and ships the range's audit rows, compressed (`AuditBlocks`), home in a POSIX shared memory segment, and a range of a cut configuration also ships its store segment in another (`ship`); its result names them. The parent's `InOrderWriter` writes `divergence-audit.tsv` once, in row order, and each cut configuration's store once its last range has returned (`oracle_cache.join_store_segments`), and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, because `_compare_config` addresses every row by its absolute index in the table: the store records, the scheduled re-derivation, and the verification samples all key on it.
+run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and ships the range's audit rows, compressed (`AuditBlocks`), home in a POSIX shared memory segment, a range of a cut configuration also ships its store segment in another, and a range that settled windows fresh ships them, compressed (`conform.FreshMemo`), in a third (`ship`); its result names them. The parent's `InOrderWriter` writes `divergence-audit.tsv` once, in row order, and each cut configuration's store once its last range has returned (`oracle_cache.join_store_segments`), and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, because `_compare_config` addresses every row by its absolute index in the table: the store records, the scheduled re-derivation, and the verification samples all key on it.
 
 For the overlay configuration (ss10), no settlement table produces the new side. Its rows are walked by `conform.IsolatedOverlayWalk`, which returns every letter bare from the registry alone, and shaped by `shapers.IsolatedOverlayShaper`, which uses the copies' `hmtx` advances instead of HarfBuzz. Read-back's isolation check and the conformance sweep over the overlay are what make both valid. So the old font's ss10 rows are compared with an all-bare stream, and no settlement or shaping runs for them.
 
@@ -28,7 +28,7 @@ from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from multiprocessing import shared_memory
 from pathlib import Path
-from typing import Callable, Container, Iterable, Iterator, Mapping, Protocol, Sequence, TextIO
+from typing import Callable, Container, Iterable, Iterator, Mapping, Protocol, Sequence, TextIO, cast
 
 import yaml
 
@@ -45,6 +45,7 @@ from rebuild.pipeline.conform import (
     OVERLAY_CONFIGS,
     DivergentRow,
     IsolatedOverlayWalk,
+    FreshMemo,
     SettleMemoFile,
     _cached_verdict,
     _compare_row,
@@ -151,15 +152,16 @@ class BaselineReport:
 
 @dataclass(frozen=True)
 class ShipTo:
-    """The names of the two POSIX shared memory segments one row range ships its bytes home in: `audit` for its compressed audit lines and `store` for its store segment. The parent's `InOrderWriter` chooses them (`InOrderWriter.ship_to`), so it can unlink a segment a range made even when the range's result never reaches it."""
+    """The names of the three POSIX shared memory segments one row range ships its bytes home in: `audit` for its compressed audit lines, `store` for its store segment, and `memo` for the settle memo windows it settled fresh, compressed a block at a time (`conform.FreshMemo`), which the parent hands its configuration's absorb by name. The parent's `InOrderWriter` chooses them (`InOrderWriter.ship_to`), so it can unlink a segment a range made even when the range's result never reaches it, or no absorb maps it."""
 
     audit: str
     store: str
+    memo: str
 
 
 @dataclass(frozen=True)
 class Shipped:
-    """Bytes a row range hands `run_m1`'s parent in a POSIX shared memory segment (`ship`) instead of on its pickled result: `name` is the segment and `lengths` the pieces laid end to end in it. A result reaches the parent through the pool's pipe as one message, which the parent reads into a buffer it grows to the message's size, and macOS's allocator keeps such buffers, and the large objects unpickled from them, dirty once freed, so what a range sends would cost the parent several times its size in footprint (measured in `var/keep/ram-inventory/v4/11a-overrun/`). A segment's pages count in the footprint of a process that has them mapped and has touched them, and in no other: the pages a range writes leave its footprint when it closes its mapping after the copy, and the parent's mapping touches none of them until the parent reads them."""
+    """Bytes a row range or a conformance-sweep unit hands `run_m1`'s parent, or the settle memo absorb its parent starts, in a POSIX shared memory segment (`ship`) instead of on its pickled result: `name` is the segment and `lengths` the pieces laid end to end in it. A result reaches the parent through the pool's pipe as one message, which the parent reads into a buffer it grows to the message's size, and macOS's allocator keeps such buffers, and the large objects unpickled from them, dirty once freed, so what a range sends would cost the parent several times its size in footprint (measured in `var/keep/ram-inventory/v4/11a-overrun/`). A segment's pages count in the footprint of a process that has them mapped and has touched them, and in no other: the pages a range writes leave its footprint when it closes its mapping after the copy, and the parent's mapping touches none of them until the parent reads them."""
 
     name: str
     lengths: tuple[int, ...]
@@ -167,7 +169,7 @@ class Shipped:
 
 @dataclass
 class OracleConfigResult:
-    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and every divergent row reaches the parent as its audit line instead: `audit_blocks` names the shared memory segment that holds every divergent row's line, a multi-matched row's with its matched ids joined by `+`, compressed a block at a time (`AuditBlocks`), so `divergence-audit.tsv` has them all. `store_segment` names the one that holds a cut configuration's range's store records as one gzip member (`oracle_cache.RowWriter` with no path); it is None when the range writes no store or writes its configuration's whole store itself. Either is None when the range has no such bytes or its caller named no segments (`oracle_config_worker`'s `ship_to`), and the result carries only names and lengths, never the bytes (`Shipped`). The parent's `InOrderWriter` takes both off the result as it lands, and a folded result carries neither. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store segment was written under, or None when no store was written; the parent writes it into a joined store's header. `peak_footprint_bytes` is the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), recorded in the pool record that `make job-costs` reads."""
+    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and every divergent row reaches the parent as its audit line instead: `audit_blocks` names the shared memory segment that holds every divergent row's line, a multi-matched row's with its matched ids joined by `+`, compressed a block at a time (`AuditBlocks`), so `divergence-audit.tsv` has them all. `store_segment` names the one that holds a cut configuration's range's store records as one gzip member (`oracle_cache.RowWriter` with no path); it is None when the range writes no store or writes its configuration's whole store itself. `fresh_memo` holds the counts of the settle memo windows the range settled fresh (`conform.FreshMemo` with no blocks), or None when it settled none, and `memo_blocks` names the segment that holds their blocks; `run_m1_gates.run_oracle` takes both off the result as it lands and hands them, with the configuration's other ranges', to its absorb. Any of the segments is None when the range has no such bytes or its caller named no segments (`oracle_config_worker`'s `ship_to`), and the result carries only names, lengths and counts, never the bytes (`Shipped`). The parent's `InOrderWriter` takes the audit and store segments off the result as it lands, and a folded result carries none of them. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store segment was written under, or None when no store was written; the parent writes it into a joined store's header. `peak_footprint_bytes` is the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), recorded in the pool record that `make job-costs` reads."""
 
     config: str
     rows_compared: int = 0
@@ -184,6 +186,8 @@ class OracleConfigResult:
     peak_footprint_bytes: int = 0
     audit_blocks: Shipped | None = None
     store_segment: Shipped | None = None
+    fresh_memo: FreshMemo | None = None
+    memo_blocks: Shipped | None = None
 
 
 @dataclass(frozen=True)
@@ -659,13 +663,8 @@ ORACLE_AUDIT_HEADER = "config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew"
 
 
 def oracle_audit_scratch(out_dir: Path) -> Path:
-    """Return this run's scratch directory for the staged audit, the staged stores (`oracle_cache.scratch_store_path`), the settle memo parts (`settle_memo_part`) and the in-order writer's record of its shared memory segments' names (`SEGMENT_RECORD`), beside `divergence-audit.tsv`. The pid in the name lets two runs share an `out_dir` (a `--gates-only` pass during a cycle, for example) without mixing or deleting each other's files. The name matches neither `artifact_cycle.M1_ARTIFACT_NAMES` nor any glob over the tables, so nothing a killed run leaves here is taken for an artifact."""
+    """Return this run's scratch directory for the staged audit, the staged stores (`oracle_cache.scratch_store_path`) and the in-order writer's record of its shared memory segments' names (`SEGMENT_RECORD`), beside `divergence-audit.tsv`. The pid in the name lets two runs share an `out_dir` (a `--gates-only` pass during a cycle, for example) without mixing or deleting each other's files. The name matches neither `artifact_cycle.M1_ARTIFACT_NAMES` nor any glob over the tables, so nothing a killed run leaves here is taken for an artifact."""
     return Path(out_dir) / f"divergence-audit.parts.{os.getpid()}"
-
-
-def settle_memo_part(scratch_dir: Path, config: str, segment: int) -> Path:
-    """Return the file where one row range of the pooled oracle, whether its configuration is cut or not, writes the settle memo windows it settled. It is under the run's scratch directory, so a killed run's parts are deleted with its other scratch files and `conform.absorb_settle_memo_parts` finds every range's part in one directory."""
-    return Path(scratch_dir) / "settle-memo" / f"{config}.{segment}.gz"
 
 
 @contextmanager
@@ -715,7 +714,7 @@ class AuditBlocks:
 
 
 def ship(pieces: list[bytes], name: str) -> Shipped | None:
-    """Copy `pieces` end to end into a new POSIX shared memory segment called `name`, dropping each from the list once it is copied, close this process's mapping, and return what names them, or None when there are no bytes, for which no segment is made. Making the segment registers it with the resource tracker, which a spawned pool worker shares with the parent that started it, and which unlinks any segment still registered once the parent and every worker have exited. The parent unlinks the segment as it maps it, and unregisters it in doing so (`InOrderWriter.land`), and unlinks any segment it named for a range and never mapped as it exits (`InOrderWriter.__exit__`)."""
+    """Copy `pieces` end to end into a new POSIX shared memory segment called `name`, dropping each from the list once it is copied, close this process's mapping, and return what names them, or None when there are no bytes, for which no segment is made. Making the segment registers it with the resource tracker, which a spawned pool worker shares with the parent that started it, and which unlinks any segment still registered once the parent and every worker have exited. Whoever maps the segment unlinks it as it maps it, and unregisters it in doing so (`_Mapped`: the parent's `InOrderWriter.land`, or a settle memo absorb's worker, `run_m1_gates._absorb_memo`), and the parent unlinks any segment it named and nobody mapped as it exits (`InOrderWriter.__exit__`, `run_m1_gates._SweepSegments`)."""
     lengths = tuple(len(piece) for piece in pieces)
     if not sum(lengths):
         return None
@@ -748,7 +747,7 @@ SEGMENT_RECORD = "segment-names"
 
 def _segment_names(token: str, position: int) -> ShipTo:
     stem = f"oracle-{token}-{position}"
-    return ShipTo(f"{stem}a", f"{stem}s")
+    return ShipTo(f"{stem}a", f"{stem}s", f"{stem}m")
 
 
 def _unlink_recorded_segments(scratch: Path) -> None:
@@ -760,13 +759,13 @@ def _unlink_recorded_segments(scratch: Path) -> None:
         return
     for position in positions:
         names = _segment_names(token, position)
-        for name in (names.audit, names.store):
+        for name in (names.audit, names.store, names.memo):
             with suppress(OSError, ValueError):
                 _unlink_if_made(name, track=False)
 
 
 class _Mapped:
-    """A shipped segment mapped in the parent and unlinked at once, so that its name never outlives the mapping, with its pieces as views. Attaching registers the name with the resource tracker again, which holds a name once, and unlinking unregisters it, so a segment the parent maps leaves the tracker nothing to clean up. Its pages enter the parent's footprint as the parent reads them and leave at `close`."""
+    """A shipped segment mapped and unlinked at once, so that its name never outlives the mapping, with its pieces as views: by the parent's in-order writer, or by a settle memo absorb's worker. Attaching registers the name with the resource tracker again, which holds a name once, and unlinking unregisters it, so a segment mapped here leaves the tracker nothing to clean up. Its pages enter the mapping process's footprint as it reads them and leave at `close`."""
 
     def __init__(self, shipped: Shipped) -> None:
         self._segment = shared_memory.SharedMemory(shipped.name)
@@ -785,11 +784,11 @@ class _Mapped:
 
 
 class InOrderWriter:
-    """The pooled oracle's fan-in, in `run_m1`'s parent: it writes `divergence-audit.tsv` once, in `configs` order and in row order within each configuration, from the lines each range ships home (`OracleConfigResult.audit_blocks`), and writes each cut configuration's store once, from the segments its ranges ship, when its last range lands (`oracle_cache.join_store_segments`). A range ships its bytes in the POSIX shared memory segments the writer names for it (`ship_to`, `ship`), and its result carries only their names and lengths. `land` takes each range's result as its future resolves, in any order, takes the names off the result, so neither it nor its future keeps them, and maps each segment and unlinks its name at once. A range's lines are written, inflated a block at a time from the mapping, with every later range's that has already landed, once every range before it is written, and each range's mapping is closed once its lines are written. The writer therefore holds a landed range's compressed lines only until the ranges before it are written: at most the whole audit compressed, when the first range lands last. `oracle_shard_plan` starts the heaviest ranges first, so the small ranges its cuts leave at a configuration's ends start and land last, and much of the audit can wait for one of them. It holds a cut configuration's segments only until its last range lands, joins them from the mappings and closes them once joined, so at worst it holds every cut configuration's segments at once. Together it holds at most the whole audit compressed and every cut configuration's segments, which are the compressed stores the pass writes.
+    """The pooled oracle's fan-in, in `run_m1`'s parent: it writes `divergence-audit.tsv` once, in `configs` order and in row order within each configuration, from the lines each range ships home (`OracleConfigResult.audit_blocks`), and writes each cut configuration's store once, from the segments its ranges ship, when its last range lands (`oracle_cache.join_store_segments`). A range ships its bytes in the POSIX shared memory segments the writer names for it (`ship_to`, `ship`), and its result carries only their names and lengths. The writer names each range's settle memo segment too, which it never maps: `run_m1_gates.run_oracle` hands it to the configuration's absorb, whose worker maps it. `land` takes each range's result as its future resolves, in any order, takes the names off the result, so neither it nor its future keeps them, and maps each segment and unlinks its name at once. A range's lines are written, inflated a block at a time from the mapping, with every later range's that has already landed, once every range before it is written, and each range's mapping is closed once its lines are written. The writer therefore holds a landed range's compressed lines only until the ranges before it are written: at most the whole audit compressed, when the first range lands last. `oracle_shard_plan` starts the heaviest ranges first, so the small ranges its cuts leave at a configuration's ends start and land last, and much of the audit can wait for one of them. It holds a cut configuration's segments only until its last range lands, joins them from the mappings and closes them once joined, so at worst it holds every cut configuration's segments at once. Together it holds at most the whole audit compressed and every cut configuration's segments, which are the compressed stores the pass writes.
 
     What it holds sits in shared memory, which no process's footprint counts while it waits: a range closes its mapping once it has copied its bytes in, and the writer's mapping touches a page only as the writer reads it, so a segment's pages count in the parent's footprint only from the inflate or the join that reads them to the close that follows (`Shipped`). The peak footprint a bare run records under `run_m1.PARENT_POOL_UNIT`, which the run-m1-parent row of `make job-costs` reports, therefore leaves out what waits. So the writer counts it itself: `held_peak_bytes` is the most it held mapped at once, and `landing_seconds` the time `land` took over every range; `run_m1_gates.run_oracle` prints both on its `[t] oracle_fan_in` line.
 
-    The audit goes through a staging file in the run's scratch directory (`_staged_oracle_audit`) and is moved into place only when the block exits normally and two checks pass, so a partial audit never replaces the standing one: every planned range must have landed, and the lines written must equal the landed ranges' own `divergent_rows` total; either failure raises ValueError. A store is staged only when `row_cache` writes one, under its `write_dir`. A cut configuration one of whose ranges returned no segment, or whose ranges disagree on the pass ordinal (which `merge_config_shards` refuses), stages no store, so `oracle_cache.promote_stores` promotes none. On every exit, normal or not, the writer closes each mapping it still holds and unlinks every segment it named for a range that is still there, so a run that fails or is interrupted while this block unwinds leaves no segment behind, and a run that maps every segment leaves the resource tracker nothing to warn about. A landing maps its range's store segment only after writing the lines now due, so a landing whose write fails (a full disk) leaves that segment under its name for the exit to unlink, not in a mapping nothing holds. The writer records its token and range count in the run's scratch directory as it enters (`SEGMENT_RECORD`) and deletes the record once its exit has unlinked every name, so after a SIGKILL of the whole process group, which skips the exit, the next oracle run over the same `out_dir` unlinks the segments the dead run left (`discard_oracle_audit_scratch`).
+    The audit goes through a staging file in the run's scratch directory (`_staged_oracle_audit`) and is moved into place only when the block exits normally and two checks pass, so a partial audit never replaces the standing one: every planned range must have landed, and the lines written must equal the landed ranges' own `divergent_rows` total; either failure raises ValueError. A store is staged only when `row_cache` writes one, under its `write_dir`. A cut configuration one of whose ranges returned no segment, or whose ranges disagree on the pass ordinal (which `merge_config_shards` refuses), stages no store, so `oracle_cache.promote_stores` promotes none. On every exit, normal or not, the writer closes each mapping it still holds and unlinks every segment it named for a range that is still there, a settle memo segment no absorb mapped among them, so a run that fails or is interrupted while this block unwinds leaves no segment behind, and a run that maps every segment leaves the resource tracker nothing to warn about. A landing maps its range's store segment only after writing the lines now due, so a landing whose write fails (a full disk) leaves that segment under its name for the exit to unlink, not in a mapping nothing holds. The writer records its token and range count in the run's scratch directory as it enters (`SEGMENT_RECORD`) and deletes the record once its exit has unlinked every name, so after a SIGKILL of the whole process group, which skips the exit, the next oracle run over the same `out_dir` unlinks the segments the dead run left (`discard_oracle_audit_scratch`).
     """
 
     def __init__(
@@ -848,7 +847,7 @@ class InOrderWriter:
                 )
 
     def ship_to(self, shard: OracleShard) -> ShipTo:
-        """Return the names of the segments `shard` ships its bytes home in: the writer's own random token and the range's place in the audit's order, so two writers' names never meet and each range's are its own, in fewer than the 31 bytes macOS allows a segment's name."""
+        """Return the names of the segments `shard` ships its bytes home in (`ShipTo`): the writer's own random token and the range's place in the audit's order, so two writers' names never meet and each range's are its own, in fewer than the 31 bytes macOS allows a segment's name."""
         return _segment_names(self._token, self._positions[shard])
 
     def land(self, shard: OracleShard, result: OracleConfigResult) -> None:
@@ -921,7 +920,7 @@ class InOrderWriter:
             self._held -= mapped.size
 
     def _release(self) -> None:
-        """Close every mapping still held (a range's lines waiting on an earlier range, a cut configuration's segments short of its last range), then unlink every segment named for one of the writer's ranges that is still there: one a range made whose result the writer never took. Once every name is unlinked it deletes the record of them (`SEGMENT_RECORD`)."""
+        """Close every mapping still held (a range's lines waiting on an earlier range, a cut configuration's segments short of its last range), then unlink every segment named for one of the writer's ranges that is still there: one a range made whose result the writer never took, or a settle memo segment no absorb mapped. Once every name is unlinked it deletes the record of them (`SEGMENT_RECORD`)."""
         held = [
             *self._waiting.values(),
             *(mapped for ranges in self._segments.values() for _rows, mapped, _ordinal in ranges.values()),
@@ -934,6 +933,7 @@ class InOrderWriter:
             names = self.ship_to(shard)
             _unlink_if_made(names.audit)
             _unlink_if_made(names.store)
+            _unlink_if_made(names.memo)
         self._record.unlink(missing_ok=True)
 
 
@@ -951,7 +951,7 @@ def _oracle_audit_owner_is_running(pid: str) -> bool:
 
 
 def discard_oracle_audit_scratch(out_dir: Path) -> None:
-    """Delete this run's scratch directory, and any earlier run's whose process has exited, since a killed run skips the `finally` that would have deleted its staged audit, stores and memo parts, and they can take as much disk as the audit. Before deleting an earlier run's directory it unlinks the shared memory segments that run's writer recorded there (`_unlink_recorded_segments`): a SIGKILL of that run's whole process group kills its resource tracker too, and macOS lists no POSIX shared memory, so those names are the only way to find what it left. A directory whose pid is still running belongs to another oracle and is kept. Nothing here raises, so calling it in a `finally` cannot replace the exception being handled."""
+    """Delete this run's scratch directory, and any earlier run's whose process has exited, since a killed run skips the `finally` that would have deleted its staged audit and stores, and they can take as much disk as the audit. Before deleting an earlier run's directory it unlinks the shared memory segments that run's writer recorded there (`_unlink_recorded_segments`): a SIGKILL of that run's whole process group kills its resource tracker too, and macOS lists no POSIX shared memory, so those names are the only way to find what it left. A directory whose pid is still running belongs to another oracle and is kept. Nothing here raises, so calling it in a `finally` cannot replace the exception being handled."""
     out = Path(out_dir)
     shutil.rmtree(oracle_audit_scratch(out), ignore_errors=True)
     with suppress(OSError):
@@ -1181,6 +1181,7 @@ def _compare_config(
             ),
         )
     memo_line = walker.memo_line(label, walker.save_memo())
+    result.fresh_memo = walker.fresh_memo
     if memo_line is not None:
         print(memo_line, file=sys.stderr, flush=True)
     print(
@@ -1194,7 +1195,7 @@ def _compare_config(
 
 @contextmanager
 def _collector_held() -> Iterator[None]:
-    """Hold Python's cyclic collector off while one row range runs. A range allocates container objects for every row it reads, serves and compares, so with the collector on it runs thousands of collections, and each also walks part of the heap the worker loaded before the range (the spec, the ledger, the store and the shaper). One full collection first frees what the worker's previous task left (a pool worker runs several ranges and absorbs, and a task's arguments die only after it returns), and `gc.freeze()` then takes the heap that is left out of every collection, so nothing the previous task left is held through this range. A range builds few reference cycles, so holding the collector costs little memory, and the collector, enabled again on exit, or the next range's first collection reclaims them; the `oracle-shard` row of `make job-costs` checks the range's peak against `artifact_cycle.ORACLE_SHARD_BYTES`. On exit the collector is enabled again only if it was enabled on entry, and the heap is unfrozen only if nothing had frozen it before: when something had, nothing is unfrozen, so the range's own heap stays frozen too."""
+    """Hold Python's cyclic collector off while one row range runs. A range allocates container objects for every row it reads, serves and compares, so with the collector on it runs thousands of collections, and each also walks part of the heap the worker loaded before the range (the spec, the ledger, the store and the shaper). One full collection first frees the cycles the worker's start and the range's own setup left (each range runs in a process of its own, `run_m1._spawn_pool` with `max_tasks_per_child=1`), and `gc.freeze()` then takes the heap that is left out of every collection, so the collector never walks it during this range. A range builds few reference cycles, so holding the collector costs little memory, and the collector, enabled again on exit, reclaims them; the `oracle-shard` row of `make job-costs` checks the range's peak against `artifact_cycle.ORACLE_SHARD_BYTES`. On exit the collector is enabled again only if it was enabled on entry, and the heap is unfrozen only if nothing had frozen it before: when something had, nothing is unfrozen, so the range's own heap stays frozen too."""
     enabled = gc.isenabled()
     frozen = gc.get_freeze_count()
     gc.collect()
@@ -1222,9 +1223,12 @@ def oracle_config_worker(
     guard_verdicts: settle.FormationGuard | None = None,
     shard: OracleShard | None = None,
     ship_to: ShipTo | None = None,
+    spec_path: Path | None = None,
 ) -> OracleConfigResult:
-    """Run `_compare_config` for one configuration, or one row range when `shard` is given, in a pool worker. The range's audit lines, compressed (`AuditBlocks`), and a cut configuration's range's store segment, which its writer builds in memory, go home in the two shared memory segments `ship_to` names, each piece dropped as it is copied in (`ship`), and the result carries their names and lengths; without `ship_to`, for a caller that reads only the counts, the range ships neither. An uncut configuration's range writes its whole store under the row cache's `write_dir` itself. When the caller passes no `guard_verdicts`, the worker runs the section 5.7 guard sweep itself, as the conformance sweep's worker does; the overlay configuration's worker forms nothing and skips it. A caller that fans out several ranges runs the sweep once and passes it to every range. The worker opens the row cache itself, through the same `open_row_cache` call the serial path makes, and reads and writes `settle_memo` itself, because a spawned worker inherits no open files. For a range of the pooled oracle, `settle_memo.write_path` is the range's own part, which the parent absorbs into the shared file after every range has finished and the witness stage has returned."""
+    """Run `_compare_config` for one configuration, or one row range when `shard` is given, in a pool worker. The range's audit lines, compressed (`AuditBlocks`), a cut configuration's range's store segment, which its writer builds in memory, and the settle memo windows the range settled fresh (`conform.FreshMemo`) go home in the three shared memory segments `ship_to` names, each piece dropped as it is copied in (`ship`), and the result carries their names and lengths and the fresh windows' counts; without `ship_to`, for a caller that reads only the counts, the range ships none of them. An uncut configuration's range writes its whole store under the row cache's `write_dir` itself. When the caller passes no `guard_verdicts`, the worker runs the section 5.7 guard sweep itself, as the conformance sweep's worker does; the overlay configuration's worker forms nothing and skips it. A caller that fans out several ranges runs the sweep once and passes it to every range. The worker opens the row cache itself, through the same `open_row_cache` call the serial path makes, and reads `settle_memo` itself, because a spawned worker inherits no open files. For a range of the pooled oracle, `settle_memo` is `returns_fresh`: the range writes no settle memo file, and the parent absorbs its fresh windows into the shared file once every range of its configuration has landed and the witness stage has returned. `spec_path`, when given, names the parent's dump of `spec` (`kernel_exec._spec_dump`), which every settle call then reads (`kernel_exec.adopt_spec_dump`), so the worker writes no `spec.json` of its own."""
     shard = OracleShard(config) if shard is None else shard
+    if spec_path is not None:
+        kernel_exec.adopt_spec_dump(spec, spec_path)
     aliases = load_aliases(alias_path)
     entries, ledger = load_ledger(ledger_path)
     ink_identical_ids = {entry.get("id") for entry in entries if entry.get("ink_identical")}
@@ -1260,11 +1264,18 @@ def oracle_config_worker(
             stop_row=shard.stop_row,
             label=shard.label,
         )
+    fresh = result.fresh_memo
+    if fresh is not None:
+        result.fresh_memo = replace(fresh, blocks=())
     if ship_to is not None:
         result.audit_blocks = ship(audit.close(), ship_to.audit)
         if writer is not None and writer.member is not None:
             member, writer.member = [writer.member], None
             result.store_segment = ship(member, ship_to.store)
+        if fresh is not None:
+            blocks = cast(list[bytes], list(fresh.blocks))
+            del fresh
+            result.memo_blocks = ship(blocks, ship_to.memo)
     return result
 
 

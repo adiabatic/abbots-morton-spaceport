@@ -4,11 +4,14 @@ import gzip
 import json
 import os
 import pickle
+import subprocess
+import sys
 import time
 import zlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor
 from multiprocessing import shared_memory
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -777,16 +780,11 @@ def test_a_hand_conform_only_run_defaults_to_the_conform_sweeps_budget(monkeypat
     assert handed == [max(1, conform_jobs), 1, 4]
 
 
-class _FinishedFuture:
-    def __init__(self, value):
-        self._value = value
-
-    def result(self):
-        return self._value
-
-
 class _InlinePool:
-    """A stand-in for the spawn pool that runs each worker when it is submitted, so the oracle's row ranges and the conformance sweep's configurations run without a process per unit and without a build to sweep."""
+    """A stand-in for the spawn pool that runs each task when it is submitted and returns a finished future of its outcome, so the oracle's row ranges and absorbs and the conformance sweep's units and absorbs run without a process per task and without a build to sweep. `submitted` lists each task's function in the order it was submitted."""
+
+    def __init__(self):
+        self.submitted: list = []
 
     def __enter__(self):
         return self
@@ -795,19 +793,33 @@ class _InlinePool:
         return False
 
     def submit(self, function, *args, **kwargs):
-        return _FinishedFuture(function(*args, **kwargs))
+        self.submitted.append(function)
+        future: Future = Future()
+        try:
+            future.set_result(function(*args, **kwargs))
+        except BaseException as error:
+            future.set_exception(error)
+        return future
+
+    def shutdown(self, wait=True, cancel_futures=False):
+        pass
 
 
 class TestOracleFanIn:
     """Each range ships its own audit lines home, so the order of `divergence-audit.tsv` comes from the parent's in-order writer, not from the order the futures resolve. A run that fails partway must leave the previous audit in place: a short audit hashes differently, so the corpus build would read it as a new, smaller audit instead of a stale one."""
 
     def _pool(self, monkeypatch, worker, rows=None):
-        """Stubs out every process in the fan-out: an inline pool, futures resolved in reverse, the worker, the crate's guard sweep, and the subset stamp's row counts, which are `rows` or, by default, none, giving one range per configuration."""
-        monkeypatch.setattr(run_m1, "_spawn_pool", lambda jobs, units: _InlinePool())
-        monkeypatch.setattr(run_m1_gates, "as_completed", lambda futures: reversed(list(futures)))
+        """Stubs out every process in the fan-out: an inline pool, a `wait` that hands back every future it is given, in reverse, the worker, the crate's guard sweep, and the subset stamp's row counts, which are `rows` or, by default, none, giving one range per configuration."""
+        monkeypatch.setattr(
+            run_m1, "_spawn_pool", lambda jobs, units, max_tasks_per_child=None: _InlinePool()
+        )
+        monkeypatch.setattr(
+            run_m1_gates, "wait", lambda futures, return_when: (list(reversed(list(futures))), set())
+        )
         monkeypatch.setattr(oracle, "oracle_config_worker", worker)
         monkeypatch.setattr(run_m1.kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(run_m1.kernel_exec, "guard_sweep", lambda spec: {})
+        monkeypatch.setattr(run_m1.kernel_exec, "_spec_dump", lambda spec: Path("parent-spec.json"))
         monkeypatch.setattr(
             run_m1_gates.baseline_subset, "subset_row_counts", lambda out_dir: dict(rows or {})
         )
@@ -826,6 +838,8 @@ class TestOracleFanIn:
         return sorted(path.name for path in out_dir.iterdir() if path.name != ct.JOURNAL.name)
 
     def _worker(self, refuse=None, overcount=None, record=None, shards=None, multi=None, shipped=None):
+        """A stand-in range worker: it ships one audit line, and, for a range with a settle memo, one block's worth of fresh windows into the memo segment its writer names, as a range that settled one window fresh does, and it checks that it was handed the parent's spec dump."""
+
         def worker(
             spec,
             subset_tables_dir,
@@ -839,9 +853,10 @@ class TestOracleFanIn:
             guard_verdicts=None,
             shard=None,
             ship_to=None,
+            spec_path=None,
         ):
             shard = oracle.OracleShard(config) if shard is None else shard
-            assert ship_to is not None
+            assert ship_to is not None and spec_path == Path("parent-spec.json")
             if record is not None:
                 record.append(row_cache)
             if shards is not None:
@@ -852,12 +867,17 @@ class TestOracleFanIn:
             audit.write(f"{config}\t{shard.first_row:04X}\tcell\tpea-half\tqsPea\tqsPea.half\n")
             if shipped is not None:
                 shipped.append(ship_to.audit)
+            fresh = None if settle_memo is None else conform.FreshMemo((), 1, 6, 1)
+            if fresh is not None and shipped is not None:
+                shipped.append(ship_to.memo)
             return oracle.OracleConfigResult(
                 config=config,
                 rows_compared=1,
                 divergent_rows=2 if shard.label == overcount else 1,
                 multi_matched_count=0 if multi is None else multi(shard),
                 audit_blocks=oracle.ship(audit.close(), ship_to.audit),
+                fresh_memo=fresh,
+                memo_blocks=None if fresh is None else oracle.ship([b"head", b"rows"], ship_to.memo),
             )
 
         return worker
@@ -911,7 +931,7 @@ class TestOracleFanIn:
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
     def test_the_fan_in_counts_the_ranges_as_they_finish(self, monkeypatch, tmp_path, capsys):
-        """The oracle is the longest part of a pass that prints nothing else while it runs, so it prints a progress counter as each row range finishes, over the number of ranges submitted: one per configuration when the stamp counts no rows, more when it does. A count that stops short of the total is a future the fan-in never collected. Once every range has landed it prints one `[t] oracle_fan_in` line, whose `held_gb` the timings journal keeps, because what the fan-in held waited in shared memory, which no footprint counts, and keeps the line for a hand run's check line (`run_m1._build_phase_lines`)."""
+        """The oracle is the longest part of a pass that prints nothing else while it runs, so it prints a progress counter as each row range finishes, over the number of ranges submitted: one per configuration when the stamp counts no rows, more when it does. A count that stops short of the total is a future the fan-in never collected. Once every range has landed it prints one `[t] oracle_fan_in` line, whose `held_gb` and `memo_held_gb` the timings journal keeps, because what the fan-in held waited in shared memory, which no footprint counts, and keeps the line for a hand run's check line (`run_m1._build_phase_lines`)."""
         monkeypatch.setattr(run_m1, "_build_phase_lines", [])
         self._pool(monkeypatch, self._worker())
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
@@ -923,7 +943,7 @@ class TestOracleFanIn:
             for landed in range(1, len(conform.ORACLE_CONFIGS) + 1)
         ]
         fan_in = [entry for entry in ct.parse_inner_timings(printed) if entry["label"] == "oracle_fan_in"]
-        assert len(fan_in) == 1 and fan_in[0]["held_gb"] == 0.0
+        assert len(fan_in) == 1 and fan_in[0]["held_gb"] == 0.0 and fan_in[0]["memo_held_gb"] == 0.0
         assert ct.parse_inner_timings("\n".join(run_m1._build_phase_lines)) == fan_in
 
         seen: list = []
@@ -941,7 +961,7 @@ class TestOracleFanIn:
     def test_a_cut_configurations_audit_follows_row_order_within_acceptance_order(
         self, monkeypatch, tmp_path, capsys
     ):
-        """When a configuration is cut into several ranges, the audit is in acceptance order across configurations and row order within one, whichever future resolves first. Each range writes its settle memo windows to its own part, not to the shared file, and a configuration whose parts the parent absorbed gets a `[t] settle_memo_absorb` line."""
+        """When a configuration is cut into several ranges, the audit is in acceptance order across configurations and row order within one, whichever future resolves first. Each range returns its fresh settle memo windows rather than writing the shared file, its configuration's absorb gets every range's in row order, and a configuration whose absorb wrote its file gets a `[t] settle_memo_absorb` line with the path the absorb took and its row counts."""
         seen: list = []
         rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         self._pool(monkeypatch, self._worker(shards=seen), rows=rows)
@@ -954,16 +974,28 @@ class TestOracleFanIn:
                 for config in conform.SETTLEMENT_CONFIGS
             },
         )
-        monkeypatch.setattr(
-            run_m1.conform,
-            "absorb_settle_memo_parts",
-            lambda memo, parts, spec: memo.path.name == "settle-memo-default.bin",
-        )
+        absorbed: dict[str, list[int]] = {}
+
+        def absorb(memo, spec, parts, sweep=None):
+            absorbed[memo.path.name] = [counts.rows for _shipped, counts in parts]
+            written = memo.path.name == "settle-memo-default.bin"
+            return conform.MemoAbsorb(written, 3, 0, 2, standing=3, parts=2, index="reused"), 0.5, 7
+
+        monkeypatch.setattr(run_m1_gates, "_absorb_memo", absorb)
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10, memo_inputs=memo_inputs)
         printed = capsys.readouterr().out
-        assert "settle memo: absorbed the ranges' parts for default\n" in printed
-        assert len([line for line in printed.splitlines() if line.startswith("[t] settle_memo_absorb ")]) == 1
-        assert any(line.startswith("[t] settle_memo_absorb default ") for line in printed.splitlines())
+        assert "settle memo: absorbed the ranges' fresh windows for default\n" in printed
+        assert [line for line in printed.splitlines() if line.startswith("[t] settle_memo_absorb ")] == [
+            "[t] settle_memo_absorb default 0.5s index=reused standing=3 kept=3 fresh=2 patched=0 dropped=0"
+        ]
+        planned_by_config = {
+            config: len([shard for shard in oracle.oracle_shard_plan(10, rows) if shard.config == config])
+            for config in conform.SETTLEMENT_CONFIGS
+            if config in conform.ORACLE_CONFIGS
+        }
+        assert absorbed == {
+            f"settle-memo-{config}.bin": [1] * count for config, count in planned_by_config.items()
+        }
         lines = (tmp_path / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
         assert lines[0] == oracle.ORACLE_AUDIT_HEADER
         planned = sorted(
@@ -977,18 +1009,18 @@ class TestOracleFanIn:
             if shard.config in conform.OVERLAY_CONFIGS:
                 assert memo is None
             else:
-                assert memo is not None and memo.write_path == oracle.settle_memo_part(
-                    oracle.oracle_audit_scratch(tmp_path), shard.config, shard.index
-                )
+                assert memo is not None and memo.returns_fresh
         assert self._files_left(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
 
     def test_a_range_that_falls_over_leaves_the_standing_audit_alone(self, monkeypatch, tmp_path):
-        """The range that falls over is the last one submitted, so every other range has already shipped its lines into shared memory, and none of their results is ever landed. The writer's exit must unlink those segments too, since shared memory outlives the run until someone does."""
+        """The range that falls over is the last one of the first ranges the pool starts, one a slot, so every other range out has already shipped its lines into shared memory, none of their results is ever landed, and the ranges still to be submitted never start. The writer's exit must unlink those segments too, since shared memory outlives the run until someone does."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         planned = oracle.oracle_shard_plan(10, rows)
-        cut = [shard for shard in planned if shard.of > 1][-1]
+        assert len(planned) > 10
+        cut = planned[10 - 1]
+        assert cut.of > 1
         shipped: list[str] = []
         self._pool(monkeypatch, self._worker(refuse=cut.label, shipped=shipped), rows=rows)
         with pytest.raises(RuntimeError) as failure:
@@ -996,13 +1028,13 @@ class TestOracleFanIn:
         assert cut.label in str(failure.value)
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
-        assert shipped
+        assert len(shipped) == 10 - 1
         for name in shipped:
             with pytest.raises(FileNotFoundError):
                 shared_memory.SharedMemory(name, track=False)
 
     def _memos(self, monkeypatch, order):
-        """Gives every settlement configuration a settle memo file under the run's out directory and replaces the parent's absorb with a stub that records the file and the parts it was passed in `order`. Returns the memo inputs to pass to `run_oracle`."""
+        """Gives every settlement configuration a settle memo file under the run's out directory and replaces the absorb task with a stub that records the file and the counts of the fresh windows it was passed in `order`, and reads a peak footprint of 7,000. Returns the memo inputs to pass to `run_oracle`."""
         monkeypatch.setattr(
             run_m1.conform,
             "settle_memo_files",
@@ -1012,36 +1044,45 @@ class TestOracleFanIn:
             },
         )
 
-        def absorb(memo, parts, spec):
-            order.append(("absorb", memo.path.name, list(parts)))
-            return False
+        def absorb(memo, spec, parts, sweep=None):
+            order.append(("absorb", memo.path.name, [counts for _shipped, counts in parts]))
+            return conform.MemoAbsorb(False, 0, 0, 0), 0.0, 7_000
 
-        monkeypatch.setattr(run_m1.conform, "absorb_settle_memo_parts", absorb)
+        monkeypatch.setattr(run_m1_gates, "_absorb_memo", absorb)
         return oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="c", data="d")
 
-    def test_every_range_files_a_part_and_the_absorbs_wait_for_memo_ready(self, monkeypatch, tmp_path):
-        """No range of the pooled oracle writes a shared settle memo file, cut or not. Each writes the windows it settled to a part, and the parent absorbs every configuration's parts only after every range has finished and `memo_ready` has returned (in `run_m1.full_run`, after the witness stage's absorb). So a pool started while the witness stage runs cannot write a file without that stage's windows or have its own windows overwritten by that stage. Nothing is cut here (the stamp counts no rows), so every configuration has one range, the case where a range could otherwise have written the shared file itself. An M1-only configuration has a memo file too, but the oracle neither plans a range for it nor absorbs its file."""
+    def test_every_range_returns_its_fresh_windows_and_the_absorbs_wait_for_memo_ready(
+        self, monkeypatch, tmp_path
+    ):
+        """No range of the pooled oracle writes a shared settle memo file, cut or not. Each returns the windows it settled fresh in shared memory, and the parent submits a configuration's absorb only once its ranges have landed and `memo_ready` has returned (in `run_m1.full_run`, after the witness stage's absorb). So a pool started while the witness stage runs cannot write a file without that stage's windows or have its own windows overwritten by that stage. Every range and every absorb runs in a process of its own. Nothing is cut here (the stamp counts no rows), so every configuration has one range, the case where a range could otherwise have written the shared file itself. An M1-only configuration has a memo file too, but the oracle neither plans a range for it nor absorbs its file. Every range's and every absorb's segment is unlinked by the end."""
         seen: list = []
         order: list = []
-        worker = self._worker(shards=seen)
+        shipped: list = []
+        widths: list = []
+        worker = self._worker(shards=seen, shipped=shipped)
 
         def recording(*args, **kwargs):
             order.append("range")
             return worker(*args, **kwargs)
 
         self._pool(monkeypatch, recording)
+
+        def pool(jobs, units, max_tasks_per_child=None):
+            widths.append(max_tasks_per_child)
+            return _InlinePool()
+
+        monkeypatch.setattr(run_m1, "_spawn_pool", pool)
         memo_inputs = self._memos(monkeypatch, order)
         run_m1_gates.run_oracle(
             out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs, memo_ready=lambda: order.append("ready")
         )
-        scratch = oracle.oracle_audit_scratch(tmp_path)
+        assert widths == [1]
         ranges = len(conform.ORACLE_CONFIGS)
         assert order[: ranges + 1] == ["range"] * ranges + ["ready"]
-        assert order[ranges + 1 :] == [
-            ("absorb", f"settle-memo-{config}.bin", [oracle.settle_memo_part(scratch, config, 0)])
-            for config in conform.SETTLEMENT_CONFIGS
-            if config in conform.ORACLE_CONFIGS
-        ]
+        settling = [config for config in conform.SETTLEMENT_CONFIGS if config in conform.ORACLE_CONFIGS]
+        assert sorted(order[ranges + 1 :]) == sorted(
+            ("absorb", f"settle-memo-{config}.bin", [conform.FreshMemo((), 1, 6, 1)]) for config in settling
+        )
         assert conform.M1_ONLY_CONFIGS and not any(
             shard.config in conform.M1_ONLY_CONFIGS for shard, _memo in seen
         )
@@ -1050,9 +1091,37 @@ class TestOracleFanIn:
             if shard.config in conform.OVERLAY_CONFIGS:
                 assert memo is None
             else:
-                assert memo is not None and memo.write_path == oracle.settle_memo_part(
-                    scratch, shard.config, 0
-                )
+                assert memo is not None and memo.returns_fresh
+        assert len(shipped) == ranges + len(settling)
+        for name in shipped:
+            with pytest.raises(FileNotFoundError):
+                shared_memory.SharedMemory(name, track=False)
+
+    def test_an_absorb_takes_the_next_free_slot_ahead_of_the_ranges_still_to_be_submitted(
+        self, monkeypatch, tmp_path
+    ):
+        """The parent submits ranges, in plan order, only while the ranges and absorbs it has out number fewer than the pool's width, so a configuration whose ranges all land while other ranges wait their turn gets its absorb into the next free slot instead of behind those ranges. Here the stamp's row counts cut more ranges than the pool has slots, and both of `default`'s ranges are among the first the pool starts, so its absorb is submitted before any later range."""
+        order: list = []
+        worker = self._worker()
+
+        def recording(*args, shard, **kwargs):
+            order.append(("range", shard.label))
+            return worker(*args, shard=shard, **kwargs)
+
+        rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
+        self._pool(monkeypatch, recording, rows=rows)
+        memo_inputs = self._memos(monkeypatch, order)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10, memo_inputs=memo_inputs)
+        planned = oracle.oracle_shard_plan(10, rows)
+        first, later = planned[:10], planned[10:]
+        assert later and all(shard in first for shard in planned if shard.config == "default")
+        assert [entry for entry in order if entry[0] == "range"] == [
+            ("range", shard.label) for shard in planned
+        ]
+        (absorb,) = [
+            at for at, entry in enumerate(order) if entry[:2] == ("absorb", "settle-memo-default.bin")
+        ]
+        assert order.index(("range", first[-1].label)) < absorb < order.index(("range", later[0].label))
 
     def test_the_pool_record_reads_each_ranges_and_each_absorbs_peak_footprint(self, monkeypatch, tmp_path):
         """The `oracle-shard` pool record has one reading per range, the peak footprint its worker sent home, and one per settle-memo absorb, labeled `<config> absorb`, its worker's peak footprint (`peak_rss.peak_footprint_self_bytes`): the readings the oracle-shard and oracle-absorb rows of `make job-costs` read."""
@@ -1097,7 +1166,7 @@ class TestOracleFanIn:
         assert order == ["ready", "compare"]
 
     def test_a_red_memo_ready_stops_the_oracle_before_any_absorb(self, monkeypatch, tmp_path):
-        """A witness stage that fails while the pool runs reaches the oracle as `memo_ready` raising its error. No configuration's parts are absorbed into a memo file, and the previous audit stays in place, as it does when a range fails."""
+        """A witness stage that fails while the pool runs reaches the oracle as `memo_ready` raising its error. No configuration's fresh windows are absorbed into a memo file, and the previous audit stays in place, as it does when a range fails."""
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         order: list = []
@@ -1112,6 +1181,40 @@ class TestOracleFanIn:
         assert order == []
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert self._files_left(tmp_path) == ["divergence-audit.tsv"]
+
+    @pytest.mark.parametrize("returns", ["after the last landing", "before the last landing"])
+    def test_the_witness_memo_wait_is_what_remains_of_the_wait_after_the_last_range_lands(
+        self, monkeypatch, tmp_path, capsys, returns
+    ):
+        """On the pooled path `memo_ready` runs on a thread beside the ranges, so the seconds it blocks are the witness stage's overlap with the pool, and they are not what the line reports. `[t] witness_memo_wait` is the time from the last range's landing to `memo_ready`'s return, the time the absorbs waited on the witness stage alone: a `memo_ready` that returns after the last landing prints that remainder, and one that returns before it prints no line."""
+        self._pool(monkeypatch, self._worker())
+        memo_inputs = self._memos(monkeypatch, [])
+        ready: list[Future] = []
+
+        def in_thread(call):
+            call()
+            future: Future = Future()
+            ready.append(future)
+            return future
+
+        def landing(futures, return_when):
+            futures = list(futures)
+            pending = [future for future in futures if future in ready and not future.done()]
+            others = [future for future in futures if future not in ready]
+            if pending and (returns == "before the last landing" or not others):
+                pending[0].set_result(time.perf_counter() + (0.0 if others else 5.0))
+                return pending, set()
+            return others, set()
+
+        monkeypatch.setattr(run_m1_gates, "_in_thread", in_thread)
+        monkeypatch.setattr(run_m1_gates, "wait", landing)
+        run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs, memo_ready=lambda: 30.0)
+        waits = [
+            phase["elapsed_s"]
+            for phase in ct.parse_inner_timings(capsys.readouterr().out)
+            if phase["label"] == "witness_memo_wait"
+        ]
+        assert waits == ([5.0] if returns == "after the last landing" else [])
 
     def test_a_cut_configurations_store_is_joined_from_its_ranges_segments_and_read_back(
         self, monkeypatch, tmp_path
@@ -1139,6 +1242,7 @@ class TestOracleFanIn:
             guard_verdicts=None,
             shard=None,
             ship_to=None,
+            spec_path=None,
         ):
             shard = oracle.OracleShard(config) if shard is None else shard
             assert ship_to is not None
@@ -1183,7 +1287,7 @@ class TestOracleFanIn:
             assert store is not None and store.rows == rows[config] and store.pass_ordinal == 1
 
     def test_a_spawn_pool_is_never_wider_than_the_tasks_it_is_given(self):
-        """A hand `--jobs` can be any number, so `_spawn_pool` caps the pool at one process per task the caller submits before its absorbs: the conformance sweep's units, or the oracle's row ranges. A smaller number narrows the pool. The conformance sweep's pool runs one task per process and the oracle's reuses its workers, so the keyword passes through and defaults to reuse."""
+        """A hand `--jobs` can be any number, so `_spawn_pool` caps the pool at one process per task the caller submits besides its absorbs: the conformance sweep's units, or the oracle's row ranges. A smaller number narrows the pool. The conformance sweep's and the oracle's pools run one task per process, so the keyword passes through, and it defaults to reuse, which the string replay's pool takes."""
         units = len(run_m1_gates.sweep_units(("a", "b", "c"), conform.SWEEP_MAX_LENGTH))
         wide = run_m1._spawn_pool(64, units, max_tasks_per_child=1)
         try:
@@ -1284,13 +1388,13 @@ class TestConformFanIn:
         return result
 
     def _pool(self, monkeypatch):
-        """Stubs out every process and build input in the fan-out: an inline pool, futures resolved in reverse, the crate, no spec, no tables, no memo, and a three-symbol alphabet, plus fakes for what the worker and `run_conformance` build before the sweep, since the spec is None."""
+        """Stubs out every process and build input in the fan-out: an inline pool, the crate and the parent's spec dump, no spec, no tables, no memo, and a three-symbol alphabet, plus fakes for what the worker and `run_conformance` build before the sweep, since the spec is None."""
         monkeypatch.setattr(
             run_m1, "_spawn_pool", lambda jobs, units, max_tasks_per_child=None: _InlinePool()
         )
-        monkeypatch.setattr(run_m1_gates, "as_completed", lambda futures: reversed(list(futures)))
         monkeypatch.setattr(run_m1.kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(run_m1.kernel_exec, "guard_sweep", lambda spec: {})
+        monkeypatch.setattr(run_m1.kernel_exec, "_spec_dump", lambda spec: Path("parent-spec.json"))
         monkeypatch.setattr(run_m1, "tables_inputs", lambda: None)
         monkeypatch.setattr(run_m1, "settle_memo_inputs", lambda: None)
         monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: None)
@@ -1305,7 +1409,7 @@ class TestConformFanIn:
     def _memos(
         self, monkeypatch, tmp_path, reached, parts=(), lose=None, other=None, retired=None
     ) -> dict[str, list]:
-        """Give every settlement configuration a memo and every settlement unit a reach over one file version of `ROWS` rows: `reached[config][symbol]` names the rows that unit reached (every row between a configuration's units by default), a unit named in `parts` as `(config, symbol)` wrote a part, the unit named by `lose` shapes one text too few, the unit named by `other` mapped another version of the file, and the unit named by `retired` retired its store and reached nothing. The absorb is stubbed to record its arguments and prune what the mask leaves unreached; the returned mapping collects them by configuration."""
+        """Give every settlement configuration a memo and every settlement unit a reach over one file version of `ROWS` rows: `reached[config][symbol]` names the rows that unit reached (every row between a configuration's units by default), a unit named in `parts` as `(config, symbol)` settled one window fresh, the unit named by `lose` shapes one text too few, the unit named by `other` mapped another version of the file, and the unit named by `retired` retired its store and reached nothing. The absorb task is stubbed to record the counts of the fresh windows it was handed and the prune, and to prune what the mask leaves unreached; the returned mapping collects them by configuration."""
         memos = {
             config: conform.SettleMemoFile(tmp_path / f"settle-memo-{config}.bin", "stamp")
             for config in conform.SETTLEMENT_CONFIGS
@@ -1318,11 +1422,10 @@ class TestConformFanIn:
             if (result.config, last) == lose:
                 result.sequences -= 1
             if settle_memo is not None:
-                assert settle_memo.writes_part and last is not None
+                assert settle_memo.returns_fresh and last is not None
                 unit = (result.config, last)
                 rows = () if unit == retired else reached.get(result.config, spread)[last]
                 flags = bytes(int(row in rows) for row in range(self.ROWS))
-                wrote = unit in parts
                 result.memo_reach = conform.MemoReach(
                     identity=(5, 6, 7, 8) if unit == other else (1, 2, 3, 4),
                     retired=unit == retired,
@@ -1331,7 +1434,7 @@ class TestConformFanIn:
                     loaded=self.ROWS,
                     stale=0,
                     reached=zlib.compress(flags, 1),
-                    part=wrote,
+                    fresh=conform.FreshMemo([b"head", b"rows"], 1, 6, 1) if unit in parts else None,
                     seconds=0.25,
                 )
             return result
@@ -1339,19 +1442,26 @@ class TestConformFanIn:
         monkeypatch.setattr(conform, "_conformance_config", swept)
         absorbed: dict[str, list] = {}
 
-        def absorb(memo, parts, spec, identity, reached, prune, discard):
-            flags = zlib.decompress(reached)
+        def absorb(memo, spec, parts, sweep):
+            flags = zlib.decompress(sweep.reached)
             absorbed[memo.path.stem.removeprefix("settle-memo-")] = [
-                list(parts),
-                identity,
+                [counts for _shipped, counts in parts],
+                sweep.identity,
                 flags,
-                prune,
-                discard,
+                sweep.prune,
+                sweep.discard,
             ]
-            pruned = self.ROWS if discard else self.ROWS - flags.count(1) if prune else 0
-            return True, pruned, len(parts)
+            pruned = self.ROWS if sweep.discard else self.ROWS - flags.count(1) if sweep.prune else 0
+            kept = self.ROWS - pruned
+            return (
+                conform.MemoAbsorb(
+                    True, kept, pruned, len(parts), standing=self.ROWS, parts=len(parts), index="rebuilt"
+                ),
+                0.0,
+                1,
+            )
 
-        monkeypatch.setattr(conform, "absorb_sweep_memo", absorb)
+        monkeypatch.setattr(run_m1_gates, "_absorb_memo", absorb)
         return absorbed
 
     def test_a_pooled_sweep_files_one_conform_sweep_pool_record(self, monkeypatch, tmp_path):
@@ -1402,7 +1512,7 @@ class TestConformFanIn:
         ]
 
     def test_the_parent_absorbs_only_what_its_units_left_to_absorb(self, monkeypatch, tmp_path, capsys):
-        """Each settlement configuration's units reach rows of one file version and write parts; the parent ORs the reaches and submits an absorb only for a configuration whose units wrote a part (`ss03`) or left a live row unreached (`ss04`, whose units reach two of its four rows). The others hold a current memo, get no task, and print `fresh=0 pruned=0 written=no`. The parent prints one `[t] settle_memo` line per settlement configuration in configuration order, and each absorb's peak joins the pool record as `<config> absorb`."""
+        """Each settlement configuration's units reach rows of one file version and return what they settled fresh; the parent ORs the reaches and submits an absorb only for a configuration whose units settled a window fresh (`ss03`) or left a live row unreached (`ss04`, whose units reach two of its four rows). The others hold a current memo, get no task, and print `fresh=0 pruned=0 written=no`. The parent prints one `[t] settle_memo` line per settlement configuration in configuration order, an absorbed one ending with the absorb's path and row counts, and each absorb's peak joins the pool record as `<config> absorb`."""
         self._pool(monkeypatch)
         absorbed = self._memos(
             monkeypatch,
@@ -1413,14 +1523,18 @@ class TestConformFanIn:
         run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=6)
         assert set(absorbed) == {"ss03", "ss04"}
         (part,), identity, flags, prune, discard = absorbed["ss03"]
-        assert part.name.startswith("ss03.") and identity == (1, 2, 3, 4) and prune and not discard
+        assert part == conform.FreshMemo((), 1, 6, 1) and identity == (1, 2, 3, 4) and prune and not discard
         assert flags == b"\x01" * self.ROWS
         assert absorbed["ss04"][0] == [] and absorbed["ss04"][2] == b"\x01\x01\x00\x00"
         lines = [line for line in capsys.readouterr().err.splitlines() if line.startswith("[t] settle_memo ")]
         assert [line.split()[2] for line in lines] == list(conform.SETTLEMENT_CONFIGS)
         tails = {line.split()[2]: line.split(" ", 4)[4] for line in lines}
-        assert tails["ss03"] == "loaded=4 stale=0 fresh=1 pruned=0 written=yes"
-        assert tails["ss04"] == "loaded=4 stale=0 fresh=0 pruned=2 written=yes"
+        assert tails["ss03"] == (
+            "loaded=4 stale=0 fresh=1 pruned=0 written=yes index=rebuilt standing=4 kept=4 patched=0 dropped=0"
+        )
+        assert tails["ss04"] == (
+            "loaded=4 stale=0 fresh=0 pruned=2 written=yes index=rebuilt standing=4 kept=2 patched=0 dropped=2"
+        )
         for config in ("default", "ss05", "ss03+ss05"):
             assert tails[config] == "loaded=4 stale=0 fresh=0 pruned=0 written=no"
         (record,) = ct.load_pool_records(ct.JOURNAL)
@@ -1430,7 +1544,7 @@ class TestConformFanIn:
         }
 
     def test_units_that_mapped_two_versions_of_the_file_prune_nothing(self, monkeypatch, tmp_path, capsys):
-        """When one of `ss03`'s units mapped another version of the file than the others, their flags index two row sets, so the parent warns and its absorb keeps every row (`prune=False`) while still merging the part, even though the unit that differs finishes first and every other unit's reach leaves rows unreached. A configuration whose units agree, reach every row, and wrote no part still gets no absorb."""
+        """When one of `ss03`'s units mapped another version of the file than the others, their flags index two row sets, so the parent warns and its absorb keeps every row (`prune=False`) while still merging the unit's fresh windows, even though every other unit's reach leaves rows unreached. A configuration whose units agree, reach every row, and settled nothing fresh still gets no absorb."""
         self._pool(monkeypatch)
         absorbed = self._memos(
             monkeypatch,
@@ -1442,7 +1556,7 @@ class TestConformFanIn:
         run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=6)
         assert set(absorbed) == {"ss03"}
         (part,), _identity, _flags, prune, discard = absorbed["ss03"]
-        assert part.name.startswith("ss03.") and not prune and not discard
+        assert part == conform.FreshMemo((), 1, 6, 1) and not prune and not discard
         out, err = capsys.readouterr()
         assert "settle-memo-ss03.bin was mapped at more than one version by ss03's units" in out + err
         tails = {
@@ -1450,10 +1564,12 @@ class TestConformFanIn:
             for line in err.splitlines()
             if line.startswith("[t] settle_memo ")
         }
-        assert tails["ss03"] == "loaded=4 stale=0 fresh=1 pruned=0 written=yes"
+        assert tails["ss03"] == (
+            "loaded=4 stale=0 fresh=1 pruned=0 written=yes index=rebuilt standing=4 kept=4 patched=0 dropped=0"
+        )
 
     def test_a_unit_that_retired_its_store_makes_the_absorb_discard_the_file(self, monkeypatch, tmp_path):
-        """A unit whose probe found the file corrupt retired its store and reached nothing. Its configuration gets an absorb even with no part, and the absorb is told to discard the file's rows rather than carry them into the rewrite."""
+        """A unit whose probe found the file corrupt retired its store and reached nothing. Its configuration gets an absorb even with no fresh window, and the absorb is told to discard the file's rows rather than carry them into the rewrite."""
         self._pool(monkeypatch)
         absorbed = self._memos(monkeypatch, tmp_path, {}, retired=("ss05", "a"))
         run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=6)
@@ -1464,7 +1580,7 @@ class TestConformFanIn:
     def test_a_unit_that_raises_cancels_the_units_still_queued_and_absorbs_nothing(
         self, monkeypatch, tmp_path
     ):
-        """At width one, when the first unit raises, the sweep re-raises its error having run at most the one unit its freed slot took before the queue was cancelled. No absorb is submitted, so no memo is pruned from a partial set of units, and no summary is written."""
+        """When the first unit raises, the sweep re-raises its error once the unit already running has finished, having submitted no more than the pool's width and cancelled what was still queued. No absorb is submitted, so no memo is pruned from a partial set of units, and no summary is written."""
         self._pool(monkeypatch)
         absorbed = self._memos(monkeypatch, tmp_path, {})
         monkeypatch.setattr(
@@ -1472,15 +1588,16 @@ class TestConformFanIn:
             "_spawn_pool",
             lambda jobs, units, max_tasks_per_child=None: ThreadPoolExecutor(max_workers=1),
         )
-        monkeypatch.setattr(run_m1_gates, "as_completed", as_completed)
         ran: list[str] = []
 
-        def unit(spec, font_path, config, last, max_length, glyphs, guard_verdicts, settle_memo):
+        def unit(
+            spec, font_path, config, last, max_length, glyphs, guard_verdicts, settle_memo, memo_to, spec_path
+        ):
             ran.append(config)
             if config in conform.OVERLAY_CONFIGS:
                 raise ValueError("the overlay failed")
             time.sleep(0.2)
-            return conform.ConformanceConfigResult(config=config), 1
+            return conform.ConformanceConfigResult(config=config), 1, None
 
         monkeypatch.setattr(run_m1_gates, "_conformance_unit", unit)
         with pytest.raises(ValueError, match="the overlay failed"):
@@ -1490,22 +1607,123 @@ class TestConformFanIn:
         assert absorbed == {}
         assert not (tmp_path / "conform_summary.json").exists()
 
-    def test_a_short_count_raises_before_anything_is_written(self, monkeypatch, tmp_path):
-        """A configuration whose units shaped fewer texts than every text of its lengths raises before the summary is written and before any absorb is submitted, so neither a green nor a memo pruned from a partial walk can follow from it."""
+    def test_a_short_count_raises_before_its_configuration_is_absorbed(self, monkeypatch, tmp_path):
+        """A configuration whose units shaped fewer texts than every text of its lengths raises before the summary is written and before its own absorb is submitted, so neither a green nor a memo pruned from a partial walk can follow from it. A configuration whose units all finished and checked before it (`default`) has been absorbed already, from its own units alone, and the segment each unit shipped its fresh windows in is unlinked whether or not an absorb mapped it."""
         self._pool(monkeypatch)
-        absorbed = self._memos(monkeypatch, tmp_path, {}, parts=[("default", "a")], lose=("ss04", "c"))
+        absorbed = self._memos(
+            monkeypatch, tmp_path, {}, parts=[("default", "a"), ("ss04", "a")], lose=("ss04", "c")
+        )
+        names: list[str] = []
+        shipping = oracle.ship
+
+        def ship(pieces, name):
+            names.append(name)
+            return shipping(pieces, name)
+
+        monkeypatch.setattr(oracle, "ship", ship)
         expected = sum(len(self.ALPHABET) ** length for length in range(1, conform.SWEEP_MAX_LENGTH + 1))
         with pytest.raises(
             RuntimeError,
             match=rf"conformance sweep\[ss04\]: its units shaped {expected - 1} texts, not the {expected}",
         ):
             run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=6)
-        assert absorbed == {}
+        assert set(absorbed) == {"default"}
         assert not (tmp_path / "conform_summary.json").exists()
+        assert len(names) == 2
+        for name in names:
+            with pytest.raises(FileNotFoundError):
+                shared_memory.SharedMemory(name, track=False)
+        assert not list(tmp_path.glob(f"{run_m1_gates.SWEEP_SCRATCH_PREFIX}*"))
+
+    def test_the_sweeps_file_is_the_same_whatever_order_its_units_finish_in(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """Every unit of `default` restates one window with an outcome of its own, so the outcome the file keeps is the last unit's its absorb reads. The parent hands the absorb its units' fresh windows in unit-slot order, so whether the units finish in slot order or the reverse, the file comes out byte for byte as the absorb writes it from the units in slot order. Each unit reads the parent's spec dump and runs in a process of its own, and the parent reports the most its units' segments held at once on its `[t] conform_fan_in` line."""
+        self._pool(monkeypatch)
+        memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", "stamp")
+        monkeypatch.setattr(conform, "settle_memo_files", lambda out_dir, spec, inputs: {"default": memo})
+        edge = ("#EDGE",) * 4
+
+        def fresh(symbol):
+            outcome = cast(conform._Outcome, (f"settled-{symbol}", "", ""))
+            windows = [
+                cast(conform._Window, ("shared", "#EDGE", *edge)),
+                cast(conform._Window, (f"qs{symbol}", "#EDGE", *edge)),
+            ]
+            return conform._fresh_memo([(window, outcome) for window in windows])
+
+        def swept(*args, settle_memo=None, last=None, **kwargs):
+            result = self._swept(*args, settle_memo=settle_memo, last=last, **kwargs)
+            if settle_memo is not None:
+                result.memo_reach = conform.MemoReach(
+                    None, False, 0, 0, 0, 0, zlib.compress(b"", 1), fresh(last), 0.0
+                )
+            return result
+
+        monkeypatch.setattr(conform, "_conformance_config", swept)
+        adopted: list[Path] = []
+        monkeypatch.setattr(run_m1.kernel_exec, "adopt_spec_dump", lambda spec, path: adopted.append(path))
+        widths: list = []
+
+        def pool(jobs, units, max_tasks_per_child=None):
+            widths.append(max_tasks_per_child)
+            return _InlinePool()
+
+        monkeypatch.setattr(run_m1, "_spawn_pool", pool)
+        written = {}
+        for name, order in (
+            ("slot", lambda futures: futures),
+            ("reverse", lambda futures: list(reversed(futures))),
+        ):
+            monkeypatch.setattr(
+                run_m1_gates, "wait", lambda futures, return_when, order=order: (order(list(futures)), set())
+            )
+            run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=4)
+            written[name] = memo.path.read_bytes()
+            memo.path.unlink()
+        reference = tmp_path / "reference.bin"
+        conform.absorb_settle_memo(
+            memo,
+            None,  # pyright: ignore[reportArgumentType]
+            [fresh(symbol) for symbol in self.ALPHABET],
+            emit=lambda finished: conform._put_settle_memo(finished, reference),
+        )
+        assert written["slot"] == written["reverse"] == reference.read_bytes()
+        units = run_m1_gates.sweep_units(self.ALPHABET, conform.SWEEP_MAX_LENGTH)
+        assert adopted == [Path("parent-spec.json")] * 2 * len(units)
+        assert widths == [1, 1]
+        fan_in = [
+            entry
+            for entry in ct.parse_inner_timings(capsys.readouterr().out)
+            if entry["label"] == "conform_fan_in"
+        ]
+        assert len(fan_in) == 2 and all(entry["memo_held_gb"] >= 0 for entry in fan_in)
+
+    def test_a_dead_sweeps_segments_are_unlinked_by_the_next_sweep(self, tmp_path):
+        """A SIGKILL of a pooled conformance sweep's whole process group skips every exit, so the segments its units shipped and no absorb mapped stay in the kernel. The next sweep over the same out directory unlinks them by the names the dead sweep recorded under it, and keeps a running sweep's record."""
+        finished = subprocess.Popen([sys.executable, "-c", ""])
+        finished.wait()
+        dead = tmp_path / f"{run_m1_gates.SWEEP_SCRATCH_PREFIX}{finished.pid}"
+        dead.mkdir()
+        (dead / oracle.SEGMENT_RECORD).write_text("0123456789ab 3\n")
+        left = run_m1_gates._sweep_segment_names("0123456789ab", 3)[1]
+        shared_memory.SharedMemory(left, create=True, size=8, track=False).close()
+        live = tmp_path / f"{run_m1_gates.SWEEP_SCRATCH_PREFIX}{os.getppid()}"
+        live.mkdir()
+        with run_m1_gates._SweepSegments(tmp_path, 2) as segments:
+            assert len({segments.name(0), segments.name(1)}) == 2
+            assert not dead.exists() and live.is_dir()
+            assert run_m1_gates._sweep_scratch(tmp_path).is_dir()
+            with pytest.raises(FileNotFoundError):
+                shared_memory.SharedMemory(left, track=False)
+            shared_memory.SharedMemory(segments.name(1), create=True, size=8, track=False).close()
+        with pytest.raises(FileNotFoundError):
+            shared_memory.SharedMemory(segments.name(1), track=False)
+        assert not run_m1_gates._sweep_scratch(tmp_path).exists()
 
     def test_the_unit_worker_and_the_absorb_pickle_for_spawn(self):
         """The inline pool never pickles what it runs, but a spawn pool pickles every submission by module and name, so a nested wrapper would pass every other test here and fail only on the first real pooled conformance sweep."""
-        for task in (run_m1_gates._conformance_unit, run_m1_gates._absorb_sweep_memo):
+        for task in (run_m1_gates._conformance_unit, run_m1_gates._absorb_memo):
             assert pickle.loads(pickle.dumps(task)) is task
 
 

@@ -16,7 +16,7 @@ import pytest
 from rebuild.pipeline import conform, defects, fixtures, kernel_exec, run_m1, run_m1_gates, spec_load
 from rebuild.pipeline import table as table_module
 from rebuild.tools import artifact_cycle as ac
-from rebuild.tools import console, cycle_paths
+from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
 
 SPEC = fixtures.mini_spec()
@@ -380,7 +380,7 @@ class TestTheFirstRed:
 
 
 def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None, **gates):
-    """Stubs what `run_m1.full_run` calls around `run` (the Stage A capture and the pre-gate guards, which read files under rebuild/out, the keys, the spec, the pin gate, and the oracle), points `run_m1.OUT_DIR`, where the Stage A record is deleted and written, at `tmp_path`, and leaves `run` real, writing under `tmp_path`, and the ledger guard real, compiling the checked-in ledger. The oracle stub records its start, calls `on_oracle`, then the `memo_ready` it was passed (where the real oracle waits before its first memo write), then `after_memo`, and records its end."""
+    """Stubs what `run_m1.full_run` calls around `run` (the Stage A capture and the pre-gate guards, which read files under rebuild/out, the keys, the spec, the pin gate, and the oracle), points `run_m1.OUT_DIR`, where the Stage A record is deleted and written, at `tmp_path`, and leaves `run` real, writing under `tmp_path`, and the ledger guard real, compiling the checked-in ledger. The oracle stub records its start, calls `on_oracle`, then the `memo_ready` it was passed (where the real oracle waits before its first memo write), recording the seconds it returns in `events` as `("memo_wait", seconds)`, then `after_memo`, and records its end."""
     real_run = run_m1.run
     monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
     monkeypatch.setattr(
@@ -408,7 +408,7 @@ def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None
         if on_oracle is not None:
             on_oracle()
         if memo_ready is not None:
-            memo_ready()
+            events.append(("memo_wait", memo_ready()))
         if after_memo is not None:
             after_memo()
         events.append("oracle")
@@ -421,20 +421,18 @@ def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None
 
 class TestMain:
     def test_the_oracle_starts_behind_the_replay_and_writes_behind_the_witness_stage(
-        self, monkeypatch, tmp_path, capsys
+        self, monkeypatch, tmp_path
     ):
-        """The oracle starts once the replay has returned, while the witness stage runs, and the `memo_ready` it is passed (which `run_oracle` calls before its first settle memo write) returns only once the witness stage has absorbed its part into the file. So the witness stage is the only writer while the two overlap, and the oracle's writes read what it wrote. The witness stub waits until the oracle has started, so an oracle that waited for the witness stage fails the wait instead of hanging. The stub then writes a part and absorbs it through `conform.absorb_settle_memo_parts` as the real stage does, and the oracle stub checks that the file is readable as soon as its wait returns."""
+        """The oracle starts once the replay has returned, while the witness stage runs, and the `memo_ready` it is passed (which `run_oracle` calls before its first settle memo write) returns only once the witness stage has absorbed its fresh windows into the file. So the witness stage is the only writer while the two overlap, and the oracle's writes read what it wrote. The witness stub waits until the oracle has started, so an oracle that waited for the witness stage fails the wait instead of hanging. The stub then absorbs a walk's fresh windows through `conform.absorb_settle_memo` as the real stage does, and the oracle stub checks that the file is readable as soon as its wait returns. The wait returns the seconds it blocked, which the oracle reports, and prints nothing itself."""
         events: list = []
         memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", "stamp")
-        part = tmp_path / "witness-part.gz"
         oracle_started = threading.Event()
         standing: list[bool] = []
 
         def witness():
             assert oracle_started.wait(timeout=20), "the oracle waited for the witness stage"
             time.sleep(0.3)
-            assert conform._write_settle_memo_part(memo, [], part)
-            assert conform.absorb_settle_memo_parts(memo, [part], SPEC)
+            assert conform.absorb_settle_memo(memo, SPEC, [conform._fresh_memo([])]).written
 
         _stub_main(
             monkeypatch,
@@ -448,13 +446,8 @@ class TestMain:
         assert events.index("replay:done") < events.index("oracle:start") < events.index("witnesses:done")
         assert events.index("witnesses:done") < events.index("oracle")
         assert standing == [True]
-        labels = [
-            event.label
-            for event in map(console.parse_line, capsys.readouterr().out.splitlines())
-            if isinstance(event, console.Timing)
-        ]
-        assert "witness_memo_wait" in labels
-        assert labels.index("witness_memo_wait") < labels.index("run_oracle")
+        (waited,) = [event[1] for event in events if isinstance(event, tuple) and event[0] == "memo_wait"]
+        assert waited is not None and waited > 0
 
     def test_a_red_witness_stage_stops_the_oracle_at_its_memo_wait(self, monkeypatch, tmp_path):
         """A witness-stage failure is raised in the oracle at its memo wait, before the oracle writes a memo or a summary, and it is the error the build reports."""

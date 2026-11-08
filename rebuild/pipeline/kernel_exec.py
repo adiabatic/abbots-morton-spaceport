@@ -243,8 +243,8 @@ _BUILT = False
 # The stamp for a window enumeration that is not kept. `build-tables` always writes the windows payload, whose head is where a caller reads the rules and cells back from, and always requires a stamp for that head. A caller with no fingerprint over the rune files has no stamp to give, so it passes this word and keeps no payload: `run_m1.build_tables` keeps the head from its FIFO and drops the rest as it arrives, and this module's `build_tables` reads a payload file in a scratch directory it deletes, so the word never reaches an artifact.
 UNSTAMPED_WINDOWS = "unstamped"
 
-# One scratch dump per live spec, keyed on identity. Each entry holds the spec itself so its id cannot be reused while the entry exists. A dump costs about ten milliseconds and a couple of hundred kilobytes, which the settlement functions would otherwise pay on every invocation. The cap is small because the callers that matter hold one spec, and eviction deletes the directory.
-_SPEC_DUMPS: OrderedDict[int, tuple[ResolvedSpec, tempfile.TemporaryDirectory, Path]] = OrderedDict()
+# One scratch dump per live spec, keyed on identity. Each entry holds the spec itself so its id cannot be reused while the entry exists. A dump costs about ten milliseconds and a couple of hundred kilobytes, which the settlement functions would otherwise pay on every invocation. The cap is small because the callers that matter hold one spec, and eviction deletes the directory of a dump this process wrote, never one it adopted (`adopt_spec_dump`), which has no directory here.
+_SPEC_DUMPS: OrderedDict[int, tuple[ResolvedSpec, tempfile.TemporaryDirectory | None, Path]] = OrderedDict()
 _SPEC_DUMPS_CAP = 4
 _SPEC_DUMPS_LOCK = threading.Lock()
 
@@ -640,10 +640,23 @@ def _spec_dump(spec: ResolvedSpec) -> Path:
         kernel_io.write_spec(spec, path)
         _SPEC_DUMPS[key] = (spec, scratch, path)
         _SPEC_DUMPS.move_to_end(key)
-        while len(_SPEC_DUMPS) > _SPEC_DUMPS_CAP:
-            _evicted_key, (_evicted_spec, evicted_scratch, _evicted_path) = _SPEC_DUMPS.popitem(last=False)
-            evicted_scratch.cleanup()
+        _evict_spec_dumps()
         return path
+
+
+def adopt_spec_dump(spec: ResolvedSpec, path: Path) -> None:
+    """Make `path`, a dump of `spec` another process wrote and owns (`_spec_dump` in a pool's parent), the dump this process's settlement functions and guard sweep read for `spec`, so a pool worker writes no `spec.json` of its own. Nothing here deletes the file: an adopted entry has no directory for eviction to remove, and the process that wrote the dump removes it."""
+    with _SPEC_DUMPS_LOCK:
+        _SPEC_DUMPS[id(spec)] = (spec, None, Path(path))
+        _SPEC_DUMPS.move_to_end(id(spec))
+        _evict_spec_dumps()
+
+
+def _evict_spec_dumps() -> None:
+    while len(_SPEC_DUMPS) > _SPEC_DUMPS_CAP:
+        _evicted_key, (_evicted_spec, evicted_scratch, _evicted_path) = _SPEC_DUMPS.popitem(last=False)
+        if evicted_scratch is not None:
+            evicted_scratch.cleanup()
 
 
 def enumerate_configs(
