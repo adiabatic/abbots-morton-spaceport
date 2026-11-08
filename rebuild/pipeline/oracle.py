@@ -989,13 +989,15 @@ def _compare_config(
     if not table_path.exists():
         result.notes.append(f"{config}: subset table missing at {table_path}")
         return result
-    # The oracle's rows are texts the conformance sweep also shapes, so they settle through the conformance sweep's shared settle memo file (`settle_memo`). The rows of each chunk that need walking are settled in one `walk_many` call, and each row is compared with the stream that call returned. `_compare_row` reads cells, not glyph names, so the walk gets an empty `glyph_names`; its memo keys are the same either way. The overlay configuration's walk reads the registry and settles nothing.
+    # The oracle's rows are texts the conformance sweep also shapes, so they settle through the conformance sweep's shared settle memo file (`settle_memo`). The rows of each chunk that need walking are settled in one `walk_many` call, and each row is compared with the stream that call returned. `_compare_row` reads cells, not glyph names, so the walk gets an empty `glyph_names`; its memo keys are the same either way. A store hit whose window spells out its whole row stays in the mapped file (`promote_pinned=False`), since no other row reads it. The overlay configuration's walk reads the registry and settles nothing.
     walker: _SettledWindowWalk | IsolatedOverlayWalk
     if isolated_overlay_active(spec, features):
         walker = IsolatedOverlayWalk(spec)
     else:
         assert guard_verdicts is not None
-        walker = _SettledWindowWalk(spec, features, {}, guard_verdicts, memo=settle_memo)
+        walker = _SettledWindowWalk(
+            spec, features, {}, guard_verdicts, memo=settle_memo, promote_pinned=False
+        )
     config_started = time.perf_counter()
     rows = iter_rows(table_path, first_row, stop_row)
     # Only stale rows are walked. A served row's verdict comes from the store in the same form as a fresh one before `_match_compiled` sees it, and the second loop visits the chunk in table order, so the audit bytes do not depend on which rows were served. A walked row whose stored position `store.position_servable` allows keeps that position when its fresh settled digest equals the record's, which on a pass whose row stamp moved is how positions are served at all. Verification samples are drawn from served rows, not from written ones, because a read-only pass (`--gates-only`) serves verdicts without writing any. A served position verdict is used only when this pass's ledger sends the row through the position comparison. For a row the ledger excludes, the stored position verdict is written forward unchanged, so a later ledger edit that includes the row again can use it.
@@ -1185,7 +1187,7 @@ def _compare_config(
     if memo_line is not None:
         print(memo_line, file=sys.stderr, flush=True)
     print(
-        f"[t] oracle {label} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} first={start_row} positions={result.positions_compared} served={served_rows} positions_served={result.positions_served}",
+        f"[t] oracle {label} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} first={start_row} positions={result.positions_compared} served={served_rows} positions_served={result.positions_served} promoted={walker.promoted_hits} kept={walker.kept_hits}",
         file=sys.stderr,
         flush=True,
     )

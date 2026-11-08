@@ -344,6 +344,8 @@ class IsolatedOverlayWalk:
     """The overlay configuration's replacement for `_SettledWindowWalk`, with the same `walk_many` interface. It computes each text from the registry alone (`settle.isolated_overlay_settled` for the stream, `isolated_overlay_labels` for the names), with no crate and no memo, so the oracle can run one loop for both kinds of configuration."""
 
     single_settles = 0
+    promoted_hits = 0
+    kept_hits = 0
 
     def __init__(self, spec: ResolvedSpec):
         self.spec = spec
@@ -569,15 +571,20 @@ def _memo_slots(columns: Sequence[Iterable[int]], slots: int) -> Iterator[int]:
 
 
 def _memo_index(
-    columns: Sequence[_MemoColumn], values: _MemoColumn, index: array | None = None, indexed: int = 0
+    columns: Sequence[_MemoColumn],
+    values: _MemoColumn,
+    index: array | None = None,
+    indexed: int = 0,
+    distinct: int | None = None,
 ) -> tuple[array, bytearray | None]:
-    """Build the open-addressed index over `columns` and return it with a keep mask. The index has the smallest power-of-two slot count at least 2N, each slot holding row + 1 or 0 for empty, probed linearly from `_memo_slots`. A row whose key an earlier row already holds gives that row its value and is dropped, as a later dict entry replaces an earlier one in place. The mask is None when every key is distinct, and otherwise flags the rows to keep.
+    """Build the open-addressed index over `columns` and return it with a keep mask. The index has the smallest power-of-two slot count at least 2N, each slot holding row + 1 or 0 for empty, probed linearly from `_memo_slots`. N is the row count, or `distinct` when the caller passes it: the count of distinct keys among the rows, from a caller that knows which of its rows repeat a key (`_SettledWindowWalk.save_memo`), so the index is sized for the rows it keeps. A row whose key an earlier row already holds gives that row its value and is dropped, as a later dict entry replaces an earlier one in place. The mask is None when every key is distinct, and otherwise flags the rows to keep.
 
-    `index` and `indexed` pass an index that already holds the first `indexed` rows at these row numbers (a standing file's index, when no row ahead of the new ones changed). Only the later rows are then inserted, provided the index stays at most half full with every row; otherwise it is rebuilt.
+    `index` and `indexed` pass an index that already holds the first `indexed` rows at these row numbers (a standing file's index, when no row ahead of the new ones changed). Only the later rows are then inserted, provided the index stays at most half full with N rows; otherwise it is rebuilt.
     """
     rows = len(values)
-    if index is None or len(index) < 2 * rows:
-        slots = 1 << (2 * rows - 1).bit_length() if rows else 0
+    keys = rows if distinct is None else distinct
+    if index is None or len(index) < 2 * keys:
+        slots = 1 << (2 * keys - 1).bit_length() if keys else 0
         index = array("I", [0]) * slots
         indexed = 0
     slots = len(index)
@@ -1225,9 +1232,10 @@ def _finish_settle_memo(
     values: _MemoColumn,
     index: array | None = None,
     indexed: int = 0,
+    distinct: int | None = None,
 ) -> FinishedSettleMemo:
-    """Index `columns` and `values`, already in `tables`' id space and typecodes, and lay them out as a file under `memo`'s stamp and family keys: `_memo_index` builds the index and merges a repeated key onto its first row with the later row's value, the merged rows are dropped and the index renumbered, and the header and tables are pickled. `index` and `indexed` pass a standing file's index as `_memo_index` takes them."""
-    index, keep = _memo_index(columns, values, index, indexed)
+    """Index `columns` and `values`, already in `tables`' id space and typecodes, and lay them out as a file under `memo`'s stamp and family keys: `_memo_index` builds the index and merges a repeated key onto its first row with the later row's value, the merged rows are dropped and the index renumbered, and the header and tables are pickled. `index` and `indexed` pass a standing file's index, and `distinct` the count of distinct keys among the rows, as `_memo_index` takes them."""
+    index, keep = _memo_index(columns, values, index, indexed, distinct)
     if keep is not None:
         columns = [array(tables.typecode, itertools.compress(column, keep)) for column in columns]
         values = array(tables.value_typecode, itertools.compress(values, keep))
@@ -1245,6 +1253,7 @@ def _settled_memo(
     columns: Sequence[array],
     values: array,
     standing: tuple[array, int, int, int] | None = None,
+    distinct: int | None = None,
 ) -> FinishedSettleMemo:
     """`_write_settle_memo`'s file, finished in memory and not yet written."""
     tables = _memo_tables(labels, outcomes)
@@ -1264,7 +1273,7 @@ def _settled_memo(
             or tables.canon_outcomes[:standing_outcomes] != list(range(standing_outcomes))
         ):
             reused, indexed = None, 0
-    return _finish_settle_memo(memo, tables, folded, folded_values, reused, indexed)
+    return _finish_settle_memo(memo, tables, folded, folded_values, reused, indexed, distinct)
 
 
 def _put_settle_memo(finished: FinishedSettleMemo, path: Path) -> bool:
@@ -1288,21 +1297,22 @@ def _write_settle_memo(
     values: array,
     path: Path | None = None,
     standing: tuple[array, int, int, int] | None = None,
+    distinct: int | None = None,
 ) -> bool:
     """Write a settle memo file in the layout `_MemoStore` maps, and return whether it was written. This, `read_replay_memo`'s streaming absorb and `absorb_settle_memo` are the writers of that layout, and all three lay it out through `_settle_memo_head` and `FinishedSettleMemo`.
 
     The layout is: an eight-byte little-endian length, then the header pickle (the format, `memo.stamp`, `memo.family_keys`, the row count `rows`, the table sizes `labels` and `outcomes`, the index size `slots`, the column typecodes `typecode` and `value_typecode`, and the byte length `tables` of the next pickle), then the label and outcome tables as one pickle, then the six id columns, the value column, and the probe index as fixed-width little-endian arrays. Every section starts on an eight-byte boundary.
 
-    `labels` and `outcomes` are the tables that the caller's `columns` and `values` index, and they may contain repeats. Each repeated label is merged onto its first id and each repeated outcome onto its first equal, and the columns are remapped to match, so the file's tables list each entry once (`_memo_tables`). An id column uses `H` while its table fits in sixteen bits and `I` otherwise. `_memo_index` then builds the index and merges a repeated key onto its first row, with the later entry's outcome, so the file holds one row per window.
+    `labels` and `outcomes` are the tables that the caller's `columns` and `values` index, and they may contain repeats. Each repeated label is merged onto its first id and each repeated outcome onto its first equal, and the columns are remapped to match, so the file's tables list each entry once (`_memo_tables`). An id column uses `H` while its table fits in sixteen bits and `I` otherwise. `_memo_index` then builds the index and merges a repeated key onto its first row, with the later entry's outcome, so the file holds one row per window. `distinct`, from a caller that knows how many of its rows repeat a window, is the count of distinct windows among them, so the index is sized for the rows the file keeps and not for every row passed (`_memo_index`).
 
-    With `H` columns a window costs 12 key bytes, 2 value bytes, and 4 bytes per index slot over the index's 2N to 4N slots: 22 to 30 bytes uncompressed on disk, depending on where the row count falls below its power of two. The `[t] settle_memo` lines count the windows, and `du` on `rebuild/out/m1/settle-memo-*.bin` reports the file sizes; both grow with the alphabet. While writing, the heap holds the caller's columns, the remapped copies, and the index at once, roughly the file's size plus the columns'. The serial conformance sweep's save and a `--jobs 1` oracle's save hold that much once per configuration. `absorb_settle_memo` copies the standing rows straight from the mapping and holds only the fresh rows and the index, and the replay's streaming absorb holds the remapped columns alone, since it remaps each block of rows as it arrives (`read_replay_memo`).
+    With `H` columns a window costs 12 key bytes, 2 value bytes, and 4 bytes per index slot over the index's 2N to 4N slots: 22 to 30 bytes uncompressed on disk, depending on where the row count falls below its power of two. The `[t] settle_memo` lines count the windows, and `du` on `rebuild/out/m1/settle-memo-*.bin` reports the file sizes; both grow with the alphabet. While writing, the heap holds the caller's columns, the remapped copies, and the index at once, roughly the file's size plus the columns'. The serial conformance sweep's save and a `--jobs 1` oracle's save hold that much once per configuration. A `--jobs 1` oracle's save whose walk left a whole-text hit in the store holds more: its columns also carry a copy of each row the walk copied into `windows` (`_SettledWindowWalk.save_memo`), and merging those copies away adds a keep flag a row, compacted copies of the columns, a renumbering of 4 bytes a row, and a renumbered copy of the index beside the first (`_finish_settle_memo`). `absorb_settle_memo` copies the standing rows straight from the mapping and holds only the fresh rows and the index, and the replay's streaming absorb holds the remapped columns alone, since it remaps each block of rows as it arrives (`read_replay_memo`).
 
     `standing` is a standing file's index with its row, label, and outcome counts. It says that the first rows of `columns`, up to that row count, are that file's live rows in its own id space with none dropped before them. The index is then copied and only the later rows are inserted. The writer checks that its merges leave those ids unchanged and that the index has room, and builds a new index otherwise. No pipeline caller passes it: it is the form of the carry-and-append absorb that `rebuild/test_conform.py` and the memory series' absorbs holder prove `absorb_settle_memo`'s bytes against.
 
     The file is written to `<path>.<pid>.tmp` (`FinishedSettleMemo.stage`), each section as one write of a view over its array, and moved into place with `os.replace` (`_put_settle_memo`). A reader that mapped the old file keeps it unchanged until it closes, and a reader that opens afterward maps the whole new file, so no reader sees a partial file. `path` defaults to `memo.path`. If the filesystem refuses the write, this prints a warning and returns False without failing the build, because every reader settles what the file lacks.
     """
     return _put_settle_memo(
-        _settled_memo(memo, labels, outcomes, columns, values, standing),
+        _settled_memo(memo, labels, outcomes, columns, values, standing, distinct),
         memo.path if path is None else Path(path),
     )
 
@@ -2153,7 +2163,7 @@ class _SettledWindowWalk:
 
     `memo` names the file this walk shares with the other walks over the same texts. The string replay fills it on a full replay (`read_replay_memo`), and the witness stage, the oracle, and the conformance sweep each map it and settle what it lacks. It is mapped on the first wave that would otherwise reach the crate, so a walk that settles nothing (an oracle pass whose rows are all served) never opens it. `save_memo` writes it back only when this walk settled a window the file lacked, or pruned one. `_write_settle_memo` describes the file layout, and `_MemoStore` how a walk maps it: the tables go on the heap, and the columns and index stay pages of the mapping, shared in the page cache by every walk that maps the file. An entry whose window names a family whose key changed since the file was written is dropped at load (`oracle_cache.StaleMask` at label grain, including the ligature clause).
 
-    Loaded entries stay in `_cold`, the `_MemoStore` over the mapping, which marks each row it returns as reached. With `promote` (a constructor keyword, on by default) a hit is also copied into `windows`, so the oracle and the witness stage run the store's probe once per window and a dict lookup after that. The conformance sweep runs with `promote=False` and serves every window from the columns: it reaches nearly every loaded window, so promoted copies would cost the key tuples the columns exist to avoid. `save_memo(prune=True)` keeps only the reached rows. The conformance sweep walks every text every pass, so an entry it never reached is a window no text produces any more (its left slot named a settlement an edit has since changed), and keeping it would grow the file with every rune edit. The serial sweep prunes in its own save. The pooled sweep's units each walk a share of the texts, so none of them may prune: each returns its fresh windows and its `reached` flags (`memo_reach`), and the parent prunes through `absorb_settle_memo` over the union of those flags. A pruning save writes the fresh windows first and then the reached rows in file order, a permutation of what a promoting walk would write; no reader can tell the difference, because a load does not depend on row order and the file holds one row per window. The oracle does not prune, because it does not walk the rows its row cache serves, so their windows are never reached. Its whole-file save writes `windows` and then, in file order, every live row `windows` does not hold.
+    Loaded entries stay in `_cold`, the `_MemoStore` over the mapping, which marks each row it returns as reached. With `promote` (a constructor keyword, on by default) a hit is also copied into `windows`, so the witness stage, which prefills its texts and then walks each one again, runs the store's probe once per window and a dict lookup after that. The oracle's walk turns off `promote_pinned`, a constructor keyword also on by default: a hit whose window spells out its whole text (`_is_pinned`) stays in the store, because that text alone reads it, so a copy would cost its key tuple and save no later probe. A text walked again probes the store again and hits, so nothing settles again. Every other hit is copied, and every window the walk settles fresh still goes into `windows`. `promoted_hits` counts the hits copied and `kept_hits` the hits left in the store. The conformance sweep runs with `promote=False` and serves every window from the columns: it reaches nearly every loaded window, so promoted copies would cost the key tuples the columns exist to avoid. `save_memo(prune=True)` keeps only the reached rows. The conformance sweep walks every text every pass, so an entry it never reached is a window no text produces any more (its left slot named a settlement an edit has since changed), and keeping it would grow the file with every rune edit. The serial sweep prunes in its own save. The pooled sweep's units each walk a share of the texts, so none of them may prune: each returns its fresh windows and its `reached` flags (`memo_reach`), and the parent prunes through `absorb_settle_memo` over the union of those flags. A pruning save writes the fresh windows first and then the reached rows in file order, a permutation of what a promoting walk would write; no reader can tell the difference, because a load does not depend on row order and the file holds one row per window. The oracle does not prune, because it does not walk the rows its row cache serves, so their windows are never reached. Its whole-file save, on the `--jobs 1` path, writes `windows` in the order the walk met them and then every other live row in file order. When its walk left a hit in the store it carries every live row, and `_memo_index` merges the carried copy of each row the walk copied into `windows` onto that entry, so the file still holds one row per window, with the same windows and outcomes, and an index of the same slot count, as a walk that copies every hit would write.
 
     A walk over a set of texts fixed before it runs can restrict the load to the windows those texts can ask for (`load_only_asked_by`). Only a window's left slot depends on settlement, so the other five slots of every window the texts reach can be computed in advance. A file row outside that set is marked dead at load, counted in `unasked_windows`, and never served. Such a walk cannot tell a dropped row from a window no text reaches, so it never prunes and never replaces the shared file. Its memo is `returns_fresh`: it encodes only the windows it settled fresh, in memory (`FreshMemo`), and its caller hands them to `absorb_settle_memo`, which merges them into the file.
 
@@ -2176,6 +2186,7 @@ class _SettledWindowWalk:
         on_error: str = "raise",
         memo: SettleMemoFile | None = None,
         promote: bool = True,
+        promote_pinned: bool = True,
         horizon: int | None = None,
         max_windows: int | None = None,
     ):
@@ -2194,6 +2205,7 @@ class _SettledWindowWalk:
         self.on_error = on_error
         self.memo = memo
         self._promote = promote
+        self._promote_pinned = promote_pinned
         self.horizon = horizon
         self.max_windows = max_windows
         self.releases = 0
@@ -2208,6 +2220,8 @@ class _SettledWindowWalk:
         self.unasked_windows = 0
         self.pruned_windows = 0
         self.fresh_windows = 0
+        self.promoted_hits = 0
+        self.kept_hits = 0
         self.memo_seconds = 0.0
         self._memo_loaded = False
         self._asks: set[_Ask] | None = None
@@ -2312,7 +2326,11 @@ class _SettledWindowWalk:
                 if store.live:
                     outcome = store.probe(window)
                     if outcome is not None and self._promote:
-                        self.windows[window] = outcome
+                        if self._promote_pinned or not self._is_pinned(window, state):
+                            self.windows[window] = outcome
+                            self.promoted_hits += 1
+                        else:
+                            self.kept_hits += 1
                 if outcome is None:
                     outcome = self._pinned.get(window)
                     if outcome is None:
@@ -2340,7 +2358,7 @@ class _SettledWindowWalk:
         store[window] = self._outcome(item)
 
     def _is_pinned(self, window: _Window, state: _WalkState) -> bool:
-        """Whether `window`, which `state` asked for at its current position, spells out the whole text: its right slots reach the text's last token, the slot after that token is `#EDGE` or the text is at the horizon, and it sits at index 0, or at index 1 of a text at the horizon. Positions count tokens after ligature formation, and the horizon counts characters."""
+        """Whether `window`, which `state` asked for at its current position, spells out the whole text: its right slots reach the text's last token, the slot after that token is `#EDGE` or the text is at the horizon, and it sits at index 0, or at index 1 of a text at the horizon. Positions count tokens after ligature formation, and the horizon counts characters. A horizon walk asks it of each window it settles fresh, and a walk built with `promote_pinned=False` of each store hit. A walk with no horizon has no text at the horizon, so for it the test holds only at index 0, for a text of at most four tokens with no boundary inside it, when the slot after the last token is `#EDGE`."""
         index, labels = state.index, state.labels
         last = len(labels) - 1
         at_horizon = len(state.text) == self.horizon
@@ -2378,7 +2396,9 @@ class _SettledWindowWalk:
     def save_memo(self, prune: bool = False) -> bool:
         """Write the memo back when this walk settled a window the file lacked or pruned a row, and return True when a file was written. The write goes through `_write_settle_memo`, which replaces the file atomically, and then this walk's mapping of the old file is closed. Refusals are not written, so a later walk that reaches one of those windows asks the crate again.
 
-        `prune` drops the loaded entries this walk never reached, counted in `pruned_windows`. It is only correct for a walk over every text, which is the serial conformance sweep's; a pooled sweep's unit walks a share of them and leaves the prune to `absorb_settle_memo`. A pruning walk that promotes nothing writes its fresh windows and then the reached rows in file order. Rows are copied into the new file straight from the mapped columns, with their ids shifted past the fresh windows' labels, without a key tuple per row.
+        The file holds `windows`, less its refusals, and then the loaded rows `windows` may lack. A walk that copied every hit into `windows` carries only the live rows it never reached, in file order. A walk that promotes nothing (`promote=False`), or left a hit whose window spells out its whole text in the store (`kept_hits`, under `promote_pinned=False`), carries every live row in file order, and `_memo_index` merges the carried copy of each row `windows` already holds onto that entry, so the file holds one row per window either way. Only the order differs, and a load does not depend on order. The carried copies are exactly the rows the walk copied into `windows` (`promoted_hits`) while its store still serves rows (a store a probe retired, or an earlier save closed, carries nothing), so the writer sizes the index from the rows less those copies, and the file's index has the slot count a walk that copies every hit would write.
+
+        `prune` drops the loaded entries this walk never reached, counted in `pruned_windows`. It is only correct for a walk over every text, which is the serial conformance sweep's; a pooled sweep's unit walks a share of them and leaves the prune to `absorb_settle_memo`. A pruning walk carries only the reached rows, and only when `windows` may lack one: a pruning walk that promotes nothing writes its fresh windows and then the reached rows in file order. Rows are copied into the new file straight from the mapped columns, with their ids shifted past the fresh windows' labels, without a key tuple per row.
 
         A walk whose memo is `returns_fresh` writes nothing: it encodes the windows it settled fresh, in the order it settled them and less its refusals, as `fresh_memo` (`FreshMemo`), returns True when it settled any, and leaves the shared file to its caller's `absorb_settle_memo`. It keeps its mapping open for `memo_reach`. A walk that restricted its load (`load_only_asked_by`) is always of this kind and never prunes, because a row its load dropped looks the same as a window it never reached.
         """
@@ -2416,13 +2436,19 @@ class _SettledWindowWalk:
         else:
             items = cast(Iterable[tuple[_Window, _Outcome]], entries)
         labels, outcomes, columns, values = _memo_columns(items)
+        holds_every_reached = self._promote and not self.kept_hits
         if prune:
-            if not self._promote:
+            if not holds_every_reached:
                 store.carry_into(labels, outcomes, columns, values, reached=True)
         else:
-            store.carry_into(labels, outcomes, columns, values, reached=False if self._promote else None)
+            store.carry_into(
+                labels, outcomes, columns, values, reached=False if holds_every_reached else None
+            )
+        copies = self.promoted_hits if store.live and not holds_every_reached else 0
         try:
-            return _write_settle_memo(self.memo, labels, outcomes, columns, values)
+            return _write_settle_memo(
+                self.memo, labels, outcomes, columns, values, distinct=len(values) - copies
+            )
         finally:
             store.close()
             self.memo_seconds += time.perf_counter() - started

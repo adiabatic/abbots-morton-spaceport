@@ -3572,6 +3572,31 @@ class TestCrateEmittedSettleMemo:
         assert walker._cold.reached_count() == len(reference.windows)
         assert {window for window, _ in walker._cold.items(reached=True)} == set(reference.windows)
 
+    def test_a_walk_that_keeps_whole_text_hits_in_the_store_answers_alike(
+        self, spec, guard, dumps_dir, tmp_path
+    ):
+        """A walk built with `promote_pinned=False`, as the oracle builds it, over the crate-written file settles every text to depth 3 with the same streams and names as an unmemoized walk and no crate call. A hit whose window spells out its whole text (`_is_pinned`) stays out of `windows` and every other hit enters it, and a text walked twice reads its whole-text window from the store both times."""
+        memo = self._memo(tmp_path)
+        self._absorb(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
+        texts = _texts_to_depth(spec, 3)
+        reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote_pinned=False)
+        assert walker.walk_many(texts) == reference.walk_many(texts)
+        assert walker._settle_calls == 0 and walker.fresh_windows == 0
+        whole: dict[conform._Window, str] = {}
+        for text in texts:
+            state = walker._state(text)
+            if state.tokens[0].kind == "letter" and walker._is_pinned(window := walker._window(state), state):
+                whole[window] = text
+        assert whole and len(whole) < len(reference.windows)
+        assert set(walker.windows) == set(reference.windows) - set(whole)
+        assert walker.promoted_hits == len(walker.windows) and walker.kept_hits == len(whole)
+        assert walker._cold.reached_count() == len(reference.windows)
+        window, text = max(whole.items(), key=lambda item: len(item[1]))
+        assert walker.walk_many([text]) == reference.walk_many([text])
+        assert walker.kept_hits == len(whole) + 1 and window not in walker.windows
+        assert walker._settle_calls == 0 and walker.fresh_windows == 0
+
     def test_a_label_the_file_never_introduced_misses_before_the_crate_is_asked(
         self, spec, guard, dumps_dir, tmp_path
     ):
@@ -3941,11 +3966,13 @@ class TestSettleMemoFile:
     def test_the_store_reads_the_file_as_a_dict_does_and_the_carry_forward_files_the_same_rows(
         self, spec, guard, tmp_path
     ):
-        """The store must read the file as a dict does: `items` iterates the live rows in the dict's order with the dict's outcomes, and `len` is the dict's length. Then a whole-file save without pruning (a walk whose memo is not `returns_fresh`, as in the `--jobs 1` oracle), over a walk that reached some rows and settled others fresh, must write the same rows in the same order as a dict-backed walk: `windows` first, then every loaded entry `windows` does not hold, in file order, copied from the mapped columns."""
+        """The store must read the file as a dict does: `items` iterates the live rows in the dict's order with the dict's outcomes, and `len` is the dict's length. Then a whole-file save without pruning (a walk whose memo is not `returns_fresh`, as in the `--jobs 1` oracle), over a walk that reached some rows and settled others fresh, must write the same rows in the same order as a dict-backed walk: `windows` first, then every loaded entry `windows` does not hold, in file order, copied from the mapped columns. A walk that leaves its whole-text hits in the store (`promote_pinned=False`, as the oracle walks) carries every live row and merges each carried copy of a row it promoted onto its `windows` entry, so over the same texts its file holds the same windows and outcomes, one row a window, as `windows` and then every other loaded entry in file order. Its index has the slot count of the promoting walk's file, and so does the index such a walk writes over a file that lacks one window, where counting a carried copy of each promoted row would take the slot count past the next power of two."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
         assert seed.save_memo()
+        kept = replace(memo, path=tmp_path / "kept.bin")
+        kept.path.write_bytes(memo.path.read_bytes())
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         expected = self._dict_of(walker, memo, spec)
@@ -3973,10 +4000,34 @@ class TestSettleMemoFile:
             ),
             carried,
         )
-        assert self._ordered(memo, spec) == self._ordered(replace(memo, path=carried), spec)
+        promoted_rows = self._ordered(memo, spec)
+        assert promoted_rows == self._ordered(replace(memo, path=carried), spec)
+
+        keeping = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=kept, promote_pinned=False)
+        assert keeping.walk_many(texts) == reference.walk_many(texts)
+        assert keeping.kept_hits and keeping.promoted_hits and keeping.save_memo()
+        kept_rows = self._ordered(kept, spec)
+        assert dict(kept_rows) == dict(promoted_rows) and len(kept_rows) == len(promoted_rows)
+        assert self._header(kept)["slots"] == self._header(memo)["slots"]
+        assert [window for window, _ in kept_rows] == list(keeping.windows) + [
+            window for window in expected if window not in keeping.windows
+        ]
+
+        lacking = replace(memo, path=tmp_path / "lacking.bin")
+        every = cast(dict[conform._Window, conform._Outcome], walker.windows)
+        assert conform._write_settle_memo(
+            lacking, *conform._memo_columns(itertools.islice(every.items(), 1, None))
+        )
+        nearly = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=lacking, promote_pinned=False)
+        assert nearly.walk_many(texts) == reference.walk_many(texts)
+        assert nearly.fresh_windows == 1 and nearly.kept_hits
+        assert 2 * (len(every) + nearly.promoted_hits) > self._header(memo)["slots"]
+        assert nearly.save_memo()
+        assert dict(self._ordered(lacking, spec)) == dict(promoted_rows)
+        assert self._header(lacking)["slots"] == self._header(memo)["slots"]
 
     def test_a_walk_returns_its_fresh_windows_in_the_order_it_settled_them(self, spec, guard, tmp_path):
-        """A walk whose memo is `returns_fresh` writes no file and hands back only its fresh windows, in the order it settled them, one block of `_memo_blocks` at a time; nothing from the loaded store goes into them, and the counts beside the blocks are what the blocks hold."""
+        """A walk whose memo is `returns_fresh` writes no file and hands back only its fresh windows, in the order it settled them, one block of `_memo_blocks` at a time; nothing from the loaded store goes into them, and the counts beside the blocks are what the blocks hold. A walk that leaves its whole-text hits in the store (`promote_pinned=False`, as an oracle range walks) hands back the same blocks byte for byte."""
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
@@ -4006,6 +4057,18 @@ class TestSettleMemoFile:
             sum(len(block[1]) for block in expected),
         )
         assert not set(order) & set(seed.windows)
+        keeping = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True), promote_pinned=False
+        )
+        keeping.walk_many(self._texts(spec, 3))
+        assert keeping.kept_hits and keeping.promoted_hits
+        assert keeping.save_memo() and keeping.fresh_memo is not None
+        assert list(keeping.fresh_memo.blocks) == list(fresh.blocks)
+        assert (keeping.fresh_memo.rows, keeping.fresh_memo.labels, keeping.fresh_memo.records) == (
+            fresh.rows,
+            fresh.labels,
+            fresh.records,
+        )
 
     def _ordered(self, memo, spec) -> list[tuple[tuple[str, ...], settle.Settled]]:
         """Every row of the file at `memo.path` in file order, as its window tuple and settled item."""
@@ -4337,7 +4400,7 @@ class TestSettleMemoFile:
         assert again.fresh_windows == len(refused)
 
     def test_the_sweep_writes_the_file_the_oracle_reads(self, spec, guard, tmp_path, monkeypatch, capsys):
-        """Both phases end to end, in the reverse of the cycle's order: the conformance sweep over the mini alphabet at maximum length 2 with a stand-in font, then the oracle over rows the conformance sweep swept, with `kernel_exec.settle_windows` replaced by a failure. Every window the oracle needs is already in the file, and each phase's `[t]` line shows which one wrote it."""
+        """Both phases end to end, in the reverse of the cycle's order: the conformance sweep over the mini alphabet at maximum length 2 with a stand-in font, then the oracle over rows the conformance sweep swept, with `kernel_exec.settle_windows` replaced by a failure. Every window the oracle needs is already in the file, and each phase's `[t]` line shows which one wrote it. The oracle's `[t] oracle` line counts its hits: the two whose windows spell out a whole row (·Tea alone, and the first ·Tea of ·Tea·Tea) stay in the store, and the other two are promoted."""
         memo = self._memo(tmp_path)
         swept = conform._conformance_config(
             _SilentShaper(),  # pyright: ignore[reportArgumentType]
@@ -4390,10 +4453,11 @@ class TestSettleMemoFile:
             settle_memo=memo,
         )
         assert result.rows_compared == len(rows)
-        oracle_line = [
-            line for line in capsys.readouterr().err.splitlines() if line.startswith("[t] settle_memo")
-        ]
+        lines = capsys.readouterr().err.splitlines()
+        oracle_line = [line for line in lines if line.startswith("[t] settle_memo")]
         assert len(oracle_line) == 1 and oracle_line[0].endswith("fresh=0 pruned=0 written=no")
+        timing = [line for line in lines if line.startswith("[t] oracle default ")]
+        assert len(timing) == 1 and timing[0].endswith(" promoted=2 kept=2")
 
     def test_the_ranges_fresh_windows_absorb_into_the_file_without_dropping_each_others(
         self, spec, guard, tmp_path
