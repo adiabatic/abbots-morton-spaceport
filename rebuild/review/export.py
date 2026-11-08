@@ -67,19 +67,16 @@ def _triage_projection(unit: dict, shard: str, *, batch: int | None = None) -> d
 
 
 def load_units(review_dir: Path) -> tuple[dict, dict[str, dict]]:
-    """Return the manifest and every unit on the corpus narrowed to `TRIAGE_KEYS`, with each unit's batch read from the manifest's triage index.
+    """Return the manifest and every unit on the corpus narrowed to `TRIAGE_KEYS`, with each unit's batch read from the manifest's triage index, classes in manifest order and each class's units in id order.
 
-    The shards run to gigabytes and the export reads under a third of that (`explain` alone is two fifths of a full fragment, and nothing here reads it), so each part is released before the next is parsed and only the projection is kept.
+    The shards run to gigabytes and the export reads under a third of that (`explain` alone is two fifths of a full fragment, and nothing here reads it), so the live fragments are read one at a time through the live-fragment iterator (`unit_index.LiveCorpus`) and only the projection is kept.
     """
     manifest = json.loads((review_dir / "manifest.json").read_text(encoding="utf-8"))
     slot = unit_index.slot_reader(review_dir)
     units: dict[str, dict] = {}
-    for meta in manifest.get("classes", ()):
-        for part in unit_index.class_shards(meta):
-            shard = json.loads((review_dir / part).read_text(encoding="utf-8"))
-            for unit in shard:
-                units[unit["id"]] = _triage_projection(unit, part, batch=slot(unit)["batch"])
-            del shard
+    with unit_index.LiveCorpus(review_dir) as live:
+        for _meta, place, unit in live.fragments(unit_index.MANIFEST_ORDER):
+            units[unit["id"]] = _triage_projection(unit, place.part, batch=slot(unit)["batch"])
     return manifest, units
 
 

@@ -10,14 +10,14 @@ import re
 import shutil
 import sys
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 import yaml
 
-from rebuild.pipeline import fingerprint, fixtures, kernel_exec, spec_load
+from rebuild.pipeline import fingerprint, fixtures, kernel_exec, row_delta, spec_load
 from rebuild.review import app_index, landing, unit_cache, unit_index
 from rebuild.review import build as review_build
 from rebuild.review import enrich as review_enrich
@@ -75,7 +75,6 @@ def _counts(text: str, pattern: str) -> tuple[int, ...]:
 
 CACHED = r"reused (\d[\d,]*) of (\d[\d,]*) units from the cache"
 BYTE_COPIED = r"byte-copied (\d[\d,]*) of (\d[\d,]*) fragments, copied forward (\d[\d,]*) sidecar rows"
-CARRIED = r"carried (\d[\d,]*) of (\d[\d,]*) store records"
 MISS_NOTE = re.compile(r"(unit cache|ink-signature store): .*")
 
 
@@ -94,8 +93,54 @@ def _copy(base: Path, tmp_path: Path) -> Path:
     return target
 
 
+def _stamps(corpus: Path) -> dict:
+    stamps = unit_cache.store_stamps(corpus)
+    assert stamps is not None
+    return stamps
+
+
+def _store_lines(corpus: Path) -> tuple[dict, list[bytes]]:
+    materialized = unit_cache.materialized_store(corpus)
+    assert materialized is not None
+    header, lines = materialized
+    return header, list(lines)
+
+
+def _rewrite_store(
+    corpus: Path,
+    edit: Callable[[dict], dict] | None = None,
+    *,
+    lines: list[bytes] | None = None,
+    parts: list[str] | None = None,
+) -> None:
+    """Rewrite the store whole as its next generation under its own stamps, with `edit` applied to every record, or with `lines` in place of its records, recording the sizes of the parts it records or of `parts`."""
+    header, held = _store_lines(corpus)
+    if lines is None:
+        assert edit is not None
+        lines = [(json.dumps(edit(json.loads(line))) + "\n").encode() for line in held]
+    stamp: fingerprint.EnvironmentStamp | str = header["environment"]
+    if "environment_lines" in header:
+        stamp = fingerprint.EnvironmentStamp(
+            tuple(header["environment_lines"]),
+            tuple((label, tuple(values)) for label, values in header["environment_detail"].items()),
+        )
+    unit_cache.write_store(corpus, stamp, lines, parts=header["parts"] if parts is None else parts)
+
+
+def _form(corpus: Path, tmp_path: Path) -> dict[str, bytes]:
+    """Return the corpus's materialized form (`build.materialize_corpus`), the files a from-scratch build of its units writes, as a tree."""
+    target = tmp_path / f"form-{len(list(tmp_path.glob('form-*')))}"
+    review_build.materialize_corpus(corpus, target)
+    return _tree(target)
+
+
+def _live(corpus: Path) -> dict[str, dict]:
+    """Return the corpus's live fragments by id, through the live-fragment iterator."""
+    return {fragment["id"]: fragment for fragment in unit_index.iter_shard_fragments(corpus)}
+
+
 def test_no_change_rebuild_reuses_every_unit_and_is_byte_stable(mini_corpus, mini_bundle, tmp_path, capfd):
-    """A rebuild over unchanged inputs reuses every unit, copies every fragment's bytes without rewriting any shard part (the parts' mtimes do not change), projects every sidecar row from the previous sidecars without parsing a fragment, and copies every store record's line from the previous store. The corpus it leaves is byte for byte the one it found."""
+    """A rebuild over unchanged inputs reuses every unit, keeps every fragment at its address without rewriting any shard part (the parts' mtimes do not change) or appending any, projects every sidecar row from the previous sidecars without parsing a fragment, and writes the store's head alone, since no record changed. The corpus it leaves is byte for byte the one it found."""
     corpus = _copy(mini_corpus, tmp_path)
     before = _tree(corpus)
     mtimes = _part_mtimes(corpus)
@@ -107,7 +152,8 @@ def test_no_change_rebuild_reuses_every_unit_and_is_byte_stable(mini_corpus, min
     assert MISS_NOTE.search(report) is None, report
     byte_copied, written, copied_forward = _counts(report, BYTE_COPIED)
     assert (byte_copied, written, copied_forward) == (total, total, total)
-    assert _counts(report, CARRIED) == (total, total)
+    assert "(store: head only)" in report
+    assert "appended 0.0 MB, kept 0 by compare, folded 0 classes, wrote 0 directly, dead 0.0 MB" in report
     assert _part_mtimes(corpus) == mtimes
     assert _tree(corpus) == before
 
@@ -115,8 +161,8 @@ def test_no_change_rebuild_reuses_every_unit_and_is_byte_stable(mini_corpus, min
 RETAG_CLASS = "identical-unused-join-name"
 
 
-def _edited_audit(tmp_path: Path) -> Path:
-    """Return the mini audit with one window dropped and one moved to another ledger class. Dropping a window shifts the triage positions, and so the batches, of the units after it. Retagging a window changes its class and so its duplicate-group key. An incremental rebuild must recompute both, not only patch units in place.
+def _edited_audit(tmp_path: Path, retags: int = 1) -> Path:
+    """Return the mini audit with one window dropped and `retags` windows moved to another ledger class, the first `retags` of the same list each time. Dropping a window shifts the triage positions, and so the batches, of the units after it. Retagging a window changes its class and so its duplicate-group key. An incremental rebuild must recompute both, not only patch units in place.
 
     The retag uses a matched class rather than UNMATCHED for a data reason: `build_m1` refuses an ink-identical window that claims a change group, which is true of the live corpus (every UNMATCHED window is a real new join under review) but not of a window a test declares UNMATCHED by editing a TSV. Every row of the window moves together, since two matched classes on one triple is a classification bug the loader raises on.
     """
@@ -130,16 +176,18 @@ def _edited_audit(tmp_path: Path) -> Path:
             windows.append(fields[1])
         classes.setdefault(fields[1], fields[3])
     dropped = windows[3]
-    retagged = next(window for window in windows[4:] if classes[window] != RETAG_CLASS and window != dropped)
+    retagged = [window for window in windows[4:] if classes[window] != RETAG_CLASS and window != dropped][
+        :retags
+    ]
     edited = []
     for row in rows:
         fields = row.split("\t")
         if fields[1] == dropped:
             continue
-        if fields[1] == retagged:
+        if fields[1] in retagged:
             fields[3] = RETAG_CLASS
         edited.append("\t".join(fields))
-    path = tmp_path / "audit-edited.tsv"
+    path = tmp_path / f"audit-edited-{retags}.tsv"
     path.write_text("\n".join([header] + edited) + "\n", encoding="utf-8")
     return path
 
@@ -182,28 +230,40 @@ def _out_of_order_audit(tmp_path: Path) -> tuple[Path, dict[str, list[str]]]:
 
 
 @pytest.fixture(scope="module")
-def edited_scratch(build_once, mini_bundle) -> tuple[Path, Path]:
-    """Return the edited mini audit (`_edited_audit`) and a from-scratch build of it, built once a run (`build_once`) for every case of the incremental-rebuild test, which only read them."""
+def edited_scratch(build_once, mini_bundle) -> tuple[list[Path], list[Path]]:
+    """Return two edited mini audits (`_edited_audit`, with one window retagged and then two) and a from-scratch build of each, built once a run (`build_once`) for every case of the incremental-rebuild test, which only read them."""
 
     def build(directory: Path) -> None:
-        _build(directory / "scratch", mini_bundle, audit_path=_edited_audit(directory), jobs=1)
+        for retags in (1, 2):
+            _build(
+                directory / f"scratch-{retags}",
+                mini_bundle,
+                audit_path=_edited_audit(directory, retags),
+                jobs=1,
+            )
 
-    directory = build_once("mini-corpus-edited-audit", build)
-    return directory / "audit-edited.tsv", directory / "scratch"
+    directory = build_once("mini-corpus-edited-audits", build)
+    return [directory / f"audit-edited-{retags}.tsv" for retags in (1, 2)], [
+        directory / f"scratch-{retags}" for retags in (1, 2)
+    ]
+
+
+def _overflow_parts(corpus: Path) -> list[str]:
+    return sorted(path.name for path in (corpus / "units").glob("*.x*.json"))
 
 
 @pytest.mark.parametrize(("seed", "cloning"), [("copy", True), ("clone", True), ("copy", False)])
 def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
     mini_corpus, mini_bundle, edited_scratch, tmp_path, capfd, monkeypatch, seed, cloning
 ):
-    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves at least one shard part the edit did not reach untouched on disk, and writes a corpus, store included, byte-identical to a from-scratch build of the edited audit. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was. The shard writer starts each part the edit touched from a clone of the previous part (`build._clone`), and where the volume cannot clone, from a copy, to the same bytes. Every case compares against the one from-scratch build `edited_scratch` makes."""
-    edited, scratch = edited_scratch
-    clones: list[tuple[str, bool]] = []
+    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves every shard part it found in place, appends the retagged unit's fragment to its new class's first overflow part, leaves its old slot dead, and writes the store as a segment. Read through the live-fragment iterator its fragments are a from-scratch build's by id, and materialized (`build.materialize_corpus`) the two corpora are byte for byte the same files, store included. A second edit that retags one more window into the same class appends to that overflow part, which the shard writer clones to its staging name (`build._clone`), or copies where the volume cannot clone, and cuts before its closing bytes, to the same bytes. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was. Every case compares against the from-scratch builds `edited_scratch` makes."""
+    audits, scratches = edited_scratch
+    clones: list[bool] = []
     clone = review_build._clone
 
     def spy(source: Path, target: Path) -> bool:
         made = cloning and clone(source, target)
-        clones.append((sys._getframe(1).f_code.co_name, made))
+        clones.append(made)
         return made
 
     monkeypatch.setattr(review_build, "_clone", spy)
@@ -216,19 +276,21 @@ def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
         incremental = served
     mtimes = _part_mtimes(incremental)
     capfd.readouterr()
-    _build(incremental, mini_bundle, audit_path=edited, jobs=1)
+    _build(incremental, mini_bundle, audit_path=audits[0], jobs=1)
     report = capfd.readouterr().err
     cached, total = _counts(report, CACHED)
     assert 0 < total - cached <= 2
     byte_copied, _written, _copied_forward = _counts(report, BYTE_COPIED)
     assert 0 < byte_copied <= cached
-    kept = {name for name, stamp in _part_mtimes(incremental).items() if mtimes.get(name) == stamp}
-    assert kept, "a class the edit never reached must keep its shard part on disk"
-    started = ("_materialize", cloning)
-    assert (
-        started in clones
-    ), f"the edit must touch a part the writer starts from the previous one, by a clone only where cloning is on: {clones}"
-    assert _tree(incremental) == _tree(scratch)
+    assert {name: stamp for name, stamp in _part_mtimes(incremental).items() if name in mtimes} == mtimes
+    assert _overflow_parts(incremental) == [f"{RETAG_CLASS}.x000.json"] and clones == []
+    assert "(store: a segment of " in report
+    assert _live(incremental) == _live(scratches[0])
+    assert _form(incremental, tmp_path) == _form(scratches[0], tmp_path)
+    _build(incremental, mini_bundle, audit_path=audits[1], jobs=1)
+    assert _overflow_parts(incremental) == [f"{RETAG_CLASS}.x000.json"] and clones == [cloning]
+    assert _live(incremental) == _live(scratches[1])
+    assert _form(incremental, tmp_path) == _form(scratches[1], tmp_path)
     if seed == "clone":
         assert _tree(served) == before
 
@@ -354,8 +416,7 @@ def test_a_slim_fragment_is_the_shape_of_every_unit_that_takes_no_verdict(mini_c
 
 
 def _store_environment(corpus: Path) -> str:
-    with gzip.open(unit_cache.store_path(corpus), "rt", encoding="utf-8") as stream:
-        return json.loads(next(stream))["environment"]
+    return _stamps(corpus)["environment"]
 
 
 def _flipping_class(corpus: Path, *, no_verdict: bool) -> tuple[str, int]:
@@ -388,7 +449,7 @@ def test_a_unit_that_loses_its_exemption_is_re_enriched_in_full(mini_corpus, min
             assert fragment["drafts"]["pin"]["expect"]
     scratch = tmp_path / "scratch"
     _build(scratch, mini_bundle, ledger_path=ledger, jobs=1)
-    assert _tree(incremental) == _tree(scratch)
+    assert _form(incremental, tmp_path) == _form(scratch, tmp_path)
 
 
 def test_a_unit_that_gains_its_exemption_is_written_slim(mini_corpus, mini_bundle, tmp_path, capfd):
@@ -405,7 +466,7 @@ def test_a_unit_that_gains_its_exemption_is_written_slim(mini_corpus, mini_bundl
         assert not any(key in fragment for key in SLIM_OMITTED_KEYS), fragment["id"]
     scratch = tmp_path / "scratch"
     _build(scratch, mini_bundle, ledger_path=ledger, jobs=1)
-    assert _tree(incremental) == _tree(scratch)
+    assert _form(incremental, tmp_path) == _form(scratch, tmp_path)
 
 
 def _shard_paths(corpus: Path) -> list[Path]:
@@ -425,16 +486,6 @@ def test_a_fragment_whose_stamp_moved_is_not_reused(mini_corpus, mini_bundle, tm
     cached, total = _cached(capfd)
     assert cached == total - 1
     assert _tree(corpus) == _tree(mini_corpus)
-
-
-def _rewrite_store(corpus: Path, edit) -> None:
-    """Rewrite the store in place with `edit` applied to every record, keeping the header."""
-    path = unit_cache.store_path(corpus)
-    with gzip.open(path, "rt", encoding="utf-8") as stream:
-        lines = stream.read().splitlines()
-    edited = [lines[0]] + [json.dumps(edit(json.loads(line))) for line in lines[1:]]
-    with gzip.open(path, "wt", encoding="utf-8") as stream:
-        stream.write("\n".join(edited) + "\n")
 
 
 def _walked(monkeypatch) -> list[dict[str, set[str]]]:
@@ -483,8 +534,7 @@ def test_a_cached_build_places_every_unit_from_the_store_without_walking_the_sha
 
 
 def _environment(corpus: Path) -> str:
-    with gzip.open(unit_cache.store_path(corpus), "rt", encoding="utf-8") as stream:
-        return json.loads(next(stream))["environment"]
+    return _stamps(corpus)["environment"]
 
 
 def _settled(monkeypatch) -> list[int]:
@@ -527,7 +577,7 @@ def test_a_store_without_addresses_still_supplies_every_unit_through_the_walk(
     cached, total = _cached(capfd)
     assert cached == total
     assert sum(len(ids) for call in calls for ids in call.values()) == total
-    assert _tree(corpus) == _tree(mini_corpus)
+    assert _form(corpus, tmp_path) == _form(mini_corpus, tmp_path)
 
 
 def test_a_shard_rewritten_underneath_the_store_is_walked_rather_than_trusted(
@@ -551,7 +601,7 @@ def test_a_shard_rewritten_underneath_the_store_is_walked_rather_than_trusted(
 def test_an_edit_in_place_under_a_trusted_address_is_refused_at_the_write(
     mini_corpus, mini_bundle, tmp_path, monkeypatch, write_jobs
 ):
-    """The size check cannot see an edit that leaves a part the same length, so such a fragment is trusted into the plan. The reader catches it at the write, where every cached fragment is checked against its record, and the build fails instead of reusing bytes the store does not describe. The write fails the same way in this process and in a write worker, which hands the parent its message, and either way it leaves no staged part behind. The width is set because the mini bundle's largest class would bound it below three (`_write_width`)."""
+    """The size check cannot see an edit that leaves a part the same length, so such a fragment is trusted into the plan. The reader catches it at the write, where every cached fragment is checked against its record, and the build fails instead of reusing bytes the store does not describe. The write fails the same way in this process and in a write worker, which hands the parent its message, and either way it leaves no staged part behind. A build that recomputes every unit recovers the corpus: it reuses no record, and the write's compare finds the edited slot unequal to the recomputed fragment and appends it, so the corpus holds the unedited build's fragments and materializes to its files. The width is set because the mini bundle's largest class would bound it below three (`_write_width`)."""
     monkeypatch.setattr("rebuild.review.build._write_width", lambda classes, fit: fit)
     corpus = _copy(mini_corpus, tmp_path)
     path = next(path for path in _shard_paths(corpus) if json.loads(path.read_text(encoding="utf-8")))
@@ -565,29 +615,27 @@ def test_an_edit_in_place_under_a_trusted_address_is_refused_at_the_write(
         _build(corpus, mini_bundle, jobs=1, write_jobs=write_jobs)
     assert "cannot be read back" in str(raised.value)
     assert not list(corpus.rglob("*.partial"))
+    _build(corpus, mini_bundle, jobs=1, write_jobs=write_jobs, recompute_all_units=True)
+    assert _overflow_parts(corpus)
+    assert _live(corpus) == _live(mini_corpus)
+    assert _form(corpus, tmp_path) == _form(mini_corpus, tmp_path)
 
 
 def test_a_store_whose_ink_deltas_moved_fails_the_verification_sample(mini_corpus, mini_bundle, tmp_path):
     """The ink deltas are outside the content key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the stamp does not cover them, and the verification sample compares them separately against a recomputation. A store whose deltas no longer match the fonts fails the build."""
     corpus = _copy(mini_corpus, tmp_path)
-    path = unit_cache.store_path(corpus)
-    with gzip.open(path, "rt", encoding="utf-8") as stream:
-        lines = stream.read().splitlines()
-    edited = [lines[0]]
-    for line in lines[1:]:
-        record = json.loads(line)
-        record["ink_deltas"] = {**record["ink_deltas"], "bogus": "d-000000000000"}
-        edited.append(json.dumps(record))
-    with gzip.open(path, "wt", encoding="utf-8") as stream:
-        stream.write("\n".join(edited) + "\n")
+    _rewrite_store(
+        corpus, lambda record: {**record, "ink_deltas": {**record["ink_deltas"], "bogus": "d-000000000000"}}
+    )
     with pytest.raises(SystemExit) as raised:
         _build(corpus, mini_bundle, jobs=1)
     assert "do not match a recomputation" in str(raised.value)
 
 
 def test_corrupt_store_degrades_to_a_full_build(mini_corpus, mini_bundle, tmp_path, capfd):
+    """A store whose head does not read is unusable: the build recomputes every unit and writes the store whole again as generation 0, since no head names a generation to follow, and counts the rewrite (`output_sink.note_rewritten`)."""
     corpus = _copy(mini_corpus, tmp_path)
-    unit_cache.store_path(corpus).write_bytes(b"not a gzip stream")
+    row_delta.head_path(corpus, unit_cache.STORE_NAME).write_bytes(b"not a head")
     _build(corpus, mini_bundle, jobs=1)
     report = capfd.readouterr().err
     cached, _total = _counts(report, CACHED)
@@ -599,22 +647,19 @@ def test_corrupt_store_degrades_to_a_full_build(mini_corpus, mini_bundle, tmp_pa
 def test_a_store_that_fails_midway_degrades_to_a_full_build(mini_corpus, mini_bundle, tmp_path, capfd):
     """The plan loads each record as the stream returns it, so a store that stops reading partway has already put rows into the unit store. The build discards those rows with the store: every unit is recomputed, the unreadable note is printed, and the corpus is byte-identical to a from-scratch build over the same audit."""
     corpus = _copy(mini_corpus, tmp_path)
-    path = unit_cache.store_path(corpus)
-    with gzip.open(path, "rt", encoding="utf-8") as stream:
-        lines = stream.read().splitlines()
+    _header, lines = _store_lines(corpus)
     assert len(lines) > 3
     broken = json.loads(lines[len(lines) // 2])
     del broken["proj"]
-    kept = lines[: len(lines) // 2] + [json.dumps(broken)]
-    with gzip.open(path, "wt", encoding="utf-8") as stream:
-        stream.write("\n".join(kept) + "\n")
+    _rewrite_store(corpus, lines=lines[: len(lines) // 2] + [(json.dumps(broken) + "\n").encode()])
     capfd.readouterr()
     _build(corpus, mini_bundle, jobs=1)
     report = capfd.readouterr().err
     cached, _total = _counts(report, CACHED)
     assert cached == 0
     assert f"unit cache: {unit_cache.UNREADABLE_NOTE}" in report
-    assert _tree(corpus) == _tree(mini_corpus)
+    assert "(store: a new base (unusable)" in report
+    assert _form(corpus, tmp_path) == _form(mini_corpus, tmp_path)
 
 
 def test_two_units_spelling_one_input_key_are_refused_at_the_plan(mini_bundle, tmp_path, monkeypatch):
@@ -640,7 +685,10 @@ def test_a_load_that_raises_is_not_swallowed_by_the_store_parse(
         _build(corpus, mini_bundle, jobs=1)
 
 
-def test_recompute_all_units_bypasses_a_warm_store(mini_corpus, mini_bundle, tmp_path, capfd):
+def test_recompute_all_units_reuses_no_record_and_keeps_every_fragment_in_place(
+    mini_corpus, mini_bundle, tmp_path, capfd
+):
+    """`recompute_all_units` reuses no record and recomputes every unit, but the prior store still gives each fragment's address, so the shards compare every recomputed fragment with its prior, and a corpus whose units all come out the same is left byte for byte as it was."""
     corpus = _copy(mini_corpus, tmp_path)
     before = _tree(corpus)
     _build(corpus, mini_bundle, jobs=1, recompute_all_units=True)
@@ -690,7 +738,7 @@ def _sidecars_held_whole(corpus: Path, scratch: Path) -> dict[str, bytes]:
 
 
 def test_a_pooled_write_is_byte_identical_to_the_serial_one(mini_bundle, tmp_path, capfd, monkeypatch):
-    """The write cuts the classes into runs of shard order (`_write_runs`) and, wider than one, writes the runs in worker processes, each fed its run a chunk at a time from the parent's columns (`_write_chunks`), with its own shard writer, compressed sidecar lines and copy-forward cursors, while the parent writes each chunk's results into the store and folds its checker's facts as they arrive. Once the manifest is written the parent pulls each run's lines from the worker that wrote it and writes the sidecars. So a cold build and a cached rebuild whose write runs three wide match a serial build byte for byte, and the sidecars of all three are the bytes the writers that hold every fragment at once write over the same shards (`_sidecars_held_whole`). The chunk width is lowered so the larger classes span many chunks, some ending on a chunk's last unit. The cold build reads, patches and serializes every fragment in the workers. The cached rebuild copies every fragment and every sidecar row forward, each run's cursors reading past the lines of the runs before it. Each pooled pass files one `corpus-write` pool record in the journal the autouse fixture redirects. The width is set because the mini bundle's largest class would bound it below three (`_write_width`).
+    """The write cuts the classes into runs of shard order (`_write_runs`) and, wider than one, writes the runs in worker processes, each fed its run a chunk at a time from the parent's columns (`_write_chunks`), with its own shard writer, compressed sidecar lines and copy-forward cursors, while the parent writes each chunk's results into the store and folds its checker's facts as they arrive. Once the manifest is written the parent pulls each run's lines from the worker that wrote it and writes the sidecars. So a cold build and a cached rebuild whose write runs three wide match a serial build byte for byte, and the sidecars of all three are the bytes the writers that hold every fragment at once write over the same shards (`_sidecars_held_whole`). A rebuild over an edited audit that appends changed fragments to a class's overflow parts lays them out the same at either width, overflow parts and store segment included, since a class's appends go in its id order in the one process that writes it. The chunk width is lowered so the larger classes span many chunks, some ending on a chunk's last unit. The cold build reads, patches and serializes every fragment in the workers. The cached rebuild copies every fragment and every sidecar row forward, each run's cursors reading past the lines of the runs before it. Each pooled pass files one `corpus-write` pool record in the journal the autouse fixture redirects. The width is set because the mini bundle's largest class would bound it below three (`_write_width`).
 
     The one value the write reads at another unit is the id of a secondary junction's primary unit, which a chunk carries as an id word (`ChunkStore.primary_units`). The mini bundle's junctions find no primary unit under the real matcher, since their two-letter windows are not units, so every build here accepts any containing window (`enrich._junction_outcomes_match`). That names a visible primary unit for some junctions and an ink-identical one, suppressing the junction, for others, and the corpus checks still pass. A missing word then changes the cold build's bytes, and keeps the cached rebuild from copying those units as they are.
     """
@@ -719,8 +767,16 @@ def test_a_pooled_write_is_byte_identical_to_the_serial_one(mini_bundle, tmp_pat
     assert byte_copied == total == copied_forward
     assert _tree(cached) == _tree(serial)
     assert _sidecars(cached) == held_whole
+    appended = {}
+    edited = _edited_audit(tmp_path, 2)
+    for width in (1, 3):
+        appended[width] = tmp_path / f"appended-{width}"
+        shutil.copytree(serial, appended[width])
+        _build(appended[width], mini_bundle, audit_path=edited, jobs=1, write_jobs=width)
+    assert _overflow_parts(appended[3]) == [f"{RETAG_CLASS}.x000.json"]
+    assert _tree(appended[3]) == _tree(appended[1])
     records = [json.loads(line) for line in cycle_timings.JOURNAL.read_text(encoding="utf-8").splitlines()]
-    assert [(record["unit"], record["width"]) for record in records] == [("corpus-write", 3)] * 2
+    assert [(record["unit"], record["width"]) for record in records] == [("corpus-write", 3)] * 3
 
 
 def test_the_write_cuts_shard_order_into_contiguous_runs_no_wider_than_its_largest_class_bounds():
@@ -1194,11 +1250,10 @@ def test_the_store_header_records_the_stamp_lines_beside_the_hex_it_compares(tmp
     unit_stamp, signature_stamp = _both_stamps(root, spec)
     unit_cache.write_store(out, unit_stamp, [], parts=())
     unit_cache.write_signature_store(out, signature_stamp, {"k1": "d1"})
-    for stamp, path, code_label in (
-        (unit_stamp, unit_cache.store_path(out), "corpus_code"),
-        (signature_stamp, unit_cache.signature_store_path(out), "comparator_code"),
+    for stamp, header, code_label in (
+        (unit_stamp, unit_cache.store_stamps(out), "corpus_code"),
+        (signature_stamp, unit_cache.read_header(unit_cache.signature_store_path(out)), "comparator_code"),
     ):
-        header = unit_cache.read_header(path)
         assert header is not None
         assert header["environment"] == stamp.value
         assert stamp.value == hashlib.sha256("\n".join(stamp.lines).encode()).hexdigest()
@@ -1215,8 +1270,10 @@ def test_the_store_header_records_the_stamp_lines_beside_the_hex_it_compares(tmp
     bare.mkdir()
     unit_cache.write_store(bare, unit_stamp.value, [], parts=())
     unit_cache.write_signature_store(bare, signature_stamp.value, {})
-    for path in (unit_cache.store_path(bare), unit_cache.signature_store_path(bare)):
-        header = unit_cache.read_header(path)
+    for header in (
+        unit_cache.store_stamps(bare),
+        unit_cache.read_header(unit_cache.signature_store_path(bare)),
+    ):
         assert header is not None
         assert "environment_lines" not in header and "environment_detail" not in header
     assert unit_cache.load_store(bare, unit_stamp) == {}
@@ -1591,9 +1648,7 @@ def test_cluster_id_from_repr_matches_the_tuple_recipe():
 def test_the_cluster_a_recomputed_unit_carries_keys_on_its_final_class(mini_corpus):
     """The runner computes a unit's cluster where it assigns the change group, so the cluster of an UNMATCHED or re-routed unit must be keyed on that group (the class its fragment is sharded under) and a ledger-classed unit's on its ledger class. The diffs behind the id are discarded with the worker, so the test checks the store instead: every unit's record, machine-approved ones included, carries a cluster, and a full fragment's cluster matches its record. A cached unit's cluster is taken from the record, which is sound only if the recomputation keyed on the same class the store records for the unit."""
     manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
-    with gzip.open(unit_cache.store_path(mini_corpus), "rt", encoding="utf-8") as stream:
-        environment = json.loads(next(stream))["environment"]
-    store = unit_cache.load_store(mini_corpus, environment)
+    store = unit_cache.load_store(mini_corpus, _stamps(mini_corpus)["environment"])
     assert store
     by_id = {cached.prior_id: cached for cached in store.values()}
     seen_group = False
@@ -1707,13 +1762,12 @@ def test_a_line_whose_key_cannot_be_sliced_reads_as_absent(tmp_path):
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     records = [replace(_round_trip_unit(), key=key) for key in ("k1", "k2", "k3")]
     unit_cache.write_store(tmp_path, "env-a", records)
-    store = unit_cache.store_path(tmp_path)
-    with gzip.open(store, "rt", encoding="utf-8") as stream:
-        lines = stream.read().splitlines()
-    record = json.loads(lines[2])
-    lines[2] = json.dumps({**{name: value for name, value in record.items() if name != "key"}, "key": "k2"})
-    with gzip.open(store, "wt", encoding="utf-8") as stream:
-        stream.write("\n".join(lines) + "\n")
+    _header, lines = _store_lines(tmp_path)
+    record = json.loads(lines[1])
+    lines[1] = (
+        json.dumps({**{name: value for name, value in record.items() if name != "key"}, "key": "k2"}) + "\n"
+    ).encode()
+    _rewrite_store(tmp_path, lines=lines)
     loaded = unit_cache.load_store(tmp_path, "env-a")
     assert loaded is not None and sorted(loaded) == ["k1", "k3"]
     assert unit_cache.load_store(tmp_path, "env-a", wanted={"k2"}) == {}
@@ -1854,25 +1908,17 @@ def test_store_round_trip_and_invalidation(tmp_path):
 
 
 def test_a_store_line_and_its_record_are_inverses_down_to_the_bytes(tmp_path):
-    """Two properties let the build copy a previous store's line for a record it would write unchanged: a cursor over the store returns the lines in file order, once each, and None past the end; and a line written for a record loads as the cached form of that record."""
+    """Two properties let the build leave in place a previous store's line for a record it would write unchanged: the store's lines, read back in its materialized order, are the lines written for its records, in order; and a line written for a record loads as the cached form of that record."""
     first = _round_trip_unit()
     second = replace(first, key="k2", prior_id="u-8nacGTcgMRS", address=("units/small.json", 1, 5))
     line = unit_cache.record_line(first)
     (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
     unit_cache.write_store(tmp_path, "env-a", [first, second])
-    cursor = unit_cache.StoreCursor(tmp_path)
-    assert cursor.take("k2") == unit_cache.record_line(second)
-    assert cursor.take("k1") is None
-    cursor.close()
-    cursor = unit_cache.StoreCursor(tmp_path)
-    assert cursor.take("k1") == line
-    assert cursor.take("k2") == unit_cache.record_line(second)
-    cursor.close()
+    assert _store_lines(tmp_path)[1] == [line, unit_cache.record_line(second)]
     unit_cache.write_store(tmp_path, "env-a", [line, second], parts=["units/small.json"])
     loaded = unit_cache.load_store(tmp_path, "env-a")
     assert loaded is not None and loaded["k1"] == _round_trip_cached()
     assert loaded["k2"] == replace(_round_trip_cached(), key="k2", prior_id="u-8nacGTcgMRS")
-    assert unit_cache.StoreCursor(tmp_path / "missing").take("k1") is None
 
 
 def test_a_record_keeps_its_address_only_while_its_part_is_the_size_the_store_recorded(tmp_path):
@@ -2041,3 +2087,244 @@ def test_a_units_id_is_its_stamps_and_moves_only_with_its_content(mini_corpus):
                 slim_ids.add(fragment["id"])
     assert seen == set(manifest["human_unit_ids"]) | slim_ids
     assert not slim_ids & set(manifest["human_unit_ids"])
+
+
+def _keyed_unit(name: str, **fields) -> unit_cache.CachedUnit:
+    return replace(
+        _round_trip_unit(), key=hashlib.sha256(name.encode()).hexdigest(), prior_id=f"u-{name}", **fields
+    )
+
+
+def _update(directory: Path, stamp: fingerprint.EnvironmentStamp, records: list) -> unit_cache.StoreWrite:
+    """Write `records`, in their order, as this pass's store over the one in `directory`, as the build's cache write does: each matched to its prior line by input key, with a new base when `stamp` moves a line that says every record is re-derived."""
+    header, prior_lines = _store_lines(directory)
+    places = {line[9:73].decode(): index for index, line in enumerate(prior_lines)}
+    head = row_delta.read_head(directory, unit_cache.STORE_NAME)
+    assert head is not None
+    plan = unit_cache.StorePlan(
+        True,
+        True,
+        head,
+        len(prior_lines),
+        head.base.rows_bytes,
+        unit_cache.rederiving_moved(header, stamp),
+    )
+    lines = [unit_cache.record_line(record) for record in records]
+    return unit_cache.update_store(
+        directory,
+        stamp,
+        plan,
+        range(len(records)),
+        prior_line=lambda ordinal: places.get(records[ordinal].key, unit_cache.NO_PRIOR_LINE),
+        unchanged=lambda _ordinal: False,
+        line_of=lines.__getitem__,
+        parts=(),
+    )
+
+
+def test_the_stores_materialized_form_is_the_file_a_whole_write_gives(tmp_path, monkeypatch):
+    """The store a cached pass writes as segments over its previous one materializes (`unit_cache.materialized_store`) to the file `write_store` writes whole over the same records in the same order, byte for byte (#618's decision 48), whatever the pass changed: a unit removed, a unit whose class changed and whose triage place moved with it (a tombstone at its old place and an upsert at its new one), a record changed in place, a unit new to the corpus at the front and inside the order, and a second segment over the first. With the cap lowered to two segments, the next pass folds them into a new base, which is the materialized form again and moves the store's content generation only when a record changed, and a pass that changes nothing writes the head alone. A pass that changes every record, whose segment's lines would pass half the base's, writes a new base by the share rule (`row_delta.writes_base`). A pass whose stamp moves only the subset tables' line, as an old-font edit does, writes a segment of the records that changed, and one whose stamp moves the spec's structure, as a letter batch does, writes a new base though no record changed (`unit_cache.REDERIVING_LABELS`, #618's decision 72)."""
+    monkeypatch.setattr(row_delta, "SEGMENT_CAP", 2)
+    stamp = fingerprint.EnvironmentStamp(("format\tx", "spec_structure\ts", "subsets\ta"))
+    refiltered = fingerprint.EnvironmentStamp(("format\tx", "spec_structure\ts", "subsets\tb"))
+    restructured = fingerprint.EnvironmentStamp(("format\tx", "spec_structure\tt", "subsets\tb"))
+    units = {f"{index:02d}": _keyed_unit(f"{index:02d}") for index in range(12)}
+    first = list(units.values())
+    moved = replace(units["05"], prior_class="identical-variant-name")
+    second = [units["00"], units["01"], _keyed_unit("n1")] + [
+        replace(unit, cluster="c-87654321") if name == "07" else unit
+        for name, unit in units.items()
+        if name not in ("00", "01", "03", "05")
+    ]
+    second.append(moved)
+    third = [_keyed_unit("n2")] + [
+        replace(unit, cluster="c-55555555") if unit.key == units["09"].key else unit for unit in second
+    ]
+    fourth = [replace(unit, cluster="c-11111111") for unit in third]
+    fifth = [replace(unit, cluster="c-22222222") if unit.key == units["02"].key else unit for unit in fourth]
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "manifest.json").write_text("{}", encoding="utf-8")
+    unit_cache.write_store(store, stamp, first, parts=())
+    passes = [
+        (stamp, second),
+        (stamp, third),
+        (stamp, third),
+        (stamp, third),
+        (stamp, fourth),
+        (refiltered, fifth),
+        (restructured, fifth),
+    ]
+    outcomes = []
+    heads = []
+    for number, (pass_stamp, records) in enumerate(passes, start=1):
+        outcomes.append(_update(store, pass_stamp, records))
+        head = row_delta.read_head(store, unit_cache.STORE_NAME)
+        assert head is not None
+        heads.append(head)
+        whole = tmp_path / f"whole-{number}"
+        whole.mkdir()
+        (whole / "manifest.json").write_text("{}", encoding="utf-8")
+        unit_cache.write_store(whole, pass_stamp, records, parts=())
+        materialized = unit_cache.materialized_store(store, sha256=True)
+        assert materialized is not None
+        form = tmp_path / f"form-{number}"
+        form.mkdir()
+        unit_cache.write_materialized_store(form, *materialized)
+        expected = (whole / row_delta.base_name(unit_cache.STORE_NAME, 0)).read_bytes()
+        assert (form / unit_cache.STORE_NAME).read_bytes() == expected
+        if outcomes[-1].outcome == "base":
+            assert (store / head.base.name).read_bytes() == expected
+    assert [write.outcome for write in outcomes] == [
+        "segment",
+        "segment",
+        "base",
+        "head",
+        "base",
+        "segment",
+        "base",
+    ]
+    assert [write.reason for write in outcomes if write.outcome == "base"] == ["fold", "share", "rederived"]
+    assert outcomes[0].rows == 5 and outcomes[5].rows == 1
+    assert (heads[4].generation, heads[4].content, heads[4].segments) == (2, 3, ())
+    assert (heads[5].generation, len(heads[5].segments)) == (2, 1)
+    assert (heads[6].generation, heads[6].segments) == (3, ())
+
+
+def test_a_store_write_that_fails_before_its_head_leaves_the_previous_store_readable(tmp_path, monkeypatch):
+    """The head is the store's commit point: a write that fails after its segment is on disk and before its head is renamed into place leaves the previous head, and every part it lists, readable as they were, and the segment it left, which no head lists, is deleted by the next write before it writes its own."""
+    stamp = fingerprint.EnvironmentStamp(("format\tx",))
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    first = [_keyed_unit(f"{index:02d}") for index in range(6)]
+    unit_cache.write_store(tmp_path, stamp, first, parts=())
+    before = _store_lines(tmp_path)
+    second = first[:3] + [replace(first[3], cluster="c-00000000")] + first[4:]
+    real = row_delta.commit
+
+    def crash(directory, head):
+        raise OSError("the pass was killed")
+
+    monkeypatch.setattr(row_delta, "commit", crash)
+    with pytest.raises(OSError, match="killed"):
+        _update(tmp_path, stamp, second)
+    orphan = tmp_path / row_delta.segment_name(unit_cache.STORE_NAME, 0, 1)
+    assert orphan.is_file()
+    assert _store_lines(tmp_path) == before
+    assert unit_cache.load_store(tmp_path, stamp) is not None
+    monkeypatch.setattr(row_delta, "commit", real)
+    removed = []
+    real_remove = row_delta.remove_unlisted
+
+    def spy(directory, output, head):
+        found = real_remove(directory, output, head)
+        removed.extend(found)
+        return found
+
+    monkeypatch.setattr(row_delta, "remove_unlisted", spy)
+    assert _update(tmp_path, stamp, second).outcome == "segment"
+    assert removed[0] == orphan.name
+    assert _store_lines(tmp_path)[1] == [unit_cache.record_line(record) for record in second]
+
+
+def test_a_build_puts_a_single_file_store_under_a_head_before_it_appends(
+    mini_corpus, mini_bundle, edited_scratch, tmp_path, monkeypatch
+):
+    """A store written before the segment format, the single file `unit-cache.ndjson.gz` with no head, is put under a head as generation 0's base, a link to the file, as soon as the plan has read it (`unit_cache.adopt_single_file`), before the write appends to any shard part. So a build that appends and then fails before its store write leaves a corpus with a head, whose live fragments the iterator takes from the index instead of walking the dead slot the append left, and the next build completes it into the from-scratch build's materialized form and removes the single file."""
+    audits, scratches = edited_scratch
+    corpus = _copy(mini_corpus, tmp_path)
+    head = row_delta.read_head(corpus, unit_cache.STORE_NAME)
+    assert head is not None and not head.segments
+    single = unit_cache.store_path(corpus)
+    shutil.copyfile(corpus / head.base.name, single)
+    row_delta.head_path(corpus, unit_cache.STORE_NAME).unlink()
+    row_delta.remove_unlisted(corpus, unit_cache.STORE_NAME, None)
+    legacy = single.read_bytes()
+
+    def killed(*_args, **_kwargs):
+        raise OSError("the pass was killed")
+
+    real = unit_cache.update_store
+    monkeypatch.setattr(unit_cache, "update_store", killed)
+    with pytest.raises(OSError, match="killed"):
+        _build(corpus, mini_bundle, audit_path=audits[0], jobs=1)
+    adopted = row_delta.read_head(corpus, unit_cache.STORE_NAME)
+    assert adopted is not None and (adopted.generation, adopted.segments) == (0, ())
+    assert (corpus / adopted.base.name).read_bytes() == legacy == single.read_bytes()
+    assert _overflow_parts(corpus) == [f"{RETAG_CLASS}.x000.json"]
+    with unit_index.LiveCorpus(corpus) as live:
+        assert live.source == "index"
+    assert _live(corpus) == _live(scratches[0])
+    monkeypatch.setattr(unit_cache, "update_store", real)
+    _build(corpus, mini_bundle, audit_path=audits[0], jobs=1)
+    assert not single.exists()
+    assert _form(corpus, tmp_path) == _form(scratches[0], tmp_path)
+
+
+def test_a_stamp_move_that_moves_no_fragment_writes_no_shard_byte(
+    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """A stamp line that moves without re-deriving every record, as the corpus code line moves when the build's code changes and its outputs do not, recomputes every unit, and each comes out byte for byte its prior (#618's decisions 72 and 73): the write finds each unit's prior fragment by id through the prior store's records, compares it with the new one and keeps it where it is. So every shard part keeps its inode and modification time, no overflow part is written, and the store, whose records all come out the same, writes its head alone, under the new stamp."""
+    corpus = _copy(mini_corpus, tmp_path)
+    before = {path.name: (path.stat().st_ino, path.stat().st_mtime_ns) for path in _shard_paths(corpus)}
+    real = unit_cache.environment_stamp
+
+    def moved(*args, **kwargs):
+        stamp = real(*args, **kwargs)
+        return fingerprint.EnvironmentStamp((*stamp.lines, "moved\tthis pass"), stamp.detail)
+
+    monkeypatch.setattr(unit_cache, "environment_stamp", moved)
+    capfd.readouterr()
+    _build(corpus, mini_bundle, jobs=1)
+    report = capfd.readouterr().err
+    cached, total = _counts(report, CACHED)
+    assert cached == 0
+    assert (
+        f"appended 0.0 MB, kept {total:,} by compare, folded 0 classes, wrote 0 directly, dead 0.0 MB"
+        in report
+    )
+    assert {
+        path.name: (path.stat().st_ino, path.stat().st_mtime_ns) for path in _shard_paths(corpus)
+    } == before
+    assert _overflow_parts(corpus) == []
+    assert "(store: head only)" in report
+    assert "moved\tthis pass" in _stamps(corpus)["environment_lines"]
+    head = row_delta.head_name(unit_cache.STORE_NAME)
+    assert {name: data for name, data in _tree(corpus).items() if name != head} == {
+        name: data for name, data in _tree(mini_corpus).items() if name != head
+    }
+
+
+def test_a_class_whose_dead_bytes_reach_its_live_bytes_is_folded_into_a_from_scratch_layout(
+    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """A class whose dead bytes reach its live bytes as the pass opens is folded: its live fragments rewritten in id order into the parts and names a from-scratch build gives it (`unit_index.PartLayout`, `unit_index.base_part_names`), its overflow parts left unlisted and pruned. Here a class's one bare part is copied whole into an overflow part no record names, so its dead bytes equal its live bytes, and the cap is lowered below the class's bytes, so the fold crosses from the bare name to numbered parts, the ones a from-scratch build under that cap writes, byte for byte."""
+    corpus = _copy(mini_corpus, tmp_path)
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    with unit_index.LiveCorpus(corpus) as live:
+        meta = next(
+            meta for meta in manifest["classes"] if len(meta["shards"]) == 1 and len(live.slots(meta)) >= 4
+        )
+        longest = max(slot.length for slot in live.slots(meta))
+    class_id, (bare,) = meta["id"], meta["shards"]
+    raw = (corpus / bare).read_bytes()
+    overflow = unit_index.overflow_part_name(class_id, 0)
+    (corpus / overflow).write_bytes(raw)
+    meta["shards"].append(overflow)
+    review_build._write_json(corpus / "manifest.json", manifest)
+    _rewrite_store(corpus, lambda record: record, parts=[*_stamps(corpus)["parts"], overflow])
+    cap = max(longest + 8, len(raw) * 2 // 3)
+    assert cap < len(raw)
+    monkeypatch.setattr(review_build, "SHARD_PART_BYTES", cap)
+    capfd.readouterr()
+    _build(corpus, mini_bundle, jobs=1)
+    report = capfd.readouterr().err
+    assert "folded 1 classes" in report
+    scratch = tmp_path / "scratch"
+    _build(scratch, mini_bundle, jobs=1)
+    folded, expected = (_class_meta(directory, class_id)["shards"] for directory in (corpus, scratch))
+    assert folded == expected == unit_index.base_part_names(class_id, len(expected)) and len(expected) > 1
+    assert [(corpus / part).read_bytes() for part in folded] == [
+        (scratch / part).read_bytes() for part in expected
+    ]
+    assert not (corpus / bare).exists() and not (corpus / overflow).exists()
+    assert _live(corpus) == _live(scratch)

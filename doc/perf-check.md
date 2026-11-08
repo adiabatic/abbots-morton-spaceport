@@ -8,7 +8,7 @@ Every cycle pass appends its run line and step lines to `rebuild/out/cycle-timin
 
 ## Same output: the fingerprint
 
-`rebuild/tools/perf_fingerprint.py` reads every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the corpus stores, the verdict store, the complaint list and the review-facts pins; its module docstring is the authority on what each part covers and leaves out. Take one reading of the live tree before the change's first build and one after its landing pass:
+`rebuild/tools/perf_fingerprint.py` reads every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the corpus stores, the verdict store, the complaint list and the review-facts pins; its module docstring is the authority on what each part covers and leaves out. An output held as a base and segments is read in its materialized form (#618's decision 48), the file a whole write gives, so a corpus a build appended to and its unit store's segments read as a from-scratch build's files, and a later fold or append moves no reading. Take one reading of the live tree before the change's first build and one after its landing pass:
 
 ```sh
 uv run python -P rebuild/tools/perf_fingerprint.py --root . --out var/keep/perf/<change>-before.json

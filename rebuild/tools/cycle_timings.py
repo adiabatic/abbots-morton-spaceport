@@ -8,7 +8,7 @@ A "step" line records one subprocess the cycle spawned: the driver's step name (
 
 A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv, and the carry's counts (`artifact_cycle.carry_counts` parses them from the carry's own output line). The plan block names the width of each pooled step (`sweep_jobs`, `corpus_jobs`, `corpus_gates_idle_jobs`, `signature_jobs`, `standing_fill_jobs`, `make_test_workers`, `contracts_workers` and `conform_jobs`), null for a step the pass skipped, and `corpus_gates_idle_jobs` also null on a pass that offers the corpus build no wider width; its `kernel_threads` and `replay_threads` are null only on a gates-only rerun. The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
 
-A metered pass's run line also carries a `written` block, from the write meter's readings as the pass started and after every step had joined (`write_meter.delta`): `basis` (`own`, `shared` or `device`; the meter's docstring says what each means), `bytes` (the pass's writes, an upper bound in the shared basis and the device's in the device one), `diskio_bytes` (the coalition's `byteswritten`, which misses what the kernel flushes on its own), `outsiders_bytes` and `outsiders_unread` in the shared basis only, `review_server_bytes` (the review server's own writes over the pass, which `bytes` leaves out), `device_bytes` and `swap_bytes`, which `machine_wide` names as the whole machine's and neither of which is netted, `outputs`, what the writes that went through `output_sink`'s helper did over the pass, `class`, the pass's write class (`write_class`), and in the device basis the `warning` that says why. The `outputs` block sums the lines every process of the pass appended to the pass's counts file (`OUTPUT_COUNTS_ENV`, `sum_output_counts`): `files` and `bytes` written, `changed_bytes`, those written to outputs whose content changed, and `kept_bytes`, those not written because an output came out the same; every other write shows only in the step lines' `written_bytes`. A pass with no helper call has no `outputs` block. The counts file is removed when the run line is written, by the cycle when a pass ends without one, and by the next pass when the driver was killed outright (`artifact_cycle.sweep_run_dirs`). The block is null on a pass whose first or last reading failed, and older run lines lack it. Beside the block, the cycle's run line carries `alphabet`, the M1 alphabet the subset stamp (`SUBSET_STAMP`) records once every step has joined, which is the alphabet the subset tables were last filtered to: `sha256`, a digest of its code points, and `codepoints`, how many it holds (`alphabet_record`). It is null when the stamp is missing or records no alphabet, and older run lines lack it. It sits beside the block so that a pass whose first or last reading failed still records it, since `write_class` compares it with the one the latest pass on this host that finished ok records (`previous_pass_alphabet`) to find a letter batch. Each write class has a ceiling on each host (`PASS_WRITE_CEILING_BYTES`, `write_ceiling`), and a pass over its class's ceiling prints a `[warn]` line and a summary line and never fails.
+A metered pass's run line also carries a `written` block, from the write meter's readings as the pass started and after every step had joined (`write_meter.delta`): `basis` (`own`, `shared` or `device`; the meter's docstring says what each means), `bytes` (the pass's writes, an upper bound in the shared basis and the device's in the device one), `diskio_bytes` (the coalition's `byteswritten`, which misses what the kernel flushes on its own), `outsiders_bytes` and `outsiders_unread` in the shared basis only, `review_server_bytes` (the review server's own writes over the pass, which `bytes` leaves out), `device_bytes` and `swap_bytes`, which `machine_wide` names as the whole machine's and neither of which is netted, `outputs`, what the writes that went through `output_sink`'s helper did over the pass, `class`, the pass's write class (`write_class`), and in the device basis the `warning` that says why. The `outputs` block sums the lines every process of the pass appended to the pass's counts file (`OUTPUT_COUNTS_ENV`, `sum_output_counts`): `files` and `bytes` written, `changed_bytes`, those written to outputs whose content changed, `kept_bytes`, those not written because an output came out the same, and `rewritten`, present only when there is one, the sorted names of the outputs held as a base and segments that a writer rewrote whole outside a fold, the share rule or a letter batch (`output_sink.note_rewritten`); every other write shows only in the step lines' `written_bytes`. A pass with no helper call has no `outputs` block. The counts file is removed when the run line is written, by the cycle when a pass ends without one, and by the next pass when the driver was killed outright (`artifact_cycle.sweep_run_dirs`). The block is null on a pass whose first or last reading failed, and older run lines lack it. Beside the block, the cycle's run line carries `alphabet`, the M1 alphabet the subset stamp (`SUBSET_STAMP`) records once every step has joined, which is the alphabet the subset tables were last filtered to: `sha256`, a digest of its code points, and `codepoints`, how many it holds (`alphabet_record`). It is null when the stamp is missing or records no alphabet, and older run lines lack it. It sits beside the block so that a pass whose first or last reading failed still records it, since `write_class` compares it with the one the latest pass on this host that finished ok records (`previous_pass_alphabet`) to find a letter batch. Each write class has a ceiling on each host (`PASS_WRITE_CEILING_BYTES`, `write_ceiling`), and a pass over its class's ceiling prints a `[warn]` line and a summary line and never fails.
 
 A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak, under `controller_peak_rss_bytes` and `worker_peak_rss_bytes` whichever line the writer reads, and `worker_reading`, which names the line its worker readings are (`resident` or `footprint`); an older line carries no `worker_reading`. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's rebuild-lane spawns do. run_m1 writes them for the string replay's walk and absorbs, the oracle's ranges and absorbs, the conformance sweep and its own process, the review build for its signature, units and write pools, and the deep replay for its walks. The worker readings of the replay's absorbs, the oracle, the conformance sweep, run_m1's own process and the corpus build's units and write pools are peak footprints (`peak_rss.peak_footprint_self_bytes`), and the corpus build's two pools also record their parent's peak footprint as the controller reading; every other reading is a resident peak. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
 
@@ -55,6 +55,7 @@ CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
 # The variable that names a pass's counts file to `output_sink`'s helper, and the outcomes its lines carry. They restate `output_sink.OUTPUT_COUNTS_ENV` and its outcomes, because this module must not import rebuild/pipeline (`SUBSET_STAMP`'s comment); rebuild/test_output_sink.py ties the two.
 OUTPUT_COUNTS_ENV = "AMS_OUTPUT_COUNTS"
 OUTPUT_OUTCOMES = ("changed", "written", "kept")
+OUTPUT_REWRITTEN = "rewritten"
 STEP_NAME_ALIASES = {
     "plumbing": "verdict-update",
     "surface-build": "corpus-build",
@@ -416,26 +417,32 @@ class _Window:
 
 
 def sum_output_counts(path: Path) -> dict | None:
-    """Return the `outputs` block summed from the counts file at `path`, each line `<outcome>\\t<bytes>` as `output_sink` appends it, or None when the file is missing, cannot be read or holds no line, since a counts file never fails the pass. A line in another shape, such as one torn by a process killed mid-append, is skipped."""
+    """Return the `outputs` block summed from the counts file at `path`, each line `<outcome>\\t<bytes>` as `output_sink` appends it, or None when the file is missing, cannot be read or holds no line, since a counts file never fails the pass. A line in another shape, such as one torn by a process killed mid-append, is skipped. A `rewritten\\t<output>` line (`output_sink.note_rewritten`) names an output held as a base and segments that a writer rewrote whole outside a fold, the share rule or a letter batch; the block lists those names, sorted, as `rewritten`, and leaves the key out when there are none."""
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return None
     sums = dict.fromkeys(OUTPUT_OUTCOMES, 0)
     counts = dict.fromkeys(OUTPUT_OUTCOMES, 0)
+    rewritten: set[str] = set()
     for line in text.splitlines():
         outcome, _, size = line.partition("\t")
         if outcome in sums and size.isdigit():
             sums[outcome] += int(size)
             counts[outcome] += 1
-    if not any(counts.values()):
+        elif outcome == OUTPUT_REWRITTEN and size:
+            rewritten.add(size)
+    if not any(counts.values()) and not rewritten:
         return None
-    return {
+    block: dict = {
         "files": counts["changed"] + counts["written"],
         "bytes": sums["changed"] + sums["written"],
         "changed_bytes": sums["changed"],
         "kept_bytes": sums["kept"],
     }
+    if rewritten:
+        block["rewritten"] = sorted(rewritten)
+    return block
 
 
 def _written_block(

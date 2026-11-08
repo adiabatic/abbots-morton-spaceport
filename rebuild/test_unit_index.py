@@ -618,3 +618,194 @@ def test_streaming_discards_unique_containers_after_the_reader_pool_fills(tmp_pa
     assert readers[0].pool is not readers[1].pool
     assert len(readers[1].pool) == 1
     list(next_stream)
+
+
+@pytest.fixture
+def appended_corpus(mini_corpus, mini_bundle, tmp_path) -> tuple[Path, Path]:
+    """Return a copy of the mini corpus rebuilt over an audit edit that retags two windows into one class, so that class holds an overflow part and the classes they left hold dead slots, beside its materialized form (`build.materialize_corpus`)."""
+    from rebuild.review import build
+    from rebuild.test_unit_cache import _build, _edited_audit
+
+    corpus = tmp_path / "corpus"
+    shutil.copytree(mini_corpus, corpus)
+    _build(corpus, mini_bundle, audit_path=_edited_audit(tmp_path, 2), jobs=1)
+    assert list((corpus / "units").glob("*.x000.json"))
+    form = tmp_path / "form"
+    build.materialize_corpus(corpus, form)
+    return corpus, form
+
+
+def _every_slot(corpus: Path) -> list[str]:
+    """Every element of every part the manifest lists, dead slots included, as a reader that walks the parts would take them."""
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    return [
+        unit["id"]
+        for meta in manifest["classes"]
+        for part in unit_index.class_shards(meta)
+        for unit in json.loads((corpus / part).read_text(encoding="utf-8"))
+    ]
+
+
+def test_every_whole_part_reader_reads_the_live_fragments_its_materialized_form_holds(appended_corpus):
+    """A build that appends a changed fragment to its class's overflow parts leaves its old slot dead, so a reader that walked the parts would read units twice. Every reader of fragments goes through the live-fragment iterator instead, so over a corpus with overflow parts and dead slots each reads exactly what it reads over the corpus's materialized form, in the same order: the shard walk the verdict update's fallbacks take, the triage export, the re-key map, the build's output check, the dictionary's sample and the plan's walk for addressless records."""
+    from rebuild.review import build, export, unit_cache
+    from rebuild.tools import fragment_dictionary, rekey_verdicts
+
+    corpus, form = appended_corpus
+    with unit_index.LiveCorpus(corpus) as live:
+        assert live.source == "store"
+    walked = [fragment["id"] for fragment in unit_index.iter_shard_fragments(corpus)]
+    assert len(_every_slot(corpus)) > len(walked) == len(set(walked))
+    assert [fragment["id"] for fragment in unit_index.iter_shard_fragments(form)] == walked
+    assert list(unit_index.iter_shard_fragments(corpus)) == list(unit_index.iter_shard_fragments(form))
+    assert list(export.load_units(corpus)[1].items()) == list(export.load_units(form)[1].items())
+    assert list(rekey_verdicts.iter_fragments(corpus)) == list(rekey_verdicts.iter_fragments(form))
+    assert build.check_output_dir(corpus) == build.check_output_dir(form) == []
+    assert fragment_dictionary.build_dictionary(corpus) == fragment_dictionary.build_dictionary(form)
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    wanted = {meta["id"]: set(walked) for meta in manifest["classes"]}
+    found = {}
+    for directory in (corpus, form):
+        located = unit_cache.locate_prior_fragments(directory, wanted)
+        with unit_cache.PriorFragmentReader(directory) as reader:
+            found[directory] = {unit_id: reader.read(place) for unit_id, place in located.items()}
+    assert found[corpus] == found[form] and len(found[corpus]) == len(walked)
+
+
+def test_the_iterator_takes_the_index_where_the_store_does_not_describe_the_shards_and_refuses_neither(
+    appended_corpus, mini_corpus, tmp_path
+):
+    """Where the unit store does not describe the shards beside it (a part missing under its head, or a record that names a slot outside the parts of the class it records, such as the dead slot a unit left when it changed class), the iterator takes each id the index lists from its last occurrence in manifest order, overflow parts last, and reads what the store would give. A corpus with no store head, as one whose store was deleted by hand, is taken from its index too whenever the index is current, so it is read without its dead slots whether it lists an overflow part or only holds the slot a unit left in a base part when its class lost it on a pass that appended nothing. A corpus with a store head or an overflow part whose store and index are both unusable is refused rather than walked with its dead slots."""
+    from rebuild.pipeline import row_delta
+    from rebuild.review import unit_cache
+    from rebuild.test_unit_cache import _rewrite_store
+
+    corpus, _form = appended_corpus
+    expected = list(unit_index.iter_shard_fragments(corpus))
+    overflow = next((corpus / "units").glob("*.x000.json"))
+    moved = json.loads(overflow.read_bytes())[0]["id"]
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    dead = next(
+        (part, start, length)
+        for meta in manifest["classes"]
+        for part in unit_index.class_shards(meta)
+        if part != f"units/{overflow.name}"
+        for start, length, fragment in unit_index._walk_part(corpus / part)
+        if fragment.get("id") == moved
+    )
+    _rewrite_store(
+        corpus, lambda record: {**record, "address": list(dead)} if record["id"] == moved else record
+    )
+    with unit_index.LiveCorpus(corpus) as live:
+        assert live.source == "index"
+    assert list(unit_index.iter_shard_fragments(corpus)) == expected
+    head = row_delta.read_head(corpus, unit_cache.STORE_NAME)
+    assert head is not None
+    (corpus / head.base.name).unlink()
+    with unit_index.LiveCorpus(corpus) as live:
+        assert live.source == "index"
+    assert list(unit_index.iter_shard_fragments(corpus)) == expected
+    head_path = row_delta.head_path(corpus, unit_cache.STORE_NAME)
+    head_path.rename(corpus / "held.head")
+    with unit_index.LiveCorpus(corpus) as live:
+        assert live.source == "index"
+    assert list(unit_index.iter_shard_fragments(corpus)) == expected
+    (corpus / "held.head").rename(head_path)
+    with gzip.open(unit_index.index_path(corpus), "wb") as stream:
+        stream.write(
+            json.dumps({"format": unit_index.INDEX_FORMAT, "manifest_sha256": "another"}).encode() + b"\n"
+        )
+    with pytest.raises(
+        unit_index.LayoutError, match="has a unit store head.*cannot be told from its dead slots"
+    ):
+        unit_index.LiveCorpus(corpus)
+    head_path.unlink()
+    with pytest.raises(
+        unit_index.LayoutError, match="lists an overflow part.*cannot be told from its dead slots"
+    ):
+        unit_index.LiveCorpus(corpus)
+    shrunk = tmp_path / "shrunk"
+    shutil.copytree(mini_corpus, shrunk)
+    with unit_index.LiveCorpus(shrunk) as live:
+        lost = next(
+            slots[-1].unit_id
+            for meta in live.ordered()
+            if len(unit_index.class_shards(meta)) == 1 and len(slots := live.slots(meta)) > 1
+        )
+    with gzip.open(unit_index.index_path(shrunk), "rb") as stream:
+        next(stream)
+        kept = [line for line in stream if json.loads(line)["id"] != lost]
+    unit_index.write_index_lines(shrunk, kept)
+    row_delta.head_path(shrunk, unit_cache.STORE_NAME).unlink()
+    assert lost in _every_slot(shrunk) and not list((shrunk / "units").glob("*.x000.json"))
+    with unit_index.LiveCorpus(shrunk) as live:
+        assert live.source == "index"
+    assert [fragment["id"] for fragment in unit_index.iter_shard_fragments(shrunk)] == [
+        fragment["id"] for fragment in unit_index.iter_shard_fragments(mini_corpus) if fragment["id"] != lost
+    ]
+
+
+# The readers outside the live-fragment iterator allowed to read shard part names through `unit_index.class_shards`, `unit_index.shard_paths`, `unit_index._walk_elements` or `unit_index._walk_part`, each with what it reads them for. None reads a fragment out of a part, which only the iterator does (`unit_index.LiveCorpus`), so none can read a dead slot. The whole of rebuild/review/unit_index.py, the iterator's module, is allowed.
+SHARD_PART_NAME_READERS = {
+    ("rebuild/review/build.py", "_prune_orphan_shards"): "the parts the manifest lists, which it keeps",
+    (
+        "rebuild/review/build.py",
+        "_prior_parts",
+    ): "the previous corpus's parts, which the shard writer appends to",
+    ("rebuild/review/build.py", "build_m1"): "the parts whose sizes the unit store's head records",
+    ("rebuild/review/build.py", "_check_output_files"): "each listed part's existence and size",
+    ("rebuild/review/build.py", "check_output_dir"): "which classes have every part on disk",
+    (
+        "rebuild/review/build.py",
+        "MaterializedCorpus.__init__",
+    ): "each class's parts on disk, beside its materialized ones",
+    ("rebuild/tools/artifact_cycle.py", "corpus_build_skippable"): "each listed part's existence",
+    ("rebuild/tools/memory_series.py", "null_routes"): "each class's part count, for its staging names",
+}
+
+
+def _shard_reader_uses(path: Path) -> set[str]:
+    """Return the qualified names of the functions in `path` that name `class_shards`, `shard_paths`, `_walk_elements` or `_walk_part`, other than by defining them, as a name, an attribute or an import, aliased or not."""
+    names = {"class_shards", "shard_paths", "_walk_elements", "_walk_part"}
+    found: set[str] = set()
+
+    def visit(node: ast.AST, scope: tuple[str, ...]) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                visit(child, (*scope, child.name))
+                continue
+            named = (
+                child.id
+                if isinstance(child, ast.Name)
+                else (
+                    child.attr
+                    if isinstance(child, ast.Attribute)
+                    else child.name if isinstance(child, ast.alias) else None
+                )
+            )
+            if named in names:
+                found.add(".".join(scope) or "<module>")
+            visit(child, scope)
+
+    visit(ast.parse(path.read_text(encoding="utf-8")), ())
+    return found
+
+
+def test_only_the_iterator_reads_shard_parts_and_every_reader_of_part_names_is_named():
+    """The contract the live-fragment iterator stands on: outside rebuild/review/unit_index.py, no rebuild/ module but the tests names `class_shards`, `shard_paths`, `_walk_elements` or `_walk_part`, by a use or an import under any alias, except the readers of part names `SHARD_PART_NAME_READERS` lists with their reasons, and each of those still does, so the list cannot go stale."""
+    from rebuild.tools import artifact_cycle
+
+    closure = artifact_cycle.rebuild_gate_closure_files(REPO_ROOT)
+    assert closure is not None, "the rebuild closure needs git, and without it there is nothing to sweep"
+    modules = [
+        relative
+        for relative in closure
+        if relative.endswith(".py")
+        and relative.startswith("rebuild/")
+        and not Path(relative).name.startswith("test_")
+        and Path(relative).name != "conftest.py"
+        and relative != "rebuild/review/unit_index.py"
+    ]
+    assert "rebuild/review/build.py" in modules, "the sweep reached nothing; the closure moved"
+    found = {(relative, scope) for relative in modules for scope in _shard_reader_uses(REPO_ROOT / relative)}
+    assert found == set(SHARD_PART_NAME_READERS)

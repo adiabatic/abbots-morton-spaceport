@@ -44,6 +44,7 @@ from rebuild.review.audit import (
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     STATIC_DIR,
+    _fragment_bytes,
     _prune_orphan_shards,
     _ShardWriter,
     _write_json,
@@ -70,6 +71,7 @@ from rebuild.review.ink import shape_memo_sizes
 from rebuild.review.columns import StringTable, TuplePool
 from rebuild.review.unit_store import UnitStore
 from rebuild.test_review_change_groups import _StubEnriched, _StubUnit
+from rebuild.test_unit_cache import _rewrite_store
 from rebuild.tools import console, memory_tally
 from rebuild.tools.cycle_timings import parse_inner_timings
 
@@ -884,14 +886,14 @@ def test_write_shard_leaves_no_staging_file_behind_when_serializing_fails(tmp_pa
 
 
 def test_the_shard_writer_keeps_the_previous_corpus_whole_until_commit(tmp_path):
-    """The m1 build reads cached units out of the previous corpus's shards by address while it writes the new ones, so a part replaces the old file only at `commit`, after every class has closed. Until then the old file stays on disk under its name, and `abort` deletes the staged parts without touching it."""
+    """The m1 build reads cached units out of the previous corpus's shards by address while it writes the new ones, so a part replaces the old file only at `commit`, after every class has closed. Until then the old file stays on disk under its name, and `abort` deletes the staged parts without touching it. Appended to, a class keeps its parts: a kept fragment's span is its prior address, an appended one goes to the first overflow part, staged until `commit`, and a later append clones that part to its staging name, cuts its closing bytes and appends, so the part on disk is the previous corpus's until `commit`."""
     _write_shard(tmp_path, "a", [{"id": "u-0000"}])
     units = tmp_path / "units"
     before = (units / "a.json").read_bytes()
     writer = _ShardWriter(tmp_path)
     writer.open("a")
     writer.add({"id": "u-0001"})
-    assert writer.close() == ["units/a.json"]
+    assert writer.close() == (["units/a.json"], len(before))
     assert (units / "a.json").read_bytes() == before
     assert (units / "a.000.json.partial").exists()
     writer.abort()
@@ -908,6 +910,37 @@ def test_the_shard_writer_keeps_the_previous_corpus_whole_until_commit(tmp_path)
     assert json.loads((units / "a.json").read_text(encoding="utf-8")) == [{"id": "u-0001"}]
     assert (units / "b.json").read_bytes() == b"[]\n"
     assert sorted(entry.name for entry in units.iterdir()) == ["a.json", "b.json"]
+    appended = {"id": "u-0002"}
+    for round in range(2):
+        held = (units / "a.json").read_bytes()
+        overflow = (units / "a.x000.json").read_bytes() if round else None
+        writer = _ShardWriter(tmp_path)
+        writer.open("a", ["units/a.json", *(["units/a.x000.json"] if round else [])], append=True)
+        assert writer.keep(unit_cache.PriorFragment("units/a.json", 1, len(held) - 4, "u-0001", None)) == (
+            0,
+            1,
+            len(held) - 4,
+        )
+        span = writer.add(appended)
+        names, total = writer.close()
+        assert names == ["units/a.json", "units/a.x000.json"]
+        assert span == (1, len(overflow) - 2 if overflow else 1, len(_fragment_bytes(appended)))
+        assert (units / "a.json").read_bytes() == held
+        assert (units / "a.x000.json").exists() == bool(round)
+        if round:
+            assert (units / "a.x000.json").read_bytes() == overflow
+        writer.commit()
+        part = (units / "a.x000.json").read_bytes()
+        assert total == len(held) + len(part)
+        assert json.loads(part) == [appended] * (round + 1)
+        assert part[span[1] : span[1] + span[2]] == _fragment_bytes(appended)
+    writer = _ShardWriter(tmp_path)
+    writer.open("a", ["units/a.json", "units/a.x000.json"], append=True)
+    writer.add(appended)
+    writer.close()
+    writer.abort()
+    assert json.loads((units / "a.x000.json").read_bytes()) == [appended] * 2
+    assert not list(units.glob("*.partial"))
 
 
 def test_the_arena_reads_every_fragment_back_by_address():
@@ -1619,16 +1652,8 @@ def _cached_build(out: Path, mini_bundle) -> dict:
 
 
 def _strip_addresses(corpus: Path) -> None:
-    """Rewrite the store as if written before addresses were recorded: drop every record's `address` and keep the header."""
-    path = unit_cache.store_path(corpus)
-    with gzip.open(path, "rt", encoding="utf-8") as stream:
-        lines = stream.read().splitlines()
-    edited = [lines[0]] + [
-        json.dumps({key: value for key, value in json.loads(line).items() if key != "address"})
-        for line in lines[1:]
-    ]
-    with gzip.open(path, "wt", encoding="utf-8") as stream:
-        stream.write("\n".join(edited) + "\n")
+    """Rewrite the store as if written before addresses were recorded: drop every record's `address` and keep its stamps."""
+    _rewrite_store(corpus, lambda record: {key: value for key, value in record.items() if key != "address"})
 
 
 def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it(

@@ -8,6 +8,8 @@ Every string (a digest, a cluster, a change group, a ledger class, a config name
 
 The accessors build one unit's values on demand, in the shapes the build writes: `primary_unit_projection` is the `enrich.PrimaryUnitProjection` the primary-unit resolution pass compares, `primary_unit_projection_record` the `proj` dict of a store record, `junction_rects` the `[{"pair", "before", "after"}]` list `patch_fragment` reads, `primary_units_record` the `[[primary_unit, suppressed]]` list, `cached_unit` the `unit_cache.CachedUnit` for `record_line`, and `source` the `unit_cache.PriorFragment` the fragment is read back through. JSON key order is part of the shipped bytes, so each accessor builds its dicts in the order the writer reads them, and the load raises on input it could not rebuild byte for byte: rect dicts whose keys are not `x_min`, `x_max`, `advance_total` in that order, and rows whose spans, names and junctions disagree in length. The store is also the primary-unit resolution pass's `enrich.PrimaryUnitSource` (`windows`, `junction_count`, `projection`, `id_word`, `invisible` and `set_primary_units`), so `enrich.resolve_primary_unit_assignments` skips units with no secondary junction without building anything and writes its result straight into the junction side column.
 
+Beside the per-unit columns the store holds what the plan read from the prior unit store for the write and the cache write. `prior_line` is each unit's line in the prior store's materialized order, by input key, which places this pass's records against the prior ones (`unit_cache.update_store`). The prior records the plan did not load as cached units are kept by unit id (`add_prior_record`, sorted by `seal_prior_records`): the address of each one's fragment and the fields it was patched with, at 31 bytes a record, so the write finds the prior fragment of a unit it recomputed (`prior_fragment`) and the parent predicts, before a class is written, which of its units come out as they were (`predicted_unchanged`, #618's decision 73). `shard_length` is each fragment's shard bytes as the parent knows them before the write, which that prediction weighs.
+
 `gather` copies the rows of one chunk of a class into a `ChunkStore`, which a corpus write worker reads by position (`build._write_chunks`).
 
 `sizes` reports the store to the debug tally (`memory_tally.column_sizes`). The packed figure is the arrays' bytes plus the mismatch lines, with the string table printed beside it. The walked figure adds the table only when the store owns it; a store built over the workload table's strings reports its rows alone, because the workload table's tally line already counts the table.
@@ -22,6 +24,7 @@ from typing import NamedTuple, Protocol
 
 from rebuild.review import enrich, unit_cache
 from rebuild.review.audit import MACHINE_CHECKS, format_codepoints
+from rebuild.review.unit_cache import NO_PRIOR_LINE
 from rebuild.review.columns import StringTable, Withheld, gather, gather_runs, gather_slices
 from rebuild.tools import memory_tally
 
@@ -38,10 +41,12 @@ SLIM = 16
 EXEMPLAR = 32
 NO_VERDICT = 64
 BYTE_COPIED = 128
+PRIOR_EXEMPLAR = 1
+PRIOR_NO_VERDICT = 2
 
 _ALPHABET_INDEX = {symbol: index for index, symbol in enumerate(unit_cache.BASE58_ALPHABET)}
 
-# The columns the corpus write (`build._write_chunk`) never reads: the primary-unit projection and the store's copy of the window, which the whole-corpus passes before the write read; the diff digest, cluster, change group and judged pair, which the plan, those passes and the cache write read; the shard address and config note, which the write produces and the parent stores; and the id index. `UnitStore.gather` leaves them out of the chunk a write worker reads, with the mismatch lines, which only the parent reads.
+# The columns the corpus write (`build._write_chunk`) never reads: the primary-unit projection and the store's copy of the window, which the whole-corpus passes before the write read; the diff digest, cluster, change group and judged pair, which the plan, those passes and the cache write read; the shard address and config note, which the write produces and the parent stores; the id index; and the prior store's lines and records, which the parent reads to route each class and to write the store, and whose prior fragments the gather resolves for each chunk. `UnitStore.gather` leaves them out of the chunk a write worker reads, with the mismatch lines, which only the parent reads.
 WRITE_UNREAD_COLUMNS = (
     "_diffs_digest",
     "_cluster",
@@ -69,6 +74,16 @@ WRITE_UNREAD_COLUMNS = (
     "_before_junctions",
     "_id_words",
     "_id_ordinals",
+    "_shard_len",
+    "_prior_line",
+    "_by_id_words",
+    "_by_id_part",
+    "_by_id_start",
+    "_by_id_len",
+    "_by_id_class",
+    "_by_id_group",
+    "_by_id_bits",
+    "_by_id_units",
 )
 
 
@@ -212,6 +227,18 @@ class UnitStore:
         self._mismatches: dict[int, tuple[str, ...]] = {}
         self._id_words: array | None = None
         self._id_ordinals: array | None = None
+        self._shard_len = array("I", [0]) * n
+        self._prior_line = array("I", [NO_PRIOR_LINE]) * n
+        self._by_id_parts: list[str] = []
+        self._by_id_part_ids: dict[str, int] = {}
+        self._by_id_words = array("Q")
+        self._by_id_part = array("H")
+        self._by_id_start = array("I")
+        self._by_id_len = array("I")
+        self._by_id_class = array("I")
+        self._by_id_group = array("I")
+        self._by_id_bits = array("B")
+        self._by_id_units = array("I")
 
     def __len__(self) -> int:
         return self.n
@@ -382,8 +409,9 @@ class UnitStore:
         no_verdict: bool,
         ordinal: int | None = None,
         address: Address | unit_cache.PriorFragment | None = None,
+        length: int = 0,
     ) -> int:
-        """Load one recomputed unit's phase-1 projection into its row and return the ordinal. The ordinal is the argument, else the projection's `ordinal`. The address is the argument, a `(part, start, length)` triple or a `PriorFragment`: for a build's recomputed unit, the fragment's span in the parent's arena of deflated fragments (`build._FragmentArena.add`). Without one the row has no address, and `source` returns None. `no_verdict` is the ledger's exemption for the unit (the workload table's flag); with the three machine flags it sets the `slim` bit, the fragment shape the drafting wrote (`audit.slim_fragment`). Raises when the primary-unit projection's ink flags disagree with the projection's, because `primary_unit_projection` reads them from the flag column. `ink_deltas` returns the deltas in the order loaded here, which is the fragment's JSON order."""
+        """Load one recomputed unit's phase-1 projection into its row and return the ordinal. `length` is the drafted fragment's shard bytes, its `shard_length`. The ordinal is the argument, else the projection's `ordinal`. The address is the argument, a `(part, start, length)` triple or a `PriorFragment`: for a build's recomputed unit, the fragment's span in the parent's arena of deflated fragments (`build._FragmentArena.add`). Without one the row has no address, and `source` returns None. `no_verdict` is the ledger's exemption for the unit (the workload table's flag); with the three machine flags it sets the `slim` bit, the fragment shape the drafting wrote (`audit.slim_fragment`). Raises when the primary-unit projection's ink flags disagree with the projection's, because `primary_unit_projection` reads them from the flag column. `ink_deltas` returns the deltas in the order loaded here, which is the fragment's JSON order."""
         if ordinal is None:
             ordinal = projection.ordinal
             if ordinal < 0:
@@ -413,6 +441,7 @@ class UnitStore:
         self._load_projection_rows(ordinal, primary_unit_projection)
         self._load_junctions(ordinal, primary_unit_projection.junction_pairs, projection.junction_rects, None)
         self._load_source(ordinal, address)
+        self._shard_len[ordinal] = length
         if projection.mismatches:
             self._mismatches[ordinal] = tuple(projection.mismatches)
         return ordinal
@@ -477,6 +506,7 @@ class UnitStore:
         ]
         self._load_junctions(ordinal, cached.junction_pairs, rects, cached.primary_units)
         self._load_source(ordinal, found)
+        self._shard_len[ordinal] = found.length
         if cached.mismatches:
             self._mismatches[ordinal] = tuple(cached.mismatches)
         return ordinal
@@ -827,6 +857,113 @@ class UnitStore:
             and self.cached_primary_units(ordinal) == self.primary_units_record(ordinal)
         )
 
+    def shard_length(self, ordinal: int) -> int:
+        """Return the unit's fragment's shard bytes as the parent knows them before the write: the drafted fragment's for a recomputed unit, its prior fragment's for a cached one."""
+        return self._shard_len[ordinal]
+
+    def set_prior_line(self, ordinal: int, line: int) -> None:
+        self._prior_line[ordinal] = line
+
+    def prior_line(self, ordinal: int) -> int:
+        """Return the unit's line in the prior unit store's materialized order, the line whose input key is the unit's, or `unit_cache.NO_PRIOR_LINE`."""
+        return self._prior_line[ordinal]
+
+    def add_prior_record(self, record: unit_cache.PriorRecord) -> None:
+        """Keep one prior store record the plan did not load as a cached unit, by its unit id, with its fragment's address and the fields its fragment was patched with. A record without an address is not kept."""
+        if record.address is None:
+            return
+        part, start, length = record.address
+        index = self._by_id_part_ids.get(part)
+        if index is None:
+            index = self._by_id_part_ids[part] = len(self._by_id_parts)
+            self._by_id_parts.append(part)
+            self._table.id(part)
+        self._by_id_words.append(id_word_of(record.unit_id))
+        self._by_id_part.append(index)
+        self._by_id_start.append(start)
+        self._by_id_len.append(length)
+        self._by_id_class.append(self._table.id(record.class_id))
+        self._by_id_group.append(self._table.optional(record.duplicate_group))
+        self._by_id_bits.append(
+            (PRIOR_EXEMPLAR if record.exemplar else 0) | (PRIOR_NO_VERDICT if record.no_verdict else 0)
+        )
+        self._by_id_units.append(record.primary_units)
+
+    def seal_prior_records(self) -> None:
+        """Sort the kept prior records by unit id, which `prior_fragment` and `predicted_unchanged` bisect."""
+        words = self._by_id_words
+        if all(words[index - 1] <= words[index] for index in range(1, len(words))):
+            return
+        order = sorted(range(len(words)), key=words.__getitem__)
+        for name in (
+            "_by_id_words",
+            "_by_id_part",
+            "_by_id_start",
+            "_by_id_len",
+            "_by_id_class",
+            "_by_id_group",
+            "_by_id_bits",
+            "_by_id_units",
+        ):
+            column = getattr(self, name)
+            setattr(self, name, array(column.typecode, (column[index] for index in order)))
+
+    def prior_record_count(self) -> int:
+        return len(self._by_id_words)
+
+    def _prior_index(self, ordinal: int) -> int | None:
+        words = self._by_id_words
+        word = self.id_word(ordinal)
+        index = bisect_left(words, word)
+        return index if index < len(words) and words[index] == word else None
+
+    def prior_address(self, ordinal: int) -> Address | None:
+        """Return the address of the prior record with a recomputed unit's id, or None when the prior store holds no such record."""
+        index = self._prior_index(ordinal)
+        if index is None:
+            return None
+        return self._by_id_parts[self._by_id_part[index]], self._by_id_start[index], self._by_id_len[index]
+
+    def prior_fragment(self, ordinal: int) -> unit_cache.PriorFragment | None:
+        """Return the prior fragment the write compares the unit's new fragment with: a cached unit's source, or for a recomputed unit, the fragment at `prior_address`, stamped with the unit's id and content key, or None when the prior store holds no such record."""
+        if self._flags[ordinal] & CACHED:
+            return self.source(ordinal)
+        address = self.prior_address(ordinal)
+        if address is None:
+            return None
+        return unit_cache.PriorFragment(
+            *address, self.unit_id(ordinal), self.content_key_hex(ordinal), byte_copied=True
+        )
+
+    def predicted_unchanged(
+        self, ordinal: int, *, class_id: str, duplicate_group: str | None, exemplar: bool, no_verdict: bool
+    ) -> bool:
+        """Whether the unit's fragment is predicted to come out as its prior one, from what the parent already holds (#618's decision 73): a cached unit copied as it is (`cached_as_is`), or a recomputed unit whose prior record, found by its id, was patched with this build's class, duplicate group, exemplar and exemption flags and primary units. The write still compares the bytes."""
+        if self._flags[ordinal] & CACHED:
+            return self.cached_as_is(
+                ordinal,
+                class_id=class_id,
+                duplicate_group=duplicate_group,
+                exemplar=exemplar,
+                no_verdict=no_verdict,
+            )
+        index = self._prior_index(ordinal)
+        if index is None:
+            return False
+        bits = self._by_id_bits[index]
+        return (
+            self._table[self._by_id_class[index]] == class_id
+            and self._optional(self._by_id_group[index]) == duplicate_group
+            and bool(bits & PRIOR_EXEMPLAR) == exemplar
+            and bool(bits & PRIOR_NO_VERDICT) == no_verdict
+            and self._by_id_units[index]
+            == (
+                unit_cache.primary_units_crc(self.primary_units_record(ordinal))
+                if self._junction_n[ordinal]
+                else 0
+            )
+        )
+
     def windows(self) -> Iterator[tuple[int, tuple[int, ...]]]:
         """Yield every unit's ordinal and window, for the primary-unit resolution pass's `by_codepoints` index."""
         for ordinal in range(self.n):
@@ -868,7 +1005,7 @@ class UnitStore:
         )
 
     def gather(self, ordinals: Sequence[int]) -> ChunkStore:
-        """Return a store over the units at `ordinals`, each answered by its position in that sequence: one chunk of a class for a write worker (`build._write_chunks`). Every column the write reads is copied for those rows, each side array's runs with their offsets rebased, and the string table is this store's own, which the worker holds once (`build._SharedPickler`). The columns `WRITE_UNREAD_COLUMNS` names, the mismatch lines and the primary-unit ordinals are `Withheld`. Each primary unit is resolved here to its id word, the one value the write reads at another unit (`ChunkStore.primary_units`)."""
+        """Return a store over the units at `ordinals`, each answered by its position in that sequence: one chunk of a class for a write worker (`build._write_chunks`). Every column the write reads is copied for those rows, each side array's runs with their offsets rebased, and the string table is this store's own, which the worker holds once (`build._SharedPickler`). The columns `WRITE_UNREAD_COLUMNS` names, the mismatch lines and the primary-unit ordinals are `Withheld`. Each primary unit is resolved here to its id word, the one value the write reads at another unit (`ChunkStore.primary_units`), and each recomputed unit's prior fragment to its address, 16 bytes a unit (`ChunkStore.prior_fragment`), which keeps a chunk's message near the 1 MB `build.WRITE_CHUNK_UNITS` sets it at. The part names are in the string table, which the plan filled before any worker started."""
         chunk = ChunkStore.__new__(ChunkStore)
         chunk.n = len(ordinals)
         chunk._table = self._table
@@ -891,6 +1028,15 @@ class UnitStore:
             "_junction_n",
         ):
             setattr(chunk, name, gather(getattr(self, name), ordinals))
+        chunk._chunk_prior_part = array("I")
+        chunk._chunk_prior_start = array("Q")
+        chunk._chunk_prior_len = array("I")
+        for ordinal in ordinals:
+            prior = None if self._flags[ordinal] & CACHED else self.prior_address(ordinal)
+            part, start, length = ("", 0, 0) if prior is None else prior
+            chunk._chunk_prior_part.append(self._table.id(part) if part else 0)
+            chunk._chunk_prior_start.append(start)
+            chunk._chunk_prior_len.append(length)
         chunk._deltas_start, (chunk._delta_config, chunk._delta_digest) = gather_runs(
             self._deltas_start, self._deltas_n, ordinals, (self._delta_config, 1), (self._delta_digest, 1)
         )
@@ -943,6 +1089,25 @@ class ChunkStore(UnitStore):
 
     _primary_unit_word: array
     _primary_unit_named: bytearray
+    _chunk_prior_part: array
+    _chunk_prior_start: array
+    _chunk_prior_len: array
+
+    def prior_fragment(self, ordinal: int) -> unit_cache.PriorFragment | None:
+        """Return the prior fragment `UnitStore.prior_fragment` gives the unit, a recomputed unit's as the gather resolved it."""
+        if self._flags[ordinal] & CACHED:
+            return self.source(ordinal)
+        part = self._chunk_prior_part[ordinal]
+        if part == 0:
+            return None
+        return unit_cache.PriorFragment(
+            self._table[part],
+            self._chunk_prior_start[ordinal],
+            self._chunk_prior_len[ordinal],
+            self.unit_id(ordinal),
+            self.content_key_hex(ordinal),
+            byte_copied=True,
+        )
 
     def _at(self, ordinal: int) -> None:
         if not 0 <= ordinal < self.n:

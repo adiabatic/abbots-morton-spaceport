@@ -160,3 +160,49 @@ def test_the_tables_are_digested_with_the_trees_own_code(tmp_path):
     assert document["fonts"]["rebuild/out/m1/M1.otf"] == "the tree’s font digest"
     assert document["fonts"]["site/AbbotsMortonSpaceportMono-Regular.otf"] is None
     assert document["accepted"] == hashlib.sha256(listed.read_bytes()).hexdigest()
+
+
+def test_a_corpus_appended_to_reads_as_its_materialized_form(mini_corpus, mini_bundle, tmp_path):
+    """A build that appends changed fragments to overflow parts and writes its unit store as a base and a segment fingerprints as its materialized form (#618's decision 48): the corpus and stores blocks equal those of the files a from-scratch build of the same units writes (`build.materialize_corpus`), with the store's head, base and segment files left out of the per-file block and the store read under `unit-cache.ndjson.gz`, as a store written before the segment format was. A corpus no build has appended to, already laid out as its materialized form, reads the same way. A class that lost its last unit by id on a pass that appended nothing keeps its part as it was, every live slot where a from-scratch build puts it and the lost unit's slot dead at its end, so the corpus is not its materialized form and reads as that form, whose part ends at the last live slot."""
+    import shutil
+
+    from rebuild.pipeline import fingerprint
+    from rebuild.review import build
+    from rebuild.review import unit_index
+    from rebuild.test_unit_cache import _build, _edited_audit, _rewrite_store, _store_lines
+
+    unappended = tmp_path / "unappended"
+    build.materialize_corpus(mini_corpus, unappended)
+    assert pf.corpus_digests(mini_corpus, fingerprint.font_content_digest, build.MaterializedCorpus) == (
+        pf.corpus_digests(unappended, fingerprint.font_content_digest)
+    )
+    corpus = tmp_path / "corpus"
+    shutil.copytree(mini_corpus, corpus)
+    _build(corpus, mini_bundle, audit_path=_edited_audit(tmp_path, 2), jobs=1)
+    assert list((corpus / "units").glob("*.x000.json")) and list(
+        corpus.glob("unit-cache.ndjson.gz.0.1.delta")
+    )
+    form = tmp_path / "form"
+    build.materialize_corpus(corpus, form)
+    read = pf.corpus_digests(corpus, fingerprint.font_content_digest, build.MaterializedCorpus)
+    assert read == pf.corpus_digests(form, fingerprint.font_content_digest)
+    assert not any(name.startswith("unit-cache.ndjson.gz") for name in read[0]["files"])
+    assert read[1]["unit-cache.ndjson.gz"] is not None
+    shrunk = tmp_path / "shrunk"
+    shutil.copytree(mini_corpus, shrunk)
+    with unit_index.LiveCorpus(shrunk) as live:
+        last = next(
+            slots[-1]
+            for meta in live.ordered()
+            if len(unit_index.class_shards(meta)) == 1 and len(slots := live.slots(meta)) > 1
+        )
+    _header, lines = _store_lines(shrunk)
+    _rewrite_store(shrunk, lines=[line for line in lines if unit_index.record_id(line) != last.unit_id])
+    with build.MaterializedCorpus(shrunk) as materialized:
+        assert not materialized.identical
+    shrunk_form = tmp_path / "shrunk-form"
+    build.materialize_corpus(shrunk, shrunk_form)
+    assert (shrunk_form / last.part).stat().st_size < (shrunk / last.part).stat().st_size
+    assert pf.corpus_digests(shrunk, fingerprint.font_content_digest, build.MaterializedCorpus) == (
+        pf.corpus_digests(shrunk_form, fingerprint.font_content_digest)
+    )

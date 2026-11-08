@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from rebuild.baseline import model
-from rebuild.pipeline import fingerprint
+from rebuild.pipeline import fingerprint, row_delta
 from rebuild.tools import artifact_cycle
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -153,6 +153,7 @@ def test_the_inline_streamed_reads_answer_what_the_helper_does(tmp_path):
     expected = fingerprint.file_sha256(sample)
     assert artifact_cycle._sha256_path(sample) == expected
     assert model.font_sha256(sample) == expected
+    assert row_delta.file_sha256(sample) == expected
 
 
 def test_hash_paths_is_content_sensitive_and_stable(tmp_path):

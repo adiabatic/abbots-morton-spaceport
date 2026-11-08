@@ -16,6 +16,7 @@ from fontTools.ttLib import TTFont
 from rebuild.review import unit_cache, unit_index
 from rebuild.review.build import build_m1
 from rebuild.review.enrich import load_spec
+from rebuild.test_unit_cache import _form
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
@@ -76,15 +77,7 @@ def _tree(path: Path) -> dict[str, bytes]:
 
 
 def _content_keys(corpus: Path) -> dict[str, str]:
-    import json
-
-    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
-    keys: dict[str, str] = {}
-    for meta in manifest["classes"]:
-        for part in unit_index.class_shards(meta):
-            for unit in json.loads((corpus / part).read_text(encoding="utf-8")):
-                keys[unit["codepoints"]] = unit["content_key"]
-    return keys
+    return {unit["codepoints"]: unit["content_key"] for unit in unit_index.iter_shard_fragments(corpus)}
 
 
 def _cached(capfd) -> tuple[int, int]:
@@ -131,7 +124,7 @@ def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_p
 def test_a_recompiled_font_reuses_the_untouched_units_and_matches_a_from_scratch_build(
     mini_corpus, mini_bundle, tmp_path, capfd
 ):
-    """End to end at mini scale: rebuild the mini corpus over a font recompiled the way a rune edit recompiles one. The store must supply the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a cached fragment with a wrong key would orphan every verdict recorded against it, and `patch_fragment` rewrites a cached fragment's scaffold fields without recomputing that key. The base copied here is conftest's `mini_corpus`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled."""
+    """End to end at mini scale: rebuild the mini corpus over a font recompiled the way a rune edit recompiles one. The store must supply the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be, materialized (`build.materialize_corpus`), byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a cached fragment with a wrong key would orphan every verdict recorded against it, and `patch_fragment` rewrites a cached fragment's scaffold fields without recomputing that key. The base copied here is conftest's `mini_corpus`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled."""
     incremental = tmp_path / "corpus"
     shutil.copytree(mini_corpus, incremental)
     recompiled = _recompiled(MINI_FONT, tmp_path / "recompiled.otf")
@@ -145,7 +138,7 @@ def test_a_recompiled_font_reuses_the_untouched_units_and_matches_a_from_scratch
     _mini_build(scratch, recompiled, mini_bundle, recompute_all_units=True)
 
     assert _content_keys(incremental) == _content_keys(scratch)
-    assert _tree(incremental) == _tree(scratch)
+    assert _form(incremental, tmp_path) == _form(scratch, tmp_path)
 
 
 def _with_a_version_bump(source: Path, target: Path) -> Path:

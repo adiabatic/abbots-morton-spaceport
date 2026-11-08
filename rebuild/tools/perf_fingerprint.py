@@ -4,7 +4,7 @@ Run it with the tree under test's own interpreter and code, never the harness's:
 
   uv run --directory <tree> python -P <main>/rebuild/tools/perf_fingerprint.py --root <tree> --out <file>
 
-`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table` and `rebuild.pipeline.fingerprint` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
+`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table`, `rebuild.pipeline.fingerprint` and, for a corpus read in its materialized form, `rebuild.review.build` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
 
 The output is one `ams-perf-fingerprint/1` document:
 
@@ -17,6 +17,8 @@ The output is one `ams-perf-fingerprint/1` document:
 - `complaints`: the complaint list as canonical JSON without the keys `COMPLAINT_STAMPS` names and without any `at` inside `groups`.
 - `review_facts_pins`: the raw digest of `rebuild/review-facts-pins.json` as the pass rewrote it.
 
+A corpus whose unit store has a head (`unit-cache.ndjson.gz.head`, #618's change 28) is read in its materialized form (decision 48, the tree's `build.MaterializedCorpus`): each class's live fragments laid into the parts a from-scratch build writes, the manifest's `shards` lists, the app sidecars' rows and their locator blocks in that layout, and the unit store's head, base and segments merged into the single file a whole write gives, under the key `unit-cache.ndjson.gz`, every store part checked against its head's size and sha256. The store's head, base and segment files are left out of the `corpus` block. So a build that appends a changed fragment, and a later fold, move no digest.
+
 Two readings of the same outputs fingerprint identically, so a difference across a pass that changed no output names a missed stamp.
 """
 
@@ -28,9 +30,10 @@ import hashlib
 import importlib
 import json
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 FORMAT = "ams-perf-fingerprint/1"
 MANIFEST_STAMPS = ("generated_at", "repo_head", "inputs_fingerprint")
@@ -38,6 +41,8 @@ SIDECAR_STAMPS = ("manifest_sha256", "generated_at", "environment", "environment
 STORE_STAMPS = ("manifest_generated_at", "exported_at")
 COMPLAINT_STAMPS = ("manifest_generated_at", "since")
 STORES = ("unit-cache.ndjson.gz", "ink-signatures.tsv.gz")
+STORE = STORES[0]
+HEAD = f"{STORE}.head"
 SITE_FONTS = tuple(
     f"site/AbbotsMortonSpaceport{family}-{weight}.otf"
     for family in ("Mono", "SansJunior", "SansSenior")
@@ -75,7 +80,11 @@ def file_sha256(path: Path) -> str:
 
 
 def manifest_digest(path: Path) -> str:
-    document = json.loads(path.read_bytes())
+    return manifest_document_digest(json.loads(path.read_bytes()))
+
+
+def manifest_document_digest(document: dict) -> str:
+    document = json.loads(json.dumps(document))
     for key in MANIFEST_STAMPS:
         document.pop(key, None)
     for font in (document.get("fonts") or {}).values():
@@ -95,22 +104,31 @@ def facts_digest(path: Path) -> str:
 
 def gz_digest(path: Path) -> str:
     """Digest a gzip file's decompressed stream, re-serializing a JSON header line that carries `format` without the keys `SIDECAR_STAMPS` names, so the gzip member's own header and the stamps never count."""
-    digest = hashlib.sha256()
     with gzip.open(path, "rb") as handle:
         first = handle.readline()
-        try:
-            header = json.loads(first)
-        except ValueError:
-            header = None
-        if isinstance(header, dict) and "format" in header:
-            for key in SIDECAR_STAMPS:
-                header.pop(key, None)
-            digest.update(canonical(header) + b"\n")
-        else:
-            digest.update(first)
-        while chunk := handle.read(_CHUNK):
-            digest.update(chunk)
+        return stream_digest(first, iter(lambda: handle.read(_CHUNK), b""))
+
+
+def stream_digest(first: bytes, rest: Iterable[bytes]) -> str:
+    """Digest a decompressed stream as `gz_digest` does: its first line re-serialized without the keys `SIDECAR_STAMPS` names when it is a JSON header carrying `format`, then the rest as it is."""
+    digest = hashlib.sha256()
+    try:
+        header = json.loads(first)
+    except ValueError:
+        header = None
+    if isinstance(header, dict) and "format" in header:
+        for key in SIDECAR_STAMPS:
+            header.pop(key, None)
+        digest.update(canonical(header) + b"\n")
+    else:
+        digest.update(first)
+    for chunk in rest:
+        digest.update(chunk)
     return digest.hexdigest()
+
+
+def _header_line(header: dict) -> bytes:
+    return (json.dumps(header) + "\n").encode()
 
 
 def corpus_file_digest(corpus: Path, path: Path, font_digest: Callable[[Path], str]) -> str:
@@ -126,11 +144,15 @@ def corpus_file_digest(corpus: Path, path: Path, font_digest: Callable[[Path], s
     return file_sha256(path)
 
 
-def corpus_digests(corpus: Path, font_digest: Callable[[Path], str]) -> tuple[dict, dict[str, str | None]]:
-    """Return the corpus block and the stores block for the review corpus at `corpus`."""
+def corpus_digests(
+    corpus: Path, font_digest: Callable[[Path], str], materialize: Callable[[Path], Any] | None = None
+) -> tuple[dict, dict[str, str | None]]:
+    """Return the corpus block and the stores block for the review corpus at `corpus`, read in its materialized form through `materialize` (the tree's `build.MaterializedCorpus`) when its unit store has a head."""
     files: dict[str, str] = {}
     stores: dict[str, str | None] = {name: None for name in STORES}
-    if corpus.is_dir():
+    if materialize is not None and (corpus / HEAD).is_file():
+        _materialized_digests(corpus, font_digest, materialize, files, stores)
+    elif corpus.is_dir():
         for path in sorted(p for p in corpus.rglob("*") if p.is_file()):
             rel = path.relative_to(corpus).as_posix()
             if rel in STORES:
@@ -139,6 +161,51 @@ def corpus_digests(corpus: Path, font_digest: Callable[[Path], str]) -> tuple[di
                 files[rel] = corpus_file_digest(corpus, path, font_digest)
     lines = "\n".join(f"{rel}\t{digest}" for rel, digest in sorted(files.items()))
     return {"digest": sha256_bytes(lines.encode()), "files": files}, stores
+
+
+def _materialized_digests(
+    corpus: Path,
+    font_digest: Callable[[Path], str],
+    materialize: Callable[[Path], Any],
+    files: dict[str, str],
+    stores: dict[str, str | None],
+) -> None:
+    """Fill the corpus and stores blocks from the corpus's materialized form (the module docstring). A corpus that already is its materialized form keeps its own files' digests, read as the plain form reads them."""
+    with materialize(corpus) as form:
+        for path in sorted(p for p in corpus.rglob("*") if p.is_file()):
+            rel = path.relative_to(corpus).as_posix()
+            if rel in STORES:
+                stores[rel] = gz_digest(path)
+            elif not form.is_layout_file(rel) or (
+                form.identical and rel != STORE and not rel.startswith(STORE)
+            ):
+                files[rel] = corpus_file_digest(corpus, path, font_digest)
+        if not form.identical:
+            for name, chunks in form.part_files():
+                digest = hashlib.sha256()
+                for chunk in chunks:
+                    digest.update(chunk)
+                files[name] = digest.hexdigest()
+            files["manifest.json"] = manifest_document_digest(form.manifest)
+            index, app, locator, rows_name = form.SIDECARS
+            files[index] = stream_digest(_header_line(form.sidecar_header(index)), form.index_lines())
+            files[app] = stream_digest(_header_line(form.sidecar_header(app)), form.app_lines())
+            rows, blocks, machine = form.locator()
+            files[rows_name] = sha256_bytes(gzip.decompress(rows))
+            table = {
+                **form.sidecar_header(locator),
+                "units": machine,
+                "blocks": len(blocks),
+                "rows_bytes": len(rows),
+            }
+            files[locator] = stream_digest(
+                _header_line(table),
+                ((json.dumps(block, ensure_ascii=False) + "\n").encode() for block in blocks),
+            )
+        store = form.store()
+        if store is not None:
+            header, lines = store
+            stores[STORE] = stream_digest(_header_line(header), lines)
 
 
 def _without_at(value: object) -> object:
@@ -199,8 +266,14 @@ def table_digests(m1: Path, table: ModuleType) -> dict[str, str]:
     return digests
 
 
-def fingerprint_tree(root: Path, *, table: ModuleType, font_digest: Callable[[Path], str]) -> dict:
-    corpus, stores = corpus_digests(root / REVIEW, font_digest)
+def fingerprint_tree(
+    root: Path,
+    *,
+    table: ModuleType,
+    font_digest: Callable[[Path], str],
+    materialize: Callable[[Path], Any] | None = None,
+) -> dict:
+    corpus, stores = corpus_digests(root / REVIEW, font_digest, materialize)
     pins = root / FACTS_PINS
     return {
         "format": FORMAT,
@@ -223,6 +296,11 @@ def tree_modules(root: Path) -> tuple[ModuleType, ModuleType]:
     )
 
 
+def tree_materialize(corpus: Path) -> Any:
+    """Return the tree's `build.MaterializedCorpus` over `corpus`, importing `rebuild.review.build` from the tree first on `sys.path` only when a corpus needs it."""
+    return importlib.import_module("rebuild.review.build").MaterializedCorpus(corpus)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Fingerprint one tree's outputs for the acceptance bar's same-output reading."
@@ -234,7 +312,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.root.resolve()
     table, fingerprint = tree_modules(root)
-    document = fingerprint_tree(root, table=table, font_digest=fingerprint.font_content_digest)
+    document = fingerprint_tree(
+        root, table=table, font_digest=fingerprint.font_content_digest, materialize=tree_materialize
+    )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(document, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return 0

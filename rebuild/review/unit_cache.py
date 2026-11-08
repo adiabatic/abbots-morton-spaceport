@@ -10,11 +10,13 @@ Four inputs are outside the whole-store stamp. The after font's GSUB wiring is o
 
 A store record holds the address of the previous build's fragment: the shard part, byte offset, and length the shard writer returned when it wrote the fragment, so the plan does not parse the previous corpus to find it. The record also holds what the parent's whole-corpus passes need: the machine flags and ink deltas, the change group and the ledger class a re-routed unit was taken from, the judged pair, the ink-diff digest for duplicate grouping, the primary-unit projection and per-junction rects, and the unit's mismatch lines. It records whether the fragment was written slim, because the shape depends on the exemption, a ledger fact outside the key. It also records the values the fragment was written with that come from outside the key: its duplicate group, its class after change-group promotion, the ledger's exemplar and exemption flags, its primary units of secondary junctions, and the rune file its policy draft names. So a unit that becomes a human unit on a ledger edit (`no_verdict` changes) is a miss and is re-enriched in full instead of reused as the slim fragment it had before, and a unit that moves the other way is a miss too. This keeps a cached corpus byte-identical to a from-scratch one.
 
-Every field derived from the ledger or the whole-corpus passes (duplicate group, class, `no_verdict`, `exemplar`, the primary units of secondary junctions) is recomputed over all units on every build, and a unit's id depends only on its content key. A cached fragment whose recomputed fields all equal the values its record says it was written with is copied into the new corpus by address as bytes, without parsing (`unit_store.UnitStore.cached_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). The shard writer leaves a part in place when every fragment in it is copied this way. A cached fragment with a changed field is parsed once, patched, and serialized again, the same way a recomputed fragment is read back from the build's own arena of deflated fragments (`build._FragmentArena`), so a cache hit never keeps a stale global field. The cluster id, the change group and the ledger class are the global fields taken from the cached record, because their inputs (configs, per-config classes, junctions, highlight totals, machine flags and ink diffs) are covered by the key, the `ink_identical` ids by the stamp, and the exemption, which decides whether an identical class's unit re-routes, by the slim check, since such a unit is slim exactly when it is exempt.
+Every field derived from the ledger or the whole-corpus passes (duplicate group, class, `no_verdict`, `exemplar`, the primary units of secondary junctions) is recomputed over all units on every build, and a unit's id depends only on its content key. A cached fragment whose recomputed fields all equal the values its record says it was written with stays at its address in the new corpus, read as bytes without parsing (`unit_store.UnitStore.cached_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). So does a recomputed or re-patched fragment whose bytes equal those at its prior record's address, found by unit id (`unit_store.UnitStore.prior_fragment`, `PriorFragmentReader.same_bytes`). The shard writer appends every other fragment to its class's overflow parts and leaves the parts it found in place, unless the class is written whole (`build._ShardWriter`, `build._route`). A cached fragment with a changed field is parsed once, patched, and serialized again, the same way a recomputed fragment is read back from the build's own arena of deflated fragments (`build._FragmentArena`), so a cache hit never keeps a stale global field. The cluster id, the change group and the ledger class are the global fields taken from the cached record, because their inputs (configs, per-config classes, junctions, highlight totals, machine flags and ink diffs) are covered by the key, the `ink_identical` ids by the stamp, and the exemption, which decides whether an identical class's unit re-routes, by the slim check, since such a unit is slim exactly when it is exempt.
 
-`stream_store` parses a store line only if the workload names its key, into a `ParsedCachedUnit`, and yields the records one at a time in store order. The plan loads each into the packed unit store (`rebuild/review/unit_store.py`) and releases it, so for the rest of the build the parent holds a cached unit only as columns there. If the store stops reading after some records were yielded, the stream raises `StoreUnreadable`, and the plan discards what it loaded and runs a full build. An error the load itself raises propagates unchanged. `load_store` collects the same stream into a dict.
+`stream_store` parses a store line only if the workload names its key, into a `ParsedCachedUnit`, and yields the records one at a time in the store's materialized order. The plan loads each into the packed unit store (`rebuild/review/unit_store.py`) and releases it, so for the rest of the build the parent holds a cached unit only as columns there. If the store stops reading after some records were yielded, the stream raises `StoreUnreadable`, and the plan discards what it loaded and runs a full build. An error the load itself raises propagates unchanged. `load_store` collects the same stream into a dict.
 
-rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit checks that an incrementally rebuilt corpus matches a from-scratch build byte for byte, and `test_no_change_rebuild_reuses_every_unit_and_is_byte_stable` checks that the cached path rewrites no shard part.
+The store is held in the segment format (`rebuild/pipeline/row_delta.py`): a head, `unit-cache.ndjson.gz.head`, which carries the header below as its stamps and lists a base, the single file a whole write gives (`write_store`), and the segments later builds wrote over it. A cached build writes only what changed (`update_store`): one segment of the records whose line changed, tombstones for the records no unit names any more and at the old place of each record that moved, and a place for each record in this build's triage order, since the base's lines carry no triage key; or the head alone when no record changed. A structure-stamp move or a letter batch (`REDERIVING_LABELS`), the share rule and the fold write a new base instead, and a store that did not read is rewritten whole, which the cycle reports (`output_sink.note_rewritten`). The store's materialized form (`materialized_store`) is the file a whole write of the same records gives, byte for byte. A store written before the segment format, the single file `unit-cache.ndjson.gz`, is read as a base with no head, and the first build that finds it links it as generation 0's base under a head as soon as its plan has read it (`adopt_single_file`). The plan reads every record of the prior store whatever its stamp (`scan_store`): to place this build's records against it, and, while its manifest stamp and part sizes hold, to keep each record it does not load by unit id (`PriorRecord`), so the write finds the prior fragment of a unit it recomputed.
+
+rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit checks that an incrementally rebuilt corpus holds a from-scratch build's fragments by id and materializes to its files byte for byte, `test_no_change_rebuild_reuses_every_unit_and_is_byte_stable` that the cached path rewrites and appends no shard part and writes the store's head alone, and `test_the_stores_materialized_form_is_the_file_a_whole_write_gives` that the store's segments materialize to `write_store`'s file.
 
 Both stores record their whole-store stamp in two forms: the hex digest that `stream_store` and `load_signature_store` compare, and the `fingerprint.EnvironmentStamp` lines the digest is computed from, with the code label's per-file lines beside them. When a load rejects a store, `store_miss_note` and `signature_miss_note` use these to report which of four causes applied: no store, a store that does not read, a manifest that changed, or a stamp line that changed. For a code line they name the changed file inside the closure (`corpus_code: rebuild/review/ink.py (changed)`) instead of the closure's digest. The note is only as specific as the lines: `after_helpers` is one digest over the after font's non-family glyphs, cmap, and layout wiring, so a change there is not narrowed further. A staging pass writes its corpus to another directory, so a live pass after one compares against the last live store's lines and reports everything that changed since that store was written, code changes included.
 
@@ -25,23 +27,31 @@ Beside the per-unit store is the ink-signature store, which does for the ink-dup
 
 from __future__ import annotations
 
+import bisect
 import gzip
 import hashlib
 import json
 import os
 import re
 import sys
-from dataclasses import dataclass
+import zlib
+from array import array
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Container, Iterable, Iterator, Mapping, Protocol, Sequence
+from typing import BinaryIO, Container, Iterable, Iterator, Mapping, Protocol, Sequence
 
-from rebuild.pipeline import fingerprint, kernel_exec, spec_load
+from rebuild.pipeline import fingerprint, kernel_exec, output_sink, row_delta, spec_load
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, RowColumns, UnitTable, parse_codepoints
 
-STORE_FORMAT = "ams-review-unit-cache/9"
-STORE_NAME = "unit-cache.ndjson.gz"
+STORE_FORMAT = unit_index.STORE_FORMAT
+STORE_NAME = unit_index.STORE_NAME
+# The name a base's gzip header records: the staging name the single-file writer wrote the store under before the segment format, so a base is that file byte for byte.
+_BASE_GZIP_NAME = STORE_NAME + ".partial"
+# The environment stamp's lines whose move means every record is re-derived (#618's decision 72): a structure-stamp move or a letter batch, on which the store writes a new base instead of a segment. A letter batch moves `spec_structure`, which hashes the alphabet's runes; the `subsets` line is not one of them, because an old-font edit moves it too.
+REDERIVING_LABELS = ("spec_structure", "capability_features", spec_load.ALPHABET_LABEL)
 SIGNATURE_STORE_FORMAT = "ams-review-ink-signatures/2"
 SIGNATURE_STORE_NAME = "ink-signatures.tsv.gz"
 
@@ -534,15 +544,8 @@ def _part_sizes(out_dir: Path, parts: Iterable[str]) -> dict[str, int | None]:
 
 
 def record_line(record: CachedUnit) -> bytes:
-    """Return one store record as its line in the file. A line from the previous store and the record the build's unit store produces for the same unit (`unit_store.UnitStore.cached_unit`) serialize to the same bytes, because every field, including the projection read back through the store's columns and `primary_unit_projection_record`, round-trips through JSON in the order and form it was written. So when this build would write a record unchanged, it copies the previous line through a `StoreCursor` instead of building the record again. rebuild/test_unit_cache.py and rebuild/test_unit_store.py check this: the projection round trip for one record, and the no-change and incremental rebuilds down to the store's bytes."""
+    """Return one store record as its line in the file. A line from the previous store and the record the build's unit store produces for the same unit (`unit_store.UnitStore.cached_unit`) serialize to the same bytes, because every field, including the projection read back through the store's columns and `primary_unit_projection_record`, round-trips through JSON in the order and form it was written. So a record this build would write unchanged is left where the store holds it, and the store's segment holds only the records whose line changed (`update_store`). rebuild/test_unit_cache.py and rebuild/test_unit_store.py check this: the projection round trip for one record, and the no-change and incremental rebuilds down to the store's bytes."""
     return (json.dumps(record.to_record()) + "\n").encode()
-
-
-class StoreCursor(unit_index.LineCursor):
-    """A forward-only reader over the previous build's store that returns the line for a requested input key: a `unit_index.LineCursor` keyed on each record's leading `key` field. The build reads it in triage order while it writes the new store, copying the line of each unit whose record would be unchanged and building the rest."""
-
-    def __init__(self, out_dir: Path) -> None:
-        super().__init__(store_path(out_dir), field="key")
 
 
 def _stamp_value(environment: fingerprint.EnvironmentStamp | str) -> str:
@@ -558,40 +561,130 @@ def _stamp_header(environment: fingerprint.EnvironmentStamp | str) -> dict:
     return fields
 
 
-def write_store(
-    out_dir: Path,
-    environment: fingerprint.EnvironmentStamp | str,
-    records: Iterable[CachedUnit | bytes],
-    parts: Iterable[str] | None = None,
-) -> None:
-    """Write the unit store after the manifest, stamped with the manifest's identity (`unit_index.manifest_sha256`, which leaves out the copied UI assets' component). The stamp shows the store describes the shards beside it, and an assets refresh that rewrites only that component leaves the store current. A crash between the manifest write and this one leaves a stamp mismatch, and the next build falls back to a full pass.
-
-    The header also records the byte size of every shard part the records' addresses point into: `parts` when the caller names them, otherwise the parts the `CachedUnit` records address. The manifest stamp says nothing about the shards' bytes, so `stream_store` compares each part's current size with the recorded one, at one stat per part, and drops the addresses into a part whose size changed. Equal sizes do not prove the addresses are still right, since a rewrite can swap two fragments of equal length; `PriorFragmentReader` catches that case by checking the id and stamp at each address. A record is either a `CachedUnit` to serialize or the line a previous store already holds for it (`record_line` makes the two identical). The file is written under a sibling `.partial` name and renamed at the end, so the previous store stays readable through a `StoreCursor` until the new one is complete. The gzip mtime is fixed so consecutive identical builds write identical bytes. Compression is level 1: the file is written once and read once per build, and level 9 compresses it about four times slower to make it about a fifth smaller.
-    """
-    if parts is None:
-        records = list(records)
-        parts = (record.address[0] for record in records if isinstance(record, CachedUnit) and record.address)
-    header = {
+def store_header(
+    out_dir: Path, environment: fingerprint.EnvironmentStamp | str, parts: Iterable[str]
+) -> dict:
+    """Return the store's header for a write: its format, the stamp (`_stamp_header`), the manifest's identity (`unit_index.manifest_sha256`, which leaves out the copied UI assets' component) and the byte size of every shard part in `parts`. The manifest stamp shows the store describes the shards beside it, and an assets refresh that rewrites only that component leaves the store current. The manifest stamp says nothing about the shards' bytes, so a reader compares each part's current size with the recorded one, at one stat per part, and drops the addresses into a part whose size changed. Equal sizes do not prove the addresses are still right, since a rewrite can swap two fragments of equal length; `PriorFragmentReader` catches that case by checking the id and stamp at each address. The head carries this header as its stamps (`row_delta`), and a base carries it inline."""
+    return {
         "format": STORE_FORMAT,
         **_stamp_header(environment),
         "manifest_sha256": _manifest_stamp(out_dir),
         "parts": _part_sizes(out_dir, parts),
     }
-    path = store_path(out_dir)
-    staging = path.with_name(path.name + ".partial")
+
+
+def _write_lines(stream: row_delta.Sink, header: dict, lines: Iterable[bytes]) -> tuple[int, int]:
+    """Write a store's header and its record lines to `stream` and return the records and their bytes."""
+    stream.write((json.dumps(header) + "\n").encode())
+    count = total = 0
+    for line in lines:
+        stream.write(line)
+        count += 1
+        total += len(line)
+    return count, total
+
+
+def _readable_head(out_dir: Path) -> row_delta.Head | None:
     try:
-        with open(staging, "wb") as handle:
-            with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
-                stream.write((json.dumps(header) + "\n").encode())
-                for record in records:
-                    stream.write(record if isinstance(record, bytes) else record_line(record))
-        staging.replace(path)
-    finally:
-        staging.unlink(missing_ok=True)
+        return row_delta.read_head(out_dir, STORE_NAME)
+    except row_delta.HeadError:
+        return None
+
+
+def _write_base(
+    out_dir: Path, prior: row_delta.Head | None, header: dict, lines: Iterable[bytes], *, content: int
+) -> row_delta.Head:
+    """Write `lines` under `header` as the next generation's base, commit a head that lists it alone, and delete the parts the head does not list and the single file a store written before the segment format leaves. The base is the file a whole write gives, byte for byte: gzip level 1, since it is written once and read once a build and level 9 compresses about four times slower to make it about a fifth smaller, with a fixed mtime so consecutive identical builds write identical bytes."""
+    generation = 0 if prior is None else prior.generation + 1
+    base = row_delta.write_part(
+        out_dir,
+        row_delta.base_name(STORE_NAME, generation),
+        lambda stream: _write_lines(stream, header, lines),
+        gzip_name=_BASE_GZIP_NAME,
+    )
+    head = row_delta.Head(STORE_NAME, generation, content, header, base)
+    row_delta.commit(out_dir, head)
+    store_path(out_dir).unlink(missing_ok=True)
+    return head
+
+
+def write_store(
+    out_dir: Path,
+    environment: fingerprint.EnvironmentStamp | str,
+    records: Iterable[CachedUnit | bytes],
+    parts: Iterable[str] | None = None,
+) -> row_delta.Head:
+    """Write the unit store whole after the manifest: a new base, holding a header (`store_header`) and each record's line, as the next generation under a new head, which is committed last (`row_delta`). The header records `parts` when the caller names them, otherwise the parts the `CachedUnit` records address. A crash between the manifest write and this one leaves a stamp mismatch, and the next build falls back to a full pass. A record is either a `CachedUnit` to serialize or its line (`record_line` makes the two identical). The previous head and its parts stay readable until the new head is in place. This is the materialized form of the store for these records: `update_store` writes the same content as a segment when it can."""
+    if parts is None:
+        records = list(records)
+        parts = (record.address[0] for record in records if isinstance(record, CachedUnit) and record.address)
+    header = store_header(out_dir, environment, parts)
+    prior = _readable_head(out_dir)
+    row_delta.remove_unlisted(out_dir, STORE_NAME, prior)
+    lines = (record if isinstance(record, bytes) else record_line(record) for record in records)
+    return _write_base(out_dir, prior, header, lines, content=0 if prior is None else prior.content + 1)
 
 
 class StoreUnreadable(Exception):
-    """Raised by the generator `stream_store` returns when the store stops reading after its header did: a truncated or corrupt gzip member, a line that does not parse, or a record missing a field. The records already yielded came from a store that can no longer be trusted, so a caller that loaded them as they came must discard what it loaded. `load_store` catches it and returns None."""
+    """Raised when a store that exists cannot be read: a head that does not parse or whose parts are missing or differ from it, a header that does not read, or, from the generator `stream_store` returns, a body that stops reading after its header did: a truncated or corrupt gzip member, a line that does not parse, or a record missing a field. The records already yielded came from a store that can no longer be trusted, so a caller that loaded them as they came must discard what it loaded. `load_store` catches it and returns None."""
+
+
+_STORE_ERRORS = (OSError, EOFError, ValueError, KeyError, TypeError, StopIteration)
+
+
+@dataclass
+class OpenStore:
+    """A unit store open for reading: its stamps (the head's, or the single file's inline header), its head (None for the single file a store written before the segment format leaves), and its parts, each opened as the head was read (`row_delta.open_parts`). `lines` yields its materialized records in order, each with its place (`row_delta.Place`), merging the base and the segments as streams (`row_delta.merge_placed`). Close it when done."""
+
+    stamps: dict
+    head: row_delta.Head | None
+    handles: list[BinaryIO] = field(default_factory=list)
+
+    def lines(self) -> Iterator[tuple[row_delta.Place, bytes]]:
+        return unit_index.store_lines(self.head, self.handles)
+
+    def close(self) -> None:
+        handles, self.handles = self.handles, []
+        for handle in handles:
+            handle.close()
+
+
+def open_store(out_dir: Path, *, sha256: bool = False) -> OpenStore | None:
+    """Open the unit store under `out_dir` and return it, or None when there is none. A store with a head opens every part the head lists and checks each part's size, and with `sha256` its digest too, as a reader that merges every byte does. A directory with no head is read from the single file a store written before the segment format leaves, as one base. A store that exists and does not open raises `StoreUnreadable`."""
+    try:
+        head = row_delta.read_head(out_dir, STORE_NAME)
+    except row_delta.HeadError as error:
+        raise StoreUnreadable(str(error)) from None
+    if head is None:
+        try:
+            handle = open(store_path(out_dir), "rb")
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise StoreUnreadable(str(error)) from None
+        try:
+            with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
+                header = json.loads(next(stream))
+            if not isinstance(header, dict):
+                raise ValueError("the header is not an object")
+        except _STORE_ERRORS as error:
+            handle.close()
+            raise StoreUnreadable(f"the header does not read: {error!r}") from None
+        return OpenStore(header, None, [handle])
+    try:
+        parts = row_delta.open_parts(out_dir, head, sha256=sha256)
+    except row_delta.HeadError as error:
+        raise StoreUnreadable(str(error)) from None
+    return OpenStore(dict(head.stamps), head, parts.handles)
+
+
+def _trusted_parts(out_dir: Path, stamps: Mapping) -> set[str]:
+    recorded = stamps.get("parts") or {}
+    return {
+        part
+        for part, size in _part_sizes(out_dir, recorded).items()
+        if size is not None and size == recorded[part]
+    }
 
 
 def stream_store(
@@ -600,58 +693,54 @@ def stream_store(
     wanted: Container[str] | None = None,
     pool: dict | None = None,
 ) -> Iterator[ParsedCachedUnit] | None:
-    """Return the prior build's records one at a time in store order, or None when there is no usable store: absent, unreadable at the header, a different format or environment stamp, or stamped for a manifest other than the one on disk. A None costs a full build, which is the safe direction. The header is read before returning, so None is decided before any record is parsed. The body is a generator over the same file handle, which it closes after the last record or when a read fails. A body that fails after some records raises `StoreUnreadable` from the generator, and a caller that loaded each record as it came must then discard what it loaded. An error the caller's own load raises is raised in the caller's frame and is never treated as a store failure.
+    """Return the prior build's records one at a time in store order, or None when there is no usable store: absent, unreadable at its head or header, a different format or environment stamp, or stamped for a manifest other than the one on disk. A None costs a full build, which is the safe direction. The head is read and its parts opened before returning, so None is decided before any record is parsed. The body is a generator over the open parts, which it closes after the last record or when a read fails. A body that fails after some records raises `StoreUnreadable` from the generator, and a caller that loaded each record as it came must then discard what it loaded. An error the caller's own load raises is raised in the caller's frame and is never treated as a store failure.
 
-    Each line's key is sliced from the start of the raw line before the line is parsed: `to_record` writes the key first, and a copied line keeps that order. A line whose key cannot be sliced is skipped, with or without `wanted`, which is the same safe direction. With `wanted`, only records whose key it contains are parsed, so a line the workload does not name costs a prefix comparison and no parse.
+    Each line's key is sliced from the start of the raw line before the line is parsed: `to_record` writes the key first. A line whose key cannot be sliced is skipped, with or without `wanted`, which is the same safe direction. With `wanted`, only records whose key it contains are parsed, so a line the workload does not name costs a prefix comparison and no parse.
 
     Each record is a `ParsedCachedUnit` with its strings interned and its projection tuples pooled (`_parsed_cached_unit`). Passing `pool` means the caller holds the records together, so every record pools through it. Without it, only the records that have no address share a table, since a streaming caller buffers those for the walk; an addressed record is loaded and released before the next is parsed and pools only within itself, so nothing in the stream grows with the records already yielded. A record keeps its address only while its part has the size the header recorded. A record whose part changed size, or that has no address, comes with `address` None and is placed by the walk, so a shard rewritten under the store is still reused instead of failing at the write.
     """
-    path = store_path(out_dir)
-    if not path.is_file():
+    try:
+        opened = open_store(out_dir)
+    except StoreUnreadable:
+        return None
+    if opened is None:
+        return None
+    stamps = opened.stamps
+    if (
+        stamps.get("format") != STORE_FORMAT
+        or stamps.get("environment") != _stamp_value(environment)
+        or stamps.get("manifest_sha256") != _manifest_stamp(out_dir)
+    ):
+        opened.close()
         return None
     try:
-        stream = gzip.open(path, "rb")
-    except OSError:
+        trusted = _trusted_parts(out_dir, stamps)
+    except _STORE_ERRORS:
+        opened.close()
         return None
-    try:
-        header = json.loads(next(stream))
-        if header.get("format") != STORE_FORMAT or header.get("environment") != _stamp_value(environment):
-            stream.close()
-            return None
-        if header.get("manifest_sha256") != _manifest_stamp(out_dir):
-            stream.close()
-            return None
-        recorded = header.get("parts") or {}
-        trusted = {
-            part
-            for part, size in _part_sizes(out_dir, recorded).items()
-            if size is not None and size == recorded[part]
-        }
-    except OSError, EOFError, ValueError, KeyError, TypeError, StopIteration:
-        stream.close()
-        return None
-    return _records(stream, trusted, wanted, pool)
+    return _records(opened, trusted, wanted, pool)
 
 
 def _records(
-    stream: gzip.GzipFile, trusted: Container[str], wanted: Container[str] | None, pool: dict | None
+    opened: OpenStore, trusted: Container[str], wanted: Container[str] | None, pool: dict | None
 ) -> Iterator[ParsedCachedUnit]:
     whole = pool is not None
     table: dict = {} if pool is None else pool
     start = len(_KEY_PREFIX)
     try:
-        with stream:
-            for line in stream:
-                if not line.startswith(_KEY_PREFIX):
-                    continue
-                end = line.find(b'"', start)
-                if end < 0:
-                    continue
-                if wanted is not None and line[start:end].decode() not in wanted:
-                    continue
-                yield _parsed_cached_unit(json.loads(line), trusted, table, whole)
-    except (OSError, EOFError, ValueError, KeyError, TypeError, StopIteration) as exc:
+        for _place, line in opened.lines():
+            if not line.startswith(_KEY_PREFIX):
+                continue
+            end = line.find(b'"', start)
+            if end < 0:
+                continue
+            if wanted is not None and line[start:end].decode() not in wanted:
+                continue
+            yield _parsed_cached_unit(json.loads(line), trusted, table, whole)
+    except _STORE_ERRORS as exc:
         raise StoreUnreadable(f"the store stopped reading: {exc!r}") from exc
+    finally:
+        opened.close()
 
 
 def load_store(
@@ -660,7 +749,7 @@ def load_store(
     wanted: Container[str] | None = None,
     pool: dict | None = None,
 ) -> dict[str, ParsedCachedUnit] | None:
-    """Return the prior build's records keyed by input key, or None when there is no usable store. It is `stream_store` collected into a dict, except that a body that fails partway also returns None. The key-slice, `wanted`, interning, and part-size rules are `stream_store`'s. The records are held together here, so all of them pool through `pool`, or through a table made for the call. The build's plan reads the stream directly; this function is for callers, such as tests, that want the records in hand."""
+    """Return the prior build's records keyed by input key, or None when there is no usable store. It is `stream_store` collected into a dict, except that a body that fails partway also returns None. The key-slice, `wanted`, interning, and part-size rules are `stream_store`'s. The records are held together here, so all of them pool through `pool`, or through a table made for the call. The build's plan reads the store through `open_store` directly; this function is for callers, such as tests, that want the records in hand."""
     records = stream_store(out_dir, environment, wanted=wanted, pool={} if pool is None else pool)
     if records is None:
         return None
@@ -668,6 +757,401 @@ def load_store(
         return {cached.key: cached for cached in records}
     except StoreUnreadable:
         return None
+
+
+_PATCHED_SEAM = b', "duplicate_group": '
+_POLICY_SEAM = b', "policy_file": '
+_ADDRESS_SEAM = b', "address": '
+record_id = unit_index.record_id
+record_class = unit_index.record_class
+record_address = unit_index.record_address
+
+
+def primary_units_crc(primary_units: list[list]) -> int:
+    """Return the CRC-32 a prior record's `primary_units` is kept by (`PriorRecord`), from the field's JSON as `to_record` writes it, or 0 for none."""
+    return zlib.crc32(json.dumps(primary_units).encode()) if primary_units else 0
+
+
+@dataclass(frozen=True, slots=True)
+class PriorRecord:
+    """What the plan keeps of a prior store record it does not load as a cached unit, so the write can find the prior fragment of a unit it recomputed and decide its class's route (#618's decision 73): the unit's id, the address of its fragment, and the fields the fragment was patched with, its class, duplicate group, exemplar and exemption flags, and its primary units by CRC-32 (`primary_units_crc`). Sliced from the line, which `to_record` writes in a fixed order, without parsing the rest."""
+
+    unit_id: str
+    class_id: str
+    duplicate_group: str | None
+    exemplar: bool
+    no_verdict: bool
+    primary_units: int
+    address: tuple[str, int, int] | None
+
+
+def prior_record(line: bytes) -> PriorRecord:
+    """Slice a store line into a `PriorRecord`. A line in another shape raises ValueError or KeyError."""
+    patched = line.index(_PATCHED_SEAM)
+    policy = line.index(_POLICY_SEAM, patched)
+    fields = json.loads(b"{" + line[patched + 2 : policy] + b"}")
+    return PriorRecord(
+        record_id(line),
+        record_class(line),
+        fields["duplicate_group"],
+        bool(fields["exemplar"]),
+        bool(fields["no_verdict"]),
+        primary_units_crc(fields["primary_units"]),
+        record_address(line),
+    )
+
+
+def prior_record_or_none(line: bytes) -> PriorRecord | None:
+    """Return `prior_record(line)`, or None for a line in another shape, whose unit then has no prior record."""
+    try:
+        return prior_record(line)
+    except ValueError, KeyError, TypeError:
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class ScannedLine:
+    """One line of the prior store as the plan scans it (`scan_store`): its place in the materialized order, the ordinal whose input key it names (None when no unit of this build does), the record parsed when the scan parses named lines, and the raw line."""
+
+    index: int
+    ordinal: int | None
+    cached: ParsedCachedUnit | None
+    line: bytes
+
+
+def scan_store(
+    opened: OpenStore, named: Mapping[str, int], *, parse: bool, trusted: Container[str]
+) -> Iterator[ScannedLine]:
+    """Yield every line of an open store in its materialized order, each matched to this build's units by input key (`named`), and, with `parse`, a named line parsed as `stream_store` parses it, its address kept only in a `trusted` part. Every line is yielded, named or not, so the plan reads every record for its address and its place whatever its stamp. A store that stops reading raises `StoreUnreadable` from the generator, which closes the store either way; an error the caller's own load raises is raised in the caller's frame."""
+    start = len(_KEY_PREFIX)
+    pool: dict = {}
+    try:
+        for index, (_place, line) in enumerate(opened.lines()):
+            ordinal = (
+                named.get(line[start : start + 64].decode("ascii")) if line.startswith(_KEY_PREFIX) else None
+            )
+            cached = None
+            if parse and ordinal is not None:
+                cached = _parsed_cached_unit(json.loads(line), trusted, pool, False)
+            yield ScannedLine(index, ordinal, cached, line)
+    except _STORE_ERRORS as exc:
+        raise StoreUnreadable(f"the store stopped reading: {exc!r}") from exc
+    finally:
+        opened.close()
+
+
+def materialized_store(
+    out_dir: Path,
+    *,
+    address_of: Callable[[str, tuple[str, int, int] | None], tuple[str, int, int] | None] | None = None,
+    stamps: Mapping | None = None,
+    sha256: bool = False,
+) -> tuple[dict, Iterator[bytes]] | None:
+    """Return the store's materialized form, the file a whole write of the same records gives (`write_store`): its header under the head's stamps, with `stamps` laid over them, and its record lines in order, with each record's address replaced by `address_of(unit_id, address)` when given. The corpus's materialized form (`build.materialize_corpus`, `perf_fingerprint`) passes the address each fragment takes in a from-scratch layout, with that layout's manifest identity and part sizes. None when there is no store; a store that does not open raises `StoreUnreadable`."""
+    opened = open_store(out_dir, sha256=sha256)
+    if opened is None:
+        return None
+    header = {**opened.stamps, **(stamps or {})}
+
+    def lines() -> Iterator[bytes]:
+        try:
+            for _place, line in opened.lines():
+                if address_of is None:
+                    yield line
+                    continue
+                cut = line.rindex(_ADDRESS_SEAM)
+                moved = address_of(record_id(line), record_address(line))
+                yield line[:cut] + _ADDRESS_SEAM + json.dumps(
+                    list(moved) if moved else None
+                ).encode() + b"}\n"
+        finally:
+            opened.close()
+
+    return header, lines()
+
+
+def write_materialized_store(target_dir: Path, header: dict, lines: Iterable[bytes]) -> None:
+    """Write a materialized store as the single file a store written before the segment format leaves, `unit-cache.ndjson.gz`, byte for byte as a base holds it."""
+
+    def fill(staging: Path) -> None:
+        with open(staging, "wb") as handle:
+            with gzip.GzipFile(
+                filename=_BASE_GZIP_NAME, fileobj=handle, mode="wb", mtime=0, compresslevel=1
+            ) as stream:
+                _write_lines(stream, header, lines)
+
+    output_sink.replace_output(store_path(target_dir), writer=fill)
+
+
+@dataclass(frozen=True)
+class StorePlan:
+    """What the plan learned of the prior store, for the cache write's choice of a head alone, a segment or a new base (`update_store`): whether a store existed, whether it read to its end in this format (`readable`, which the segment route needs, whatever its stamps say, since a segment states this pass's records against the prior ones), its head (for the single file a store written before the segment format leaves, the one the plan put it under, `adopt_single_file`), its materialized record count and its base's row bytes, which the share rule compares a segment with, and whether a stamp line moved that says every record is re-derived (`REDERIVING_LABELS`)."""
+
+    existed: bool = False
+    readable: bool = False
+    head: row_delta.Head | None = None
+    lines: int = 0
+    rows_bytes: int = 0
+    rederived: bool = False
+
+
+def rederiving_moved(stamps: Mapping, environment: fingerprint.EnvironmentStamp) -> bool:
+    """Whether one of `REDERIVING_LABELS` moved between a store's stamps and `environment`: a structure-stamp move or a letter batch (#618's decision 72). A store whose stamps carry no lines counts as moved."""
+    recorded = _recorded_labels(stamps.get("environment_lines"))
+    if recorded is None:
+        return True
+    current = environment.labels
+    return any(recorded.get(label) != current.get(label) for label in REDERIVING_LABELS)
+
+
+@dataclass(frozen=True)
+class StoreWrite:
+    """What the cache write did: wrote the `head` alone, a `segment`, or a new `base`, with the reason for a base (`first`, no store before; `unusable`, a store that did not read; `rederived`, `fold` and `share`, the format's rules), and the segment's or base's rows and row bytes."""
+
+    outcome: str
+    reason: str = ""
+    rows: int = 0
+    rows_bytes: int = 0
+
+    def note(self) -> str:
+        if self.outcome == "head":
+            return "head only"
+        if self.outcome == "segment":
+            return f"a segment of {self.rows:,} rows, {self.rows_bytes / 1e6:.1f} MB"
+        return f"a new base ({self.reason}), {self.rows:,} records"
+
+
+NO_PRIOR_LINE = 0xFFFFFFFF
+
+
+class _OverHalf(Exception):
+    """Raised inside `update_store`'s walk once its segment passes half the base's row bytes, the share rule's limit."""
+
+
+def _kept(order: Sequence[int], prior_line: Callable[[int], int]) -> bytearray:
+    """Return, for each ordinal, whether its record keeps its place: the longest run of this pass's records, in `order`, whose prior lines ascend (a longest increasing subsequence, by patience sorting), so the fewest records move. A pass whose prior lines all ascend keeps every record that has one, which is checked first in one walk."""
+    size = max(order, default=-1) + 1
+    kept = bytearray(size)
+    values = array("I")
+    ordinals = array("I")
+    for ordinal in order:
+        line = prior_line(ordinal)
+        if line != NO_PRIOR_LINE:
+            values.append(line)
+            ordinals.append(ordinal)
+    if all(values[index - 1] < values[index] for index in range(1, len(values))):
+        for ordinal in ordinals:
+            kept[ordinal] = 1
+        return kept
+    tails: list[int] = []
+    tail_at = array("i")
+    before = array("i", [-1]) * len(values)
+    for index, value in enumerate(values):
+        position = bisect.bisect_left(tails, value)
+        if position:
+            before[index] = tail_at[position - 1]
+        if position == len(tails):
+            tails.append(value)
+            tail_at.append(index)
+        else:
+            tails[position] = value
+            tail_at[position] = index
+    index = tail_at[-1] if len(tail_at) else -1
+    while index >= 0:
+        kept[ordinals[index]] = 1
+        index = before[index]
+    return kept
+
+
+def update_store(
+    out_dir: Path,
+    environment: fingerprint.EnvironmentStamp,
+    plan: StorePlan,
+    order: Sequence[int],
+    *,
+    prior_line: Callable[[int], int],
+    unchanged: Callable[[int], bool],
+    line_of: Callable[[int], bytes],
+    parts: Iterable[str],
+) -> StoreWrite:
+    """Write this pass's store after the manifest: its records are `line_of(ordinal)` for the ordinals in `order`, this pass's triage order, so its materialized form is `write_store`'s file over those lines (#618's decision 48).
+
+    With a prior store that read to its end in this format, which the plan put under a head (`adopt_single_file`) if it had none, it writes only what changed, as one segment of the prior generation. A record is matched to its prior line by input key (`prior_line`, which the plan filled), and `unchanged` says, without building the line, that a record is its prior line (a cached fragment written as it was, at its own address). The base's lines carry no triage key, so each record has a place (`row_delta.Place`): the records that keep theirs are the longest run of them whose prior lines ascend in this order (`_kept`), so the fewest move. A kept record whose line changed is an upsert at its own place; every other record of this pass is an upsert at a place cut between the kept records around it (`row_delta.places_between`); and every prior line no kept record holds is a tombstone at its place, a record no unit of this pass names and the old place of every record that moved. The segment's rows are built in that order, which is place order, and held as columns of ordinals and places (`_SegmentRows`) until the share rule is decided, so the parent holds the changed records' places and not their lines, and each changed line is built twice.
+
+    A new base is written instead, under the format's rules: when no store read before (`first` when none existed, `unusable` when one did, which `output_sink.note_rewritten` counts as `rewritten whole`), when a stamp line says every record is re-derived (`rederived`), when the prior head's fold is due (`fold`), or when the segment would pass half the base's row bytes (`share`, `row_delta.writes_base` over the segment's exact line bytes). With no record changed, it writes the head alone, with this pass's stamps. Before any part is written, the parts no head lists are deleted, and the single file a store written before the segment format leaves is removed once the new head is in place.
+    """
+    header = store_header(out_dir, environment, parts)
+    prior = plan.head
+    if plan.existed and not plan.readable:
+        prior = _readable_head(out_dir)
+    row_delta.remove_unlisted(out_dir, STORE_NAME, prior)
+    content = 0 if prior is None else prior.content + 1
+
+    def whole(reason: str) -> StoreWrite:
+        if reason == "unusable":
+            output_sink.note_rewritten(STORE_NAME)
+        lines = (line_of(ordinal) for ordinal in order)
+        head = _write_base(out_dir, prior, header, lines, content=content)
+        return StoreWrite("base", reason, head.base.rows, head.base.rows_bytes)
+
+    if not plan.readable:
+        return whole("unusable" if plan.existed else "first")
+    if plan.rederived:
+        return whole("rederived")
+    opened = open_store(out_dir, sha256=True)
+    if opened is None or opened.head != plan.head:
+        if opened is not None:
+            opened.close()
+        return whole("unusable")
+    try:
+        rows = _changed_rows(opened, plan, order, prior_line, unchanged, line_of)
+    except _OverHalf:
+        return whole("share")
+    finally:
+        opened.close()
+    if plan.head is not None and row_delta.fold_due(plan.head):
+        if not rows:
+            content -= 1
+        return whole("fold")
+    base = plan.head
+    assert base is not None, "the plan puts a store it read under a head"
+    if not rows:
+        head = row_delta.Head(STORE_NAME, base.generation, base.content, header, base.base, base.segments)
+        row_delta.commit(out_dir, head)
+        store_path(out_dir).unlink(missing_ok=True)
+        return StoreWrite("head")
+    part = row_delta.write_segment(
+        out_dir, STORE_NAME, base.generation, len(base.segments) + 1, rows.rows(line_of)
+    )
+    row_delta.commit(out_dir, row_delta.with_segment(base, part, header))
+    store_path(out_dir).unlink(missing_ok=True)
+    return StoreWrite("segment", "", part.rows, part.rows_bytes)
+
+
+def adopt_single_file(out_dir: Path, stamps: dict, lines: int, rows_bytes: int) -> row_delta.Head:
+    """Put the single file a store written before the segment format leaves under a head, as generation 0's base, and return the head: a hard link to the file, which writes no data, and a head over it whose stamps are the file's inline header (`stamps`) and whose base holds `lines` records of `rows_bytes` bytes, committed at once. The build's plan adopts the file once it has read it to its end, before the write can append to any shard part, so a corpus a build appended to always has a head, without which the live-fragment iterator could not tell its live fragments from its dead slots (`unit_index.LiveCorpus`). The single file stays under its own name until a later head replaces this one (`update_store`), and every reader reads the head first."""
+    row_delta.remove_unlisted(out_dir, STORE_NAME, None)
+    name = row_delta.base_name(STORE_NAME, 0)
+    path = Path(out_dir) / name
+    os.link(store_path(out_dir), path)
+    base = row_delta.Part(name, path.stat().st_size, row_delta.file_sha256(path), lines, rows_bytes)
+    head = row_delta.Head(STORE_NAME, 0, 0, dict(stamps), base)
+    row_delta.commit(out_dir, head)
+    return head
+
+
+class _SegmentRows:
+    """A segment's rows as `update_store` holds them until the share rule decides, as columns rather than an object a row: each row's operation, its place's base row and fraction (the fractions' bytes end to end, a cut place's few digits and a base place's none), and for an upsert the ordinal whose line it writes, for a tombstone its payload, the prior line's key, in one buffer of them. `CORPUS_PARENT_BYTES`' comment in rebuild/tools/artifact_cycle.py books what they hold: 13 bytes an upsert at its own place, and 114 a unit that takes a tombstone and an upsert at a cut place."""
+
+    def __init__(self) -> None:
+        self._ops = bytearray()
+        self._anchors = array("i")
+        self._fractions = bytearray()
+        self._fraction_ends = array("I")
+        self._values = array("I")
+        self._tombstones = bytearray()
+        self._tombstone_ends = array("I")
+
+    def __len__(self) -> int:
+        return len(self._ops)
+
+    def upsert(self, place: row_delta.Place, ordinal: int) -> None:
+        self._add(row_delta.UPSERT, place, ordinal)
+
+    def tombstone(self, place: row_delta.Place, payload: bytes) -> None:
+        self._add(row_delta.TOMBSTONE, place, len(self._tombstone_ends))
+        self._tombstones += payload
+        self._tombstone_ends.append(len(self._tombstones))
+
+    def _add(self, op: bytes, place: row_delta.Place, value: int) -> None:
+        self._ops += op
+        self._anchors.append(place[0])
+        self._fractions += place[1].encode("ascii")
+        self._fraction_ends.append(len(self._fractions))
+        self._values.append(value)
+
+    def rows(self, line_of: Callable[[int], bytes]) -> Iterator[row_delta.Row]:
+        """Yield the rows in the order they were added, each upsert's line built by `line_of`."""
+        start = 0
+        for index, op in enumerate(self._ops):
+            end = self._fraction_ends[index]
+            place = (self._anchors[index], self._fractions[start:end].decode("ascii"))
+            start = end
+            value = self._values[index]
+            if op == row_delta.TOMBSTONE[0]:
+                low = self._tombstone_ends[value - 1] if value else 0
+                yield row_delta.Row(
+                    row_delta.TOMBSTONE, place, bytes(self._tombstones[low : self._tombstone_ends[value]])
+                )
+            else:
+                yield row_delta.Row(row_delta.UPSERT, place, line_of(value))
+
+
+def _changed_rows(
+    opened: OpenStore,
+    plan: StorePlan,
+    order: Sequence[int],
+    prior_line: Callable[[int], int],
+    unchanged: Callable[[int], bool],
+    line_of: Callable[[int], bytes],
+) -> _SegmentRows:
+    """Walk this pass's records in `order` beside the prior store's lines in theirs and return the segment's rows in place order (`update_store`). Raises `_OverHalf` once the rows' lines pass half the base's row bytes (`row_delta.writes_base`)."""
+    kept = _kept(order, prior_line)
+    held = bytearray(plan.lines)
+    for ordinal in order:
+        if kept[ordinal]:
+            held[prior_line(ordinal)] = 1
+    rows = _SegmentRows()
+    written = 0
+
+    def count(op: bytes, place: row_delta.Place, size: int) -> None:
+        nonlocal written
+        written += row_delta.row_length(op, place, size)
+        if row_delta.writes_base(written, plan.rows_bytes, every_row_rederived=False):
+            raise _OverHalf
+
+    prior = enumerate(opened.lines())
+    pending: list[int] = []
+    previous: row_delta.Place | None = None
+
+    def gap(stop: int | None) -> tuple[row_delta.Place | None, tuple[row_delta.Place, bytes] | None]:
+        """Advance the prior lines to line `stop`, tombstoning every one before it that no kept record holds, and return the last place passed and line `stop` itself."""
+        last = previous
+        for index, (place, line) in prior:
+            if index == stop:
+                return last, (place, line)
+            if not held[index]:
+                tombstone = line[: len(_KEY_PREFIX) + 64] + b'"}\n'
+                rows.tombstone(place, tombstone)
+                count(row_delta.TOMBSTONE, place, len(tombstone))
+                last = place
+        if stop is not None:
+            raise StoreUnreadable(f"the prior store ends before its line {stop}")
+        return last, None
+
+    def place_pending(low: row_delta.Place | None, high: row_delta.Place | None) -> None:
+        for place, ordinal in zip(row_delta.places_between(low, high, len(pending)), pending, strict=True):
+            rows.upsert(place, ordinal)
+            count(row_delta.UPSERT, place, len(line_of(ordinal)))
+        pending.clear()
+
+    for ordinal in order:
+        if not kept[ordinal]:
+            pending.append(ordinal)
+            continue
+        low, found = gap(prior_line(ordinal))
+        assert found is not None
+        place, line = found
+        place_pending(low, place)
+        if not unchanged(ordinal):
+            new = line_of(ordinal)
+            if new != line:
+                rows.upsert(place, ordinal)
+                count(row_delta.UPSERT, place, len(new))
+        previous = place
+    low, _found = gap(None)
+    place_pending(low, None)
+    return rows
 
 
 def signature_store_path(out_dir: Path) -> Path:
@@ -759,15 +1243,12 @@ def _recorded_labels(lines: object) -> dict[str, str] | None:
 
 
 def _miss_note(
-    path: Path,
+    header: dict | None,
     environment: fingerprint.EnvironmentStamp,
     code_label: str,
     manifest_stamp: str | None = None,
 ) -> str | None:
-    """Return why a load of the store at `path` under `environment` fails, as one line, checking in the loader's order: no file, a header that does not read, a changed stamp, and, for the unit store, a manifest identity other than the recorded one. A changed stamp is reported through `fingerprint.moved_note`, with the code label expanded to the files that changed inside its closure, at most `CODE_FILES_SHOWN` of them plus a count of the rest. Returns None when the header matches everything checked, which leaves only one reason for the loader to fail: a body that does not parse. A store whose header has the hex but no `environment_lines` reports that the stamp moved and names no label."""
-    if not path.is_file():
-        return NO_STORE_NOTE
-    header = read_header(path)
+    """Return why a load of a store whose header (or head's stamps) is `header` fails under `environment`, as one line, checking in the loader's order: a header that does not read (None), a changed stamp, and, for the unit store, a manifest identity other than the recorded one. A changed stamp is reported through `fingerprint.moved_note`, with the code label expanded to the files that changed inside its closure, at most `CODE_FILES_SHOWN` of them plus a count of the rest. Returns None when the header matches everything checked, which leaves only one reason for the loader to fail: a body that does not parse. A store whose header has the hex but no `environment_lines` reports that the stamp moved and names no label."""
     if header is None:
         return UNREADABLE_NOTE
     if header.get("environment") != environment.value:
@@ -792,14 +1273,30 @@ def _miss_note(
     return None
 
 
+def store_stamps(out_dir: Path) -> dict | None:
+    """Return the unit store's stamps, the head's, or the inline header of the single file a store written before the segment format leaves, or None when neither reads."""
+    try:
+        head = row_delta.read_head(out_dir, STORE_NAME)
+    except row_delta.HeadError:
+        return None
+    if head is not None:
+        return dict(head.stamps)
+    return read_header(store_path(out_dir))
+
+
 def store_miss_note(out_dir: Path, environment: fingerprint.EnvironmentStamp) -> str | None:
-    """Return why `stream_store` rejects the unit store under `out_dir`, or None when its header matches `environment` and the manifest beside it (`_miss_note`)."""
-    return _miss_note(store_path(out_dir), environment, "corpus_code", _manifest_stamp(out_dir))
+    """Return why `stream_store` rejects the unit store under `out_dir`, or None when its stamps match `environment` and the manifest beside it (`_miss_note`), read through its head."""
+    if not row_delta.head_path(out_dir, STORE_NAME).is_file() and not store_path(out_dir).is_file():
+        return NO_STORE_NOTE
+    return _miss_note(store_stamps(out_dir), environment, "corpus_code", _manifest_stamp(out_dir))
 
 
 def signature_miss_note(out_dir: Path, environment: fingerprint.EnvironmentStamp) -> str | None:
     """Return why `load_signature_store` rejects the ink-signature store under `out_dir`, or None when its header matches `environment` (`_miss_note`)."""
-    return _miss_note(signature_store_path(out_dir), environment, "comparator_code")
+    path = signature_store_path(out_dir)
+    if not path.is_file():
+        return NO_STORE_NOTE
+    return _miss_note(read_header(path), environment, "comparator_code")
 
 
 @dataclass(frozen=True, slots=True)
@@ -814,61 +1311,18 @@ class PriorFragment:
     byte_copied: bool = False
 
 
-_JSON_WHITESPACE = re.compile(r"[ \t\n\r]*")
-
-
-def _skip_whitespace(text: str, index: int) -> int:
-    match = _JSON_WHITESPACE.match(text, index)
-    return match.end() if match else index
-
-
-def _walk_elements(text: str):
-    """Yield each element of one shard part with the character offset and length of its text. It reads the `[`, then calls `raw_decode` once per element, skipping the commas and whitespace between them, so each fragment is parsed and released before the next and the part is never held as objects all at once. It does not depend on the framing `_write_shard` writes; a compact `json.dumps` of the same list is read the same way. A part that is not a JSON array raises ValueError, which the caller treats as unreadable."""
-    decoder = json.JSONDecoder()
-    index = _skip_whitespace(text, 0)
-    if index >= len(text) or text[index] != "[":
-        raise ValueError("a shard part is a JSON array")
-    index = _skip_whitespace(text, index + 1)
-    while index < len(text) and text[index] != "]":
-        fragment, end = decoder.raw_decode(text, index)
-        yield index, end - index, fragment
-        index = _skip_whitespace(text, end)
-        if index < len(text) and text[index] == ",":
-            index = _skip_whitespace(text, index + 1)
-
-
 def locate_prior_fragments(out_dir: Path, wanted: Mapping[str, set[str]]) -> dict[str, PriorFragment]:
-    """Return where the prior shards hold the given prior unit ids (`wanted` maps class id to ids), keyed by prior id, with the stamp each fragment carries. It reads only the parts the prior manifest lists for those classes, parsing one fragment at a time and keeping only its address, so the build never holds the previous corpus's units. The plan uses this only as a fallback: a store record carries the address the shard writer returned, and the walk is needed only for the records `stream_store` yielded without one, from an older store or in a part whose size changed. On a corpus this code wrote there are none. The manifest is needed because a class split into several parts has no single file name to guess. A missing or unreadable manifest or part contributes nothing, and its units are recomputed. So does a part that is not pure ASCII: the address is a character offset read back as a byte offset, which are equal only under `ensure_ascii`, and every part this build writes is ASCII."""
-    out_dir = Path(out_dir)
-    try:
-        manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
-        by_id = {meta.get("id"): meta for meta in manifest["classes"]}
-    except OSError, ValueError, KeyError, TypeError, AttributeError:
-        return {}
+    """Return where the prior shards hold the given prior unit ids (`wanted` maps class id to ids), keyed by prior id, with the stamp each fragment carries, read through the live-fragment iterator (`unit_index.LiveCorpus`) over the classes `wanted` names, one fragment at a time, so the build never holds the previous corpus's units and never takes a dead slot. The plan uses this only as a fallback: a store record carries the address the shard writer returned, and the walk is needed only for the records `stream_store` yielded without one, from an older store or in a part whose size changed. On a corpus this code wrote there are none. A corpus the iterator refuses, or a part that is missing, unreadable or not pure ASCII, contributes nothing, and its units are recomputed: an address is a character offset read back as a byte offset, which are equal only under `ensure_ascii`, and every part this build writes is ASCII."""
     located: dict[str, PriorFragment] = {}
-    for class_id, ids in wanted.items():
-        meta = by_id.get(class_id)
-        if meta is None:
-            continue
-        try:
-            parts = unit_index.class_shards(meta)
-        except KeyError:
-            continue
-        for part in parts:
-            try:
-                raw = (out_dir / part).read_bytes()
-                if not raw.isascii():
-                    continue
-                text = raw.decode("ascii")
-                del raw
-                for start, length, fragment in _walk_elements(text):
-                    unit_id = fragment.get("id") if isinstance(fragment, dict) else None
-                    if unit_id in ids:
-                        located[unit_id] = PriorFragment(
-                            part, start, length, unit_id, fragment.get("content_key")
-                        )
-            except OSError, ValueError:
-                continue
+    try:
+        with unit_index.LiveCorpus(Path(out_dir)) as live:
+            for meta, slot, fragment in live.fragments(classes=wanted):
+                if slot.unit_id in wanted.get(str(meta.get("id")), ()):
+                    located[slot.unit_id] = PriorFragment(
+                        slot.part, slot.start, slot.length, slot.unit_id, fragment.get("content_key")
+                    )
+    except OSError, ValueError:
+        return located
     return located
 
 
@@ -907,7 +1361,7 @@ class PriorFragmentReader:
         return fragment
 
     def read_bytes(self, located: PriorFragment) -> bytes:
-        """Return the fragment's bytes without parsing them, checked against the address. The shard writer's framing puts each field on its own line as `"key": value`, so the id and stamp the address was recorded with are found as substrings. This catches a fragment edited in place at its address, which the part-size check cannot see, as `read` does. Only a byte-copied address is checked this way, because only the shard writer's framing is known; a walked address is read with `read`."""
+        """Return the fragment's bytes without parsing them, checked against the address. The shard writer's framing puts each field on its own line as `"key": value`, so the id and stamp the address was recorded with are found as substrings. This catches a fragment edited in place at its address, which the part-size check cannot see, as `read` does, and an address into a dead slot that holds another unit. Only a byte-copied address is checked this way, because only the shard writer's framing is known; a walked address is read with `read`."""
         body = self._bytes(located)
         if located.byte_copied and (
             f'"id": {json.dumps(located.unit_id)}'.encode() not in body
@@ -915,6 +1369,10 @@ class PriorFragmentReader:
         ):
             raise self._refusal(located)
         return body
+
+    def same_bytes(self, located: PriorFragment, body: bytes) -> bool:
+        """Return whether the prior corpus holds `body` at `located`: the write's compare of a fragment with its prior (#618's decision 72), and equal bytes are a byte copy. A fragment of another length is not read. Equal bytes hold this unit's own id and stamp, since `body` does, so the compare needs no check of its own: a slot that holds another unit or another stamp, as one the corpus changed under, compares unequal, and the fragment is appended."""
+        return located.length == len(body) and self._bytes(located) == body
 
     def close(self) -> None:
         descriptors, self._descriptors = self._descriptors, {}

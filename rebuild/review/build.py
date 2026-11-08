@@ -1,4 +1,4 @@
-"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The build assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts. It writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into rebuild/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at rebuild/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
+"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The build assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts. It writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file, with the overflow parts a cached build appends changed units to after them, `_ShardWriter`), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into rebuild/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at rebuild/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
 
 Usage:
     uv run python -m rebuild.review.build
@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import bisect
 import ctypes
 import datetime
 import errno
@@ -23,6 +24,7 @@ import multiprocessing.connection
 import os
 import pickle
 import random
+import re
 import shutil
 import socket
 import subprocess
@@ -122,7 +124,7 @@ DEFAULT_OUT = REPO_ROOT / "rebuild" / "out" / "review"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 MANIFEST_FORMAT = "ams-review-manifest/2"
-SHARD_PART_BYTES = 1 << 28
+SHARD_PART_BYTES = unit_index.SHARD_PART_BYTES
 BUILD_COMMAND = "uv run python -m rebuild.review.build"
 SERVE_COMMAND = "uv run python -m rebuild.review.serve"
 REVIEW_SERVER_PORT = 7294
@@ -698,156 +700,172 @@ def _fragment_bytes(fragment: dict) -> bytes:
 
 
 class _ShardWriter:
-    """Write classes into byte-capped shard parts one fragment at a time, in the order the build passes them. `open` a class, `add` each fragment (or `add_byte_copied` the bytes of one the previous corpus already holds) and receive its (part index, byte start, byte length), `close` the class to get the relative paths the manifest lists in part order, and `commit` once every class is written. Between calls it holds only the open file handle and the running byte count, so no shard is assembled in the writing process's memory.
+    """Write classes into byte-capped shard parts one fragment at a time, in the order the build passes them, by one of two routes. `open` a class, pass each fragment and receive its (part index, byte start, byte length), `close` the class to get the relative paths the manifest lists in part order with their total bytes, and `commit` once every class is written. Between calls it holds only the open file handle and the running byte count, so no shard is assembled in the writing process's memory.
 
-    The cap is for the browser. The app reads each byte range it fetches, which never crosses a part, as one JavaScript string, and V8's `String::kMaxLength` on a 64-bit build is 2**29 - 24 characters, a byte each in this ASCII-only JSON. When Blink cannot build a body that long, `Response.text()` resolves to an empty string instead of an error, so every fragment in an oversized range fails to parse after a fetch that appeared to succeed, and the app reports each unit as "not where this page was told it would be — the corpus was rebuilt". `SHARD_PART_BYTES` is half that limit, and the other half is headroom.
+    Written directly (`open` without `append`), as a from-scratch build, a fold or a class the share rule routes writes it, the class's fragments go into base parts in the order passed, which is id order, cut by `unit_index.PartLayout` and named by `unit_index.base_part_names`: the bare `units/<class-id>.json` for a class that fits one part, which keeps the small classes, the checked-in fixtures and the archived corpora as they were, and `units/<class-id>.000.json` onward for a larger one. The cap, `SHARD_PART_BYTES`, is for the browser, whose range reads never cross a part (`unit_index.SHARD_PART_BYTES` says why), and every part stays within it except a part holding a single fragment that alone exceeds it. Each fragment is framed as `_write_json` frames a list element, so a part's bytes equal `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"`.
 
-    A class that fits in one part keeps the bare `units/<class-id>.json` name, so the small classes, the checked-in fixtures and the archived corpora do not change. A larger class is written as `units/<class-id>.000.json`, `units/<class-id>.001.json` and so on: numbered from zero with three digits, every part numbered, and never a bare name beside numbered ones. Both forms sort where `unit_index.class_shard_key` puts the class, because the character after the class id is `.` in both.
+    Appended to (`open` with `append` and the class's parts from the previous corpus), the class's parts stay as they are. A fragment whose bytes the previous corpus already holds, a cached fragment copied as it is or one whose new bytes equal its prior's, keeps its prior address (`keep`) and nothing is written. Every other fragment is appended (`add`, `add_bytes`) to the class's overflow parts, `units/<class-id>.x<NNN>.json` from `x000`, listed after the base parts, each cut by the same cap; its old slot, if it had one, is left dead, and the live-fragment iterator never reads it (`unit_index.LiveCorpus`). The last overflow part is cloned to its staging name (`_clone`, which writes no data, or a copy where the volume cannot clone), cut before its closing bytes and appended to, so an append writes only its own bytes; one it would take past the cap starts the next overflow part instead. Appends go in the order passed, id order within the class, so a pooled build lays them out as a serial one does.
 
-    Each fragment is framed as `_write_json` frames a list element, so a part's bytes equal `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"`. Every part stays within the cap except a part holding a single fragment that alone exceeds it.
+    The returned spans are byte addresses. The review app's explain panel Range-fetches them, the unit store records them so the next build can read its cached units back, and the live-fragment iterator reads them. No punctuation falls inside a fragment's own bytes, and `ensure_ascii=True` makes the character count equal the byte offset, so `bytes[start:start + length]` is a standalone JSON value. Changing the `indent`, `ensure_ascii` or `separators` of the dump in `_fragment_bytes` breaks this without any error; `rebuild/test_app_index.py` slices every fragment back out to catch it.
 
-    The returned spans are byte addresses. The review app's explain panel Range-fetches them, the unit store records them so the next build can read its cached units back, and `unit_cache.locate_prior_fragments` recomputes them from a written part for a record that lacks one. No punctuation falls inside a fragment's own bytes, and `ensure_ascii=True` makes the character count equal the byte offset, so `bytes[start:start + length]` is a standalone JSON value. Changing the `indent`, `ensure_ascii` or `separators` of the dump in `_fragment_bytes` breaks this without any error; `rebuild/test_app_index.py` slices every fragment back out to catch it.
-
-    A class opened with the previous corpus's part list is written against it. Each part is assumed to be the previous corpus's part, unchanged, for as long as every fragment passed is a byte copy of a fragment already at the offset the writer would put it at, which is the case for a cached unit whose content and patched fields did not change. The first fragment that breaks this, a recomputed one or one at a different offset, turns the part into a staging file holding the same prefix: a clone of the previous file (`_clone`) cut to the prefix, or on a volume that cannot clone, a copy of the prefix. Writing continues from there. A part whose fragments all match and whose previous file ends where this one would end is not written at all. So a class with no changes costs one read of its bytes and no write, and a part with a recomputed unit costs a write from that unit on, plus a copy of the bytes before it where the volume cannot clone, without parsing or serializing any other fragment.
-
-    Every staged part is written under a `.partial` name and renamed only at `commit`, after the last class closes. The build reads its cached units out of the previous corpus's shards by address while it writes this one, so replacing shards class by class could change a file before a later class reads from it. Deferring the renames keeps the previous corpus intact until this one is fully written, and a failed encode or a killed build leaves the previous units in place; `abort` deletes the staging files. A kept part is already in place under its name. One whose name changes because the class's part count changed is cloned, or copied where the volume cannot clone, to a staging file and renamed with the rest. The m1 write runs one writer per run of classes (`_write_run`), possibly in a worker process, so it does not commit: `take_pending` hands the parent the renames, which it makes once every run has written, and a staging name carries its class id, so writers over different classes never share one.
+    Every part this writer writes is staged under a `.partial` name and renamed only at `commit`, after the last class closes. The build reads its cached units out of the previous corpus's shards by address while it writes this one, so replacing shards class by class could change a file before a later class reads from it. Deferring the renames keeps the previous corpus intact until this one is fully written, and a failed encode or a killed build leaves the previous units in place; `abort` deletes the staging files. A part kept as it is stays in place under its name. The m1 write runs one writer per run of classes (`_write_run`), possibly in a worker process, so it does not commit: `take_pending` hands the parent the renames, which it makes once every run has written, and a staging name carries its class id, so writers over different classes never share one. `appended` counts the bytes appended to overflow parts.
     """
 
-    _CLOSING = b"\n]\n"
+    _CLOSING = unit_index.PART_CLOSING
 
     def __init__(self, out_dir: Path) -> None:
         self._out_dir = Path(out_dir)
         self._units_dir = self._out_dir / "units"
         self._units_dir.mkdir(parents=True, exist_ok=True)
         self._pending: list[tuple[Path, Path]] = []
+        self._staged: list[Path] = []
         self._class_id: str | None = None
-        self._prior: list[str] = []
-        self._parts: list[Path | str] = []
+        self.appending = False
+        self._parts: list[str] = []
+        self._index: dict[str, int] = {}
+        self._layout = unit_index.PartLayout(SHARD_PART_BYTES)
         self._handle: BinaryIO | None = None
-        self._open = False
+        self._open_index = -1
         self._size = 0
+        self._next_overflow = 0
+        self._last_overflow: str | None = None
+        self.appended = 0
 
-    def open(self, class_id: str, prior_parts: Sequence[str] = ()) -> None:
+    def open(self, class_id: str, prior_parts: Sequence[str] = (), *, append: bool = False) -> None:
         assert self._class_id is None, "close the open class first"
         self._class_id = class_id
-        self._prior = [part for part in prior_parts if (self._out_dir / part).is_file()]
-        self._parts = []
+        self.appending = append
+        self._parts = list(prior_parts) if append else []
+        self._index = {part: index for index, part in enumerate(self._parts)}
+        self._layout = unit_index.PartLayout(SHARD_PART_BYTES)
         self._handle = None
-        self._open = False
+        self._open_index = -1
         self._size = 0
+        overflow = [
+            (number, part)
+            for part in self._parts
+            if (number := unit_index.overflow_index(class_id, part)) is not None
+        ]
+        self._next_overflow = max((number for number, _part in overflow), default=-1) + 1
+        self._last_overflow = overflow[-1][1] if overflow else None
 
-    def _staging(self, index: int) -> Path:
+    def holds(self, part: str) -> bool:
+        """Whether `part` is one of the open class's parts from the previous corpus, where a kept fragment can stay."""
+        return self.appending and part in self._index
+
+    def keep(self, source: unit_cache.PriorFragment) -> tuple[int, int, int]:
+        """Return the span of a fragment that stays where the previous corpus holds it, in one of the open class's parts (`holds`)."""
+        return self._index[source.part], source.start, source.length
+
+    def _staging_base(self, index: int) -> Path:
         return self._units_dir / f"{self._class_id}.{index:03d}.json.partial"
 
-    def _begin_part(self) -> None:
-        index = len(self._parts)
-        self._size = 1
-        if index < len(self._prior):
-            self._parts.append(self._prior[index])
-            self._handle = None
-        else:
-            path = self._staging(index)
-            self._handle = path.open("wb")
-            self._handle.write(b"[")
-            self._parts.append(path)
-        self._open = True
+    def _stage(self, path: Path) -> BinaryIO:
+        self._staged.append(path)
+        return path.open("wb")
 
-    def _materialize(self, prefix: int) -> None:
-        """Turn the open kept part into a staging file holding the first `prefix` bytes of the previous file, which are the bytes the writer would have written so far: a clone of the previous file cut to the prefix, which writes no data, or where the volume cannot clone, a copy of the prefix."""
-        index = len(self._parts) - 1
-        prior = self._parts[index]
-        assert isinstance(prior, str)
-        path = self._staging(index)
-        path.unlink(missing_ok=True)
-        if _clone(self._out_dir / prior, path):
-            if path.stat().st_size < prefix:
-                raise ValueError(f"{prior} is shorter than the {prefix} bytes this build read out of it")
-            os.truncate(path, prefix)
-        else:
-            with (self._out_dir / prior).open("rb") as source, path.open("wb") as target:
-                remaining = prefix
-                while remaining:
-                    chunk = source.read(min(remaining, 1 << 20))
-                    if not chunk:
-                        raise ValueError(
-                            f"{prior} is shorter than the {prefix} bytes this build read out of it"
-                        )
-                    target.write(chunk)
-                    remaining -= len(chunk)
-        self._handle = path.open("ab")
-        self._parts[index] = path
-
-    def _end_part(self) -> None:
-        if self._handle is None:
-            prior = self._parts[-1]
-            assert isinstance(prior, str)
-            if (self._out_dir / prior).stat().st_size != self._size + len(self._CLOSING):
-                self._materialize(self._size)
+    def _end_open(self) -> None:
         if self._handle is not None:
             self._handle.write(self._CLOSING)
             self._handle.close()
             self._handle = None
-        self._open = False
 
-    def _reserve(self, length: int) -> tuple[int, int, bool]:
-        """Where the next fragment of `length` bytes goes: its part index and byte start, and whether it opens the part (else a comma precedes it)."""
-        if self._open and self._size + length + 1 + len(self._CLOSING) > SHARD_PART_BYTES:
-            self._end_part()
-        if not self._open:
-            self._begin_part()
-            return len(self._parts) - 1, self._size, True
-        return len(self._parts) - 1, self._size + 1, False
-
-    def _emit(self, body: bytes, index: int, start: int, first: bool) -> tuple[int, int, int]:
-        if self._handle is None:
-            self._materialize(self._size)
-        assert self._handle is not None
-        if not first:
+    def _add_direct(self, body: bytes) -> tuple[int, int, int]:
+        index, start, first = self._layout.place(len(body))
+        if first:
+            self._end_open()
+            self._handle = self._stage(self._staging_base(index))
+            self._handle.write(b"[")
+        else:
+            assert self._handle is not None
             self._handle.write(b",")
         self._handle.write(body)
-        self._size = start + len(body)
         return index, start, len(body)
 
+    def _open_overflow(self, length: int) -> None:
+        """Open the overflow part the next appended fragment goes to: the last one, cloned and cut before its closing bytes, while the fragment fits beside what it holds, else a new one."""
+        last = self._last_overflow
+        self._last_overflow = None
+        if last is not None:
+            size = (self._out_dir / last).stat().st_size - len(self._CLOSING)
+            if size + 1 + length + len(self._CLOSING) <= SHARD_PART_BYTES:
+                staging = self._out_dir / f"{last}.partial"
+                staging.unlink(missing_ok=True)
+                self._staged.append(staging)
+                if not _clone(self._out_dir / last, staging):
+                    shutil.copyfile(self._out_dir / last, staging)
+                handle = staging.open("r+b")
+                handle.seek(size)
+                if handle.read() != self._CLOSING:
+                    handle.close()
+                    raise ValueError(f"{last} does not end as a shard part ends")
+                handle.truncate(size)
+                handle.seek(size)
+                self._handle = handle
+                self._open_index = self._index[last]
+                self._size = size
+                return
+        name = unit_index.overflow_part_name(str(self._class_id), self._next_overflow)
+        self._next_overflow += 1
+        self._handle = self._stage(self._out_dir / f"{name}.partial")
+        self._handle.write(b"[")
+        self._open_index = len(self._parts)
+        self._parts.append(name)
+        self._size = 1
+
+    def _append(self, body: bytes) -> tuple[int, int, int]:
+        if self._handle is not None and self._size + 1 + len(body) + len(self._CLOSING) > SHARD_PART_BYTES:
+            self._end_open()
+        if self._handle is None:
+            self._open_overflow(len(body))
+        assert self._handle is not None
+        if self._size > 1:
+            self._handle.write(b",")
+            start = self._size + 1
+        else:
+            start = 1
+        self._handle.write(body)
+        self._size = start + len(body)
+        self.appended += len(body) + 1
+        return self._open_index, start, len(body)
+
+    def add_bytes(self, body: bytes) -> tuple[int, int, int]:
+        """Write one fragment's shard bytes: into the next base slot, or appended to the overflow parts."""
+        return self._append(body) if self.appending else self._add_direct(body)
+
     def add(self, fragment: dict) -> tuple[int, int, int]:
-        body = _fragment_bytes(fragment)
-        index, start, first = self._reserve(len(body))
-        return self._emit(body, index, start, first)
+        return self.add_bytes(_fragment_bytes(fragment))
 
-    def add_byte_copied(self, body: bytes, source: unit_cache.PriorFragment) -> tuple[int, int, int]:
-        """Add a cached fragment's bytes, which the previous corpus holds at `source`. If the open part is the previous corpus's and the bytes already lie at the offset the writer would use, nothing is written and the part stays as it is. Otherwise the bytes are written as `add` would write them."""
-        index, start, first = self._reserve(len(body))
-        if self._handle is None and source.part == self._parts[index] and source.start == start:
-            self._size = start + len(body)
-            return index, start, len(body)
-        return self._emit(body, index, start, first)
-
-    def close(self) -> list[str]:
+    def close(self) -> tuple[list[str], int]:
+        """Close the open class and return its parts as the manifest lists them, base parts then overflow parts, with their total bytes."""
         class_id = self._class_id
         assert class_id is not None, "no class is open"
-        if self._open:
-            self._end_part()
-        if not self._parts:
-            path = self._staging(0)
-            path.write_bytes(b"[]\n")
-            self._parts.append(path)
-        names = (
-            [f"{class_id}.{index:03d}.json" for index in range(len(self._parts))]
-            if len(self._parts) > 1
-            else [f"{class_id}.json"]
-        )
-        for index, (part, name) in enumerate(zip(self._parts, names, strict=True)):
-            if isinstance(part, str):
-                if part == f"units/{name}":
-                    continue
-                staging = self._staging(index)
-                staging.unlink(missing_ok=True)
-                if not _clone(self._out_dir / part, staging):
-                    shutil.copyfile(self._out_dir / part, staging)
-                self._parts[index] = part = staging
-            self._pending.append((part, self._units_dir / name))
+        self._end_open()
+        if self.appending:
+            names = self._parts
+            total = 0
+            for name in names:
+                staging = self._out_dir / f"{name}.partial"
+                if staging in self._staged:
+                    self._pending.append((staging, self._out_dir / name))
+                    total += staging.stat().st_size
+                else:
+                    total += (self._out_dir / name).stat().st_size
+        else:
+            empty = not self._staged
+            sizes = self._layout.sizes()
+            names = unit_index.base_part_names(class_id, len(sizes))
+            if empty:
+                with self._stage(self._staging_base(0)) as handle:
+                    handle.write(b"[]\n")
+            for index, name in enumerate(names):
+                self._pending.append((self._staging_base(index), self._out_dir / name))
+            total = sum(sizes)
+        self._staged = []
         self._class_id = None
         self._parts = []
-        return [f"units/{name}" for name in names]
+        self._index = {}
+        return list(names), total
 
     def commit(self) -> None:
         for staging, target in self._pending:
@@ -863,26 +881,24 @@ class _ShardWriter:
         if self._handle is not None:
             self._handle.close()
             self._handle = None
-        for part in self._parts:
-            if isinstance(part, Path):
-                part.unlink(missing_ok=True)
+        for path in self._staged:
+            path.unlink(missing_ok=True)
         for staging, _target in self._pending:
             staging.unlink(missing_ok=True)
-        self._parts = []
+        self._staged = []
         self._pending = []
         self._class_id = None
-        self._open = False
 
 
 def _write_shard(
     out_dir: Path, class_id: str, fragments: list[dict]
 ) -> tuple[list[str], list[tuple[int, int, int]]]:
-    """Write one class's fragments, held as a list, and rename the parts into place at once. Returns the relative part paths in part order and, aligned with `fragments`, each fragment's (part index, byte start, byte length)."""
+    """Write one class's fragments, held as a list, directly, and rename the parts into place at once. Returns the relative part paths in part order and, aligned with `fragments`, each fragment's (part index, byte start, byte length)."""
     writer = _ShardWriter(out_dir)
     try:
         writer.open(class_id)
         spans = [writer.add(fragment) for fragment in fragments]
-        parts = writer.close()
+        parts, _total = writer.close()
         writer.commit()
         return parts, spans
     finally:
@@ -1408,7 +1424,12 @@ def _load_recomputed(
 ) -> None:
     """Load one recomputed unit's projection into the store at its ordinal, with the unit's ledger exemption read from the table, and move its deflated fragment into `arena`, whose address becomes the unit's source. The projection is the only way the id, the machine flags and the fragment pass from the worker to the parent, and the store and the arena hold them from here on."""
     address = arena.add(projection.packed, projection.raw_length)
-    store.load_projection(projection, no_verdict=table.no_verdict(projection.ordinal), address=address)
+    store.load_projection(
+        projection,
+        no_verdict=table.no_verdict(projection.ordinal),
+        address=address,
+        length=projection.raw_length,
+    )
 
 
 def _handout_width(recomputed: int, nworkers: int) -> int:
@@ -1689,7 +1710,7 @@ def _emissions(
     arena: _FragmentArena,
     prior: unit_cache.PriorFragmentReader,
 ) -> Iterator[_Emission]:
-    """Yield the units at `ordinals` as the write receives them, one at a time, each read by the address the store holds for it. A recomputed fragment is read from the arena (`arena`), patched with this build's scaffold, ink deltas, ledger class and primary units through `patch_fragment` (on a unit record materialized for the patch), and checked by `check_scaffold`. A cached fragment is read from the previous corpus (`prior`). When `UnitStore.cached_as_is` says every field the patch would write already matches, it is yielded as bytes without parsing, which lets the shard writer leave it, and a part made only of such fragments, in place, and its identity is read from the columns (`_cached_identity`). Otherwise it is parsed, patched and serialized again. A fragment that no longer reads back as the unit and stamp at its address stops the build."""
+    """Yield the units at `ordinals` as the write receives them, one at a time, each read by the address the store holds for it. A recomputed fragment is read from the arena (`arena`), patched with this build's scaffold, ink deltas, ledger class and primary units through `patch_fragment` (on a unit record materialized for the patch), and checked by `check_scaffold`. A cached fragment is read from the previous corpus (`prior`). When `UnitStore.cached_as_is` says every field the patch would write already matches, it is yielded as bytes without parsing, which lets the shard writer keep it at its address on a class it appends to, and its identity is read from the columns (`_cached_identity`). Otherwise it is parsed, patched and serialized again. A fragment that no longer reads back as the unit and stamp at its address stops the build."""
     for ordinal in ordinals:
         recomputed_unit = not store.flags(ordinal).cached
         source = store.source(ordinal)
@@ -1853,14 +1874,225 @@ def _write_sidecars(out_dir: Path, runs: Sequence[_SidecarRun], pull: Callable[[
 
 
 @dataclass(frozen=True)
+class _ClassLayout:
+    """One class in the materialized form: its live slots in id order, the base part names and sizes a from-scratch build gives them, each slot's address there, and each part's run of slots."""
+
+    slots: list[unit_index.LiveSlot]
+    ids: list[str]
+    names: list[str]
+    sizes: list[int]
+    addresses: list[tuple[int, int, int]]
+    bounds: list[tuple[int, int]]
+
+
+class MaterializedCorpus:
+    """The corpus's materialized form (#618's decision 48): the files a from-scratch build of the same units writes, from which a corpus the build appended to differs only in its layout. Each class's live fragments (`unit_index.LiveCorpus`) are laid into base parts in id order by the from-scratch writer's rule (`unit_index.PartLayout`), as a fold or a direct write lays a class out, so the manifest lists those parts, the app sidecars' rows and the unit store's records give each fragment its address there, the locator's blocks are cut again over the moved rows, and every stamp names the manifest that lists those parts. `materialize_corpus` writes the whole tree, for the tests, and `rebuild/tools/perf_fingerprint.py` digests it without writing anything. `identical` says the corpus already is its materialized form: every class's parts, their sizes and every live fragment's address as a from-scratch build gives them, as on a corpus no build has appended to or left a dead slot in."""
+
+    STORE_FILES = re.compile(rf"{re.escape(unit_cache.STORE_NAME)}(?:\.head|\.\d+\.base|\.\d+\.\d+\.delta)?")
+    SIDECARS = (
+        unit_index.INDEX_NAME,
+        app_index.APP_INDEX_NAME,
+        app_index.LOCATOR_NAME,
+        app_index.LOCATOR_ROWS_NAME,
+    )
+
+    def __init__(self, out_dir: Path) -> None:
+        self.out_dir = Path(out_dir)
+        self.live = unit_index.LiveCorpus(self.out_dir)
+        self.manifest = json.loads(json.dumps(self.live.manifest))
+        self._layouts: dict[str, _ClassLayout] = {}
+        self._part_class: dict[str, str] = {}
+        identical = True
+        for meta in self.manifest.get("classes") or ():
+            class_id = str(meta.get("id", ""))
+            on_disk = unit_index.class_shards(meta)
+            self._part_class.update(dict.fromkeys(on_disk, class_id))
+            slots = self.live.slots(meta)
+            layout = unit_index.PartLayout(SHARD_PART_BYTES)
+            addresses = []
+            for slot in slots:
+                index, start, _first = layout.place(slot.length)
+                addresses.append((index, start, slot.length))
+            sizes = layout.sizes()
+            names = unit_index.base_part_names(class_id, len(sizes))
+            bounds = []
+            position = 0
+            for index in range(len(sizes)):
+                low = position
+                while position < len(addresses) and addresses[position][0] == index:
+                    position += 1
+                bounds.append((low, position))
+            if (
+                names != on_disk
+                or [(self.out_dir / part).stat().st_size for part in on_disk] != sizes
+                or any(
+                    slot.part != names[address[0]] or slot.start != address[1]
+                    for slot, address in zip(slots, addresses, strict=True)
+                )
+            ):
+                identical = False
+                meta.pop("shard", None)
+                meta["shards"] = names
+            self._layouts[class_id] = _ClassLayout(
+                slots, [slot.unit_id for slot in slots], names, sizes, addresses, bounds
+            )
+        self.identical = identical
+        self.manifest_sha256 = unit_index.manifest_identity(self.manifest)
+
+    def close(self) -> None:
+        self.live.close()
+
+    def __enter__(self) -> MaterializedCorpus:
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
+    def manifest_bytes(self) -> bytes:
+        return (json.dumps(self.manifest, indent=1, ensure_ascii=True) + "\n").encode()
+
+    def part_files(self) -> Iterator[tuple[str, Iterator[bytes]]]:
+        """Yield each materialized part's name and its bytes, as chunks read one live fragment at a time."""
+        for meta in self.manifest.get("classes") or ():
+            layout = self._layouts[str(meta.get("id", ""))]
+            for name, (low, high) in zip(layout.names, layout.bounds, strict=True):
+                yield name, self._part_chunks(layout, low, high)
+
+    def _part_chunks(self, layout: _ClassLayout, low: int, high: int) -> Iterator[bytes]:
+        if low == high:
+            yield b"[]\n"
+            return
+        for position in range(low, high):
+            yield (b"[" if position == low else b",") + self.live.read(layout.slots[position])
+        yield unit_index.PART_CLOSING
+
+    def layout(self, class_id: str) -> _ClassLayout:
+        """Return one class's materialized layout."""
+        return self._layouts[class_id]
+
+    def address(self, class_id: str, unit_id: str) -> tuple[int, int, int] | None:
+        """Return a live fragment's materialized address as a part index into its class's materialized parts, a byte start and a length, or None for a unit its class does not hold."""
+        layout = self._layouts.get(class_id)
+        if layout is None:
+            return None
+        ids = layout.ids
+        position = bisect.bisect_left(ids, unit_id)
+        if position < len(ids) and ids[position] == unit_id:
+            return layout.addresses[position]
+        return None
+
+    def _remap_row(self, line: bytes) -> bytes:
+        row = json.loads(line)
+        moved = self.address(str(row.get("class")), row["id"])
+        if moved is None or moved == (row["shard_part"], row["byte_start"], row["byte_length"]):
+            return line
+        tail = json.dumps({"shard_part": moved[0], "byte_start": moved[1], "byte_length": moved[2]}).encode()
+        return line[: line.rindex(b', "shard_part": ')] + b", " + tail[1:] + b"\n"
+
+    def _sidecar_lines(self, name: str) -> Iterator[bytes]:
+        with gzip.open(self.out_dir / name, "rb") as stream:
+            next(stream)
+            yield from stream
+
+    def sidecar_header(self, name: str) -> dict:
+        """Return a sidecar's header as the materialized form has it: the file's own, its manifest stamp the materialized manifest's."""
+        header = app_index.artifact_header(self.out_dir, name) or {}
+        return {**header, "manifest_sha256": self.manifest_sha256}
+
+    def index_lines(self) -> Iterator[bytes]:
+        return self._sidecar_lines(unit_index.INDEX_NAME)
+
+    def app_lines(self) -> Iterator[bytes]:
+        return (self._remap_row(line) for line in self._sidecar_lines(app_index.APP_INDEX_NAME))
+
+    def locator(self) -> tuple[bytes, list[dict], int]:
+        """Return the locator's rows file, its blocks cut again over the materialized addresses (`app_index.LocatorBlocks`), and its row count."""
+        rows = io.BytesIO()
+        blocks = app_index.LocatorBlocks(rows)
+        count = 0
+        with gzip.open(self.out_dir / app_index.LOCATOR_ROWS_NAME, "rb") as stream:
+            for line in stream:
+                blocks.add(self._remap_row(line))
+                count += 1
+        table = blocks.close()
+        return rows.getvalue(), table, count
+
+    def store(self) -> tuple[dict, Iterator[bytes]] | None:
+        """Return the unit store's materialized form (`unit_cache.materialized_store`) with every record's address the materialized one and the header's manifest stamp and part sizes the materialized parts', every store part checked against its head's size and sha256."""
+        sizes = {
+            name: size
+            for layout in self._layouts.values()
+            for name, size in zip(layout.names, layout.sizes, strict=True)
+        }
+
+        def address_of(unit_id: str, address: tuple[str, int, int] | None) -> tuple[str, int, int] | None:
+            if address is None:
+                return None
+            class_id = self._part_class.get(address[0])
+            moved = None if class_id is None else self.address(class_id, unit_id)
+            if moved is None:
+                return address
+            return self._layouts[str(class_id)].names[moved[0]], moved[1], moved[2]
+
+        return unit_cache.materialized_store(
+            self.out_dir,
+            address_of=address_of,
+            stamps={"manifest_sha256": self.manifest_sha256, "parts": dict(sorted(sizes.items()))},
+            sha256=True,
+        )
+
+    def is_layout_file(self, relative: str) -> bool:
+        """Whether a corpus file is one the materialized form replaces: a shard part, the manifest, a sidecar, or one of the unit store's files."""
+        return (
+            relative.startswith("units/")
+            or relative == "manifest.json"
+            or relative in self.SIDECARS
+            or self.STORE_FILES.fullmatch(relative) is not None
+        )
+
+
+def materialize_corpus(out_dir: Path, target: Path) -> None:
+    """Write the corpus at `out_dir` in its materialized form (`MaterializedCorpus`) into `target`, which must not exist, with the files a from-scratch build writes: every other file copied, the parts, the manifest, the sidecars through their own writers, and the unit store as the single file `unit-cache.ndjson.gz`. A corpus built from scratch and one appended to over the same units materialize to the same bytes."""
+    out_dir, target = Path(out_dir), Path(target)
+    target.mkdir(parents=True)
+    with MaterializedCorpus(out_dir) as corpus:
+        for path in sorted(out_dir.rglob("*")):
+            relative = path.relative_to(out_dir).as_posix()
+            if path.is_file() and not corpus.is_layout_file(relative):
+                (target / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, target / relative)
+        (target / "units").mkdir()
+        for name, chunks in corpus.part_files():
+            with open(target / name, "wb") as handle:
+                for chunk in chunks:
+                    handle.write(chunk)
+        _write_json(target / "manifest.json", corpus.manifest)
+        unit_index.write_index_lines(target, corpus.index_lines())
+        rows, blocks, machine = corpus.locator()
+        human = int(corpus.sidecar_header(app_index.APP_INDEX_NAME).get("units") or 0)
+        app_index.write_app_artifacts_lines(
+            target, corpus.app_lines(), [(rows, blocks)], human=human, machine=machine
+        )
+        store = corpus.store()
+        if store is not None:
+            header, lines = store
+            unit_cache.write_materialized_store(target, header, lines)
+
+
+@dataclass(frozen=True)
 class _WrittenCorpus:
-    """What `_write_corpus` returns besides the manifest: the width its write ran at, how many units were written without parsing, how many sidecar rows were copied forward from the previous sidecars, and each run's compressed sidecar lines in bytes, in shard order (`_SidecarRun.held`). The per-unit values the build reads after the fragments are gone are written into the unit store's columns during the write instead: each unit's `config_note`, which the review facts histogram, and its shard address and policy-draft file, which the unit-cache store records so the next build's plan can reuse the fragment without walking the shard and check it without parsing it."""
+    """What `_write_corpus` returns besides the manifest: the width its write ran at, how many units were written without parsing, how many sidecar rows were copied forward from the previous sidecars, and each run's compressed sidecar lines in bytes, in shard order (`_SidecarRun.held`). Then what the shard write did: the bytes it appended to overflow parts, the fragments that kept their prior address because their new bytes equal their prior's (`kept`, beside the cached fragments copied as they are among `byte_copied`), the classes it folded and those it wrote directly by the share rule, and the dead bytes the appended classes' parts hold once written. The per-unit values the build reads after the fragments are gone are written into the unit store's columns during the write instead: each unit's `config_note`, which the review facts histogram, and its shard address and policy-draft file, which the unit-cache store records so the next build's plan can reuse the fragment without walking the shard and check it without parsing it."""
 
     manifest: dict
     jobs: int
     byte_copied: int
     copied_forward: int
     sidecar_bytes: list[int]
+    appended: int = 0
+    kept: int = 0
+    folded: int = 0
+    direct: int = 0
+    dead: int = 0
 
 
 class _StoreNotes(Mapping[int, str | None]):
@@ -1882,7 +2114,7 @@ class _StoreNotes(Mapping[int, str | None]):
 
 
 def _prior_parts(out_dir: Path) -> dict[str, list[str]]:
-    """Return the previous corpus's shard parts per class, read from the manifest beside them, for the shard writer to write each class against; empty when there is no readable manifest."""
+    """Return the previous corpus's shard parts per class, base parts then overflow parts, read from the manifest beside them, for the shard writer to append each class to; empty when there is no readable manifest. It reads part names, never fragments."""
     try:
         manifest = json.loads((Path(out_dir) / "manifest.json").read_text(encoding="utf-8"))
         return {meta["id"]: unit_index.class_shards(meta) for meta in manifest["classes"]}
@@ -1890,9 +2122,14 @@ def _prior_parts(out_dir: Path) -> dict[str, list[str]]:
         return {}
 
 
+APPEND = "append"
+DIRECT = "direct"
+FOLD = "fold"
+
+
 @dataclass(frozen=True, slots=True)
 class _ClassToWrite:
-    """One class as the write receives it: the fields of its ledger entry or change group the manifest records, with the section `audit.class_section` put it in, its units' ordinals in shard order (by id, `UnitStore.id_word`, which sorts like the id strings), and the previous corpus's parts for it, which the shard writer writes it against."""
+    """One class as the write receives it: the fields of its ledger entry or change group the manifest records, with the section `audit.class_section` put it in, its units' ordinals in shard order (by id, `UnitStore.id_word`, which sorts like the id strings), the previous corpus's parts for it, and its route (`_route`): `APPEND` to those parts, or written directly, by the share rule (`DIRECT`) or as a fold (`FOLD`)."""
 
     id: str
     title: str
@@ -1905,6 +2142,7 @@ class _ClassToWrite:
     why: str
     ordinals: array
     prior_parts: tuple[str, ...]
+    route: str = DIRECT
 
 
 @dataclass(frozen=True)
@@ -1920,11 +2158,12 @@ class _WriteSettings:
 
 @dataclass(frozen=True, slots=True)
 class _ClassHeader:
-    """What the write receives as a class opens: its id, its manifest record, which the parent computes from its full columns (`_class_meta`) and the class's checks read (`_CorpusCheck.class_start`, `class_end`), and the previous corpus's parts for it, which the shard writer writes it against. The record's `shards` stays empty here; the parent fills it from the class's last chunk."""
+    """What the write receives as a class opens: its id, its manifest record, which the parent computes from its full columns (`_class_meta`) and the class's checks read (`_CorpusCheck.class_start`, `class_end`), the previous corpus's parts for it, and whether the shard writer appends to them or writes the class directly (`_ClassToWrite.route`). The record's `shards` stays empty here; the parent fills it from the class's last chunk."""
 
     id: str
     meta: dict
     prior_parts: tuple[str, ...]
+    append: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1941,7 +2180,7 @@ class _Chunk:
 
 @dataclass(frozen=True)
 class _ChunkWritten:
-    """What writing one chunk leaves for the parent, which places it by its class and the offset of its first unit in the class's order. Per unit, in that order: its shard address as a part index into the class's parts with a byte start and length, and its config note and policy-draft file as ids into `names`, the chunk's distinct values with None at id 0. Then the facts the chunk's units gave the class's checker (`_CorpusCheck.take_facts`), how many units were written without parsing, and on the class's last chunk the class's parts (`_ShardWriter.close`), which the part indices name."""
+    """What writing one chunk leaves for the parent, which places it by its class and the offset of its first unit in the class's order. Per unit, in that order: its shard address as a part index into the class's parts with a byte start and length, and its config note and policy-draft file as ids into `names`, the chunk's distinct values with None at id 0. Then the facts the chunk's units gave the class's checker (`_CorpusCheck.take_facts`), how many units were written without parsing, how many kept their prior address by compare and how many bytes were appended, and on the class's last chunk the class's parts (`_ShardWriter.close`), which the part indices name, with their total bytes."""
 
     class_id: str
     offset: int
@@ -1954,6 +2193,9 @@ class _ChunkWritten:
     facts: _CorpusCheck
     byte_copied: int
     shards: list[str] | None
+    kept: int = 0
+    appended: int = 0
+    shard_bytes: int = 0
 
 
 @dataclass(frozen=True)
@@ -1964,6 +2206,53 @@ class _RunWritten:
     pending: list[tuple[Path, Path]]
     sidecars: _SidecarRun
     lines: dict[str, bytes]
+
+
+@dataclass(frozen=True)
+class PriorShards:
+    """What the plan read of the previous corpus's shard parts, for deciding each class's fold as the pass opens: each part's size as the unit store records it and the live bytes its records name in it, each live fragment with the comma or bracket before it. It exists only when the store describes the parts beside it, every recorded size the size on disk and its manifest stamp the manifest's."""
+
+    sizes: dict[str, int]
+    live: dict[str, int]
+
+    def dead_and_live(self, parts: Sequence[str]) -> tuple[int, int]:
+        """Return the class's dead and live bytes over `parts`: a part is `[`, its slots each with the comma or bracket before it, and `unit_index.PART_CLOSING`, so what no live fragment takes is dead."""
+        live = sum(self.live.get(part, 0) for part in parts)
+        held = sum(self.sizes.get(part, 0) - len(unit_index.PART_CLOSING) for part in parts)
+        return held - live, live
+
+
+def _route(
+    entry_id: str,
+    ordinals: Sequence[int],
+    prior_parts: Sequence[str],
+    table: UnitTable,
+    store: UnitStore,
+    prior_shards: PriorShards | None,
+    predicted: bytearray,
+) -> str:
+    """Decide how the write writes one class, before any of its bytes are written (#618's decisions 72 and 73). A class with no parts in the previous corpus, or one of whose parts is gone from disk, is written directly. A class whose dead bytes reach its live bytes as the pass opens is folded: written directly, its live fragments laid out as a from-scratch build lays them out (`FOLD`). Otherwise each unit is predicted unchanged or changed from what the parent holds (`UnitStore.predicted_unchanged`, which marks `predicted`), weighed at its shard bytes (`UnitStore.shard_length`) with its comma, and the share rule writes the class directly (`DIRECT`) when its changed bytes pass half its live bytes, and appends to it (`APPEND`) otherwise. The write still compares each fragment's bytes, so a fragment predicted unchanged that differs is appended, and no class switches route midway."""
+    live = changed = 0
+    for ordinal in ordinals:
+        weight = store.shard_length(ordinal) + 1
+        live += weight
+        if store.predicted_unchanged(
+            ordinal,
+            class_id=entry_id,
+            duplicate_group=table.duplicate_group(ordinal),
+            exemplar=table.exemplar(ordinal),
+            no_verdict=table.no_verdict(ordinal),
+        ):
+            predicted[ordinal] = 1
+        else:
+            changed += weight
+    if not prior_parts:
+        return DIRECT
+    if prior_shards is not None:
+        dead, held = prior_shards.dead_and_live(prior_parts)
+        if dead > 0 and dead >= held:
+            return FOLD
+    return DIRECT if 2 * changed > live else APPEND
 
 
 def _class_meta(entry: _ClassToWrite, table: UnitTable, store: UnitStore) -> dict:
@@ -2009,7 +2298,7 @@ def _write_chunks(
     """Yield a run's classes as the write receives them, computing each class's manifest record as its first chunk is made (`_class_meta`) and keeping it in `metas` for the manifest. Without a `width`, each class is one chunk over the full table, store and arena at the class's ordinals, which is the serial write. With one, each class is cut into chunks of `width` units in its order, a class with no units into one empty chunk, each over a table, a store and an arena gathered for its units alone, which a write worker reads by position."""
     for entry in run:
         meta = metas[entry.id] = _class_meta(entry, table, store)
-        header = _ClassHeader(entry.id, meta, entry.prior_parts)
+        header = _ClassHeader(entry.id, meta, entry.prior_parts, entry.route == APPEND)
         ordinals = entry.ordinals
         if width is None:
             yield _Chunk(header, table, store, arena, ordinals, True)
@@ -2036,7 +2325,7 @@ def _write_chunk(
     sidecars: _SidecarLines,
     prior: unit_cache.PriorFragmentReader,
 ) -> _ChunkWritten:
-    """Write one chunk of the open class: each unit's fragment, read from the chunk's arena or from the previous corpus (`prior`), into the class's shard parts through `writer`, its sidecar lines onto `sidecars`, and each fragment through `check` at `PATCHED`. Each fragment is written, checked, projected and released before the next is read, so the process holds one fragment at a time beside the chunk's per-unit results. A fragment's content key must equal the one the store already holds for its unit, since the fragment was drafted or cached under it. The class's last chunk closes the class, which names its parts and runs its class-level checks. Nothing is written into the table, the store or the arena, so a worker can write from a chunk of each."""
+    """Write one chunk of the open class: each unit's fragment, read from the chunk's arena or from the previous corpus (`prior`), into the class's shard parts through `writer`, its sidecar lines onto `sidecars`, and each fragment through `check` at `PATCHED`. Each fragment is written, checked, projected and released before the next is read, so the process holds one fragment and its prior at a time beside the chunk's per-unit results. On a class the writer appends to, a cached fragment copied as it is keeps its address, and so does any other fragment whose bytes equal its prior's (`UnitStore.prior_fragment`, compared through `PriorFragmentReader.same_bytes`, where equal bytes carry the unit's own id and stamp); every other fragment is appended. A fragment's content key must equal the one the store already holds for its unit, since the fragment was drafted or cached under it. The class's last chunk closes the class, which names its parts and runs its class-level checks. Nothing is written into the table, the store or the arena, so a worker can write from a chunk of each."""
     table, store, ordinals = chunk.table, chunk.store, chunk.ordinals
     parts = array("H")
     starts = array("Q")
@@ -2053,21 +2342,33 @@ def _write_chunk(
             names.append(value)
         return found
 
-    byte_copied = 0
+    byte_copied = kept = 0
+    appended = writer.appended
     for ordinal, emission in zip(
         ordinals, _emissions(ordinals, table, store, chunk.arena, prior), strict=True
     ):
         assert emission.unit_id == store.unit_id(ordinal), (emission.unit_id, ordinal)
         if emission.fragment is not None:
             fragment = emission.fragment
-            span = writer.add(fragment)
+            body = _fragment_bytes(fragment)
+            former = store.prior_fragment(ordinal) if writer.appending else None
+            if former is not None and writer.holds(former.part) and prior.same_bytes(former, body):
+                assert former is not None
+                span = writer.keep(former)
+                kept += 1
+            else:
+                span = writer.add_bytes(body)
+            del body
             check.unit(fragment, cached=store.flags(ordinal).cached)
             sidecars.unit(fragment, span, table.order(ordinal), table.batch(ordinal))
             note = fragment["config_note"]
         else:
             assert emission.body is not None and emission.source is not None
             assert emission.identity is not None
-            span = writer.add_byte_copied(emission.body, emission.source)
+            if writer.holds(emission.source.part):
+                span = writer.keep(emission.source)
+            else:
+                span = writer.add_bytes(emission.body)
             check.unit(emission.identity, cached=True)
             sidecars.cached(emission, span, table.order(ordinal), table.batch(ordinal))
             note = config_note(table.configs(ordinal), ACCEPTANCE_CONFIGS)
@@ -2079,8 +2380,10 @@ def _write_chunk(
         notes.append(name_id(note))
         policy_files.append(name_id(emission.policy_file))
     shards = None
+    shard_bytes = 0
+    appended = writer.appended - appended
     if chunk.last:
-        shards = writer.close()
+        shards, shard_bytes = writer.close()
         check.class_end()
     return _ChunkWritten(
         class_id,
@@ -2094,6 +2397,9 @@ def _write_chunk(
         check.take_facts(),
         byte_copied,
         shards,
+        kept,
+        appended,
+        shard_bytes,
     )
 
 
@@ -2122,7 +2428,7 @@ def _write_run(
         for chunk in chunks:
             if chunk.header is not None:
                 class_id, offset = chunk.header.id, 0
-                writer.open(class_id, chunk.header.prior_parts)
+                writer.open(class_id, chunk.header.prior_parts, append=chunk.header.append)
                 check.class_start(chunk.header.meta)
             keep(_write_chunk(chunk, class_id, offset, check, writer, sidecars, prior))
             offset += len(chunk.ordinals)
@@ -2404,34 +2710,44 @@ def _write_corpus(
     write_jobs: int,
     tally: memory_tally.MemoryTally | None = None,
     spec_root: Path | None = None,
+    prior_shards: PriorShards | None = None,
+    predicted: bytearray | None = None,
 ) -> _WrittenCorpus:
     """Write the per-unit fragments into shards, copy the fonts, and write the manifest and the sidecars. The manifest's triage index, `human_unit_ids`, is the human units taken in `order`, the permutation `audit.sort_for_triage` returned; a batch is a slice of it. Every per-unit value read here is a column of `table` or `store`, indexed by ordinal. `classes` arrive in manifest order and `sections` holds the section `build_m1` computed for each; `ledger` is every ledger entry, reached or not, for the manifest's `ledger_classes` lookup.
 
-    Fragments are written in shard order: classes in `unit_index.class_shard_key` order, which is also the sidecars' order, and each class's units by id (`store.id_word`, which sorts like the id strings). So a class's fragments and its locator rows ascend together, and a recomputed unit is placed by its content, not by its queue position. The classes are cut into runs, contiguous stretches of that order (`_write_runs`), and each run is written by `_write_run` with its own shard writer, sidecar lines and reader over the previous corpus, so runs can be written at once. A recomputed fragment is read from `arena`, the runner's arena of deflated fragments. The width is `write_jobs`, the most workers that fit, narrowed by `_write_width` and to the number of runs. Above one, a pool of that many worker processes writes the runs (`_WritePool`), each worker from chunks of `WRITE_CHUNK_UNITS` units that the parent gathers from the table, the store and the arena for it (`_write_chunks`); at one, this process writes the one run, which is the whole corpus, from the full table, store and arena. Either way the parent computes each class's manifest record from its columns, receives each chunk's per-unit addresses, config notes and policy files and its checker's facts, and as each chunk arrives writes the per-unit values into the store, holding each unit's part index until its class closes and names its parts, and folds the facts in (`_CorpusCheck.absorb`). Once every run is in, it renames the staged parts and writes the manifest, and then writes the sidecars from the runs' compressed lines in shard order (`_write_sidecars`), pulling one run's lines for one sidecar at a time: from the worker that wrote the run, which keeps them until then, so the pool stays up until the sidecars are written, or at one, from the run this process wrote. So every output file is byte for byte what a single serial pass over the corpus writes. Nothing is committed until every run has written, and a failed run deletes what any run staged (`_discard_runs`), so the previous corpus stays intact.
+    Fragments are written in shard order: classes in `unit_index.class_shard_key` order, which is also the sidecars' order, and each class's units by id (`store.id_word`, which sorts like the id strings). So a class's fragments and its locator rows ascend together, and a recomputed unit is placed by its content, not by its queue position. Each class's route is decided before the write starts, in this process, from what it already holds (`_route`): appended to its parts from the previous corpus, so a fragment that comes out as it was stays where it is and only a changed one is written, or written directly by the share rule or as a fold (`prior_shards`). `predicted` receives each unit's prediction, which the cache write reads. The classes are cut into runs, contiguous stretches of that order (`_write_runs`), and each run is written by `_write_run` with its own shard writer, sidecar lines and reader over the previous corpus, so runs can be written at once. A recomputed fragment is read from `arena`, the runner's arena of deflated fragments. The width is `write_jobs`, the most workers that fit, narrowed by `_write_width` and to the number of runs. Above one, a pool of that many worker processes writes the runs (`_WritePool`), each worker from chunks of `WRITE_CHUNK_UNITS` units that the parent gathers from the table, the store and the arena for it (`_write_chunks`); at one, this process writes the one run, which is the whole corpus, from the full table, store and arena. Either way the parent computes each class's manifest record from its columns, receives each chunk's per-unit addresses, config notes and policy files and its checker's facts, and as each chunk arrives writes the per-unit values into the store, holding each unit's part index until its class closes and names its parts, and folds the facts in (`_CorpusCheck.absorb`). Once every run is in, it renames the staged parts and writes the manifest, and then writes the sidecars from the runs' compressed lines in shard order (`_write_sidecars`), pulling one run's lines for one sidecar at a time: from the worker that wrote the run, which keeps them until then, so the pool stays up until the sidecars are written, or at one, from the run this process wrote. So every output file is byte for byte what a single serial pass over the corpus writes. Nothing is committed until every run has written, and a failed run deletes what any run staged (`_discard_runs`), so the previous corpus stays intact.
 
-    `check_shards`' predicates run over the fragments as they pass, through the same `_CorpusCheck` the whole-corpus form uses, at `PATCHED` only plus every cross-unit predicate (`check_unit` describes the two subsets): each class's per-unit and class-level predicates in the process that writes it, and the cross-unit predicates once over the folded checker. A failing build's errors follow the order the chunks arrive in, so in a pooled write their order, and which of two clusters a duplicate group is reported against, can differ from a serial write's. `unit_errors` holds what the drafting-time check found, and those errors fail the build here in the same `contract check failed` list as the write's own. `cached_count` is the number of units the cache supplied, and decides whether the shards are written against the previous corpus and whether the previous sidecars may be copied forward.
+    `check_shards`' predicates run over the fragments as they pass, through the same `_CorpusCheck` the whole-corpus form uses, at `PATCHED` only plus every cross-unit predicate (`check_unit` describes the two subsets): each class's per-unit and class-level predicates in the process that writes it, and the cross-unit predicates once over the folded checker. A failing build's errors follow the order the chunks arrive in, so in a pooled write their order, and which of two clusters a duplicate group is reported against, can differ from a serial write's. `unit_errors` holds what the drafting-time check found, and those errors fail the build here in the same `contract check failed` list as the write's own. `cached_count` is the number of units the cache supplied, and decides whether the previous sidecars may be copied forward.
 
     The manifest predicates (`check_manifest`) and the output-file predicates (`_check_output_files`) do not run here: every field they read is written by this function from its own inputs, and the fonts are checked against the digests taken at load in `_copy_font`. `check_output_dir` runs them over a real build in the contracts lane (`rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff), and `refresh_assets` runs the file predicates over the corpus it restamps.
     """
     out_dir = Path(out_dir)
     ordered = sorted(classes, key=lambda entry: unit_index.class_shard_key(entry.id))
-    prior_parts = _prior_parts(out_dir) if cached_count else {}
-    to_write = [
-        _ClassToWrite(
-            entry.id,
-            entry.title,
-            entry.summary,
-            entry.note,
-            sections[entry.id],
-            entry.status,
-            entry.ink_identical,
-            entry.no_verdict,
-            entry.why,
-            array("I", sorted(by_class.get(entry.id, ()), key=store.id_word)),
-            tuple(prior_parts.get(entry.id, ())),
+    prior_parts = _prior_parts(out_dir)
+    if predicted is None:
+        predicted = bytearray(table.n)
+    to_write = []
+    for entry in ordered:
+        ordinals = array("I", sorted(by_class.get(entry.id, ()), key=store.id_word))
+        parts = tuple(prior_parts.get(entry.id, ()))
+        if not all((out_dir / part).is_file() for part in parts):
+            parts = ()
+        to_write.append(
+            _ClassToWrite(
+                entry.id,
+                entry.title,
+                entry.summary,
+                entry.note,
+                sections[entry.id],
+                entry.status,
+                entry.ink_identical,
+                entry.no_verdict,
+                entry.why,
+                ordinals,
+                parts,
+                _route(entry.id, ordinals, parts, table, store, prior_shards, predicted),
+            )
         )
-        for entry in ordered
-    ]
     copy_forward = (
         bool(cached_count)
         and unit_index.index_is_current(out_dir)
@@ -2455,10 +2771,11 @@ def _write_corpus(
     by_id = {entry.id: entry for entry in to_write}
     metas: dict[str, dict] = {}
     held: dict[str, array] = {}
-    byte_copied = 0
+    held_live: dict[str, int] = {}
+    byte_copied = kept = appended = dead = 0
 
     def keep(result: _ChunkWritten) -> None:
-        nonlocal byte_copied
+        nonlocal byte_copied, kept, appended, dead
         entry = by_id[result.class_id]
         names = result.names
         for ordinal, start, length, note, policy in zip(
@@ -2473,10 +2790,18 @@ def _write_corpus(
             store.set_config_note(ordinal, names[note])
             store.set_policy_file(ordinal, names[policy])
         held.setdefault(result.class_id, array("H")).extend(result.parts)
+        held_live[result.class_id] = (
+            held_live.get(result.class_id, 0) + sum(result.lengths) + len(result.lengths)
+        )
         check.absorb(result.facts)
         byte_copied += result.byte_copied
+        kept += result.kept
+        appended += result.appended
         if result.shards is not None:
             metas[result.class_id]["shards"] = result.shards
+            class_live = held_live.pop(result.class_id)
+            if entry.route == APPEND:
+                dead += result.shard_bytes - len(unit_index.PART_CLOSING) * len(result.shards) - class_live
             for ordinal, part in zip(entry.ordinals, held.pop(result.class_id), strict=True):
                 store.set_written_part(ordinal, result.shards[part])
 
@@ -2591,6 +2916,11 @@ def _write_corpus(
         byte_copied,
         sum(written[index].sidecars.copied_forward for index in range(len(runs))),
         [written[index].sidecars.held for index in range(len(runs))],
+        appended,
+        kept,
+        sum(entry.route == FOLD for entry in to_write),
+        sum(entry.route == DIRECT for entry in to_write),
+        dead,
     )
 
 
@@ -2796,60 +3126,116 @@ def build_m1(
     memory_tally.mark("rows released")
     cached_count = 0
     unplaced: list[unit_cache.ParsedCachedUnit] = []
-    if not recompute_all_units:
-        named: dict[str, int] = {}
-        for ordinal in range(table.n):
-            key = store.input_key_hex(ordinal)
-            first = named.setdefault(key, ordinal)
-            if first != ordinal:
-                raise SystemExit(
-                    f"units {table.codepoints_text(first)} and {table.codepoints_text(ordinal)} spell one input "
-                    f"key {key}: every row belongs to one triple and every key line carries its window and "
-                    "names, so a repeat is a sha256 collision"
-                )
-        memory_tally.mark("named built")
-        stream = unit_cache.stream_store(out_dir, environment, wanted=named)
-        if stream is None:
+    store_plan = unit_cache.StorePlan()
+    prior_shards: PriorShards | None = None
+    named: dict[str, int] = {}
+    for ordinal in range(table.n):
+        key = store.input_key_hex(ordinal)
+        first = named.setdefault(key, ordinal)
+        if first != ordinal:
+            raise SystemExit(
+                f"units {table.codepoints_text(first)} and {table.codepoints_text(ordinal)} spell one input "
+                f"key {key}: every row belongs to one triple and every key line carries its window and "
+                "names, so a repeat is a sha256 collision"
+            )
+    memory_tally.mark("named built")
+    # The plan reads every record of the prior store, whatever its stamp, in the store's materialized order. Each record whose input key a unit of this build names gives that unit its line in that order (`UnitStore.set_prior_line`), which places this pass's store records against the prior ones (`unit_cache.update_store`). When the stamp and the manifest match, a named record is a candidate for reuse. A record's address is the span the shard writer returned when the previous corpus was written, so the record is loaded as soon as it is parsed. A record without an address (from an older store, or in a part whose size changed, as `unit_cache.stream_store` describes) is buffered for one walk over the previous corpus's live fragments after the stream; on a corpus this code wrote there are none. A candidate is reused only when two conditions hold. First, the fragment at its address must carry the stamp the store recorded for it. The walk reads the stamp as it goes, a store address carries the record's own stamp, and `unit_cache.PriorFragmentReader` checks the id and stamp again when the write reads the bytes, which for a store-addressed fragment is the only time they are read. Skipping `check_unit` on a cached fragment is safe only because of this equality. Second, the fragment must have the shape (slim or full) this build would write, because the ledger exemption that decides the shape is not covered by the key (`_slim_for`). So a unit that becomes a human unit after a ledger edit is re-enriched in full, and one that stops being one is re-drafted slim. The plan keeps only the fragment's address, loaded into the unit store beside the record's projection. A cached unit's id comes from its stored content key, so it is known before phase 1; a recomputed unit's id is stamped when it is drafted and returns with the projection. Every record not loaded is kept by its unit id with its fragment's address and its patched fields, while the store's manifest stamp and every part size it records hold (#618's change 28), so the write can compare the fragment of a unit it recomputes with its prior one, wherever its input key moved, and the live bytes each part holds are summed for the fold. If the store fails partway, the rows already loaded cannot be trusted, so the plan discards them, with every prior line and record, and falls back to a full build over the same input keys. A store written before the segment format, a single file with no head, is put under one as generation 0's base once it reads to its end (`unit_cache.adopt_single_file`), before the write can append to any part.
+    try:
+        opened = unit_cache.open_store(out_dir)
+    except unit_cache.StoreUnreadable:
+        opened = None
+        store_plan = unit_cache.StorePlan(existed=True)
+        console.warn(f"unit cache: {unit_cache.UNREADABLE_NOTE}", file=sys.stderr)
+    else:
+        if opened is None and not recompute_all_units:
+            console.say(f"unit cache: {unit_cache.NO_STORE_NOTE}", file=sys.stderr)
+    if opened is not None and opened.stamps.get("format") != unit_cache.STORE_FORMAT:
+        opened.close()
+        opened = None
+        store_plan = unit_cache.StorePlan(existed=True)
+        console.warn(f"unit cache: {unit_cache.store_miss_note(out_dir, environment)}", file=sys.stderr)
+    if opened is not None:
+        stamps = opened.stamps
+        manifest_holds = stamps.get("manifest_sha256") == unit_cache._manifest_stamp(out_dir)
+        trusted = unit_cache._trusted_parts(out_dir, stamps) if manifest_holds else set()
+        recorded_sizes = dict(stamps.get("parts") or {})
+        addresses_hold = manifest_holds and trusted == set(recorded_sizes)
+        loadable = (
+            not recompute_all_units and manifest_holds and stamps.get("environment") == environment.value
+        )
+        if not loadable and not recompute_all_units:
             note = unit_cache.store_miss_note(out_dir, environment) or unit_cache.UNREADABLE_NOTE
-            report = console.say if note == unit_cache.NO_STORE_NOTE else console.warn
-            report(f"unit cache: {note}", file=sys.stderr)
-        else:
-            # The store parses only records the workload names, so every record it returns is a candidate. A record's address is the span the shard writer returned when the previous corpus was written, so the record is loaded as soon as it is parsed. A record without an address (from an older store, or in a part whose size changed, as `unit_cache.stream_store` describes) is buffered for one walk over the previous corpus's shards after the stream; on a corpus this code wrote there are none. A candidate is reused only when two conditions hold. First, the fragment at its address must carry the stamp the store recorded for it. The walk reads the stamp as it goes, a store address carries the record's own stamp, and `unit_cache.PriorFragmentReader` checks the id and stamp again when the write reads the bytes, which for a store-addressed fragment is the only time they are read. Skipping `check_unit` on a cached fragment is safe only because of this equality. Second, the fragment must have the shape (slim or full) this build would write, because the ledger exemption that decides the shape is not covered by the key (`_slim_for`). So a unit that becomes a human unit after a ledger edit is re-enriched in full, and one that stops being one is re-drafted slim. The plan keeps only the fragment's address, loaded into the unit store beside the record's projection. A cached unit's id comes from its stored content key, so it is known before phase 1; a recomputed unit's id is stamped when it is drafted and returns with the projection. If the store fails partway, the rows already loaded cannot be trusted, so the plan discards them and falls back to a full build over the same input keys.
-            try:
-                for cached in stream:
-                    ordinal = named[cached.key]
+            console.warn(f"unit cache: {note}", file=sys.stderr)
+        live_bytes: dict[str, int] = {}
+        lines = rows_bytes = 0
+        try:
+            for scanned in unit_cache.scan_store(opened, named, parse=loadable, trusted=trusted):
+                lines += 1
+                rows_bytes += len(scanned.line)
+                ordinal = scanned.ordinal
+                if ordinal is not None:
+                    store.set_prior_line(ordinal, scanned.index)
+                cached = scanned.cached
+                if cached is not None and ordinal is not None:
                     found = cached.located()
                     if found is None:
                         unplaced.append(cached)
-                    elif found.content_key == cached.content_key and cached.slim == _slim_for(
+                        continue
+                    if found.content_key == cached.content_key and cached.slim == _slim_for(
                         table.no_verdict(ordinal), cached
                     ):
                         store.load_cached(ordinal, cached, codepoints=table.codepoints(ordinal), found=found)
                         cached_count += 1
-            except unit_cache.StoreUnreadable:
-                store = store.emptied()
-                cached_count = 0
-                unplaced = []
-                console.warn(f"unit cache: {unit_cache.UNREADABLE_NOTE}", file=sys.stderr)
-        if unplaced:
-            wanted: dict[str, set[str]] = {}
-            for cached in unplaced:
-                wanted.setdefault(cached.prior_class, set()).add(cached.prior_id)
-            located = unit_cache.locate_prior_fragments(out_dir, wanted)
-            del wanted
-            for cached in unplaced:
-                ordinal = named[cached.key]
-                found = located.get(cached.prior_id)
-                if (
-                    found is not None
-                    and found.content_key == cached.content_key
-                    and cached.slim == _slim_for(table.no_verdict(ordinal), cached)
-                ):
-                    store.load_cached(ordinal, cached, codepoints=table.codepoints(ordinal), found=found)
-                    cached_count += 1
-            del located
-        del named
-        memory_tally.mark("named freed")
+                        if addresses_hold:
+                            live_bytes[found.part] = live_bytes.get(found.part, 0) + found.length + 1
+                        continue
+                if addresses_hold:
+                    record = unit_cache.prior_record_or_none(scanned.line)
+                    if record is not None and record.address is not None:
+                        part, _start, length = record.address
+                        live_bytes[part] = live_bytes.get(part, 0) + length + 1
+                        store.add_prior_record(record)
+        except unit_cache.StoreUnreadable:
+            store = store.emptied()
+            cached_count = 0
+            unplaced = []
+            store_plan = unit_cache.StorePlan(existed=True)
+            console.warn(f"unit cache: {unit_cache.UNREADABLE_NOTE}", file=sys.stderr)
+        else:
+            store.seal_prior_records()
+            head = opened.head
+            if head is None:
+                head = unit_cache.adopt_single_file(out_dir, stamps, lines, rows_bytes)
+            store_plan = unit_cache.StorePlan(
+                existed=True,
+                readable=True,
+                head=head,
+                lines=lines,
+                rows_bytes=head.base.rows_bytes,
+                rederived=unit_cache.rederiving_moved(stamps, environment),
+            )
+            if addresses_hold:
+                prior_shards = PriorShards(recorded_sizes, live_bytes)
+        del live_bytes
+    if unplaced:
+        wanted: dict[str, set[str]] = {}
+        for cached in unplaced:
+            wanted.setdefault(cached.prior_class, set()).add(cached.prior_id)
+        located = unit_cache.locate_prior_fragments(out_dir, wanted)
+        del wanted
+        for cached in unplaced:
+            ordinal = named[cached.key]
+            found = located.get(cached.prior_id)
+            if (
+                found is not None
+                and found.content_key == cached.content_key
+                and cached.slim == _slim_for(table.no_verdict(ordinal), cached)
+            ):
+                store.load_cached(ordinal, cached, codepoints=table.codepoints(ordinal), found=found)
+                cached_count += 1
+        del located
+    del named
+    memory_tally.mark("named freed")
     recomputed = array("I", (ordinal for ordinal in range(table.n) if not store.loaded(ordinal)))
     # The sample is drawn from the cached units' id words in ascending order, which is the ids' own order. The sampled units are materialized once, as copies the recomputation may write to: its phase 1 writes the ink flags, and the verification patch writes the injected duplicate group and class. The whole-corpus passes read the table and the store, not these copies.
     sampled = set(
@@ -2875,7 +3261,10 @@ def build_m1(
     # The buffered records have been loaded into the unit store or rejected, so they are freed here. Only a tallied pass keeps them, through the hold above.
     del unplaced
     _phase_timing(
-        "review.build plan", phase, f"(reused {cached_count:,} of {table.n:,} units from the cache)"
+        "review.build plan",
+        phase,
+        f"(reused {cached_count:,} of {table.n:,} units from the cache; "
+        f"kept {store.prior_record_count():,} prior records by id)",
     )
     memory_tally.mark("plan")
 
@@ -3016,6 +3405,7 @@ def build_m1(
             write_jobs = corpus_write_job_budget(
                 _units_pool_width(jobs, gates_idle_jobs, gates_idle_marker)[0]
             )
+        predicted = bytearray(table.n)
         written = _write_corpus(
             out_dir,
             table,
@@ -3047,6 +3437,8 @@ def build_m1(
             write_jobs=write_jobs,
             tally=tally,
             spec_root=spec_root,
+            prior_shards=prior_shards,
+            predicted=predicted,
         )
         if tally:
             tally.boundary("manifest+check")
@@ -3058,7 +3450,9 @@ def build_m1(
         phase,
         f"jobs={written.jobs} (byte-copied {written.byte_copied:,} of {table.n:,} fragments, "
         f"copied forward {written.copied_forward:,} sidecar rows; sidecar lines "
-        f"{', '.join(f'{size / 1e6:.1f}' for size in written.sidecar_bytes)} MB by run)",
+        f"{', '.join(f'{size / 1e6:.1f}' for size in written.sidecar_bytes)} MB by run; "
+        f"appended {written.appended / 1e6:.1f} MB, kept {written.kept:,} by compare, "
+        f"folded {written.folded:,} classes, wrote {written.direct:,} directly, dead {written.dead / 1e6:.1f} MB)",
     )
 
     console.phase("review.build review-facts", file=sys.stderr)
@@ -3089,58 +3483,47 @@ def build_m1(
         tally.boundary("review-facts")
     _phase_timing("review.build review-facts", phase)
 
-    # The store is written as a merge over the previous one. A unit whose fragment was byte-copied to an unchanged address has the same record as in the previous store, so its line is copied from that store through a cursor that reads it in step. Every other unit's record (recomputed, re-patched or moved) is built from the unit store's columns and the table's class, duplicate group and ledger flags (`UnitStore.cached_unit`, no record materialized). Both stores list units in triage order, and every term of `audit.triage_key` is content-derived, so the cursor only reads forward.
+    # The store is written as a segment over the previous one (`unit_cache.update_store`): this pass's records in triage order, each record whose line is the prior store's left where it is. A cached unit predicted unchanged before the write (`_route`) and copied to its own address is its prior line without building the record. Every other unit's record (recomputed, re-patched or moved) is built from the unit store's columns and the table's class, duplicate group and ledger flags (`UnitStore.cached_unit`, no record materialized) and compared with its prior line. A stamp move that says every record is re-derived, the share rule and the fold write a new base instead.
     console.phase("review.build cache", file=sys.stderr)
     phase = time.perf_counter()
-    prior_store = unit_cache.StoreCursor(out_dir) if cached_count else None
-    carried = 0
 
-    def store_entries() -> Iterator[unit_cache.CachedUnit | bytes]:
-        nonlocal carried
-        for ordinal in order:
-            class_id = table.class_id(ordinal)
-            duplicate_group = table.duplicate_group(ordinal)
-            exemplar = table.exemplar(ordinal)
-            no_verdict = table.no_verdict(ordinal)
-            if prior_store is not None and store.cached_as_is(
-                ordinal,
-                class_id=class_id,
-                duplicate_group=duplicate_group,
-                exemplar=exemplar,
-                no_verdict=no_verdict,
-            ):
-                source = store.source(ordinal)
-                assert source is not None, ordinal
-                if store.written_address(ordinal) == (source.part, source.start, source.length):
-                    line = prior_store.take(store.input_key_hex(ordinal))
-                    if line is not None:
-                        carried += 1
-                        yield line
-                        continue
-            yield store.cached_unit(
-                ordinal,
-                class_id=class_id,
-                duplicate_group=duplicate_group,
-                exemplar=exemplar,
-                no_verdict=no_verdict,
-            )
-
-    try:
-        unit_cache.write_store(
-            out_dir,
-            environment,
-            store_entries(),
-            parts=[part for meta in manifest["classes"] for part in unit_index.class_shards(meta)],
+    def unchanged(ordinal: int) -> bool:
+        if not predicted[ordinal] or not store.flags(ordinal).cached:
+            return False
+        source = store.source(ordinal)
+        return source is not None and store.written_address(ordinal) == (
+            source.part,
+            source.start,
+            source.length,
         )
-    finally:
-        if prior_store is not None:
-            prior_store.close()
+
+    def line_of(ordinal: int) -> bytes:
+        return unit_cache.record_line(
+            store.cached_unit(
+                ordinal,
+                class_id=table.class_id(ordinal),
+                duplicate_group=table.duplicate_group(ordinal),
+                exemplar=table.exemplar(ordinal),
+                no_verdict=table.no_verdict(ordinal),
+            )
+        )
+
+    wrote = unit_cache.update_store(
+        out_dir,
+        environment,
+        store_plan,
+        order,
+        prior_line=store.prior_line,
+        unchanged=unchanged,
+        line_of=line_of,
+        parts=[part for meta in manifest["classes"] for part in unit_index.class_shards(meta)],
+    )
     memory_tally.mark("unit store written")
     if signature_write is not None:
         signature_write.join()
     if tally:
         tally.boundary("cache")
-    _phase_timing("review.build cache", phase, f"(carried {carried:,} of {table.n:,} store records)")
+    _phase_timing("review.build cache", phase, f"(store: {wrote.note()})")
     return manifest
 
 
@@ -4397,7 +4780,7 @@ def check_shards(
 
 
 def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = None) -> list[str]:
-    """Check the files beside the manifest: every shard part is present and non-empty, the per-unit index and the app's two sidecars are present and stamped for this manifest, index.html exists, and each copied font matches the sha256 the manifest records and, when `repo_root` resolves its `source`, the font it was copied from. A build already guarantees the source comparison (`_copy_font` checks the copy against the digest taken at load), and the cycle's corpus skip and `make verdict-ready` compare the manifest's after-font sha256 with `rebuild/out/m1/M1.otf`; the comparison here is for `check_output_dir` and `refresh_assets`."""
+    """Check the files beside the manifest: every shard part the manifest lists, base and overflow, is present and non-empty, a reader of part names that never opens one, the per-unit index and the app's two sidecars are present and stamped for this manifest, index.html exists, and each copied font matches the sha256 the manifest records and, when `repo_root` resolves its `source`, the font it was copied from. A build already guarantees the source comparison (`_copy_font` checks the copy against the digest taken at load), and the cycle's corpus skip and `make verdict-ready` compare the manifest's after-font sha256 with `rebuild/out/m1/M1.otf`; the comparison here is for `check_output_dir` and `refresh_assets`."""
     errors: list[str] = []
     for meta in manifest.get("classes", ()):
         for part in unit_index.class_shards(meta):
@@ -4443,15 +4826,27 @@ def check_output_dir(out_dir: Path, repo_root: Path | None = None) -> list[str]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     errors.extend(check_manifest(manifest))
     shards_by_class: dict[str, list[dict]] = {}
+    missing = {
+        meta.get("id", "")
+        for meta in manifest.get("classes", ())
+        if not all((out_dir / part).exists() for part in unit_index.class_shards(meta))
+    }
+    try:
+        with unit_index.LiveCorpus(out_dir) as live:
+            for meta, _slot, fragment in live.fragments(
+                unit_index.MANIFEST_ORDER,
+                classes=[
+                    meta.get("id", "")
+                    for meta in manifest.get("classes", ())
+                    if meta.get("id", "") not in missing
+                ],
+            ):
+                shards_by_class.setdefault(meta.get("id", ""), []).append(fragment)
+    except unit_index.LayoutError as error:
+        errors.append(str(error))
     for meta in manifest.get("classes", ()):
-        units: list[dict] = []
-        for part in unit_index.class_shards(meta):
-            shard_path = out_dir / part
-            if not shard_path.exists():
-                break
-            units.extend(json.loads(shard_path.read_text(encoding="utf-8")))
-        else:
-            shards_by_class[meta.get("id", "")] = units
+        if meta.get("id", "") not in missing:
+            shards_by_class.setdefault(meta.get("id", ""), [])
     errors.extend(check_shards(manifest, shards_by_class, repo_root))
     errors.extend(_check_output_files(out_dir, manifest, repo_root))
     return errors
@@ -4571,7 +4966,7 @@ def main(argv: list[str] | None = None) -> None:
         "--fresh-unit-cache",
         dest="recompute_all_units",
         action="store_true",
-        help="ignore the persisted per-unit cache and recompute every unit from scratch",
+        help="reuse no unit from the persisted per-unit cache and recompute every unit; the prior store still gives each fragment's address, so the shards compare every recomputed fragment with its prior and append only what changed",
     )
     args = parser.parse_args(argv)
     refuse_the_served_corpus(args.out)

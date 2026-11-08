@@ -131,9 +131,10 @@ def test_a_target_that_is_not_a_regular_file_is_written_as_the_plain_form_writes
 
 
 def test_the_counts_reach_the_file_only_while_the_cycle_names_one(tmp_path, monkeypatch):
-    """A call counts nothing without `OUTPUT_COUNTS_ENV`, as a hand run, the fault kit, the memory series and the tests have none, and nothing when the file it names is gone, since a process that outlives its pass must not create the file again. While it names the pass's file, each call appends one line, which `cycle_timings.sum_output_counts` sums into the run line's `outputs` block. The two modules spell the variable and the outcomes out, and they agree."""
+    """A call counts nothing without `OUTPUT_COUNTS_ENV`, as a hand run, the fault kit, the memory series and the tests have none, and nothing when the file it names is gone, since a process that outlives its pass must not create the file again. While it names the pass's file, each call appends one line, which `cycle_timings.sum_output_counts` sums into the run line's `outputs` block, and an output held as a base and segments that a writer rewrote whole outside a fold, the share rule or a letter batch (`note_rewritten`) is named there under `rewritten`, once however often it was counted. The two modules spell the variable and the outcomes out, and they agree."""
     assert cycle_timings.OUTPUT_COUNTS_ENV == output_sink.OUTPUT_COUNTS_ENV
     assert cycle_timings.OUTPUT_OUTCOMES == (output_sink.CHANGED, output_sink.WRITTEN, output_sink.KEPT)
+    assert cycle_timings.OUTPUT_REWRITTEN == output_sink.REWRITTEN
     counts = tmp_path / "counts.tsv"
     counts.write_bytes(b"")
     target = tmp_path / "pins.json"
@@ -152,4 +153,14 @@ def test_the_counts_reach_the_file_only_while_the_cycle_names_one(tmp_path, monk
         "bytes": 14,
         "changed_bytes": 9,
         "kept_bytes": 3,
+    }
+    output_sink.note_rewritten("unit-cache.ndjson.gz")
+    output_sink.note_rewritten("unit-cache.ndjson.gz")
+    assert counts.read_text().splitlines()[-1] == "rewritten\tunit-cache.ndjson.gz"
+    assert cycle_timings.sum_output_counts(counts) == {
+        "files": 2,
+        "bytes": 14,
+        "changed_bytes": 9,
+        "kept_bytes": 3,
+        "rewritten": ["unit-cache.ndjson.gz"],
     }

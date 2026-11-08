@@ -5674,7 +5674,7 @@ def test_a_landed_corpus_still_answers_for_itself(tmp_path, mini_corpus):
         with gzip.open(path, "rt", encoding="utf-8") as stream:
             return json.loads(next(stream))["environment"]
 
-    environment = header_environment(unit_cache.store_path(source))
+    environment = (unit_cache.store_stamps(source) or {})["environment"]
     signature_environment = header_environment(unit_cache.signature_store_path(source))
 
     landing.exchange_dirs(source, live)
@@ -6885,7 +6885,7 @@ def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
 
 
 def test_the_summary_says_what_the_pass_wrote_and_when_it_went_over_its_ceiling():
-    """One line gives the pass's figure with its basis, the review server's share, the machine-wide device and swap counts, and the write class with its ceiling; a second line follows a pass over that ceiling. A pass that lost its first or last reading says it was not measured, and a pass without a meter gets no line."""
+    """One line gives the pass's figure with its basis, the review server's share, the machine-wide device and swap counts, and the write class with its ceiling; a `rewritten whole: <output>` line follows for each output held as a base and segments that the pass rewrote whole outside a fold, the share rule or a letter batch, and a last line a pass over its ceiling. A pass that lost its first or last reading says it was not measured, and a pass without a meter gets no line."""
     own = {"basis": "own", "bytes": 46_300_000, "review_server_bytes": 1_200}
     own |= {"device_bytes": 410_000_000, "swap_bytes": 0}
     assert ac.written_lines(PassWrites(own, "narrowed", None)) == [
@@ -6899,6 +6899,11 @@ def test_the_summary_says_what_the_pass_wrote_and_when_it_went_over_its_ceiling(
     assert ac.written_lines(PassWrites(shared, "full-replay", 5_000_000_000)) == [
         "  written          : 9.0 GB at most (the shared coalition, less the 2.1 MB other processes wrote, with 4 processes' writes unread); class full-replay, ceiling 5.0 GB",
         "  write ceiling    : OVER, 9.0 GB against the full-replay class's 5.0 GB (make cycle-timings ARGS='--writes')",
+    ]
+    rewritten = {**own, "outputs": {"files": 1, "bytes": 9, "changed_bytes": 9, "kept_bytes": 0}}
+    rewritten["outputs"]["rewritten"] = ["unit-cache.ndjson.gz"]
+    assert ac.written_lines(PassWrites(rewritten, "narrowed", None))[1:] == [
+        "  rewritten whole: unit-cache.ndjson.gz"
     ]
     assert ac.written_lines(PassWrites(None, "nothing", None)) == [
         "  written          : not measured (the write meter's first or last reading failed; see the [warn] line)"

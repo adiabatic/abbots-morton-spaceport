@@ -21,14 +21,15 @@ rebuild/out/review/
   index.html            copied from static/
   app.css  app.js  …    the rest of static/, copied verbatim
   manifest.json         generation metadata, class index, font records
-  units/<class-id>.json one shard per nonzero class, split into .000.json, .001.json, … parts when large
+  units/<class-id>.json one shard per nonzero class, split into .000.json, .001.json, … parts when large,
+                        with .x000.json, .x001.json, … overflow parts after them once a build appends
   fonts/before.otf      copy of site/AbbotsMortonSpaceportSansSenior-Regular.otf
   fonts/after.otf       copy of rebuild/out/m1/M1.otf
 ```
 
-The build also writes other files beside the manifest, among them the app sidecars (§7.4), the verdict update's unit index (`units-index.ndjson.gz`), the incremental build's two stores (`unit-cache.ndjson.gz` and `ink-signatures.tsv.gz`), and `review-facts.json`.
+The build also writes other files beside the manifest, among them the app sidecars (§7.4), the verdict update's unit index (`units-index.ndjson.gz`), the incremental build's two stores (the unit store, held as `unit-cache.ndjson.gz.head` over a base and segments in the segment format of `rebuild/pipeline/row_delta.py`, and `ink-signatures.tsv.gz`), and `review-facts.json`.
 
-A shard part is capped at `build.SHARD_PART_BYTES`. The app parses each file it fetches as one JavaScript string, and a body longer than V8's `String::kMaxLength` (2**29 − 24 bytes under pointer compression) reaches `JSON.parse` as an empty string instead of an error. A class that fits in one part keeps the bare name. A larger class is written as contiguous three-digit parts numbered from `000`, and the manifest's `shards` list names them in concatenation order.
+A shard part is capped at `build.SHARD_PART_BYTES`. The app parses each file it fetches as one JavaScript string, and a body longer than V8's `String::kMaxLength` (2**29 − 24 bytes under pointer compression) reaches `JSON.parse` as an empty string instead of an error. A class written whole, as a from-scratch build, a fold or the share rule writes it, takes base parts in id order: the bare name when it fits in one part, and otherwise contiguous three-digit parts numbered from `000`. A cached build keeps every fragment that comes out as it was at its address and appends each changed one to its class's overflow parts, numbered from `x000` and listed in the manifest's `shards` after the base parts, leaving its old slot dead; a class folds back into base parts once its dead bytes reach its live bytes (`build._ShardWriter`). A part can therefore hold fragments no unit owns, so every reader of fragments goes through the live-fragment iterator (`unit_index.LiveCorpus`), and the app reads each fragment by the address its sidecar row records.
 
 `manifest.json` records each font copy's source path and sha256. The site OTF is byte-identical to the one the oracle records as `font_sha256`, so “before” is the font the baseline was extracted from. The directory is self-contained, and deleting and rebuilding it is always safe. It never needs clearing by hand either: after writing the manifest, the build deletes every shard the manifest no longer references (`build._prune_orphan_shards`).
 
