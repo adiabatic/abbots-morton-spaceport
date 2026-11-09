@@ -465,7 +465,7 @@ def test_dry_run_plan_skip_conform():
 
 
 def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
-    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and is handed the snapshot of the store, which it carries beside another master when the snapshot step found a store, and merges and fills into the prepared copy of the store in the pass's scratch directory, journaling there, so it never writes the live store. It is told which snapshot that copy was taken from, so it can record for the land whether it left the copy as the snapshot's bytes. The carried file and both fill files go in the scratch directory too, so the pass leaves none of them at the repository root. The prepared copy has no accepted list beside it, so the pass names the one beside the live store."""
+    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and is handed the snapshot of the store, which it carries beside another master when the snapshot step found a store, and merges and fills into the prepared store in the pass's scratch directory, a link to the store's file that its first write replaces by rename, journaling there, so it never writes the live store. It is told which snapshot the prepared store was linked from, so it can record for the land whether it left the prepared store as the snapshot's bytes. The carried file and both fill files go in the scratch directory too, so the pass leaves none of them at the repository root. The prepared store has no accepted list beside it, so the pass names the one beside the live store."""
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
     assert names.index("store-snapshot") == names.index("corpus-build") + 1
@@ -3751,6 +3751,13 @@ def test_cycle_summary_corpus_nulls_when_manifest_missing(monkeypatch, tmp_path)
     assert summary["corpus"]["dir"] == str(corpus_dir)
     assert summary["corpus"]["generated_at"] is None
     assert summary["corpus"]["inputs_fingerprint"] is None
+
+
+def _replace_store(path: Path, data: dict) -> None:
+    """Write a verdicts file through a temporary file and a rename, as every writer of the store, of the pass's snapshot and of its prepared store does, so a write never reaches the names `landing.snapshot` linked to the same file."""
+    tmp = path.with_name(path.name + ".write")
+    tmp.write_text(json.dumps(data))
+    os.replace(tmp, path)
 
 
 def _verdicts_doc(stamp, units):
@@ -8616,7 +8623,7 @@ def test_the_planned_land_keeps_a_tombstone_of_any_age(moved):
     cleared = [{"unit": "u-2", "at": "2001-01-01T00:00:00Z"}]
     ac.AUTOSAVE.write_text(json.dumps({**_verdicts_doc("A", ["u-1"]), "cleared": cleared}))
     ac.landing.snapshot(ac.AUTOSAVE, Path(argv[argv.index("--run-dir") + 1]))
-    Path(argv[argv.index("--prepared") + 1]).write_text(json.dumps(_verdicts_doc(stamp, ["u-1"])))
+    _replace_store(Path(argv[argv.index("--prepared") + 1]), _verdicts_doc(stamp, ["u-1"]))
 
     assert ac.landing.main(argv) == 0
     landed = json.loads(ac.AUTOSAVE.read_text())
@@ -9951,7 +9958,7 @@ def test_a_failed_build_never_lands(monkeypatch):
 
 
 def test_a_rebuilding_pass_lands_its_corpus_and_store_with_the_saves_made_during_it(monkeypatch, tmp_path):
-    """The seed, the snapshot and the land run for real around a stubbed build and verdict update. The build writes only beside the served corpus, the verdict update writes only the prepared copy, and a save the server applies to the live store while the pass runs is laid over the prepared store at the land. The land swaps the corpus in, stashes the old store, journals the move, deletes the outgoing tree, keys the verdict-update green on the landed store only when nothing was laid over, and the tabs are told the new stamp once. The new corpus drops one of the store's two units, half its verdicts, so the pass is planned with `--allow-orphans`."""
+    """The seed, the snapshot and the land run for real around a stubbed build and verdict update. The build writes only beside the served corpus, the verdict update writes only the prepared store, replacing the link by rename, and a save the server applies to the live store while the pass runs is laid over the prepared store at the land. The land swaps the corpus in, stashes the old store, journals the move, deletes the outgoing tree, keys the verdict-update green on the landed store only when nothing was laid over, and the tabs are told the new stamp once. The new corpus drops one of the store's two units, half its verdicts, so the pass is planned with `--allow-orphans`."""
     _patch_timing_cycle(monkeypatch)
     sent = _record_reloads(monkeypatch)
     monkeypatch.setattr(ac, "_do_corpus_seed", REAL_DO_CORPUS_SEED)
@@ -9986,7 +9993,7 @@ def test_a_rebuilding_pass_lands_its_corpus_and_store_with_the_saves_made_during
     def verdict_update(report, *, spawn, emit, registry, plan):
         argv = plan.argv("verdict-update")
         prepared = Path(argv[argv.index("--autosave") + 1])
-        prepared.write_text(json.dumps(_verdicts_doc("B", ["u-1"])))
+        _replace_store(prepared, _verdicts_doc("B", ["u-1"]))
         live_store = json.loads(ac.AUTOSAVE.read_text())
         live_store["verdicts"].append(
             {"unit": "u-2", "verdict": "reject", "note": "", "at": "2026-07-18T00:00:00Z"}
@@ -9997,7 +10004,7 @@ def test_a_rebuilding_pass_lands_its_corpus_and_store_with_the_saves_made_during
             "note": "late",
             "at": "2026-07-18T00:00:00Z",
         }
-        ac.AUTOSAVE.write_text(json.dumps(live_store))
+        _replace_store(ac.AUTOSAVE, live_store)
         return _verdict_update_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
 
     def spawn(name, argv, **kwargs):
@@ -10060,7 +10067,7 @@ def test_a_pass_whose_land_would_orphan_past_the_limit_lands_nothing(monkeypatch
 
     def verdict_update(report, *, spawn, emit, registry, plan):
         argv = plan.argv("verdict-update")
-        Path(argv[argv.index("--autosave") + 1]).write_text(json.dumps(_verdicts_doc("B", ["u-1"])))
+        _replace_store(Path(argv[argv.index("--autosave") + 1]), _verdicts_doc("B", ["u-1"]))
         return _verdict_update_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
 
     def spawn(name, argv, **kwargs):

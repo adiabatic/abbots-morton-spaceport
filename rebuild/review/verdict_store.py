@@ -83,7 +83,7 @@ def _parse_clear(clear) -> dict | None:
 
 
 def well_formed(record) -> bool:
-    """Return whether `record` is a verdict record the carry reads: an object with a string `unit`, `verdict` and `at`, and a `note`, if any, that is a string or false-valued, since the carry (`carry_verdicts.main`) and the merge (`merge_verdicts.merge_into`) both write a false-valued note as `""` (`note_of`). The carry refuses a verdicts file that holds any other record (`carry_verdicts.resolve_prior`), the merge refuses an input file that holds one (`merge_verdicts`), the review app's Import refuses a file that holds one (`importVerdicts` with `strict` in `rebuild/review/static/verdicts.js`, whose `wellFormed` mirrors this function), and a save refuses a delta holding a set whose record, as the store keeps it (`_normalize`), is one (`parse_delta_payload`), so neither the merge, an Import, nor a save adds a record the carry would refuse. `rebuild/review/fixtures/verdict-record-samples.json` holds sample records with the answer this function gives each, which `rebuild/test_review_autosave.py` checks against this function and `rebuild/review/jstests/verdicts.test.js` against the app's strict Import."""
+    """Return whether `record` is a verdict record the carry reads: an object with a string `unit`, `verdict` and `at`, and a `note`, if any, that is a string or false-valued, since the carry (`carry_verdicts.main`) and the merge (`merge_verdicts.merge_into`) both write a false-valued note as `""` (`note_of`). The carry refuses a verdicts file that holds any other record (`carry_verdicts.resolve_prior`), the merge refuses an input file that holds one (`merge_verdicts`), the review app's Import refuses a file that holds one (`importVerdicts` with `strict` in `rebuild/review/static/verdicts.js`, whose `wellFormed` mirrors this function, as `accepted._well_formed` does for the land's stream readers), and a save refuses a delta holding a set whose record, as the store keeps it (`_normalize`), is one (`parse_delta_payload`), so neither the merge, an Import, nor a save adds a record the carry would refuse. `rebuild/review/fixtures/verdict-record-samples.json` holds sample records with the answer this function gives each, which `rebuild/test_review_autosave.py` checks against this function, `rebuild/test_review_accepted.py` against `accepted._well_formed` and `rebuild/review/jstests/verdicts.test.js` against the app's strict Import."""
     return (
         isinstance(record, dict)
         and all(isinstance(record.get(key), str) for key in ("unit", "verdict", "at"))
@@ -100,21 +100,26 @@ def malformed_record(verdicts: list, name: str) -> str | None:
     """Return the clause that refuses the document called `name` when its `verdicts` hold a record `well_formed` refuses, naming the first such record by its unit, or by its index when it names no unit, and None when every record passes. The merge refuses an input file or a store stamped for the corpus with it (`merge_verdicts`), a journal restore the store it replays (`merge_verdicts.run_restore`), and the readers that read a store through `read_store_document` the store they read."""
     for index, record in enumerate(verdicts):
         if not well_formed(record):
-            unit = record.get("unit") if isinstance(record, dict) else None
-            where = f"on {unit}" if isinstance(unit, str) else f"at index {index} of its `verdicts` list"
-            return (
-                f"{name} holds a verdict record {where} that is not an object with a string `unit`, `verdict` and "
-                "`at` and a `note`, if any, that is a string or false-valued"
-            )
+            return malformed_clause(index, record, name)
     return None
 
 
+def malformed_clause(index: int, record: object, name: str) -> str:
+    """Return the clause that refuses the document called `name` for `record`, a record `well_formed` refuses at `index` of its `verdicts` list, naming it by its unit, or by its index when it names no unit (`malformed_record`); the land names the first such record a stream reader found (`accepted.read_tail`)."""
+    unit = record.get("unit") if isinstance(record, dict) else None
+    where = f"on {unit}" if isinstance(unit, str) else f"at index {index} of its `verdicts` list"
+    return (
+        f"{name} holds a verdict record {where} that is not an object with a string `unit`, `verdict` and "
+        "`at` and a `note`, if any, that is a string or false-valued"
+    )
+
+
 class MalformedStore(ValueError):
-    """Raised by `read_store_document` for a store holding a record `well_formed` refuses; the message names the store and the first such record (`malformed_record`)."""
+    """Raised by `read_store_document`, and by the land's stream check (`landing._tail_of`), for a store holding a record `well_formed` refuses; the message names the store and the first such record (`malformed_record`)."""
 
 
 def read_store_document(raw: bytes, name: str) -> dict | None:
-    """Return the ams-review-verdicts/1 document in `raw` as `parse_autosave_payload` reads it, or None when it is not one, and raise `MalformedStore`, calling the document `name`, when it holds a record `well_formed` refuses, before anything compares its records' `at` values: `journal.latest_by_unit` compares them with `>`, so a record whose `at` is not a string beside one whose `at` is a string on the same unit raises TypeError. These readers read their store here: the land's reads of the snapshot, the prepared store and the live store, the snapshot step's and a dead land's recovery's (`landing.read_store`), the review server's (`VerdictStore.reload`), the readiness check's (`status._verdict_store_check`), and the re-key's of its `--autosave` store (`rebuild.tools.rekey_verdicts`). The merge reads its store itself, refusing one stamped for the corpus that holds such a record (`malformed_in`) and setting an older-stamped one aside whatever its own records hold, though not one whose override section holds such a record (`malformed_override`), since it keeps that section (`merge_verdicts`), the carry refuses such a record in any file it reads (`carry_verdicts`), and status's count of the carry candidates gives a file whose records it cannot compare no count (`status._effective_count`)."""
+    """Return the ams-review-verdicts/1 document in `raw` as `parse_autosave_payload` reads it, or None when it is not one, and raise `MalformedStore`, calling the document `name`, when it holds a record `well_formed` refuses, before anything compares its records' `at` values: `journal.latest_by_unit` compares them with `>`, so a record whose `at` is not a string beside one whose `at` is a string on the same unit raises TypeError. These readers read their store here: the land's whole-read fallback (`landing._land_whole`), the snapshot step's and a dead land's recovery's (`landing.read_store`), the review server's (`VerdictStore.reload`), the readiness check's (`status._verdict_store_check`), and the re-key's of its `--autosave` store (`rebuild.tools.rekey_verdicts`). The merge reads its store itself, refusing one stamped for the corpus that holds such a record (`malformed_in`) and setting an older-stamped one aside whatever its own records hold, though not one whose override section holds such a record (`malformed_override`), since it keeps that section (`merge_verdicts`), the carry refuses such a record in any file it reads (`carry_verdicts`), and status's count of the carry candidates gives a file whose records it cannot compare no count (`status._effective_count`). The land's streamed reads of the snapshot, the prepared store and the live store check the same rule a record at a time instead (`landing._tail_of`), through `accepted.read_tail` with its copy of `well_formed` (`accepted._well_formed`, which `rebuild/test_review_accepted.py` holds to `well_formed`) and through `malformed_clause` and `malformed_override`, so a change to the rule here or to `malformed_in` must reach that check too."""
     data = parse_autosave_payload(raw)
     if data is not None and (malformed := malformed_in(data, name)) is not None:
         raise MalformedStore(malformed)
@@ -122,7 +127,7 @@ def read_store_document(raw: bytes, name: str) -> dict | None:
 
 
 def malformed_in(document: dict, name: str) -> str | None:
-    """Return `malformed_record`'s clause for the document called `name`, over its own `verdicts` and then over its override section's (`accepted.Overrides`), so a store holding a malformed override is refused as one holding a malformed record is; None when every record passes."""
+    """Return `malformed_record`'s clause for the document called `name`, over its own `verdicts` and then over its override section's (`accepted.Overrides`), so a store holding a malformed override is refused as one holding a malformed record is; None when every record passes. The land's streamed reads make the same two checks without holding the document (`landing._tail_of`), so a clause added here must reach that check too."""
     return malformed_record(document["verdicts"], name) or malformed_override(document, name)
 
 
@@ -201,7 +206,8 @@ def stash_path_for(path: Path, stamp: str) -> Path:
     return path.with_name(f"{path.stem}-{_safe_stamp(stamp)}{path.suffix}")
 
 
-def _link_or_copy(source: Path, target: Path) -> None:
+def link_or_copy(source: Path, target: Path) -> None:
+    """Give the file at `source` the name `target` too, through a temporary name and a rename, so a reader of `target` never sees it half made; where the link fails, as across filesystems, copy the file instead. Every writer of the store replaces its file by rename, so a write never reaches the other name."""
     tmp = target.with_name(target.name + ".link")
     tmp.unlink(missing_ok=True)
     try:
@@ -833,7 +839,7 @@ class VerdictStore:
         old_verdicts, old_cleared = accepted.joined(self.records, self.cleared, self.overrides)
         stash = stash_path_for(self.path, old_stamp) if old_stamp is not None else None
         if stash is not None and self.path.exists():
-            _link_or_copy(self.path, stash)
+            link_or_copy(self.path, stash)
         else:
             stash = None
         kept = {

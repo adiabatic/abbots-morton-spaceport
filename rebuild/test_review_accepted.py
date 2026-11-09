@@ -28,7 +28,7 @@ from unittest import mock
 import pytest
 import yaml
 
-from rebuild.review import accepted, export, journal, landing, unit_cache, unit_index
+from rebuild.review import accepted, export, journal, landing, unit_cache, unit_index, verdict_store
 from rebuild.review.verdict_store import DELTA_FORMAT, ServedCorpus, VerdictStore
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import (
@@ -275,6 +275,10 @@ def test_the_names_the_module_spells_out_agree_with_their_sources(tmp_path):
     assert dict(accepted.read(written).verdicts) == {unit: "either"}
     assert accepted.AUTOSAVE_NAME == journal.AUTOSAVE_NAME
     assert accepted.ACCEPTING_VERDICTS == review_queue.ACCEPTING_VERDICTS
+    assert accepted.EXPORT_FORMAT == verdict_store.EXPORT_FORMAT == journal.EXPORT_FORMAT
+    for sample in json.loads((FIXTURES / "verdict-record-samples.json").read_text(encoding="utf-8")):
+        held = sample["record"]
+        assert accepted._well_formed(held) == verdict_store.well_formed(held) == sample["well_formed"]
     scenario, view = _view(tmp_path / "view")
     assert view.records == journal.latest_by_unit(scenario["store"]["verdicts"])
     assert view.cleared == journal.parse_cleared(scenario["store"])

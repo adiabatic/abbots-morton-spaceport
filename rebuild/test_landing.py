@@ -1,11 +1,13 @@
 """Tests for the land (`rebuild/review/landing.py`), which moves a pass's corpus and verdict store into place together under the store's lock beside a running review server.
 
-The overlay keeps every set and clear the live store gained after the snapshot over the prepared store, among them a clear on a unit the snapshot held no verdict for, which lands at its own `at` over a fill, an older tombstone, or nothing in the prepared store, except on a stamp change, where it sends a set on a unit outside the new corpus's human units to the orphan document, drops a clear on such a unit, and drops a skip and clears the verdict the skip replaced; a tombstone the live store shares with the snapshot is kept only for a unit the prepared store holds no verdict for, and on a stamp change only for a surviving unit. A land whose live store moved to another stamp since the snapshot aborts and keeps the staged tree, and so does a guarded land whose stamp change would orphan more than the limit of the live store's verdicts other than skips, and a land whose live store, snapshot or prepared store holds a record the carry refuses, which writes nothing. The tree swap and its fallback where the filesystem refuses the swap call, the discard rename that never deletes, the discard a land leaves to its caller, the copy-on-write clone, the stash link, the event naming the stash, which holds the sets and clears from the replaced store until the journal's last base is a day old and a base after that, either of which replays to the landed store's tombstones too, the read of the journal resumed from retention's scan state, and the empty store a pass that carries nothing lands, which keeps the override section whole and which it journals as a base because its sets and clears would reach its record count. After a store write the journal missed (a server save whose append failed, was cut short or never ran, or a store copied back after a refused re-key undo) the land journals a base and removes the marker that write left, and the journal restores the live store from that land on. A land killed at each step of its locked section is finished or dropped by the next holder of the lock, which first cuts off what the dead land half appended to the journal, or the sets and clears it appended whole; one whose result is gone is swapped back out, or refused when the old corpus is gone too, and one whose store or result holds a record the carry refuses is refused, by a land after it too. The review server's request path does the same while the lock is free and waits while it is held, and its locked save path refuses while a dead land's intent is there and reads the served corpus only under the lock. Every save applied through that path while two lands run, or a later save on its unit, ends in the landed store, in an orphan document, or, for a save the pass's snapshot already held on a unit the new corpus lacks, in the old corpus's stash. The code digest the server advertises on /capabilities covers exactly the protocol's modules and the modules its /status judges freshness with. Last, the accepted list beside the store: the land names it in its result and aborts, moving nothing, when the live store does not pair with it or it changed since the snapshot; its orphan guard counts the accepted units of the live corpus in both terms, so a wholesale id move is refused on a store a close-out emptied, and an override on a unit the live corpus lacks in neither; a set back to an accepted record made during the pass lands as that, not as a clear; and a stamp change leaves a tombstone on each accepted unit the new corpus lacks that the live store holds a record or tombstone for. A land whose prepared store the verdict update recorded as its snapshot's bytes leaves the store and the journal in place after every kind of save the server makes during the pass, as a land without the record over a copy of the same tree shows it would change neither, still swaps a staged corpus, and leaves a recovery only its discard; a prepared store written since, a live store the overlay would not give back, and a journal not yet there get the land's result written over the store and journaled.
+The overlay keeps every set and clear the live store gained after the snapshot over the prepared store, among them a clear on a unit the snapshot held no verdict for, which lands at its own `at` over a fill, an older tombstone, or nothing in the prepared store, except on a stamp change, where it sends a set on a unit outside the new corpus's human units to the orphan document, drops a clear on such a unit, and drops a skip and clears the verdict the skip replaced; a tombstone the live store shares with the snapshot is kept only for a unit the prepared store holds no verdict for, and on a stamp change only for a surviving unit. A land whose live store moved to another stamp since the snapshot aborts and keeps the staged tree, and so does a guarded land whose stamp change would orphan more than the limit of the live store's verdicts other than skips, and a land whose live store, snapshot or prepared store holds a record the carry refuses, which writes nothing. The tree swap and its fallback where the filesystem refuses the swap call, the discard rename that never deletes, the discard a land leaves to its caller, the copy-on-write clone, the stash link, the event naming the stash, which holds the sets and clears from the replaced store until the journal's last base is a day old and a base after that, either of which replays to the landed store's tombstones too, the read of the journal resumed from retention's scan state, and the empty store a pass that carries nothing lands, which keeps the override section whole and which it journals as a base because its sets and clears would reach its record count. After a store write the journal missed (a server save whose append failed, was cut short or never ran, or a store copied back after a refused re-key undo) the land journals a base and removes the marker that write left, and the journal restores the live store from that land on. A land killed at each step of its locked section is finished or dropped by the next holder of the lock, which first cuts off what the dead land half appended to the journal, or the sets and clears it appended whole; one whose result is gone is swapped back out, or refused when the old corpus is gone too, and one whose store or result holds a record the carry refuses is refused, by a land after it too. The review server's request path does the same while the lock is free and waits while it is held, and its locked save path refuses while a dead land's intent is there and reads the served corpus only under the lock. Every save applied through that path while two lands run, or a later save on its unit, ends in the landed store, in an orphan document, or, for a save the pass's snapshot already held on a unit the new corpus lacks, in the old corpus's stash. The code digest the server advertises on /capabilities covers exactly the protocol's modules and the modules its /status judges freshness with. Last, the accepted list beside the store: the land names it in its result and aborts, moving nothing, when the live store does not pair with it or it changed since the snapshot; its orphan guard counts the accepted units of the live corpus in both terms, so a wholesale id move is refused on a store a close-out emptied, and an override on a unit the live corpus lacks in neither; a set back to an accepted record made during the pass lands as that, not as a clear; and a stamp change leaves a tombstone on each accepted unit the new corpus lacks that the live store holds a record or tombstone for. A land whose prepared store the verdict update recorded as its snapshot's bytes leaves the store and the journal in place after every kind of save the server makes during the pass, as a land without the record over a copy of the same tree shows it would change neither, still swaps a staged corpus, and leaves a recovery only its discard; a prepared store written since, a live store the overlay would not give back, and a journal not yet there get the land's result written over the store and journaled. The snapshot and the prepared store are the live store's own file, which no writer writes through. The land holds no store whole: over random lands its walk over the stores as streams leaves every file as the land that reads them whole leaves it, a set line it splices from the landed store is the line `json.dumps` writes, a time the walk takes is taken under the lock, and a store whose records do not stream by unit lands whole, naming itself, with the same bytes. The stream readers give `read_store`'s answer for every store a fixture holds and every store the random lands build, a block of any size at a time, and hold a few blocks of a long store.
 """
 
+import collections
 import errno
 import json
 import os
+import random
 import shutil
 import threading
 from datetime import datetime, timedelta, timezone
@@ -43,8 +45,11 @@ def document(stamp, records, cleared=None):
 
 
 def write(path: Path, data) -> None:
+    """Write `data` to `path` through a temporary file and a rename, as every writer of the store does, so the snapshot and the prepared store, which start as the live store's file, never see the write."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data))
+    tmp = path.with_name(path.name + ".write")
+    tmp.write_text(json.dumps(data))
+    os.replace(tmp, path)
 
 
 def corpus(path: Path, stamp: str, ids, marker: str = "") -> Path:
@@ -325,21 +330,30 @@ def test_a_snapshot_of_a_store_holding_a_record_the_carry_refuses_is_refused(rep
     with pytest.raises(landing.MalformedStore) as refused:
         landing.snapshot(repo["autosave"], repo["run"])
     assert str(refused.value).startswith(
-        f"the live store {repo['autosave']}, copied to {repo['run'] / landing.SNAPSHOT_NAME}, holds a verdict record {named} "
+        f"the live store {repo['autosave']}, linked to {repo['run'] / landing.SNAPSHOT_NAME}, holds a verdict record {named} "
         "that is not an object"
     )
     assert str(refused.value).endswith("--restore-as-of <time> --apply`")
     assert {path: path.read_bytes() for path in before} == before
 
 
-def test_the_orphan_guard_aborts_a_stamp_change_past_the_limit_and_counts_no_skip(repo):
-    """With `guard_orphans`, a land that moves the stamp aborts before it writes anything when more than `landing.ORPHAN_SHARE_LIMIT` of the live store's verdicts name a unit outside the new corpus's triage index, and the reason names the override. Once the vanished unit's verdict is a skip, nothing counts as orphaned and the same land goes ahead."""
+def test_the_orphan_guard_aborts_a_stamp_change_past_the_limit_and_counts_no_skip(repo, monkeypatch):
+    """With `guard_orphans`, a land that moves the stamp aborts before it writes anything, its result included, when more than `landing.ORPHAN_SHARE_LIMIT` of the live store's verdicts name a unit outside the new corpus's triage index, and the reason names the override; a save made during the pass, which makes the land walk the stores again under the lock, changes none of that. Once the vanished unit's verdict is a skip, nothing counts as orphaned and the same land goes ahead."""
     corpus(repo["next"], "B", ["u-1"])
     landing.snapshot(repo["autosave"], repo["run"])
     write(repo["run"] / landing.PREPARED_NAME, document("B", [record("u-1")]))
+    write(
+        repo["autosave"], document("A", [record("u-1", "reject", at="2026-09-03T00:00:00Z"), record("u-2")])
+    )
     before = repo["autosave"].read_bytes()
+    results: list[Path] = []
+    writer = landing._ResultWriter
+    monkeypatch.setattr(
+        landing, "_ResultWriter", lambda path, *rest: results.append(path) or writer(path, *rest)
+    )
     result = land(repo, guard_orphans=True)
     assert not result.landed and "1 of 2" in result.reason and "--allow-orphans" in result.reason
+    assert results == []
     assert repo["next"].exists() and (repo["live"] / "units-000.json").read_text() == "A"
     assert repo["autosave"].read_bytes() == before
     assert not landing.intent_path_for(repo["autosave"]).exists()
@@ -1373,3 +1387,492 @@ def test_a_land_that_left_the_store_in_place_and_died_after_its_swap_needs_only_
     assert not repo["next"].exists() and not landing.discard_path_for(repo["live"]).exists()
     assert file_signature(repo["autosave"]) == signature
     assert repo["journal"].read_bytes() == journaled
+
+
+WALK_NOTES = (
+    "",
+    "plain",
+    'a "quoted" note',
+    "a back\\slash",
+    "a ] bracket",
+    '"cleared": [',
+    "two\nlines",
+    "·Pea — the ’s",
+    "a 🙂 face",
+)
+WALK_VERDICTS = ("approve", "reject", "either", "neither", "identical", "skip")
+FROZEN = "2026-10-01T12:00:00Z"
+
+
+def walk_record(rng, unit: str, day: int) -> dict:
+    return {
+        "unit": unit,
+        "verdict": rng.choice(WALK_VERDICTS),
+        "note": rng.choice(WALK_NOTES),
+        "at": "" if rng.random() < 0.04 else f"2026-09-{day:02d}T00:00:{rng.randrange(60):02d}Z",
+    }
+
+
+def walk_store(rng, units, listed, day: int) -> tuple[dict, dict, accepted.Overrides]:
+    """Return a store's own records, its tombstones and its override section over `units`, the section on `listed` units, and now and then an own record on a listed unit, which the journal records through the section."""
+    own: dict[str, dict] = {}
+    cleared: dict[str, str] = {}
+    overrides = accepted.Overrides()
+    for unit in units:
+        roll = rng.random()
+        if unit in listed and rng.random() < 0.9:
+            if roll < 0.25:
+                overrides.set(walk_record(rng, unit, day))
+            elif roll < 0.35:
+                overrides.clear(unit, f"2026-09-{day:02d}T01:00:00Z")
+        elif roll < 0.55:
+            own[unit] = walk_record(rng, unit, day)
+        elif roll < 0.65:
+            cleared[unit] = f"2026-09-{day:02d}T02:00:{rng.randrange(60):02d}Z"
+    return own, cleared, overrides
+
+
+def write_walk_store(rng, path: Path, stamp: str, own, cleared, overrides, field, layout: str) -> None:
+    """Write a store through a temporary file and a rename in one of three layouts: the review server's, one record a line (`landing.document_bytes`); `merge_verdicts`', `indent=2`; or one line of `json.dumps` whose records may lack a note, hold a null one or carry another key, beside a tombstone on a unit that holds a record."""
+    if layout == "server":
+        data = landing.document_bytes(landing.Store(stamp, own, cleared, field, overrides))
+    elif layout == "merge":
+        payload = journal.payload_for(stamp, own, cleared, accepted=field, overrides=overrides.field())
+        data = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode()
+    else:
+        verdicts = []
+        for unit in sorted(own):
+            entry = dict(own[unit])
+            if not entry["note"] and rng.random() < 0.5:
+                entry.pop("note") if rng.random() < 0.5 else entry.update(note=None)
+            if rng.random() < 0.1:
+                entry["configs"] = ["ss03"]
+            verdicts.append(entry)
+        tombstones = dict(cleared)
+        if own and rng.random() < 0.3:
+            tombstones[rng.choice(sorted(own))] = "2026-09-30T00:00:00Z"
+        document: dict[str, object] = {
+            "format": "ams-review-verdicts/1",
+            "manifest_generated_at": stamp,
+            "exported_at": stamp,
+        }
+        if field is not None:
+            document["accepted"] = field
+        document["verdicts"] = verdicts
+        if tombstones:
+            document["cleared"] = [{"unit": unit, "at": at} for unit, at in sorted(tombstones.items())]
+        if (section := overrides.field()) is not None:
+            document["overrides"] = section
+        data = json.dumps(document).encode()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".write")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
+def saved_during_the_pass(
+    rng, units, listed, own, cleared, overrides
+) -> tuple[dict, dict, accepted.Overrides]:
+    """Return the store after a few saves made during the pass: sets, changes, skips, removals with a tombstone and without one, tombstones moved or dropped, and override sets, clears and removals."""
+    own, cleared, overrides = dict(own), dict(cleared), overrides.copy()
+    for _ in range(rng.randrange(1, 7)):
+        unit = rng.choice(units)
+        roll = rng.random()
+        if unit in listed and rng.random() < 0.8:
+            if roll < 0.4:
+                overrides.set(walk_record(rng, unit, 20))
+            elif roll < 0.7:
+                overrides.clear(unit, "2026-09-20T03:00:00Z")
+            else:
+                overrides.drop(unit)
+        elif roll < 0.35:
+            own[unit] = walk_record(rng, unit, 20)
+            cleared.pop(unit, None)
+        elif roll < 0.5:
+            own.pop(unit, None)
+            cleared[unit] = "2026-09-20T04:00:00Z"
+        elif roll < 0.6:
+            own.pop(unit, None)
+            cleared.pop(unit, None)
+        elif roll < 0.7:
+            cleared.pop(unit, None)
+        elif roll < 0.85:
+            own[unit] = {**walk_record(rng, unit, 20), "verdict": "skip"}
+            cleared.pop(unit, None)
+        elif unit not in own:
+            cleared[unit] = "2026-09-20T05:00:00Z"
+    return own, cleared, overrides
+
+
+def build_walk_case(seed: int, root: Path) -> dict:
+    """Build one random land under `root`: a live store on a stamp, its snapshot and prepared store linked from it, a prepared store the verdict update rewrote, left as the snapshot, deleted or never named, saves made during the pass or none, a journal with a recent base, an old one, a marker that forces a base or no journal at all, and a land that keeps the stamp, moves it with a staged corpus, or moves it on the served corpus from an older stamp."""
+    rng = random.Random(seed)
+    units = sorted(
+        {"u-" + "".join(rng.choices(accepted.ID_ALPHABET, k=accepted.ID_SYMBOLS)) for _ in range(30)}
+    )
+    with_list = rng.random() < 0.7
+    listed = set(rng.sample(units, 10)) if with_list else set()
+    mode = rng.choice(("same", "moved", "moved", "older"))
+    live_ids = units[:24]
+    new_ids = sorted({*rng.sample(live_ids, 22), *rng.sample(units[24:], 3)}) if mode == "moved" else live_ids
+    live = corpus(root / "rebuild" / "out" / "review", "A", live_ids)
+    staged = corpus(live.with_name("review.next"), "B", new_ids, marker="new") if mode == "moved" else None
+    autosave = root / "verdicts-autosave.json"
+    journal_path = root / journal.JOURNAL_NAME
+    run = root / "var" / "cycle" / "run-1"
+    field = None
+    if with_list:
+        list_path = accepted.path_for(autosave)
+        list_path.parent.mkdir(parents=True, exist_ok=True)
+        list_path.write_bytes(accepted.render(CLOSED_AT, dict.fromkeys(sorted(listed), "approve")))
+        field = accepted.read(list_path).field()
+    old_stamp = "0" if mode == "older" else "A"
+    new_stamp = "B" if mode == "moved" else "A"
+    layouts = ("server", "merge", "hand")
+    own, cleared, overrides = walk_store(rng, units, listed, 5)
+    write_walk_store(rng, autosave, old_stamp, own, cleared, overrides, field, rng.choice(layouts))
+    shape = rng.choice(("recent", "old", "marker", "none"))
+    if shape != "none":
+        records, tombstones = accepted.joined(own, cleared, overrides)
+        journal.record_transition(
+            journal_path,
+            source="merge",
+            stamp=old_stamp,
+            old_stamp=None,
+            new_verdicts=list(records.values()),
+            new_cleared=tombstones,
+            at="2026-09-29T00:00:00Z" if shape == "old" else "2026-10-01T11:00:00Z",
+            accepted=field,
+        )
+        if shape == "marker":
+            journal.mark_unjournaled(autosave, "a test")
+    landing.snapshot(autosave, run)
+    prepared_path = run / landing.PREPARED_NAME
+    prepared = rng.choice(("rewritten", "rewritten", "unchanged", "missing", "none"))
+    if prepared == "unchanged" and mode != "same":
+        prepared = "rewritten"
+    if prepared == "rewritten":
+        carried, kept_cleared, kept_overrides = dict(own), dict(cleared), overrides
+        if mode != "same":
+            carried = {u: r for u, r in own.items() if u in new_ids and r["verdict"] != "skip"}
+            kept_cleared = {u: at for u, at in cleared.items() if u in new_ids}
+            kept_overrides = overrides.moved(FROZEN)
+        for _ in range(rng.randrange(0, 8)):
+            unit = rng.choice(new_ids)
+            if unit not in listed and unit not in carried and unit not in kept_cleared:
+                carried[unit] = {**walk_record(rng, unit, 15), "note": "standing fill"}
+        if carried and rng.random() < 0.3:
+            unit = rng.choice(sorted(carried))
+            carried[unit] = walk_record(rng, unit, 16)
+        layout = "merge" if rng.random() < 0.8 else rng.choice(layouts)
+        write_walk_store(rng, prepared_path, new_stamp, carried, kept_cleared, kept_overrides, field, layout)
+    elif prepared == "unchanged":
+        landing.record_unchanged(prepared_path, True)
+    elif prepared in ("missing", "none"):
+        prepared_path.unlink()
+    if rng.random() < 0.5:
+        own, cleared, overrides = saved_during_the_pass(rng, units, listed, own, cleared, overrides)
+        write_walk_store(rng, autosave, old_stamp, own, cleared, overrides, field, "server")
+    return {
+        "autosave": autosave,
+        "journal_path": journal_path,
+        "run_dir": run,
+        "corpus": staged if staged is not None else live,
+        "prepared": None if prepared == "none" else prepared_path,
+        "staged": staged,
+        "live": live if staged is not None else None,
+        "guard_orphans": rng.random() < 0.3,
+        "accepted_path": accepted.path_for(autosave),
+    }
+
+
+def landed_files(root: Path) -> dict[str, bytes]:
+    return {
+        str(path.relative_to(root)): path.read_bytes()
+        for path in root.rglob("*")
+        if path.is_file() and path.name != landing.UNCHANGED_NAME
+    }
+
+
+def test_the_walk_lands_the_bytes_the_stores_read_whole_land(tmp_path, monkeypatch, capsys):
+    """Over random lands, the walk over the stores as streams leaves every file, the store, the journal, the orphan document, the stash and both corpora, byte for byte as the land that reads every store whole (`read_store`, `overlay`, `document_bytes`, `journal.record_transition`) leaves them over the same tree, and gives the same `LandResult`, with the clock held still so the stamps agree. The lands cover a live store saved to during the pass, which the walk reads again under the lock, both layouts of the prepared store, a prepared store left as the snapshot, deleted or never named, a stamp kept or moved with a staged corpus or on the served one, a journal due a base, not due one, forced to one by its marker and not there at all, so seeded, and the orphan guard on and off."""
+    monkeypatch.setattr(journal, "now_stamp", lambda: FROZEN)
+
+    def read_whole(**_options):
+        raise landing._Unstreamable("the test", "reads it whole")
+
+    seen: collections.Counter = collections.Counter()
+    for seed in range(400):
+        streamed, whole = tmp_path / f"{seed}-streamed", tmp_path / f"{seed}-whole"
+        options, whole_options = build_walk_case(seed, streamed), build_walk_case(seed, whole)
+        assert landed_files(streamed) == landed_files(whole), seed
+        snapshot = options["run_dir"] / landing.SNAPSHOT_NAME
+        seen["saved"] += options["autosave"].stat().st_ino != snapshot.stat().st_ino
+        result = landing.land(**options)
+        assert "reads the stores whole" not in capsys.readouterr().out, seed
+        with monkeypatch.context() as patched:
+            patched.setattr(landing, "_land_streamed", read_whole)
+            expected = landing.land(**whole_options)
+        assert "reads the stores whole" in capsys.readouterr().out
+        assert landed_files(streamed) == landed_files(whole), seed
+        ours, theirs = result.as_dict(), expected.as_dict()
+        for held in (ours, theirs):
+            held.pop("locked_s")
+        assert json.dumps(ours).replace(str(streamed), "") == json.dumps(theirs).replace(str(whole), ""), seed
+        seen["landed" if result.landed else "refused"] += 1
+        seen["kept" if result.store_kept else "written"] += result.landed
+        seen[f"base={result.journal_base}"] += result.landed
+        if options["journal_path"].exists():
+            events = journal.iter_events(options["journal_path"])
+            seen["seeded"] += any(event["source"] == "seed" for event in events)
+    covered = ("saved", "landed", "refused", "kept", "written", "base=True", "base=False", "seeded")
+    assert all(seen[key] for key in covered), seen
+
+
+def test_a_time_the_walk_takes_is_taken_under_the_lock(repo, monkeypatch):
+    """A skip with no `at` in the override section the snapshot shares with the live store becomes a tombstone at the time of the land when the prepared store holds none for its unit and the stamp moves. The walk without the lock takes that time, so the land walks again under the lock, and the tombstone carries a time taken there, as the land that reads the stores whole takes it."""
+    field = write_list(repo, {ACCEPT_A: "approve"})
+    corpus(repo["next"], "B", ["u-1", "u-2"])
+    write(repo["autosave"], named(document("A", [record("u-1")]), field, [record(ACCEPT_A, "skip", at="")]))
+    landing.snapshot(repo["autosave"], repo["run"])
+    write(repo["run"] / landing.PREPARED_NAME, named(document("B", [record("u-1")]), field))
+    lock = lock_path_for(repo["autosave"])
+    monkeypatch.setattr(
+        journal,
+        "now_stamp",
+        lambda: "2026-10-01T00:00:01Z" if holder(lock) is not None else "2026-10-01T00:00:00Z",
+    )
+    assert land(repo).landed
+    assert json.loads(repo["autosave"].read_text())["overrides"]["cleared"] == [
+        {"unit": ACCEPT_A, "at": "2026-10-01T00:00:01Z"}
+    ]
+
+
+def test_a_spliced_set_line_is_the_one_json_dumps_writes(tmp_path):
+    """The journal's set line for a record is spliced from the record's line in the store the land wrote, which holds the same fields after `"kind": "set"`, so it is the line `json.dumps(journal._set_line(record))` writes: on the last record line, which no comma follows, and on an override record's line."""
+    notes = ('a "quoted" ] note', "back\\slash and\nnewline", "·Pea — ’")
+    own = {f"u-{n}": record(f"u-{n}", "reject", note) for n, note in enumerate(notes)}
+    override = record(ACCEPT_A, "either", '"cleared": [')
+    store = landing.Store(
+        "A", own, {"u-9": "2026-09-02T00:00:00Z"}, None, accepted.Overrides({ACCEPT_A: override})
+    )
+    lines = landing.document_bytes(store).split(b"\n")
+    closing = next(index for index, line in enumerate(lines) if line.startswith(b"]"))
+    last, overridden = lines[closing - 1], lines[closing + 1]
+    for line, held in ((last, own["u-2"]), (overridden, override)):
+        assert not line.endswith(b",")
+        assert (
+            landing._splice(line) == (json.dumps(journal._set_line(held), ensure_ascii=False) + "\n").encode()
+        )
+
+
+def test_the_snapshot_links_the_store_and_no_writer_writes_through_a_link(repo, monkeypatch):
+    """The snapshot S and the prepared store R are the live store C's own file, so the review server's signature of C does not move. A save through the server replaces C by rename, leaving S and R as they were, and a merge into R replaces R the same way, leaving S and C. Where a link fails, as across filesystems, the snapshot copies instead."""
+    from rebuild.tools import merge_verdicts
+
+    signature = file_signature(repo["autosave"])
+    before = repo["autosave"].read_bytes()
+    landing.snapshot(repo["autosave"], repo["run"])
+    snapshot, prepared = repo["run"] / landing.SNAPSHOT_NAME, repo["run"] / landing.PREPARED_NAME
+    inode = repo["autosave"].stat().st_ino
+    assert snapshot.stat().st_ino == prepared.stat().st_ino == inode
+    assert file_signature(repo["autosave"]) == signature
+    save(repo, [{"sets": [record("u-3", "reject", at="2026-09-09T00:00:00Z")]}])
+    assert repo["autosave"].stat().st_ino != inode
+    assert snapshot.read_bytes() == prepared.read_bytes() == before
+    saved = repo["autosave"].read_bytes()
+    merge_verdicts._write_store(prepared, journal.payload_for("A", {"u-4": record("u-4")}))
+    assert snapshot.read_bytes() == before and repo["autosave"].read_bytes() == saved
+    assert units(prepared) == {"u-4": record("u-4")}
+
+    def refused(source, target):
+        raise OSError(errno.EXDEV, os.strerror(errno.EXDEV))
+
+    copied = repo["root"] / "var" / "cycle" / "run-2"
+    monkeypatch.setattr(os, "link", refused)
+    assert landing.snapshot(repo["autosave"], copied) == "A"
+    monkeypatch.undo()
+    taken = copied / landing.SNAPSHOT_NAME
+    assert taken.read_bytes() == (copied / landing.PREPARED_NAME).read_bytes() == saved
+    assert (
+        len(
+            {
+                taken.stat().st_ino,
+                (copied / landing.PREPARED_NAME).stat().st_ino,
+                repo["autosave"].stat().st_ino,
+            }
+        )
+        == 3
+    )
+
+
+def unstreamable_case(root: Path, how: str) -> dict:
+    """Build a land under `root` whose prepared store lists a unit before the unit ahead of it, whose live store names a unit twice with another between, whose snapshot names its `verdicts` list twice, or whose live store names a unit twice in a row, which streams."""
+    autosave = root / "verdicts-autosave.json"
+    live = corpus(root / "rebuild" / "out" / "review", "A", ["u-1", "u-2", "u-3"])
+    run = root / "var" / "cycle" / "run-1"
+    stored = document("A", [record("u-1"), record("u-2")], {"u-3": "2026-09-02T00:00:00Z"})
+    write(autosave, stored)
+    landing.snapshot(autosave, run)
+    prepared = [record("u-1"), record("u-2"), record("u-3", note="standing fill")]
+    if how == "out of order":
+        prepared = prepared[::-1]
+    write(run / landing.PREPARED_NAME, document("A", prepared))
+    if how in ("apart", "in a row"):
+        saves = [
+            record("u-1"),
+            record("u-2", "reject", at="2026-09-03T00:00:00Z"),
+            record("u-2", at="2026-09-04T00:00:00Z"),
+        ]
+        if how == "apart":
+            saves = [saves[1], saves[0], saves[2]]
+        write(autosave, document("A", saves))
+    elif how == "twice":
+        text = json.dumps(stored)
+        (run / landing.SNAPSHOT_NAME).unlink()
+        (run / landing.SNAPSHOT_NAME).write_text(
+            text[:-1] + ', "verdicts": ' + json.dumps(stored["verdicts"]) + "}"
+        )
+    return {
+        "autosave": autosave,
+        "journal_path": root / journal.JOURNAL_NAME,
+        "run_dir": run,
+        "corpus": live,
+        "prepared": run / landing.PREPARED_NAME,
+        "accepted_path": accepted.path_for(autosave),
+    }
+
+
+@pytest.mark.parametrize(
+    ("how", "line"),
+    [
+        ("out of order", "the prepared store {run}/prepared.json lists u-2 after u-3"),
+        ("apart", "the live store {root}/verdicts-autosave.json lists u-1 after u-2"),
+        ("twice", "the snapshot {run}/verdicts-autosave.json names its `verdicts` list more than once"),
+        ("in a row", None),
+    ],
+)
+def test_a_store_whose_records_do_not_stream_by_unit_lands_whole_with_the_same_bytes(
+    tmp_path, monkeypatch, capsys, how, line
+):
+    """A store whose records go out of unit order, that names a unit twice with another between, or that names its `verdicts` list twice makes the land read every store whole, after one line naming the store and why, and it lands the bytes the land that reads them whole lands. A unit named twice in a row streams, settled as `journal.latest_by_unit` settles it."""
+    monkeypatch.setattr(journal, "now_stamp", lambda: FROZEN)
+    streamed, whole = tmp_path / "streamed", tmp_path / "whole"
+    options, whole_options = unstreamable_case(streamed, how), unstreamable_case(whole, how)
+    assert landing.land(**options).landed
+    printed = capsys.readouterr().out
+    if line is None:
+        assert "reads the stores whole" not in printed
+    else:
+        run = options["run_dir"]
+        assert printed == f"the land reads the stores whole: {line.format(run=run, root=streamed)}\n"
+
+    def read_whole(**_options):
+        raise landing._Unstreamable("the test", "reads it whole")
+
+    monkeypatch.setattr(landing, "_land_streamed", read_whole)
+    assert landing.land(**whole_options).landed
+    assert landed_files(streamed) == landed_files(whole)
+
+
+FIXTURES = Path(__file__).resolve().parent / "review" / "fixtures"
+
+
+def fixture_documents() -> list[dict]:
+    """Every store a fixture holds, as it holds it and as an ams-review-verdicts/1 document, one document a record of the record samples, the malformed ones among them, each on its own and in the override section, and ams-review-verdicts/1 documents whose stamp is not a string or whose `verdicts` is not a list."""
+    found: list[dict] = []
+
+    def visit(node) -> None:
+        if isinstance(node, dict):
+            if isinstance(node.get("verdicts"), list):
+                found.append(node)
+                found.append({"format": "ams-review-verdicts/1", "manifest_generated_at": "A", **node})
+            for value in node.values():
+                visit(value)
+        elif isinstance(node, list):
+            for value in node:
+                visit(value)
+
+    visit(json.loads((FIXTURES / "accepted-samples.json").read_text(encoding="utf-8")))
+    head = {"format": "ams-review-verdicts/1", "manifest_generated_at": "A", "exported_at": 12.5e3}
+    found.append({**head, "numbers": [1, 2.25, -3e2, True, None], "verdicts": [record("u-0", note="🙂")]})
+    found.append({**head, "verdicts": [12.5, record("u-0")]})
+    unstamped = {"format": "ams-review-verdicts/1", "verdicts": [record("u-0")]}
+    found += [unstamped, *({**unstamped, "manifest_generated_at": stamp} for stamp in (None, 7))]
+    stamped = {"format": "ams-review-verdicts/1", "manifest_generated_at": "A"}
+    found += [stamped, *({**stamped, "verdicts": verdicts} for verdicts in (None, {"u-0": record("u-0")}))]
+    for sample in json.loads((FIXTURES / "verdict-record-samples.json").read_text(encoding="utf-8")):
+        head = {"format": "ams-review-verdicts/1", "manifest_generated_at": "A"}
+        found.append({**head, "verdicts": [record("u-0"), sample["record"]]})
+        found.append({**head, "verdicts": [], "overrides": {"verdicts": [sample["record"]], "cleared": []}})
+    return found
+
+
+def streamed_answer(path: Path):
+    """Return what the land's stream readers answer for the store at `path`, as `read_store` answers: None, the refusal, or the store, its records read through `accepted.iter_records` in file order."""
+    try:
+        tail = landing._tail_of(path, "the store")
+    except landing.MalformedStore as malformed:
+        return str(malformed)
+    if tail is None:
+        return None
+    records = {
+        unit: landing._normalize(held)
+        for unit, held in journal.latest_by_unit(accepted.iter_records(path)).items()
+    }
+    side = landing._side_of(path, tail, "the store")
+    cleared = {unit: at for unit, at in side.cleared.items() if unit not in records}
+    return landing.Store(tail.stamp, records, cleared, tail.accepted, side.overrides)
+
+
+def whole_answer(path: Path):
+    try:
+        return landing.read_store(path, "the store")
+    except landing.MalformedStore as malformed:
+        return str(malformed)
+
+
+@pytest.mark.parametrize("block", [1, 3, 64, 1 << 20])
+def test_the_stream_readers_give_the_answer_read_store_gives(tmp_path, monkeypatch, block):
+    """For every store a fixture holds and every store the random lands build, in the review server's layout, `merge_verdicts`' and as UTF-16 and with a UTF-8 byte order mark, which `json.loads` reads too, the stream readers (`accepted.read_tail`, `accepted.iter_records`) give `read_store`'s answer read a block of any size at a time: the store, or the refusal naming a malformed record among its own or in its override section first, or None for a file cut short, one that is not JSON, or one that is not an ams-review-verdicts/1 document."""
+    monkeypatch.setattr(accepted, "_READ_BLOCK", block)
+    blobs: list[bytes] = []
+    for document in fixture_documents():
+        whole = json.dumps(document, ensure_ascii=False).encode()
+        indented = (json.dumps(document, ensure_ascii=False, indent=2) + "\n").encode()
+        blobs += [whole, indented, whole.decode().encode("utf-16"), b"\xef\xbb\xbf" + indented]
+        blobs += [indented[: len(indented) // 2], whole.replace(b"[", b"(", 1)]
+    for seed in range(12):
+        options = build_walk_case(seed, tmp_path / f"case-{seed}")
+        for store in (options["autosave"], options["run_dir"] / landing.PREPARED_NAME):
+            if store.exists():
+                blobs.append(store.read_bytes())
+    path = tmp_path / "store.json"
+    checked = collections.Counter()
+    for blob in blobs:
+        path.write_bytes(blob)
+        answer = whole_answer(path)
+        assert streamed_answer(path) == answer, blob[:200]
+        checked["store" if isinstance(answer, landing.Store) else "refused" if answer else "none"] += 1
+    assert all(checked[kind] for kind in ("store", "refused", "none")), checked
+
+
+def test_the_stream_readers_hold_a_few_blocks_of_a_store_many_blocks_long(tmp_path, monkeypatch):
+    """A store forty times the block the readers read holds no more than a few blocks of its text at once, so neither reader ever holds the whole file."""
+    monkeypatch.setattr(accepted, "_READ_BLOCK", 4096)
+    records = [record(f"u-{n:06d}", note="a note " * 10) for n in range(1600)]
+    path = tmp_path / "store.json"
+    path.write_bytes(landing.document_bytes(landing.Store("A", {r["unit"]: r for r in records})))
+    assert path.stat().st_size > 40 * 4096
+    held: list[int] = []
+    more = accepted._Text._more
+
+    def counted(text) -> None:
+        more(text)
+        held.append(len(text.text))
+
+    monkeypatch.setattr(accepted._Text, "_more", counted)
+    tail = accepted.read_tail(path)
+    assert tail is not None and tail.records == 1600
+    assert sum(1 for _ in accepted.iter_records(path)) == 1600
+    assert held and max(held) < 3 * 4096

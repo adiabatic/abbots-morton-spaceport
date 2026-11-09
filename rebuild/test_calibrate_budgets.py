@@ -852,7 +852,7 @@ def test_each_units_rule_is_the_one_its_constants_comment_states():
         "oracle-absorb": (1.25, 100_000_000),
         "conform-sweep": (1.25, 100_000_000),
         "standing-fill-parent": (1.25, 1_000_000_000),
-        "land": (1.25, 1_000_000_000),
+        "land": (1.25, 100_000_000),
         "deep-replay-walk": (1.25, 100_000_000),
     }
 

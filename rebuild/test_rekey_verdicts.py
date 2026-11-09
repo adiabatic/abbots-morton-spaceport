@@ -4,6 +4,7 @@ import contextlib
 import gzip
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -96,7 +97,7 @@ def _restore(tmp_path: Path, map_path: Path) -> list[str]:
 
 
 def test_forward_rekey_maps_the_old_corpus_lands_each_id_once_and_undoes(tmp_path, capsys):
-    """The map is computed from the old corpus alone, machine units included, and is never written over. A stamp-aligned store naming a content id in neither the map nor the new corpus blocks every write. Accepted with --allow-unmatched, old ids move to their new ids in the autosave, a stamp-aligned carried file and a referencing text file, and a unit whose new id a stale projected field changed lands by its codepoints and configs; the stray and a positional id stay. The kept map is the computed map with that pair, and its first form is copied beside it. A second run writes nothing, the kept map re-keys a journal replay from before the re-key, and the backup restores every file and the journal and leaves the marker that makes the next land that moves the stamp journal a base."""
+    """The map is computed from the old corpus alone, machine units included, and is never written over. A stamp-aligned store naming a content id in neither the map nor the new corpus blocks every write. Accepted with --allow-unmatched, old ids move to their new ids in the autosave, a stamp-aligned carried file and a referencing text file, and a unit whose new id a stale projected field changed lands by its codepoints and configs; the stray and a positional id stay. The kept map is the computed map with that pair, and its first form is copied beside it. A second run writes nothing, the kept map re-keys a journal replay from before the re-key, and the backup restores every file and the journal, each file by a rename that leaves a link to the re-keyed store as it was, and leaves the marker that makes the next land that moves the stamp journal a base."""
     fragments = _fragments()
     olds = [_old(fragment) for fragment in fragments]
     news = [_new(fragment) for fragment in fragments]
@@ -168,8 +169,12 @@ def test_forward_rekey_maps_the_old_corpus_lands_each_id_once_and_undoes(tmp_pat
 
     (backup,) = [path for path in keep.iterdir() if path.is_dir()]
     assert not journal.unjournaled_marker_for(autosave).exists()
+    linked = tmp_path / "linked" / autosave.name
+    linked.parent.mkdir()
+    os.link(autosave, linked)
     assert rekey_verdicts.main(["--root", str(tmp_path), "--undo", str(backup)]) == 0
     assert {path.name: path.read_bytes() for path in (autosave, journal_path, notes)} == before
+    assert linked.read_bytes() == rekeyed[autosave.name]
     assert journal.unjournaled_marker_for(autosave).exists()
 
 

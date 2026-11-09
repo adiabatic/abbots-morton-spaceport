@@ -624,7 +624,7 @@ def _backup(
 
 
 def undo(root: Path, backup_dir: Path) -> int:
-    """Put back every file a re-key rewrote from its copy in `backup_dir`, the accepted list and the close-out archive's files among them, holding the pass lock beside the store the re-key took as `--autosave` (`close_out.pass_lock`) and that store's lock; backup.json names the store as `autosave`, or the root's verdicts-autosave.json when it names none. When the re-key appended its base event to the journal (it rewrote that store), also truncate the journal to the length it had before the re-key, which drops every event appended after it, or remove the journal when the re-key created it. A journal compacted since the re-key is left alone, because the recorded length no longer marks the re-key in it, and nothing is put back; the person copies the files back by hand. When the re-key did not append to the journal, the journal is left as it is, because every event after the recorded length belongs to a store the undo does not put back. When the re-key rewrote that store, the undo first leaves the marker beside it that says the journal may lack a store write (`journal.mark_unjournaled`), whether it puts the store back or asks for it to be copied back by hand, so the next land that moves the stamp journals its store as a base (`journal.base_due`)."""
+    """Put back every file a re-key rewrote from its copy in `backup_dir`, each through a temporary file and a rename, as every writer of the store replaces its file, the accepted list and the close-out archive's files among them, holding the pass lock beside the store the re-key took as `--autosave` (`close_out.pass_lock`) and that store's lock; backup.json names the store as `autosave`, or the root's verdicts-autosave.json when it names none. When the re-key appended its base event to the journal (it rewrote that store), also truncate the journal to the length it had before the re-key, which drops every event appended after it, or remove the journal when the re-key created it. A journal compacted since the re-key is left alone, because the recorded length no longer marks the re-key in it, and nothing is put back; the person copies the files back by hand. When the re-key did not append to the journal, the journal is left as it is, because every event after the recorded length belongs to a store the undo does not put back. When the re-key rewrote that store, the undo first leaves the marker beside it that says the journal may lack a store write (`journal.mark_unjournaled`), whether it puts the store back or asks for it to be copied back by hand, so the next land that moves the stamp journals its store as a base (`journal.base_due`)."""
     record = json.loads((backup_dir / BACKUP_RECORD).read_text(encoding="utf-8"))
     autosave = root / record.get("autosave", journal.AUTOSAVE_NAME)
     try:
@@ -664,7 +664,9 @@ def _undo_locked(root: Path, backup_dir: Path, record: dict, autosave: Path) -> 
         return 1
     for entry in record["files"]:
         target = root / entry["path"]
-        shutil.copy2(backup_dir / entry["backup"], target)
+        tmp = target.with_name(target.name + ".tmp")
+        shutil.copy2(backup_dir / entry["backup"], tmp)
+        os.replace(tmp, target)
         print(f"restored {entry['path']}")
     if not appended:
         print(f"left {record['journal']['path']} as it is; the re-key did not append to it")

@@ -246,9 +246,9 @@ UNITS: tuple[Unit, ...] = (
         pool_units=(),
         step_names=("land",),
         step_caveat="the land is one process that spawns only a `cp -c -R` clone of the corpus, so its step peak is the land's own.",
-        note="No width divides by this constant or subtracts it: the land runs after the corpus build and the verdict update in the build lane, so the reservation the conformance sweep makes for the larger of those two steps (`artifact_cycle._conform_build_lane`) covers it as long as it stays below both of their parents, which `test_the_land_holds_less_than_either_build_lane_step_before_it` checks. Its peak grows with the verdict store, which every letter batch adds to.",
+        note="No width divides by this constant or subtracts it: the land runs after the corpus build and the verdict update in the build lane, so the reservation the conformance sweep makes for the larger of those two steps (`artifact_cycle._conform_build_lane`) covers it as long as it stays below both of their parents, which `test_the_land_holds_less_than_either_build_lane_step_before_it` checks. It reads the stores as streams, so its peak grows with the corpora's human unit ids, which every letter batch adds to, and with the store's tombstones and override section, not its records.",
         headroom=1.25,
-        quantum=1_000_000_000,
+        quantum=100_000_000,
     ),
     Unit(
         name="deep-replay-walk",

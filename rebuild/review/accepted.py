@@ -10,7 +10,7 @@ The store document's top-level `accepted` field, `{"sha256": <hex of the list fi
 
 The list's path follows the store's, as the journal's does (`journal.beside_store`): `path_for` gives `rebuild/accepted-units.txt` beside a store named exactly `verdicts-autosave.json`, the live store's name, and refuses any other name, so a tool run on a store in a temporary directory never reads the live list. A tool takes `--accepted PATH` for any other store, the cycle's prepared store among them.
 
-This module imports the standard library alone and reads nothing at import, because `rebuild.tools.review_queue` imports it and `standing_verdicts.MEMO_CODE_MODULES` is the standing fill's import closure: a repo import here would put that module's code into the standing memo's stamp. So it spells out what it shares with other modules, and `rebuild/test_review_accepted.py` checks each against its source: the base58 alphabet and the id width (`unit_cache`), the live store's name and the latest-record and tombstone reads of a store document (`journal`), and the accepting verdicts (`review_queue.ACCEPTING_VERDICTS`).
+This module imports the standard library alone and reads nothing at import, because `rebuild.tools.review_queue` imports it and `standing_verdicts.MEMO_CODE_MODULES` is the standing fill's import closure: a repo import here would put that module's code into the standing memo's stamp. So it spells out what it shares with other modules, and `rebuild/test_review_accepted.py` checks each against its source: the base58 alphabet and the id width (`unit_cache`), the live store's name, the store document's format and the latest-record and tombstone reads of a store document (`journal`), the rule a verdict record meets (`verdict_store.well_formed`), and the accepting verdicts (`review_queue.ACCEPTING_VERDICTS`).
 
 The API:
 
@@ -19,6 +19,8 @@ The API:
 - `parse(raw, path) -> Accepted`: the list whose bytes are `raw`, as `read` gives it for a file at `path`, which names it in a refusal; for a list held in memory, such as a close-out archive's.
 - `read_stamp(path) -> ListStamp`: the list's sha256 and `closed_at` alone, for a reader that pairs before it streams the ids; it checks the header but no id line.
 - `iter_lines(path)`: each `(id, verdict)` in the list's order, holding one line at a time, for a streaming reader; `Malformed` when it reaches a malformed line; nothing when the file does not exist.
+- `read_tail(path) -> Tail | None`: a verdicts store document read once a block of about 1 MiB at a time, holding one record of its `verdicts` list at a time: every top-level member but that list, with its stamp (`.stamp`), `accepted` field (`.accepted`), tombstones (`.cleared`, as `journal.parse_cleared` reads them) and override section (`.overrides()`), how many records the list holds, the first record `verdict_store.well_formed` refuses with its index (`.malformed`), and how many `verdicts` members it names; None for a file that is missing, unreadable, not JSON anywhere in it or not an ams-review-verdicts/1 document, as `verdict_store.parse_autosave_payload` reads one. It decodes the file as `json.loads` decodes bytes, UTF-16 and a byte order mark among them, so a reader that checks a store with it gives the answer the readers that parse it whole give. The land reads its stores through it and `iter_records` (`rebuild.review.landing`).
+- `iter_records(source)`: the records of a document's first `verdicts` list, from a path or a binary file read from its start, in file order and one at a time, for a reader that checked the document with `read_tail`; `ValueError` for text that is not a JSON object.
 - `render(closed_at, verdicts) -> bytes`: the file's bytes for a dict from id to verdict, sorted; `ValueError` for a stamp, id or verdict the format cannot hold.
 - `pair(document, listed, *, store)`: `Mismatch` unless the store document (None when no store file exists) pairs with `listed`, an `Accepted` or a `ListStamp`; `store` names the store in the refusal, whose remedy is `make close-out ARGS=--apply` while a close-out's intent is left beside the list.
 - `close_out_intent_for(list_path)`: where a close-out leaves its intent, var/cycle/close-out.json beside the store whose list is at `list_path`, or None for a list no close-out writes.
@@ -40,17 +42,19 @@ The API:
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import io
 import json
 import re
-from collections.abc import Container, Iterator, Mapping
+from collections.abc import Callable, Container, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 FORMAT = "ams-accepted-units/1"
+EXPORT_FORMAT = "ams-review-verdicts/1"
 RELATIVE_PATH = Path("rebuild") / "accepted-units.txt"
 CLOSE_OUT_INTENT = Path("var") / "cycle" / "close-out.json"
 AUTOSAVE_NAME = "verdicts-autosave.json"
@@ -69,6 +73,12 @@ _STAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 _HEADER = re.compile(rf"# {re.escape(FORMAT)} closed_at=(.*)")
 _CONFLICT_MARKERS = ("<<<<<<<", "|||||||", "=======", ">>>>>>>")
 _HASH_BLOCK = 1 << 20
+_READ_BLOCK = 1 << 20
+_TRUNCATION_SLACK = 16
+_WHITESPACE = re.compile(r"[ \t\n\r]*")
+_Scanner = Callable[[str, int], tuple[Any, int]]
+_SCAN: _Scanner = json.JSONDecoder().scan_once  # pyright: ignore[reportAttributeAccessIssue]
+_SCAN_STRING: _Scanner = json.decoder.scanstring  # pyright: ignore[reportAttributeAccessIssue]
 _WRITTEN_WHOLE = (
     f"a close-out or a re-key writes {RELATIVE_PATH} whole, so put back a version one wrote "
     f"(`git log -- {RELATIVE_PATH}` lists them) rather than editing or merging it by hand"
@@ -428,6 +438,226 @@ def joined(
     tombstones = {unit: at for unit, at in cleared.items() if unit not in overrides and unit not in every}
     tombstones.update(overrides.cleared)
     return every, tombstones
+
+
+def _well_formed(record: object) -> bool:
+    return (
+        isinstance(record, dict)
+        and all(isinstance(record.get(key), str) for key in ("unit", "verdict", "at"))
+        and isinstance(record.get("note") or "", str)
+    )
+
+
+class _NotJSON(Exception):
+    """Raised inside the stream readers for text that is not the JSON object they read."""
+
+
+class _Text:
+    """A JSON document's text decoded a block at a time, as `json.loads` decodes the whole file (`json.detect_encoding`, `surrogatepass`), holding the text from the value being read on and at most a block beyond it."""
+
+    __slots__ = ("_handle", "_decoder", "text", "pos", "eof")
+
+    def __init__(self, handle: BinaryIO) -> None:
+        start = handle.read(4)
+        self._handle = handle
+        self._decoder = codecs.getincrementaldecoder(json.detect_encoding(start))("surrogatepass")
+        self.text = self._decoder.decode(start, False)
+        self.pos = 0
+        self.eof = False
+
+    def _more(self) -> None:
+        """Drop the text before `pos` and decode the next block, at least as long as the text kept, so a value longer than a block is read again a bounded number of times."""
+        block = self._handle.read(max(_READ_BLOCK, len(self.text) - self.pos))
+        self.eof = not block
+        self.text = self.text[self.pos :] + self._decoder.decode(block, self.eof)
+        self.pos = 0
+
+    def _cut_short(self, at: int, problem: str) -> bool:
+        """Return whether a value read up to `at`, or an error there, may come from the block's end rather than the document, while the file has more: an unterminated string, which names where it began, or anything within a few characters of the end, where a number such as `12.5` reads as `12`."""
+        return not self.eof and (
+            at >= len(self.text) - _TRUNCATION_SLACK or problem.startswith("Unterminated string")
+        )
+
+    def peek(self) -> str:
+        """Skip whitespace and return the next character, or "" at the end of the file."""
+        while True:
+            found = _WHITESPACE.match(self.text, self.pos)
+            self.pos = found.end() if found is not None else self.pos
+            if self.pos < len(self.text):
+                return self.text[self.pos]
+            if self.eof:
+                return ""
+            self._more()
+
+    def take(self, char: str) -> bool:
+        if self.peek() != char:
+            return False
+        self.pos += 1
+        return True
+
+    def value(self) -> object:
+        """Read the JSON value at the next character whole, reading more of the file while the value may run past the text held."""
+        if self.pos >= len(self.text) or self.text[self.pos] in " \t\n\r":
+            self.peek()
+        while True:
+            try:
+                value, end = _SCAN(self.text, self.pos)
+            except StopIteration as stop:
+                if self._cut_short(stop.value, ""):
+                    self._more()
+                    continue
+                raise _NotJSON from None
+            except json.JSONDecodeError as error:
+                if self._cut_short(error.pos, error.msg):
+                    self._more()
+                    continue
+                raise _NotJSON from None
+            if self._cut_short(end, ""):
+                self._more()
+                continue
+            self.pos = end
+            return value
+
+    def key(self) -> str:
+        if self.peek() != '"':
+            raise _NotJSON
+        while True:
+            try:
+                key, end = _SCAN_STRING(self.text, self.pos + 1)
+            except json.JSONDecodeError as error:
+                if self._cut_short(error.pos, error.msg):
+                    self._more()
+                    continue
+                raise _NotJSON from None
+            self.pos = end
+            return key
+
+    def members(self) -> Iterator[str]:
+        """Yield each key of the object at the next character, leaving its value for the caller to read (`value` or `elements`) before the next key."""
+        if not self.take("{"):
+            raise _NotJSON
+        if self.take("}"):
+            return
+        while True:
+            key = self.key()
+            if not self.take(":"):
+                raise _NotJSON
+            yield key
+            if self.take(","):
+                continue
+            if self.take("}"):
+                return
+            raise _NotJSON
+
+    def elements(self) -> Iterator[object]:
+        """Yield each element of the array at the next character, one held at a time."""
+        if not self.take("["):
+            raise _NotJSON
+        if self.take("]"):
+            return
+        while True:
+            yield self.value()
+            after = self.peek()
+            self.pos += 1
+            if after == "]":
+                return
+            if after != ",":
+                raise _NotJSON
+
+    def finish(self) -> None:
+        if self.peek() != "":
+            raise _NotJSON
+
+
+@dataclass(frozen=True, slots=True)
+class Tail:
+    """A verdicts document as `read_tail` reads it without holding its own records: every top-level member but `verdicts` (`members`), how many records its `verdicts` list holds (`records`), the index and the record of the first one the carry refuses (`malformed`, by the rule `verdict_store.well_formed` states), and how many `verdicts` members it names (`lists`), the last of which `json.loads` keeps."""
+
+    members: dict
+    records: int
+    malformed: tuple[int, object] | None
+    lists: int
+
+    @property
+    def stamp(self) -> str:
+        return self.members["manifest_generated_at"]
+
+    @property
+    def accepted(self) -> object:
+        """The document's `accepted` field as it holds it, None when it has none."""
+        return self.members.get("accepted")
+
+    @property
+    def cleared(self) -> dict[str, str]:
+        """The document's tombstones, read as `journal.parse_cleared` reads them."""
+        return _tombstones(self.members)
+
+    def overrides(self) -> Overrides:
+        """The document's override section, read as `Overrides.of` reads it."""
+        return Overrides.of(self.members)
+
+
+def _tail(text: _Text) -> Tail | None:
+    members: dict = {}
+    lists = records = 0
+    malformed: tuple[int, object] | None = None
+    listed = False
+    for key in text.members():
+        if key != "verdicts":
+            members[key] = text.value()
+            continue
+        lists += 1
+        records, malformed, listed = 0, None, text.peek() == "["
+        if not listed:
+            text.value()
+            continue
+        for index, record in enumerate(text.elements()):
+            records += 1
+            if malformed is None and not _well_formed(record):
+                malformed = (index, record)
+    text.finish()
+    if (
+        not listed
+        or members.get("format") != EXPORT_FORMAT
+        or not isinstance(members.get("manifest_generated_at"), str)
+    ):
+        return None
+    return Tail(members, records, malformed, lists)
+
+
+def read_tail(path: str | Path) -> Tail | None:
+    """Return the verdicts document at `path` as `Tail`, reading it once a block at a time and holding one record of its `verdicts` list at a time, or None when the file is missing or unreadable or is not an ams-review-verdicts/1 document as `verdict_store.parse_autosave_payload` reads one: not JSON anywhere in it, not an object, another `format`, a `manifest_generated_at` that is not a string, or no `verdicts` list."""
+    try:
+        handle = Path(path).open("rb")
+    except OSError:
+        return None
+    with handle:
+        try:
+            return _tail(_Text(handle))
+        except _NotJSON, OSError, ValueError:
+            return None
+
+
+def iter_records(source: str | Path | BinaryIO) -> Iterator[object]:
+    """Yield the records of the verdicts document at `source`, a path or a binary file read from its start: its first `verdicts` list, in file order, one record held at a time. It reads the members before that list whole and stops at the list's end. A reader checks the document with `read_tail` first; text that is not a JSON object raises `ValueError`."""
+    if isinstance(source, (str, Path)):
+        with Path(source).open("rb") as handle:
+            yield from _records(handle)
+        return
+    source.seek(0)
+    yield from _records(source)
+
+
+def _records(handle: BinaryIO) -> Iterator[object]:
+    text = _Text(handle)
+    try:
+        for key in text.members():
+            if key == "verdicts" and text.peek() == "[":
+                yield from text.elements()
+                return
+            text.value()
+    except _NotJSON:
+        raise ValueError(f"{getattr(handle, 'name', 'the file')} is not a JSON object") from None
 
 
 def _describe(named: object) -> str:
