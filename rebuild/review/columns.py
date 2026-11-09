@@ -3,13 +3,16 @@
 Every table assigns ids in first-seen order and reserves id 0 for the empty value. Each keeps a running total of its members' size (UTF-8 bytes for strings, elements for tuples, two ids per entry for mappings), so the tally reports the tables exactly instead of by sampling.
 
 `gather`, `gather_slices` and `gather_runs` copy some rows of a collection's columns into columns of their own, in the order given, and `Withheld` stands in for a column such a copy leaves out. `UnitTable.gather` and `UnitStore.gather` build the corpus write's chunks from them.
+
+The corpus build's whole-corpus passes answer their questions from columns instead of a Python object a unit: `sorted_by_word` sorts a column of 64-bit words 256 top-byte buckets at a time (the unit store's id index, the ink-signature misses), `WindowIndex` holds the units in window order beside each one's window packed into a word (the triage sort's walk and the primary-unit search's lookups), and `KeyIndex` maps a column of fixed-width keys to their ordinals in an open-addressed table (the plan's input-key lookups).
 """
 
 from __future__ import annotations
 
 import sys
 from array import array
-from collections.abc import Hashable, Mapping, Sequence
+from bisect import bisect_left, bisect_right
+from collections.abc import Hashable, Iterable, Iterator, Mapping, Sequence
 from typing import Generic, TypeVar
 
 _T = TypeVar("_T", bound=Hashable)
@@ -159,3 +162,191 @@ def gather_runs(
                 into.extend(side[start * stride : (start + count) * stride])
         position += count
     return rebased, gathered
+
+
+WORD_BUCKETS = 256
+
+
+def sorted_by_word(words: array) -> array:
+    """Return the positions of a column of 64-bit words (`array("Q")`) in ascending word order, equal words in position order, as `array("I")`: the order `sorted(range(len(words)), key=words.__getitem__)` gives. The positions are dealt into `WORD_BUCKETS` buckets by each word's top byte and each bucket is sorted on its own, so the sort holds one bucket's Python integers at a time instead of one a position; on words spread like a digest's, a bucket is a 256th of the column."""
+    buckets: list[array | None] = [array("I") for _ in range(WORD_BUCKETS)]
+    for position, word in enumerate(words):
+        bucket = buckets[word >> 56]
+        assert bucket is not None
+        bucket.append(position)
+    ordered = array("I")
+    get = words.__getitem__
+    for index, bucket in enumerate(buckets):
+        assert bucket is not None
+        ordered.extend(sorted(bucket, key=get) if len(bucket) > 1 else bucket)
+        buckets[index] = None
+    return ordered
+
+
+WINDOW_SLOTS = 4
+
+
+def window_word(values: Sequence[int]) -> int | None:
+    """Return a window's code points packed into one 64-bit word, 16 bits a code point, right-aligned as `subset_pack.pack_key` packs a key, so words order windows as `audit.triage_key` does: by length, then by code points. None for a window the word cannot hold in that order: longer than `WINDOW_SLOTS`, leading with code point zero, or holding one above U+FFFF."""
+    if not 0 < len(values) <= WINDOW_SLOTS or not values[0]:
+        return None
+    word = 0
+    for value in values:
+        if value > 0xFFFF:
+            return None
+        word = (word << 16) | value
+    return word
+
+
+class WindowIndex:
+    """A table's units in window order, the order `audit.triage_key` puts windows in (length, then code points), with the units of one window in ascending ordinal order, beside each one's window as a packed word (`window_word`): 12 bytes a unit. `candidates` bisects the words for one window's units, and `runs` gives the stretches of units that share a window. When some window cannot be packed, the keys are `(length, code points)` tuples instead, one object a unit, which no corpus at the live alphabet needs. `remapped` carries the index through the ink-duplicate merge's compaction."""
+
+    __slots__ = ("ordinals", "keys", "_windows")
+
+    def __init__(self, ordinals: array, keys: array | list[tuple[int, tuple[int, ...]]]) -> None:
+        self.ordinals = ordinals
+        self.keys = keys
+        self._windows: int | None = None
+
+    @classmethod
+    def build(cls, windows: Iterable[tuple[int, Sequence[int]]]) -> WindowIndex:
+        """Index `(ordinal, window)` pairs given in ascending ordinal order, sorting them by window. This sort holds one Python object a unit while it runs; a source that streams its units in window order builds the index without it."""
+        ordinals = array("I")
+        values: list[tuple[int, ...]] = []
+        for ordinal, window in windows:
+            ordinals.append(ordinal)
+            values.append(tuple(window))
+        words = [word for word in map(window_word, values) if word is not None]
+        if len(words) == len(values):
+            packed = array("Q", words)
+            order = sorted(range(len(packed)), key=packed.__getitem__)
+            return cls(
+                array("I", map(ordinals.__getitem__, order)), array("Q", map(packed.__getitem__, order))
+            )
+        keys = [(len(window), window) for window in values]
+        order = sorted(range(len(keys)), key=keys.__getitem__)
+        return cls(array("I", map(ordinals.__getitem__, order)), [keys[position] for position in order])
+
+    @property
+    def packed(self) -> bool:
+        return isinstance(self.keys, array)
+
+    def key(self, window: Sequence[int]) -> int | tuple[int, tuple[int, ...]] | None:
+        if self.packed:
+            return window_word(window)
+        return (len(window), tuple(window))
+
+    def candidates(self, window: Sequence[int]) -> Sequence[int]:
+        """The ordinals of the units whose window is `window`, ascending."""
+        key = self.key(window)
+        if key is None:
+            return ()
+        keys = self.keys
+        low = bisect_left(keys, key)  # pyright: ignore[reportArgumentType, reportCallIssue]
+        high = bisect_right(keys, key, low)  # pyright: ignore[reportArgumentType, reportCallIssue]
+        return self.ordinals[low:high]
+
+    def runs(self) -> Iterator[tuple[int, int]]:
+        """Yield `(start, end)`, positions into `ordinals`, of every stretch of two or more units that share a window, in window order."""
+        keys = self.keys
+        start = 0
+        count = len(keys)
+        for position in range(1, count + 1):
+            if position == count or keys[position] != keys[start]:
+                if position - start > 1:
+                    yield start, position
+                start = position
+
+    @property
+    def windows(self) -> int:
+        """How many distinct windows the index holds."""
+        if self._windows is None:
+            keys = self.keys
+            self._windows = sum(
+                1 for position in range(len(keys)) if not position or keys[position] != keys[position - 1]
+            )
+        return self._windows
+
+    def remapped(self, survivor: Sequence[int], removed: bytearray) -> WindowIndex:
+        """The index over a table compacted with this `survivor` map and `removed` bytes (`audit.Compaction`): each kept unit at its new ordinal, in the same order. Compaction keeps the order of the rows it keeps, so a window's units stay ascending."""
+        ordinals = array("I")
+        keys: array | list[tuple[int, tuple[int, ...]]] = array("Q") if self.packed else []
+        for position, ordinal in enumerate(self.ordinals):
+            if not removed[ordinal]:
+                ordinals.append(survivor[ordinal])
+                keys.append(self.keys[position])  # pyright: ignore[reportArgumentType]
+        return WindowIndex(ordinals, keys)
+
+    def nbytes(self) -> int:
+        return len(self.ordinals) * self.ordinals.itemsize + (
+            len(self.keys) * self.keys.itemsize if isinstance(self.keys, array) else 0
+        )
+
+
+KEY_EMPTY = 0xFFFFFFFF
+
+
+class RepeatedKey(Exception):
+    """Raised by `KeyIndex` when two ordinals hold one key, naming the earlier ordinal and the later one, the first such pair in ordinal order."""
+
+    def __init__(self, first: int, second: int) -> None:
+        super().__init__(first, second)
+        self.first = first
+        self.second = second
+
+
+class KeyIndex:
+    """An open-addressed table of `u32` ordinals over a column of fixed-width keys (`width` bytes each, a multiple of eight, that of a digest), at a load below one half: four bytes a slot, so eight to sixteen bytes a key. A key's slot is its first eight bytes read as a native integer, which a digest spreads evenly, and a slot's holder is checked against the whole key in the column. Building it inserts the ordinals in ascending order and raises `RepeatedKey` at the first ordinal whose key an earlier one holds. `find` returns the ordinal holding a key, or None."""
+
+    __slots__ = ("_column", "_words", "_table", "_mask", "_width", "_stride")
+
+    def __init__(self, column: bytearray, width: int, count: int) -> None:
+        if width % 8 or len(column) < width * count:
+            raise ValueError(f"a key index reads {count} keys of {width} bytes, a multiple of eight")
+        size = 1 << max(1, (2 * count).bit_length())
+        self._column = memoryview(column)
+        self._words = self._column[: width * count].cast("Q")
+        self._table = array("I", [KEY_EMPTY]) * size
+        self._mask = size - 1
+        self._width = width
+        self._stride = width // 8
+        table = self._table
+        mask = self._mask
+        words = self._words
+        view = self._column
+        stride = self._stride
+        for ordinal in range(count):
+            slot = words[ordinal * stride] & mask
+            start = ordinal * width
+            while True:
+                held = table[slot]
+                if held == KEY_EMPTY:
+                    table[slot] = ordinal
+                    break
+                if view[held * width : held * width + width] == view[start : start + width]:
+                    raise RepeatedKey(held, ordinal)
+                slot = (slot + 1) & mask
+
+    def find(self, key: bytes) -> int | None:
+        if len(key) != self._width:
+            return None
+        table = self._table
+        mask = self._mask
+        width = self._width
+        view = self._column
+        slot = int.from_bytes(key[:8], sys.byteorder) & mask
+        while True:
+            held = table[slot]
+            if held == KEY_EMPTY:
+                return None
+            if view[held * width : held * width + width] == key:
+                return held
+            slot = (slot + 1) & mask
+
+    def nbytes(self) -> int:
+        return len(self._table) * self._table.itemsize
+
+    def release(self) -> None:
+        """Release the views over the key column, so the column can be resized or freed."""
+        self._words.release()
+        self._column.release()

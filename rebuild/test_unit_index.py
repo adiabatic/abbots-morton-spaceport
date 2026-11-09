@@ -663,12 +663,22 @@ def test_every_whole_part_reader_reads_the_live_fragments_its_materialized_form_
     assert build.check_output_dir(corpus) == build.check_output_dir(form) == []
     assert fragment_dictionary.build_dictionary(corpus) == fragment_dictionary.build_dictionary(form)
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
-    wanted = {meta["id"]: set(walked) for meta in manifest["classes"]}
+    wanted = unit_cache.WantedFragments()
+    for meta in manifest["classes"]:
+        for unit_id in walked:
+            word = unit_cache.id_word(unit_id)
+            assert word is not None
+            wanted.add(meta["id"], word)
     found = {}
     for directory in (corpus, form):
         located = unit_cache.locate_prior_fragments(directory, wanted)
         with unit_cache.PriorFragmentReader(directory) as reader:
-            found[directory] = {unit_id: reader.read(place) for unit_id, place in located.items()}
+            found[directory] = {
+                unit_id: reader.read(place)
+                for meta in manifest["classes"]
+                for unit_id in walked
+                if (place := located.find(meta["id"], unit_id)) is not None
+            }
     assert found[corpus] == found[form] and len(found[corpus]) == len(walked)
 
 
@@ -752,7 +762,7 @@ SHARD_PART_NAME_READERS = {
         "rebuild/review/build.py",
         "_prior_parts",
     ): "the previous corpus's parts, which the shard writer appends to",
-    ("rebuild/review/build.py", "build_m1"): "the parts whose sizes the unit store's head records",
+    ("rebuild/review/build.py", "_build_m1"): "the parts whose sizes the unit store's head records",
     ("rebuild/review/build.py", "_check_output_files"): "each listed part's existence and size",
     ("rebuild/review/build.py", "check_output_dir"): "which classes have every part on disk",
     (

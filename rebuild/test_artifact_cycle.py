@@ -2888,7 +2888,7 @@ class TestTheConformSweepWidth:
             ac.conform_job_derivation(**narrow)
         )
         assert ac.conform_job_budget(**dict(narrow, ncores=4)) == 4
-        assert ac.conform_job_budget(**dict(narrow, total_bytes=16_000_000_000)) < configs
+        assert ac.conform_job_budget(**dict(narrow, total_bytes=15_000_000_000)) < configs
 
     def test_a_conform_sweep_width_of_one_is_stated_on_the_argv(self, monkeypatch):
         """A machine where the pooled conformance sweep does not fit beside the corpus build floors at one, the serial conformance sweep, and the argv states that width like any other; without it run_m1 would use its own default, a width this plan did not budget. The oracle's width is a separate budget and stays above one."""

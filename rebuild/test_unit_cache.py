@@ -3,14 +3,17 @@
 None of these properties depends on a glyph, so the workload is the frozen mini-M1 bundle under rebuild/review/fixtures/mini/ (real windows, their subset-table slices, and the after font they were extracted with) instead of the live build. That keeps the module in the contracts lane, with each build taking seconds. `fixtures/mini/regenerate.py` refreshes the bundle. The content-key and cluster-id tests further down use synthetic inputs.
 """
 
+import filecmp
 import gzip
 import hashlib
 import json
+import os
 import re
 import shutil
 import sys
 import threading
-from collections.abc import Callable, Mapping
+from array import array
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -18,7 +21,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint, fixtures, kernel_exec, row_delta, spec_load
-from rebuild.review import app_index, landing, unit_cache, unit_index
+from rebuild.review import app_index, audit_stream, landing, unit_cache, unit_index
 from rebuild.review import build as review_build
 from rebuild.review import enrich as review_enrich
 from rebuild.review.audit import (
@@ -127,11 +130,23 @@ def _rewrite_store(
     unit_cache.write_store(corpus, stamp, lines, parts=header["parts"] if parts is None else parts)
 
 
+def _signature_lines(data: bytes) -> bytes:
+    """An ink-signature store's bytes decompressed, with its header line re-serialized without the two stamps that say which audit and family keys it was written over (`unit_cache.AUDIT_IDENTITY_KEY`, `unit_cache.FAMILY_KEYS_KEY`), as `perf_fingerprint` projects them: a build that leaves the store as it is keeps the stamps of the build that wrote it, so they record the store's history and not its entries."""
+    header, _, lines = gzip.decompress(data).partition(b"\n")
+    fields = json.loads(header)
+    for key in (unit_cache.AUDIT_IDENTITY_KEY, unit_cache.FAMILY_KEYS_KEY):
+        fields.pop(key, None)
+    return json.dumps(fields).encode() + b"\n" + lines
+
+
 def _form(corpus: Path, tmp_path: Path) -> dict[str, bytes]:
-    """Return the corpus's materialized form (`build.materialize_corpus`), the files a from-scratch build of its units writes, as a tree."""
+    """Return the corpus's materialized form (`build.materialize_corpus`), the files a from-scratch build of its units writes, as a tree, with the ink-signature store read without its stamps (`_signature_lines`)."""
     target = tmp_path / f"form-{len(list(tmp_path.glob('form-*')))}"
     review_build.materialize_corpus(corpus, target)
-    return _tree(target)
+    tree = _tree(target)
+    if unit_cache.SIGNATURE_STORE_NAME in tree:
+        tree[unit_cache.SIGNATURE_STORE_NAME] = _signature_lines(tree[unit_cache.SIGNATURE_STORE_NAME])
+    return tree
 
 
 def _live(corpus: Path) -> dict[str, dict]:
@@ -488,13 +503,16 @@ def test_a_fragment_whose_stamp_moved_is_not_reused(mini_corpus, mini_bundle, tm
     assert _tree(corpus) == _tree(mini_corpus)
 
 
-def _walked(monkeypatch) -> list[dict[str, set[str]]]:
-    """Record every `wanted` map the build passes to `locate_prior_fragments`, so a test can tell whether the shards were parsed to place a unit."""
-    calls: list[dict[str, set[str]]] = []
+def _walked(monkeypatch) -> list[dict[str, set[int]]]:
+    """Record the records the build asks `locate_prior_fragments` to place, as each class's id words, so a test can tell whether the shards were parsed to place a unit."""
+    calls: list[dict[str, set[int]]] = []
     real = unit_cache.locate_prior_fragments
 
     def spy(out_dir, wanted):
-        calls.append({class_id: set(ids) for class_id, ids in wanted.items()})
+        grouped: dict[str, set[int]] = {}
+        for class_index, word in zip(wanted.class_of, wanted.words):
+            grouped.setdefault(wanted.classes[class_index], set()).add(word)
+        calls.append(grouped)
         return real(out_dir, wanted)
 
     monkeypatch.setattr(unit_cache, "locate_prior_fragments", spy)
@@ -663,8 +681,8 @@ def test_a_store_that_fails_midway_degrades_to_a_full_build(mini_corpus, mini_bu
 
 
 def test_two_units_spelling_one_input_key_are_refused_at_the_plan(mini_bundle, tmp_path, monkeypatch):
-    """Two units cannot have the same input key: every row belongs to one triple and every key line includes the row's window and names, so a repeat means a sha256 collision. The plan fails on it, naming both units, before the store is opened, instead of supplying both units from one record and failing later on the store's duplicate-id check."""
-    monkeypatch.setattr(unit_cache.UnitKeyer, "key", lambda self, table, rows, ordinal: "0" * 64)
+    """Two units cannot have the same input key: every row belongs to one triple and every key line includes the row's window and names, so a repeat means a sha256 collision. The plan fails on it as it builds its index over the input keys (`UnitStore.input_key_index`), naming both units, before the store is opened, instead of supplying both units from one record and failing later on the store's duplicate-id check. The stream computes the keys (`audit_stream.input_key`), so the test makes every one the same there."""
+    monkeypatch.setattr(audit_stream, "input_key", lambda lines, suffix: bytes(32))
     with pytest.raises(SystemExit) as raised:
         _build(tmp_path / "corpus", mini_bundle, jobs=1)
     match = re.search(r"units (\S+) and (\S+) spell one input key", str(raised.value))
@@ -1510,13 +1528,13 @@ def test_the_staged_signature_store_is_byte_identical_to_one_written_at_the_fina
 def _spy_signature_write(monkeypatch) -> list[tuple[bool, str]]:
     """Record, for each signature-store write, whether it ran on the main thread and the environment it was stamped with, then call the real writer. The build calls the writer through the module attribute, so one patch covers the threaded and the inline paths."""
     calls: list[tuple[bool, str]] = []
-    real = unit_cache.write_signature_store
+    real = unit_cache.write_signature_arrays
 
-    def spy(out_dir, environment, entries):
+    def spy(out_dir, environment, signatures, stamps=None):
         calls.append((threading.current_thread() is threading.main_thread(), environment))
-        real(out_dir, environment, entries)
+        real(out_dir, environment, signatures, stamps)
 
-    monkeypatch.setattr(unit_cache, "write_signature_store", spy)
+    monkeypatch.setattr(unit_cache, "write_signature_arrays", spy)
     return calls
 
 
@@ -1527,21 +1545,21 @@ def test_a_pooled_build_writes_its_signature_store_off_the_main_thread_and_joins
     calls: list[tuple[bool, str]] = []
     release, finished = threading.Event(), threading.Event()
     writers: list[threading.Thread] = []
-    real = unit_cache.write_signature_store
+    real = unit_cache.write_signature_arrays
     join = review_build._SignatureWrite.join
 
-    def spy(out_dir, environment, entries):
+    def spy(out_dir, environment, signatures, stamps=None):
         writers.append(threading.current_thread())
         calls.append((threading.current_thread() is threading.main_thread(), environment))
         release.wait(120)
-        real(out_dir, environment, entries)
+        real(out_dir, environment, signatures, stamps)
         finished.set()
 
     def joining(self):
         release.set()
         join(self)
 
-    monkeypatch.setattr(unit_cache, "write_signature_store", spy)
+    monkeypatch.setattr(unit_cache, "write_signature_arrays", spy)
     monkeypatch.setattr(review_build._SignatureWrite, "join", joining)
     corpus = tmp_path / "pooled"
     try:
@@ -1561,7 +1579,7 @@ def test_a_pooled_build_writes_its_signature_store_off_the_main_thread_and_joins
 def test_a_serial_build_writes_its_signature_store_inline_before_the_units_phase_drafts_anything(
     mini_bundle, tmp_path, monkeypatch
 ):
-    """The serial build has no idle parent to overlap the write with, and a CPU-bound parent would compete with a thread instead. So at `jobs=1` the store is written inline on the main thread at the units-phase boundary, where the pooled build starts its thread. The store is on disk, stamped for this build's environment, before `_RecomputeRunner.phase1` drafts a unit, so the entries are freed before the units phase instead of after the cache phase."""
+    """The serial build has no idle parent to overlap the write with, and a CPU-bound parent would compete with a thread instead. So at `jobs=1` the store is written inline on the main thread at the units-phase boundary, where the pooled build starts its thread. The store is on disk, stamped for this build's environment, before `_RecomputeRunner.phase1` drafts a unit, so the columns are freed before the units phase instead of after the cache phase."""
     calls = _spy_signature_write(monkeypatch)
     corpus = tmp_path / "serial"
     phase1 = review_build._RecomputeRunner.phase1
@@ -1581,24 +1599,43 @@ def test_a_serial_build_writes_its_signature_store_inline_before_the_units_phase
     assert stored_at_drafting == [True]
 
 
-def test_the_signature_write_holds_no_entries_once_the_store_is_written(tmp_path):
-    """The thread holds the entries only until the write finishes: `_write` drops them when `write_signature_store` returns, so after `join` the write holds nothing and the store is on disk. The failing case checks the attribute, the re-raise at `join`, and that the previous store survives the failed write. It does not check that the entries are freed, because the captured error's traceback keeps the write's frames, and the entries with them, until `join` raises."""
-    write = review_build._SignatureWrite(tmp_path, "env-a", {"k1": "d1"})
+def _signature_columns(
+    prior: dict[int, str], hits: Iterable[int], misses: dict[int, str]
+) -> unit_cache.SignatureArrays:
+    """A store's columns over `prior` (key to digest), with the prior entries at `hits` hit and `misses` shaped."""
+    keys = sorted(prior)
+    signatures = unit_cache.SignatureArrays(
+        array("Q", keys), bytearray().join(bytes.fromhex(prior[key]) for key in keys), {}
+    )
+    for key in hits:
+        signatures.mark_hit(signatures.prior_index(key))
+    signatures.set_misses(array("Q", misses), list(misses.values()))
+    return signatures
+
+
+def _digest(seed: int) -> str:
+    return hashlib.sha256(str(seed).encode()).hexdigest()
+
+
+def test_the_signature_write_holds_no_columns_once_the_store_is_written(tmp_path):
+    """The thread holds the store's columns only until the write finishes: `_write` drops them when `write_signature_arrays` returns, so after `join` the write holds nothing and the store is on disk. The failing case checks the attribute, the re-raise at `join`, and that the previous store survives the failed write. It does not check that the columns are freed, because the captured error's traceback keeps the write's frames, and the columns with them, until `join` raises."""
+    write = review_build._SignatureWrite(tmp_path, "env-a", _signature_columns({}, (), {7: _digest(7)}))
     write.join()
-    assert write._entries is None
-    assert unit_cache.load_signature_store(tmp_path, "env-a") == {"k1": "d1"}
+    assert write._signatures is None
+    assert unit_cache.load_signature_store(tmp_path, "env-a") == {f"{7:016x}": _digest(7)}
 
-    class Failing(dict):
-        def __getitem__(self, key):
-            if key == "k2":
-                raise RuntimeError("the write stops here")
-            return super().__getitem__(key)
+    class Failing(unit_cache.SignatureArrays):
+        def lines(self):
+            yield from list(super().lines())[:1]
+            raise RuntimeError("the write stops here")
 
-    failing = review_build._SignatureWrite(tmp_path, "env-a", Failing(k1="x1", k2="x2"))
+    failing_columns = Failing()
+    failing_columns.set_misses(array("Q", [1, 2]), [_digest(1), _digest(2)])
+    failing = review_build._SignatureWrite(tmp_path, "env-a", failing_columns)
     with pytest.raises(RuntimeError, match="stops here"):
         failing.join()
-    assert failing._entries is None
-    assert unit_cache.load_signature_store(tmp_path, "env-a") == {"k1": "d1"}
+    assert failing._signatures is None
+    assert unit_cache.load_signature_store(tmp_path, "env-a") == {f"{7:016x}": _digest(7)}
 
 
 def test_a_failing_build_abandons_the_signature_write_rather_than_waiting_on_it(
@@ -1607,19 +1644,19 @@ def test_a_failing_build_abandons_the_signature_write_rather_than_waiting_on_it(
     """The thread is joined only on the success path, so a build that raises after starting it exits through its `finally` without waiting for the write. The spy holds the write open until the test releases it, so a build that joined would hang here instead of raising. The test then releases the write and joins its thread so nothing outlives the test."""
     started, release, finished = threading.Event(), threading.Event(), threading.Event()
     writers: list[threading.Thread] = []
-    real = unit_cache.write_signature_store
+    real = unit_cache.write_signature_arrays
 
-    def spy(out_dir, environment, entries):
+    def spy(out_dir, environment, signatures, stamps=None):
         writers.append(threading.current_thread())
         started.set()
         release.wait(120)
-        real(out_dir, environment, entries)
+        real(out_dir, environment, signatures, stamps)
         finished.set()
 
     def fail(*_args, **_kwargs):
         raise SystemExit("the corpus write stops here")
 
-    monkeypatch.setattr(unit_cache, "write_signature_store", spy)
+    monkeypatch.setattr(unit_cache, "write_signature_arrays", spy)
     monkeypatch.setattr(review_build, "_write_corpus", fail)
     try:
         with pytest.raises(SystemExit, match="stops here"):
@@ -1630,6 +1667,237 @@ def test_a_failing_build_abandons_the_signature_write_rather_than_waiting_on_it(
         release.set()
         for writer in writers:
             writer.join(120)
+
+
+def test_the_store_written_from_its_columns_is_the_dict_writers_file(tmp_path):
+    """The build writes the store from its columns (`write_signature_arrays`): the prior entries it hit, merged in key order with the misses it shaped, among them the late ones the stream shaped itself, each line `key\\tdigest`. Over the same entries the file is byte for byte the one `write_signature_store` writes from a dict, since a 16-digit lowercase hex key sorts as its integer does. Two misses with one key, shaped or late, keep the later one, as a dict does, and a prior entry no row hit is dropped."""
+    prior = {key: _digest(key) for key in (3, 1 << 60, 5 << 56, 0xFFFF_FFFF_FFFF_FFFE, 42)}
+    misses = array("Q", [9, 1 << 61, 9, 7 << 56])
+    shaped = [_digest(100), _digest(101), _digest(102), _digest(103)]
+    signatures = _signature_columns(prior, (3, 1 << 60, 0xFFFF_FFFF_FFFF_FFFE), {})
+    signatures.set_misses(misses, shaped)
+    signatures.add_late(1 << 59, bytes.fromhex(_digest(104)))
+    signatures.add_late(1 << 58, bytes.fromhex(_digest(105)))
+    signatures.add_late(1 << 58, bytes.fromhex(_digest(106)))
+    assert (signatures.hits(), signatures.unhit(), signatures.misses()) == (3, 2, 6)
+    columns = tmp_path / "columns"
+    columns.mkdir()
+    unit_cache.write_signature_arrays(columns, "env-a", signatures)
+    entries = {f"{key:016x}": prior[key] for key in (3, 1 << 60, 0xFFFF_FFFF_FFFF_FFFE)}
+    for key, digest in zip(misses, shaped):
+        entries[f"{key:016x}"] = digest
+    entries[f"{1 << 59:016x}"] = _digest(104)
+    entries[f"{1 << 58:016x}"] = _digest(106)
+    unit_cache.write_signature_store(tmp_path, "env-a", entries)
+    assert filecmp.cmp(
+        unit_cache.signature_store_path(columns), unit_cache.signature_store_path(tmp_path), shallow=False
+    )
+    loaded = unit_cache.SignatureArrays.load(columns, "env-a")
+    assert loaded is not None and list(loaded.keys) == sorted(int(key, 16) for key in entries)
+    stamped = tmp_path / "stamped"
+    stamped.mkdir()
+    unit_cache.write_signature_arrays(stamped, "env-a", signatures, {unit_cache.FAMILY_KEYS_KEY: "f"})
+    header = unit_cache.read_header(unit_cache.signature_store_path(stamped))
+    assert header is not None and header[unit_cache.FAMILY_KEYS_KEY] == "f"
+    assert gzip.decompress(unit_cache.signature_store_path(stamped).read_bytes()).partition(b"\n")[2] == (
+        gzip.decompress(unit_cache.signature_store_path(columns).read_bytes()).partition(b"\n")[2]
+    )
+
+
+def test_a_store_with_a_line_this_code_never_writes_does_not_load_as_columns(tmp_path):
+    """The columns hold a key as an integer and a digest as bytes, so they reload only lines in the form the writer gives: a store with a key or a digest in another form, or keys out of order, reads as no store, and the build reshapes and rewrites it."""
+    unit_cache.write_signature_store(tmp_path, "env-a", {f"{1:016x}": _digest(1), f"{2:016x}": _digest(2)})
+    loaded = unit_cache.SignatureArrays.load(tmp_path, "env-a")
+    assert loaded is not None and len(loaded) == 2
+    for entries in ({"k1": "d1"}, {f"{1:016x}": _digest(1).upper()}, {f"{0xABC:016X}": _digest(1)}):
+        unit_cache.write_signature_store(tmp_path, "env-a", entries)
+        assert unit_cache.SignatureArrays.load(tmp_path, "env-a") is None
+    header = json.dumps({"format": unit_cache.SIGNATURE_STORE_FORMAT, "environment": "env-a"})
+    unsorted = f"{header}\n{2:016x}\t{_digest(2)}\n{1:016x}\t{_digest(1)}\n"
+    unit_cache.signature_store_path(tmp_path).write_bytes(gzip.compress(unsorted.encode(), mtime=0))
+    assert unit_cache.SignatureArrays.load(tmp_path, "env-a") is None
+
+
+def _identity(path: Path) -> list[int]:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        return unit_cache.audit_identity(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _signature_stat(corpus: Path) -> tuple[int, int, int]:
+    stat = unit_cache.signature_store_path(corpus).stat()
+    return stat.st_ino, stat.st_mtime_ns, stat.st_size
+
+
+def _mini_audit_lines() -> tuple[str, list[str]]:
+    header, *rows = MINI_AUDIT.read_text(encoding="utf-8").splitlines()
+    return header, rows
+
+
+def _write_audit(path: Path, header: str, rows: Iterable[str]) -> Path:
+    """Write an audit with the mini audit's modification time, which the manifest's `generated_at` reads, so a corpus built over it compares with one built over the mini audit."""
+    path.write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
+    stat = MINI_AUDIT.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    return path
+
+
+def _same_units(corpus: Path, expected: Path) -> bool:
+    """Whether two corpora built over audits at different paths hold the same fragments by id (`_live`) and the same manifest but for its `source` block, which names the audit's path."""
+    manifests = [
+        json.loads((path / "manifest.json").read_text(encoding="utf-8")) for path in (corpus, expected)
+    ]
+    for manifest in manifests:
+        manifest.pop("source")
+    return _live(corpus) == _live(expected) and manifests[0] == manifests[1]
+
+
+def _reordered(rows: list[str], shape: str) -> list[str]:
+    """The mini audit's rows in an order run_m1 never writes: its `ss03` section ahead of `default`, or two rows of `default` swapped, so the stream meets a window that does not increase partway through."""
+    if shape == "sections out of rank order":
+        return [row for row in rows if row.startswith("ss03\t")] + [
+            row for row in rows if not row.startswith("ss03\t")
+        ]
+    swapped = list(rows)
+    swapped[100], swapped[101] = swapped[101], swapped[100]
+    return swapped
+
+
+@pytest.mark.parametrize("shape", ["sections out of rank order", "an order break partway"])
+def test_an_audit_not_in_sorted_sections_builds_through_the_in_memory_source(
+    shape, mini_corpus, mini_bundle, tmp_path, capfd
+):
+    """An audit whose rows run_m1 never orders this way is no error: the build reads it through the in-memory source and says why on its load line. A break partway, two rows of one section swapped, leaves every unit's configs in their order, so the corpus is the sorted audit's. With the sections out of rank order a unit's per-config classes come in the file's order, which reaches its fragment, so that corpus holds the sorted audit's units and rows under other bytes."""
+    header, rows = _mini_audit_lines()
+    audit = _write_audit(tmp_path / "audit.tsv", header, _reordered(rows, shape))
+    corpus = tmp_path / "corpus"
+    capfd.readouterr()
+    manifest = _build(corpus, mini_bundle, audit_path=audit, jobs=1)
+    report = capfd.readouterr().err
+    assert re.search(r"\(key-only read [^;]+; read in memory, since .+; prior store", report), report
+    if shape == "an order break partway":
+        assert "key-only read ran " in report
+        assert _same_units(corpus, mini_corpus)
+    else:
+        expected = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["totals"] == expected["totals"]
+
+
+@pytest.mark.parametrize("shape", ["sorted", "sections out of rank order"])
+def test_an_audit_replaced_by_rename_after_the_load_opened_it_is_not_read(
+    shape, mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """The build holds the descriptor it opened the audit with until its load returns and reads every byte of the audit through it, never by the path again, since a `--gates-only` pass can replace the audit by rename during a build. An audit replaced by a shorter one just after the build opened it is read as it was when opened: by the key-only read and the stream when it is in sorted sections, by the in-memory source otherwise."""
+    header, rows = _mini_audit_lines()
+    audit = _write_audit(
+        tmp_path / "audit.tsv", header, rows if shape == "sorted" else _reordered(rows, shape)
+    )
+    expected = mini_corpus
+    if shape != "sorted":
+        expected = tmp_path / "expected"
+        _build(
+            expected,
+            mini_bundle,
+            audit_path=_write_audit(tmp_path / "unreplaced.tsv", header, _reordered(rows, shape)),
+            jobs=1,
+        )
+    replacement = _write_audit(tmp_path / "replacement.tsv", header, rows[:10])
+    layout = review_build.audit_layout
+
+    def replaced(descriptor, path):
+        found = layout(descriptor, path)
+        os.replace(replacement, path)
+        return found
+
+    monkeypatch.setattr(review_build, "audit_layout", replaced)
+    corpus = tmp_path / "corpus"
+    capfd.readouterr()
+    _build(corpus, mini_bundle, audit_path=audit, jobs=1)
+    report = capfd.readouterr().err
+    assert audit.read_text(encoding="utf-8").count("\n") == 11
+    if shape == "sorted":
+        assert "key-only read ran " in report and "; read as a stream;" in report
+    else:
+        assert "; read in memory, since " in report
+    assert _same_units(corpus, expected)
+
+
+def test_a_pass_that_hits_every_prior_signature_leaves_the_store_alone(
+    mini_corpus, mini_bundle, tmp_path, capfd
+):
+    """When every prior entry was hit and nothing missed, the store a pass would write is the one on disk, so the pass leaves it, its inode and modification time with it, and says so on its units line. That holds on a pass whose key-only read ran, here over a copy of the audit, whose identity differs from the one the store was written over, and the store keeps the stamps it had."""
+    corpus = _copy(mini_corpus, tmp_path)
+    before = _signature_stat(corpus)
+    stamps = unit_cache.read_header(unit_cache.signature_store_path(corpus))
+    audit = tmp_path / "audit.tsv"
+    shutil.copyfile(MINI_AUDIT, audit)
+    capfd.readouterr()
+    _build(corpus, mini_bundle, audit_path=audit, jobs=1)
+    report = capfd.readouterr().err
+    assert "key-only read ran " in report
+    assert "ink-signature store left as it is" in report
+    assert _signature_stat(corpus) == before
+    assert unit_cache.read_header(unit_cache.signature_store_path(corpus)) == stamps
+
+
+def test_the_store_stamps_skip_the_key_only_read_while_both_hold(
+    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """The store this code writes records the audit's identity and the family keys' digest. A pass over the same audit and family keys skips the key-only read, since no key can then miss; a pass over another audit file, or with a family key moved, runs it."""
+    corpus = _copy(mini_corpus, tmp_path)
+    header = unit_cache.read_header(unit_cache.signature_store_path(corpus))
+    assert header is not None and header[unit_cache.AUDIT_IDENTITY_KEY] == _identity(MINI_AUDIT)
+    capfd.readouterr()
+    _build(corpus, mini_bundle, jobs=1)
+    assert "key-only read skipped, the store's stamps held" in capfd.readouterr().err
+    audit = tmp_path / "audit.tsv"
+    shutil.copyfile(MINI_AUDIT, audit)
+    _build(corpus, mini_bundle, audit_path=audit, jobs=1)
+    assert "key-only read ran " in capfd.readouterr().err
+    keys = unit_cache.family_content_keys
+
+    def moved(repo_root, spec, after_font):
+        found, helpers = keys(repo_root, spec, after_font)
+        return {**found, "qsRoe": "0" * 64}, helpers
+
+    monkeypatch.setattr(unit_cache, "family_content_keys", moved)
+    _build(corpus, mini_bundle, jobs=1)
+    assert "key-only read ran " in capfd.readouterr().err
+
+
+def test_a_wrong_skip_shapes_the_miss_in_the_parent_and_writes_the_store(
+    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """A store whose stamps hold but which lacks an entry, which the stamps say cannot happen, costs time and never a byte: the pass skips the key-only read, the stream meets the missing key, shapes it in the parent as the serial path does, releasing the shape memo after it, so a wrong skip that misses every row holds one signature's shapes at a time, and the store is written with it again, so the corpus and the store's entries come out as they were."""
+    late = review_build._LateShaper.__call__
+    memo_after_shape: list[int] = []
+
+    def watching(self, *args):
+        shaped = self.shaped
+        digest = late(self, *args)
+        if self.shaped > shaped:
+            memo_after_shape.append(review_build.shape_memo_sizes().entries)
+        return digest
+
+    monkeypatch.setattr(review_build._LateShaper, "__call__", watching)
+    corpus = _copy(mini_corpus, tmp_path)
+    path = unit_cache.signature_store_path(corpus)
+    header, _, body = gzip.decompress(path.read_bytes()).partition(b"\n")
+    lines = body.splitlines(keepends=True)
+    path.write_bytes(gzip.compress(header + b"\n" + b"".join(lines[1:]), mtime=0))
+    capfd.readouterr()
+    _build(corpus, mini_bundle, jobs=1)
+    report = capfd.readouterr().err
+    assert "key-only read skipped" in report
+    assert re.search(r"signatures: [\d,]+ cached, 1 shaped serially\)", report), report
+    assert memo_after_shape == [0]
+    assert "ink-signature store written" in report
+    assert _signature_lines(path.read_bytes()) == _signature_lines(
+        unit_cache.signature_store_path(mini_corpus).read_bytes()
+    )
+    assert _form(corpus, tmp_path) == _form(mini_corpus, tmp_path)
 
 
 def test_cluster_id_from_repr_matches_the_tuple_recipe():
@@ -1968,73 +2236,112 @@ def _sliced(root: Path, located: unit_cache.PriorFragment) -> dict:
     return json.loads(raw[located.start : located.start + located.length])
 
 
+def _fragment(index: int, **fields) -> dict:
+    """A fragment with a content-derived id and stamp, the forms the walk records."""
+    return {"id": unit_cache.unit_id_for(_digest(index)), "content_key": _digest(1000 + index), **fields}
+
+
+def _wanted(**classes: Iterable[dict]) -> unit_cache.WantedFragments:
+    wanted = unit_cache.WantedFragments()
+    for class_id, fragments in classes.items():
+        for fragment in fragments:
+            word = unit_cache.id_word(fragment["id"])
+            assert word is not None
+            wanted.add(class_id, word)
+    return wanted
+
+
+def _found(located: unit_cache.LocatedFragments, class_id: str, fragment: dict) -> unit_cache.PriorFragment:
+    found = located.find(class_id, fragment["id"])
+    assert found is not None
+    return found
+
+
 def test_locate_prior_fragments_addresses_a_class_the_last_build_split(tmp_path, monkeypatch):
-    """The cache reads the prior manifest to find which files a class was written as, because a class large enough to be split has no single file name to guess. For each wanted fragment it keeps an address and the stamp found there, never the fragment, so the plan can be made without holding the previous corpus. A class the manifest does not list contributes nothing, as a missing file does."""
+    """The cache reads the prior manifest to find which files a class was written as, because a class large enough to be split has no single file name to guess. For each wanted record, its class and id word, it keeps the address and the stamp found there as columns (`unit_cache.LocatedFragments`), never the fragment, so the plan can be made without holding the previous corpus. A class the manifest does not list contributes nothing, as a missing file does, and neither does an id the records do not want."""
     monkeypatch.setattr("rebuild.review.build.SHARD_PART_BYTES", 32)
-    fragments = [{"id": f"u-{index:04d}", "content_key": f"k{index}"} for index in range(6)]
+    fragments = [_fragment(index) for index in range(6)]
     parts, _spans = _write_shard(tmp_path, "big", fragments)
     assert len(parts) > 1
     _prior_corpus(tmp_path, [{"id": "big", "shards": parts}], legacy=False)
-    located = unit_cache.locate_prior_fragments(tmp_path, {"big": {"u-0001", "u-0005"}, "gone": {"u-0000"}})
-    assert set(located) == {"u-0001", "u-0005"}
-    assert {found.part for found in located.values()} <= set(parts)
+    located = unit_cache.locate_prior_fragments(
+        tmp_path, _wanted(big=(fragments[1], fragments[5]), gone=(fragments[0],))
+    )
+    assert located.found() == 2
+    assert located.find("big", fragments[0]["id"]) is None
+    assert located.find("gone", fragments[0]["id"]) is None
+    assert located.find("small", fragments[1]["id"]) is None
     for index in (1, 5):
-        found = located[f"u-{index:04d}"]
-        assert (found.unit_id, found.content_key) == (f"u-{index:04d}", f"k{index}")
+        found = located.find("big", fragments[index]["id"])
+        assert found is not None and found.part in parts
+        assert (found.unit_id, found.content_key) == (fragments[index]["id"], fragments[index]["content_key"])
         assert _sliced(tmp_path, found) == fragments[index]
     with unit_cache.PriorFragmentReader(tmp_path) as reader:
-        assert [reader.read(located[uid]) for uid in ("u-0001", "u-0005")] == [fragments[1], fragments[5]]
+        assert [reader.read(_found(located, "big", fragments[index])) for index in (1, 5)] == [
+            fragments[1],
+            fragments[5],
+        ]
 
 
 def test_locate_prior_fragments_reads_a_format_1_prior_corpus(tmp_path):
     """A prior corpus may still use `ams-review-manifest/1`, with one `shard` string per class, and the cache must read from it, or the next build re-enriches every unit it could have reused."""
-    fragments = [{"id": "u-0000"}, {"id": "u-0001", "content_key": "k1"}]
+    fragments = [{"id": _fragment(0)["id"]}, _fragment(1)]
     parts, _spans = _write_shard(tmp_path, "small", fragments)
     assert parts == ["units/small.json"]
     _prior_corpus(tmp_path, [{"id": "small", "shards": parts}], legacy=True)
-    located = unit_cache.locate_prior_fragments(tmp_path, {"small": {"u-0001"}})
-    assert list(located) == ["u-0001"]
-    assert located["u-0001"].content_key == "k1"
+    located = unit_cache.locate_prior_fragments(tmp_path, _wanted(small=fragments[1:]))
+    found = located.find("small", fragments[1]["id"])
+    assert located.found() == 1 and found is not None
+    assert found.content_key == fragments[1]["content_key"]
     with unit_cache.PriorFragmentReader(tmp_path) as reader:
-        assert reader.read(located["u-0001"]) == fragments[1]
+        assert reader.read(found) == fragments[1]
 
 
 def test_locate_prior_fragments_with_no_manifest_contributes_nothing(tmp_path):
     """A first build, or a prior corpus deleted by hand, has no manifest; its units fall back to a recomputation instead of raising."""
-    assert unit_cache.locate_prior_fragments(tmp_path, {"small": {"u-0000"}}) == {}
+    located = unit_cache.locate_prior_fragments(tmp_path, _wanted(small=[_fragment(0)]))
+    assert located.found() == 0 and located.find("small", _fragment(0)["id"]) is None
 
 
 def test_locate_prior_fragments_walks_a_shard_rewritten_by_hand(tmp_path):
-    """The address is taken from the part's own text, not assumed from the writer's framing, so a shard rewritten compactly (the form `test_a_fragment_whose_stamp_moved_is_not_reused` leaves on disk) still locates every fragment, and the recorded bytes still parse to it."""
-    fragments = [{"id": "u-0000", "content_key": "k0"}, {"id": "u-0001", "content_key": "k1"}]
+    """The address is taken from the part's own text, not assumed from the writer's framing, so a shard rewritten compactly (the form `test_a_fragment_whose_stamp_moved_is_not_reused` leaves on disk) still locates every fragment, and the recorded bytes still parse to it. A fragment whose stamp is not a content key is not recorded, since no record could match it."""
+    fragments = [_fragment(0), _fragment(1), {**_fragment(2), "content_key": "k2"}]
     (tmp_path / "units").mkdir()
     (tmp_path / "units" / "small.json").write_text(json.dumps(fragments), encoding="utf-8")
     _prior_corpus(tmp_path, [{"id": "small", "shards": ["units/small.json"]}], legacy=False)
-    located = unit_cache.locate_prior_fragments(tmp_path, {"small": {"u-0000", "u-0001"}})
-    assert [_sliced(tmp_path, located[fragment["id"]]) for fragment in fragments] == fragments
+    located = unit_cache.locate_prior_fragments(tmp_path, _wanted(small=fragments))
+    assert located.found() == 2 and located.find("small", fragments[2]["id"]) is None
+    assert [_sliced(tmp_path, _found(located, "small", fragment)) for fragment in fragments[:2]] == fragments[
+        :2
+    ]
 
 
 def test_a_part_that_is_not_ascii_is_not_addressable(tmp_path):
     """A character offset equals a byte offset only under `ensure_ascii`, which every part this build writes uses and a hand-edited part may not. Instead of recording an address that would read the wrong bytes, the locate pass skips such a part, and its units fall back to a recomputation."""
-    fragments = [{"id": "u-0000", "content_key": "k0", "notation": "·Tea"}]
+    fragments = [_fragment(0, notation="·Tea")]
     (tmp_path / "units").mkdir()
     (tmp_path / "units" / "small.json").write_text(
         json.dumps(fragments, ensure_ascii=False), encoding="utf-8"
     )
     _prior_corpus(tmp_path, [{"id": "small", "shards": ["units/small.json"]}], legacy=False)
-    assert unit_cache.locate_prior_fragments(tmp_path, {"small": {"u-0000"}}) == {}
+    assert unit_cache.locate_prior_fragments(tmp_path, _wanted(small=fragments)).found() == 0
 
 
 def test_the_reader_refuses_a_fragment_that_moved_under_its_address(tmp_path):
     """An address is recorded at plan time and read at write time. The shard writer keeps the previous corpus intact between the two by deferring its renames, and the reader checks every read against the id and stamp the address was located with, so a fragment that changes anyway raises an error instead of supplying another unit's bytes under this one's id."""
-    fragments = [{"id": "u-0000", "content_key": "k0"}, {"id": "u-0001", "content_key": "k1"}]
+    fragments = [_fragment(0), _fragment(1)]
     parts, _spans = _write_shard(tmp_path, "small", fragments)
     _prior_corpus(tmp_path, [{"id": "small", "shards": parts}], legacy=False)
-    located = unit_cache.locate_prior_fragments(tmp_path, {"small": {"u-0001"}})
-    _write_shard(tmp_path, "small", [fragments[0], {"id": "u-0009", "content_key": "k1"}])
+    found = unit_cache.locate_prior_fragments(tmp_path, _wanted(small=fragments[1:])).find(
+        "small", fragments[1]["id"]
+    )
+    assert found is not None
+    _write_shard(
+        tmp_path, "small", [fragments[0], {**_fragment(9), "content_key": fragments[1]["content_key"]}]
+    )
     with unit_cache.PriorFragmentReader(tmp_path) as reader:
         with pytest.raises(ValueError, match="changed underneath"):
-            reader.read(located["u-0001"])
+            reader.read(found)
 
 
 # --- the content-addressed ids --------------------------------------------------------------------

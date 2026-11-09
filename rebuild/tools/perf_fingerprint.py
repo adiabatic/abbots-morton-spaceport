@@ -37,7 +37,16 @@ from typing import Any
 
 FORMAT = "ams-perf-fingerprint/1"
 MANIFEST_STAMPS = ("generated_at", "repo_head", "inputs_fingerprint")
-SIDECAR_STAMPS = ("manifest_sha256", "generated_at", "environment", "environment_lines", "environment_detail")
+# The ink-signature store's header also carries the audit's identity and the family keys' digest (`unit_cache.AUDIT_IDENTITY_KEY`, `unit_cache.FAMILY_KEYS_KEY`), which say which audit and family keys it was written over, so a pass that rewrites the store with only those moved shows no `stores` difference. The script imports nothing of the tree under test before `--root` is on its path, so the two names are restated.
+SIDECAR_STAMPS = (
+    "manifest_sha256",
+    "generated_at",
+    "environment",
+    "environment_lines",
+    "environment_detail",
+    "audit_identity",
+    "family_keys_digest",
+)
 STORE_STAMPS = ("manifest_generated_at", "exported_at")
 COMPLAINT_STAMPS = ("manifest_generated_at", "since")
 STORES = ("unit-cache.ndjson.gz", "ink-signatures.tsv.gz")

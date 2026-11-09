@@ -5,17 +5,22 @@ None of it reads the live audit. Ordering, batch slicing, config order, and the 
 The live counts change with every migrated letter, so they are not asserted here. The corpus build's review facts report them, and the artifact cycle diffs them into rebuild/review-facts-pins.json.
 """
 
+import hashlib
+import os
 import sys
+from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 import yaml
 
-from rebuild.review import change_groups
+from rebuild.review import audit_stream, change_groups
 from rebuild.review import unit_cache
 from rebuild.review import unit_store
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
+    AUDIT_HEADER,
     LEDGER_STATUSES,
     RULED_STATUSES,
     SECTIONS,
@@ -38,10 +43,17 @@ from rebuild.review.audit import (
     render_groups_for_rows,
     sort_for_triage,
     synthesize_unmatched_group_classes,
+    UnitTable,
+    _counting_permutation,
+    _triage_permutation,
+    audit_layout,
+    signature_rows,
+    stream_workload,
     triage_key,
 )
 from rebuild.review.build import row_column_sizes, signature_text, unit_table_sizes
-from rebuild.review.columns import MappingPool, TuplePool
+from rebuild.review.columns import MappingPool, TuplePool, WindowIndex
+from rebuild.review.facts import PremergeSnapshot, capture_premerge
 from rebuild.review.enrich import LETTERS
 from rebuild.review.unit_store import UnitStore
 from rebuild.tools import memory_tally
@@ -105,6 +117,274 @@ def test_the_fused_audit_load_matches_load_table_over_load_audit(mini_bundle):
     assert fused.names._tuples == expected.names._tuples and fused.names.sealed
     assert fused.table._strings == expected.table._strings
     assert (fused.vocabulary, fused.ranks) == (expected.vocabulary, expected.ranks)
+
+
+SYNTHETIC_LEDGER = """
+- id: class-a
+  title: The class-a title
+  summary: The class-a summary.
+  status: by-design
+  why: because
+- id: class-b
+  title: The class-b title
+  summary: The class-b summary.
+  status: approved
+  no_verdict: true
+  why: because
+- id: class-c
+  title: The class-c title
+  summary: The class-c summary.
+  status: per-unit
+  ink_identical: true
+  why: because
+- id: class-d
+  title: The class-d title
+  summary: The class-d summary.
+  status: by-design
+  exemplars: [{config: default, codepoints: "E650:E651"}]
+  why: because
+"""
+
+# One section a configuration in rank order, `ss04` absent, each section's windows strictly increasing: `E650:E651` in every section as one unit; siblings in `E650:E652` that merge; in `E651:E650`, siblings the merge keeps apart because they match two ledger classes; in `E652:E653`, siblings whose ink differs (`SPLIT`); in `E650:E651:E652`, three siblings that merge into an UNMATCHED survivor; a boundary-led window and a four-letter one.
+SYNTHETIC_SECTIONS = {
+    "default": [
+        ("0020:E650", "cell", "class-a", "space|qsPea", "space|qsPea/full/None/None/"),
+        ("E650:E651", "cell", "class-d", "qsPea|qsBay", "qsPea/full/None/None/|qsBay/full/None/None/"),
+        ("E650:E652", "cell,junction", "UNMATCHED", "qsPea|qsTea", "qsPea/a|qsTea/a"),
+        ("E651:E650", "cell", "class-a", "qsBay|qsPea", "qsBay/c|qsPea/c"),
+        ("E652:E653", "junction", "class-a", "qsTea|qsDay", "qsTea/p|qsDay/p"),
+        ("E650:E651:E652", "cell", "class-b", "qsPea|qsBay|qsTea", "qsPea/e|qsBay/e|qsTea/e"),
+    ],
+    "ss03": [
+        ("E650:E651", "cell", "class-d", "qsPea|qsBay", "qsPea/full/None/None/|qsBay/full/None/None/"),
+        ("E650:E652", "cell", "class-a", "qsPea|qsTea", "qsPea/a|qsTea/a"),
+        ("E651:E650", "cell", "class-c", "qsBay|qsPea", "qsBay/d|qsPea/d"),
+        ("E652:E653", "junction", "class-a", "qsTea|qsDay", "qsTea/q|qsDay/q"),
+        ("E650:E651:E652", "junction", "class-b", "qsPea|qsBay|qsTea", "qsPea/f|qsBay/f|qsTea/f"),
+    ],
+    "ss05": [
+        ("E650:E651", "cell", "class-d", "qsPea|qsBay", "qsPea/full/None/None/|qsBay/full/None/None/"),
+        ("E650:E652", "cell", "class-a", "qsPea|qsTea.alt", "qsPea/b|qsTea/b"),
+        (
+            "E650:E651:E652:E653",
+            "cell",
+            "class-a",
+            "qsPea|qsBay|qsTea|qsDay",
+            "qsPea/g|qsBay/g|qsTea/g|qsDay/g",
+        ),
+    ],
+    "ss03+ss05": [
+        ("E650:E651", "cell", "class-d", "qsPea|qsBay", "qsPea/full/None/None/|qsBay/full/None/None/"),
+        ("E650:E651:E652", "cell", "class-b", "qsPea|qsBay|qsTea", "qsPea/e|qsBay/e|qsTea/e"),
+    ],
+    "ss10": [
+        ("E650:E651", "cell", "class-d", "qsPea|qsBay", "qsPea/full/None/None/|qsBay/full/None/None/"),
+        ("E650:E652", "junction", "class-a", "qsPea|qsTea.alt", "qsPea/b|qsTea/b"),
+        ("E650:E651:E652", "cell", "UNMATCHED", "qsPea|qsBay|qsTea", "qsPea/h|qsBay/h|qsTea/h"),
+    ],
+}
+SPLIT = frozenset({"E652:E653"})
+
+
+def _synthetic_audit(
+    tmp_path: Path, sections: Mapping[str, list[tuple[str, ...]]] = SYNTHETIC_SECTIONS
+) -> tuple[Path, Path]:
+    audit = tmp_path / "audit.tsv"
+    lines = ["\t".join(AUDIT_HEADER)] + [
+        "\t".join((config, *row)) for config, rows in sections.items() for row in rows
+    ]
+    audit.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ledger = tmp_path / "ledger.yaml"
+    ledger.write_text(SYNTHETIC_LEDGER, encoding="utf-8")
+    return audit, ledger
+
+
+def _family_keys() -> dict[str, str]:
+    names = sorted(set(LETTERS.values())) + ["qsPea_qsBay"]
+    return {name: hashlib.sha256(name.encode()).hexdigest() for name in names}
+
+
+def _signature(split: Collection[str]) -> Callable[[str, str], object]:
+    """An ink signature over a window and a config: the window alone, so a window's siblings merge, except for a window in `split`, whose every config differs."""
+    return lambda window, config: (window, config) if window in split else window
+
+
+class _Loaded(NamedTuple):
+    table: UnitTable
+    snapshot: PremergeSnapshot
+    stats: dict
+    input_keys: list[str]
+    signature_keys: list[int]
+    rows: int
+
+
+def _in_memory(audit: Path, ledger_path: Path, split: Collection[str]) -> _Loaded:
+    """The in-memory source as the build runs it: the load, the signature rows' keys, the pre-merge snapshot, the merge, the compaction and each unit's input key."""
+    workload = load_workload(audit, ledger_path, dict(LETTERS))
+    table, rows = workload.table, workload.rows
+    assert rows is not None
+    keyer = unit_cache.UnitKeyer(_family_keys(), dict(LETTERS))
+    keys = sorted(int(key, 16) for _view, key in keyer.signature_keys(signature_rows(table, rows)))
+    snapshot = capture_premerge(
+        table, frozenset(entry.id for entry in workload.ledger if entry.ink_identical)
+    )
+    exempt = {entry.id for entry in workload.ledger if entry.no_verdict}
+    stats = merge_ink_duplicate_units(table, rows, _signature(split), exempt)
+    snapshot.rebase(table.compact())
+    input_keys = [keyer.key(table, rows, ordinal) for ordinal in range(table.n)]
+    return _Loaded(table, snapshot, stats, input_keys, keys, workload.row_count)
+
+
+def _streamed(audit: Path, ledger_path: Path, split: Collection[str]) -> _Loaded:
+    """The stream over the same audit, through a held descriptor, its digests from the same signature."""
+    ledger = load_ledger(ledger_path)
+    signature = _signature(split)
+    requested: list[int] = []
+
+    def digest(key: int, window: str, config: str) -> object:
+        requested.append(key)
+        return signature(window, config)
+
+    descriptor = os.open(audit, os.O_RDONLY)
+    try:
+        layout = audit_layout(descriptor, audit)
+        assert layout.sections is not None, layout.why
+        streamed = stream_workload(
+            descriptor, audit, ledger_path, layout.sections, ledger, dict(LETTERS), _family_keys(), digest
+        )
+    finally:
+        os.close(descriptor)
+    table = streamed.workload.table
+    snapshot = PremergeSnapshot.from_columns(
+        table, streamed.premerge, frozenset(entry.id for entry in ledger if entry.ink_identical)
+    )
+    snapshot.rebase(streamed.compaction)
+    keys = [streamed.input_keys[ordinal * 32 : ordinal * 32 + 32].hex() for ordinal in range(table.n)]
+    return _Loaded(
+        table, snapshot, streamed.merge_stats, keys, sorted(requested), streamed.workload.row_count
+    )
+
+
+def _accessors(table: UnitTable) -> list[tuple]:
+    """Every accessor of every row in load order but `rows_start`, an address into the in-memory source's row columns, which the stream does not build; the class map with its order."""
+    return [
+        (
+            table.class_id(ordinal),
+            table.group(ordinal),
+            table.unmatched_group(ordinal),
+            table.duplicate_group(ordinal),
+            table.cluster(ordinal),
+            table.configs(ordinal),
+            table.kinds(ordinal),
+            table.render_groups(ordinal),
+            table.baseline(ordinal),
+            table.new(ordinal),
+            list(table.config_classes(ordinal).items()),
+            table.exemplar(ordinal),
+            table.no_verdict(ordinal),
+            table.live(ordinal),
+            table.survivor(ordinal),
+            table.codepoints(ordinal),
+            table.config_rank(ordinal),
+            table.row_count(ordinal),
+            table.order(ordinal),
+            table.batch(ordinal),
+        )
+        for ordinal in range(table.n)
+    ]
+
+
+def _snapshot(snapshot: PremergeSnapshot) -> tuple:
+    assert snapshot.survivor is not None and snapshot.removed is not None
+    return (
+        list(snapshot.grains()),
+        list(snapshot.class_rows()),
+        list(snapshot.survivor),
+        bytes(snapshot.removed),
+    )
+
+
+@pytest.mark.parametrize("source", ["mini", "synthetic"])
+def test_the_stream_gives_the_in_memory_sources_table_snapshot_merge_and_keys(source, mini_bundle, tmp_path):
+    """The build's two window sources agree. Over the mini audit, which run_m1 wrote in sorted sections, and over a synthetic audit in sorted sections with siblings that merge, siblings the merge keeps apart because they match two ledger classes, siblings whose ink differs, an absent section and a window in every section, the stream (`stream_workload`) and the in-memory source (`load_workload`, then the merge and the compaction, as the build's in-memory source runs them) give the same table through every accessor in load order, the same pre-merge snapshot with the same survivors, the same merge stats, the same input keys, and request the same ink-signature keys. The stream's window index is the one the table would sort for itself."""
+    if source == "mini":
+        audit, ledger = MINI_AUDIT, mini_bundle.ledger
+        split = {
+            window
+            for window in parse_audit_windows(MINI_AUDIT)
+            if int(hashlib.sha256(window.encode()).hexdigest(), 16) % 3 == 0
+        }
+    else:
+        audit, ledger = _synthetic_audit(tmp_path)
+        split = SPLIT
+    expected = _in_memory(audit, ledger, split)
+    streamed = _streamed(audit, ledger, split)
+    assert expected.stats["units_merged"] > 0 and streamed.stats == expected.stats
+    if source == "synthetic":
+        assert expected.stats == {"windows_merged": 2, "units_merged": 3, "kept_split_matched_classes": 1}
+    assert _accessors(streamed.table) == _accessors(expected.table)
+    assert _snapshot(streamed.snapshot) == _snapshot(expected.snapshot)
+    assert streamed.input_keys == expected.input_keys
+    assert streamed.signature_keys == expected.signature_keys and expected.signature_keys
+    assert streamed.rows == expected.rows
+    built = WindowIndex.build(
+        (ordinal, streamed.table.codepoints(ordinal)) for ordinal in range(streamed.table.n)
+    )
+    index = streamed.table.window_index()
+    assert (list(index.ordinals), list(index.keys)) == (list(built.ordinals), list(built.keys))
+
+
+def parse_audit_windows(path: Path) -> set[str]:
+    return {line.split("\t")[1] for line in path.read_text(encoding="utf-8").splitlines()[1:] if line}
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "fixture",
+        "repeated window",
+        "sections out of rank order",
+        "an order break partway",
+        "a carriage return",
+    ],
+)
+def test_an_audit_not_in_sorted_sections_takes_the_in_memory_source(shape, mini_bundle, tmp_path):
+    """The stream reads only an audit in sorted sections. The fixture audit's one-row sections and a section out of rank order show before any window is read (`audit_layout`); a window repeated in its section, a row moved out of its section's order, and a carriage return show while the stream reads (`audit_stream.OrderBreak`). None of these is refused: the in-memory source, which the build then reads it through, takes rows in any order."""
+    if shape == "fixture":
+        audit = REPO_ROOT / "rebuild" / "review" / "fixtures" / "fixture-audit.tsv"
+        ledger = REPO_ROOT / "rebuild" / "review" / "fixtures" / "fixture-ledger.yaml"
+    else:
+        sections = {config: list(rows) for config, rows in SYNTHETIC_SECTIONS.items()}
+        if shape == "repeated window":
+            sections["ss03"].insert(2, sections["ss03"][1])
+        elif shape == "sections out of rank order":
+            sections = {"ss03": sections["ss03"], "default": sections["default"]}
+        elif shape == "an order break partway":
+            sections["default"][3], sections["default"][4] = sections["default"][4], sections["default"][3]
+        else:
+            sections["ss10"][-1] = (*sections["ss10"][-1][:-1], sections["ss10"][-1][-1] + "\r")
+        audit, ledger = _synthetic_audit(tmp_path, sections)
+    descriptor = os.open(audit, os.O_RDONLY)
+    try:
+        layout = audit_layout(descriptor, audit)
+        if shape in ("fixture", "sections out of rank order"):
+            assert layout.sections is None and layout.why
+        else:
+            assert layout.sections is not None
+            with pytest.raises(audit_stream.OrderBreak):
+                stream_workload(
+                    descriptor,
+                    audit,
+                    ledger,
+                    layout.sections,
+                    load_ledger(ledger),
+                    dict(LETTERS),
+                    _family_keys(),
+                    None,
+                )
+        assert load_workload(audit, ledger, dict(LETTERS), descriptor=descriptor).table.n > 0
+    finally:
+        os.close(descriptor)
 
 
 def test_fixture_units_dedupe_and_carry_configs(mini_bundle, tmp_path):
@@ -443,6 +723,92 @@ def test_sort_for_triage_orders_by_class_group_window_then_id():
         ),
     )
     assert list(order) == by_id
+
+
+def _tied_table() -> tuple[UnitTable, UnitStore]:
+    """A table whose units tie on class, group and window by the dozen, across two classes, three groups and windows of two to four letters, in an order that is neither load nor window order, with id words that tie too (two units of one window share a word), over the store `sort_for_triage` reads them from."""
+    rows = []
+    windows = (
+        "E650:E652",
+        "E652:E650",
+        "E650:E651:E652",
+        "0020:E650:E652",
+        "E653:E650",
+        "E650:E652:E650:E651",
+    )
+    for index in range(60):
+        window = windows[index * 7 % len(windows)]
+        rows.append(
+            AuditRow("default", window, ("cell",), ("class-a", "class-b")[index % 2], ("a",), (f"n{index}",))
+        )
+    ledger = [
+        LedgerClass("class-b", "by-design", "", False, False, frozenset()),
+        LedgerClass("class-a", "by-design", "", False, False, frozenset()),
+    ]
+    table, _rows = load_table(rows, ledger, dict(LETTERS))
+    store = UnitStore(table.n, strings=table.strings)
+    for ordinal in range(table.n):
+        word = ((ordinal * 0x9E3779B97F4A7C15) & (2**64 - 1)) if ordinal % 5 else 7 << 56
+        store._content_keys[ordinal * unit_store.KEY_BYTES : ordinal * unit_store.KEY_BYTES + 8] = (
+            word.to_bytes(8, "big")
+        )
+    return table, store
+
+
+def test_the_counting_sort_is_the_comparison_sorts_permutation_ties_included(mini):
+    """The triage sort and the stream's load order are a counting sort over (class, group) buckets walked in window order (`_counting_permutation`), not a comparison sort over the corpus. Its permutation is `_triage_permutation`'s exactly: with id words, ties of one window sort by word and then by ordinal; without, by ordinal. Over the mini table, whose windows hold siblings, and over a table whose units tie by the dozen."""
+    table, store = _tied_table()
+    family_rank = {name: value for value, name in dict(LETTERS).items()}
+    for tables, class_order in (
+        ((table, store), {"class-a": 0, "class-b": 1}),
+        ((mini.table, _mini_store(mini.table)), {entry.id: index for index, entry in enumerate(mini.ledger)}),
+    ):
+        subject, words = tables
+        index = subject.window_index()
+        assert list(sort_for_triage(subject, words, class_order, dict(LETTERS))) == list(
+            _triage_permutation(subject, class_order, family_rank, words.id_word)
+        )
+        assert list(
+            _counting_permutation(
+                subject._class,
+                subject._group,
+                subject.strings,
+                class_order,
+                family_rank,
+                index.ordinals,
+                subject.n,
+            )
+        ) == list(_triage_permutation(subject, class_order, family_rank))
+
+
+def _mini_store(table: UnitTable) -> UnitStore:
+    store = UnitStore(table.n, strings=table.strings)
+    for ordinal in range(table.n):
+        word = int(hashlib.sha256(table.codepoints_text(ordinal).encode()).hexdigest()[:16], 16) ^ ordinal % 2
+        store._content_keys[ordinal * unit_store.KEY_BYTES : ordinal * unit_store.KEY_BYTES + 8] = (
+            word.to_bytes(8, "big")
+        )
+    return store
+
+
+def test_the_window_index_answers_as_a_window_keyed_dict_does(mini):
+    """The primary-unit search bisects the window index (`columns.WindowIndex`), the units in window order beside their windows packed into words. For every window of the mini table and of the tied table, and every sub-window of each, the index gives the ordinals a dict of every window's ordinals gives, in the same ascending order, and nothing for a window no unit has; it counts the windows that dict holds."""
+    for table in (mini.table, _tied_table()[0]):
+        by_codepoints: dict[tuple[int, ...], list[int]] = {}
+        for ordinal in range(table.n):
+            by_codepoints.setdefault(table.codepoints(ordinal), []).append(ordinal)
+        index = table.window_index()
+        assert index.packed and index.windows == len(by_codepoints)
+        asked = {
+            window[start:end]
+            for window in by_codepoints
+            for start in range(len(window))
+            for end in range(start + 1, len(window) + 1)
+        }
+        assert {window: list(index.candidates(window)) for window in asked} == {
+            window: by_codepoints.get(window, []) for window in asked
+        }
+        assert list(index.candidates((0x0041, 0x0042))) == []
 
 
 def test_no_verdict_flag_mirrors_the_ledger_class():

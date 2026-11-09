@@ -2,13 +2,17 @@
 
 This module does not assign unit ids. A unit's id is `unit_cache.unit_id_for` over the content key the build stamps once the unit is enriched, so it depends on what the reviewer judges and not on where the unit sits in the order.
 
-The dedupe key is name-grain, so a config that renames a glyph without moving ink splits one visual question into sibling units. The build merges them back with `merge_ink_duplicate_units` before enrichment and batching.
+The dedupe key is name-grain, so a config that renames a glyph without moving ink splits one visual question into sibling units. The build merges them back with the ink-duplicate merge (`merge_ink_duplicate_units`' rules) before enrichment and batching.
 
-The workload is held as packed columns over the unit's ordinal (`UnitTable`, built on the `columns` module like `unit_store.UnitStore`), not as a list of records. `Unit` is the per-unit record that a worker, the enricher, the drafter and the fragment writer read; `UnitTable.unit` builds one at a time, and the build's parent never holds a list of them. The audit rows are likewise five id columns (`RowColumns`), about seventeen bytes a row: one byte for the config and four each for the kinds, entry, baseline and new ids. The build parses each audit line straight into those ids (`load_audit_table`) and builds no `AuditRow`.
+The build reads the audit through one of two window sources, both over the descriptor it holds for the whole build. The stream (`stream_workload`) reads an audit in sorted sections (`rebuild/review/audit_stream.py`: one section a configuration, in rank order, each section's windows strictly increasing), as run_m1 writes it, one window at a time: it groups each window's rows into units, merges the window's ink duplicates, keys each unit from its raw lines, and appends the unit's columns, so it holds one window's rows and never the audit's. Any other file, the fixture audit's one-row sections among them, takes the in-memory source (`load_workload`, `load_audit_table`), which stages every row and dedupes them whole, and which a stream that meets a break partway restarts on; `load_table` over parsed rows is the same load and the tests' reference. Both give the same table in load order, the same pre-merge snapshot and merge, and the same input keys.
+
+The workload is held as packed columns over the unit's ordinal (`UnitTable`, built on the `columns` module like `unit_store.UnitStore`), not as a list of records. `Unit` is the per-unit record that a worker, the enricher, the drafter and the fragment writer read; `UnitTable.unit` builds one at a time, and the build's parent never holds a list of them. The in-memory source holds the audit rows as five id columns (`RowColumns`), about seventeen bytes a row: one byte for the config and four each for the kinds, entry, baseline and new ids. It parses each audit line straight into those ids (`load_audit_table`) and builds no `AuditRow`. The stream builds no row columns: what the build reads of a unit's rows after the load is its row count, kept on the table.
 """
 
 from __future__ import annotations
 
+import io
+import os
 import sys
 from array import array
 from collections.abc import Callable, Collection, Hashable, Iterable, Iterator, Mapping, Sequence
@@ -19,8 +23,17 @@ from typing import NamedTuple, Protocol
 
 import yaml
 
-from rebuild.review import change_groups
-from rebuild.review.columns import MappingPool, StringTable, TuplePool, Withheld, gather, gather_runs
+from rebuild.review import audit_stream, change_groups
+from rebuild.review.columns import (
+    MappingPool,
+    StringTable,
+    TuplePool,
+    WindowIndex,
+    Withheld,
+    gather,
+    gather_runs,
+    window_word,
+)
 
 # Restate `conform.ORACLE_CONFIGS` and `conform.M1_ONLY_CONFIGS`, not `conform.ACCEPTANCE_CONFIGS`: importing conform would pull it into the corpus code closure. `rebuild/test_review_tablediff.py` ties them.
 ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
@@ -282,7 +295,7 @@ def synthesize_unmatched_group_classes(
     ]
 
 
-def group_for(codepoint_values: tuple[int, ...], family_of: dict[int, str]) -> str:
+def group_for(codepoint_values: tuple[int, ...], family_of: Mapping[int, str]) -> str:
     families = [family_of[value] for value in codepoint_values if value in family_of]
     return ":".join(families[:2]) if families else "(boundaries)"
 
@@ -425,6 +438,7 @@ class RowColumns:
 
 
 NONE = 0xFFFFFFFF
+INPUT_KEY_BYTES = 32
 
 EXEMPLAR = 1
 NO_VERDICT = 2
@@ -441,7 +455,7 @@ class Compaction(NamedTuple):
 class UnitTable:
     """The workload as columns over the unit's ordinal. The build's parent holds this from the load to the cache write instead of a list of `Unit` records, in the style of `unit_store.UnitStore`. The loader allocates one row per unit, and each field is a fixed-width `array`. Every name is an id into one `columns.StringTable`, the instance the row columns and the unit store share, so a class from the audit, a change group from a worker and a duplicate-group id from a whole-corpus pass are in one vocabulary. Each tuple or mapping field is an id into a pool, and a read returns the pooled instance, so units with equal values share one object. `configs` and `kinds` are ids into `tuples`, and `render_groups` into `groups`. `baseline` and `new` are ids into `names`, the tuple pool the row columns share, until `release_names` drops both columns and the pool. `config_classes` are ids into `mappings`, a `columns.MappingPool` keyed on each mapping's insertion order (the order the audit states the unit's configs in, which appears in the fragment's bytes); a read returns the pooled mapping typed read-only. The window is parsed once at load into `(start, count)` over a `u16` side column. The ledger's two flags and the merge's `LIVE` bit share one byte. `order` and `batch` are `u32`, with `NONE` for a unit outside the triage index. `rows_start` and `row_count` address the unit's run of the row columns. `survivor` is set by the ink-duplicate merge for a row it removes.
 
-    The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The merge marks the rows it removes (`merge_into`), and `compact` drops them and renumbers the rest in place. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the tests. The debug tally measures the table through `build.unit_table_sizes` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
+    The row index is the ordinal. The loader writes the rows in load order (ledger class, group, window, with the UNMATCHED units after every ledger class). The in-memory source's merge marks the rows it removes (`merge_into`), and `compact` drops them and renumbers the rest in place; the stream merges each window before it writes the window's rows, so its table holds the merged units alone. After that every row is live, and the unit store is allocated over the same count, so one index reads both tables for the rest of the build. The manifest's triage order is a permutation over the rows (`sort_for_triage`) and does not reorder them. `window_index` holds the rows in window order (`columns.WindowIndex`), which the triage sort walks and the primary-unit search bisects: the stream writes it as it writes the rows, in window order, and for a table the in-memory source loaded it is sorted once on first use; `compact` carries it through the merge. The machine flags and the unit id are stored only in the unit store. `unit` materializes a `Unit` from both tables, as `UnitStore.cached_unit` does for a store record, and `units` materializes the whole list for the tests. The debug tally measures the table through `build.unit_table_sizes` over `columns` and `pools`; the tally is not imported here, for the reason `RowColumns` gives.
     """
 
     __slots__ = (
@@ -472,6 +486,7 @@ class UnitTable:
         "_batch",
         "_survivor",
         "_ranks",
+        "_window_index",
     )
 
     def __init__(self, n: int, strings: StringTable, names: TuplePool[str]) -> None:
@@ -502,6 +517,7 @@ class UnitTable:
         self._batch = array("I", [NONE]) * n
         self._survivor = array("I", [NONE]) * n
         self._ranks: list[int] = [len(ACCEPTANCE_CONFIGS)]
+        self._window_index: WindowIndex | None = None
 
     def __len__(self) -> int:
         return self.n
@@ -577,6 +593,18 @@ class UnitTable:
     def survivor(self, ordinal: int) -> int:
         """The row a removed unit merged into, or the row itself while it is live."""
         return ordinal if self._flags[ordinal] & LIVE else self._survivor[ordinal]
+
+    def window_index(self) -> WindowIndex:
+        """The rows in window order beside their packed windows (`columns.WindowIndex`), sorted from the window column on the first call when no source wrote it."""
+        if self._window_index is None:
+            self._window_index = WindowIndex.build(
+                (ordinal, self.codepoints(ordinal)) for ordinal in range(self.n)
+            )
+        return self._window_index
+
+    def release_window_index(self) -> None:
+        """Drop the window index once the primary-unit search, its last reader, has run."""
+        self._window_index = None
 
     def codepoints(self, ordinal: int) -> tuple[int, ...]:
         start = self._window_start[ordinal]
@@ -693,6 +721,8 @@ class UnitTable:
             self._batch = array("I", map(self._batch.__getitem__, kept))
             self._survivor = array("I", [NONE]) * len(kept)
             self.n = len(kept)
+            if self._window_index is not None:
+                self._window_index = self._window_index.remapped(remap, removed)
         return Compaction(remap, removed)
 
     def release_names(self) -> None:
@@ -846,7 +876,7 @@ class UnitTable:
         chunk._window_start, (chunk._window_values,) = gather_runs(
             self._window_start, self._window_n, ordinals, (self._window_values, 1)
         )
-        for name in ("_survivor", "_ranks"):
+        for name in ("_survivor", "_ranks", "_window_index"):
             setattr(chunk, name, Withheld(name))
         return chunk
 
@@ -857,7 +887,9 @@ def load_table(
     family_of: dict[int, str],
     names: TuplePool[str] | None = None,
 ) -> tuple[UnitTable, RowColumns]:
-    """Dedupe the audit rows to (codepoints, baseline, new) units, and return them as a `UnitTable` in load order together with the row columns the units' runs address. Load order is ledger class, group, window, with the UNMATCHED units after every ledger class, because change groups are assigned only at enrichment. Once every unit has its change group and id, the build orders the units for the manifest with `sort_for_triage` and assigns batches.
+    """Dedupe the audit rows to (codepoints, baseline, new) units, and return them as a `UnitTable` in load order together with the row columns the units' runs address. Load order is ledger class, group, window, with the UNMATCHED units after every ledger class, because change groups are assigned only at enrichment, and the units of one window in the order the file first names them. Once every unit has its change group and id, the build orders the units for the manifest with `sort_for_triage` and assigns batches.
+
+    This is the in-memory source, one of the build's two window sources (the module docstring): it takes rows in any order, and the tests hold the stream (`stream_workload`) to it. The stream reads an audit in sorted sections one window at a time and gives the same table in the same load order, with the ink-duplicate merge already made and each unit's input key computed.
 
     A unit's matched ledger class can differ by config: a window can match a ledger class under an ss03 config and be UNMATCHED under a config without ss03, such as the default. Each unit keeps the full per-config class map in `config_classes`, in the order the file states the configs. Its `class_id` is the single matched class if every config matched, and UNMATCHED if any config did not, so the unmatched default behavior is what gets reviewed; the matched configs stay in `config_classes` for display. A unit whose rows match two different ledger classes raises `ValueError`.
 
@@ -875,10 +907,11 @@ def load_audit_table(
     family_of: dict[int, str],
     *,
     mark: Callable[[str], None] | None = None,
+    descriptor: int | None = None,
 ) -> tuple[UnitTable, RowColumns]:
-    """`load_table(load_audit(path, names), ledger, family_of, names)` with the parse fused into the row loop (`_stage_audit`), which is how the build loads the audit; the columns, the name pool, the string table and the config vocabulary come out identical to that form. `mark` is `load_workload`'s."""
+    """`load_table(load_audit(path, names), ledger, family_of, names)` with the parse fused into the row loop (`_stage_audit`), which is how the build's in-memory source loads the audit; the columns, the name pool, the string table and the config vocabulary come out identical to that form. `mark` is `load_workload`'s. With `descriptor`, the audit is read through that open descriptor from its start, and `path` only names it in messages."""
     columns = RowColumns()
-    return _load_staged(columns, lambda: _stage_audit(path, columns), ledger, family_of, mark)
+    return _load_staged(columns, lambda: _stage_audit(path, columns, descriptor), ledger, family_of, mark)
 
 
 _Staged = tuple[array, array, array, array, array, array, array, list[str]]
@@ -926,7 +959,16 @@ def _stage_rows(rows: Iterable[AuditRow], columns: RowColumns) -> _Staged:
     return config_f, kinds_f, entry_f, baseline_f, new_f, unit_f, counts, windows
 
 
-def _stage_audit(path: Path, columns: RowColumns) -> _Staged:
+def _audit_text(path: Path, descriptor: int | None) -> io.TextIOBase:
+    """The audit as UTF-8 text from its start: opened by `path`, or, with `descriptor`, read through a duplicate of the descriptor the build holds, so a file replaced by rename since the build opened it is not read."""
+    if descriptor is None:
+        return open(path, encoding="utf-8")
+    duplicate = os.dup(descriptor)
+    os.lseek(duplicate, 0, os.SEEK_SET)
+    return io.TextIOWrapper(io.BufferedReader(io.FileIO(duplicate, "rb", closefd=True)), encoding="utf-8")
+
+
+def _stage_audit(path: Path, columns: RowColumns, descriptor: int | None = None) -> _Staged:
     """`_stage_rows` over the audit file, parsing each line straight into the arrays. Each of a line's kinds, rendered-name, matched-entry and config fields maps to its id through a memo keyed on the raw field string, so a repeated field costs one dict lookup; a field seen for the first time is split, interned and pooled as `load_audit` does it, kinds, then baseline, then new, so the ids are assigned in the same order. A unit's window string is interned once, when the unit is first seen. The memos are freed beside the pool's seal."""
     names = columns.names
     config_id = columns.config_id
@@ -948,7 +990,7 @@ def _stage_audit(path: Path, columns: RowColumns) -> _Staged:
     names_memo: dict[str, int] = {}
     entry_memo: dict[str, int] = {}
     config_memo: dict[str, int] = {}
-    with open(path, encoding="utf-8") as handle:
+    with _audit_text(path, descriptor) as handle:
         _check_audit_header(handle, path)
         for line in handle:
             if not line.strip():
@@ -1141,6 +1183,7 @@ def _permute(table: UnitTable, permutation: Sequence[int]) -> None:
     for name in ("_flags", "_window_n"):
         column = getattr(table, name)
         setattr(table, name, array("B", map(column.__getitem__, permutation)))
+    table._window_index = None
 
 
 def build_units(
@@ -1179,8 +1222,82 @@ def triage_key(
 def sort_for_triage(
     table: UnitTable, store: UnitStoreView, class_order: Mapping[str, int], family_of: Mapping[int, str]
 ) -> array:
-    """Return the triage order as a permutation of the table's rows. The rows are not reordered, so the row index stays the ordinal. The class term is each unit's final class (its ledger class, or the change group the build promoted it to), indexed through `class_order`, which maps every class the manifest lists. The id term is the store's `id_word`, the content key's first eight bytes as an integer. It sorts like the id strings `triage_key` uses, because `unit_cache.base58_64` writes a fixed-width base58 over an ascending alphabet. The other terms are `triage_key`'s."""
-    return _triage_permutation(table, class_order, family_ranks(family_of), store.id_word)
+    """Return the triage order as a permutation of the table's rows. The rows are not reordered, so the row index stays the ordinal. The class term is each unit's final class (its ledger class, or the change group the build promoted it to), indexed through `class_order`, which maps every class the manifest lists. The id term is the store's `id_word`, the content key's first eight bytes as an integer. It sorts like the id strings `triage_key` uses, because `unit_cache.base58_64` writes a fixed-width base58 over an ascending alphabet. The other terms are `triage_key`'s. It is a counting sort over the table's window index (`_counting_permutation`), the permutation `_triage_permutation` gives with the id term, ties included."""
+    index = table.window_index()
+    return _counting_permutation(
+        table._class,
+        table._group,
+        table.strings,
+        class_order,
+        family_ranks(family_of),
+        index.ordinals,
+        table.n,
+        runs=index.runs(),
+        id_word=store.id_word,
+    )
+
+
+def _counting_permutation(
+    class_col: Sequence[int],
+    group_col: Sequence[int],
+    strings: StringTable,
+    class_order: Mapping[str, int],
+    family_rank: Mapping[str, int],
+    walk: Sequence[int] | Iterable[int],
+    n: int,
+    *,
+    runs: Iterable[tuple[int, int]] | None = None,
+    id_word: Callable[[int], int] | None = None,
+) -> array:
+    """Return `n` rows in `triage_key` order as a permutation, without a comparison sort over the rows: count each (class, group) bucket, `_triage_permutation`'s first two terms, in one pass, then place the rows into their buckets' slices in the order `walk` gives, which must be window order with the rows of one window in ascending order. A bucket's slice then holds its rows by window, and only rows of one window can tie. With `id_word`, `runs` gives the stretches of `walk` that share a window (`columns.WindowIndex.runs`), and the rows of each that land in one bucket, which sit side by side there, are sorted by id word, keeping ascending order among equal words. Without it the tie keeps `walk`'s order, which is the load's: the stream walks its rows in window order and, within a window, in the order the file first names them. Either way the result is `_triage_permutation`'s with the same terms. It holds one bucket number a row, beside the permutation."""
+    unranked = len(class_order)
+    class_rank = {index: class_order.get(strings[index], unranked) for index in set(class_col)}
+    group_tuples = {
+        index: tuple(family_rank.get(name, 10**6) for name in strings[index].split(":"))
+        for index in set(group_col)
+    }
+    tuple_rank = {ranks: rank for rank, ranks in enumerate(sorted(set(group_tuples.values())))}
+    width = max(len(tuple_rank), 1)
+    class_term = {index: rank * width for index, rank in class_rank.items()}
+    group_term = {index: tuple_rank[ranks] for index, ranks in group_tuples.items()}
+    buckets = (max(class_rank.values(), default=0) + 1) * width
+    bucket = array("I", [0]) * n
+    counts = array("I", [0]) * buckets
+    for ordinal in range(n):
+        number = class_term[class_col[ordinal]] + group_term[group_col[ordinal]]
+        bucket[ordinal] = number
+        counts[number] += 1
+    fill = array("I", accumulate(counts, initial=0))
+    del counts
+    order = array("I", [0]) * n
+    if runs is None or id_word is None:
+        for ordinal in walk:
+            number = bucket[ordinal]
+            at = fill[number]
+            order[at] = ordinal
+            fill[number] = at + 1
+        return order
+    walked = walk if isinstance(walk, (array, list, range)) else array("I", walk)
+    position = 0
+    for start, end in (*runs, (len(walked), len(walked))):
+        for ordinal in walked[position:start]:
+            number = bucket[ordinal]
+            at = fill[number]
+            order[at] = ordinal
+            fill[number] = at + 1
+        placed: dict[int, list[int]] = {}
+        for ordinal in walked[start:end]:
+            number = bucket[ordinal]
+            at = fill[number]
+            order[at] = ordinal
+            fill[number] = at + 1
+            placed.setdefault(number, []).append(at)
+        for spots in placed.values():
+            if len(spots) > 1:
+                low, high = spots[0], spots[-1] + 1
+                order[low:high] = array("I", sorted(order[low:high], key=id_word))
+        position = end
+    return order
 
 
 def _triage_permutation(
@@ -1189,7 +1306,7 @@ def _triage_permutation(
     family_rank: Mapping[str, int],
     id_word: Callable[[int], int] | None = None,
 ) -> array:
-    """Return the rows in `triage_key` order as a permutation, sorting one integer per row instead of a tuple. From the high bits down, the integer packs: the class index; the group's rank among the distinct family-rank tuples (equal tuples share a rank, so groups `triage_key` cannot tell apart stay tied); the window's length; the window's codepoints, big-endian; the id word, when given; and the row index, which makes the sort stable. Each field is wide enough for its largest value, so the packing is exact for any table. The sort holds one `int` per row, a few dozen bytes each, in the list it sorts in place, and frees it on return."""
+    """Return the rows in `triage_key` order as a permutation, sorting one integer per row instead of a tuple. The in-memory source's load orders its rows with it, and the tests hold `_counting_permutation` to it. From the high bits down, the integer packs: the class index; the group's rank among the distinct family-rank tuples (equal tuples share a rank, so groups `triage_key` cannot tell apart stay tied); the window's length; the window's codepoints, big-endian; the id word, when given; and the row index, which makes the sort stable. Each field is wide enough for its largest value, so the packing is exact for any table. The sort holds one `int` per row, a few dozen bytes each, in the list it sorts in place, and frees it on return."""
     strings = table.strings
     unranked = len(class_order)
     class_rank = {index: class_order.get(strings[index], unranked) for index in set(table._class)}
@@ -1285,65 +1402,452 @@ def signature_rows(table: UnitTable, rows: RowColumns) -> SignatureRows:
     return SignatureRows(table, rows)
 
 
+@dataclass(slots=True)
+class _Member:
+    """One sibling unit as the ink-duplicate merge reads and widens it: its row in the table (or its place in the stream's window), its config rank, its configs, kinds and per-config classes, its exemplar flag, and once it absorbs a sibling, its class and exemption; `survivor` is the member that absorbed it, or -1."""
+
+    ordinal: int
+    rank: int
+    configs: tuple[str, ...]
+    kinds: tuple[str, ...]
+    config_classes: Mapping[str, str]
+    exemplar: bool
+    class_id: str = ""
+    no_verdict: bool = False
+    merged: bool = False
+    survivor: int = -1
+
+
+def _merge_members(
+    members: list[_Member],
+    exempt_classes: Collection[str],
+    stats: dict,
+    absorb: Callable[[_Member, _Member], tuple[str, ...]],
+) -> bool:
+    """Merge one window's members whose every config gives one ink signature, the rule `merge_ink_duplicate_units` states: the survivor is the member with the earliest config (a stable sort by config rank), and each later member in that order is absorbed unless the two would join two matched ledger classes, which is counted. `absorb(survivor, other)` merges the two runs of rows, the survivor's first at equal rank, and returns the merged configs. Return whether any member was absorbed."""
+    members.sort(key=lambda member: member.rank)
+    survivor = members[0]
+    merged_any = False
+    for other in members[1:]:
+        matched = {cls for cls in survivor.config_classes.values() if cls != UNMATCHED_CLASS} | {
+            cls for cls in other.config_classes.values() if cls != UNMATCHED_CLASS
+        }
+        if len(matched) > 1:
+            stats["kept_split_matched_classes"] += 1
+            continue
+        survivor.configs = absorb(survivor, other)
+        survivor.kinds = tuple(sorted(set(survivor.kinds) | set(other.kinds)))
+        survivor.config_classes = {**survivor.config_classes, **other.config_classes}
+        classes = set(survivor.config_classes.values())
+        survivor.class_id = UNMATCHED_CLASS if UNMATCHED_CLASS in classes else matched.pop()
+        survivor.no_verdict = survivor.class_id in exempt_classes
+        survivor.exemplar = survivor.exemplar or other.exemplar
+        survivor.merged = True
+        other.survivor = survivor.ordinal
+        stats["units_merged"] += 1
+        merged_any = True
+    return merged_any
+
+
 def merge_ink_duplicate_units(
     table: UnitTable, rows: RowColumns, ink_sig, exempt_classes: Collection[str] = frozenset()
 ) -> dict:
     """Merge sibling units of one window whose placed ink is identical in both fonts under every config they cover. The (codepoints, baseline, new) dedupe key is name-grain, so a config that only renames a glyph splits one visual question into two units; for example, the old font's ss04 lookups rename word-initial ·It without changing its ink. `ink_sig(codepoints, config)` returns the rendered-outcome identity of the window under the config (`InkComparator.signature`, the pair of run-order ink lists that `config_diff` reads), where `codepoints` is the window in the audit's format (`UnitTable.codepoints_text`), the same string the rows of `signature_rows` carry, so a provider built over those rows is keyed by it directly. Units merge only when every config on both sides has the same signature, so the delta, its digest and the ink verdict are identical for the survivor and the units it absorbs.
 
-    The survivor is the sibling with the earliest config. It gets a merged run of both units' rows (`RowColumns.merge_runs`, its own rows first at equal rank, so each row keeps its own rendered names and the content key over the run is the key over the rows), the union of the configs and kinds, and the merged `config_classes` (its own entries first). It keeps its own baseline and new name tuples for display, re-resolves its class with `load_table`'s unmatched-first class rule, and collapses to a single render group, since ink identity implies render-group identity. A merge that would give one unit two different matched ledger classes is skipped, because different names can match different ledger predicates, and is counted in the returned stats. The survivor's row is rewritten in place and each absorbed row is marked with `UnitTable.merge_into`; the caller compacts the table afterward. Run before enrichment and batch assignment.
+    The survivor is the sibling with the earliest config. It gets a merged run of both units' rows (`RowColumns.merge_runs`, its own rows first at equal rank, so each row keeps its own rendered names and the content key over the run is the key over the rows), the union of the configs and kinds, and the merged `config_classes` (its own entries first). It keeps its own baseline and new name tuples for display, re-resolves its class with `load_table`'s unmatched-first class rule, and collapses to a single render group, since ink identity implies render-group identity. A merge that would give one unit two different matched ledger classes is skipped, because different names can match different ledger predicates, and is counted in the returned stats. The survivor's row is rewritten in place and each absorbed row is marked with `UnitTable.merge_into`; the caller compacts the table afterward. Run before enrichment and batch assignment. This is the in-memory source's merge; the stream applies the same rules (`_merge_members`) to each window as it reads it (`stream_workload`).
     """
     stats = {"windows_merged": 0, "units_merged": 0, "kept_split_matched_classes": 0}
-    merged = 0
+
+    def absorb(survivor: _Member, other: _Member) -> tuple[str, ...]:
+        count = table.row_count(survivor.ordinal) + table.row_count(other.ordinal)
+        start = rows.merge_runs(
+            table.rows_start(survivor.ordinal),
+            table.row_count(survivor.ordinal),
+            table.rows_start(other.ordinal),
+            table.row_count(other.ordinal),
+        )
+        table.set_rows(survivor.ordinal, start, count)
+        return rows.configs(start, count)
+
     for siblings in _sibling_windows(table).values():
         codepoints = table.codepoints_text(siblings[0])
-        groups: dict[tuple, list[int]] = {}
+        groups: dict[tuple, list[_Member]] = {}
         for ordinal in siblings:
             signatures = {ink_sig(codepoints, config) for config in table.configs(ordinal)}
             if len(signatures) == 1:
-                groups.setdefault(signatures.pop(), []).append(ordinal)
+                groups.setdefault(signatures.pop(), []).append(
+                    _Member(
+                        ordinal,
+                        table.config_rank(ordinal),
+                        table.configs(ordinal),
+                        table.kinds(ordinal),
+                        table.config_classes(ordinal),
+                        table.exemplar(ordinal),
+                    )
+                )
         for members in groups.values():
             if len(members) < 2:
                 continue
-            members.sort(key=table.config_rank)
-            survivor = members[0]
-            merged_any = False
-            for ordinal in members[1:]:
-                survivor_classes = table.config_classes(survivor)
-                absorbed_classes = table.config_classes(ordinal)
-                matched = {cls for cls in survivor_classes.values() if cls != UNMATCHED_CLASS} | {
-                    cls for cls in absorbed_classes.values() if cls != UNMATCHED_CLASS
-                }
-                if len(matched) > 1:
-                    stats["kept_split_matched_classes"] += 1
-                    continue
-                count = table.row_count(survivor) + table.row_count(ordinal)
-                start = rows.merge_runs(
-                    table.rows_start(survivor),
-                    table.row_count(survivor),
-                    table.rows_start(ordinal),
-                    table.row_count(ordinal),
-                )
-                table.set_rows(survivor, start, count)
-                configs = rows.configs(start, count)
-                table.set_configs(survivor, configs)
-                table.set_kinds(
-                    survivor, tuple(sorted(set(table.kinds(survivor)) | set(table.kinds(ordinal))))
-                )
-                merged_classes = {**survivor_classes, **absorbed_classes}
-                table.set_config_classes(survivor, merged_classes)
-                classes = set(merged_classes.values())
-                class_id = UNMATCHED_CLASS if UNMATCHED_CLASS in classes else matched.pop()
-                table.set_class(survivor, class_id)
-                table.set_no_verdict(survivor, class_id in exempt_classes)
-                table.set_render_groups(survivor, (table.configs(survivor),))
-                table.set_exemplar(survivor, table.exemplar(survivor) or table.exemplar(ordinal))
-                table.merge_into(ordinal, survivor)
-                merged += 1
-                merged_any = True
-            if merged_any:
+            if _merge_members(members, exempt_classes, stats, absorb):
                 stats["windows_merged"] += 1
-    stats["units_merged"] = merged
+            for member in members:
+                if member.merged:
+                    survivor = member.ordinal
+                    table.set_configs(survivor, member.configs)
+                    table.set_kinds(survivor, member.kinds)
+                    table.set_config_classes(survivor, member.config_classes)
+                    table.set_class(survivor, member.class_id)
+                    table.set_no_verdict(survivor, member.no_verdict)
+                    table.set_render_groups(survivor, (member.configs,))
+                    table.set_exemplar(survivor, member.exemplar)
+            for member in members:
+                if member.survivor >= 0:
+                    table.merge_into(member.ordinal, member.survivor)
     return stats
+
+
+class AuditLayout(NamedTuple):
+    """What `audit_layout` finds: the audit's sections (`audit_stream.Section`) when it is in sorted sections, or None and `why` it is not, beside the byte its rows start at."""
+
+    sections: list[audit_stream.Section] | None
+    why: str
+    rows_start: int
+
+
+def audit_layout(descriptor: int, path: Path) -> AuditLayout:
+    """Check the audit's header through the held descriptor, raising the in-memory source's `ValueError` for an empty file or another header, and find its sections (`audit_stream.audit_sections`), or why it has none: a header that is not UTF-8 or holds a carriage return, which the in-memory source's text read takes, or sections out of rank order."""
+    size = os.fstat(descriptor).st_size
+    if size == 0:
+        raise ValueError(f"{path}: empty audit, no header")
+    line, start = audit_stream.line_at(descriptor, 0, size)
+    try:
+        text = line.decode("utf-8")
+    except UnicodeDecodeError:
+        return AuditLayout(None, "its header is not UTF-8", start)
+    if "\r" in text:
+        return AuditLayout(None, "its header ends in a carriage return", start)
+    header = text.split("\t")
+    if tuple(header) != AUDIT_HEADER:
+        raise ValueError(f"{path}: unexpected audit header {header!r}")
+    sections = audit_stream.audit_sections(descriptor, start, size, _config_index)
+    if isinstance(sections, str):
+        return AuditLayout(None, sections, start)
+    return AuditLayout(sections, "", start)
+
+
+class PremergeColumns(NamedTuple):
+    """The stream's pre-merge units in load order, in the columns `facts.PremergeSnapshot` holds: each one's class id and config-set id (into the table's string table and tuple pool), its exemption, and its window's offsets into the table's value column."""
+
+    class_id: array
+    no_verdict: bytearray
+    configs: array
+    window_start: array
+    window_n: array
+
+
+class StreamedLoad(NamedTuple):
+    """What `stream_workload` returns: the workload, whose table holds the merged units in load order with their window index; the pre-merge units' columns in load order and the compaction from each to its merged unit's row; each merged unit's input key, 32 bytes a row in load order; and the merge's stats."""
+
+    workload: Workload
+    premerge: PremergeColumns
+    compaction: Compaction
+    input_keys: bytearray
+    merge_stats: dict
+
+
+def _merged_rows(first: list, second: list) -> list:
+    """Two runs of `(section, fields, line)` rows merged by section, which is config rank, the first run's row ahead at an equal one, as `RowColumns.merge_runs` merges runs."""
+    merged = []
+    i = j = 0
+    while i < len(first) and j < len(second):
+        if second[j][0] < first[i][0]:
+            merged.append(second[j])
+            j += 1
+        else:
+            merged.append(first[i])
+            i += 1
+    merged.extend(first[i:])
+    merged.extend(second[j:])
+    return merged
+
+
+def stream_workload(
+    descriptor: int,
+    audit_path: Path,
+    ledger_path: Path,
+    sections: Sequence[audit_stream.Section],
+    ledger: list[LedgerClass],
+    family_of: Mapping[int, str],
+    family_keys: Mapping[str, str],
+    ink_digest: Callable[[int, str, str], Hashable] | None,
+    *,
+    mark: Callable[..., None] | None = None,
+) -> StreamedLoad:
+    """Load the audit from its sorted sections one window at a time (`audit_stream.lockstep`), the build's stream source (the module docstring). Each window's rows group into units by `(baseline, new)` in the order the file first names them, which in rank-ordered sections is config order; each unit's run is in rank order, and so is its `config_classes`, as in the file. A unit is classed, flagged and pooled as `load_table` does it, the unknown-entry check runs once the rows are read, and a unit whose rows match two ledger classes raises the same `ValueError`, though with two such units it may name another first. In a window of two or more units every row's ink-signature key is computed from its raw fields (`audit_stream.signature_key`) and `ink_digest(key, window, config)` gives its signature, and the window's units merge by `merge_ink_duplicate_units`' rules (`_merge_members`). With `ink_digest` None the merge is skipped. Each merged unit's input key is the sha256 of its run's raw lines and its window's family lines (`audit_stream.input_key`), as `unit_cache.UnitKeyer.key` computes it from row columns.
+
+    The merged units are written in window order, and the pre-merge units' snapshot columns beside them. Once the rows are read, the load order is a counting sort of the pre-merge units over their classes and groups, walked in that window order (`_counting_permutation`), the permutation `_triage_permutation` gives the in-memory source's table; the merged units keep their survivors' places in it, as `UnitTable.compact` keeps them, so the table, the snapshot and the input keys come out as the in-memory source's after its merge and compaction. The window index (`UnitTable.window_index`) is the merged units in window order, which the walk wrote them in. `mark` is the build's sub-step hook, called as the rows are read (`stream ended`) and once the load order is placed (`triage permutation built`). An `audit_stream.OrderBreak` from the walk propagates, and the caller discards what the stream built.
+    """
+    label = sys.intern
+    strings = StringTable()
+    names: TuplePool[str] = TuplePool()
+    table = UnitTable(0, strings, names)
+    tuple_id = table._tuple_id
+    groups_pool = table.groups
+    mappings = table.mappings
+    window_values = table._window_values
+    lines_of = audit_stream.FamilyLines(family_of, family_keys)
+    exempt = frozenset(entry.id for entry in ledger if entry.no_verdict)
+    exemplar_keys = {key for entry in ledger for key in entry.exemplar_keys}
+    section_configs = [label(section.config) for section in sections]
+    section_ranks = [section.rank for section in sections]
+    stats = {"windows_merged": 0, "units_merged": 0, "kept_split_matched_classes": 0}
+    unmatched = UNMATCHED_CLASS
+
+    class_col = array("I")
+    group_col = array("I")
+    configs_col = array("I")
+    kinds_col = array("I")
+    render_col = array("I")
+    baseline_col = array("I")
+    new_col = array("I")
+    mapping_col = array("I")
+    flags_col = array("B")
+    start_col = array("I")
+    count_col = array("B")
+    rows_col = array("I")
+    words = array("Q")
+    keys = bytearray()
+
+    pre_class = array("I")
+    pre_group = array("I")
+    pre_exempt = bytearray()
+    pre_configs = array("I")
+    pre_start = array("I")
+    pre_count = array("B")
+    post_of = array("I")
+    absorbed = bytearray()
+
+    configs_memo: dict[tuple[int, ...], tuple[tuple[str, ...], int]] = {}
+    kinds_memo: dict[tuple[str, ...], tuple[tuple[str, ...], int]] = {}
+    class_memo: dict[tuple[tuple[int, ...], tuple[str, ...]], tuple[str, int, Mapping[str, str], int]] = {}
+    entries_seen: set[str] = set()
+    packed = True
+    row_total = 0
+
+    def name_id(field: str) -> int:
+        return names.id(tuple(map(label, field.split("|"))))
+
+    for window, found in audit_stream.lockstep(descriptor, sections):
+        row_total += len(found)
+        values = audit_stream.parse_window(window)
+        offset = len(window_values)
+        window_values.extend(values)
+        length = len(values)
+        group = strings.id(group_for(values, family_of))
+        word = window_word(values)
+        if word is None:
+            packed = False
+            word = 0
+        suffix = lines_of.suffix(values)
+        if len(found) == 1:
+            units = [found]
+        else:
+            by_pair: dict[tuple[str, str], list] = {}
+            for row in found:
+                fields = row[1]
+                pair = (fields[4], fields[5])
+                unit = by_pair.get(pair)
+                if unit is None:
+                    by_pair[pair] = [row]
+                else:
+                    unit.append(row)
+            units = list(by_pair.values())
+        members: list[_Member] = []
+        identities: list[tuple[int, int, int, int, int]] = []
+        for place, unit_rows in enumerate(units):
+            section_key = tuple(row[0] for row in unit_rows)
+            got_configs = configs_memo.get(section_key)
+            if got_configs is None:
+                configs = tuple(section_configs[index] for index in section_key)
+                got_configs = configs_memo[section_key] = (configs, tuple_id(configs))
+            configs, configs_id = got_configs
+            kinds_key = tuple(row[1][2] for row in unit_rows)
+            got_kinds = kinds_memo.get(kinds_key)
+            if got_kinds is None:
+                kinds = tuple(sorted({label(kind) for field in kinds_key for kind in field.split(",")}))
+                got_kinds = kinds_memo[kinds_key] = (kinds, tuple_id(kinds))
+            kinds, kinds_id = got_kinds
+            entries = tuple(row[1][3] for row in unit_rows)
+            got_class = class_memo.get((section_key, entries))
+            if got_class is None:
+                classes = set(entries)
+                matched = classes - {unmatched}
+                if len(matched) > 1:
+                    raise ValueError(
+                        f"unit {window} spans multiple matched ledger classes: {sorted(matched)}"
+                    )
+                entries_seen.update(classes)
+                class_name = label(unmatched if unmatched in classes else matched.pop())
+                mapping_id = mappings.id(
+                    {section_configs[index]: label(entry) for index, entry in zip(section_key, entries)}
+                )
+                got_class = class_memo[(section_key, entries)] = (
+                    class_name,
+                    strings.id(class_name),
+                    mappings[mapping_id],
+                    mapping_id,
+                )
+            class_name, class_index, mapping, mapping_id = got_class
+            exemplar = bool(exemplar_keys) and any((config, window) in exemplar_keys for config in configs)
+            exempted = class_name in exempt
+            members.append(
+                _Member(
+                    place,
+                    section_ranks[section_key[0]],
+                    configs,
+                    kinds,
+                    mapping,
+                    exemplar,
+                    class_name,
+                    exempted,
+                )
+            )
+            identities.append((class_index, configs_id, kinds_id, mapping_id, 1 if exempted else 0))
+        if len(units) > 1 and ink_digest is not None:
+            by_signature: dict[Hashable, list[_Member]] = {}
+            for member, unit_rows in zip(members, units):
+                signatures = {
+                    ink_digest(audit_stream.signature_key(fields, suffix), window, fields[0])
+                    for _index, fields, _line in unit_rows
+                }
+                if len(signatures) == 1:
+                    by_signature.setdefault(signatures.pop(), []).append(member)
+
+            def absorb(survivor: _Member, other: _Member) -> tuple[str, ...]:
+                merged = units[survivor.ordinal] = _merged_rows(units[survivor.ordinal], units[other.ordinal])
+                return tuple(section_configs[row[0]] for row in merged)
+
+            for group_members in by_signature.values():
+                if len(group_members) > 1 and _merge_members(group_members, exempt, stats, absorb):
+                    stats["windows_merged"] += 1
+        posts = [0] * len(members)
+        for member, unit_rows in zip(members, units):
+            if member.survivor >= 0:
+                continue
+            posts[member.ordinal] = len(class_col)
+            class_index, configs_id, kinds_id, mapping_id, _exempted = identities[member.ordinal]
+            if member.merged:
+                class_index = strings.id(member.class_id)
+                configs_id = tuple_id(member.configs)
+                kinds_id = tuple_id(member.kinds)
+                mapping_id = mappings.id(member.config_classes)
+            class_col.append(class_index)
+            group_col.append(group)
+            configs_col.append(configs_id)
+            kinds_col.append(kinds_id)
+            render_col.append(groups_pool.id((member.configs,)))
+            baseline_col.append(name_id(unit_rows[0][1][4]))
+            new_col.append(name_id(unit_rows[0][1][5]))
+            mapping_col.append(mapping_id)
+            flags_col.append(
+                LIVE | (EXEMPLAR if member.exemplar else 0) | (NO_VERDICT if member.no_verdict else 0)
+            )
+            start_col.append(offset)
+            count_col.append(length)
+            rows_col.append(len(unit_rows))
+            words.append(word)
+            keys += audit_stream.input_key((row[2] for row in unit_rows), suffix)
+        for member in members:
+            class_index, configs_id, _kinds_id, _mapping_id, exempted = identities[member.ordinal]
+            pre_class.append(class_index)
+            pre_group.append(group)
+            pre_exempt.append(exempted)
+            pre_configs.append(configs_id)
+            pre_start.append(offset)
+            pre_count.append(length)
+            absorbed.append(1 if member.survivor >= 0 else 0)
+            post_of.append(posts[member.survivor if member.survivor >= 0 else member.ordinal])
+    names.seal()
+    n_pre = len(pre_class)
+    n = len(class_col)
+    if mark is not None:
+        mark("stream ended", units=n_pre, rows=row_total)
+    unknown = sorted(entries_seen - {unmatched} - {entry.id for entry in ledger})
+    if unknown:
+        raise ValueError(
+            f"{audit_path}: rows match classes {ledger_path} does not declare: {', '.join(unknown)}"
+        )
+
+    load = _counting_permutation(
+        pre_class,
+        pre_group,
+        strings,
+        {entry.id: index for index, entry in enumerate(ledger)},
+        family_ranks(family_of),
+        range(n_pre),
+        n_pre,
+    )
+    if mark is not None:
+        mark("triage permutation built")
+    order = array("I", (post_of[pre] for pre in load if not absorbed[pre]))
+    place_of = array("I", [0]) * n
+    for position, post in enumerate(order):
+        place_of[post] = position
+    premerge = PremergeColumns(
+        gather(pre_class, load),
+        bytearray(map(pre_exempt.__getitem__, load)),
+        gather(pre_configs, load),
+        gather(pre_start, load),
+        gather(pre_count, load),
+    )
+    compaction = Compaction(
+        array("I", (place_of[post_of[pre]] for pre in load)), bytearray(map(absorbed.__getitem__, load))
+    )
+    del load, pre_class, pre_group, pre_exempt, pre_configs, pre_start, pre_count, post_of, absorbed
+
+    table.n = n
+    streamed = {
+        "_class": class_col,
+        "_group": group_col,
+        "_configs": configs_col,
+        "_kinds": kinds_col,
+        "_render_groups": render_col,
+        "_baseline": baseline_col,
+        "_new": new_col,
+        "_config_classes": mapping_col,
+        "_flags": flags_col,
+        "_window_start": start_col,
+        "_window_n": count_col,
+        "_row_count": rows_col,
+    }
+    del class_col, group_col, configs_col, kinds_col, render_col, baseline_col, new_col, mapping_col
+    del flags_col, start_col, count_col, rows_col
+    for name in list(streamed):
+        setattr(table, name, gather(streamed.pop(name), order))
+    for name in ("_unmatched_group", "_duplicate_group", "_cluster", "_rows_start"):
+        setattr(table, name, array("I", [0]) * n)
+    for name in ("_order", "_batch", "_survivor"):
+        setattr(table, name, array("I", [NONE]) * n)
+    input_keys = bytearray(INPUT_KEY_BYTES * n)
+    for position, post in enumerate(order):
+        input_keys[position * INPUT_KEY_BYTES : (position + 1) * INPUT_KEY_BYTES] = keys[
+            post * INPUT_KEY_BYTES : (post + 1) * INPUT_KEY_BYTES
+        ]
+    del keys, order
+    if packed:
+        index = WindowIndex(place_of, words)
+        for start, end in index.runs():
+            run = place_of[start:end]
+            place_of[start:end] = array("I", sorted(run))
+        table._window_index = index
+    workload = Workload(
+        table=table,
+        ledger=ledger,
+        row_count=row_total,
+        rows=None,
+        classes_present=[entry for entry in ledger if entry.id in table.classes_present()],
+    )
+    return StreamedLoad(workload, premerge, compaction, input_keys, stats)
 
 
 def release_rows(workload: Workload) -> None:
@@ -1392,10 +1896,11 @@ def load_workload(
     family_of: dict[int, str],
     *,
     mark: Callable[[str], None] | None = None,
+    descriptor: int | None = None,
 ) -> Workload:
-    """Load the ledger and the audit into a `Workload`. Every row's `matched_entry` must be UNMATCHED or a ledger id: an audit written by run_m1 under an older ledger, one whose ids have since been renamed, would otherwise list its units under classes the ledger does not describe. `mark` is the build's sub-step hook (`memory_tally.mark`), passed in rather than imported for the reason `RowColumns` gives."""
+    """Load the ledger and the audit into a `Workload` through the in-memory source, the table in load order before the ink-duplicate merge, beside its row columns. Every row's `matched_entry` must be UNMATCHED or a ledger id: an audit written by run_m1 under an older ledger, one whose ids have since been renamed, would otherwise list its units under classes the ledger does not describe. `mark` is the build's sub-step hook (`memory_tally.mark`), passed in rather than imported for the reason `RowColumns` gives. With `descriptor`, the audit is read through that open descriptor (`load_audit_table`)."""
     ledger = load_ledger(ledger_path)
-    table, rows = load_audit_table(audit_path, ledger, family_of, mark=mark)
+    table, rows = load_audit_table(audit_path, ledger, family_of, mark=mark, descriptor=descriptor)
     named = {rows.table[index] for index in set(rows.entry)}
     unknown = sorted(named - {UNMATCHED_CLASS} - {entry.id for entry in ledger})
     if unknown:

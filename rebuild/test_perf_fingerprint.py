@@ -54,7 +54,12 @@ def _corpus(root: Path, *, stamp: str, head: str, inputs: str, unit: str = '{"id
     )
     _gz(
         corpus / "ink-signatures.tsv.gz",
-        {"format": "ams-ink-signatures/1", "environment_lines": [inputs]},
+        {
+            "format": "ams-ink-signatures/1",
+            "environment_lines": [inputs],
+            "audit_identity": [1, 2, len(stamp), len(inputs)],
+            "family_keys_digest": inputs,
+        },
         "s\n",
     )
     return corpus

@@ -2,7 +2,7 @@
 
 Columns avoid per-object overhead: a tuple header per span, a pointer per name, a dict per unit for the deltas, a string object per digest. The same state held as one slotted record per unit measured 1,192 bytes a unit against 171 packed (the `units states` tally line in `var/issue-299/stage1-cold.log`). A `UnitStore` is allocated once with the row count. Each fixed-width field is one `array` typed by width: flag bits in a byte, string ids as `u32`, the content and input keys as 32-byte slices of one `bytearray` each, and an address as a part id, a `u64` start and a `u32` length. Each variable-length field (the window's codepoints, the ink deltas, the after and before rows of the primary-unit projection, the secondary junctions with their rects and primary units) is an offset and a count into a side array, so an empty field costs only its offsets and count. The mismatch lines are kept as objects in a dict keyed by ordinal. A shipping build has none, because the write fails when any exist, so a column for them would hold only empty offsets.
 
-The ordinal is the unit's row in the workload table (`audit.UnitTable`) after the ink-duplicate merge compacts it, and the store is allocated over the same count, so one index reads both tables. The two tables share one string table, passed in as `strings`. The plan's keyer loop writes every input key (`set_input_key`) before any row is loaded, and a load that carries an input key must match the one already written. The unit id is not stored. `unit_cache.unit_id_for` writes the first 64 bits of the content key as eleven base58 symbols over an ASCII-ordered alphabet, so the id is the key's first eight bytes read big-endian (`id_word`), and ids sort as strings in the same order as those integers. The primary-unit resolution pass breaks ties on the integer. Readers that hold an id string (the checker's cached-id lookup, the verification sample, `set_primary_units` given a string) go through `ordinal_of`, a bisect over the sorted words, built once after the load. That build fails on a repeated id, because two windows with one 64-bit prefix would share a fragment address.
+The ordinal is the unit's row in the workload table (`audit.UnitTable`) after the ink-duplicate merge compacts it, and the store is allocated over the same count, so one index reads both tables. The two tables share one string table, passed in as `strings`. The store takes every unit's input key as one column from the load (`input_keys`), which computed each from the unit's audit lines, before any row is loaded, and a load that carries an input key must match the one already there. The plan matches the prior store's records to units through an open-addressed index over that column (`input_key_index`, `columns.KeyIndex`). The unit id is not stored. `unit_cache.unit_id_for` writes the first 64 bits of the content key as eleven base58 symbols over an ASCII-ordered alphabet, so the id is the key's first eight bytes read big-endian (`id_word`), and ids sort as strings in the same order as those integers. The primary-unit resolution pass breaks ties on the integer. Readers that hold an id string (the checker's cached-id lookup, the verification sample, `set_primary_units` given a string) go through `ordinal_of`, a bisect over the sorted words, built once after the load (`index`), 256 top-byte buckets of words at a time (`columns.sorted_by_word`). That build fails on a repeated id, because two windows with one 64-bit prefix would share a fragment address.
 
 Every string (a digest, a cluster, a change group, a ledger class, a config name, a glyph or cell name, a junction token, a part name, a class, a duplicate-group id, a policy file, a config note) is an id into one `columns.StringTable`, which interns through `sys.intern` and assigns ids in first-seen order as the load runs. In a pooled build that order depends on timing, but no output byte depends on it, because every accessor returns the string. Id 0 is the empty string, which the accessors read as `""` for a required field and as `None` for an optional one.
 
@@ -25,7 +25,15 @@ from typing import NamedTuple, Protocol
 from rebuild.review import enrich, unit_cache
 from rebuild.review.audit import MACHINE_CHECKS, format_codepoints
 from rebuild.review.unit_cache import NO_PRIOR_LINE
-from rebuild.review.columns import StringTable, Withheld, gather, gather_runs, gather_slices
+from rebuild.review.columns import (
+    KeyIndex,
+    StringTable,
+    Withheld,
+    gather,
+    gather_runs,
+    gather_slices,
+    sorted_by_word,
+)
 from rebuild.tools import memory_tally
 
 KEY_BYTES = 32
@@ -43,8 +51,6 @@ NO_VERDICT = 64
 BYTE_COPIED = 128
 PRIOR_EXEMPLAR = 1
 PRIOR_NO_VERDICT = 2
-
-_ALPHABET_INDEX = {symbol: index for index, symbol in enumerate(unit_cache.BASE58_ALPHABET)}
 
 # The columns the corpus write (`build._write_chunk`) never reads: the primary-unit projection and the store's copy of the window, which the whole-corpus passes before the write read; the diff digest, cluster, change group and judged pair, which the plan, those passes and the cache write read; the shard address and config note, which the write produces and the parent stores; the id index; and the prior store's lines and records, which the parent reads to route each class and to write the store, and whose prior fragments the gather resolves for each chunk. `UnitStore.gather` leaves them out of the chunk a write worker reads, with the mismatch lines, which only the parent reads.
 WRITE_UNREAD_COLUMNS = (
@@ -142,17 +148,10 @@ Address = tuple[str, int, int]
 
 def id_word_of(unit_id: str) -> int:
     """Return the 64-bit word a unit id encodes, the inverse of `unit_cache.unit_id_for`, so `ordinal_of` can bisect the word column without encoding every word. Raises `KeyError` for an id of any other shape, or one whose eleven symbols exceed 64 bits, since no unit can have it."""
-    if len(unit_id) != 2 + unit_cache.ID_SYMBOLS or not unit_id.startswith("u-"):
+    word = unit_cache.id_word(unit_id)
+    if word is None:
         raise KeyError(unit_id)
-    value = 0
-    for symbol in unit_id[2:]:
-        index = _ALPHABET_INDEX.get(symbol)
-        if index is None:
-            raise KeyError(unit_id)
-        value = value * 58 + index
-    if value >> 64:
-        raise KeyError(unit_id)
-    return value
+    return word
 
 
 def _rect_edges(edge: dict) -> tuple[int, int, int]:
@@ -163,7 +162,7 @@ def _rect_edges(edge: dict) -> tuple[int, int, int]:
 
 
 class UnitStore:
-    """Per-unit state as columns over the ordinal (see the module docstring). `strings` is the workload table's string table, so the two share ids; without it the store owns a table. `input_keys` is an input-key column to copy, for a store restarted after a broken stream (`emptied`). Each ordinal is loaded once, by `load_projection` for a recomputed unit or `load_cached` for a cached one. The whole-corpus passes and the write store their results through the `set_*` methods. `index`, or the first `ordinal_of`, builds the id index."""
+    """Per-unit state as columns over the ordinal (see the module docstring). `strings` is the workload table's string table, so the two share ids; without it the store owns a table. `input_keys` is the input-key column the store takes as its own: the load's, or a copy for a store restarted after a broken stream (`emptied`). Each ordinal is loaded once, by `load_projection` for a recomputed unit or `load_cached` for a cached one. The whole-corpus passes and the write store their results through the `set_*` methods. `index`, or the first `ordinal_of`, builds the id index."""
 
     def __init__(
         self, n: int, strings: StringTable | None = None, input_keys: bytearray | None = None
@@ -186,7 +185,7 @@ class UnitStore:
             raise ValueError(
                 f"an input-key column for {n} units is {n * KEY_BYTES} bytes, not {len(input_keys)}"
             )
-        self._input_keys = bytearray(n * KEY_BYTES) if input_keys is None else bytearray(input_keys)
+        self._input_keys = bytearray(n * KEY_BYTES) if input_keys is None else input_keys
         self._src_part = array("I", [0]) * n
         self._src_start = array("Q", [0]) * n
         self._src_len = array("I", [0]) * n
@@ -245,7 +244,7 @@ class UnitStore:
 
     def emptied(self) -> UnitStore:
         """Return a store over the same rows, string table and input keys with nothing loaded. The plan restarts with it when a stream breaks after some records were loaded: the input keys the keyer wrote are kept, and the loaded rows are discarded."""
-        store = UnitStore(self.n, strings=self._table, input_keys=self._input_keys)
+        store = UnitStore(self.n, strings=self._table, input_keys=bytearray(self._input_keys))
         store._holds_table = self._holds_table
         return store
 
@@ -512,14 +511,15 @@ class UnitStore:
         return ordinal
 
     def index(self) -> tuple[array, array]:
-        """Return the id index: the units' id words sorted, beside the ordinal of each word. It is built on the first call and cached. Building it fails on a repeated id, naming both windows, and on an unloaded row, whose all-zero key would otherwise be indexed as a unit."""
+        """Return the id index: the units' id words sorted, beside the ordinal of each word. It is built on the first call and cached, by dealing the words into 256 buckets by their top byte and sorting each bucket on its own (`columns.sorted_by_word`), which gives the order a stable sort of every word gives and holds one bucket's integers at a time. Building it fails on a repeated id, naming both windows of the first repeat in that order, and on an unloaded row, whose all-zero key would otherwise be indexed as a unit."""
         if self._id_words is None or self._id_ordinals is None:
             unloaded = self._loaded.find(0)
             if unloaded != -1:
                 raise ValueError(f"ordinal {unloaded} was never loaded")
             words = array("Q", (self.id_word(ordinal) for ordinal in range(self.n)))
-            order = sorted(range(self.n), key=words.__getitem__)
-            sorted_words = array("Q", (words[ordinal] for ordinal in order))
+            order = sorted_by_word(words)
+            sorted_words = array("Q", map(words.__getitem__, order))
+            del words
             for index in range(1, self.n):
                 if sorted_words[index] == sorted_words[index - 1]:
                     first, second = order[index - 1], order[index]
@@ -530,7 +530,7 @@ class UnitStore:
                         "their carry projections hash to one 64-bit prefix"
                     )
             self._id_words = sorted_words
-            self._id_ordinals = array("I", order)
+            self._id_ordinals = order
         return self._id_words, self._id_ordinals
 
     def ordinal_of(self, unit_id: str) -> int:
@@ -556,6 +556,10 @@ class UnitStore:
 
     def input_key_hex(self, ordinal: int) -> str:
         return self._input_keys[ordinal * KEY_BYTES : (ordinal + 1) * KEY_BYTES].hex()
+
+    def input_key_index(self) -> KeyIndex:
+        """An index from each unit's input key to its ordinal over the input-key column (`columns.KeyIndex`), which the plan matches the prior store's lines through. Building it raises `columns.RepeatedKey` naming the first two ordinals that hold one key. Release it (`KeyIndex.release`) before the column is copied or freed."""
+        return KeyIndex(self._input_keys, KEY_BYTES, self.n)
 
     def loaded(self, ordinal: int) -> bool:
         return bool(self._loaded[ordinal])
@@ -965,7 +969,7 @@ class UnitStore:
         )
 
     def windows(self) -> Iterator[tuple[int, tuple[int, ...]]]:
-        """Yield every unit's ordinal and window, for the primary-unit resolution pass's `by_codepoints` index."""
+        """Yield every unit's ordinal and window, for the primary-unit resolution pass's window index when the caller passes none (`columns.WindowIndex.build`)."""
         for ordinal in range(self.n):
             yield ordinal, self.codepoints(ordinal)
 

@@ -4,6 +4,7 @@ import gzip
 import io
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -842,13 +843,14 @@ def _routes(inputs: ms.CorpusInputs) -> list[str]:
     )
 
 
-def _measure_line(inputs, step_dir, cut, routes, **given):
+def _measure_line(inputs, step_dir, cut, routes, audit_file=None, **given):
     return ms.measure_corpus_line(
         inputs,
         step_dir,
         cut,
         WIDTHS,
         routes,
+        audit_file or ms.prepare_audit(inputs, cut, step_dir.parent / ms.AUDITS_DIR),
         **{
             "env": ms.corpus_environment(),
             "cwd": build.REPO_ROOT,
@@ -871,7 +873,7 @@ def _audit_rows(excluded=frozenset()):
 def test_a_cut_line_builds_over_the_cut_audit_and_writes_only_what_the_build_reads_back(
     mini_bundle, mini_corpus, monkeypatch, tmp_path
 ):
-    """A cut line feeds the build the audit rows whose windows use only the cut's letters, here every letter but ·Out and ·Fee. As the child starts, its out dir holds a clone of the live signature store and a link to the null device at every staging name `null_routes` gives, and once the line is done the only regular files it left are the ones the build reads back or does not route, and its directory is gone. The line reads every mark in `CORPUS_MARKS` order, the signatures all answered by the clone, both pools' workers from their pool records and from the sampler, one held sidecar figure a write run from the write phase's note, and its pack child's block with one pack process a configuration, the child run with the line's allocator setting. The checkout's code digests are read after the idle wait and before the after-wait, so an edit made during either wait is not one made during the build."""
+    """A cut line's build reads the audit rows whose windows use only the cut's letters, here every letter but ·Out and ·Fee, from the cut audit the run wrote for it, a real file in sorted sections, which the build reads as a stream. As the child starts, its out dir holds a clone of the live signature store and a link to the null device at every staging name `null_routes` gives, and once the line is done the only regular files it left are the ones the build reads back or does not route, and its directory is gone. The line reads every mark in `CORPUS_MARKS` order, the key-only read's largest process peak from the load note, the signatures all answered by the clone, both pools' workers from their pool records and from the sampler, one held sidecar figure a write run from the write phase's note, and its pack child's block with one pack process a configuration, the child run with the line's allocator setting. The checkout's code digests are read after the idle wait and before the after-wait, so an edit made during either wait is not one made during the build."""
     inputs = _mini_inputs(mini_bundle, mini_corpus)
     routes = _routes(inputs)
     excluded = frozenset({0xE67B, 0xE658})
@@ -881,21 +883,27 @@ def test_a_cut_line_builds_over_the_cut_audit_and_writes_only_what_the_build_rea
     monkeypatch.setattr(ms, "corpus_code", lambda checkout: {"corpus_code": f"after {len(waits)} waits"})
 
     def looking(step_dir, signatures, given):
-        fifo = route(step_dir, signatures, given)
-        for path in (step_dir / ms.OUT_NAME).rglob("*"):
+        out_dir = route(step_dir, signatures, given)
+        for path in out_dir.rglob("*"):
             if path.is_symlink() or path.is_file():
-                seen[path.relative_to(step_dir / ms.OUT_NAME).as_posix()] = (
+                seen[path.relative_to(out_dir).as_posix()] = (
                     os.readlink(path) if path.is_symlink() else "file"
                 )
-        return fifo
+        return out_dir
 
     monkeypatch.setattr(ms, "route_corpus", looking)
     step_dir = tmp_path / "step"
+    cut = ms.CorpusCut("r-test", ("qsDay",), 1, excluded)
+    audit_file = ms.prepare_audit(inputs, cut, tmp_path / ms.AUDITS_DIR)
+    assert audit_file.kind == "cut" and audit_file.path.read_text(encoding="utf-8").splitlines()[
+        1:
+    ] == _audit_rows(excluded)
     measured = _measure_line(
         inputs,
         step_dir,
-        ms.CorpusCut("r-test", ("qsDay",), 1, excluded),
+        cut,
         routes,
+        audit_file,
         env={**ms.corpus_environment(), **kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT},
         idle_s=1,
         after_s=1,
@@ -905,7 +913,11 @@ def test_a_cut_line_builds_over_the_cut_audit_and_writes_only_what_the_build_rea
     assert measured["code"] == {"corpus_code": "after 1 waits"} and "code_after" not in measured
     assert seen == {**dict.fromkeys(routes, os.devnull), unit_cache.SIGNATURE_STORE_NAME: "file"}
     assert measured["rows"] == len(_audit_rows(excluded)) < len(_audit_rows())
-    assert 0 < measured["feed_s"] < measured["wall_s"]
+    assert measured["audit"] == {"kind": "cut", "bytes": audit_file.bytes, "seconds": audit_file.seconds}
+    assert measured["load_source"] == "read as a stream"
+    assert re.fullmatch(
+        r"ran \d+\.\d\d s across \d+ processes, the largest \d+\.\d{3} GB resident", measured["key_only_read"]
+    ), measured["key_only_read"]
     assert [mark["label"] for mark in measured["marks"]] == list(ms.CORPUS_MARKS)
     assert measured["files"]["stray"] == {}
     assert {"out/manifest.json", "out/review-facts.json", ms.POOLS_NAME} <= set(measured["files"]["kept"])
@@ -967,16 +979,22 @@ def test_a_cut_lines_pack_child_packs_the_cut_tables_through_fifos_onto_the_null
 
 @clones
 def test_a_load_line_stops_at_the_plan_over_the_audit_and_its_moved_copy(mini_bundle, mini_corpus, tmp_path):
-    """The ×1 load line feeds the live audit, the ×2 line the live audit and then its moved copy, so ×2 loads twice the rows and twice the units with no merge between them. The mark reporter stops each build at the plan's mark: the marks end there, no pool starts, and the line leaves no file."""
+    """The ×1 load line's build reads the cloned live audit itself, the ×2 line's the live audit with each section merged in window order with its moved copy, a file in sorted sections, so both read it as a stream and ×2 loads twice the rows and twice the units with no merge between them. The mark reporter stops each build at the plan's mark: the marks end there, no pool starts, and the line leaves no file."""
     inputs = _mini_inputs(mini_bundle, mini_corpus)
     lines = {}
     for scale in ms.LOAD_SCALES:
         cut = ms.CorpusCut(f"{ms.LOAD_PREFIX}{scale}", ("qsDay",), 1, frozenset(), scale, True)
         lines[scale] = _measure_line(inputs, tmp_path / cut.name, cut, _routes(inputs))
     plan = ms.CORPUS_MARKS.index(ms.PLAN_MARK)
+    assert lines[1]["audit"] == {"kind": "clone", "bytes": inputs.audit.stat().st_size, "seconds": 0.0}
+    assert lines[2]["audit"]["kind"] == "doubled"
     for line in lines.values():
         assert [mark["label"] for mark in line["marks"]] == list(ms.CORPUS_MARKS[: plan + 1])
         assert line["units_premerge"] == line["units"]
+        assert (
+            line["load_source"] == "read as a stream"
+            and line["key_only_read"] == "not run, the merge skipped"
+        )
         assert line["files"] == {"kept": {}, "stray": {}}
         assert all(pool["width"] is None for pool in line["pools"].values())
     assert lines[1]["rows"] == len(_audit_rows())
@@ -997,17 +1015,11 @@ def test_a_line_that_fails_partway_kills_the_builds_whole_process_group(monkeypa
         raise RuntimeError("the footprint reading failed")
 
     monkeypatch.setattr(ms.peak_rss, "peak_footprint_bytes", failing)
-    fifo = tmp_path / ms.AUDIT_NAME
-    os.mkfifo(fifo)
     with pytest.raises(RuntimeError, match="the footprint reading failed"):
         ms.run_corpus_child(
             [sys.executable, "-c", script],
             env=dict(os.environ),
             cwd=tmp_path,
-            audit=MINI / "audit.tsv",
-            fifo=fifo,
-            pattern=None,
-            scale=1,
             interval=0.05,
             machine=lambda: QUIET,
         )
@@ -1024,45 +1036,89 @@ def test_a_line_that_fails_partway_kills_the_builds_whole_process_group(monkeypa
         pytest.fail("the grandchild outlived its build")
 
 
-def test_the_feed_keeps_the_rows_whose_windows_use_only_the_cuts_letters_and_moves_them_for_the_doubled_load(
+def test_the_cut_audit_keeps_the_rows_whose_windows_use_only_the_cuts_letters_and_the_doubled_one_merges_each_section_with_its_moved_copy(
     tmp_path,
 ):
-    """The cut keeps a row when none of its window's code points is one the cut leaves out, matched as a whole token, so ·Bay's E651 does not drop a window holding 1E651. At a scale of 2 the kept rows follow again with each Quikscript code point moved up by `MOVED` and both name fields tagged; with nothing left out, every row is kept."""
+    """The cut keeps a row when none of its window's code points is one the cut leaves out, matched as a whole token, so ·Bay's E651 does not drop a window holding 1E651, and it keeps the audit's sections in their order. The doubled audit merges each section in window order with its rows' moved copies, each Quikscript code point moved up by `MOVED` and both name fields tagged, so it stays in sorted sections."""
     header = "\t".join(audit.AUDIT_HEADER)
     rows = [
-        "default\tE650:E652\tcell\tjoin-dropped\tqsPea|qsTea\tqsPea/a|qsTea/b",
-        "default\tE650:E651\tcell\tjoin-dropped\tqsPea|qsBay\tqsPea/a|qsBay/b",
-        "ss03\t200C:E651\tcell\tUNMATCHED\tzwnj|qsBay\tzwnj/c|qsBay/d",
         "default\t0020:E650\tcell\tUNMATCHED\tspace|qsPea\tspace/c|qsPea/d",
+        "default\tE650:E651\tcell\tjoin-dropped\tqsPea|qsBay\tqsPea/a|qsBay/b",
+        "default\tE650:E652\tcell\tjoin-dropped\tqsPea|qsTea\tqsPea/a|qsTea/b",
         "default\t1E651:E650\tcell\tUNMATCHED\tx|qsPea\tx/c|qsPea/d",
+        "ss03\t200C:E651\tcell\tUNMATCHED\tzwnj|qsBay\tzwnj/c|qsBay/d",
+        "ss03\tE652:E650\tcell\tUNMATCHED\tqsTea|qsPea\tqsTea/c|qsPea/d",
     ]
     source = tmp_path / "audit.tsv"
     source.write_text("".join(f"{line}\n" for line in (header, *rows)), encoding="utf-8")
-    sink = io.BytesIO()
-    fed = ms.feed_audit(source, sink, ms.cut_pattern({0xE651}), 2)
-    kept = [rows[0], rows[3], rows[4]]
-    moved = [
-        "default\tE750:E752\tcell\tjoin-dropped\tqsPea|qsTea.x\tqsPea/a|qsTea/b.x",
-        "default\t0020:E750\tcell\tUNMATCHED\tspace|qsPea.x\tspace/c|qsPea/d.x",
-        "default\t1E651:E750\tcell\tUNMATCHED\tx|qsPea.x\tx/c|qsPea/d.x",
-    ]
-    assert sink.getvalue().decode() == "".join(f"{line}\n" for line in (header, *kept, *moved))
-    assert fed == 6
+    cut = tmp_path / "cut.tsv"
+    assert ms.write_cut_audit(source, cut, ms.cut_pattern({0xE651})) == 4
+    assert cut.read_text(encoding="utf-8") == "".join(
+        f"{line}\n" for line in (header, rows[0], rows[2], rows[3], rows[5])
+    )
     assert ms.cut_pattern(()) is None
-    whole = io.BytesIO()
-    assert ms.feed_audit(source, whole, None, 1) == len(rows)
-    assert whole.getvalue() == source.read_bytes()
+    whole = tmp_path / "whole.tsv"
+    assert ms.write_cut_audit(source, whole, None) == len(rows)
+    assert whole.read_bytes() == source.read_bytes()
+    doubled = tmp_path / "doubled.tsv"
+    assert ms.write_doubled_audit(source, doubled) == 2 * len(rows)
+    lines = doubled.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == header
+    assert lines[1:] == [
+        rows[0],
+        "default\t0020:E750\tcell\tUNMATCHED\tspace|qsPea.x\tspace/c|qsPea/d.x",
+        rows[1],
+        rows[2],
+        "default\tE750:E751\tcell\tjoin-dropped\tqsPea|qsBay.x\tqsPea/a|qsBay/b.x",
+        "default\tE750:E752\tcell\tjoin-dropped\tqsPea|qsTea.x\tqsPea/a|qsTea/b.x",
+        rows[3],
+        "default\t1E651:E750\tcell\tUNMATCHED\tx|qsPea.x\tx/c|qsPea/d.x",
+        rows[4],
+        "ss03\t200C:E751\tcell\tUNMATCHED\tzwnj|qsBay.x\tzwnj/c|qsBay/d.x",
+        rows[5],
+        "ss03\tE752:E750\tcell\tUNMATCHED\tqsTea|qsPea.x\tqsTea/c|qsPea/d.x",
+    ]
+    for start, end in ms.audit_sections(doubled):
+        with doubled.open("rb") as reader:
+            reader.seek(start)
+            keys = [ms._window_order(line) for line in reader.read(end - start).splitlines()]
+        assert keys == sorted(keys) and len(set(keys)) == len(keys)
+
+
+def test_the_doubled_mini_audit_is_read_as_a_stream(tmp_path, mini_bundle):
+    """At the mini fixture's scale the doubled audit is in sorted sections, every section's windows strictly increasing, so a `load-x2` line's build reads it as a stream and loads twice the mini audit's rows."""
+    from rebuild.review import audit_stream
+
+    doubled = tmp_path / "doubled.tsv"
+    rows = ms.write_doubled_audit(MINI / "audit.tsv", doubled)
+    assert rows == 2 * len(_audit_rows())
+    descriptor = os.open(doubled, os.O_RDONLY)
+    try:
+        layout = audit.audit_layout(descriptor, doubled)
+        assert layout.sections is not None and [section.config for section in layout.sections] == [
+            "default",
+            "ss03",
+            "ss04",
+            "ss05",
+            "ss03+ss05",
+        ]
+        assert (
+            sum(len(found) for _window, found in audit_stream.lockstep(descriptor, layout.sections)) == rows
+        )
+    finally:
+        os.close(descriptor)
 
 
 def test_the_listing_names_every_file_the_build_left_and_strays_what_it_was_not_expected_to(tmp_path):
-    """A line's listing holds every regular file under its directory with its size, and puts any the step does not expect under `stray`: an output whose staging name the routes missed is written for real and shows there, while a link to the null device, the FIFO and the directories are not files."""
+    """A line's listing holds every regular file under its directory with its size, and puts any the step does not expect under `stray`: an output whose staging name the routes missed is written for real and shows there, while a link to the null device, a pack table's FIFO and the directories are not files."""
     out_dir = tmp_path / ms.OUT_NAME
     (out_dir / "units").mkdir(parents=True)
     (out_dir / "manifest.json").write_text("{}")
     (out_dir / "units" / "join-dropped.json").symlink_to(os.devnull)
     (out_dir / "units-index.ndjson.gz").write_bytes(b"stray")
     (tmp_path / ms.POOLS_NAME).write_text("{}\n")
-    os.mkfifo(tmp_path / ms.AUDIT_NAME)
+    (tmp_path / ms.PACK_DIR).mkdir()
+    os.mkfifo(tmp_path / ms.PACK_DIR / "baseline-default.subset.tsv.gz")
     assert ms.step_files(tmp_path, ms.expected_files(False)) == {
         "kept": {"out/manifest.json": 2, ms.POOLS_NAME: 3},
         "stray": {"out/units-index.ndjson.gz": 5},
@@ -1076,15 +1132,22 @@ def test_the_listing_names_every_file_the_build_left_and_strays_what_it_was_not_
 def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_stray(
     mini_bundle, mini_corpus, monkeypatch, tmp_path, capsys
 ):
-    """A corpus run records each line under the corpus holder as it finishes, and a line that leaves a file the step does not expect is recorded and then stops the run, naming the file, before any later line or the fit. Code that moved during a line's build is warned about under that line and recorded beside the digests it started with, code that moved since the first line is warned about too, and the run removes its clones however it ends. Each line, its build and its pack child, runs with the allocator's large cache off on macOS, as the cycle's corpus-build step runs the build, and without it elsewhere."""
+    """A corpus run records each line under the corpus holder as it finishes, and a line that leaves a file the step does not expect is recorded and then stops the run, naming the file, before any later line or the fit. A cut the run names twice has its audit file written once, flushed and settled before the first of its lines, so no meter window holds its write-back, and removed after the last. Code that moved during a line's build is warned about under that line and recorded beside the digests it started with, code that moved since the first line is warned about too, a line whose build did not read its audit as a stream is warned about, and the run removes its clones and audit files however it ends. Each line, its build and its pack child, runs with the allocator's large cache off on macOS, as the cycle's corpus-build step runs the build, and without it elsewhere."""
     measured_names: list[str] = []
     environments: list[dict[str, str]] = []
     readings = iter(
         [
-            {"code": {"corpus_code": "first"}, "code_after": {"corpus_code": "moved"}},
-            {"code": {"corpus_code": "moved"}},
+            {
+                "code": {"corpus_code": "first"},
+                "code_after": {"corpus_code": "moved"},
+                "load_source": "read as a stream",
+            },
+            {"code": {"corpus_code": "first"}, "load_source": "read in memory, since it broke"},
+            {"code": {"corpus_code": "moved"}, "load_source": "read as a stream"},
         ]
     )
+    audits: list[tuple[str, Path, str, bool]] = []
+    settled: list[object] = []
     clones = tmp_path / ms.TREE_PATH / ms.CORPUS / "inputs"
 
     def clone_inputs(root, base):
@@ -1093,10 +1156,12 @@ def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_str
         (base / "audit.tsv").write_text("clone")
         return _mini_inputs(mini_bundle, mini_corpus)
 
-    def measure_corpus_line(inputs, step_dir, cut, *arguments, **rest):
+    def measure_corpus_line(inputs, step_dir, cut, widths, routes, audit_file, **rest):
         measured_names.append(cut.name)
+        settled.append(cut.name)
         environments.append(rest["env"])
-        stray = {"out/units-index.ndjson.gz": 5} if len(measured_names) == 2 else {}
+        audits.append((cut.name, audit_file.path, audit_file.kind, audit_file.path.is_file()))
+        stray = {"out/units-index.ndjson.gz": 5} if len(measured_names) == 3 else {}
         return {
             "written": {"end": None, "after": None},
             "signatures_shaped": 0,
@@ -1114,26 +1179,52 @@ def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_str
     monkeypatch.setattr(ms, "check_inputs", lambda inputs: {"stage_a": {}, "corpus_generated_at": None})
     monkeypatch.setattr(ms.spec_load, "load_spec", lambda *paths: fixtures.mini_spec())
     monkeypatch.setattr(ms, "_head", lambda: "head")
-    monkeypatch.setattr(ms.os, "sync", lambda: None)
-    monkeypatch.setattr(ms.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(ms.os, "sync", lambda: settled.append("sync"))
+    monkeypatch.setattr(ms.time, "sleep", lambda seconds: settled.append(("sleep", seconds)))
     monkeypatch.setattr(ms, "measure_corpus_line", measure_corpus_line)
     out = tmp_path / "series.txt"
     with pytest.raises(SystemExit, match=r"r4 left files .*out/units-index\.ndjson\.gz \(5 B\)"):
         ms.main(
-            ["--holder", "corpus", "3", "4", "load-x1", "--jobs", "1", "--write-jobs", "1", "--out", str(out)]
+            [
+                "--holder",
+                "corpus",
+                "3",
+                "3",
+                "4",
+                "load-x1",
+                "--jobs",
+                "1",
+                "--write-jobs",
+                "1",
+                "--out",
+                str(out),
+            ]
         )
-    assert measured_names == ["r3", "r4"]
+    assert measured_names == ["r3", "r3", "r4"]
+    assert [(name, kind, present) for name, _path, kind, present in audits] == [
+        ("r3", "cut", True),
+        ("r3", "cut", True),
+        ("r4", "cut", True),
+    ]
+    assert audits[0][1] == audits[1][1] and not audits[0][1].exists()
+    settle = ["sync", ("sleep", ms.SETTLE_S)]
+    assert settled == [*settle, *settle, "r3", "r3", *settle, "r4"]
     recorded = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
-    assert [(line["step"], line["runes"]) for line in recorded] == [("corpus", 3), ("corpus", 4)]
-    assert recorded[1]["files"]["stray"] == {"out/units-index.ndjson.gz": 5}
+    assert [(line["step"], line["runes"]) for line in recorded] == [
+        ("corpus", 3),
+        ("corpus", 3),
+        ("corpus", 4),
+    ]
+    assert recorded[2]["files"]["stray"] == {"out/units-index.ndjson.gz": 5}
     assert (recorded[0]["code"]["corpus_code"], recorded[0]["code_after"]["corpus_code"]) == (
         "first",
         "moved",
     )
-    assert recorded[1]["code"]["corpus_code"] == "moved" and "code_after" not in recorded[1]
+    assert recorded[2]["code"]["corpus_code"] == "moved" and "code_after" not in recorded[2]
     warned = [line for line in capsys.readouterr().err.splitlines() if line.startswith("[warn]")]
     assert warned == [
         "[warn] r3: the checkout's corpus code or crate binary moved during the build",
+        "[warn] r3: the build did not read its audit as a stream (read in memory, since it broke)",
         "[warn] r4: the checkout's corpus code or crate binary moved since the first line",
     ]
     assert not clones.parent.exists()
@@ -1142,6 +1233,7 @@ def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_str
         {key: env[key] for key in kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT if key in env}
         for env in environments
     ] == [
+        allocator,
         allocator,
         allocator,
     ]

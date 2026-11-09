@@ -17,6 +17,7 @@ from rebuild.review import build as review_build
 from rebuild.review import unit_cache, unit_store
 from rebuild.review.audit import load_workload, sort_for_triage, triage_key
 from rebuild.review.build import _junction_records
+from rebuild.review.columns import RepeatedKey
 from rebuild.review.drafts import build_corpus_index
 from rebuild.review.enrich import LETTERS, PrimaryUnitProjection
 from rebuild.review.unit_store import UnitStore
@@ -490,6 +491,63 @@ def test_the_id_index_refuses_a_duplicate_and_answers_ordinal_of():
         twice.index()
     with pytest.raises(ValueError, match="loaded twice"):
         store.load_projection(projections[0], no_verdict=False, ordinal=0)
+
+
+def _words_store(words: list[int]) -> UnitStore:
+    """A store whose rows are loaded with these id words and nothing else, as `index` reads them."""
+    store = UnitStore(len(words))
+    for ordinal, word in enumerate(words):
+        store._content_keys[ordinal * unit_store.KEY_BYTES : ordinal * unit_store.KEY_BYTES + 8] = (
+            word.to_bytes(8, "big")
+        )
+        store._codepoints_n[ordinal] = 0
+    store._loaded[:] = b"\x01" * len(words)
+    return store
+
+
+def test_the_id_index_sorts_its_words_bucket_by_bucket_as_one_sort_would():
+    """`index` deals the id words into 256 buckets by their top byte and sorts each on its own (`columns.sorted_by_word`), which holds one bucket's integers at a time. The words and ordinals it returns are the ones a stable sort of every word gives, with most words in two buckets and a few alone, and on a repeated id it names the two units of the first repeat in that order, the pair the whole sort's scan names, though another repeat lies in an earlier bucket's position in ordinal order."""
+    generator = random.Random(618)
+    words = [generator.choice((0x12, 0xFE)) << 56 | generator.getrandbits(56) for _ in range(3000)]
+    words += [5 << 56, 0, 2**64 - 1]
+    store = _words_store(words)
+    sorted_words, ordinals = store.index()
+    order = sorted(range(len(words)), key=words.__getitem__)
+    assert list(ordinals) == order and list(sorted_words) == [words[ordinal] for ordinal in order]
+    repeated = list(words)
+    repeated[2000] = repeated[17]
+    repeated[2500] = repeated[1200]
+    expected = sorted(range(len(repeated)), key=repeated.__getitem__)
+    first = next(
+        index
+        for index in range(1, len(expected))
+        if repeated[expected[index]] == repeated[expected[index - 1]]
+    )
+    store = _words_store(repeated)
+    with pytest.raises(SystemExit, match=f"two units share the id {store.unit_id(expected[first - 1])}"):
+        store.index()
+
+
+def test_the_input_key_index_answers_as_a_dict_and_refuses_the_first_repeat():
+    """The plan matches the prior store's lines to units through an open-addressed index over the input-key column (`UnitStore.input_key_index`, `columns.KeyIndex`), which answers every key a dict of the keys answers, and none it does not. Building it refuses two units with one key at the first ordinal whose key an earlier one holds, the pair a dict's `setdefault` over the ordinals meets first, which the plan names by window."""
+    keys = [hashlib.sha256(str(index).encode()).digest() for index in range(2000)]
+    store = UnitStore(len(keys), input_keys=bytearray(b"".join(keys)))
+    index = store.input_key_index()
+    assert all(index.find(key) == ordinal for ordinal, key in enumerate(keys))
+    assert index.find(hashlib.sha256(b"absent").digest()) is None and index.find(b"short") is None
+    index.release()
+    repeated = list(keys)
+    repeated[1500] = repeated[30]
+    repeated[900] = repeated[800]
+    seen: dict[bytes, int] = {}
+    pair = next(
+        (seen[key], ordinal)
+        for ordinal, key in enumerate(repeated)
+        if seen.setdefault(key, ordinal) != ordinal
+    )
+    with pytest.raises(RepeatedKey) as raised:
+        UnitStore(len(repeated), input_keys=bytearray(b"".join(repeated))).input_key_index()
+    assert (raised.value.first, raised.value.second) == pair == (800, 900)
 
 
 def test_id_string_order_is_the_order_of_the_words_they_spell():

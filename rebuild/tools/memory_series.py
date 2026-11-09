@@ -20,21 +20,21 @@ The series works in its own tree, `TREE_PATH` under this checkout's `var/perf/`,
 
 Each line prints to stdout as its step finishes and goes to `--out`, `OUT_PATH` by default, the checked-in record of each holder's last run. A run replaces only its own holder's lines and fit there and keeps every other holder's as the file held them, holders in `HOLDERS` order (`Record`), rewriting the file as each line finishes. After a table run's last step both get the whole-series fit against runes of the windows, the peak footprint and resident, the CPU time and the first configuration's table lengths (`report`), the lengths rather than the table bytes, because a hash table's bytes move in doublings.
 
-The corpus step builds the review corpus with `build.build_m1`, called as a library in a child process, once a line: `rebuild/tools/memory_series_child.py`, run as its own module, so the build's parent and its pool workers import the build's modules and not this module's (that module's docstring says why). A cut line, `r<runes>`, builds over the live divergence audit cut to `scaling_series.sub_spec`'s alphabet at that rune count: a row is kept when every Quikscript code point of its window is one of the cut's letters (`cut_pattern`), which gives the audit run_m1 writes at that alphabet byte for byte. The cuts default to `CORPUS_SIZES` below the whole alphabet and the whole alphabet. Every cut line is a full build, each unit recomputed, since its out dir holds no unit store. A load line, `load-x1` or `load-x2`, runs the child over the whole alphabet on the live audit (×1) or on the live audit followed by its moved copy (×2, `moved_row`: each Quikscript code point moved up by `MOVED` and both rendered-name fields tagged), and the child's mark reporter stops the build at the plan's mark (`PLAN_MARK`), before any worker or output exists. Both load lines extend `build.LETTERS` to the moved code points, copy each family's content key to its tagged name, and skip the signature resolution and the ink-duplicate merge, which a moved window has no signature for, so the two compare like with like. Positional arguments name the lines (`30`, `load-x1`); with none, a corpus run measures every cut and both load lines. The widths are the build's own defaults on this machine (`corpus_widths`) at every line, unless `--jobs`, `--signature-jobs` or `--write-jobs` states one. On macOS every corpus line's child, and each cut line's pack child, runs with `kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT` in its environment, as the cycle's corpus-build step runs the build, and the build's pools' workers inherit it; the replay's and the absorbs' children, which measure run_m1's Python workers, run in `corpus_environment` without it.
+The corpus step builds the review corpus with `build.build_m1`, called as a library in a child process, once a line: `rebuild/tools/memory_series_child.py`, run as its own module, so the build's parent and its pool workers import the build's modules and not this module's (that module's docstring says why). A cut line, `r<runes>`, builds over the live divergence audit cut to `scaling_series.sub_spec`'s alphabet at that rune count: a row is kept when every Quikscript code point of its window is one of the cut's letters (`cut_pattern`), which gives the audit run_m1 writes at that alphabet byte for byte, its sections and their order with it. The cuts default to `CORPUS_SIZES` below the whole alphabet and the whole alphabet. Every cut line is a full build, each unit recomputed, since its out dir holds no unit store. A load line, `load-x1` or `load-x2`, runs the child over the whole alphabet on the live audit (×1) or on the live audit with each section merged in window order with its moved copy (×2, `moved_row`: each Quikscript code point moved up by `MOVED` and both rendered-name fields tagged), and the child's mark reporter stops the build at the plan's mark (`PLAN_MARK`), before any worker or output exists. Both load lines extend `build.LETTERS` to the moved code points, copy each family's content key to its tagged name, and skip the signature resolution (the key-only read and the shaping) and the ink-duplicate merge, which a moved window has no signature for, so the two compare like with like. Positional arguments name the lines (`30`, `load-x1`); with none, a corpus run measures every cut and both load lines. The widths are the build's own defaults on this machine (`corpus_widths`) at every line, unless `--jobs`, `--signature-jobs` or `--write-jobs` states one. On macOS every corpus line's child, and each cut line's pack child, runs with `kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT` in its environment, as the cycle's corpus-build step runs the build, and the build's pools' workers inherit it; the replay's and the absorbs' children, which measure run_m1's Python workers, run in `corpus_environment` without it.
 
 The corpus step reads the live tree only through clones it makes as a run starts (`clone_inputs`, `clonefile(2)` through `build._clone`, which writes no data) under `<tree>/corpus/inputs/`: the audit, the subset tables and their pack, the M1 font and its Stage A record, the live corpus's manifest and ink-signature store, the spec root's paths (`SPEC_PATHS`, the ledger among them) and the two site fonts. A clone the volume refuses stops the run, since a copy would write gigabytes. A run refuses while the debug tally's switch (`memory_tally.TALLY_ENV`) is set, since the tally keeps alive the collections it reads, and `check_inputs` refuses when the live corpus was not built over the M1 outputs' Stage A record, since its signature store would then miss and the load would shape, or when the pack is not current for the tables, since the build would rewrite it. The child runs from this checkout, so its units workers run the checkout's code and crate binary, and each line reads their digests (`corpus_code`) just before the spawn, once its idle wait is over, and again as soon as the child is reaped, before the wait for the meter's last reading, so the two readings bracket the build and none of the line's waits; a digest that moves between them, or from the first line's to a later line's first reading, prints a `[warn]` line naming the line. An edit made during a line's waits shows at the next line, the first whose build runs it. As the run ends, however it ends, it removes `<tree>/corpus/`, the clones with it, since once the live tree's next pass replaces those files the clones alone would keep their blocks allocated.
 
-Each corpus line's directory, `<tree>/corpus/<line>`, holds the audit's FIFO, which a harness thread fills from the cloned audit (`feed_audit`), the build's out dir, `out/`, the temporary directory the child's `TMPDIR` names, `temp/`, and `pools.ndjson`, where the child points `cycle_timings.JOURNAL`, so the build's pool records land there and not in the live journal. The audit comes through a FIFO because `audit._stage_audit` reads it once, front to back; a build that reads it by `pread` from one descriptor, as #618's change 15 has it, needs each cut's audit as a real, seekable file instead. A cut line's out dir holds a clone of the live signature store, which the build's load reads, and a link to the null device at the staging name of every output the build writes and never reads back (`null_routes`): each shard part a class can take, the units index, the three app sidecars, the unit store's head and parts and the signature store's rewrite. The build writes for real only what it reads back or what is too small to route: the manifest, the fonts, the static files and `review-facts.json`. Beside them, each process that settles windows, every units worker, writes one dump of the whole alphabet's spec into `temp/` (`kernel_exec._spec_dump`; every line settles over the whole spec, so the dump is the same at every cut) and removes it as it exits, and runs `kernel_exec.ensure_built`'s `cargo build`, which rewrites the crate's dep-info files under `rebuild/kernel-rs/target/`, outside the line's directory, even when it builds nothing. Those writes are part of how far a cut line's `written` exceeds its `files.kept`, not all of it: `written` counts every byte the coalition writes over the line's window, and `files` only the files the line leaves, so a file written outside the line's directory, or written and removed during the build, counts in the first alone. Once the child is reaped the step lists every regular file the line left (`step_files`); any other is a stray, which the line records under `files` and which stops the run once the line is in the record. The directory is removed when the line ends.
+A line's build reads its audit from a real file, since the build opens the audit once and reads it by `pread` through that descriptor, in sorted sections a stream (`audit.stream_workload`) and split across the key-only read's processes. The whole alphabet's cut line and `load-x1` read the cloned live audit itself, which the clone wrote no data for. Every other line reads a file the run writes under `<tree>/corpus/audits/` (`prepare_audit`): a cut line its cut audit (`write_cut_audit`), and `load-x2` the doubled audit (`write_doubled_audit`). Each file is written, then flushed with `os.sync` and given `SETTLE_S` to reach the device, before its line's pack child and idle reading, so no meter window holds its writing or its write-back, once a run for a cut the run names several times, and removed after that cut's last line; at 45 runes the cuts below 45 come to about 5.3 GB and the doubled audit to about 3.35 GB a run. Each corpus line's directory, `<tree>/corpus/<line>`, holds the build's out dir, `out/`, the temporary directory the child's `TMPDIR` names, `temp/`, and `pools.ndjson`, where the child points `cycle_timings.JOURNAL`, so the build's pool records land there and not in the live journal. A cut line's out dir holds a clone of the live signature store, which the build's load reads, and a link to the null device at the staging name of every output the build writes and never reads back (`null_routes`): each shard part a class can take, the units index, the three app sidecars, the unit store's head and parts and the signature store's rewrite. The build writes for real only what it reads back or what is too small to route: the manifest, the fonts, the static files and `review-facts.json`. Beside them, each process that settles windows, every units worker, writes one dump of the whole alphabet's spec into `temp/` (`kernel_exec._spec_dump`; every line settles over the whole spec, so the dump is the same at every cut) and removes it as it exits, and runs `kernel_exec.ensure_built`'s `cargo build`, which rewrites the crate's dep-info files under `rebuild/kernel-rs/target/`, outside the line's directory, even when it builds nothing. Those writes are part of how far a cut line's `written` exceeds its `files.kept`, not all of it: `written` counts every byte the coalition writes over the line's window, and `files` only the files the line leaves, so a file written outside the line's directory, or written and removed during the build, counts in the first alone. Once the child is reaped the step lists every regular file the line left (`step_files`); any other is a stray, which the line records under `files` and which stops the run once the line is in the record. The directory is removed when the line ends.
 
 Each cut line also runs a pack child, a block of the line rather than a line of its own, before its idle reading, so none of the build's meter windows holds it (`measure_pack`, `memory_series_child`'s `pack`). It calls `subset_pack.write_pack` itself, not `ensure_pack`, so its tables are not hashed, in the build's environment, over the subset tables cut to the line's alphabet. Each table is a FIFO under its own name in the step's `pack/`, which a harness thread fills on every open, since the pack's two passes read it twice: with the cut table, which the harness makes in memory from the cloned table before the spawn (`cut_table`: a row is kept when every Quikscript code point of its window, the table's first field, is one of the cut's letters, the rule `cut_pattern` applies to the audit's window), gzip-compressed, or with the cloned table itself when the cut keeps every row. The child links the pack's temporary name to the null device, where `ftruncate` and `pwrite` both succeed on macOS, so the line writes no pack, and removes the link the rename leaves. The build keeps the cloned live pack, which `check_inputs` requires to be current.
 
 A corpus line holds, beside `step` (`corpus` or `corpus-load` with its `scale`), the cut (`runes`, `letters`, `ligs`, `alphabet`), the widths the child was given (`jobs`, `signature_jobs`, `write_jobs`) and those that ran (`units_width` and `write_width`, from the phase notes, and `handout`, `_handout_width`'s batch):
 
-- `rows`, the audit rows the harness fed, and `feed_s`, the seconds after the spawn at which it closed the FIFO. The harness scans the whole cloned audit at every cut, so a load whose `stage_audit returned` mark arrives soon after `feed_s` waited on that scan, and a small cut's load seconds include it. `units_premerge` and `units`, the units the build loaded and those left after the ink-duplicate merge; `windows`, the distinct windows; `human_units`, `recomputed`, `classes` and `write_runs`, each write run's classes and units as `build._write_runs` cuts them from the line's manifest at the width the write ran at.
+- `rows`, the audit rows the build read (its `load_workload done` mark's count), and `audit`, the file it read: its `kind` (`clone`, `cut` or `doubled`), its `bytes`, and the `seconds` the run took to write it, 0 for the clone, which the build's own seconds hold none of. `load_source`, the source the build's load took, `read as a stream` or `read in memory` with why, and `key_only_read`, what the key-only read did, with, when it ran, the largest of its processes' resident peaks, each read by the process of itself as it finishes, both from the load phase's note; a line whose build did not stream measured the load the stream replaces, and prints a `[warn]` line. `units_premerge` and `units`, the units the build loaded and those left after the ink-duplicate merge; `windows`, the distinct windows; `human_units`, `recomputed`, `classes` and `write_runs`, each write run's classes and units as `build._write_runs` cuts them from the line's manifest at the width the write ran at.
 - `wall_s`, `peak_footprint`, `start`, `peak`, `end`, `compressor_max`, `swap_used_max`, `samples` and `interval_s`, as a table line holds them, of the build's parent. `cpu_s` and `peak_resident` are the parent's own rusage, which the child prints as it exits (`[r]`), since the rusage `os.wait4` returns adds the reaped workers'; `children` holds their CPU and largest resident peak from the parent's `RUSAGE_CHILDREN`.
 - `marks`: one entry a sub-step of the parent, from each `memory_tally.mark` the build makes (`CORPUS_MARKS` lists them in order), with the parent's resident and footprint at the mark, the highest of each a sampler of the parent alone read since the previous mark (every `parent_interval_s`, `PARENT_INTERVAL_S`, `parent_samples` times), and the mark's counts. The labels follow those of #618's corpus load probe, so a load line compares with its `load-x1.json` and `load-x2.json`.
 - `phases`: each `[t] review.build <phase>` line's seconds, `rss_gb`, `rss_now_gb` and note. `signatures_shaped` is the load note's shaped count, which is 0 when the cloned store answers every window, and a cut line that shaped prints a `[warn]` line.
-- `pools`: for the signature, units and write pools, the width and each worker's peak from the build's pool records (`reading` names whether they are footprints), the parent's as the controller, and each worker's resident peak as the sampler read it every `--interval` seconds (`resident`), with the median and top of each. The pack's processes write no pool record, so the `pack` pool holds each one's highest sampled footprint as its peak beside its resident peak (`_sampled_pool`): on a cut line the pack child's, one a configuration, and on a load line the build's own, none while the cloned pack is current. The sampler reads every process below the parent. A child of the parent that runs multiprocessing's spawn entry is a pool's worker, of the pool between whose closing mark and the previous pool's it first appears (`POOL_MARKS`); every other process but multiprocessing's resource tracker, the git and crate calls the parent and its workers make, is summed under `subprocesses`.
+- `pools`: for the signature, units and write pools, the width and each worker's peak from the build's pool records (`reading` names whether they are footprints), the parent's as the controller, and each worker's resident peak as the sampler read it every `--interval` seconds (`resident`), with the median and top of each. The pack's processes and the key-only read's write no pool record, so the `pack` and `key-only` pools hold each one's highest sampled footprint as its peak beside its resident peak (`_sampled_pool`): on a cut line the pack child's, one a configuration, and on a load line the build's own, none while the cloned pack is current; and the key-only read's, one a window range, which run for about a second at 45 runes, so a sampler interval longer than that can miss them, while `key_only_read` holds the largest one's own reading. The sampler reads every process below the parent. A child of the parent that runs multiprocessing's spawn entry is a pool's worker, and one that runs `rebuild.review.audit_stream` a key-only read's process, of the pool between whose closing mark and the previous pool's it first appears (`POOL_MARKS`); every other process but multiprocessing's resource tracker, the git and crate calls the parent and its workers make, is summed under `subprocesses`.
 - `fragments`: the units phase note's recomputed units and the arena's size and ratio; `sidecar_lines_mb`, each write run's compressed sidecar lines, from the write phase's note.
 - `pack`, on a cut line, the pack child's: the pack's `rows` and `strings` from the mark the pack's parent makes between the passes (`subset_pack.SURVEYED_MARK`), each pass's seconds, `survey_s` from the child's `pack started` mark to that one, which includes starting the pack processes, and `write_s` from that one to its `pack` mark, after the rename; `wall_s`; `cpu_s`, `peak_resident` and `children` from its `[r]` line; its `peak_footprint` as reaped; `fills`, the FIFO fills it took, two a table; its `allocator_env`; and its `marks`, each read as a build's are.
 - `written`, as a table line holds it, and `files`: the regular files the line left, with their sizes, under `kept`, and any other under `stray`.
@@ -73,6 +73,7 @@ import ctypes
 import errno
 import functools
 import gzip
+import heapq
 import io
 import itertools
 import json
@@ -93,7 +94,7 @@ from contextlib import ExitStack, suppress
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any, BinaryIO, cast
+from typing import IO, Any, cast
 
 from rebuild.pipeline import (
     conform,
@@ -179,18 +180,16 @@ PARENT_INTERVAL_S = 0.1
 LOAD_MARK = "compacted"
 CORPUS_MARKS = (
     "pack",
-    "stage_audit returned",
-    "triage permutation built",
-    "load_workload done",
     "spec loaded",
     "family keys",
+    "key-only read",
     "signatures resolved",
-    "premerge captured",
-    "merged",
+    "stream ended",
+    "triage permutation built",
+    "load_workload done",
     LOAD_MARK,
     "unit store allocated",
     "input keys written",
-    "rows released",
     "named built",
     "named freed",
     PLAN_MARK,
@@ -211,16 +210,19 @@ CORPUS_MARKS = (
     "review facts written",
     "unit store written",
 )
-# Each pool's name in a line, its unit in the build's pool records, and the mark by which every one of its workers has started. A pool's workers start after the previous pool's mark, since the build runs its pools one after another. The pack's processes, which the build starts before any pool when it writes the pack and a cut line's pack child starts when it writes its own, write no pool record, so the pack's pool is read from the sampler alone (`_sampled_pool`).
+# Each pool's name in a line, its unit in the build's pool records, and the mark by which every one of its workers has started. A pool's workers start after the previous pool's mark, since the build runs its pools one after another. The pack's processes, which the build starts before any pool when it writes the pack and a cut line's pack child starts when it writes its own, write no pool record, so the pack's pool is read from the sampler alone (`_sampled_pool`), and so are the key-only read's processes, which are subprocesses of `rebuild.review.audit_stream` and not multiprocessing's workers (`KEY_ONLY_COMMAND`).
+KEY_ONLY_POOL = "key-only"
+KEY_ONLY_COMMAND = "-m rebuild.review.audit_stream"
 POOL_MARKS: tuple[tuple[str, str | None, str], ...] = (
     ("pack", None, PACK_MARK),
+    (KEY_ONLY_POOL, None, "key-only read"),
     ("signature", "signature", "signatures resolved"),
     ("units", "corpus", "units pool stopped"),
     ("write", "corpus-write", "write pool stopped"),
 )
 # The paths `enrich.load_spec` and `fingerprint.stage_b` read under a spec root, the ledger among them, as the mini bundle's pin lays them out.
 SPEC_PATHS = ("glyph_data/runes", "rebuild/script.yaml", "rebuild/schema", "rebuild/m1-divergences.yaml")
-AUDIT_NAME = "divergence-audit.tsv"
+AUDITS_DIR = "audits"
 OUT_NAME = "out"
 POOLS_NAME = "pools.ndjson"
 TMP_NAME = "temp"
@@ -231,6 +233,7 @@ WORKER = "multiprocessing.spawn import spawn_main"
 TRACKER = "multiprocessing.resource_tracker"
 _MARK_LINE = re.compile(r"^\[m\] (.+?)\t(.*)$")
 _SIGNATURE_NOTE = re.compile(r"signatures: ([\d,]+) cached, ([\d,]+) shaped")
+_SOURCE_NOTE = re.compile(r"\(key-only read ([^;]+); (read as a stream|read in memory, since [^;]+);")
 _JOBS_NOTE = re.compile(r"\bjobs=(\d+)")
 _RECOMPUTED_NOTE = re.compile(r"\brecomputed=([\d,]+)")
 _ARENA_NOTE = re.compile(r"arena ([\d.]+) GB, deflated ([\d.]+) to 1")
@@ -692,12 +695,13 @@ class CorpusCut:
 
 
 @dataclass(frozen=True)
-class Feed:
-    """What the harness fed the audit's FIFO: the rows it wrote, why it stopped early when it did, and the seconds after the child's spawn at which it closed the FIFO."""
+class AuditFile:
+    """The audit a corpus line's build reads, a real file it opens and holds, since the build reads it by `pread` through one descriptor: the cloned live audit itself (`clone`), the live audit cut to the line's letters (`cut`, `write_cut_audit`) or doubled with its moved copy (`doubled`, `write_doubled_audit`), with its bytes and the seconds the run took to write it, 0 for the clone."""
 
-    rows: int
-    error: str | None = None
-    closed_s: float | None = None
+    path: Path
+    kind: str
+    bytes: int
+    seconds: float = 0.0
 
 
 @dataclass
@@ -723,16 +727,19 @@ class Descendant:
     def tracker(self) -> bool:
         return self.depth == 1 and TRACKER in self.command
 
+    @property
+    def key_only(self) -> bool:
+        return self.depth == 1 and KEY_ONLY_COMMAND in self.command
+
 
 @dataclass(frozen=True)
 class CorpusRun:
-    """What `run_corpus_child` returns: the child as `run_child` returns one, its stderr lines with the seconds after the spawn each arrived at, the 0.1 s trace of its resident set and footprint, every process below it, and the harness's feed."""
+    """What `run_corpus_child` returns: the child as `run_child` returns one, its stderr lines with the seconds after the spawn each arrived at, the 0.1 s trace of its resident set and footprint, and every process below it."""
 
     child: ChildRun
     lines: tuple[tuple[float, str], ...]
     trace: tuple[Sample, ...]
     descendants: tuple[Descendant, ...]
-    feed: Feed
 
 
 def _clone_input(source: Path, target: Path) -> None:
@@ -885,9 +892,9 @@ def null_routes(manifest: Mapping, class_ids: Iterable[str]) -> list[str]:
 
 
 def expected_files(load: bool) -> frozenset[str]:
-    """The regular files a line may leave in its directory: the build's pool records, and on a cut line the outputs the build writes for real (the manifest, both fonts, `review-facts.json` and the static app files)."""
+    """The regular files a line may leave in its directory: the build's pool records, and on a cut line the outputs the build writes for real (the manifest, both fonts, `review-facts.json` and the static app files) and the clone of the live ink-signature store, which a build that hits every prior entry and misses none leaves as it is."""
     from rebuild.pipeline import fingerprint
-    from rebuild.review import build, facts
+    from rebuild.review import build, facts, unit_cache
 
     if load:
         return frozenset({POOLS_NAME})
@@ -900,13 +907,14 @@ def expected_files(load: bool) -> frozenset[str]:
         "fonts/after.otf",
         facts.FACTS_FILENAME,
         "index.html",
+        unit_cache.SIGNATURE_STORE_NAME,
         *static,
     )
     return frozenset({POOLS_NAME, *(f"{OUT_NAME}/{name}" for name in names)})
 
 
 def step_files(step_dir: Path, expected: frozenset[str]) -> dict[str, dict[str, int]]:
-    """Every regular file under `step_dir` with its size, by its path under it: under `kept` when `expected` names it, and under `stray` otherwise. Links and the FIFO are not regular files."""
+    """Every regular file under `step_dir` with its size, by its path under it: under `kept` when `expected` names it, and under `stray` otherwise. Links and FIFOs are not regular files."""
     found: dict[str, dict[str, int]] = {"kept": {}, "stray": {}}
     for path in sorted(step_dir.rglob("*")):
         if path.is_symlink() or not path.is_file():
@@ -917,10 +925,8 @@ def step_files(step_dir: Path, expected: frozenset[str]) -> dict[str, dict[str, 
 
 
 def route_corpus(step_dir: Path, signatures: Path, routes: Sequence[str] | None) -> Path:
-    """Make `step_dir`, which must not exist, with the audit's FIFO, the build's out dir and the temporary directory its `TMPDIR` names (`TMP_NAME`), and return the FIFO. With `routes`, for a cut line, the out dir also holds a clone of the live signature store `signatures`, which the build's load reads, and a link to the null device at each of `routes`. A load line's out dir stays empty, since its build stops before it writes anything."""
+    """Make `step_dir`, which must not exist, with the build's out dir and the temporary directory its `TMPDIR` names (`TMP_NAME`), and return the out dir. With `routes`, for a cut line, the out dir also holds a clone of the live signature store `signatures`, which the build's load reads, and a link to the null device at each of `routes`. A load line's out dir stays empty, since its build stops before it writes anything."""
     step_dir.mkdir(parents=True)
-    fifo = step_dir / AUDIT_NAME
-    os.mkfifo(fifo)
     out_dir = step_dir / OUT_NAME
     out_dir.mkdir()
     (step_dir / TMP_NAME).mkdir()
@@ -930,7 +936,7 @@ def route_corpus(step_dir: Path, signatures: Path, routes: Sequence[str] | None)
             link = out_dir / relative
             link.parent.mkdir(parents=True, exist_ok=True)
             link.symlink_to(os.devnull)
-    return fifo
+    return out_dir
 
 
 def cut_pattern(excluded: Iterable[int], field: int = 1) -> re.Pattern[bytes] | None:
@@ -974,20 +980,84 @@ def _kept_blocks(reader: io.BufferedIOBase, pattern: re.Pattern[bytes] | None) -
             return
 
 
-def feed_audit(source: Path, sink: BinaryIO, pattern: re.Pattern[bytes] | None, scale: int) -> int:
-    """Write `source`'s header and each line `pattern` keeps (every line when it is None, `_kept_blocks`) to `sink`, then at a `scale` of 2 each kept line's moved copy (`moved_row`), and return how many rows were written."""
+def write_cut_audit(source: Path, target: Path, pattern: re.Pattern[bytes] | None) -> int:
+    """Write `source`'s header and each line `pattern` keeps (every line when it is None, `_kept_blocks`) to the file `target`, and return how many rows it wrote. The cut keeps the audit's sections and their order, so the cut file is in sorted sections when the live audit is, as run_m1 writes the audit at that alphabet."""
     rows = 0
-    for copy in range(scale):
-        with source.open("rb") as reader:
-            header = reader.readline()
-            if not copy:
-                sink.write(header)
-            for kept in _kept_blocks(reader, pattern):
-                rows += kept.count(b"\n")
-                if copy:
-                    kept = b"".join(map(moved_row, kept.splitlines(keepends=True)))
-                sink.write(kept)
+    with source.open("rb") as reader, target.open("wb") as sink:
+        sink.write(reader.readline())
+        for kept in _kept_blocks(reader, pattern):
+            rows += kept.count(b"\n")
+            sink.write(kept)
     return rows
+
+
+def _window_order(line: bytes) -> tuple[int, bytes]:
+    field = line.split(b"\t", 2)[1]
+    return (len(field), field)
+
+
+def audit_sections(source: Path) -> list[tuple[int, int]]:
+    """The byte ranges of `source`'s sections, one a run of rows naming one configuration, after its header, read in one pass."""
+    ranges: list[tuple[int, int]] = []
+    with source.open("rb") as reader:
+        reader.readline()
+        start = position = reader.tell()
+        config = None
+        for line in reader:
+            named = line.split(b"\t", 1)[0]
+            if config is not None and named != config:
+                ranges.append((start, position))
+                start = position
+            config = named
+            position += len(line)
+        if config is not None:
+            ranges.append((start, position))
+    return ranges
+
+
+def _section_lines(source: Path, start: int, end: int) -> Iterator[bytes]:
+    with source.open("rb") as reader:
+        reader.seek(start)
+        position = start
+        while position < end:
+            line = reader.readline()
+            if not line:
+                return
+            position += len(line)
+            yield line if line.endswith(b"\n") else line + b"\n"
+
+
+def write_doubled_audit(source: Path, target: Path) -> int:
+    """Write the ×2 load line's audit to the file `target`: `source`'s header, then each of its sections merged in window order with its moved copy (`moved_row`), and return how many rows it wrote. A moved copy keeps its section's order, since `MOVED` moves every Quikscript code point the same way and every other code point a window holds lies below them, so the merge streams two readers over each section and the file is in sorted sections when `source` is. A window whose moved copy is itself, one with no Quikscript code point, would then be repeated in its section, and the build would read the file through its in-memory source; its load line's note says so."""
+    rows = 0
+    with source.open("rb") as reader, target.open("wb") as sink:
+        sink.write(reader.readline())
+        for start, end in audit_sections(source):
+            for line in heapq.merge(
+                _section_lines(source, start, end),
+                map(moved_row, _section_lines(source, start, end)),
+                key=_window_order,
+            ):
+                sink.write(line)
+                rows += 1
+    return rows
+
+
+def prepare_audit(inputs: CorpusInputs, cut: CorpusCut, directory: Path) -> AuditFile:
+    """The audit a line's build reads: the cloned live audit itself for a line that keeps every row at ×1 (the whole alphabet's cut line and `load-x1`), and otherwise a file under `directory` the run writes once for every line that names the cut, the cut audit (`write_cut_audit`) or, for `load-x2`, the doubled one (`write_doubled_audit`)."""
+    pattern = cut_pattern(cut.excluded)
+    if pattern is None and cut.scale == 1:
+        return AuditFile(inputs.audit, "clone", inputs.audit.stat().st_size)
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / f"{cut.name}.tsv"
+    started = time.perf_counter()
+    if cut.scale == 2:
+        write_doubled_audit(inputs.audit, target)
+        kind = "doubled"
+    else:
+        write_cut_audit(inputs.audit, target, pattern)
+        kind = "cut"
+    return AuditFile(target, kind, target.stat().st_size, round(time.perf_counter() - started, 3))
 
 
 def cut_table(source: Path, pattern: re.Pattern[bytes]) -> bytes:
@@ -1019,27 +1089,6 @@ def _open_fifo(fifo: Path, alive: Callable[[], bool]) -> int | None:
             continue
         os.set_blocking(descriptor, True)
         return descriptor
-
-
-def _feed(
-    fifo: Path,
-    source: Path,
-    pattern: re.Pattern[bytes] | None,
-    scale: int,
-    alive: Callable[[], bool],
-    fed: list[Feed],
-    origin: float,
-) -> None:
-    try:
-        descriptor = _open_fifo(fifo, alive)
-        if descriptor is None:
-            fed.append(Feed(0, "the build exited before it opened the audit"))
-            return
-        with os.fdopen(descriptor, "wb", buffering=READ_CHUNK_BYTES) as sink:
-            rows = feed_audit(source, sink, pattern, scale)
-        fed.append(Feed(rows, closed_s=time.perf_counter() - origin))
-    except OSError as error:
-        fed.append(Feed(0, f"{type(error).__name__}: {error}"))
 
 
 @functools.cache
@@ -1189,30 +1238,21 @@ def run_corpus_child(
     *,
     env: Mapping[str, str],
     cwd: Path,
-    audit: Path,
-    fifo: Path,
-    pattern: re.Pattern[bytes] | None,
-    scale: int,
     interval: float,
     parent_interval: float = PARENT_INTERVAL_S,
     machine: Callable[[], Machine] = read_machine,
 ) -> CorpusRun:
-    """Run one corpus child through `_run_fed_child`, with one thread feeding `fifo` from `audit` (`feed_audit`), and return what it read with the feed."""
-    fed: list[Feed] = []
-
-    def feed(alive: Callable[[], bool], origin: float) -> None:
-        _feed(fifo, audit, pattern, scale, alive, fed, origin)
-
+    """Run one corpus child through `_run_fed_child`, which feeds it nothing, since it reads its audit from a file (`AuditFile`), and return what it read."""
     child, lines, traced, found = _run_fed_child(
         arguments,
         env=env,
         cwd=cwd,
-        feeders=[feed],
+        feeders=[],
         interval=interval,
         parent_interval=parent_interval,
         machine=machine,
     )
-    return CorpusRun(child, lines, traced, found, fed[0] if fed else Feed(0, "no feed"))
+    return CorpusRun(child, lines, traced, found)
 
 
 @dataclass(frozen=True)
@@ -1279,9 +1319,9 @@ def run_pack_child(
 
 
 def corpus_child_arguments(
-    inputs: CorpusInputs, step_dir: Path, cut: CorpusCut, widths: Mapping[str, int]
+    inputs: CorpusInputs, step_dir: Path, cut: CorpusCut, widths: Mapping[str, int], audit: Path
 ) -> list[str]:
-    """The command line of one corpus line's child (`memory_series_child`)."""
+    """The command line of one corpus line's child (`memory_series_child`), its build reading `audit`."""
     return [
         sys.executable,
         "-m",
@@ -1289,7 +1329,7 @@ def corpus_child_arguments(
         "--inputs",
         inputs.to_json(),
         "--audit",
-        str(step_dir / AUDIT_NAME),
+        str(audit),
         "--out",
         str(step_dir / OUT_NAME),
         "--journal",
@@ -1421,14 +1461,16 @@ def _sampled_pool(members: Sequence[Descendant]) -> dict[str, Any]:
 def corpus_pools(
     records: Sequence[Mapping], found: Sequence[Descendant], marks: Sequence[Mapping]
 ) -> dict[str, dict[str, Any]]:
-    """Return each pool's reading (`POOL_MARKS`): its last pool record in the line's journal, or for the pack the sampler's readings alone (`_sampled_pool`), and the workers (`Descendant.worker`) the sampler first saw after the previous pool's mark and by its own."""
+    """Return each pool's reading (`POOL_MARKS`): its last pool record in the line's journal, or for the pack and the key-only read the sampler's readings alone (`_sampled_pool`), and the workers (`Descendant.worker`, or for the key-only read the parent's children that run `KEY_ONLY_COMMAND`) the sampler first saw after the previous pool's mark and by its own."""
     at = {mark["label"]: mark["at_s"] for mark in marks}
     workers = [member for member in found if member.worker]
+    key_only = [member for member in found if member.key_only]
     pools: dict[str, dict[str, Any]] = {}
     since = float("-inf")
     for name, unit, closing in POOL_MARKS:
         end = at.get(closing)
-        members = [] if end is None else [member for member in workers if since < member.first_at <= end]
+        candidates = key_only if name == KEY_ONLY_POOL else workers
+        members = [] if end is None else [member for member in candidates if since < member.first_at <= end]
         if end is not None:
             since = end
         if unit is None:
@@ -1440,8 +1482,8 @@ def corpus_pools(
 
 
 def subprocesses(found: Sequence[Descendant]) -> dict[str, int | None]:
-    """Return how many processes below the parent were neither a pool's worker nor its resource tracker, the git and crate calls the parent and its workers make, with the highest resident set and footprint any of them reached."""
-    others = [member for member in found if not member.worker and not member.tracker]
+    """Return how many processes below the parent were neither a pool's worker, a key-only read's process nor its resource tracker, the git and crate calls the parent and its workers make, with the highest resident set and footprint any of them reached."""
+    others = [member for member in found if not member.worker and not member.tracker and not member.key_only]
     return {
         "count": len(others),
         "resident_top": _highest(member.resident for member in others),
@@ -1467,12 +1509,10 @@ def write_runs(manifest: Mapping, write_jobs: int) -> list[dict[str, Any]]:
 
 
 def check_corpus_child(run: CorpusRun, cut: CorpusCut, marks: Sequence[Mapping]) -> None:
-    """Fail the run on a child that exited nonzero, a feed that stopped early, or a load line whose build did not stop at the plan's mark, naming the last lines the child printed."""
+    """Fail the run on a child that exited nonzero or a load line whose build did not stop at the plan's mark, naming the last lines the child printed."""
     tail = "\n".join(text for _at, text in run.lines[-20:])
     if run.child.returncode != 0:
         raise SystemExit(f"{cut.name}: the corpus build exited {run.child.returncode}:\n{tail}")
-    if run.feed.error is not None:
-        raise SystemExit(f"{cut.name}: the audit's feed stopped early ({run.feed.error}):\n{tail}")
     if cut.load and (not marks or marks[-1]["label"] != PLAN_MARK):
         raise SystemExit(f"{cut.name}: the load line's build did not stop at the plan:\n{tail}")
 
@@ -1550,6 +1590,7 @@ def measure_corpus_line(
     cut: CorpusCut,
     widths: Mapping[str, int],
     routes: Sequence[str],
+    audit: AuditFile,
     *,
     env: Mapping[str, str],
     cwd: Path,
@@ -1560,16 +1601,15 @@ def measure_corpus_line(
     machine: Callable[[], Machine] = read_machine,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    """Run one corpus line in `step_dir`, which must not exist and is removed once the line's files are listed, and return its measured fields, everything a corpus line holds but the cut, the widths and the provenance (the module docstring lists them). The meter windows are the table step's: an idle reading `idle_s` before the one just before the spawn, which every block reads from, `end` once the child is reaped, and `after` `after_s` later; the step directory is made before the idle reading and removed after `end`, so `end` holds neither. The child's `TMPDIR` is the step directory's `temp/`, so the temporary files the build's processes make stay inside the step, and one a process leaves there is a stray. The checkout's code digests (`corpus_code` at `cwd`) are read after the idle wait, just before the spawn, and once the child is reaped, before the `after` wait, and returned as `code` and, when they moved, `code_after`. On a cut line the line's pack child (`measure_pack`) runs first, in the step directory's `pack/`, with the build's environment and `TMPDIR`, before the idle reading, so none of the build's meter windows holds it, and the files the step lists include anything it left. `meter`, `machine` and `sleep` are the write meter, the machine reading and the wait, which a test replaces."""
+    """Run one corpus line in `step_dir`, which must not exist and is removed once the line's files are listed, its build reading `audit` (`prepare_audit`, which the run calls, then flushes and settles, before this, so no meter window holds the writing of the line's audit file or its write-back), and return its measured fields, everything a corpus line holds but the cut, the widths and the provenance (the module docstring lists them). The meter windows are the table step's: an idle reading `idle_s` before the one just before the spawn, which every block reads from, `end` once the child is reaped, and `after` `after_s` later; the step directory is made before the idle reading and removed after `end`, so `end` holds neither. The child's `TMPDIR` is the step directory's `temp/`, so the temporary files the build's processes make stay inside the step, and one a process leaves there is a stray. The checkout's code digests (`corpus_code` at `cwd`) are read after the idle wait, just before the spawn, and once the child is reaped, before the `after` wait, and returned as `code` and, when they moved, `code_after`. On a cut line the line's pack child (`measure_pack`) runs first, in the step directory's `pack/`, with the build's environment and `TMPDIR`, before the idle reading, so none of the build's meter windows holds it, and the files the step lists include anything it left. `meter`, `machine` and `sleep` are the write meter, the machine reading and the wait, which a test replaces."""
     from rebuild.review import build
 
-    out_dir = step_dir / OUT_NAME
-    arguments = corpus_child_arguments(inputs, step_dir, cut, widths)
+    arguments = corpus_child_arguments(inputs, step_dir, cut, widths, audit.path)
     child_env = {**env, "TMPDIR": str(step_dir / TMP_NAME)}
     pack: dict[str, Any] | None = None
     pack_pool: dict[str, Any] | None = None
     try:
-        fifo = route_corpus(step_dir, inputs.signatures, None if cut.load else routes)
+        out_dir = route_corpus(step_dir, inputs.signatures, None if cut.load else routes)
         if not cut.load:
             pack, pack_pool = measure_pack(
                 inputs.m1,
@@ -1586,17 +1626,7 @@ def measure_corpus_line(
             sleep(idle_s)
         code = corpus_code(cwd)
         start = meter()
-        run = run_corpus_child(
-            arguments,
-            env=child_env,
-            cwd=cwd,
-            audit=inputs.audit,
-            fifo=fifo,
-            pattern=cut_pattern(cut.excluded),
-            scale=cut.scale,
-            interval=interval_s,
-            machine=machine,
-        )
+        run = run_corpus_child(arguments, env=child_env, cwd=cwd, interval=interval_s, machine=machine)
         end = meter()
         code_after = corpus_code(cwd)
         pools_path = step_dir / POOLS_NAME
@@ -1625,6 +1655,7 @@ def measure_corpus_line(
     units_note = phases.get("units", {}).get("note", "")
     write_note = phases.get("manifest+check", {}).get("note", "")
     shaped = _SIGNATURE_NOTE.search(load_note)
+    source = _SOURCE_NOTE.search(load_note)
     recomputed = _RECOMPUTED_NOTE.search(units_note)
     units_jobs = _JOBS_NOTE.search(units_note)
     write_jobs = _JOBS_NOTE.search(write_note)
@@ -1633,8 +1664,10 @@ def measure_corpus_line(
     recomputed_count = _count(recomputed.group(1)) if recomputed else None
     rusage = _rusage(run.lines)
     return {
-        "rows": run.feed.rows,
-        "feed_s": None if run.feed.closed_s is None else round(run.feed.closed_s, 3),
+        "rows": by_label.get("load_workload done", {}).get("rows"),
+        "audit": {"kind": audit.kind, "bytes": audit.bytes, "seconds": audit.seconds},
+        "load_source": source.group(2) if source else None,
+        "key_only_read": source.group(1) if source else None,
         "units_premerge": by_label.get("load_workload done", {}).get("units"),
         "units": by_label.get(LOAD_MARK, {}).get("units"),
         "windows": by_label.get("by_codepoints built", {}).get("windows"),
@@ -2981,7 +3014,7 @@ def _warn_meter(name: str, written: Mapping[str, Any]) -> None:
 
 
 def run_corpus(args: argparse.Namespace, tree: Path) -> int:
-    """Run the corpus holder's lines (the module docstring's "The corpus step") under the held lock: clone and check the inputs, then measure each cut line and each load line in turn, recording each as it finishes, then the corpus fit (`corpus_report`). A line that leaves a stray file stops the run once its line is recorded. Each line reads the checkout's code digests just before its build's spawn and once the child is reaped (`measure_corpus_line`), and a reading that moved during the build, or since the first line's, prints a `[warn]` line naming the line. The corpus step's part of the tree, the clones among it, is removed as the run ends, however it ends."""
+    """Run the corpus holder's lines (the module docstring's "The corpus step") under the held lock: clone and check the inputs, then measure each cut line and each load line in turn, recording each as it finishes, then the corpus fit (`corpus_report`). Each line's audit file (`prepare_audit`) is written, flushed with `os.sync` and settled for `SETTLE_S` before that line's measurement starts, once a run for a cut the run names several times, and removed after the cut's last line. A line that leaves a stray file stops the run once its line is recorded, and one whose build read its audit through the in-memory source prints a `[warn]` line, since it measured the load the stream replaces. Each line reads the checkout's code digests just before its build's spawn and once the child is reaped (`measure_corpus_line`), and a reading that moved during the build, or since the first line's, prints a `[warn]` line naming the line. The corpus step's part of the tree, the clones among it, is removed as the run ends, however it ends."""
     from rebuild.review import audit, build
 
     kernel_exec.cargo_build()
@@ -3011,7 +3044,15 @@ def run_corpus(args: argparse.Namespace, tree: Path) -> int:
         record = Record(args.out, CORPUS)
         os.sync()
         time.sleep(SETTLE_S)
-        for cut in cuts:
+        last_line = {cut.name: position for position, cut in enumerate(cuts)}
+        audits: dict[str, AuditFile] = {}
+        for position, cut in enumerate(cuts):
+            audit_file = audits.get(cut.name)
+            if audit_file is None:
+                audit_file = audits[cut.name] = prepare_audit(inputs, cut, tree / CORPUS / AUDITS_DIR)
+                if audit_file.kind != "clone":
+                    os.sync()
+                    time.sleep(SETTLE_S)
             _progress(
                 f"{cut.name}: {args.idle_seconds:g} s idle, the build, then {args.after_seconds:g} s before the meter's last reading"
             )
@@ -3021,6 +3062,7 @@ def run_corpus(args: argparse.Namespace, tree: Path) -> int:
                 cut,
                 widths,
                 routes,
+                audit_file,
                 env=env,
                 cwd=build.REPO_ROOT,
                 idle_s=args.idle_seconds,
@@ -3034,10 +3076,14 @@ def run_corpus(args: argparse.Namespace, tree: Path) -> int:
             if "code_after" in measured:
                 _warn(f"{cut.name}: the checkout's corpus code or crate binary moved during the build")
             _warn_meter(cut.name, measured["written"])
+            if position == last_line[cut.name] and audit_file.kind != "clone":
+                audit_file.path.unlink()
             if not cut.load and measured["signatures_shaped"]:
                 _warn(
                     f"{cut.name}: the load shaped {measured['signatures_shaped']:,} signatures, so the live store did not answer every window"
                 )
+            if measured["load_source"] != "read as a stream":
+                _warn(f"{cut.name}: the build did not read its audit as a stream ({measured['load_source']})")
             line: dict[str, Any] = {
                 "step": LOAD_STEP if cut.load else CORPUS_STEP,
                 "runes": len(cut.runes),

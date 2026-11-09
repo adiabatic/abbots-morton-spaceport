@@ -1213,9 +1213,9 @@ def test_a_serial_signature_pass_files_no_pool_record(tmp_path, monkeypatch):
 def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     tmp_path, mini_bundle, capfd, monkeypatch
 ):
-    """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads, and the units line ends with the size of the arena the recomputed fragments are held in and the ratio of their shard bytes to it, which shows a stale dictionary. The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
+    """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads, and the units line ends with the size of the arena the recomputed fragments are held in and the ratio of their shard bytes to it, which shows a stale dictionary, and with whether the ink-signature store was written. The load line names the signatures cached and shaped, what the key-only read did, the source and the prior store's hits (`_SIGNATURE_NOTE`). The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
 
-    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own collections on stdout at every batch boundary: the projections it is about to return, each with its deflated fragment and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are loaded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit collections it replaces, and no collection of enrichments exists.
+    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own collections on stdout at every batch boundary: the projections it is about to return, each with its deflated fragment and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are loaded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit collections it replaces, the ink-signature store's columns are held through the plan and gone once the units phase has started the store's write, and no collection of enrichments exists.
     """
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     out = tmp_path / "corpus"
@@ -1250,7 +1250,8 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
         item.startswith("rss_now_gb=") and float(item.removeprefix("rss_now_gb=")) > 0 for item in current
     )
     arena = re.fullmatch(
-        rf"jobs=2 \(recomputed={total:,}, verified=0 cached; arena \d+\.\d\d GB, deflated (\d+\.\d\d) to 1\)",
+        rf"jobs=2 \(recomputed={total:,}, verified=0 cached; arena \d+\.\d\d GB, deflated (\d+\.\d\d) to 1; "
+        r"ink-signature store (?:written, \d[\d,]* entries|left as it is, every prior entry hit and none missed)\)",
         note,
     )
     assert arena and float(arena.group(1)) > 1, note
@@ -1283,9 +1284,9 @@ def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     assert not _enrichment_collections(tallies)
     parent_only = _tally_lines(captured.out, parent=True)
     assert list(parent_only) == ["load", "plan", "units", "manifest+check", "review-facts", "cache"]
-    assert parent_only["load"]["signatures"] > 0
+    assert parent_only["load"]["signatures"] == parent_only["plan"]["signatures"] > 0
     for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
-        assert "signatures" not in parent_only[boundary]
+        assert ("signatures" in parent_only[boundary]) == (boundary == "plan")
         assert parent_only[boundary]["unit_store"] == total
     assert parent_only["units"]["runner.subset_pack"] == 0
     assert not _subsumed_collections(parent_only)
@@ -1349,41 +1350,53 @@ def test_the_pool_is_handed_the_recomputed_units_in_configuration_order(mini_bun
         assert within == [ordinal for ordinal in range(table.n) if table.configs(ordinal)[0] == config]
 
 
-def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
-    tmp_path, mini_bundle, monkeypatch
-):
-    """The window-keyed digest table `_resolve_signature_digests` returns is read only by the ink-duplicate merge, so it must be alive when the merge is called and collected before the plan phase keys a unit. The build runs with the tally on, so the test also fails if the tally's load-boundary reading keeps a reference to the table. The store records share the digest strings and are released by the store write that opens the units phase; `test_the_signature_store_records_die_where_the_store_is_written` below checks that on both paths, and `test_the_signature_write_holds_no_entries_once_the_store_is_written` in rebuild/test_unit_cache.py checks the writer thread's release. This test covers the keyed table: its tuple keys and its container."""
+@pytest.mark.parametrize("shape", ["sorted", "an order break partway"])
+def test_the_key_only_misses_die_where_they_are_shaped(shape, tmp_path, mini_bundle, monkeypatch):
+    """The key-only read's misses, each one's key, section and window (`_KeyOnly`), are read only by the shaping that turns them into the store's columns (`_shape_found_misses`), so they must be alive when the misses are shaped and collected before the stream reads its first window. The stream keeps no window-keyed table of digests: it looks each sibling row's key up in the columns as it reads the window. A key-only read that meets a break partway, here two rows of one section swapped, never has its misses shaped, and they are collected before the in-memory source loads, so they never sit beside that source's row columns and the misses it keys and shapes itself. The build runs cold with the tally on, so every sibling row misses and the test also fails if the tally's readings keep a reference to the misses."""
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    resolve = review_build._resolve_signature_digests
-    merge = review_build.merge_ink_duplicate_units
-    release = review_build.release_rows
-    table: list[weakref.ref] = []
+    read = review_build._key_only_read
+    shape_misses = review_build._shape_misses
+    stream = review_build.stream_workload
+    load = review_build.load_workload
+    watched: list[weakref.ref] = []
     alive: dict[str, bool] = {}
 
-    class Tracked(dict):
+    class Tracked(list):
         pass
 
-    def tracking_resolve(*args, **kwargs):
-        signatures, *rest = resolve(*args, **kwargs)
-        tracked = Tracked(signatures)
-        table.append(weakref.ref(tracked))
-        return (tracked, *rest)
+    def tracking_read(*args, **kwargs):
+        found = read(*args, **kwargs)
+        found.windows = Tracked(found.windows)
+        watched.extend((weakref.ref(found.keys), weakref.ref(found.windows)))
+        return found
 
-    def watching_merge(units, rows, ink_sig, exempt_classes=frozenset()):
-        alive["merge"] = table[0]() is not None
-        return merge(units, rows, ink_sig, exempt_classes)
+    def watching_shape(*args, **kwargs):
+        alive["shaped"] = all(ref() is not None for ref in watched)
+        return shape_misses(*args, **kwargs)
 
-    def watching_release_rows(units):
+    def watching_stream(*args, **kwargs):
         gc.collect()
-        alive["plan"] = table[0]() is not None
-        release(units)
+        alive["stream"] = any(ref() is not None for ref in watched)
+        return stream(*args, **kwargs)
 
-    monkeypatch.setattr(review_build, "_resolve_signature_digests", tracking_resolve)
-    monkeypatch.setattr(review_build, "merge_ink_duplicate_units", watching_merge)
-    monkeypatch.setattr(review_build, "release_rows", watching_release_rows)
+    def watching_load(*args, **kwargs):
+        gc.collect()
+        alive["in memory"] = any(ref() is not None for ref in watched)
+        return load(*args, **kwargs)
+
+    monkeypatch.setattr(review_build, "_key_only_read", tracking_read)
+    monkeypatch.setattr(review_build, "_shape_misses", watching_shape)
+    monkeypatch.setattr(review_build, "stream_workload", watching_stream)
+    monkeypatch.setattr(review_build, "load_workload", watching_load)
+    audit_path = MINI / "audit.tsv"
+    if shape != "sorted":
+        header, *rows = audit_path.read_text(encoding="utf-8").splitlines()
+        rows[100], rows[101] = rows[101], rows[100]
+        audit_path = tmp_path / "audit.tsv"
+        audit_path.write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
     review_build.build_m1(
         tmp_path / "corpus",
-        audit_path=MINI / "audit.tsv",
+        audit_path=audit_path,
         ledger_path=mini_bundle.ledger,
         subset_dir=MINI,
         after_font=MINI / "M1.otf",
@@ -1391,46 +1404,44 @@ def test_the_window_keyed_signatures_die_where_the_ink_duplicate_merge_returns(
         subset_pack=mini_bundle.subset_pack,
         recompute_all_units=True,
     )
-    assert alive == {"merge": True, "plan": False}
+    assert watched and alive == (
+        {"shaped": True, "stream": False} if shape == "sorted" else {"in memory": False, "shaped": False}
+    )
 
 
 @pytest.mark.parametrize("jobs", [1, 2])
-def test_the_signature_store_records_die_where_the_store_is_written(tmp_path, mini_bundle, monkeypatch, jobs):
-    """The store records `_resolve_signature_digests` returns are held through the plan phase and released by the store write that opens the units phase. A serial build writes inline and has released them before `_RecomputeRunner.phase1` drafts a unit; a pooled build's `_SignatureWrite` thread has released them by the time its `join` returns. The test watches a weakref to the returned dict, not a `_SignatureWrite` attribute, so it fails if `build_m1` keeps its own reference on either path or if the tally holds them; the tally is on for that reason, as in the test above."""
+def test_the_signature_store_columns_die_where_the_store_is_written(tmp_path, mini_bundle, monkeypatch, jobs):
+    """The ink-signature store's columns (`unit_cache.SignatureArrays`), its prior keys and digests, hit bits and shaped misses, are held through the plan phase and released by the store write that opens the units phase. A serial build writes inline and has released them before `_RecomputeRunner.phase1` drafts a unit; a pooled build's `_SignatureWrite` thread has released them by the time its `join` returns. The test watches a weakref to the misses' key column, not a `_SignatureWrite` attribute, so it fails if `build_m1` keeps its own reference on either path or if the tally holds them; the tally is on for that reason, as in the test above."""
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    resolve = review_build._resolve_signature_digests
-    release = review_build.release_rows
+    shape = review_build._shape_found_misses
+    index = UnitStore.input_key_index
     phase1 = review_build._RecomputeRunner.phase1
     join = review_build._SignatureWrite.join
-    table: list[weakref.ref] = []
+    watched: list[weakref.ref] = []
     alive: dict[str, bool] = {}
 
-    class Tracked(dict):
-        pass
+    def tracking_shape(key_only, sections, signatures, *args, **kwargs):
+        found = shape(key_only, sections, signatures, *args, **kwargs)
+        watched.append(weakref.ref(signatures.miss_keys))
+        return found
 
-    def tracking_resolve(*args, **kwargs):
-        signatures, entries, *rest = resolve(*args, **kwargs)
-        tracked = Tracked(entries)
-        table.append(weakref.ref(tracked))
-        return (signatures, tracked, *rest)
-
-    def watching_release_rows(units):
+    def watching_index(self):
         gc.collect()
-        alive["load"] = table[0]() is not None
-        release(units)
+        alive["plan"] = watched[0]() is not None
+        return index(self)
 
     def watching_phase1(self, *args):
         gc.collect()
-        alive["units"] = table[0]() is not None
+        alive["units"] = watched[0]() is not None
         return phase1(self, *args)
 
     def watching_join(self):
         join(self)
         gc.collect()
-        alive["cache"] = table[0]() is not None
+        alive["cache"] = watched[0]() is not None
 
-    monkeypatch.setattr(review_build, "_resolve_signature_digests", tracking_resolve)
-    monkeypatch.setattr(review_build, "release_rows", watching_release_rows)
+    monkeypatch.setattr(review_build, "_shape_found_misses", tracking_shape)
+    monkeypatch.setattr(UnitStore, "input_key_index", watching_index)
     if jobs == 1:
         monkeypatch.setattr(review_build._RecomputeRunner, "phase1", watching_phase1)
     monkeypatch.setattr(review_build._SignatureWrite, "join", watching_join)
@@ -1445,10 +1456,14 @@ def test_the_signature_store_records_die_where_the_store_is_written(tmp_path, mi
         jobs=jobs,
         recompute_all_units=True,
     )
-    assert alive == ({"load": True, "units": False} if jobs == 1 else {"load": True, "cache": False})
+    assert alive == ({"plan": True, "units": False} if jobs == 1 else {"plan": True, "cache": False})
 
 
-_SIGNATURE_NOTE = r"\(signatures: \d[\d,]* cached, \d[\d,]* shaped(?: serially| across \d+ workers)?\)"
+_SIGNATURE_NOTE = (
+    r"\(signatures: \d[\d,]* cached, \d[\d,]* shaped(?: serially| across \d+ workers)?\) "
+    r"\(key-only read (?:ran \d+\.\d\d s across \d+ processes, the largest \d+\.\d{3} GB resident|skipped, the store's stamps held); read as a stream; "
+    r"prior store \d[\d,]* hit, \d[\d,]* unhit, \d[\d,]* missed\)"
+)
 _TALLY_COLLECTION = re.compile(
     r"^\[tally\] (\S+) (\S+) count=(\d+) est_bytes=(\d+) est_gb=\d+\.\d\d"
     r"( packed_bytes=(\d+) packed_per=\d+\.\d walked_per=\d+\.\d ratio=(?:\d+\.\d\d|-) strings=\d+ string_bytes=\d+)?$"
@@ -1547,7 +1562,7 @@ def _packed_collections(text: str) -> dict[str, dict[str, int]]:
 def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writes_the_same_bytes(
     tmp_path, mini_bundle, capsys, monkeypatch
 ):
-    """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the collections the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The audit's row columns are exact, full at load, and empty once the content keys have read them. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit collection it replaces. The checker's identity collection has an entry for every unit in a secondary-junction relation, a unit that names a primary unit or the primary unit it names, and for no other unit. The runner's arena holds a deflated fragment for every unit, all recomputed here, through the write, and none once the runner frees it. The cache boundary has no collection of store records, because the store is written record by record, and no boundary has a collection of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
+    """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the collections the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The stream reads the mini audit one window at a time, so the audit's row columns are empty at every boundary, and the ink-signature store's columns stay from the load through the plan, until the store write that opens the units phase. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit collection it replaces. The checker's identity collection has an entry for every unit in a secondary-junction relation, a unit that names a primary unit or the primary unit it names, and for no other unit. The runner's arena holds a deflated fragment for every unit, all recomputed here, through the write, and none once the runner frees it. The cache boundary has no collection of store records, because the store is written record by record, and no boundary has a collection of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
 
     def build(out: Path) -> dict:
         return review_build.build_m1(
@@ -1576,14 +1591,13 @@ def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writ
     for boundary in tallies:
         assert tallies[boundary]["workload.units"] == total
         assert tallies[boundary]["facts.premerge"] >= total
-    assert tallies["load"]["workload.rows"] == manifest["totals"]["rows"]
-    assert tallies["plan"]["workload.rows"] == 0
+    assert tallies["load"]["workload.rows"] == tallies["plan"]["workload.rows"] == 0
     assert "ink.shape_memo" in tallies["load"] and "signatures" in tallies["load"]
-    assert tallies["load"]["signatures"] > 0
-    for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
+    assert tallies["load"]["signatures"] == tallies["plan"]["signatures"] > 0
+    for boundary in ("units", "manifest+check", "review-facts", "cache"):
         assert "signatures" not in tallies[boundary]
     assert re.search(_SIGNATURE_NOTE, captured.err)
-    assert tallies["plan"]["unit_cache.unplaced"] == 0
+    assert tallies["plan"]["unit_cache.addressless"] == 0
     for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
         assert tallies[boundary]["unit_store"] == total
     assert tallies["units"]["runner.subset_pack"] > 0
@@ -1613,7 +1627,7 @@ def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writ
         boundary: True for boundary in ("plan", "units", "manifest+check", "review-facts", "cache")
     }
     assert _store_lines_are_exact(captured.out, "workload.rows")["load"]
-    assert packed["load"]["workload.rows"] > 0
+    assert packed["load"]["workload.rows"] == 0
     boundaries = ("load", "plan", "units", "manifest+check", "review-facts", "cache")
     assert _store_lines_are_exact(captured.out, "workload.units", holds_table=True) == {
         boundary: True for boundary in boundaries
@@ -1659,7 +1673,7 @@ def _strip_addresses(corpus: Path) -> None:
 def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it(
     tmp_path, mini_corpus, mini_bundle, capsys, monkeypatch
 ):
-    """A rebuild over a copy of the mini corpus reuses every unit from the store, and the plan boundary holds none of the cached records, because each is loaded into the unit store as the stream yields it. `unit_cache.named` never prints, and `unit_cache.unplaced` (records still waiting for the walk) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
+    """A rebuild over a copy of the mini corpus reuses every unit from the store, and the plan boundary holds none of the cached records, because each is loaded into the unit store as the scan yields it. `unit_cache.named` never prints, and `unit_cache.addressless` (the records the walk places) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
     corpus = tmp_path / "corpus"
     shutil.copytree(mini_corpus, corpus)
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
@@ -1668,7 +1682,7 @@ def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it
     total = manifest["totals"]["units"]
     assert re.search(rf"reused {total:,} of {total:,} units from the cache", captured.err)
     tallies = _tally_lines(captured.out)
-    assert tallies["plan"]["unit_cache.unplaced"] == 0
+    assert tallies["plan"]["unit_cache.addressless"] == 0
     assert tallies["plan"]["unit_store"] == total
     assert not _subsumed_collections(tallies)
     packed = _packed_collections(captured.out)
@@ -1679,7 +1693,7 @@ def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it
 def test_a_cached_rebuild_estimates_the_records_the_walk_has_to_place(
     tmp_path, mini_corpus, mini_bundle, capsys, monkeypatch
 ):
-    """The records a cached plan buffers are measured whenever there are any. In a store written before addresses were recorded, every record waits for the walk, so the plan boundary counts one record per unit under `unit_cache.unplaced`. Every unit is still reused."""
+    """The records a cached plan keeps for the walk, as columns of their places, ordinals, classes and id words, are measured whenever there are any, by their columns' own sizes. In a store written before addresses were recorded, every record waits for the walk, so the `locate` boundary, read as the walk returns, counts one record per unit under `unit_cache.addressless` and the walk's result for each under `unit_cache.addressless_located`, which is freed before the plan boundary, and the plan boundary counts the records' columns alone, released once it is read. Every unit is still reused, each from the second scan of the store."""
     corpus = tmp_path / "corpus"
     shutil.copytree(mini_corpus, corpus)
     _strip_addresses(corpus)
@@ -1689,7 +1703,19 @@ def test_a_cached_rebuild_estimates_the_records_the_walk_has_to_place(
     total = manifest["totals"]["units"]
     assert re.search(rf"reused {total:,} of {total:,} units from the cache", captured.err)
     tallies = _tally_lines(captured.out)
-    assert tallies["plan"]["unit_cache.unplaced"] == total
+    assert list(tallies)[:3] == ["load", "locate", "plan"]
+    assert tallies["locate"]["unit_cache.addressless"] == total
+    assert tallies["locate"]["unit_cache.addressless_located"] == total
+    assert tallies["plan"]["unit_cache.addressless"] == total
+    assert "unit_cache.addressless_located" not in tallies["plan"]
+    assert "unit_cache.addressless" not in tallies["units"]
+    sizes = {
+        (match.group(1), match.group(2)): int(match.group(4))
+        for match in map(_TALLY_COLLECTION.match, captured.out.splitlines())
+        if match
+    }
+    assert sizes[("plan", "unit_cache.addressless")] == 20 * total
+    assert sizes[("locate", "unit_cache.addressless_located")] == 60 * total
     assert tallies["plan"]["unit_store"] == total
     assert not _subsumed_collections(tallies)
 

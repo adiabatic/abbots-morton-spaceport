@@ -14,6 +14,7 @@ from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, l
 from rebuild.pipeline.model import CellId, ResolvedSpec, Settled, isolated_overlay_active
 from rebuild.pipeline.settle import form_ligatures, is_boundary_settled, tokens_from_codepoints
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit
+from rebuild.review.columns import WindowIndex
 from rebuild.review.ink import OutlineCache, OutlineIntern, kern_neutral
 from rebuild.review.subset_pack import SubsetPack, SubsetRow, ensure_pack, table_digests
 from rebuild.tools import memory_tally
@@ -829,7 +830,7 @@ def _find_primary_unit(
     item: PrimaryUnitProjection,
     ordinal: int,
     pair: tuple[int, int],
-    by_codepoints: dict[tuple[int, ...], list[int]],
+    by_codepoints: WindowIndex,
     source: PrimaryUnitSource,
     held: dict[int, PrimaryUnitProjection],
 ) -> int | None:
@@ -843,7 +844,7 @@ def _find_primary_unit(
         last_offset = min(item.after_spans[left][0], len(values) - length)
         for offset in range(first_offset, last_offset + 1):
             window = values[offset : offset + length]
-            for candidate in by_codepoints.get(window, ()):
+            for candidate in by_codepoints.candidates(window):
                 if candidate == ordinal:
                     continue
                 projection = held.get(candidate)
@@ -858,10 +859,11 @@ def _find_primary_unit(
 
 def resolve_primary_unit_assignments(
     source: PrimaryUnitSource | list[PrimaryUnitProjection],
+    windows: WindowIndex | None = None,
 ) -> tuple[dict[str, list[tuple[str | None, bool]]], dict[str, int]]:
     """Resolve the primary unit of every secondary junction in the corpus. For each unit with secondary junctions, each junction gets (primary unit or None, suppressed) in junction order, written back through `source.set_primary_units`, and the secondary-junction counts are tallied. A junction whose primary unit is ink- or picture-identical is suppressed: the divergence is an invisible name-grain rename, so it gets no marker. A junction with no primary unit keeps primary unit None and stays visible, so it is never left unmarked.
 
-    The window index holds ordinals, and a unit is materialized only when it has a junction or is a candidate. A list of projections is wrapped in `_ListSource`, and only then is the returned dict filled, keyed by unit id for `apply_primary_unit_assignments`. A source that stores its own primary units, such as the unit store, gets them through `set_primary_units`, and the dict is empty. The secondary-junction counts are the same four either way.
+    The window index (`columns.WindowIndex`) holds the units' ordinals in window order beside each one's packed window, and each candidate window is a bisect of it that gives that window's units in ascending ordinal order; a unit is materialized only when it has a junction or is a candidate. The build passes the workload table's index (`audit.UnitTable.window_index`), whose ordinals are the store's; without one the index is sorted from `source.windows()`. A list of projections is wrapped in `_ListSource`, and only then is the returned dict filled, keyed by unit id for `apply_primary_unit_assignments`. A source that stores its own primary units, such as the unit store, gets them through `set_primary_units`, and the dict is empty. The secondary-junction counts are the same four either way.
     """
     if isinstance(source, list):
         adapter = _ListSource(source)
@@ -869,10 +871,8 @@ def resolve_primary_unit_assignments(
     else:
         adapter = None
         reduced = source
-    by_codepoints: dict[tuple[int, ...], list[int]] = {}
-    for ordinal, window in reduced.windows():
-        by_codepoints.setdefault(window, []).append(ordinal)
-    memory_tally.mark("by_codepoints built", windows=len(by_codepoints))
+    by_codepoints = windows if windows is not None else WindowIndex.build(reduced.windows())
+    memory_tally.mark("by_codepoints built", windows=by_codepoints.windows)
     counts = {
         "units_with_markers": 0,
         "junctions_with_primary_unit": 0,

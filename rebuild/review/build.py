@@ -37,7 +37,7 @@ import warnings
 import zlib
 from array import array
 from collections.abc import Callable, Collection, Container, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from functools import lru_cache, partial
 from itertools import batched, chain, combinations
 from pathlib import Path
@@ -45,10 +45,11 @@ from typing import BinaryIO, NoReturn, cast
 
 from rebuild.pipeline import fingerprint, output_sink, spec_load
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
-from rebuild.review import app_index, facts, tablediff, unit_cache, unit_index
+from rebuild.review import app_index, audit_stream, facts, tablediff, unit_cache, unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
+    INPUT_KEY_BYTES,
     LEDGER_STATUSES,
     MACHINE_CHECKS,
     SECTIONS,
@@ -58,11 +59,14 @@ from rebuild.review.audit import (
     RowColumns,
     Unit,
     UnitTable,
+    Workload,
     _config_index,
     assign_batches,
+    audit_layout,
     batch_of,
     class_section,
     family_ranks,
+    load_ledger,
     load_workload,
     machine_approved,
     merge_ink_duplicate_units,
@@ -71,9 +75,11 @@ from rebuild.review.audit import (
     signature_rows,
     slim_fragment,
     sort_for_triage,
+    stream_workload,
     synthesize_unmatched_group_classes,
     triage_key,
 )
+from rebuild.review.columns import RepeatedKey
 from rebuild.review.change_groups import (
     CHANGE_GROUP_ORDER,
     assign_change_group,
@@ -113,6 +119,7 @@ from rebuild.tools import console, memory_tally
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import (
     current_rss_bytes,
+    maxrss_to_bytes,
     peak_footprint_self_bytes,
     peak_rss_self_bytes,
     rss_now_token,
@@ -201,9 +208,9 @@ def _repo_head(repo_root: Path) -> str:
 UNIT_ASSEMBLY_EPOCH = "2026-10-11T08:52:00Z"
 
 
-def _generated_at(*inputs: Path) -> str:
+def _generated_at(*inputs: Path, mtimes: Iterable[float] = ()) -> str:
     """Return the manifest's `generated_at` stamp: the latest input mtime as UTC ISO, floored at UNIT_ASSEMBLY_EPOCH. It is the same for consecutive builds of the same inputs (the §6 determinism gate) and changes whenever an input changes. The stamp is the corpus's identity: the app, the server, the merge, both fills and the review tools take an ams-review-verdicts/1 document stamped for this corpus as already carried onto it, a pass that skips the corpus build merges a master that is an ams-review-verdicts/1 document stamped for it straight into the store (`artifact_cycle.master_stamped_for_corpus`), or, when the snapshot of the store the verdict update reads is stamped for an older corpus or is not an ams-review-verdicts/1 document, carries that snapshot onto this one first and merges any other master into it (`verdict_update.merge_sets_store_aside`; the carry refuses a snapshot it cannot read, naming it, and the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update), a pass tells the open tabs to move only when the served stamp moves, and `rebuild.tools.rekey_verdicts` refuses a corpus stamped as one its map was computed from. Bump the epoch whenever a build-code change re-keys units without changing any input: without the floor the stamp would not move. The pass that builds the re-keyed corpus would still carry by unit id its master and, in a landing pass whose master is not the store, the store's snapshot as a second input when the snapshot step found a store (`verdict_update`), and that carry refuses when more than `landing.ORPHAN_SHARE_LIMIT` of the prior verdicts `carry_verdicts.resolve_prior` resolves across those files, skips aside, are orphaned, but the re-key its refusal points to would refuse the re-keyed corpus as the one its map was computed from. A carry that goes through (a smaller re-key, or `--allow-orphans`) would merge into an ams-review-verdicts/1 store that carries the same stamp, so the merge would keep the store's records on the old ids instead of stashing the store, and the land's orphan guard, which runs only when the stamp moves, would not run. Once a corpus re-keyed under the old stamp is served, landed by such a pass or written in place by a hand `make review-build`, the store, an export or an open tab's saves still on the old ids would be taken as carried onto it, with no carry and no orphan-share refusal (a pass that skips the build merges its master directly), leaving their verdicts on ids the corpus no longer has."""
-    latest = max(path.stat().st_mtime for path in inputs if path.exists())
+    latest = max([path.stat().st_mtime for path in inputs if path.exists()] + list(mtimes))
     stamp = (
         datetime.datetime.fromtimestamp(latest, tz=datetime.timezone.utc)
         .replace(microsecond=0)
@@ -1199,97 +1206,272 @@ def signature_text(window: str) -> str:
     return "".join(chr(value) for value in parse_codepoints(window))
 
 
+def _shape_misses(
+    pairs: Sequence[tuple[str, str]], before_font: Path, after_font: Path, signature_jobs: int
+) -> tuple[list[str], int]:
+    """Shape the misses' signatures, one `(text, config)` pair a miss, and return their digests in miss order with the width they were shaped at. They are shaped across a spawn pool when `signature_jobs` is above 1 and there are at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially through the parent's shared shapers, whose memo is then released so the parent keeps no shape from this pass into the units phase. The pool width is `signature_jobs`, separate from the units runner's `jobs`: a signature worker holds one comparator over the two fonts, its memory does not grow with the misses, and it is CPU-bound, so cores set its width (`artifact_cycle.signature_job_budget`). The pool maps about eight chunks per worker instead of single pairs so each reply can carry its worker's peak, and `pool.map` keeps the chunks in miss order, which makes the pooled result byte-identical to the serial one."""
+    if not pairs:
+        return [], 1
+    if signature_jobs > 1 and len(pairs) >= _SIGNATURE_POOL_THRESHOLD:
+        ctx = multiprocessing.get_context("spawn")
+        width = min(signature_jobs, len(pairs))
+        chunk_width = max(1, len(pairs) // (width * 8))
+        with ctx.Pool(width, initializer=_signature_pool_init, initargs=(before_font, after_font)) as pool:
+            chunks = pool.map(_signature_chunk_digests, batched(pairs, chunk_width), chunksize=1)
+        peaks: dict[str, int] = {}
+        for _chunk, label, peak in chunks:
+            peaks[label] = max(peaks.get(label, 0), peak)
+        _record_signature_pool(width, peaks)
+        return list(chain.from_iterable(chunk for chunk, _label, _peak in chunks)), width
+    comparator = InkComparator(before_font, after_font, shaper_for)
+    digests = [signature_digest(comparator.signature(text, config)) for text, config in pairs]
+    release_shape_memos()
+    return digests, 1
+
+
 def _resolve_signature_digests(
     table: UnitTable,
     rows: RowColumns,
     keyer: unit_cache.UnitKeyer,
-    out_dir: Path,
+    signatures: unit_cache.SignatureArrays,
     before_font: Path,
     after_font: Path,
-    repo_root: Path,
-    helpers_digest: str,
     signature_jobs: int,
-    recompute_all: bool,
-) -> tuple[dict[tuple[str, str], str], dict[str, str], fingerprint.EnvironmentStamp, int, int]:
-    """Return the ink-duplicate merge's signature digests, one per row of `signature_rows(table, rows)`. A digest comes from the persisted store when its content key still matches, and the rest are shaped now. The misses are shaped across a spawn pool when `signature_jobs` is above 1 and there are at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially through the parent's shared shapers, whose memo is then released so the parent keeps no shape from this pass into the units phase. The pool width is `signature_jobs`, separate from the units runner's `jobs`: a signature worker holds one comparator over the two fonts, its memory does not grow with the misses, and it is CPU-bound, so cores set its width (`artifact_cycle.signature_job_budget`). The pool maps about eight chunks per worker instead of single pairs so each reply can carry its worker's peak, and `pool.map` keeps the chunks in miss order, which makes the pooled result byte-identical to the serial one. Returns the digests keyed by (codepoints, config), the store entries `build_m1` writes when the units phase starts, the store's environment stamp, the number of rows shaped, and the width they were shaped at (1 for a serial pass or when nothing was shaped)."""
-    environment = unit_cache.signature_environment(repo_root, before_font, helpers_digest)
-    prior = None if recompute_all else unit_cache.load_signature_store(out_dir, environment)
-    if not recompute_all and prior is None:
-        note = unit_cache.signature_miss_note(out_dir, environment) or unit_cache.UNREADABLE_NOTE
-        report = console.say if note == unit_cache.NO_STORE_NOTE else console.warn
-        report(f"ink-signature store: {note}", file=sys.stderr)
-    signatures: dict[tuple[str, str], str] = {}
-    entries: dict[str, str] = {}
+) -> tuple[dict[tuple[str, str], bytes], int, int]:
+    """The in-memory source's signature resolution: key every row of `signature_rows(table, rows)` (`UnitKeyer.signature_keys`), find each key's digest in the prior store's columns, marking it hit, and shape the rest (`_shape_misses`) into the columns' misses. Return the digests keyed by (codepoints, config), which only this source's merge reads, the number of rows shaped, and the width they were shaped at (1 for a serial pass or when nothing was shaped). The stream keys and looks up each window's rows as it reads them instead, and builds no such table."""
+    found: dict[tuple[str, str], bytes] = {}
+    miss_keys = array("Q")
     misses = array("I")
     windows: list[str] = []
-    miss_keys: list[str] = []
     for view, key in keyer.signature_keys(signature_rows(table, rows)):
-        digest = prior.get(key) if prior else None
-        if digest is None:
+        word = int(key, 16)
+        position = signatures.prior_index(word)
+        if position < 0:
             misses.append(view.row)
             windows.append(view.codepoints)
-            miss_keys.append(key)
+            miss_keys.append(word)
         else:
-            signatures[(view.codepoints, view.config)] = digest
-            entries[key] = digest
-    width = 1
-    if misses:
-        config_at = rows.config_at
-        pairs: list[tuple[str, str]] = []
-        last_window = None
-        text = ""
-        for window, index in zip(windows, misses):
-            if window != last_window:
-                text = signature_text(window)
-                last_window = window
-            pairs.append((text, config_at(index)))
-        if signature_jobs > 1 and len(misses) >= _SIGNATURE_POOL_THRESHOLD:
-            ctx = multiprocessing.get_context("spawn")
-            width = min(signature_jobs, len(misses))
-            chunk_width = max(1, len(pairs) // (width * 8))
-            with ctx.Pool(
-                width, initializer=_signature_pool_init, initargs=(before_font, after_font)
-            ) as pool:
-                chunks = pool.map(_signature_chunk_digests, batched(pairs, chunk_width), chunksize=1)
-            peaks: dict[str, int] = {}
-            for _chunk, label, peak in chunks:
-                peaks[label] = max(peaks.get(label, 0), peak)
-            _record_signature_pool(width, peaks)
-            digests: Iterable[str] = chain.from_iterable(chunk for chunk, _label, _peak in chunks)
-        else:
-            comparator = InkComparator(before_font, after_font, shaper_for)
-            digests = [signature_digest(comparator.signature(text, config)) for text, config in pairs]
-            release_shape_memos()
-        for window, index, key, digest in zip(windows, misses, miss_keys, digests):
-            signatures[(window, config_at(index))] = digest
-            entries[key] = digest
-    return signatures, entries, environment, len(misses), width
+            signatures.mark_hit(position)
+            found[(view.codepoints, view.config)] = bytes(
+                signatures.digests[position * 32 : position * 32 + 32]
+            )
+    config_at = rows.config_at
+    pairs: list[tuple[str, str]] = []
+    last_window = None
+    text = ""
+    for window, index in zip(windows, misses):
+        if window != last_window:
+            text = signature_text(window)
+            last_window = window
+        pairs.append((text, config_at(index)))
+    digests, width = _shape_misses(pairs, before_font, after_font, signature_jobs)
+    del pairs
+    signatures.set_misses(miss_keys, digests)
+    for window, index, digest in zip(windows, misses, digests):
+        found[(window, config_at(index))] = bytes.fromhex(digest)
+    return found, len(misses), width
+
+
+# The key-only read's processes: each walks one window range of the audit in lockstep (`audit_stream.main`), a range of about a sixth of the largest section's bytes. Each holds its job, the prior store's keys and one window, and all six have exited before the stream reads its first window, so they sit inside the corpus parent's step and no memory constant books them.
+KEY_ONLY_PROCESSES = 6
+
+
+@dataclass
+class _KeyOnly:
+    """What the key-only read found: whether it ran (False when the store's stamps held), its seconds and processes, the misses' keys, sections and windows in window order, the reason to read the audit through the in-memory source instead (`broken`), and the highest resident peak a process reported, which the load phase's note prints (`_key_only_note`). A build that falls back on a break drops it before that source loads."""
+
+    ran: bool
+    seconds: float = 0.0
+    processes: int = 0
+    keys: array = field(default_factory=lambda: array("Q"))
+    sections: array = field(default_factory=lambda: array("B"))
+    windows: list[str] = field(default_factory=list)
+    broken: str = ""
+    peak: int = 0
+
+
+def _read_replies(stream: BinaryIO, replies: list[dict]) -> None:
+    with stream:
+        for line in stream:
+            replies.append(json.loads(line))
+
+
+def _key_only_read(
+    descriptor: int,
+    sections: Sequence[audit_stream.Section],
+    family_of: Mapping[int, str],
+    family_keys: Mapping[str, str],
+    signatures: unit_cache.SignatureArrays,
+) -> _KeyOnly:
+    """Run the key-only read: split the audit's windows into `KEY_ONLY_PROCESSES` ranges (`audit_stream.window_ranges`) and run one process of `audit_stream` a range, each a subprocess of that standard-library module, not a spawn worker, so it imports nothing of the build's. Each is handed the held descriptor (`pass_fds`), its range, the family keys and the prior store's keys, and replies with the prior entries it hit and the misses it found, a frame at a time, each flushed at the first window end after its rows' estimated size reaches `audit_stream.FRAME_BYTES`, so a frame holds at most that plus one window's rows, read by a thread a process. The hits are marked in `signatures` and the misses returned in window order. A range that broke the sections' layout returns the reason, and the build then reads the audit through its in-memory source; a process that fails raises."""
+    started = time.perf_counter()
+    ranges = audit_stream.window_ranges(descriptor, sections, KEY_ONLY_PROCESSES)
+    found = _KeyOnly(True, processes=len(ranges))
+    processes: list[subprocess.Popen] = []
+    readers: list[threading.Thread] = []
+    replies: list[list[dict]] = []
+    prior = memoryview(signatures.keys).cast("B")
+    try:
+        for low, high in ranges:
+            process = subprocess.Popen(
+                [sys.executable, "-m", audit_stream.__name__],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                pass_fds=(descriptor,),
+                cwd=REPO_ROOT,
+            )
+            processes.append(process)
+            got: list[dict] = []
+            replies.append(got)
+            assert process.stdout is not None
+            reader = threading.Thread(target=_read_replies, args=(process.stdout, got), daemon=True)
+            reader.start()
+            readers.append(reader)
+        for process, (low, high) in zip(processes, ranges):
+            assert process.stdin is not None
+            job = {
+                "descriptor": descriptor,
+                "sections": [list(section) for section in sections],
+                "low": low,
+                "high": high,
+                "family_of": {str(value): name for value, name in family_of.items()},
+                "family_keys": dict(family_keys),
+                "prior": len(signatures.keys),
+            }
+            with process.stdin:
+                process.stdin.write(json.dumps(job).encode() + b"\n")
+                for at in range(0, len(prior), audit_stream.READ_BYTES):
+                    process.stdin.write(prior[at : at + audit_stream.READ_BYTES])
+        for reader in readers:
+            reader.join()
+        for process in processes:
+            if process.wait() != 0:
+                raise SystemExit(f"a key-only read process exited {process.returncode}")
+    except BaseException:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+        raise
+    finally:
+        prior.release()
+    for got in replies:
+        for reply in got:
+            if "hits" in reply:
+                for position in reply["hits"]:
+                    signatures.mark_hit(position)
+            elif "misses" in reply:
+                for key, section, window in reply["misses"]:
+                    found.keys.append(key)
+                    found.sections.append(section)
+                    found.windows.append(window)
+            elif "break" in reply and not found.broken:
+                found.broken = reply["break"]
+            elif "done" in reply:
+                found.peak = max(found.peak, maxrss_to_bytes(reply["done"]["maxrss"]))
+    found.seconds = time.perf_counter() - started
+    return found
+
+
+def _find_misses(
+    descriptor: int,
+    sections: Sequence[audit_stream.Section],
+    signatures: unit_cache.SignatureArrays,
+    family_of: Mapping[int, str],
+    family_keys: Mapping[str, str],
+    stamps: Mapping[str, object],
+) -> _KeyOnly | None:
+    """Find every miss before the stream's full read: skip the key-only read when the store's stamps hold (`SignatureArrays.stamps_hold`), since no key can then miss, and otherwise run it (`_key_only_read`). None tells the stream to skip the ink-duplicate merge and the signatures with it, which the memory series' load lines substitute in (`memory_series_child.substitute_for_load`)."""
+    identity = stamps[unit_cache.AUDIT_IDENTITY_KEY]
+    digest = stamps[unit_cache.FAMILY_KEYS_KEY]
+    if signatures.stamps_hold(identity, digest):  # pyright: ignore[reportArgumentType]
+        return _KeyOnly(False)
+    return _key_only_read(descriptor, sections, family_of, family_keys, signatures)
+
+
+def _shape_found_misses(
+    key_only: _KeyOnly,
+    sections: Sequence[audit_stream.Section],
+    signatures: unit_cache.SignatureArrays,
+    before_font: Path,
+    after_font: Path,
+    signature_jobs: int,
+) -> tuple[int, int]:
+    """Shape the key-only read's misses (`_shape_misses`) into the store's columns, in miss order, which is window order, and drop the read's list of them; return how many were shaped and at what width."""
+    pairs: list[tuple[str, str]] = []
+    last_window = None
+    text = ""
+    for window, section in zip(key_only.windows, key_only.sections):
+        if window != last_window:
+            text = signature_text(window)
+            last_window = window
+        pairs.append((text, sections[section].config))
+    digests, width = _shape_misses(pairs, before_font, after_font, signature_jobs)
+    del pairs
+    signatures.set_misses(key_only.keys, digests)
+    shaped = len(key_only.keys)
+    key_only.keys = array("Q")
+    key_only.sections = array("B")
+    key_only.windows = []
+    return shaped, width
+
+
+class _LateShaper:
+    """The stream's digest lookup (`audit.stream_workload`'s `ink_digest`): a key's digest from the store's columns, or, for a key neither the prior store nor the key-only read's misses hold, which only a wrong skip of that read gives, the digest shaped now in the parent through the shared shapers, as the serial path shapes one, and kept as a late miss (`SignatureArrays.add_late`), so the store is written. The shape memo is released after each late shape, since the stream never asks for one (window, configuration) twice, so a wrong skip that misses every sibling row holds one signature's shapes at a time, not the memo of every row."""
+
+    def __init__(self, signatures: unit_cache.SignatureArrays, before_font: Path, after_font: Path) -> None:
+        self._signatures = signatures
+        self._fonts = (before_font, after_font)
+        self._comparator: InkComparator | None = None
+        self.shaped = 0
+
+    def __call__(self, key: int, window: str, config: str) -> bytes:
+        digest = self._signatures.digest_of(key)
+        if digest is not None:
+            return digest
+        if self._comparator is None:
+            self._comparator = InkComparator(*self._fonts, shaper_for)
+        digest = bytes.fromhex(signature_digest(self._comparator.signature(signature_text(window), config)))
+        release_shape_memos()
+        self._signatures.add_late(key, digest)
+        self.shaped += 1
+        return digest
+
+    def release(self) -> None:
+        self._comparator = None
 
 
 class _SignatureWrite:
-    """Write the ink-signature store on a background thread during a pooled build's units phase, joined in the cache phase. The entries are final when `_resolve_signature_digests` returns, and the store's stamp (`unit_cache.signature_environment`) reads neither the manifest nor the check, so the write depends on nothing later phases produce. `_write` drops the entries as soon as `unit_cache.write_signature_store` returns, and `build_m1` deletes its own reference right after starting the thread, so the dict is freed with the write instead of staying through the units-to-cache stretch of the step that `CORPUS_PARENT_BYTES` covers. A failed write also drops them, but the stored exception's traceback keeps the write's frames, and the entries with them, until `join` re-raises it; that only happens on a failing build.
+    """Write the ink-signature store on a background thread during a pooled build's units phase, joined in the cache phase. The columns are final once the load returns, and the store's stamp (`unit_cache.signature_environment`) reads neither the manifest nor the check, so the write depends on nothing later phases produce. `_write` drops the columns as soon as `unit_cache.write_signature_arrays` returns, and `build_m1` deletes its own reference right after starting the thread, so they are freed with the write instead of staying through the units-to-cache stretch of the step that `CORPUS_PARENT_BYTES` covers. A failed write also drops them, but the stored exception's traceback keeps the write's frames, and the columns with them, until `join` re-raises it; that only happens on a failing build.
 
-    The overlap costs nothing because zlib releases the GIL and a pooled build's parent spends the units phase waiting in `multiprocessing.connection.wait`, waking only to load a batch reply and hand out the next batch. Starting the thread earlier, when the entries become final, would make the sort and line formatting (which hold the GIL) compete with the end of the load and the plan phase. A serial build has no idle parent, so it writes inline at the same point. The thread is a daemon and is joined only on the success path, so an exception abandons the write instead of waiting for it; a failed write raises at the join. The write's temporary sorted key list, tens of megabytes, falls within the units phase and within the noise of `CORPUS_PARENT_BYTES`. The runner and the signature pool start processes with spawn, not fork, so a live thread at process creation is safe; moving any of this to a fork context would have to account for the thread.
+    The overlap costs nothing because zlib releases the GIL and a pooled build's parent spends the units phase waiting in `multiprocessing.connection.wait`, waking only to load a batch reply and hand out the next batch. Starting the thread earlier, when the columns become final, would make the line formatting (which holds the GIL) compete with the end of the load and the plan phase. A serial build has no idle parent, so it writes inline at the same point. A build whose store would come out the same (`SignatureArrays.unchanged`) starts no thread and writes nothing. The thread is a daemon and is joined only on the success path, so an exception abandons the write instead of waiting for it; a failed write raises at the join. The runner and the signature pool start processes with spawn, not fork, so a live thread at process creation is safe; moving any of this to a fork context would have to account for the thread.
     """
 
     def __init__(
-        self, out_dir: Path, environment: fingerprint.EnvironmentStamp | str, entries: Mapping[str, str]
+        self,
+        out_dir: Path,
+        environment: fingerprint.EnvironmentStamp | str,
+        signatures: unit_cache.SignatureArrays,
+        stamps: Mapping[str, object] | None = None,
     ) -> None:
         self._out_dir = out_dir
         self._environment = environment
-        self._entries: Mapping[str, str] | None = entries
+        self._signatures: unit_cache.SignatureArrays | None = signatures
+        self._stamps = stamps
         self._error: BaseException | None = None
         self._thread = threading.Thread(target=self._write, name="ink-signature-store", daemon=True)
         self._thread.start()
 
     def _write(self) -> None:
         try:
-            assert self._entries is not None
-            unit_cache.write_signature_store(self._out_dir, self._environment, self._entries)
+            assert self._signatures is not None
+            unit_cache.write_signature_arrays(
+                self._out_dir, self._environment, self._signatures, self._stamps
+            )
         except BaseException as error:
             self._error = error
         finally:
-            self._entries = None
+            self._signatures = None
 
     def join(self) -> None:
         self._thread.join()
@@ -2692,6 +2874,7 @@ def _write_corpus(
     total_batches: int,
     batch_size: int,
     audit_path: Path,
+    audit_mtime: float,
     ledger_path: Path,
     subset_dir: Path,
     before_font: Path,
@@ -2851,7 +3034,7 @@ def _write_corpus(
         manifest = {
             "format": MANIFEST_FORMAT,
             "mode": "m1-audit",
-            "generated_at": _generated_at(audit_path, ledger_path, before_font, after_font),
+            "generated_at": _generated_at(ledger_path, before_font, after_font, mtimes=(audit_mtime,)),
             "repo_head": _repo_head(repo_root),
             "inputs_fingerprint": _inputs_fingerprint(
                 repo_root, subset_dir, before_font, junior_font, spec_root, draft_lines=draft_lines
@@ -2984,6 +3167,189 @@ def _cached_identity(table: UnitTable, store: UnitStore, ordinal: int, junction_
     }
 
 
+@dataclass
+class _Loaded:
+    """What the build's load gives the plan, whichever window source read the audit: the workload, its table merged and in load order; the pre-merge snapshot, rebased onto the merge; each unit's input key in load order; the ink-signature store's columns, hits marked and misses shaped, its stamp and the two stamps beside it; the merge's stats; the source and, for the in-memory source, why; what the key-only read did; and the misses shaped and their width."""
+
+    workload: Workload
+    premerge: facts.PremergeSnapshot
+    input_keys: bytearray
+    signatures: unit_cache.SignatureArrays
+    environment: fingerprint.EnvironmentStamp
+    stamps: dict
+    merge_stats: dict
+    source: str
+    key_only: str
+    shaped: int
+    width: int
+
+    def note(self) -> str:
+        """The load phase's note: its signature counts (the rows the store answered and those shaped, and how), whether the key-only read ran, in how many seconds across how many processes and the largest process's resident peak, or was skipped, the source the load took, and the prior store's hits and unhit entries and the misses."""
+        signatures = self.signatures
+        how = "" if not self.shaped else " serially" if self.width == 1 else f" across {self.width} workers"
+        return (
+            f"(signatures: {signatures.hits():,} cached, {self.shaped:,} shaped{how}) (key-only read {self.key_only}; "
+            f"{self.source}; prior store {signatures.hits():,} hit, {signatures.unhit():,} unhit, "
+            f"{signatures.misses():,} missed)"
+        )
+
+
+def _addressless_sizes(wanted: unit_cache.WantedFragments, lines: array, ordinals: array) -> tuple[int, int]:
+    """The plan's addressless records as the tally reads them: their count, and the bytes of the wanted columns beside each record's place and ordinal."""
+    return len(wanted), wanted.nbytes() + len(lines) * lines.itemsize + len(ordinals) * ordinals.itemsize
+
+
+def _key_only_note(key_only: _KeyOnly | None) -> str:
+    if key_only is None:
+        return "not run, the merge skipped"
+    if not key_only.ran:
+        return "skipped, the store's stamps held"
+    return (
+        f"ran {key_only.seconds:.2f} s across {key_only.processes} processes, "
+        f"the largest {key_only.peak / 1e9:.3f} GB resident"
+    )
+
+
+def _load_corpus(
+    descriptor: int,
+    audit_path: Path,
+    ledger_path: Path,
+    ledger: list[LedgerClass],
+    family_of: Mapping[int, str],
+    family_keys: Mapping[str, str],
+    keyer: unit_cache.UnitKeyer,
+    out_dir: Path,
+    before_font: Path,
+    after_font: Path,
+    repo_root: Path,
+    helpers_digest: str,
+    signature_jobs: int,
+    recompute_all: bool,
+    identical_classes: frozenset[str],
+) -> _Loaded:
+    """Load the audit for the build through `descriptor`, which `build_m1` opened once and holds until the build returns, every read of the audit going through it (`audit.audit_layout`, the key-only read, the stream, the in-memory source), never through the path again, since a `--gates-only` pass can replace the audit by rename meanwhile. The ink-signature store is read into columns first (`unit_cache.SignatureArrays.load`). An audit in sorted sections is read as a stream (`audit.stream_workload`) once its misses are found (`_find_misses`) and shaped (`_shape_found_misses`), its windows merged as it reads them through the columns (`_LateShaper`). Any other audit, or one whose key-only read or stream meets a break, is read through the in-memory source, which keys its sibling rows in the parent and shapes their misses as the stream's are shaped (`_resolve_signature_digests`, through `_shape_misses`: the spawn pool at `signature_jobs` above 1 and at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially in the parent), captures the pre-merge snapshot, merges, compacts and keys every unit, with the columns' hits and misses cleared first. Both give the same table, snapshot, merge and input keys."""
+    environment = unit_cache.signature_environment(repo_root, before_font, helpers_digest)
+    prior = None if recompute_all else unit_cache.SignatureArrays.load(out_dir, environment)
+    if not recompute_all and prior is None:
+        note = unit_cache.signature_miss_note(out_dir, environment) or unit_cache.UNREADABLE_NOTE
+        report = console.say if note == unit_cache.NO_STORE_NOTE else console.warn
+        report(f"ink-signature store: {note}", file=sys.stderr)
+    signatures = prior if prior is not None else unit_cache.SignatureArrays()
+    exempt_classes = {entry.id for entry in ledger if entry.no_verdict}
+    key_only_note = "not run, the audit is not in sorted sections"
+    stamps = {
+        unit_cache.AUDIT_IDENTITY_KEY: unit_cache.audit_identity(descriptor),
+        unit_cache.FAMILY_KEYS_KEY: unit_cache.family_keys_digest(family_keys),
+    }
+    layout = audit_layout(descriptor, audit_path)
+    why = layout.why
+    if layout.sections is not None:
+        key_only = _find_misses(descriptor, layout.sections, signatures, family_of, family_keys, stamps)
+        key_only_note = _key_only_note(key_only)
+        memory_tally.mark(
+            "key-only read",
+            misses=0 if key_only is None else len(key_only.keys),
+            processes=0 if key_only is None else key_only.processes,
+        )
+        if key_only is not None and key_only.broken:
+            why = key_only.broken
+            key_only = None
+        else:
+            shaped, width = (
+                (0, 1)
+                if key_only is None
+                else _shape_found_misses(
+                    key_only, layout.sections, signatures, before_font, after_font, signature_jobs
+                )
+            )
+            memory_tally.mark("signatures resolved")
+            late = None if key_only is None else _LateShaper(signatures, before_font, after_font)
+            try:
+                streamed = stream_workload(
+                    descriptor,
+                    audit_path,
+                    ledger_path,
+                    layout.sections,
+                    ledger,
+                    family_of,
+                    family_keys,
+                    late,
+                    mark=memory_tally.mark,
+                )
+            except audit_stream.OrderBreak as broken:
+                why = str(broken)
+            else:
+                workload = streamed.workload
+                memory_tally.mark(
+                    "load_workload done", units=len(streamed.compaction.survivor), rows=workload.row_count
+                )
+                premerge = facts.PremergeSnapshot.from_columns(
+                    workload.table, streamed.premerge, identical_classes
+                )
+                premerge.rebase(streamed.compaction)
+                memory_tally.mark("compacted", units=workload.table.n)
+                late_shaped = 0 if late is None else late.shaped
+                return _Loaded(
+                    workload,
+                    premerge,
+                    streamed.input_keys,
+                    signatures,
+                    environment,
+                    stamps,
+                    streamed.merge_stats,
+                    "read as a stream",
+                    key_only_note,
+                    shaped + late_shaped,
+                    width if shaped else 1,
+                )
+            finally:
+                if late is not None:
+                    late.release()
+    signatures.reset()
+    workload = load_workload(
+        audit_path, ledger_path, dict(family_of), mark=memory_tally.mark, descriptor=descriptor
+    )
+    table = workload.table
+    rows = workload.rows
+    assert rows is not None
+    memory_tally.mark("load_workload done", units=table.n, rows=workload.row_count)
+    found, shaped, width = _resolve_signature_digests(
+        table, rows, keyer, signatures, before_font, after_font, signature_jobs
+    )
+    memory_tally.mark("signatures resolved")
+    premerge = facts.capture_premerge(table, identical_classes)
+    memory_tally.mark("premerge captured")
+    merge_stats = merge_ink_duplicate_units(
+        table, rows, lambda codepoints, config: found[(codepoints, config)], exempt_classes
+    )
+    del found
+    memory_tally.mark("merged")
+    # The merge marked the absorbed rows. Compacting drops them and renumbers the survivors, so from here a table row index is the unit's ordinal, which the unit store uses too. The pre-merge snapshot records the compaction so it can find each pre-merge row's survivor.
+    premerge.rebase(table.compact())
+    memory_tally.mark("compacted", units=table.n)
+    input_keys = bytearray(INPUT_KEY_BYTES * table.n)
+    for ordinal in range(table.n):
+        input_keys[ordinal * INPUT_KEY_BYTES : (ordinal + 1) * INPUT_KEY_BYTES] = bytes.fromhex(
+            keyer.key(table, rows, ordinal)
+        )
+    release_rows(workload)
+    del rows
+    memory_tally.mark("rows released")
+    return _Loaded(
+        workload,
+        premerge,
+        input_keys,
+        signatures,
+        environment,
+        stamps,
+        merge_stats or {},
+        f"read in memory, since {why}",
+        key_only_note,
+        shaped,
+        width,
+    )
+
+
 def build_m1(
     out_dir: Path = DEFAULT_OUT,
     audit_path: Path = M1_AUDIT,
@@ -3003,6 +3369,55 @@ def build_m1(
     gates_idle_jobs: int | None = None,
     gates_idle_marker: Path | None = None,
     write_jobs: int | None = None,
+) -> dict:
+    """Build the m1-audit review corpus into `out_dir` (`_build_m1`) while holding the audit open: the descriptor opened here, before anything else, is the one every read of the audit goes through until the build returns, the load's reads and the manifest's stamp's (`_generated_at`) alike, never the path again, since a `--gates-only` pass can replace the audit by rename during a build."""
+    descriptor = os.open(audit_path, os.O_RDONLY)
+    try:
+        return _build_m1(
+            descriptor,
+            out_dir,
+            audit_path,
+            ledger_path,
+            subset_dir,
+            before_font,
+            after_font,
+            junior_font,
+            repo_root,
+            batch_size,
+            static_dir,
+            jobs,
+            signature_jobs,
+            recompute_all_units,
+            spec_root,
+            subset_pack,
+            gates_idle_jobs,
+            gates_idle_marker,
+            write_jobs,
+        )
+    finally:
+        os.close(descriptor)
+
+
+def _build_m1(
+    descriptor: int,
+    out_dir: Path,
+    audit_path: Path,
+    ledger_path: Path,
+    subset_dir: Path,
+    before_font: Path,
+    after_font: Path,
+    junior_font: Path,
+    repo_root: Path,
+    batch_size: int,
+    static_dir: Path,
+    jobs: int,
+    signature_jobs: int,
+    recompute_all_units: bool,
+    spec_root: Path | None,
+    subset_pack: Path | None,
+    gates_idle_jobs: int | None,
+    gates_idle_marker: Path | None,
+    write_jobs: int | None,
 ) -> dict:
     # The enricher re-settles every window from the spec, so a frozen bundle of audit rows, subsets and a font stays consistent only while the runes match it. `spec_root` lets such a bundle use its own frozen spec (the objects rebuild/review/fixtures/mini/pin.json names, which the `mini_bundle` fixture in rebuild/conftest.py materializes out of git), so rune edits do not affect it. What is read from the spec follows `spec_root`: the enrichment, the unit cache's family keys, the environment stamp's spec lines, and the rune and ledger prose in the `explain_prose` fingerprint component, because the explain text quotes the spec's refuse and ledger rationales. What describes this checkout stays on `repo_root`: the change groups' prose in `explain_prose`, the other fingerprint components, the git head, the manifest's relative paths, and the rest of the environment stamp.
     spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
@@ -3027,18 +3442,8 @@ def build_m1(
     tally = memory_tally.from_environment()
     console.phase("review.build load", file=sys.stderr)
     phase = time.perf_counter()
-    workload = load_workload(audit_path, ledger_path, dict(LETTERS), mark=memory_tally.mark)
-    table = workload.table
-    rows = workload.rows
-    assert rows is not None
-    memory_tally.mark("load_workload done", units=table.n, rows=workload.row_count)
-    if tally:
-        tally.hold_reading("workload.units", lambda: unit_table_sizes(table))
-        tally.hold_reading("workload.rows", lambda: row_column_sizes(workload.rows))
-    if not table.n:
-        raise SystemExit(
-            f"{audit_path} records no divergent rows, so there is nothing to build a review corpus over"
-        )
+    # The spec and the family keys read nothing of the audit, so they load first: the stream keys each unit and each sibling row from its raw lines as it reads them.
+    ledger = load_ledger(ledger_path)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(spec_root)
@@ -3047,58 +3452,47 @@ def build_m1(
     family_keys, helpers_digest = unit_cache.family_content_keys(spec_root, spec, after_font)
     keyer = unit_cache.UnitKeyer(family_keys, dict(LETTERS))
     memory_tally.mark("family keys")
-    signatures, signature_entries, signature_environment, signatures_shaped, signature_width = (
-        _resolve_signature_digests(
-            table,
-            rows,
-            keyer,
-            out_dir,
-            before_font,
-            after_font,
-            repo_root,
-            helpers_digest,
-            signature_jobs,
-            recompute_all_units,
-        )
+    identical_classes = frozenset(entry.id for entry in ledger if entry.ink_identical)
+    loaded = _load_corpus(
+        descriptor,
+        audit_path,
+        ledger_path,
+        ledger,
+        dict(LETTERS),
+        family_keys,
+        keyer,
+        out_dir,
+        before_font,
+        after_font,
+        repo_root,
+        helpers_digest,
+        signature_jobs,
+        recompute_all_units,
+        identical_classes,
     )
-    memory_tally.mark("signatures resolved")
-
-    def ink_sig(codepoints: str, config: str) -> str:
-        return signatures[(codepoints, config)]
-
-    exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
-    identical_classes = frozenset(entry.id for entry in workload.ledger if entry.ink_identical)
-    premerge_capture = facts.capture_premerge(table, identical_classes)
-    memory_tally.mark("premerge captured")
-    signature_count = len(signatures)
+    workload = loaded.workload
+    table = workload.table
+    premerge_capture = loaded.premerge
+    signature_store = loaded.signatures
     if tally:
-        signature_reading = memory_tally.estimate(signatures)
-        tally.hold_reading("signatures", lambda: signature_reading)
+        tally.hold_reading("workload.units", lambda: unit_table_sizes(table))
+        tally.hold_reading("workload.rows", lambda: row_column_sizes(workload.rows))
+        tally.hold_reading(
+            "signatures", lambda: (len(signature_store) + signature_store.misses(), signature_store.nbytes())
+        )
         tally.hold_reading("facts.premerge", lambda: premerge_sizes(premerge_capture))
-    merge_ink_duplicate_units(table, rows, ink_sig, exempt_classes)
-    del signatures, ink_sig
-    memory_tally.mark("merged")
-    # The merge marked the absorbed rows. Compacting drops them and renumbers the survivors, so from here a table row index is the unit's ordinal, which the unit store below uses too. The pre-merge snapshot records the compaction so it can find each pre-merge row's survivor.
-    premerge_capture.rebase(table.compact())
-    memory_tally.mark("compacted", units=table.n)
+    if not table.n:
+        raise SystemExit(
+            f"{audit_path} records no divergent rows, so there is nothing to build a review corpus over"
+        )
     present = table.classes_present()
     workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
     if tally:
         tally.hold_reading("ink.shape_memo", shape_memo_sizes)
         tally.boundary("load")
-        tally.release("signatures")
-    _phase_timing(
-        "review.build load",
-        phase,
-        f"(signatures: {signature_count - signatures_shaped:,} cached, {signatures_shaped:,} shaped"
-        + (
-            ")"
-            if not signatures_shaped
-            else " serially)" if signature_width == 1 else f" across {signature_width} workers)"
-        ),
-    )
+    _phase_timing("review.build load", phase, loaded.note())
 
-    # The incremental plan (the `rebuild/review/unit_cache.py` module docstring is the authority): key every unit by its inputs, reuse what the previous corpus already computed, and pass only the rest to the runner. The whole-corpus passes below always run over every unit, so every order- or ledger-derived field comes from this build. The table is compacted, so the set of units is final here. The unit store (`unit_store.UnitStore`) holds every per-unit product of phase 1 from here to the cache write. It is allocated over the table's count and shares the table's string table, and the keyer writes each unit's input key into it before any record is loaded. The store's records are parsed and loaded one at a time in store order (`unit_cache.stream_store`), matched to units through the map from input key to ordinal. Load order changes no output byte: ids are read through the string table, every side column is read by `(start, count)`, and the mismatches are keyed by ordinal (the `unit_store` module docstring). A store that fails partway is restarted with the same input keys and nothing loaded. The ids the discarded store added to the shared string table stay there, which is harmless because every read goes by id.
+    # The incremental plan (the `rebuild/review/unit_cache.py` module docstring is the authority): key every unit by its inputs, reuse what the previous corpus already computed, and pass only the rest to the runner. The whole-corpus passes below always run over every unit, so every order- or ledger-derived field comes from this build. The table is compacted, so the set of units is final here. The unit store (`unit_store.UnitStore`) holds every per-unit product of phase 1 from here to the cache write. It is allocated over the table's count and shares the table's string table, and it takes the load's column of input keys, one a unit computed from the unit's audit lines, before any record is loaded. The store's records are parsed and loaded one at a time in store order (`unit_cache.scan_store`), matched to units through an open-addressed index over that column (`UnitStore.input_key_index`, `columns.KeyIndex`), whose build refuses two units with one key, naming their windows. Load order changes no output byte: ids are read through the string table, every side column is read by `(start, count)`, and the mismatches are keyed by ordinal (the `unit_store` module docstring). A store that fails partway is restarted with the same input keys and nothing loaded. The ids the discarded store added to the shared string table stay there, which is harmless because every read goes by id.
     console.phase("review.build plan", file=sys.stderr)
     phase = time.perf_counter()
     site_pages = fingerprint.read_site_corpus(repo_root)
@@ -3116,30 +3510,28 @@ def build_m1(
         identical_classes=identical_classes,
         draft_lines=draft_lines,
     )
-    store = UnitStore(table.n, strings=table.strings)
+    store = UnitStore(table.n, strings=table.strings, input_keys=loaded.input_keys)
+    signature_environment, signature_stamps = loaded.environment, loaded.stamps
+    del loaded
     memory_tally.mark("unit store allocated")
-    for ordinal in range(table.n):
-        store.set_input_key(ordinal, keyer.key(table, rows, ordinal))
     memory_tally.mark("input keys written")
-    release_rows(workload)
-    del rows
-    memory_tally.mark("rows released")
     cached_count = 0
-    unplaced: list[unit_cache.ParsedCachedUnit] = []
     store_plan = unit_cache.StorePlan()
     prior_shards: PriorShards | None = None
-    named: dict[str, int] = {}
-    for ordinal in range(table.n):
-        key = store.input_key_hex(ordinal)
-        first = named.setdefault(key, ordinal)
-        if first != ordinal:
-            raise SystemExit(
-                f"units {table.codepoints_text(first)} and {table.codepoints_text(ordinal)} spell one input "
-                f"key {key}: every row belongs to one triple and every key line carries its window and "
-                "names, so a repeat is a sha256 collision"
-            )
+    # The records the scan finds without an address, as columns: each one's place in the store, its unit's ordinal, and its class and id word, which the walk over the previous corpus places (`unit_cache.locate_prior_fragments`) before a second scan parses them alone (`unit_cache.scan_marked`).
+    addressless_lines = array("I")
+    addressless_ordinals = array("I")
+    wanted = unit_cache.WantedFragments()
+    try:
+        named = store.input_key_index()
+    except RepeatedKey as repeated:
+        raise SystemExit(
+            f"units {table.codepoints_text(repeated.first)} and {table.codepoints_text(repeated.second)} spell one "
+            f"input key {store.input_key_hex(repeated.first)}: every row belongs to one triple and every key line "
+            "carries its window and names, so a repeat is a sha256 collision"
+        ) from None
     memory_tally.mark("named built")
-    # The plan reads every record of the prior store, whatever its stamp, in the store's materialized order. Each record whose input key a unit of this build names gives that unit its line in that order (`UnitStore.set_prior_line`), which places this pass's store records against the prior ones (`unit_cache.update_store`). When the stamp and the manifest match, a named record is a candidate for reuse. A record's address is the span the shard writer returned when the previous corpus was written, so the record is loaded as soon as it is parsed. A record without an address (from an older store, or in a part whose size changed, as `unit_cache.stream_store` describes) is buffered for one walk over the previous corpus's live fragments after the stream; on a corpus this code wrote there are none. A candidate is reused only when two conditions hold. First, the fragment at its address must carry the stamp the store recorded for it. The walk reads the stamp as it goes, a store address carries the record's own stamp, and `unit_cache.PriorFragmentReader` checks the id and stamp again when the write reads the bytes, which for a store-addressed fragment is the only time they are read. Skipping `check_unit` on a cached fragment is safe only because of this equality. Second, the fragment must have the shape (slim or full) this build would write, because the ledger exemption that decides the shape is not covered by the key (`_slim_for`). So a unit that becomes a human unit after a ledger edit is re-enriched in full, and one that stops being one is re-drafted slim. The plan keeps only the fragment's address, loaded into the unit store beside the record's projection. A cached unit's id comes from its stored content key, so it is known before phase 1; a recomputed unit's id is stamped when it is drafted and returns with the projection. Every record not loaded is kept by its unit id with its fragment's address and its patched fields, while the store's manifest stamp and every part size it records hold (#618's change 28), so the write can compare the fragment of a unit it recomputes with its prior one, wherever its input key moved, and the live bytes each part holds are summed for the fold. If the store fails partway, the rows already loaded cannot be trusted, so the plan discards them, with every prior line and record, and falls back to a full build over the same input keys. A store written before the segment format, a single file with no head, is put under one as generation 0's base once it reads to its end (`unit_cache.adopt_single_file`), before the write can append to any part.
+    # The plan reads every record of the prior store, whatever its stamp, in the store's materialized order. Each record whose input key a unit of this build names gives that unit its line in that order (`UnitStore.set_prior_line`), which places this pass's store records against the prior ones (`unit_cache.update_store`). When the stamp and the manifest match, a named record is a candidate for reuse. A record's address is the span the shard writer returned when the previous corpus was written, so the record is loaded as soon as it is parsed. A record without an address (from an older store, or in a part whose size changed, as `unit_cache.stream_store` describes) is kept as its place, its unit's ordinal, its class and its id word, the parsed record dropped; one walk over the previous corpus's live fragments after the scan places them all (`unit_cache.locate_prior_fragments`), and a second scan of the store parses those records alone and loads each whose located fragment carries its stamp and has its shape, at the address the walk found. On a corpus this code wrote there are none. A candidate is reused only when two conditions hold. First, the fragment at its address must carry the stamp the store recorded for it. The walk reads the stamp as it goes, a store address carries the record's own stamp, and `unit_cache.PriorFragmentReader` checks the id and stamp again when the write reads the bytes, which for a store-addressed fragment is the only time they are read. Skipping `check_unit` on a cached fragment is safe only because of this equality. Second, the fragment must have the shape (slim or full) this build would write, because the ledger exemption that decides the shape is not covered by the key (`_slim_for`). So a unit that becomes a human unit after a ledger edit is re-enriched in full, and one that stops being one is re-drafted slim. The plan keeps only the fragment's address, loaded into the unit store beside the record's projection. A cached unit's id comes from its stored content key, so it is known before phase 1; a recomputed unit's id is stamped when it is drafted and returns with the projection. Every record not loaded is kept by its unit id with its fragment's address and its patched fields, while the store's manifest stamp and every part size it records hold (#618's change 28), so the write can compare the fragment of a unit it recomputes with its prior one, wherever its input key moved, and the live bytes each part holds are summed for the fold. If the store fails partway, the rows already loaded cannot be trusted, so the plan discards them, with every prior line and record, and falls back to a full build over the same input keys. A store written before the segment format, a single file with no head, is put under one as generation 0's base once it reads to its end (`unit_cache.adopt_single_file`), before the write can append to any part.
     try:
         opened = unit_cache.open_store(out_dir)
     except unit_cache.StoreUnreadable:
@@ -3179,7 +3571,11 @@ def build_m1(
                 if cached is not None and ordinal is not None:
                     found = cached.located()
                     if found is None:
-                        unplaced.append(cached)
+                        word = unit_cache.id_word(cached.prior_id)
+                        if word is not None:
+                            addressless_lines.append(scanned.index)
+                            addressless_ordinals.append(ordinal)
+                            wanted.add(cached.prior_class, word)
                         continue
                     if found.content_key == cached.content_key and cached.slim == _slim_for(
                         table.no_verdict(ordinal), cached
@@ -3195,10 +3591,38 @@ def build_m1(
                         part, _start, length = record.address
                         live_bytes[part] = live_bytes.get(part, 0) + length + 1
                         store.add_prior_record(record)
+            if len(wanted):
+                located = unit_cache.locate_prior_fragments(out_dir, wanted)
+                if tally:
+                    tally.hold_reading(
+                        "unit_cache.addressless",
+                        lambda: _addressless_sizes(wanted, addressless_lines, addressless_ordinals),
+                    )
+                    tally.hold_reading(
+                        "unit_cache.addressless_located", lambda: (len(located), located.nbytes())
+                    )
+                    tally.boundary("locate")
+                    tally.release("unit_cache.addressless_located")
+                again = unit_cache.open_store(out_dir)
+                if again is None:
+                    raise unit_cache.StoreUnreadable("the store went missing between the plan's two scans")
+                marked = iter(zip(addressless_lines, addressless_ordinals))
+                for index, cached in unit_cache.scan_marked(again, addressless_lines, trusted):
+                    line, ordinal = next(marked)
+                    if index != line:
+                        raise unit_cache.StoreUnreadable(f"the second scan read line {index} for line {line}")
+                    found = located.find(cached.prior_class, cached.prior_id)
+                    if (
+                        found is not None
+                        and found.content_key == cached.content_key
+                        and cached.slim == _slim_for(table.no_verdict(ordinal), cached)
+                    ):
+                        store.load_cached(ordinal, cached, codepoints=table.codepoints(ordinal), found=found)
+                        cached_count += 1
+                del located, marked
         except unit_cache.StoreUnreadable:
             store = store.emptied()
             cached_count = 0
-            unplaced = []
             store_plan = unit_cache.StorePlan(existed=True)
             console.warn(f"unit cache: {unit_cache.UNREADABLE_NOTE}", file=sys.stderr)
         else:
@@ -3217,23 +3641,7 @@ def build_m1(
             if addresses_hold:
                 prior_shards = PriorShards(recorded_sizes, live_bytes)
         del live_bytes
-    if unplaced:
-        wanted: dict[str, set[str]] = {}
-        for cached in unplaced:
-            wanted.setdefault(cached.prior_class, set()).add(cached.prior_id)
-        located = unit_cache.locate_prior_fragments(out_dir, wanted)
-        del wanted
-        for cached in unplaced:
-            ordinal = named[cached.key]
-            found = located.get(cached.prior_id)
-            if (
-                found is not None
-                and found.content_key == cached.content_key
-                and cached.slim == _slim_for(table.no_verdict(ordinal), cached)
-            ):
-                store.load_cached(ordinal, cached, codepoints=table.codepoints(ordinal), found=found)
-                cached_count += 1
-        del located
+    named.release()
     del named
     memory_tally.mark("named freed")
     recomputed = array("I", (ordinal for ordinal in range(table.n) if not store.loaded(ordinal)))
@@ -3255,11 +3663,15 @@ def build_m1(
     del sampled
     verify_units = [table.unit(ordinal, store) for ordinal in sampled_ordinals]
     if tally:
-        tally.hold("unit_cache.unplaced", unplaced)
+        tally.hold_reading(
+            "unit_cache.addressless",
+            lambda: _addressless_sizes(wanted, addressless_lines, addressless_ordinals),
+        )
         tally.hold_reading("unit_store", store.sizes)
         tally.boundary("plan")
-    # The buffered records have been loaded into the unit store or rejected, so they are freed here. Only a tallied pass keeps them, through the hold above.
-    del unplaced
+        tally.release("unit_cache.addressless")
+    # The addressless records' columns have been loaded into the unit store or rejected, so they are freed here.
+    del wanted, addressless_lines, addressless_ordinals
     _phase_timing(
         "review.build plan",
         phase,
@@ -3288,12 +3700,26 @@ def build_m1(
         dictionary=FRAGMENT_DICTIONARY.read_bytes(),
     )
     try:
-        if runner.pooled:
-            signature_write = _SignatureWrite(out_dir, signature_environment, signature_entries)
+        signature_write: _SignatureWrite | None = None
+        signature_written = not signature_store.unchanged()
+        if not signature_written:
+            pass
+        elif runner.pooled:
+            signature_write = _SignatureWrite(
+                out_dir, signature_environment, signature_store, signature_stamps
+            )
         else:
-            unit_cache.write_signature_store(out_dir, signature_environment, signature_entries)
-            signature_write = None
-        del signature_entries
+            unit_cache.write_signature_arrays(
+                out_dir, signature_environment, signature_store, signature_stamps
+            )
+        signature_note = (
+            f"ink-signature store written, {signature_store.hits() + signature_store.misses():,} entries"
+            if signature_written
+            else "ink-signature store left as it is, every prior entry hit and none missed"
+        )
+        del signature_store
+        if tally:
+            tally.release("signatures")
         runner.phase1(store)
         memory_tally.mark("units drafted")
         # The enricher read each unit's name tuples from the record it was handed, and the verification sample holds its own records, so the parent reads no name tuple after this point.
@@ -3355,7 +3781,10 @@ def build_m1(
 
         by_class = table.rows_by_class(order)
         # The primary-unit resolution pass reads the corpus through the store and writes each unit's primary units back into it. The returned dict is filled only on the list path, so it is empty here.
-        _assignments, secondary_junction_counts = resolve_primary_unit_assignments(store)
+        _assignments, secondary_junction_counts = resolve_primary_unit_assignments(
+            store, table.window_index()
+        )
+        table.release_window_index()
         memory_tally.mark("by_codepoints freed")
 
         # The sampled records were materialized before the whole-corpus passes ran, so the fields the whole-corpus passes assign (duplicate group, cluster, class, primary units) are passed to the recomputation explicitly.
@@ -3392,7 +3821,7 @@ def build_m1(
         _phase_timing(
             "review.build units",
             phase,
-            f"jobs={units_jobs} ({gate_lane + '; ' if gate_lane else ''}recomputed={len(recomputed):,}, verified={len(verified):,} cached; {runner.arena.note()})",
+            f"jobs={units_jobs} ({gate_lane + '; ' if gate_lane else ''}recomputed={len(recomputed):,}, verified={len(verified):,} cached; {runner.arena.note()}; {signature_note})",
         )
 
         # The write (phase 2) reads each unit's fragment by the address the store holds for it (`_emissions`): a recomputed one from the runner's arena, a cached one from the previous corpus, copied as bytes when nothing the patch writes has changed. It writes the shards, the sidecars and the manifest, checking each fragment as it passes (`_write_corpus`). The units pool is stopped first, so the write's own pool starts in the memory a units pool started now would hold, read off the gate lane's state again as the units pool's width was (`artifact_cycle.corpus_write_job_budget`). This runs inside the runner's `try` because the arena belongs to the runner, which frees it once the write is done.
@@ -3420,6 +3849,7 @@ def build_m1(
             total_batches,
             batch_size,
             audit_path,
+            os.fstat(descriptor).st_mtime,
             ledger_path,
             subset_dir,
             before_font,

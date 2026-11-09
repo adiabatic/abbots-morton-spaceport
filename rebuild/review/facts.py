@@ -31,6 +31,7 @@ from rebuild.review.audit import (
     UNMATCHED_CLASS,
     Compaction,
     LedgerClass,
+    PremergeColumns,
     UnitTable,
     format_codepoints,
     parse_codepoints,
@@ -318,6 +319,26 @@ class PremergeSnapshot:
         self.window_start, self.window_n, self.window_values = table.windows()
         self.survivor: array | None = None
         self.removed: bytearray | None = None
+
+    @classmethod
+    def from_columns(
+        cls, table: UnitTable, columns: PremergeColumns, identical_classes: Collection[str] = frozenset()
+    ) -> PremergeSnapshot:
+        """The snapshot of the stream's pre-merge units (`audit.stream_workload`), whose columns it returns in load order beside the merged table, since the stream merges each window as it reads it and no pre-merge table exists to copy: the same columns `capture_premerge` copies from the in-memory source's table before its merge, over the table's string table, tuple pool and window values."""
+        snapshot = cls.__new__(cls)
+        snapshot.n = len(columns.class_id)
+        snapshot.strings = table.strings
+        snapshot.tuples = table.tuples
+        snapshot.identical_classes = frozenset(identical_classes)
+        snapshot.class_id = columns.class_id
+        snapshot.no_verdict = columns.no_verdict
+        snapshot.configs = columns.configs
+        snapshot.window_start = columns.window_start
+        snapshot.window_n = columns.window_n
+        snapshot.window_values = table.windows()[2]
+        snapshot.survivor = None
+        snapshot.removed = None
+        return snapshot
 
     def __len__(self) -> int:
         return self.n

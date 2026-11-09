@@ -12,21 +12,24 @@ A store record holds the address of the previous build's fragment: the shard par
 
 Every field derived from the ledger or the whole-corpus passes (duplicate group, class, `no_verdict`, `exemplar`, the primary units of secondary junctions) is recomputed over all units on every build, and a unit's id depends only on its content key. A cached fragment whose recomputed fields all equal the values its record says it was written with stays at its address in the new corpus, read as bytes without parsing (`unit_store.UnitStore.cached_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). So does a recomputed or re-patched fragment whose bytes equal those at its prior record's address, found by unit id (`unit_store.UnitStore.prior_fragment`, `PriorFragmentReader.same_bytes`). The shard writer appends every other fragment to its class's overflow parts and leaves the parts it found in place, unless the class is written whole (`build._ShardWriter`, `build._route`). A cached fragment with a changed field is parsed once, patched, and serialized again, the same way a recomputed fragment is read back from the build's own arena of deflated fragments (`build._FragmentArena`), so a cache hit never keeps a stale global field. The cluster id, the change group and the ledger class are the global fields taken from the cached record, because their inputs (configs, per-config classes, junctions, highlight totals, machine flags and ink diffs) are covered by the key, the `ink_identical` ids by the stamp, and the exemption, which decides whether an identical class's unit re-routes, by the slim check, since such a unit is slim exactly when it is exempt.
 
-`stream_store` parses a store line only if the workload names its key, into a `ParsedCachedUnit`, and yields the records one at a time in the store's materialized order. The plan loads each into the packed unit store (`rebuild/review/unit_store.py`) and releases it, so for the rest of the build the parent holds a cached unit only as columns there. If the store stops reading after some records were yielded, the stream raises `StoreUnreadable`, and the plan discards what it loaded and runs a full build. An error the load itself raises propagates unchanged. `load_store` collects the same stream into a dict.
+`stream_store` parses a store line only if the workload names its key, into a `ParsedCachedUnit`, and yields the records one at a time in the store's materialized order. The build's plan scans the store itself (`scan_store`), matching each line's key to a unit through an index over the unit store's input-key column (`columns.KeyIndex`), and keeps of a record whose address does not hold only its place, its unit's ordinal, its class and its id word (`WantedFragments`); once the walk over the previous corpus has placed them (`locate_prior_fragments`), a second scan parses those records alone and loads each whose fragment the walk found (`scan_marked`). The plan loads each into the packed unit store (`rebuild/review/unit_store.py`) and releases it, so for the rest of the build the parent holds a cached unit only as columns there. If the store stops reading after some records were yielded, the stream raises `StoreUnreadable`, and the plan discards what it loaded and runs a full build. An error the load itself raises propagates unchanged. `load_store` collects the same stream into a dict.
 
 The store is held in the segment format (`rebuild/pipeline/row_delta.py`): a head, `unit-cache.ndjson.gz.head`, which carries the header below as its stamps and lists a base, the single file a whole write gives (`write_store`), and the segments later builds wrote over it. A cached build writes only what changed (`update_store`): one segment of the records whose line changed, tombstones for the records no unit names any more and at the old place of each record that moved, and a place for each record in this build's triage order, since the base's lines carry no triage key; or the head alone when no record changed. A structure-stamp move or a letter batch (`REDERIVING_LABELS`), the share rule and the fold write a new base instead, and a store that did not read is rewritten whole, which the cycle reports (`output_sink.note_rewritten`). The store's materialized form (`materialized_store`) is the file a whole write of the same records gives, byte for byte. A store written before the segment format, the single file `unit-cache.ndjson.gz`, is read as a base with no head, and the first build that finds it links it as generation 0's base under a head as soon as its plan has read it (`adopt_single_file`). The plan reads every record of the prior store whatever its stamp (`scan_store`): to place this build's records against it, and, while its manifest stamp and part sizes hold, to keep each record it does not load by unit id (`PriorRecord`), so the write finds the prior fragment of a unit it recomputed.
 
 rebuild/test_unit_cache.py::test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit checks that an incrementally rebuilt corpus holds a from-scratch build's fragments by id and materializes to its files byte for byte, `test_no_change_rebuild_reuses_every_unit_and_is_byte_stable` that the cached path rewrites and appends no shard part and writes the store's head alone, and `test_the_stores_materialized_form_is_the_file_a_whole_write_gives` that the store's segments materialize to `write_store`'s file.
 
-Both stores record their whole-store stamp in two forms: the hex digest that `stream_store` and `load_signature_store` compare, and the `fingerprint.EnvironmentStamp` lines the digest is computed from, with the code label's per-file lines beside them. When a load rejects a store, `store_miss_note` and `signature_miss_note` use these to report which of four causes applied: no store, a store that does not read, a manifest that changed, or a stamp line that changed. For a code line they name the changed file inside the closure (`corpus_code: rebuild/review/ink.py (changed)`) instead of the closure's digest. The note is only as specific as the lines: `after_helpers` is one digest over the after font's non-family glyphs, cmap, and layout wiring, so a change there is not narrowed further. A staging pass writes its corpus to another directory, so a live pass after one compares against the last live store's lines and reports everything that changed since that store was written, code changes included.
+Both stores record their whole-store stamp in two forms: the hex digest that `stream_store` and `SignatureArrays.load` compare, and the `fingerprint.EnvironmentStamp` lines the digest is computed from, with the code label's per-file lines beside them. When a load rejects a store, `store_miss_note` and `signature_miss_note` use these to report which of four causes applied: no store, a store that does not read, a manifest that changed, or a stamp line that changed. For a code line they name the changed file inside the closure (`corpus_code: rebuild/review/ink.py (changed)`) instead of the closure's digest. The note is only as specific as the lines: `after_helpers` is one digest over the after font's non-family glyphs, cmap, and layout wiring, so a change there is not narrowed further. A staging pass writes its corpus to another directory, so a live pass after one compares against the last live store's lines and reports everything that changed since that store was written, code changes included.
 
 This module also defines the carry content key (`carry_projection`, `carry_content_hash`), so the build and the carry share one definition. The build stamps each fragment's `content_key` with it when it drafts the fragment, and the unit's id is derived from that stamp (`unit_id_for`), so rebuild/tools/carry_verdicts.py moves each prior verdict to the unit with the same id. The stamp is excluded from the projection it hashes.
 
 Beside the per-unit store is the ink-signature store, which does for the ink-duplicate merge what the unit store does for enrichment. The merge needs one rendered-outcome signature per (window, config) over every window split only by glyph names. It runs before the set of units exists, so the unit store cannot supply these signatures. Each entry's key (`UnitKeyer.signature_key`) follows the same two-level argument as the unit key: the audit row fixes the window, the config, the before font's rendered names, and the settled cells the after font is compiled to reproduce, and the per-family digests fix the after font's outlines, advances, and cursive anchors for every family the window can touch. The whole-store stamp (`signature_environment`) covers what signatures depend on beyond that: the comparator's code (`signature_code_paths`: rebuild/review/ink.py and the three rebuild/validation modules it reaches, which rebuild/test_review_code_closure.py checks by walking the import graph from `rebuild.review.ink` in both directions), the before font outside its `head` and `name` tables, and the after font's non-family glyphs, cmap, and GPOS wiring. The rest of `corpus_code_paths` is left out (the build driver, this module, the enricher, the drafts, the kernel interface, the crate), because computing a signature runs none of it. The ledger, the subset tables, the Junior font, the site corpus files, and the draft harness are left out because signatures read none of them. So this store stays valid through edits that invalidate the unit store, and a build that re-enriches every unit can still skip re-shaping for the merge.
+
+The build holds the signature store as columns, never a dict (`SignatureArrays`): the prior store's keys sorted in one `array("Q")` beside their 32-byte digests, a hit bit a prior entry, and the shaped misses in two more columns. Before its full read of the audit a key-only read, split by window range across `build.KEY_ONLY_PROCESSES` processes, computes every sibling row's key from the audit's raw fields and probes the prior keys, so the misses are known and shaped before the full read merges a window from the columns. The store's header carries two stamps beside its own: the audit's identity, the held descriptor's `fstat` (`audit_identity`), and the family keys' digest (`family_keys_digest`). When both equal this build's and the store's stamp holds, no key can miss and the key-only read is skipped; a miss the full read meets anyway is shaped then, as the serial path shapes one, and the store is written. The build writes the store from its columns (`write_signature_arrays`), the entries it used in key order, line for line what `write_signature_store` writes for the same entries, and leaves the store as it is, its header with it, when every prior entry was hit and nothing missed, since its lines would come out the same. A store whose write was skipped keeps the stamps it had, so the next build runs the key-only read again unless they hold.
 """
 
 from __future__ import annotations
 
+import binascii
 import bisect
 import gzip
 import hashlib
@@ -45,6 +48,7 @@ from rebuild.pipeline import fingerprint, kernel_exec, output_sink, row_delta, s
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.review import unit_index
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, RowColumns, UnitTable, parse_codepoints
+from rebuild.review.columns import KeyIndex, sorted_by_word
 
 STORE_FORMAT = unit_index.STORE_FORMAT
 STORE_NAME = unit_index.STORE_NAME
@@ -431,7 +435,7 @@ class CachedUnit:
 
 @dataclass(frozen=True, slots=True)
 class ParsedCachedUnit:
-    """One store record as `stream_store` parses it. The plan loads each record into the packed unit store (`unit_store.UnitStore.load_cached`) as the stream yields it and then releases it, so the parent holds one at a time; only a record without an address is buffered until the walk places it. The projection the primary-unit resolution pass reads is stored as tuples (`pair`, the two span tuples, the three name tuples, and `junction_pairs`), which `_parsed_cached_unit` pools so that records held together share one instance per distinct value. `junction_rects` is `CachedUnit.junctions` unchanged, in the shape `patch_fragment` reads. The class uses slots because a caller holding the whole store holds one instance per line."""
+    """One store record as `stream_store` parses it. The plan loads each record into the packed unit store (`unit_store.UnitStore.load_cached`) as the scan yields it and then releases it, so the parent holds one at a time; a record without an address is parsed again once the walk has placed it (`scan_marked`). The projection the primary-unit resolution pass reads is stored as tuples (`pair`, the two span tuples, the three name tuples, and `junction_pairs`), which `_parsed_cached_unit` pools so that records held together share one instance per distinct value. `junction_rects` is `CachedUnit.junctions` unchanged, in the shape `patch_fragment` reads. The class uses slots because a caller holding the whole store holds one instance per line."""
 
     key: str
     prior_id: str
@@ -820,21 +824,54 @@ class ScannedLine:
     line: bytes
 
 
-def scan_store(
-    opened: OpenStore, named: Mapping[str, int], *, parse: bool, trusted: Container[str]
-) -> Iterator[ScannedLine]:
-    """Yield every line of an open store in its materialized order, each matched to this build's units by input key (`named`), and, with `parse`, a named line parsed as `stream_store` parses it, its address kept only in a `trusted` part. Every line is yielded, named or not, so the plan reads every record for its address and its place whatever its stamp. A store that stops reading raises `StoreUnreadable` from the generator, which closes the store either way; an error the caller's own load raises is raised in the caller's frame."""
+def named_ordinal(named: KeyIndex, line: bytes) -> int | None:
+    """The ordinal of the unit whose input key a store line's `key` field holds (`named`, the units' input keys, `columns.KeyIndex`), or None for a line that holds no lowercase 64-digit hex key or one no unit has."""
+    if not line.startswith(_KEY_PREFIX):
+        return None
     start = len(_KEY_PREFIX)
+    text = line[start : start + 64]
+    if text != text.lower():
+        return None
+    try:
+        key = binascii.unhexlify(text)
+    except binascii.Error, ValueError:
+        return None
+    return named.find(key)
+
+
+def scan_store(
+    opened: OpenStore, named: KeyIndex, *, parse: bool, trusted: Container[str]
+) -> Iterator[ScannedLine]:
+    """Yield every line of an open store in its materialized order, each matched to this build's units by input key (`named`, an index over the unit store's input-key column, `named_ordinal`), and, with `parse`, a named line parsed as `stream_store` parses it, its address kept only in a `trusted` part. Every line is yielded, named or not, so the plan reads every record for its address and its place whatever its stamp. A store that stops reading raises `StoreUnreadable` from the generator, which closes the store either way; an error the caller's own load raises is raised in the caller's frame."""
     pool: dict = {}
     try:
         for index, (_place, line) in enumerate(opened.lines()):
-            ordinal = (
-                named.get(line[start : start + 64].decode("ascii")) if line.startswith(_KEY_PREFIX) else None
-            )
+            ordinal = named_ordinal(named, line)
             cached = None
             if parse and ordinal is not None:
                 cached = _parsed_cached_unit(json.loads(line), trusted, pool, False)
             yield ScannedLine(index, ordinal, cached, line)
+    except _STORE_ERRORS as exc:
+        raise StoreUnreadable(f"the store stopped reading: {exc!r}") from exc
+    finally:
+        opened.close()
+
+
+def scan_marked(
+    opened: OpenStore, marked: Sequence[int], trusted: Container[str]
+) -> Iterator[tuple[int, ParsedCachedUnit]]:
+    """Yield the lines of an open store at the materialized places `marked` names, ascending, each with its place and parsed as `scan_store` parses it, and nothing of the others: the plan's second scan, which loads the records its first scan found without an address once the walk has placed them. It raises and closes as `scan_store` does."""
+    pool: dict = {}
+    wanted = iter(marked)
+    following = next(wanted, None)
+    try:
+        for index, (_place, line) in enumerate(opened.lines()):
+            if following is None:
+                break
+            if index != following:
+                continue
+            yield index, _parsed_cached_unit(json.loads(line), trusted, pool, False)
+            following = next(wanted, None)
     except _STORE_ERRORS as exc:
         raise StoreUnreadable(f"the store stopped reading: {exc!r}") from exc
     finally:
@@ -1181,27 +1218,16 @@ def signature_environment(
 def write_signature_store(
     out_dir: Path, environment: fingerprint.EnvironmentStamp | str, entries: Mapping[str, str]
 ) -> None:
-    """Write one JSON header line, then one `key\\tdigest` line per entry, sorted by key. The fixed gzip mtime and the sort make consecutive builds of the same inputs byte-identical. The store is rewritten on each build with only the entries the merge needed, so entries for windows that no longer occur are dropped. Compression is level 1, like the unit store: the lines are hex digests, and level 9 takes about four times as long to save a few percent. The file is written under a sibling `.partial` name and renamed at the end, so a build killed during the write leaves the previous store intact. A truncated gzip would read as absent in `load_signature_store` and cost the next pass a full re-shaping. The gzip header records the final file name, since `GzipFile` would otherwise write the staging handle's name into the bytes."""
-    header = {"format": SIGNATURE_STORE_FORMAT, **_stamp_header(environment)}
-    path = signature_store_path(out_dir)
-    staging = path.with_name(path.name + ".partial")
-    try:
-        with open(staging, "wb") as handle:
-            with gzip.GzipFile(
-                filename=path.name, fileobj=handle, mode="wb", mtime=0, compresslevel=1
-            ) as stream:
-                stream.write((json.dumps(header) + "\n").encode())
-                for key in sorted(entries):
-                    stream.write(f"{key}\t{entries[key]}\n".encode())
-        staging.replace(path)
-    finally:
-        staging.unlink(missing_ok=True)
+    """Write one JSON header line, then one `key\\tdigest` line per entry, sorted by key, from a dict of entries: the writer the build's own (`write_signature_arrays`, from its columns) is held to byte for byte. The fixed gzip mtime and the sort make consecutive builds of the same inputs byte-identical. The store holds only the entries the merge needed, so entries for windows that no longer occur are dropped. Compression is level 1, like the unit store: the lines are hex digests, and level 9 takes about four times as long to save a few percent. The file is written under a sibling `.partial` name and renamed at the end, so a build killed during the write leaves the previous store intact. A truncated gzip would read as absent in `SignatureArrays.load`, the build's reader, and cost the next pass a full re-shaping. The gzip header records the final file name, since `GzipFile` would otherwise write the staging handle's name into the bytes."""
+    _write_signature_lines(
+        out_dir, environment, (f"{key}\t{entries[key]}\n".encode() for key in sorted(entries))
+    )
 
 
 def load_signature_store(
     out_dir: Path, environment: fingerprint.EnvironmentStamp | str
 ) -> dict[str, str] | None:
-    """Return the prior build's signature digests keyed by content key, or None when there is no usable store: absent, unreadable, or a different format or environment stamp. A None costs one re-shaping pass, so over-invalidation is the safe direction here too."""
+    """Return the prior build's signature digests keyed by content key, or None when there is no usable store: absent, unreadable, or a different format or environment stamp. A None costs one re-shaping pass, so over-invalidation is the safe direction here too. The build reads the store into columns instead (`SignatureArrays.load`); this dict is for the tests and the tools that want the entries in hand."""
     path = signature_store_path(out_dir)
     if not path.is_file():
         return None
@@ -1219,6 +1245,232 @@ def load_signature_store(
             return entries
     except OSError, EOFError, ValueError, KeyError, TypeError, StopIteration:
         return None
+
+
+# The two header keys a signature store this code writes carries beside its stamp: the audit's identity and the family keys' digest (`SignatureArrays.stamps_hold`). `perf_fingerprint.SIDECAR_STAMPS` projects both out with the stamp.
+AUDIT_IDENTITY_KEY = "audit_identity"
+FAMILY_KEYS_KEY = "family_keys_digest"
+_SIGNATURE_LINE = re.compile(rb"(?:[0-9a-f]{16}\t[0-9a-f]{64}\n)*")
+_SIGNATURE_LINE_BYTES = 82
+_SIGNATURE_READ_LINES = 12_800
+
+
+def audit_identity(descriptor: int) -> list[int]:
+    """The audit's identity as the signature store's header records it: the held descriptor's `fstat`, `(st_dev, st_ino, st_size, st_mtime_ns)`. The audit is only ever replaced by rename (run_m1's oracle stages it and `replace`s it), which moves the inode, so this stands for its content at the cost of one call, where a content digest would read the whole file."""
+    stat = os.fstat(descriptor)
+    return [stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns]
+
+
+def family_keys_digest(family_keys: Mapping[str, str]) -> str:
+    """The family keys' digest as the signature store's header records it: the sha256 over the sorted `name\\tkey` lines."""
+    return hashlib.sha256(
+        "".join(f"{name}\t{family_keys[name]}\n" for name in sorted(family_keys)).encode()
+    ).hexdigest()
+
+
+class SignatureArrays:
+    """The ink-signature store in memory, as columns and no dict: the prior store's keys as one sorted `array("Q")` beside a `bytearray` of their 32-byte digests, a bit a prior entry marking each the build hit, and the misses in two more columns, sorted by key once they are shaped (`set_misses`), with any the stream met that the key-only read did not report (`add_late`) beside them. `header` is the prior store's header, None when there was no usable store.
+
+    The store a build writes holds exactly the entries it used: the prior entries it hit and the misses it shaped, merged in key order (`lines`), so a hex key sorts as its integer does and each line is the one `write_signature_store` writes for the same entry. When every prior entry was hit and nothing missed, the store's lines would come out the same, and `unchanged` says so: the build leaves the store, its header with it, as it is.
+    """
+
+    __slots__ = ("keys", "digests", "hit", "header", "miss_keys", "miss_digests", "late_keys", "late_digests")
+
+    def __init__(
+        self, keys: array | None = None, digests: bytearray | None = None, header: dict | None = None
+    ) -> None:
+        self.keys = keys if keys is not None else array("Q")
+        self.digests = digests if digests is not None else bytearray()
+        self.hit = bytearray((len(self.keys) + 7) // 8)
+        self.header = header
+        self.miss_keys = array("Q")
+        self.miss_digests = bytearray()
+        self.late_keys = array("Q")
+        self.late_digests = bytearray()
+
+    @classmethod
+    def load(cls, out_dir: Path, environment: fingerprint.EnvironmentStamp | str) -> SignatureArrays | None:
+        """Read the prior store into columns, or return None when there is no usable store: absent, unreadable, of another format or stamp, or with a line other than a 16-digit lowercase hex key, a tab and a 64-digit lowercase hex digest, or with keys that do not strictly increase, which a store this code writes never has. A None costs one re-shaping pass, so rejecting is the safe direction."""
+        path = signature_store_path(out_dir)
+        if not path.is_file():
+            return None
+        try:
+            with gzip.open(path, "rb") as stream:
+                header = json.loads(next(stream))
+                if (
+                    not isinstance(header, dict)
+                    or header.get("format") != SIGNATURE_STORE_FORMAT
+                    or header.get("environment") != _stamp_value(environment)
+                ):
+                    return None
+                keys = array("Q")
+                digests = bytearray()
+                while True:
+                    chunk = stream.read(_SIGNATURE_LINE_BYTES * _SIGNATURE_READ_LINES)
+                    if not chunk:
+                        break
+                    if _SIGNATURE_LINE.fullmatch(chunk) is None:
+                        return None
+                    for start in range(0, len(chunk), _SIGNATURE_LINE_BYTES):
+                        keys.append(int(chunk[start : start + 16], 16))
+                        digests += bytes.fromhex(chunk[start + 17 : start + 81].decode("ascii"))
+        except OSError, EOFError, ValueError, KeyError, TypeError, StopIteration:
+            return None
+        if any(keys[index] <= keys[index - 1] for index in range(1, len(keys))):
+            return None
+        return cls(keys, digests, header)
+
+    def __len__(self) -> int:
+        return len(self.keys)
+
+    def stamps_hold(self, identity: Sequence[int], family_digest: str) -> bool:
+        """Whether the prior store was written over this audit and these family keys: both stamps in its header equal this build's. Its stamp (`signature_environment`) held when it loaded. Then every key the build computes is one the store holds, so the key-only read is skipped."""
+        header = self.header
+        return (
+            header is not None
+            and header.get(AUDIT_IDENTITY_KEY) == list(identity)
+            and header.get(FAMILY_KEYS_KEY) == family_digest
+        )
+
+    def prior_index(self, key: int) -> int:
+        """The prior entry holding `key`, or -1."""
+        keys = self.keys
+        position = bisect.bisect_left(keys, key)
+        return position if position < len(keys) and keys[position] == key else -1
+
+    def mark_hit(self, position: int) -> None:
+        self.hit[position >> 3] |= 1 << (position & 7)
+
+    def digest_of(self, key: int) -> bytes | None:
+        """The digest for `key`: a prior entry's, which it marks hit, or a shaped miss's; None when neither holds it. The late misses are not searched: the stream asks for each key once, since a section in sorted order holds a window once and the key covers the configuration and the window, so a key `add_late` took is never asked for again."""
+        position = self.prior_index(key)
+        if position >= 0:
+            self.mark_hit(position)
+            return bytes(self.digests[position * 32 : position * 32 + 32])
+        keys = self.miss_keys
+        position = bisect.bisect_left(keys, key)
+        if position < len(keys) and keys[position] == key:
+            return bytes(self.miss_digests[position * 32 : position * 32 + 32])
+        return None
+
+    def set_misses(self, keys: array, digests: Sequence[str]) -> None:
+        """Take the shaped misses, each key with its digest in miss order, sorted by key (`columns.sorted_by_word`); of two misses with one key, which only a 64-bit collision gives, the later is kept, as a later assignment to one dict key is."""
+        order = sorted_by_word(keys)
+        miss_keys = array("Q")
+        miss_digests = bytearray()
+        for position, at in enumerate(order):
+            key = keys[at]
+            if position + 1 < len(order) and keys[order[position + 1]] == key:
+                continue
+            miss_keys.append(key)
+            miss_digests += bytes.fromhex(digests[int(at)])
+        self.miss_keys = miss_keys
+        self.miss_digests = miss_digests
+
+    def add_late(self, key: int, digest: bytes) -> None:
+        """Take one miss the stream met and shaped itself, which the key-only read did not report: a wrong skip of that read. Of two late misses with one key, which only a 64-bit collision gives, the store keeps the later (`lines`), as `set_misses` does."""
+        self.late_keys.append(key)
+        self.late_digests += digest
+
+    def reset(self) -> None:
+        """Clear the hits and the misses, for a build that restarts its load on the in-memory source."""
+        self.hit = bytearray(len(self.hit))
+        self.miss_keys = array("Q")
+        self.miss_digests = bytearray()
+        self.late_keys = array("Q")
+        self.late_digests = bytearray()
+
+    def hits(self) -> int:
+        return int.from_bytes(self.hit, "little").bit_count()
+
+    def misses(self) -> int:
+        return len(self.miss_keys) + len(self.late_keys)
+
+    def unhit(self) -> int:
+        return len(self.keys) - self.hits()
+
+    def unchanged(self) -> bool:
+        """Whether the store a build would write is the prior store's lines: there was one, every prior entry was hit, and nothing missed."""
+        return self.header is not None and not self.misses() and self.hits() == len(self.keys)
+
+    def lines(self) -> Iterator[bytes]:
+        """The new store's entry lines in key order: the hit prior entries merged with the misses, the late ones among them, each `key\\tdigest\\n` as `write_signature_store` writes it."""
+        extra_keys = self.miss_keys
+        extra_digests = self.miss_digests
+        if self.late_keys:
+            late_keys = self.late_keys
+            late_order = sorted_by_word(late_keys)
+            merged = sorted(
+                [
+                    (key, bytes(self.miss_digests[at * 32 : at * 32 + 32]))
+                    for at, key in enumerate(self.miss_keys)
+                ]
+                + [
+                    (late_keys[at], bytes(self.late_digests[at * 32 : at * 32 + 32]))
+                    for position, at in enumerate(late_order)
+                    if position + 1 == len(late_order) or late_keys[late_order[position + 1]] != late_keys[at]
+                ],
+                key=lambda entry: entry[0],
+            )
+            extra_keys = array("Q", (key for key, _digest in merged))
+            extra_digests = bytearray().join(digest for _key, digest in merged)
+        keys = self.keys
+        digests = self.digests
+        hit = self.hit
+        extra = 0
+        count = len(extra_keys)
+        for position, key in enumerate(keys):
+            if not hit[position >> 3] & (1 << (position & 7)):
+                continue
+            while extra < count and extra_keys[extra] < key:
+                yield f"{extra_keys[extra]:016x}\t{extra_digests[extra * 32 : extra * 32 + 32].hex()}\n".encode()
+                extra += 1
+            yield f"{key:016x}\t{digests[position * 32 : position * 32 + 32].hex()}\n".encode()
+        while extra < count:
+            yield f"{extra_keys[extra]:016x}\t{extra_digests[extra * 32 : extra * 32 + 32].hex()}\n".encode()
+            extra += 1
+
+    def nbytes(self) -> int:
+        return (
+            len(self.keys) * 8
+            + len(self.digests)
+            + len(self.hit)
+            + (len(self.miss_keys) + len(self.late_keys)) * 8
+            + len(self.miss_digests)
+            + len(self.late_digests)
+        )
+
+
+def write_signature_arrays(
+    out_dir: Path,
+    environment: fingerprint.EnvironmentStamp | str,
+    signatures: SignatureArrays,
+    stamps: Mapping[str, object] | None = None,
+) -> None:
+    """Write the store from the build's columns (`SignatureArrays.lines`), the entries it used in key order, with `write_signature_store`'s settings: one JSON header line, its stamp and then `stamps` (`AUDIT_IDENTITY_KEY` and `FAMILY_KEYS_KEY`), then one line a write, level 1, `mtime=0`, the final name in the gzip header, staged under the `.partial` name and renamed at the end. Without `stamps` the file is byte for byte the one `write_signature_store` writes for the same entries."""
+    _write_signature_lines(out_dir, environment, signatures.lines(), stamps)
+
+
+def _write_signature_lines(
+    out_dir: Path,
+    environment: fingerprint.EnvironmentStamp | str,
+    lines: Iterable[bytes],
+    stamps: Mapping[str, object] | None = None,
+) -> None:
+    header = {"format": SIGNATURE_STORE_FORMAT, **_stamp_header(environment), **(stamps or {})}
+    path = signature_store_path(out_dir)
+    staging = path.with_name(path.name + ".partial")
+    try:
+        with open(staging, "wb") as handle:
+            with gzip.GzipFile(
+                filename=path.name, fileobj=handle, mode="wb", mtime=0, compresslevel=1
+            ) as stream:
+                stream.write((json.dumps(header) + "\n").encode())
+                for line in lines:
+                    stream.write(line)
+        staging.replace(path)
+    finally:
+        staging.unlink(missing_ok=True)
 
 
 CODE_FILES_SHOWN = 4
@@ -1297,7 +1549,7 @@ def store_miss_note(out_dir: Path, environment: fingerprint.EnvironmentStamp) ->
 
 
 def signature_miss_note(out_dir: Path, environment: fingerprint.EnvironmentStamp) -> str | None:
-    """Return why `load_signature_store` rejects the ink-signature store under `out_dir`, or None when its header matches `environment` (`_miss_note`)."""
+    """Return why `SignatureArrays.load`, the build's reader, rejects the ink-signature store under `out_dir`, or None when its header matches `environment` (`_miss_note`). A store whose header matches and that `SignatureArrays.load` still rejects, a body that does not parse or a line or key order this code never writes, takes `UNREADABLE_NOTE` at the call site (`build._load_corpus`)."""
     path = signature_store_path(out_dir)
     if not path.is_file():
         return NO_STORE_NOTE
@@ -1316,16 +1568,131 @@ class PriorFragment:
     byte_copied: bool = False
 
 
-def locate_prior_fragments(out_dir: Path, wanted: Mapping[str, set[str]]) -> dict[str, PriorFragment]:
-    """Return where the prior shards hold the given prior unit ids (`wanted` maps class id to ids), keyed by prior id, with the stamp each fragment carries, read through the live-fragment iterator (`unit_index.LiveCorpus`) over the classes `wanted` names, one fragment at a time, so the build never holds the previous corpus's units and never takes a dead slot. The plan uses this only as a fallback: a store record carries the address the shard writer returned, and the walk is needed only for the records `stream_store` yielded without one, from an older store or in a part whose size changed. On a corpus this code wrote there are none. A corpus the iterator refuses, or a part that is missing, unreadable or not pure ASCII, contributes nothing, and its units are recomputed: an address is a character offset read back as a byte offset, which are equal only under `ensure_ascii`, and every part this build writes is ASCII."""
-    located: dict[str, PriorFragment] = {}
+_ID_PREFIX = "u-"
+_BASE58_INDEX = {symbol: index for index, symbol in enumerate(BASE58_ALPHABET)}
+
+
+def id_word(unit_id: str) -> int | None:
+    """The 64-bit word a unit id encodes (`unit_id_for`), or None for a string of another shape, which no content-derived id has: the ids and their words correspond one to one, so a word stands for its id."""
+    if len(unit_id) != len(_ID_PREFIX) + ID_SYMBOLS or not unit_id.startswith(_ID_PREFIX):
+        return None
+    value = 0
+    for symbol in unit_id[len(_ID_PREFIX) :]:
+        index = _BASE58_INDEX.get(symbol)
+        if index is None:
+            return None
+        value = value * 58 + index
+    return None if value >> 64 else value
+
+
+class WantedFragments:
+    """The prior records the plan's scan could not place by address, as columns in scan order: each one's class, an index into `classes`, and its id word (`id_word`). The scan keeps these and the record's place and ordinal, and parses the record again only once the walk has placed it (`scan_marked`)."""
+
+    __slots__ = ("classes", "_class_ids", "class_of", "words")
+
+    def __init__(self) -> None:
+        self.classes: list[str] = []
+        self._class_ids: dict[str, int] = {}
+        self.class_of = array("I")
+        self.words = array("Q")
+
+    def add(self, prior_class: str, word: int) -> None:
+        found = self._class_ids.get(prior_class)
+        if found is None:
+            found = self._class_ids[prior_class] = len(self.classes)
+            self.classes.append(prior_class)
+        self.class_of.append(found)
+        self.words.append(word)
+
+    def __len__(self) -> int:
+        return len(self.words)
+
+    def nbytes(self) -> int:
+        return len(self.class_of) * self.class_of.itemsize + len(self.words) * self.words.itemsize
+
+
+class LocatedFragments:
+    """Where the walk found the wanted records' fragments (`locate_prior_fragments`), as columns over the wanted records sorted by id word: the word and the class index, copied from the wanted columns (12 bytes), and for each found fragment its part (an index into `parts`, plus one; 0 when not found), start, length and 32-byte content key (48 bytes), 60 bytes a record beside the wanted columns. `find` answers one record at a time."""
+
+    __slots__ = ("classes", "words", "class_of", "part", "start", "length", "content_keys", "parts")
+
+    def __init__(self, wanted: WantedFragments) -> None:
+        order = sorted_by_word(wanted.words)
+        count = len(order)
+        self.classes = wanted.classes
+        self.words = array("Q", map(wanted.words.__getitem__, order))
+        self.class_of = array("I", map(wanted.class_of.__getitem__, order))
+        self.part = array("I", [0]) * count
+        self.start = array("Q", [0]) * count
+        self.length = array("I", [0]) * count
+        self.content_keys = bytearray(32 * count)
+        self.parts: list[str] = []
+
+    def _positions(self, word: int, class_id: str) -> Iterator[int]:
+        words = self.words
+        position = bisect.bisect_left(words, word)
+        while position < len(words) and words[position] == word:
+            if self.classes[self.class_of[position]] == class_id:
+                yield position
+            position += 1
+
+    def find(self, prior_class: str, unit_id: str) -> PriorFragment | None:
+        """The fragment the walk found for the record of this class and id, stamped with its content key, or None."""
+        word = id_word(unit_id)
+        if word is None:
+            return None
+        for position in self._positions(word, prior_class):
+            part = self.part[position]
+            if part:
+                return PriorFragment(
+                    self.parts[part - 1],
+                    self.start[position],
+                    self.length[position],
+                    unit_id,
+                    self.content_keys[position * 32 : position * 32 + 32].hex(),
+                )
+        return None
+
+    def found(self) -> int:
+        return sum(1 for part in self.part if part)
+
+    def __len__(self) -> int:
+        return len(self.words)
+
+    def nbytes(self) -> int:
+        columns = (self.words, self.class_of, self.part, self.start, self.length)
+        return sum(len(column) * column.itemsize for column in columns) + len(self.content_keys)
+
+
+def locate_prior_fragments(out_dir: Path, wanted: WantedFragments) -> LocatedFragments:
+    """Find where the prior shards hold the wanted records' fragments (`WantedFragments`, the records' classes and id words), with the stamp each fragment carries, read through the live-fragment iterator (`unit_index.LiveCorpus`) over the classes the records name, one fragment at a time, so the build never holds the previous corpus's units and never takes a dead slot. Each fragment's id word is bisected in the wanted words, and a fragment found for a wanted class and word is recorded in the result's columns (`LocatedFragments`), the last one found when a corpus holds a unit twice. A fragment whose id or content key is not in the form this code writes is not recorded, since no record could reuse it. The plan uses this only as a fallback: a store record carries the address the shard writer returned, and the walk is needed only for the records `stream_store` yielded without one, from an older store or in a part whose size changed. On a corpus this code wrote there are none. A corpus the iterator refuses, or a part that is missing, unreadable or not pure ASCII, contributes nothing, and its units are recomputed: an address is a character offset read back as a byte offset, which are equal only under `ensure_ascii`, and every part this build writes is ASCII."""
+    located = LocatedFragments(wanted)
+    if not len(wanted):
+        return located
+    part_ids: dict[str, int] = {}
     try:
         with unit_index.LiveCorpus(Path(out_dir)) as live:
-            for meta, slot, fragment in live.fragments(classes=wanted):
-                if slot.unit_id in wanted.get(str(meta.get("id")), ()):
-                    located[slot.unit_id] = PriorFragment(
-                        slot.part, slot.start, slot.length, slot.unit_id, fragment.get("content_key")
-                    )
+            for meta, slot, fragment in live.fragments(classes=wanted.classes):
+                word = id_word(slot.unit_id)
+                if word is None:
+                    continue
+                for position in located._positions(word, str(meta.get("id"))):
+                    content_key = fragment.get("content_key")
+                    try:
+                        content = bytes.fromhex(content_key) if isinstance(content_key, str) else b""
+                    except ValueError:
+                        content = b""
+                    if len(content) != 32 or content.hex() != content_key:
+                        located.part[position] = 0
+                        continue
+                    part = part_ids.get(slot.part)
+                    if part is None:
+                        located.parts.append(slot.part)
+                        part = part_ids[slot.part] = len(located.parts)
+                    located.part[position] = part
+                    located.start[position] = slot.start
+                    located.length[position] = slot.length
+                    located.content_keys[position * 32 : position * 32 + 32] = content
     except OSError, ValueError:
         return located
     return located

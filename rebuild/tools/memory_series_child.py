@@ -10,7 +10,7 @@ An absorb child (`absorb`) reads its job from stdin, maps the parts' shared memo
 
 The child is a module of its own, whose top-level imports are the standard library and modules the build imports itself, because multiprocessing's spawn imports the launching process's main module into every worker the build starts. Run as this module, the build's parent and each of its units, write and signature workers hold the build's modules and this one beside them, where a cycle's build, run as `python -m rebuild.review.build`, holds the build's modules alone; a pack child's pack processes hold `subset_pack` and this module, where a cycle's hold the build's modules; a replay's absorb workers likewise hold run_m1's modules and this one, where run_m1's own hold run_m1's alone. The series' own imports, the table step's among them, reach none of them.
 
-Run as: python -m rebuild.tools.memory_series_child --inputs JSON --audit FIFO --out DIR --journal FILE --jobs N --signature-jobs N --write-jobs N [--load], which the series does once a corpus line, python -m rebuild.tools.memory_series_child pack --tables DIR --configs a,b --pack FILE, once a cut line, python -m rebuild.tools.memory_series_child replay --spec PICKLE --spec-dump JSON --out DIR --configs a,b --width N [--built], once a replay line, or python -m rebuild.tools.memory_series_child absorb with its job on stdin, twice an absorbs line.
+Run as: python -m rebuild.tools.memory_series_child --inputs JSON --audit FILE --out DIR --journal FILE --jobs N --signature-jobs N --write-jobs N [--load], which the series does once a corpus line, python -m rebuild.tools.memory_series_child pack --tables DIR --configs a,b --pack FILE, once a cut line, python -m rebuild.tools.memory_series_child replay --spec PICKLE --spec-dump JSON --out DIR --configs a,b --width N [--built], once a replay line, or python -m rebuild.tools.memory_series_child absorb with its job on stdin, twice an absorbs line.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ PACK_CHILD_DIGEST = "0" * 64
 
 @dataclass(frozen=True)
 class CorpusInputs:
-    """Where a corpus line's build reads each input: the audit the harness feeds the build's FIFO from, the subset tables' directory (`m1`, which also holds the Stage A record) and their pack, the M1 font, the live corpus's manifest and ink-signature store, the spec root and the ledger under it, and the two site fonts. `under` lays them out in a tree of clones."""
+    """Where a corpus line's build reads each input: the audit, the whole alphabet's, which a line reads itself or cuts or doubles into a file of its own, the subset tables' directory (`m1`, which also holds the Stage A record) and their pack, the M1 font, the live corpus's manifest and ink-signature store, the spec root and the ledger under it, and the two site fonts. `under` lays them out in a tree of clones."""
 
     audit: Path
     m1: Path
@@ -97,7 +97,7 @@ def report_mark(label: str, counts: Mapping[str, int], *, through_plan: bool) ->
 
 
 def substitute_for_load(build: ModuleType, unit_cache: ModuleType) -> None:
-    """Make the three substitutions both load lines build under: `build.LETTERS` extended to the moved code points, each family's content key copied to its tagged name, and the signature resolution and the ink-duplicate merge skipped, since no moved window has a signature."""
+    """Make the three substitutions both load lines build under: `build.LETTERS` extended to the moved code points, each family's content key copied to its tagged name, and the signature resolution and the ink-duplicate merge skipped, since no moved window has a signature. The stream skips both when its miss finding returns None (`build._find_misses`): it runs no key-only read, shapes nothing and merges no window. The in-memory source, which a load line's audit takes only when it is not in sorted sections, skips them through its own resolution and merge."""
     letters = build.LETTERS
     keys = unit_cache.family_content_keys
 
@@ -109,8 +109,9 @@ def substitute_for_load(build: ModuleType, unit_cache: ModuleType) -> None:
 
     setattr(build, "LETTERS", {**letters, **{value + MOVED: f"{name}x" for value, name in letters.items()}})
     setattr(unit_cache, "family_content_keys", family_content_keys)
-    setattr(build, "_resolve_signature_digests", lambda *arguments: ({}, {}, None, 0, 1))
-    setattr(build, "merge_ink_duplicate_units", lambda *arguments: None)
+    setattr(build, "_find_misses", lambda *arguments: None)
+    setattr(build, "_resolve_signature_digests", lambda *arguments: ({}, 0, 1))
+    setattr(build, "merge_ink_duplicate_units", lambda *arguments: {})
 
 
 def print_rusage() -> None:
