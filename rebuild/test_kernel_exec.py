@@ -25,6 +25,7 @@ from rebuild.pipeline import (
     kernel_exec,
     kernel_io,
     oracle_cache,
+    row_delta,
     run_m1,
     run_m1_gates,
     settle,
@@ -1902,6 +1903,39 @@ class TestTheReplayStage:
         assert "[t] replay[ss03] 0.1s" in captured.err and "[t] replay_total[ss03] 0.1s" in captured.err
         assert not list(tmp_path.glob("replay-windows-*")) and not list(tmp_path.glob("*.tmp"))
 
+    def test_a_second_full_replay_that_settles_every_window_alike_commits_each_head_alone(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """The parent commits each configuration's settle memo head once every walk has passed: the first full replay over a tree with no memo writes each configuration's refill as generation 0's base (`wrote=base reason=first`), and a second whose refill settles every window as the memo holds it commits each head alone (`wrote=head`), the base keeping its inode and modification time, with the plan's route counts on `[t] settle_memo_plan`."""
+        self._in_threads(monkeypatch)
+        monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
+        monkeypatch.setattr(kernel_exec, "replay_memo_walk", self._walked([]))
+        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        memos = conform.settle_memo_files(tmp_path, SPEC, inputs)
+        assert run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)["pass"]
+        first = capsys.readouterr().out
+        assert (
+            f"[t] settle_memo_plan 0.0s segment_routes=0 base_routes={len(memos)} first={len(memos)} unusable=0 fold=0 adopting=0"
+            in first
+        )
+        bases = {}
+        for config, memo in memos.items():
+            assert f"[t] settle_memo_emit {config} " in first and conform.settle_memo_standing(memo)
+            head = row_delta.read_head(tmp_path, memo.path.name)
+            assert head is not None and not head.segments
+            status = (tmp_path / head.base.name).stat()
+            bases[config] = (head.base.name, status.st_ino, status.st_mtime_ns)
+        assert first.count("wrote=base reason=first") == len(memos)
+        assert run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)["pass"]
+        second = capsys.readouterr().out
+        assert f"segment_routes={len(memos)} base_routes=0 first=0 unusable=0 fold=0 adopting=0" in second
+        assert second.count("wrote=head") == len(memos)
+        for config, memo in memos.items():
+            head = row_delta.read_head(tmp_path, memo.path.name)
+            assert head is not None and not head.segments and conform.settle_memo_standing(memo)
+            status = (tmp_path / head.base.name).stat()
+            assert (head.base.name, status.st_ino, status.st_mtime_ns) == bases[config]
+
     def test_the_workers_take_the_parents_build_and_spec_dump(self, monkeypatch, tmp_path):
         """The parent builds the kernel and dumps the spec once, and its workers' initializer marks the kernel built only from the parent's word: every walk gets the parent's spec dump, no worker dumps one of its own, and an initializer told the parent never built leaves `_BUILT` as it was, so a worker cannot skip cargo after a crate edit."""
         self._in_threads(monkeypatch)
@@ -1928,7 +1962,7 @@ class TestTheReplayStage:
     def test_a_narrow_replay_stages_a_file_at_once_while_a_walk_waits_and_a_red_one_removes_it(
         self, monkeypatch, tmp_path
     ):
-        """Below the configuration count a worker whose file is finished while a walk still waits for a slot stages it at once and waits for the verdict holding no file, so the walks running and the files held never outnumber the width, and a red replay removes every file staged that way; at the configuration count no worker stages before the verdict, so a red replay stages nothing. The workers run as threads with a disagreement in `ss08`'s walk; at width 1 every worker but the last to take the slot stages early, `ss08`'s own excepted."""
+        """Below the configuration count a worker whose part is laid out while a walk still waits for a slot writes it at once under its final name, which no head lists, and waits for the verdict holding no part, so the walks running and the parts held never outnumber the width, and a red replay removes every part written that way and commits no head; at the configuration count no worker writes before the verdict, so a red replay writes nothing. The workers run as threads with a disagreement in `ss08`'s walk; at width 1 every worker but the last to take the slot stages early, `ss08`'s own excepted."""
         self._in_threads(monkeypatch)
         monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
@@ -1940,11 +1974,11 @@ class TestTheReplayStage:
             return walked(spec_path, out_dir, config, **rest)
 
         staged: list = []
-        stage = conform.FinishedSettleMemo.stage
+        write = conform.SettleMemoRoute.write
         monkeypatch.setattr(
-            conform.FinishedSettleMemo,
-            "stage",
-            lambda self, path: (staged.append(path), stage(self, path))[1],
+            conform.SettleMemoRoute,
+            "write",
+            lambda self, finished: (staged.append(self.part_name()), write(self, finished))[1],
         )
         monkeypatch.setattr(kernel_exec, "replay_memo_walk", walk)
         memos = conform.settle_memo_files(
@@ -2207,18 +2241,50 @@ class TestTheReplayStage:
     def test_a_settle_memo_file_that_cannot_be_moved_into_place_is_a_warning_and_the_others_move(
         self, tables_dir, tmp_path, capsys
     ):
-        """A configuration whose settle memo file cannot be replaced, here because a directory stands at its path, is a warning on a passing replay; every other configuration's file moves into place, and the staged file is removed."""
+        """A configuration whose settle memo head cannot be committed, here because a directory stands at its head's path, is a warning on a passing replay; every other configuration's head is committed over its base, and the base the blocked configuration's worker wrote, which no head lists, is removed."""
         out_dir = self._tables(tables_dir, tmp_path / "blocked")
         inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
         memos = conform.settle_memo_files(out_dir, SPEC, inputs)
-        memos["ss03"].path.mkdir()
+        blocked = row_delta.head_path(out_dir, memos["ss03"].path.name)
+        blocked.mkdir()
         summary = run_m1.run_replay_strings(SPEC, out_dir, None, replay_threads=2, memo_inputs=inputs)
         assert summary["pass"]
         assert f"{memos['ss03'].path} not written" in capsys.readouterr().out
         assert [config for config, memo in memos.items() if conform.settle_memo_standing(memo)] == [
             config for config in conform.SETTLEMENT_CONFIGS if config != "ss03"
         ]
-        assert not list(out_dir.glob("replay-windows-*")) and not list(out_dir.glob("*.tmp"))
+        assert sorted(path.name for path in out_dir.glob(f"{memos['ss03'].path.name}*")) == [blocked.name]
+        assert not list(out_dir.glob("replay-windows-*")) and not list(out_dir.glob("*.partial"))
+
+    def test_a_settle_memo_whose_tables_do_not_read_is_rewritten_whole_from_the_refill(
+        self, tables_dir, tmp_path, capsys
+    ):
+        """A single file whose header reads and whose tables do not, which a code change that renames a pickled class leaves, passes the plan's checks and is adopted onto the segment route. The compare's load refuses it, so the worker lays its refill out whole as an `unusable` base and the parent commits it through that route as the next generation's base: the single file and its link are gone, the memo stands, and its base is the file a replay into an empty tree writes, byte for byte."""
+        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        clean = self._tables(tables_dir, tmp_path / "clean")
+        assert run_m1.run_replay_strings(SPEC, clean, None, memo_inputs=inputs, configs=["default"])["pass"]
+        out_dir = self._tables(tables_dir, tmp_path / "damaged")
+        memo = conform.settle_memo_files(out_dir, SPEC, inputs)["default"]
+        assert conform._write_settle_memo(memo, *conform._memo_columns([]))
+        whole = memo.path.read_bytes()
+        header = conform._single_file_header(memo.path)
+        assert header is not None
+        (length,) = conform._MEMO_PREFIX.unpack_from(whole)
+        start = conform._memo_aligned(conform._MEMO_PREFIX.size + length)
+        memo.path.write_bytes(whole[:start] + bytes(header["tables"]) + whole[start + header["tables"] :])
+        capsys.readouterr()
+        summary = run_m1.run_replay_strings(SPEC, out_dir, None, memo_inputs=inputs, configs=["default"])
+        assert summary["pass"]
+        printed = "".join(capsys.readouterr())
+        assert "settle_memo_plan" in printed and "segment_routes=1" in printed and "adopting=1" in printed
+        assert "wrote=base reason=unusable adopted=true" in printed
+        head = row_delta.read_head(out_dir, memo.path.name)
+        clean_head = row_delta.read_head(clean, memo.path.name)
+        assert head is not None and clean_head is not None
+        assert (head.generation, head.segments) == (1, ())
+        assert not memo.path.exists() and not (out_dir / row_delta.base_name(memo.path.name, 0)).exists()
+        assert conform.settle_memo_standing(memo)
+        assert (out_dir / head.base.name).read_bytes() == (clean / clean_head.base.name).read_bytes()
 
     def test_a_narrowed_replay_with_a_stamp_is_refused_before_it_walks(self, monkeypatch, tmp_path):
         """A narrowed `configs` with an `inputs` stamp raises before the crate is called or any record is written. `replay_families` reads a stamped record as a passing walk of every text in every settlement configuration, which a narrowed walk is not."""

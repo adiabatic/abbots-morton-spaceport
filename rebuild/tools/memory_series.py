@@ -39,7 +39,7 @@ A corpus line holds, beside `step` (`corpus` or `corpus-load` with its `scale`),
 
 After a corpus run's last line the record and stdout get the fit of each corpus figure against units, and of the parent's footprint at the load's and the plan's marks against rows, over the cut lines, and the ×2 load line's ratio to the ×1 line at each mark (`corpus_report`).
 
-The replay step measures a full string replay as run_m1 runs one (`run_m1.replay_and_absorb`): every configuration named (every settlement configuration unless `--configs` narrows them) walked over every text to `run_m1.REPLAY_MAX_LENGTH`, one `replay-strings` process a configuration at most `--replay-threads` at once (the width a bare run_m1 derives, `run_m1._replay_threads`, by default), each beside the spawn worker that absorbs its window memo from a FIFO into the settle memo file's columns, builds its index and holds the finished file until every walk has passed, or below the configuration count drops it at once while a walk still waits for a slot. The cuts default to `REPLAY_SIZES` below the whole alphabet and the whole alphabet; positional arguments name others, and a count named twice is measured twice. For each distinct cut the run first builds the tables once, unmeasured (`build_replay_tables`): one `build-tables` at the table holder's flags whose settlement and joins tables are written plain under `<tree>/replay/r<runes>/`, since the walks read them, about 0.05 GB a cut, and whose windows payloads are drained from FIFOs; it writes the cut's spec dump and a pickle of the cut beside the tree's other spec dumps, and removes the tables as the run ends, however it ends. Each line then runs the replay in a child, `rebuild/tools/memory_series_child.py`'s `replay` entry, so the absorb workers import run_m1's modules and the child's and not this module's. The child runs with this process's environment as a corpus child takes it (`corpus_environment`), and takes this process's built kernel as its own (`--built`), so no `cargo build` runs inside a line. KERNEL_ALLOCATOR_ENVIRONMENT reaches the walks alone, as in run_m1, since `kernel_exec.replay_memo_walk` adds it to each crate's environment and the absorb workers are Python processes: each crate runs with `--cache-stats`, and each absorb hashes its finished file's bytes in order and then discards it, as a red replay does, so a line writes no settle memo and nothing else. The walks and absorbs run the checkout's crate binary and code, as run_m1's do.
+The replay step measures a full string replay as run_m1 runs one (`run_m1.replay_and_absorb`): every configuration named (every settlement configuration unless `--configs` narrows them) walked over every text to `run_m1.REPLAY_MAX_LENGTH`, one `replay-strings` process a configuration at most `--replay-threads` at once (the width a bare run_m1 derives, `run_m1._replay_threads`, by default), each beside the spawn worker that absorbs its window memo from a FIFO into the settle memo's columns, builds its index and holds the finished part until every walk has passed, or below the configuration count drops it at once while a walk still waits for a slot. The series' tree holds no settle memo, so every absorb takes the `first` route and lays its refill out as a whole base, today's file byte for byte (`conform.SettleMemoRoute`). The cuts default to `REPLAY_SIZES` below the whole alphabet and the whole alphabet; positional arguments name others, and a count named twice is measured twice. For each distinct cut the run first builds the tables once, unmeasured (`build_replay_tables`): one `build-tables` at the table holder's flags whose settlement and joins tables are written plain under `<tree>/replay/r<runes>/`, since the walks read them, about 0.05 GB a cut, and whose windows payloads are drained from FIFOs; it writes the cut's spec dump and a pickle of the cut beside the tree's other spec dumps, and removes the tables as the run ends, however it ends. Each line then runs the replay in a child, `rebuild/tools/memory_series_child.py`'s `replay` entry, so the absorb workers import run_m1's modules and the child's and not this module's. The child runs with this process's environment as a corpus child takes it (`corpus_environment`), and takes this process's built kernel as its own (`--built`), so no `cargo build` runs inside a line. KERNEL_ALLOCATOR_ENVIRONMENT reaches the walks alone, as in run_m1, since `kernel_exec.replay_memo_walk` adds it to each crate's environment and the absorb workers are Python processes: each crate runs with `--cache-stats`, and each absorb hashes its finished part's bytes in order and then discards it, as a red replay does, so a line writes no settle memo and commits no head. The walks and absorbs run the checkout's crate binary and code, as run_m1's do.
 
 A replay line holds, beside `step` (`replay`), the cut (`runes`, `letters`, `ligs`, `alphabet`), `configs`, `width`, `max_length` and `modes` (the settlement flags the walks take):
 
@@ -49,13 +49,13 @@ A replay line holds, beside `step` (`replay`), the cut (`runes`, `letters`, `lig
 
 After a replay run's last line the record and stdout get the fit against runes of the windows, the walk, absorb, pair and combined peaks, the walks' CPU time, the row store and the largest unit's walk memo (`replay_report`).
 
-The absorbs step measures one settle-memo absorb (`conform.absorb_settle_memo`) a line, over inputs made from the live `default` settle memo at a row count, and beside it the carry-and-append absorb its bytes are proven against over the same inputs (`memory_series_child.carry_and_append_absorb`). The run clones the live memo into `<tree>/absorbs/` with `clonefile(2)` (`build._clone`, which writes no data) and maps the clone. Positional arguments name the row counts, `live` for the live memo's own rows (3,649,648 at 45 runes); the default is `ABSORB_COUNTS`, and a count named twice is measured twice. For each distinct count the run makes the inputs once (`absorb_count`): the `live` count's standing file is the clone, and each other count's is one file written once a run from the live rows, a prefix of them below the live count and, above it, the live rows followed by the live rows restated under labels of their own, `.r<copy>` after every label, so each restated window is one no other row holds and names the same family (`_CountRows`). Such a file holds 14 bytes a row of columns and 4 bytes a slot of index at 2 to 4 slots a row, about 0.02 GB at a million rows, 0.26 GB at nine million and 0.30 GB at twelve million, about 0.6 GB a run at the default counts, and the run removes it as it ends, however it ends. Beside it the run holds each count's fresh windows compressed in memory, as a walk hands them (`conform.FreshMemo`): the standing rows' last `ABSORB_TAIL` rows restating their own windows, the last rows again under labels the file lacks, as many as the file's index has room for beside its own rows (all `ABSORB_TAIL` at the live count, 48,576 at a million rows), each in `ABSORB_RANGES` row ranges, and every row in the `default` sweep's unit count of parts. `--paths` names the paths a count's lines read (`absorb_job`), every one of `ABSORB_PATHS` by default: `fast`, the standing file and the new windows, as many as its index has room for, so its absorb reuses the standing index; `duplicate`, the standing file and the restated windows, each patching a standing outcome; `stale`, the same with `ABSORB_STALE_FAMILY`'s key moved, which drops rows and rebuilds the index; `prune`, the standing file's last `ABSORB_PRUNED` rows unreached and no fresh row, through the sweep's absorb; `fresh`, no standing file and every row fresh in the units' parts, through the oracle's absorb; and `fresh-sweep`, the same through the sweep's. The units' parts split the rows disjointly, so no fresh line merges a row, and none reads the merge state an all-fresh pass's repeated windows bring (`conform.absorb_settle_memo`). A count's standing file, and its tail and new windows, are made only when `--paths` names a path that reads them, so a path that needs no standing file writes none. Each line ships its parts' blocks into POSIX shared memory segments as the pools do, naming each in `ABSORB_SEGMENTS` under the run's directory before making it (`_AbsorbSegments`), and unlinks every one once its two absorbs have run, or however the line ends; a run killed with SIGKILL leaves that record, and the next run's `empty_tree` unlinks the segments it names.
+The absorbs step measures one settle-memo absorb (`conform.absorb_settle_memo`) a line, over inputs made from the live `default` settle memo at a row count, and beside it the carry-and-append absorb its bytes are proven against over the same inputs (`memory_series_child.carry_and_append_absorb`). The run clones the live memo, its head and every part the head lists, or the single file a tree from before the segment format holds, into `<tree>/absorbs/live/` with `clonefile(2)` (`clone_memo`, through `build._clone`, which writes no data) and maps the clone, and it builds its inputs from the live rows across the parts in part order (`_CountRows`). Positional arguments name the row counts, `live` for the live memo's own rows (3,649,648 at 45 runes); the default is `ABSORB_COUNTS`, and a count named twice is measured twice. For each distinct count the run makes the inputs once (`absorb_count`): the `live` count's standing memo is the clone, and each other count's is one single file written once a run from the live rows, a prefix of them below the live count and, above it, the live rows followed by the live rows restated under labels of their own, `.r<copy>` after every label, so each restated window is one no other row holds and names the same family (`_CountRows`). Such a file holds 14 bytes a row of columns and 4 bytes a slot of index at 2 to 4 slots a row, about 0.02 GB at a million rows, 0.26 GB at nine million and 0.30 GB at twelve million, about 0.6 GB a run at the default counts, and the run removes it, the clone and every line's clone as it ends, however it ends. Beside it the run holds each count's fresh windows compressed in memory, as a walk hands them (`conform.FreshMemo`): the standing rows' last `ABSORB_TAIL` rows restating their own windows, the last rows again under labels the file lacks, as many as the file's index has room for beside its own rows (all `ABSORB_TAIL` at the live count, 48,576 at a million rows), each in `ABSORB_RANGES` row ranges, and every row in the `default` sweep's unit count of parts. `--paths` names the paths a count's lines read (`absorb_job`), every one of `ABSORB_PATHS` by default: `fast`, the standing file and the new windows, as many as its index has room for, which the carry-and-append absorb reuses; `duplicate`, the standing file and the restated windows, each restating a standing window with its outcome; `stale`, the same with `ABSORB_STALE_FAMILY`'s key moved, which names rows in the segment's dead bitmaps; `prune`, the standing file's last `ABSORB_PRUNED` rows unreached and no fresh row, through the sweep's absorb; `fresh`, no standing file and every row fresh in the units' parts, through the oracle's absorb; and `fresh-sweep`, the same through the sweep's. The units' parts split the rows disjointly, so no fresh line merges a row, and none reads the merge state an all-fresh pass's repeated windows bring (`conform.absorb_settle_memo`). A count's standing file, and its tail and new windows, are made only when `--paths` names a path that reads them, so a path that needs no standing file writes none. Each line ships its parts' blocks into POSIX shared memory segments as the pools do, naming each in `ABSORB_SEGMENTS` under the run's directory before making it (`_AbsorbSegments`), and unlinks every one once its two absorbs have run, or however the line ends; a run killed with SIGKILL leaves that record, and the next run's `empty_tree` unlinks the segments it names.
 
-Each line runs two children of `rebuild/tools/memory_series_child.py`'s `absorb` entry, one after the other, each a fresh process sampled as a table step's crate is (`run_absorb_child`): the absorb, then the carry-and-append absorb. Each child gets its own copy of the line's fresh windows in POSIX shared memory segments the harness makes, one a part, and its job (the file, the spec, the segments' names and the parts' counts, and the sweep's prune) pickled on its stdin, as the oracle's and the sweep's pools hand an absorb worker its arguments; it maps each segment and unlinks its name at once, runs its absorb with the finished file hashed in order instead of written, and prints what it did. A line writes nothing but its record. An absorbs line holds, beside `step` (`absorbs`), the count (`count`, `rows`, `standing_rows`, `fresh_rows`, `standing_bytes`) and the path (`path`):
+Each line runs two children of `rebuild/tools/memory_series_child.py`'s `absorb` entry, one after the other, each a fresh process sampled as a table step's crate is (`run_absorb_child`): the absorb, then the carry-and-append absorb. Each child gets its own copy of the line's fresh windows in POSIX shared memory segments the harness makes, one a part, and its job (the memo, the spec, the segments' names and the parts' counts, and the sweep's prune) pickled on its stdin, as the oracle's and the sweep's pools hand an absorb worker its arguments; it maps each segment and unlinks its name at once, runs its absorb, and prints what it did. On a path that reads a standing memo the absorb runs over the line's own clone of it under `<tree>/absorbs/line/` (`clone_memo`), plans its route there as the pools' absorbs do, and writes its part, a segment or on a fold a base, and the head there, which the run removes once the line ends; once the meter's last reading is taken the harness hashes that clone's materialized form (`conform.materialize_settle_memo`), the file the line compares. On a fresh path, which takes the `first` route, the absorb hashes its base in order instead of writing it. The carry-and-append absorb reads the count's own standing memo and hashes its file. A line writes nothing but its record and the absorb's part, `standing_bytes` beside it giving the standing memo's bytes on disk. An absorbs line holds, beside `step` (`absorbs`), the count (`count`, `rows`, `standing_rows`, `fresh_rows`, `standing_bytes`) and the path (`path`):
 
-- `absorb`: the absorb's `conform.MemoAbsorb`, the row counts and index path its `[t]` lines report (`written`, `carried`, `pruned`, `fresh`, `standing`, `parts`, `patched`, `dropped`, `index`) and the slot count (`slots`).
+- `absorb`: the absorb's `conform.MemoAbsorb`, the row counts and index path its `[t]` lines report (`written`, `carried`, `pruned`, `fresh`, `standing`, `parts`, `patched`, `dropped`, `index`), the slot count (`slots`), and what it wrote (`wrote`, `reason`, `adopted`, `overrun`, `rows_written`, `named`, `part_bytes`, `segments`): the bytes of its segment, or its base.
 - `wall_s`, `seconds` (the absorb's own), `cpu_s`, `peak_resident`, `peak_footprint`, `start`, `peak` and `end`, `compressor_max`, `swap_used_max`, `samples` and `interval_s`, as a table line holds them, of the absorb's child.
-- `file_rows`, `size` and `sha256` of the file the absorb would write; `carry_and_append`, the same figures and the child's peaks, CPU and seconds for the carry-and-append absorb; and `same`, whether the two files' digests are equal. A line whose files differ prints a `[warn]` line.
+- `file_rows`, `size` and `sha256` of the memo's materialized form once the absorb has written, or of the base it hashed; `carry_and_append`, the same figures and the child's peaks, CPU and seconds for the carry-and-append absorb; and `same`, whether the two files' digests are equal. A line whose files differ prints a `[warn]` line.
 - `written`, as a table line holds it, over both children, and `cpus`, `ram`, `head` and `finished_at`.
 
 After an absorbs run's last line the record and stdout get each path's fit against rows of the absorb's peak footprint and resident and the carry-and-append absorb's peak footprint (`absorbs_report`).
@@ -69,6 +69,7 @@ import argparse
 import ctypes
 import errno
 import functools
+import itertools
 import json
 import os
 import pickle
@@ -89,7 +90,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any, BinaryIO, cast
 
-from rebuild.pipeline import conform, kernel_exec, kernel_io, oracle, run_m1, spec_load
+from rebuild.pipeline import (
+    conform,
+    kernel_exec,
+    kernel_io,
+    oracle,
+    output_sink,
+    row_delta,
+    run_m1,
+    spec_load,
+)
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.review import store_lock
 from rebuild.tools import (
@@ -1963,11 +1973,19 @@ def absorb_counts(lines: Sequence[str]) -> list[int | str]:
 
 
 class _CountRows:
-    """The rows of one absorbs count, built from the live `default` settle memo's rows (`conform._MemoStore`, mapped from its clone): row r below the live count is the live row r, and each row past it restates the live row r modulo the live count under labels of its own, every label suffixed with the copy's number, `.r<copy>`, so it names the same family (`conform._label_family`) and its window is one no other row holds. `copy`, when given, restates every row under that copy's labels instead, which gives windows the count's own rows never hold."""
+    """The rows of one absorbs count, built from the live `default` settle memo's live rows across its parts in part order (`conform._MemoStore`, mapped from its clone, each part's live rows copied into columns of their own): row r below the live count is the live row r, and each row past it restates the live row r modulo the live count under labels of its own, every label suffixed with the copy's number, `.r<copy>`, so it names the same family (`conform._label_family`) and its window is one no other row holds. `copy`, when given, restates every row under that copy's labels instead, which gives windows the count's own rows never hold."""
 
     def __init__(self, store: conform._MemoStore) -> None:
         self.store = store
-        self.live = len(store.reached)
+        flags = store.selector(None)
+        self._columns = [array("I") for _ in range(6)]
+        self._values = array("I")
+        for part in store.parts:
+            chosen = flags[part.offset : part.offset + part.rows]
+            for column, source in zip(self._columns, part.columns):
+                column.extend(itertools.compress(source, chosen))
+            self._values.extend(itertools.compress(part.values, chosen))
+        self.live = len(self._values)
         self._tables: dict[int, list[str]] = {0: list(store.labels)}
 
     def labels(self, copy: int) -> list[str]:
@@ -1991,8 +2009,8 @@ class _CountRows:
             upto = min(stop, (base + 1) * self.live)
             table = self.labels(base if copy is None else copy)
             first, last = own, own + upto - at
-            windows = zip(*(map(table.__getitem__, column[first:last]) for column in store.columns))
-            outcomes = map(store.outcomes.__getitem__, store.values[first:last])
+            windows = zip(*(map(table.__getitem__, column[first:last]) for column in self._columns))
+            outcomes = map(store.outcomes.__getitem__, self._values[first:last])
             yield from cast(Iterator[tuple[conform._Window, conform._Outcome]], zip(windows, outcomes))
             at = upto
 
@@ -2006,10 +2024,57 @@ class _CountRows:
         values = array("I")
         for copy in range(copies + 1):
             rows = min(self.live, count - copy * self.live)
-            for column, source in zip(columns, store.columns):
+            for column, source in zip(columns, self._columns):
                 column.extend(map((copy * width).__add__, source[:rows]))
-            values.extend(store.values[:rows])
+            values.extend(self._values[:rows])
         return labels, [outcome[0] for outcome in store.outcomes], columns, values
+
+
+def _memo_header(path: Path) -> dict | None:
+    """The header of the whole file of the settle memo at `path`: its single file, or its head's base, whose header is the file it was written as."""
+    with suppress(row_delta.HeadError, OSError):
+        head = row_delta.read_head(path.parent, path.name)
+        if head is not None:
+            path = path.parent / head.base.name
+    with suppress(OSError, ValueError, EOFError, pickle.UnpicklingError):
+        with open(path, "rb") as handle:
+            (length,) = conform._MEMO_PREFIX.unpack(handle.read(conform._MEMO_PREFIX.size))
+            header = pickle.loads(handle.read(length))
+            return header if isinstance(header, dict) else None
+    return None
+
+
+def _memo_bytes(path: Path) -> int:
+    """The bytes on disk of the settle memo at `path`: its single file, or its head and every part the head lists."""
+    head = row_delta.read_head(path.parent, path.name)
+    if head is None:
+        return path.stat().st_size
+    return row_delta.head_path(path.parent, path.name).stat().st_size + sum(part.size for part in head.parts)
+
+
+def clone_memo(memo: conform.SettleMemoFile, directory: Path) -> conform.SettleMemoFile:
+    """Clone every file of `memo`'s output, its head and every part, or its single file, into `directory` under its own name (`build._clone`, `clonefile(2)`, which writes no data), and return the memo there. A clone the volume refuses stops the run, since a copy would write the memo's bytes."""
+    from rebuild.review import build
+
+    directory.mkdir(parents=True, exist_ok=True)
+    for source in sorted(memo.path.parent.glob(f"{memo.path.name}*")):
+        if source.is_file() and not source.name.endswith(output_sink.STAGING_SUFFIX):
+            if not build._clone(source, directory / source.name):
+                raise SystemExit(
+                    f"{source} could not be cloned without writing it; the absorbs holder writes no copy"
+                )
+    return replace(memo, path=directory / memo.path.name)
+
+
+def _materialized_digest(memo: conform.SettleMemoFile, spec: ResolvedSpec) -> tuple[int, int, str] | None:
+    """The row count, size and sha256 of `memo`'s materialized form (`conform.materialize_settle_memo`), hashed in order and never written."""
+    hashed: list[tuple[int, int, str]] = []
+
+    def emit(finished: conform.FinishedSettleMemo) -> bool:
+        hashed.append((finished.rows, *finished.digest()))
+        return True
+
+    return hashed[0] if conform.materialize_settle_memo(memo, spec, emit) else None
 
 
 @dataclass
@@ -2038,7 +2103,7 @@ def absorb_count(
     units: int,
     reads_standing: bool,
 ) -> AbsorbCount:
-    """Make one count's inputs (`AbsorbCount`): when `reads_standing` says a path of the run reads a standing file, for `live` the clone of the live memo as that file, and for any other count a file of that many rows (`_CountRows`) written once under the live memo's stamp and keys, and the windows the paths over it take; then every row in the units' parts. Without `reads_standing` it writes no file and makes no tail or new windows."""
+    """Make one count's inputs (`AbsorbCount`): when `reads_standing` says a path of the run reads a standing memo, for `live` the clone of the live memo as that memo, and for any other count a single file of that many rows (`_CountRows`) written once under the live memo's stamp and keys, and the windows the paths over it take, the new windows as many as its whole file's index has room for (its single file's, or its base's); then every row in the units' parts. Without `reads_standing` it writes no file and makes no tail or new windows."""
     if not reads_standing:
         rows = source.live if name == LIVE else int(name)
         return AbsorbCount(
@@ -2059,9 +2124,9 @@ def absorb_count(
             raise SystemExit(f"the absorbs holder could not write {standing}")
         written = True
     tail = max(0, rows - ABSORB_TAIL)
-    header = conform._settle_memo_header(replace(memo, path=standing))
+    header = _memo_header(standing)
     if header is None:
-        raise SystemExit(f"{standing} is not a settle memo under the live memo's stamp")
+        raise SystemExit(f"{standing} is not a settle memo")
     new = max(0, rows - min(ABSORB_TAIL, int(header["slots"]) // 2 - rows))
     restated = source.copies(rows) + 1
     return AbsorbCount(
@@ -2101,11 +2166,9 @@ def absorb_job(
         keys = {**memo.family_keys, ABSORB_STALE_FAMILY: "moved-for-the-absorbs-holder"}
         return replace(standing, family_keys=keys), count.tail, None
     if path == "prune":
-        stat = count.standing.stat()
         kept = max(0, count.rows - ABSORB_PRUNED)
         flags = zlib.compress(b"\x01" * kept + bytes(count.rows - kept), 1)
-        identity = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
-        return standing, [], conform.SweepPrune(identity, flags, True, False)
+        return standing, [], conform.SweepPrune(conform.settle_memo_identity(standing), flags, True, False)
     raise ValueError(f"{path} is not an absorbs path")
 
 
@@ -2161,13 +2224,14 @@ def absorb_payload(
     sweep: conform.SweepPrune | None,
     prefix: str,
     segments: _AbsorbSegments,
+    write: bool = False,
 ) -> bytes:
-    """Ship each part's blocks into a shared memory segment of its own, as a range or a unit ships them, naming each in `segments` before making it, so that the caller unlinks every one a child does not, and return the absorb child's job (`memory_series_child.absorb_main`) pickled."""
+    """Ship each part's blocks into a shared memory segment of its own, as a range or a unit ships them, naming each in `segments` before making it, so that the caller unlinks every one a child does not, and return the absorb child's job (`memory_series_child.absorb_main`) pickled. `write` asks the absorb to write its part into `memo`, the line's own clone of the standing memo, as the pools' absorbs write theirs."""
     shipped = []
     for index, part in enumerate(parts):
         name = segments.add(f"{prefix}-{index}")
         shipped.append((_ship_untracked(list(part.blocks), name), replace(part, blocks=())))
-    job = {"writer": writer, "memo": memo, "spec": spec, "parts": shipped, "sweep": sweep}
+    job = {"writer": writer, "memo": memo, "spec": spec, "parts": shipped, "sweep": sweep, "write": write}
     return pickle.dumps(job, protocol=pickle.HIGHEST_PROTOCOL)
 
 
@@ -2244,8 +2308,9 @@ def measure_absorb_line(
     machine: Callable[[], Machine] = read_machine,
     sleep: Callable[[float], None] = time.sleep,
     run: Callable[..., tuple[ChildRun, dict[str, Any]]] = run_absorb_child,
+    materialized: Callable[[], tuple[int, int, str] | None] | None = None,
 ) -> dict[str, Any]:
-    """Run one absorbs line between the write meter's readings, as `measure_step` runs a table step: the absorb's child and then the carry-and-append absorb's, each over its own copy of the line's segments (`jobs`), and return the line's measured fields (the module docstring's "The absorbs step"). Any segment in `names` a child left is unlinked. `meter`, `machine`, `sleep` and `run` are the write meter, the machine reading, the wait and the child, which a test replaces."""
+    """Run one absorbs line between the write meter's readings, as `measure_step` runs a table step: the absorb's child and then the carry-and-append absorb's, each over its own copy of the line's segments (`jobs`), and return the line's measured fields (the module docstring's "The absorbs step"). Any segment in `names` a child left is unlinked. When the absorb wrote its part into the line's clone of the standing memo, `materialized` gives that memo's materialized form's rows, size and sha256 once the meter's last reading is taken, and the line's file figures and `same` read it; otherwise they read the file the absorb hashed. `meter`, `machine`, `sleep` and `run` are the write meter, the machine reading, the wait and the child, which a test replaces."""
     idle = None
     if idle_s > 0:
         idle = meter()
@@ -2267,6 +2332,9 @@ def measure_absorb_line(
         later = meter()
         swapouts = _difference(child.begin.swapouts, machine().swapouts)
         after = write_fields(start, later, rate, swapouts)
+    if materialized is not None:
+        rows, size, sha256 = materialized() or (None, None, None)
+        printed = {**printed, "rows": rows, "size": size, "sha256": sha256}
     return {
         "absorb": printed["absorb"],
         "wall_s": round(child.wall, 3),
@@ -2327,9 +2395,8 @@ def absorbs_report(lines: Sequence[Mapping]) -> list[str]:
 
 
 def run_absorbs(args: argparse.Namespace, tree: Path) -> int:
-    """Run the absorbs holder's lines (the module docstring's "The absorbs step") under the held lock: clone the live `default` settle memo into the tree, make each distinct count's inputs once (`absorb_count`), a standing file only when a path of `--paths` reads one, then for each named count, in order, and each path of `--paths` measure one line (`measure_absorb_line`), recording each as it finishes, then the fit (`absorbs_report`). Every segment a line ships is unlinked as the line ends, however it ends (`_AbsorbSegments`), and the clone and every standing file the run wrote are removed as it ends, however it ends."""
+    """Run the absorbs holder's lines (the module docstring's "The absorbs step") under the held lock: clone the live `default` settle memo, its head and every part it lists, into the tree (`clone_memo`), make each distinct count's inputs once (`absorb_count`), a standing file only when a path of `--paths` reads one, then for each named count, in order, and each path of `--paths` measure one line (`measure_absorb_line`), the absorb over a clone of the line's standing memo of its own on a path that reads one, recording each as it finishes, then the fit (`absorbs_report`). Every segment a line ships is unlinked and the line's clone removed as the line ends, however it ends (`_AbsorbSegments`), and the clone and every standing file the run wrote are removed as it ends, however it ends."""
     from rebuild.pipeline import oracle_cache, run_m1_gates
-    from rebuild.review import build
 
     spec = spec_load.load_default_spec()
     live = conform.settle_memo_files(run_m1.OUT_DIR, spec, oracle_cache.settle_memo_inputs(run_m1.REPO_ROOT))[
@@ -2340,14 +2407,10 @@ def run_absorbs(args: argparse.Namespace, tree: Path) -> int:
     empty_tree(tree)
     directory = tree / ABSORBS
     directory.mkdir()
-    clone = directory / "live.bin"
     store = conform._MemoStore()
     try:
-        if not build._clone(live.path, clone):
-            raise SystemExit(
-                f"{live.path} could not be cloned without writing it; the absorbs holder writes no copy"
-            )
-        memo = replace(live, path=clone)
+        memo = clone_memo(live, directory / "live")
+        clone = memo.path
         store.load(memo, spec, None, lambda item: (item, "", ""))
         if store.retired or not len(store.reached):
             raise SystemExit(f"{clone} loaded no rows")
@@ -2379,10 +2442,18 @@ def run_absorbs(args: argparse.Namespace, tree: Path) -> int:
                 )
                 file, parts, sweep = absorb_job(path, count, live, absent)
                 jobs: dict[str, bytes] = {}
+                work = None if path.startswith("fresh") else clone_memo(file, directory / "line")
                 try:
                     for writer in ("absorb", "carry"):
                         prefix = f"s{token}-{number}-{ABSORB_PATHS.index(path)}{writer[0]}"
-                        jobs[writer] = absorb_payload(writer, file, spec, parts, sweep, prefix, segments)
+                        target, pruning = file, sweep
+                        if writer == "absorb" and work is not None:
+                            target = work
+                            if sweep is not None:
+                                pruning = replace(sweep, identity=conform.settle_memo_identity(work))
+                        jobs[writer] = absorb_payload(
+                            writer, target, spec, parts, pruning, prefix, segments, write=target is work
+                        )
                     measured = measure_absorb_line(
                         jobs,
                         list(segments.names),
@@ -2390,9 +2461,13 @@ def run_absorbs(args: argparse.Namespace, tree: Path) -> int:
                         after_s=args.after_seconds,
                         interval_s=args.interval,
                         env=env,
+                        materialized=(
+                            None if work is None else functools.partial(_materialized_digest, work, spec)
+                        ),
                     )
                 finally:
                     segments.unlink()
+                    shutil.rmtree(directory / "line", ignore_errors=True)
                 _warn_meter(f"{name} {path}", measured["written"])
                 if not measured["same"]:
                     _warn(f"{name} {path}: the absorb's file differs from the carry-and-append absorb's")
@@ -2406,7 +2481,7 @@ def run_absorbs(args: argparse.Namespace, tree: Path) -> int:
                     "standing_bytes": (
                         None
                         if count.standing is None or path.startswith("fresh")
-                        else count.standing.stat().st_size
+                        else _memo_bytes(count.standing)
                     ),
                     **measured,
                     "cpus": memory_budget.usable_cores(),

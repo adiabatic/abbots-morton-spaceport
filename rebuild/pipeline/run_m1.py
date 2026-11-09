@@ -4,7 +4,7 @@ First, `build_tables` builds the decision and join tables for every settlement c
 
 Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`_spawn_rule_witnesses`, in a spawned worker of its own handed one configuration's decision table at a time, the step `run_rule_witnesses` runs in process, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
 
-`full_run` then runs the Manual-pin gate and the oracle (rebuild/pipeline/run_m1_gates.py). The oracle starts once the string replay has returned, beside the witness stage, and writes to the settle memo files only after the witness stage, which reads them and writes none, has returned. `full_run` joins the table-only branch after the oracle, before it decides the run_m1 gate. The join raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order), and any of those is raised in place of a glyph-chain failure, so a failing build reports what a serial build would.
+`full_run` then runs the Manual-pin gate and the oracle (rebuild/pipeline/run_m1_gates.py). The oracle starts once the string replay has returned, beside the witness stage, and writes to the settle memos only after the witness stage, which reads them and writes none, has returned. `full_run` joins the table-only branch after the oracle, before it decides the run_m1 gate. The join raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order), and any of those is raised in place of a glyph-chain failure, so a failing build reports what a serial build would.
 
 Settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set use the same names. The raw cmap glyph for each rune is the bare rune name, drawn as the isolated cell with no curs anchors. Marker, locked, and ss10 copies reuse that drawing. Under ss10 the ss10 input substitution replaces every letter's cmap glyph with its anchor-free `.ss10` copy before formation, so no ligature forms, nothing settles, each letter keeps its own cluster, and every junction is a break. That is why the overlay configuration (`conform.OVERLAY_CONFIGS`) has no table: read-back checks that the ss10 input substitution covers every letter cmap glyph and that the copies appear in no other stage, the conformance sweep (gate:conform's exhaustive HarfBuzz sweep) sweeps the overlay at `conform.OVERLAY_MAX_LENGTH`, and the oracle compares its rows against the bare stream, using the copies' `hmtx` advances for positions.
 
@@ -858,7 +858,7 @@ def _defect_summary_fields(report: defects.DefectReport) -> dict:
 
 @dataclass
 class _TableGateState:
-    """What the table-only branch leaves for `TableGates`. `replay_ready` is set once the string replay has returned, with every settle memo file it fills on disk, and `memo_ready` once the witness stage's process has returned, having read every settle memo file it loads and written none. Both are also set as soon as the replay-then-witness sequence fails. The `*_red` fields hold the exception each stage would have raised in a serial run. The summaries reach their readers as the JSON files each stage writes."""
+    """What the table-only branch leaves for `TableGates`. `replay_ready` is set once the string replay has returned, with every settle memo head it commits in place, and `memo_ready` once the witness stage's process has returned, having read every settle memo it loads and written none. Both are also set as soon as the replay-then-witness sequence fails. The `*_red` fields hold the exception each stage would have raised in a serial run. The summaries reach their readers as the JSON files each stage writes."""
 
     replay_ready: threading.Event = field(default_factory=threading.Event)
     memo_ready: threading.Event = field(default_factory=threading.Event)
@@ -897,9 +897,9 @@ def _run_table_gates(
     replay_threads: int | None,
     state: _TableGateState,
 ) -> None:
-    """Run the table-only branch on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, or the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage runs after it, in one spawned process this thread waits on (`_spawn_rule_witnesses`). The order matters: a full replay writes each configuration's settle memo file whole (`replay_and_absorb`, `conform.read_replay_memo`), and the witness stage then loads the rows of that file its certificates can ask for and writes nothing back (`conform.SettleMemoFile.read_only`). The `[t] replay_strings` line names the walk's scope, `scope=full` when it walked every text and `scope=narrowed` when `replay_families` narrowed it to the texts of the changed runes (or to none, when nothing changed), before the process's peak (`rss_token`); the timings journal keeps it (`cycle_timings.REPLAY_TOKENS`). `state.replay_ready` is set once the replay has returned, and the oracle starts after it. `state.memo_ready` is set once the witness stage's process has returned, and the oracle's own memo writes wait for it, so the stage reads each file as the replay left it. Both are set as soon as that sequence fails, and `TableGates` also sets them when this thread ends any other way, so a wait on either never hangs.
+    """Run the table-only branch on one background thread beside the glyph chain. The string replay runs first, at its own width (`replay_threads`, or the width `_replay_threads` derives from `kernel_exec.REPLAY_PEAK_BYTES`), and the witness stage runs after it, in one spawned process this thread waits on (`_spawn_rule_witnesses`). The order matters: a full replay refills each configuration's settle memo, writing a segment of what its refill changed, the head alone when nothing changed, or a whole base (`replay_and_absorb`, `conform.read_replay_memo`, `conform.compare_replay`), and the witness stage then loads the rows of that memo its certificates can ask for and writes nothing back (`conform.SettleMemoFile.read_only`). The `[t] replay_strings` line names the walk's scope, `scope=full` when it walked every text and `scope=narrowed` when `replay_families` narrowed it to the texts of the changed runes (or to none, when nothing changed), before the process's peak (`rss_token`); the timings journal keeps it (`cycle_timings.REPLAY_TOKENS`). `state.replay_ready` is set once the replay has returned, and the oracle starts after it. `state.memo_ready` is set once the witness stage's process has returned, and the oracle's own memo writes wait for it, so the stage reads each memo as the replay left it. Both are set as soon as that sequence fails, and `TableGates` also sets them when this thread ends any other way, so a wait on either never hangs.
 
-    The witness stage's walk is CPU-bound Python, so it gets a process of its own. On a thread of run_m1's process it would hold the interpreter lock that the main thread needs for the glyph chain and the oracle's setup, and slow both, the work that reads and hashes files most (the cache keys within `[t] oracle_setup`). The process runs one serial walk over the configurations. A process per configuration would need a memory-derived width of its own (`doc/parallelism.md`) and would take cores from the oracle's pool, which takes every core. This thread runs the formation-guard sweep (`kernel_exec.guard_sweep`, one sweep per spec in run_m1's process, which the oracle's setup reads too) and keys the settle memo files once, and the process gets the spec, the guard verdicts and every configuration's reachable cells once, then one configuration's decision table and read-only settle memo at a time (`_spawn_rule_witnesses`), so it holds one table at a time. It writes no settle memo byte, and this thread writes `witness_summary.json` once the last configuration has returned, so `TableGates.wait_for_memo` orders the stage's reads before any oracle write. Its `[t] rule_witnesses[<config>]` lines go to the stdout it inherits, and the `[t] rule_witnesses` line this thread prints carries its peak memory (`rss_token`).
+    The witness stage's walk is CPU-bound Python, so it gets a process of its own. On a thread of run_m1's process it would hold the interpreter lock that the main thread needs for the glyph chain and the oracle's setup, and slow both, the work that reads and hashes files most (the cache keys within `[t] oracle_setup`). The process runs one serial walk over the configurations. A process per configuration would need a memory-derived width of its own (`doc/parallelism.md`) and would take cores from the oracle's pool, which takes every core. This thread runs the formation-guard sweep (`kernel_exec.guard_sweep`, one sweep per spec in run_m1's process, which the oracle's setup reads too) and keys the settle memos once, and the process gets the spec, the guard verdicts and every configuration's reachable cells once, then one configuration's decision table and read-only settle memo at a time (`_spawn_rule_witnesses`), so it holds one table at a time. It writes no settle memo byte, and this thread writes `witness_summary.json` once the last configuration has returned, so `TableGates.wait_for_memo` orders the stage's reads before any oracle write. Its `[t] rule_witnesses[<config>]` lines go to the stdout it inherits, and the `[t] rule_witnesses` line this thread prints carries its peak memory (`rss_token`).
 
     When `inputs` is given, the shipped-order walks run on a thread of their own beside that sequence, one walk per configuration up to the cores (`_core_bound_threads`, from the configuration count and the cores, not from the build's or the oracle's width), each waiting for its own configuration's pack (`Packing.wait`). They are not narrowed to the cores the oracle's pool leaves: that pool uses the whole machine, so the walks would run one at a time on the critical path. What remains of them shares the machine with the pool's first seconds, the overlap `doc/parallelism.md` describes. The packing is closed here after the last walk. Nothing is raised from this thread: each stage's exception is stored in `state`, and `TableGates` raises the first one in serial order.
     """
@@ -954,9 +954,9 @@ def _run_table_gates(
 
 
 class TableGates:
-    """The handle `run` returns for its table-only branch, with the two points where the oracle waits for it. `wait_for_replay` is called before the oracle starts: it blocks until the string replay has returned (every settle memo file the replay fills is on disk, and the replay crate has exited), reports the wait as `[t] settle_memo_wait`, and raises the replay's failure, or the witness stage's if that stage has already failed. `wait_for_memo` is called before the oracle writes a shared settle memo file: it blocks until the witness stage's process has returned, having read every settle memo file it loads, raises either failure, and returns the seconds it blocked, or None when it did not block. It prints nothing, because the pooled oracle calls it on a thread beside its ranges, where how long it blocks is the witness stage's overlap with the pool; the oracle reports the part of the wait that held its writes back as `[t] witness_memo_wait` (`run_m1_gates.run_oracle`).
+    """The handle `run` returns for its table-only branch, with the two points where the oracle waits for it. `wait_for_replay` is called before the oracle starts: it blocks until the string replay has returned (every settle memo head the replay commits is in place, and the replay crate has exited), reports the wait as `[t] settle_memo_wait`, and raises the replay's failure, or the witness stage's if that stage has already failed. `wait_for_memo` is called before the oracle writes to a shared settle memo: it blocks until the witness stage's process has returned, having read every settle memo it loads, raises either failure, and returns the seconds it blocked, or None when it did not block. It prints nothing, because the pooled oracle calls it on a thread beside its ranges, where how long it blocks is the witness stage's overlap with the pool; the oracle reports the part of the wait that held its writes back as `[t] witness_memo_wait` (`run_m1_gates.run_oracle`).
 
-    For each configuration, the witness stage maps that configuration's file, serves the rows its certificates can ask for, and writes nothing to it (`conform.SettleMemoFile.read_only`). The oracle makes no write to a shared file before `wait_for_memo` (`run_m1_gates.run_oracle`'s `memo_ready`): its pooled ranges write no settle memo file, and it submits their configurations' absorbs only after the wait, and its `--jobs 1` walks, which replace the files whole, start after the wait. So the stage reads each file as the replay left it, and its served and fresh counts, and `witness_summary.json`, do not depend on when an oracle write lands.
+    For each configuration, the witness stage maps that configuration's memo, every part its head lists, serves the rows its certificates can ask for, and writes nothing to it (`conform.SettleMemoFile.read_only`). The oracle makes no write to a shared memo before `wait_for_memo` (`run_m1_gates.run_oracle`'s `memo_ready`): its pooled ranges write no settle memo part, and it submits their configurations' absorbs, each of which writes a segment and commits its head, only after the wait, and its `--jobs 1` walks, which write their own segments, start after the wait. A writer deletes a part only once the head that replaced it is in place, and a stage that mapped a part keeps reading it, so the stage reads each memo as the replay left it, and its served and fresh counts, and `witness_summary.json`, do not depend on when an oracle write lands.
 
     `join` waits for the whole branch and raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order). `first_red` returns that failure instead, for the paths where the glyph chain has also failed and the branch's failure is raised in its place. Call `close` in a `finally`, so no thread, pool or process outlives the run on an interrupt. It waits for the branch, which shuts the witness stage's pool down before it ends. A Ctrl-C reaches the witness stage's process as well, since that process stays in run_m1's process group, so on an interrupt the wait ends as soon as that process does.
     """
@@ -1042,7 +1042,7 @@ def run(
 ) -> tuple[dict, TableGates]:
     """Build the tables, then run two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage (in a spawned process of its own) and the shipped-order walks. The glyph chain (minting, the defect gates, the emission, the compile and read-back) runs on the calling thread, writes `pipeline_summary.json`, and returns its summary with the branch's `TableGates` handle without joining the branch. The caller joins it: `full_run` calls `wait_for_replay` before the oracle, passes `wait_for_memo` for the oracle to call before its memo writes, calls `join` after the oracle so the gate covers both branches, and calls `close` in a `finally`. When the glyph chain raises, the branch's first failure is raised in its place if there is one, so a failed replay is reported as incomplete tables and not as whatever the glyph chain made of them.
 
-    `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memo files the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from, and so does `scratch_beside_default` (`build_tables`). `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
+    `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memos the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from, and so does `scratch_beside_default` (`build_tables`). `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     commit = head_commit()
@@ -1264,7 +1264,7 @@ def run_replay_strings(
 
     On a rune edit only some of the texts are walked. `replay_families` reads the last passing record beside the tables, and while `replay_structure_stamp` and the tables' imported windows (`imports`, the build's `imports_digest`) match, only the texts naming a changed rune, or a rune whose records read one, are walked. A build with no passing record or a changed structure walks everything, and a build where nothing changed walks nothing and carries the record forward. A caller with no stamp (its own spec, whose rune files are not the repository's) walks every text and writes no record.
 
-    The walk also produces the settle memo. With `memo_inputs` (`settle_memo_inputs`, computed before the spec was loaded), every full replay walks each configuration in a crate process of its own beside the spawn worker that absorbs its window memo as the walk writes it (`replay_and_absorb`), and the absorbs write each configuration's `conform.SettleMemoFile` under the stamp and family keys `conform.settle_memo_files` computes once every walk has passed. So the witness stage, the oracle and the conformance sweep load what the replay settled instead of settling it again. A red replay writes no settle memo byte at a width of the configuration count, and removes what its workers staged early at a narrower one (`replay_and_absorb`), and a failed absorb is a warning, not a failure, since every reader settles what the file lacks. When any configuration's file is missing or fails `conform.settle_memo_standing`, every text is walked to refill it, which can widen the walk beyond what the structure stamp requires. The code `oracle_cache.settle_memo_stamp` hashes (`oracle_cache.oracle_code_paths`: the modules `oracle_cache.ORACLE_ROW_CODE_PATHS` names and the crate) is inside the build-side code `locality_lines` hashes, so an edit that moves that stamp's `oracle_code` line also moves the structure stamp. A narrowed walk (a rune edit), or a full walk with no `memo_inputs`, writes no memo and runs every configuration it walks in one crate process (`kernel_exec.replay_strings`), and leaves the existing files to drop their own stale entries.
+    The walk also produces the settle memo. With `memo_inputs` (`settle_memo_inputs`, computed before the spec was loaded), every full replay walks each configuration in a crate process of its own beside the spawn worker that absorbs its window memo as the walk writes it (`replay_and_absorb`), on the route its plan gave its configuration before the pool started (`conform.plan_settle_memos`). On the segment route the absorb compares its refill with the standing memo and writes a segment of what differs, or nothing when every window settled as the memo holds it (`conform.compare_replay`), and the refill whole as an `unusable` base when the standing memo does not read; on a base route it writes the refill whole as the next generation's base, today's file byte for byte. Once every walk has passed, the parent commits each configuration's head under the stamp and family keys `conform.settle_memo_files` computes, every part recorded under them. So the witness stage, the oracle and the conformance sweep load what the replay settled instead of settling it again. A red replay commits no head and writes no part at a width of the configuration count, and removes the parts its workers wrote early at a narrower one (`replay_and_absorb`), and a failed absorb is a warning, not a failure, since every reader settles what the memo lacks. When any configuration's memo is missing or fails `conform.settle_memo_standing`, a head that does not read, a part missing or not its size, or a part recording another stamp, every text is walked to refill it, which can widen the walk beyond what the structure stamp requires. The code `oracle_cache.settle_memo_stamp` hashes (`oracle_cache.oracle_code_paths`: the modules `oracle_cache.ORACLE_ROW_CODE_PATHS` names and the crate) is inside the build-side code `locality_lines` hashes, so an edit that moves that stamp's `oracle_code` line also moves the structure stamp. A narrowed walk (a rune edit), or a full walk with no `memo_inputs`, writes no memo and runs every configuration it walks in one crate process (`kernel_exec.replay_strings`), and leaves the existing memos to drop their own stale entries.
 
     The record written beside the tables is what the next build's walk is narrowed against, so it carries the structure stamp and every rune digest as well as the counts. It is written whether the walk passed or failed: a disagreement is recorded with the crate's message, and `_run_table_gates` raises it as `SystemExit`. The width is `_replay_threads`: `replay_threads` when given, else the machine's memory divided by `kernel_exec.REPLAY_PEAK_BYTES` (what one configuration's walk and its absorb hold together), capped at the configuration count and the cores, so every text replays in one round on both fleet machines. On a full replay that width gates the walks' crate processes, and `report_replay` records each walk's own peak as one reading of the `replay-walk` record and each absorb worker's peak footprint as one of the `REPLAY_ABSORB_POOL_UNIT` record. A narrowed replay records its one process's peak over the walks it ran at once (`_record_replay_walk`).
     """
@@ -1345,11 +1345,9 @@ def _record_replay_walk(peak: int, *, walks: int) -> None:
 
 
 def clear_replay_leftovers(out_dir: Path, memos: Mapping[str, conform.SettleMemoFile]) -> None:
-    """Remove what a killed full replay can leave for each configuration of `memos`: the FIFO at its window memo path (`kernel_exec.replay_memo_dump`) and the settle memo files its absorb workers staged beside the configuration's file (`<file>.<pid>.tmp`, `conform.FinishedSettleMemo.stage`). Only the replay writes those paths while it runs, so whatever is there is a leftover."""
-    for config, memo in memos.items():
+    """Remove what a killed full replay can leave for each configuration of `memos` at the FIFO at its window memo path (`kernel_exec.replay_memo_dump`). Only the replay writes that path while it runs, so whatever is there is a leftover. A part an absorb worker wrote under its final name, which no head lists, and a staging file a killed write left, are the next plan's to delete (`conform.plan_settle_memos`, through `row_delta.remove_unlisted` and `row_delta.remove_staging`)."""
+    for config in memos:
         kernel_exec.replay_memo_dump(out_dir, config).unlink(missing_ok=True)
-        for staged in memo.path.parent.glob(f"{memo.path.name}.*.tmp"):
-            staged.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -1367,17 +1365,23 @@ class ReplayWalkReport:
 
 @dataclass(frozen=True)
 class ReplayAbsorb:
-    """What a full replay's absorb worker returns once the verdict has reached it, or once it has staged or discarded its file while a walk still waited for a slot (`_walk_and_absorb`): where it staged the configuration's settle memo file (None when it discarded the file or has none), the rows it absorbed and the seconds its read and index took, or the warning the parent prints instead, its own resident peak, peak footprint and CPU seconds, and, when asked, the finished file's size and sha256."""
+    """What a full replay's absorb worker returns once the verdict has reached it, or once it has written or discarded its part while a walk still waited for a slot (`_walk_and_absorb`): the part it wrote under its final name, which no head lists until the parent commits it (None when it discarded the part or wrote none), the windows its refill holds and the seconds its read and its index or compare took, or the warning the parent prints instead, its own resident peak, peak footprint and CPU seconds, the route its part takes (`route`: the one the parent planned, or that route as an `unusable` base when the compare found the standing memo would not read, `conform.SettleMemoRoute.unusable`), through which the parent commits, and, when asked, its part's size and sha256 as laid out. `wrote` says what the absorb's route leaves (`head`, `segment` or `base`), `rows_written` the rows its part holds, `named` the standing rows its dead bitmaps name, `compare_seconds` the seconds its compare with the standing memo took on the segment route, and `segments` the segments the head the parent committed lists."""
 
     config: str
-    staged: Path | None
+    part: row_delta.Part | None
     entries: int | None
     seconds: float
     warning: str | None
     resident: int
     footprint: int
     cpu: float
+    route: conform.SettleMemoRoute
     digest: tuple[int, str] | None = None
+    wrote: str = ""
+    rows_written: int = 0
+    named: int = 0
+    compare_seconds: float = 0.0
+    segments: int = 0
 
 
 @dataclass(frozen=True)
@@ -1443,14 +1447,22 @@ def _stop_when_orphaned(parent: BaseProcess) -> None:
         time.sleep(REPLAY_REPORT_POLL_S)
 
 
-def _stage_finished(
-    finished: conform.FinishedSettleMemo | None, memo: conform.SettleMemoFile, warning: str | None
-) -> tuple[Path | None, str | None]:
-    """Stage a full replay's finished settle memo file beside the configuration's file (`conform.FinishedSettleMemo.stage`) and return where, beside the warning the result carries: the absorb's own, or for a file it could not stage, that one."""
+def _write_finished(
+    finished: conform.FinishedSettleMemo | None,
+    memo: conform.SettleMemoFile,
+    route: conform.SettleMemoRoute,
+    warning: str | None,
+) -> tuple[row_delta.Part | None, str | None]:
+    """Write a full replay's finished part, its segment or its base, under its final name, which no head lists until the parent commits it (`conform.SettleMemoRoute.write`), and return it, beside the warning the result carries: the absorb's own, or, for a memo that changed after the plan or a part it could not write, that one."""
     if finished is None:
         return None, warning
+    if conform.settle_memo_source(memo) != route.signature:
+        return (
+            None,
+            f"settle memo: {memo.path} changed after the replay's plan; nothing is written, and the readers settle instead",
+        )
     try:
-        return finished.stage(memo.path), warning
+        return route.write(finished), warning
     except OSError as error:
         return None, f"settle memo: {memo.path} not written ({error}); the readers settle instead"
 
@@ -1461,11 +1473,12 @@ def _walk_and_absorb(
     memo: conform.SettleMemoFile,
     spec: ResolvedSpec,
     symbols: int,
+    route: conform.SettleMemoRoute,
     cache_stats: bool = False,
     digest: bool = False,
     keep: bool = True,
 ) -> ReplayAbsorb:
-    """One configuration's walk and absorb, in a full replay's absorb worker. Holding a slot of the replay's gate, it runs the walk, a `replay-strings` process for `config` alone, reading its window memo from a FIFO into the settle memo file's columns as it arrives (`kernel_exec.replay_memo_walk`, `conform.read_replay_memo`). Once the crate has exited it sends the parent its walk (`ReplayWalkReport`) and builds the file's index, and with `digest` it hashes the finished file's bytes in order. Where the width is below the walk count and a walk has yet to take a slot, the slot it is about to leave goes to that walk, so it stages the file at once with `keep`, for the parent to move into place on a pass and remove on a red replay, or discards it without, and then waits for the verdict holding no file; a red replay at such a width can therefore write files it then removes. Otherwise it leaves the slot and holds the finished file until the parent's verdict: on a pass with the files kept it stages the file beside the configuration's settle memo file for the parent to move into place, and on a red replay it discards it. Either way it returns only once the verdict is set, so no worker takes a second walk. A memo the absorb could not read, or a file it could not stage, is a warning on the result rather than a failure, as a memo the crate never wrote is."""
+    """One configuration's walk and absorb, in a full replay's absorb worker. Holding a slot of the replay's gate, it runs the walk, a `replay-strings` process for `config` alone, reading its window memo from a FIFO into the settle memo's columns as it arrives (`kernel_exec.replay_memo_walk`, `conform.read_replay_memo`). Once the crate has exited it sends the parent its walk (`ReplayWalkReport`) and lays out its part as `route`, which the parent planned, says: on a base route the refill's whole file, its index built (`conform.ReplayMemoRows.finish`); on the segment route the refill compared with the standing memo (`conform.compare_replay`), which gives a segment of what differs, or nothing when the refill settles every window as the memo holds it, so the parent commits the head alone, or, when the standing memo does not read, the refill's whole file as an `unusable` base (`conform.SettleMemoRoute.unusable`), the route it returns for the parent to commit through. With `digest` it hashes the part's bytes in order. Where the width is below the walk count and a walk has yet to take a slot, the slot it is about to leave goes to that walk, so it writes the part at once under its final name with `keep`, which no head lists until the parent commits it on a pass and which the parent removes on a red replay, or discards it without, and then waits for the verdict holding no part; a red replay at such a width can therefore write parts it then removes. Otherwise it leaves the slot and holds the part until the parent's verdict: on a pass with the parts kept it writes it under its final name, and on a red replay it discards it. Either way it returns only once the verdict is set, so no worker takes a second walk. A memo the absorb could not read, a standing memo that changed after the plan, or a part it could not write, is a warning on the result rather than a failure, as a memo the crate never wrote is."""
     state = _REPLAY_WORKER
     assert state is not None, "a full replay's worker runs under _replay_worker_init"
     name = kernel_exec.replay_memo_dump(out_dir, config)
@@ -1482,7 +1495,11 @@ def _walk_and_absorb(
 
     absorbed: conform.ReplayMemoRows | str | None = None
     finished: conform.FinishedSettleMemo | None = None
-    staged: Path | None = None
+    part: row_delta.Part | None = None
+    wrote = ""
+    entries: int | None = None
+    rows_written = named = 0
+    compare_seconds = 0.0
     with state.gate:
         with state.admitted.get_lock():
             state.admitted.value += 1
@@ -1514,30 +1531,48 @@ def _walk_and_absorb(
         warning = absorbed if isinstance(absorbed, str) else None
         started = time.perf_counter()
         if isinstance(absorbed, conform.ReplayMemoRows):
-            finished = absorbed.finish(memo)
+            compared: conform.ReplayCompare | str | None = None
+            if route.route == conform.SEGMENT_ROUTE:
+                compared = conform.compare_replay(memo, spec, absorbed, route)
+                if compared is None:
+                    route = route.unusable()
+            if isinstance(compared, str):
+                warning, entries = compared, absorbed.rows
+            elif compared is not None:
+                finished = compared.segment
+                wrote = "head" if finished is None else conform.SEGMENT_ROUTE
+                entries, rows_written, named = compared.entries, compared.rows, compared.named
+                compare_seconds = compared.seconds
+            else:
+                finished = absorbed.finish(memo)
+                wrote, entries, rows_written = conform.BASE_ROUTE, finished.rows, finished.rows
         seconds = sum(read_seconds) + time.perf_counter() - started
         del absorbed
         hashed = finished.digest() if digest and finished is not None else None
-        entries = finished.rows if finished is not None else None
         early = state.narrow and state.admitted.value < state.walks
         if early:
-            staged, warning = _stage_finished(finished if keep else None, memo, warning)
+            part, warning = _write_finished(finished if keep else None, memo, route, warning)
             finished = None
     state.decided.wait()
     if not early:
-        staged, warning = _stage_finished(finished if state.kept.value else None, memo, warning)
+        part, warning = _write_finished(finished if state.kept.value else None, memo, route, warning)
         finished = None
     usage = resource.getrusage(resource.RUSAGE_SELF)
     return ReplayAbsorb(
         config,
-        staged,
+        part,
         entries,
         seconds,
         warning,
         peak_rss_self_bytes(),
         peak_footprint_self_bytes(),
         usage.ru_utime + usage.ru_stime,
+        route,
         hashed,
+        wrote,
+        rows_written,
+        named,
+        compare_seconds,
     )
 
 
@@ -1552,11 +1587,13 @@ def replay_and_absorb(
     digest: bool = False,
     spec_path: Path | None = None,
 ) -> FullReplay:
-    """Walk every configuration of `memos` over every text up to `REPLAY_MAX_LENGTH`, each in a crate process of its own, at most `threads` crate processes at once, each beside the spawn worker that absorbs its window memo (`_walk_and_absorb`), and move each settle memo file the workers staged into place once every walk has passed.
+    """Walk every configuration of `memos` over every text up to `REPLAY_MAX_LENGTH`, each in a crate process of its own, at most `threads` crate processes at once, each beside the spawn worker that absorbs its window memo (`_walk_and_absorb`), and commit each configuration's settle memo head once every walk has passed.
 
-    The parent builds the kernel (`kernel_exec.ensure_built`) and dumps the spec once (`kernel_exec._spec_dump`), then starts a spawn pool with one worker a configuration, whose initializer marks the kernel built from the parent's word, keeps the spec dump's path and starts the thread that stops the worker, wherever it waits, once the parent has gone (`_replay_worker_init`, `_stop_when_orphaned`). The width gates the walks through a semaphore and not the workers: a worker holds its slot from its walk's start until its file is finished, then leaves it and holds the file until the verdict, so a worker waiting with its file never holds a slot another walk needs and a width of one cannot deadlock. Where the width is below the configuration count, a worker whose file is finished while a walk has yet to take a slot stages it at once, or discards it without `keep`, before it leaves its slot, and then waits for the verdict holding no file: so the walks running and the files held never outnumber the width. No worker returns before the verdict, so each runs one walk. Each worker reports its walk on a queue as soon as its crate has exited; a worker that ends without reporting counts as a failed walk. Once every walk has reported, the replay passes if every walk passed. The parent then sets the verdict: on a pass with `keep` each worker still holding its file stages it (`conform.FinishedSettleMemo.stage`) and the parent moves every staged file over its configuration's file with `os.replace`, and otherwise every worker still holding its file discards it, so a red replay at a width of the configuration count writes no settle memo byte, and one at a narrower width removes the files its workers staged early. With `digest` each worker hashes its finished file before the verdict, which the memory series reads with `keep` off. Every message between the parent and a worker is counts, lines and peaks, never rows or the file. Every FIFO and every staged file is removed however this ends (`clear_replay_leftovers` removes what a killed run left, before a replay starts). `cache_stats` passes `--cache-stats` to each crate. `spec_path` names a dump of `spec` the caller already wrote, in place of this process's own (`kernel_exec._spec_dump`).
+    Before the pool starts, the parent plans each configuration's settle memo route (`conform.plan_settle_memos`, printed as `[t] settle_memo_plan`): a base for a configuration with no memo, one that does not read or whose fold this pass holds, and otherwise the segment route over its head, or over its single file from before the segment format, adopted by hard link as generation 0's base. It builds the kernel (`kernel_exec.ensure_built`) and dumps the spec once (`kernel_exec._spec_dump`), then starts a spawn pool with one worker a configuration, whose initializer marks the kernel built from the parent's word, keeps the spec dump's path and starts the thread that stops the worker, wherever it waits, once the parent has gone (`_replay_worker_init`, `_stop_when_orphaned`). Each worker gets its route, never rows. The width gates the walks through a semaphore and not the workers: a worker holds its slot from its walk's start until its part is laid out, then leaves it and holds the part until the verdict, so a worker waiting with its part never holds a slot another walk needs and a width of one cannot deadlock. Where the width is below the configuration count, a worker whose part is laid out while a walk has yet to take a slot writes it at once under its final name, which no head lists, or discards it without `keep`, before it leaves its slot, and then waits for the verdict holding no part: so the walks running and the parts held never outnumber the width. No worker returns before the verdict, so each runs one walk. Each worker reports its walk on a queue as soon as its crate has exited; a worker that ends without reporting counts as a failed walk. Once every walk has reported, the replay passes if every walk passed. The parent then sets the verdict: on a pass with `keep` each worker still holding its part writes it, and the parent commits each configuration's head over it, or alone where the refill settled every window as the memo held it, with every part recorded under the current stamp and family keys, through the route the worker returns (`conform.SettleMemoRoute.commit`), one writer a configuration; otherwise every worker still holding its part discards it, and the parent removes every part a worker wrote early and every adoption's link, so a red replay commits no head and leaves no part. With `digest` each worker hashes its part before the verdict, which the memory series reads with `keep` off. Every message between the parent and a worker is counts, lines, peaks, a route and a part's name, size and sha256, never rows or the part. Every FIFO is removed however this ends (`clear_replay_leftovers` removes what a killed run left, before a replay starts). `cache_stats` passes `--cache-stats` to each crate. `spec_path` names a dump of `spec` the caller already wrote, in place of this process's own (`kernel_exec._spec_dump`).
     """
     configs = list(memos)
+    plan = conform.plan_settle_memos(memos)
+    plan.report()
     kernel_exec.ensure_built()
     spec_path = kernel_exec._spec_dump(spec) if spec_path is None else spec_path
     symbols = len(conform.spec_alphabet(spec))
@@ -1568,6 +1605,7 @@ def replay_and_absorb(
     admitted = context.Value("i", 0)
     walks: dict[str, ReplayWalkReport] = {}
     absorbs: dict[str, ReplayAbsorb] = {}
+    committed: set[str] = set()
     passed = False
     try:
         with _spawn_pool(
@@ -1595,6 +1633,7 @@ def replay_and_absorb(
                         memos[config],
                         spec,
                         symbols,
+                        plan.routes[config],
                         cache_stats,
                         digest,
                         keep,
@@ -1631,29 +1670,30 @@ def replay_and_absorb(
                     )
         for config in configs:
             absorb = absorbs.get(config)
-            if not (passed and keep) or absorb is None or absorb.staged is None:
+            if not (passed and keep) or absorb is None or absorb.warning is not None or not absorb.wrote:
                 continue
             try:
-                os.replace(absorb.staged, memos[config].path)
+                head = absorb.route.commit(memos[config], absorb.part, restamp=True)
             except OSError as error:
                 absorbs[config] = replace(
                     absorb,
-                    staged=None,
                     warning=f"settle memo: {memos[config].path} not written ({error}); the readers settle instead",
                 )
+                continue
+            committed.add(config)
+            absorbs[config] = replace(absorb, segments=len(head.segments))
     finally:
         for config in configs:
             kernel_exec.replay_memo_dump(out_dir, config).unlink(missing_ok=True)
-            walk = walks.get(config)
-            if walk is not None and walk.worker:
-                memos[config].path.with_name(f"{memos[config].path.name}.{walk.worker}.tmp").unlink(
-                    missing_ok=True
-                )
+            absorb = absorbs.get(config)
+            if config not in committed and absorb is not None and absorb.part is not None:
+                (memos[config].path.parent / absorb.part.name).unlink(missing_ok=True)
+        plan.discard(committed)
     return FullReplay({config: walks[config] for config in configs}, absorbs, passed)
 
 
 def report_replay(replayed: FullReplay, memos: Mapping[str, conform.SettleMemoFile], threads: int) -> None:
-    """Print what a full replay did and record its pools: each walk's crate lines, the `[t]` ones tagged with its configuration where a label carries none, in the memos' order, then, on a passing replay, each absorb's `[t] settle_memo_emit <config>` line or its warning in the same order. Then one `replay-walk` record with each passing walk's own crate resident peak as one observation, and one `REPLAY_ABSORB_POOL_UNIT` record with the peak footprint of each absorb worker that read its memo whole, whatever the verdict, since the verdict moves no absorb's peak."""
+    """Print what a full replay did and record its pools: each walk's crate lines, the `[t]` ones tagged with its configuration where a label carries none, in the memos' order, then, on a passing replay, each absorb's `[t] settle_memo_emit <config>` line or its warning in the same order. The line keeps `entries=`, the windows the refill holds, and says what the absorb wrote (`wrote=head|segment|base`), a base's `reason=`, `adopted=true` and `overrun=true` where they hold, the rows its part holds (`rows_written=`), the standing rows its dead bitmaps name (`named=`), its part's bytes (`part_bytes=`), the segments the committed head lists and, on the segment route, the compare's seconds (`compare_seconds=`). Then one `replay-walk` record with each passing walk's own crate resident peak as one observation, and one `REPLAY_ABSORB_POOL_UNIT` record with the peak footprint of each absorb worker that read its memo whole, whatever the verdict, since the verdict moves no absorb's peak."""
     for config, walk in replayed.walks.items():
         kernel_exec._write_lines(
             [kernel_exec._tagged(line, config) if line.startswith("[t] ") else line for line in walk.lines]
@@ -1665,7 +1705,23 @@ def report_replay(replayed: FullReplay, memos: Mapping[str, conform.SettleMemoFi
         if absorb.warning is not None:
             console.warn(absorb.warning)
         elif absorb.entries is not None:
-            console.timing(f"settle_memo_emit {config}", absorb.seconds, f"entries={absorb.entries}")
+            route = absorb.route
+            tokens = [f"entries={absorb.entries}", f"wrote={absorb.wrote}"]
+            if route.route == conform.BASE_ROUTE:
+                tokens.append(f"reason={route.reason}")
+            if route.adopted:
+                tokens.append("adopted=true")
+            if route.forced:
+                tokens.append("overrun=true")
+            tokens += [
+                f"rows_written={absorb.rows_written}",
+                f"named={absorb.named}",
+                f"part_bytes={0 if absorb.part is None else absorb.part.size}",
+                f"segments={absorb.segments}",
+            ]
+            if route.route == conform.SEGMENT_ROUTE:
+                tokens.append(f"compare_seconds={absorb.compare_seconds:.2f}")
+            console.timing(f"settle_memo_emit {config}", absorb.seconds, " ".join(tokens))
     width = min(threads, len(memos))
     walked = {
         config: walk.peaks.resident
@@ -1729,7 +1785,7 @@ def _witness_inputs(
     out_dir: Path,
     memo_inputs: oracle_cache.SettleMemoInputs | None,
 ) -> tuple[_WitnessShared, dict[str, DecisionTable], dict[str, conform.SettleMemoFile]]:
-    """The witness stage's inputs, each computed once in the calling process: what every configuration's step shares (`_WitnessShared`, with the guard verdicts from `kernel_exec.guard_sweep`, one sweep per spec per process, which in run_m1's process the oracle's setup reads too), each configuration's decision table without its join table, in `tables` order, and each configuration's settle memo file in its read-only form (`conform.settle_memo_files`, `conform.SettleMemoFile.read_only`), none when `memo_inputs` is None."""
+    """The witness stage's inputs, each computed once in the calling process: what every configuration's step shares (`_WitnessShared`, with the guard verdicts from `kernel_exec.guard_sweep`, one sweep per spec per process, which in run_m1's process the oracle's setup reads too), each configuration's decision table without its join table, in `tables` order, and each configuration's settle memo in its read-only form (`conform.settle_memo_files`, `conform.SettleMemoFile.read_only`), none when `memo_inputs` is None."""
     decisions = {
         config: entry[0] if isinstance(entry, (tuple, list)) else entry for config, entry in tables.items()
     }

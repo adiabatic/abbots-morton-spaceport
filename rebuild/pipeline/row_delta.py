@@ -1,4 +1,4 @@
-"""The segment format: an output held as a base and segments under a head, so a pass writes the rows it changes instead of the whole file. The review corpus's unit store (`rebuild/review/unit_cache.py`) and each settlement configuration's windows rows (`windows-<config>.tsv.gz`, `run_m1.build_tables`, read through `table.read_windows_head` and `table.materialized_windows`) take it, and #618's changes 30 to 32 take it for the table side's other outputs.
+"""The segment format: an output held as a base and segments under a head, so a pass writes the rows it changes instead of the whole file. The review corpus's unit store (`rebuild/review/unit_cache.py`), each settlement configuration's windows rows (`windows-<config>.tsv.gz`, `run_m1.build_tables`, read through `table.read_windows_head` and `table.materialized_windows`) and each settlement configuration's settle memo (`settle-memo-<config>.bin`, `conform.SettleMemoFile`) take it, and #618's changes 31 and 32 take it for the table side's other outputs.
 
 For an output named `<name>`, its file name (`unit-cache.ndjson.gz`), the directory holds three kinds of file, each written through `output_sink.replace_output`:
 
@@ -6,7 +6,7 @@ For an output named `<name>`, its file name (`unit-cache.ndjson.gz`), the direct
 - The base, `<name>.<gen>.base`: the output's own file byte for byte, its inline header and stamps included. The head's stamps override the inline ones, so a pass that moves a stamp and changes no row writes the head alone.
 - Segments, `<name>.<gen>.<n>.delta`, numbered from 1 within their generation, at most one a writer step. A segment is gzipped lines: a header naming the format, the output, the generation, the segment's number and, for an output that merges by key, `"merge": "key"` (`segment_header`), then rows, each an upsert or a tombstone of one row in the base's own row encoding. A row in a later part supersedes every earlier part's row at its place or key: an upsert replaces it, and a tombstone removes it.
 
-An output merges its parts one of two ways, which its head names (`Head.merge`) and every segment header repeats, so a reader refuses a segment written for the other (`HeadError`).
+An output merges its parts one of three ways, which its head names (`Head.merge`) and every segment header repeats, so a reader refuses a segment written for another (`HeadError`).
 
 By place, the unit store's, since its base need not be in key order (it is in triage order). A writer names every row it supersedes by its place: a row whose content changed is an upsert at its own place, a row removed is a tombstone at its place, and a row that moves is a tombstone at its old place and an upsert at its new one (`write_segment`). Every row has a place (`Place`): base row `i` is `(i, "")`, and a segment row names the base row it follows and a fraction after it, `(i, f)` with `f` above `""`, or `(-1, f)` before the first. `places_between` cuts as many places as a run of rows needs between two others, and a segment's rows are sorted by place. A place indexes its generation's base, so a segment is a positional encoding: its header names its generation and number, and a reader refuses a segment whose generation is not the head's or whose number is not its place in the head's list (`HeadError`), so a reader that pairs an old head with a refolded base fails loudly instead of misplacing rows.
 
@@ -14,9 +14,11 @@ Readers (`merge_placed`) merge the base and the segments as streams by place, an
 
 By key (`MERGE_KEY`), the windows rows', whose base is in key order with one row a key, as the crate writes it. A segment's rows are in key order too: `+\t<row>` upserts a row at its key and `-\t<key>` removes the row at a key, where a key is a row's leading fields, as the output defines them. The crate's `build-tables` merges a configuration's rows against its previous parts and writes only the rows that differ, and its `replay-emitted` walks the merged rows (`rebuild/kernel-rs/src/row_merge.rs`); here `merge_keyed` merges them for a materialized form. At each key the row of the latest part that has one there is live, unless it is a tombstone, and a part whose keys do not strictly ascend is refused. A reader opens every part the head lists when it reads the head (`open_parts`), so a later writer's deletes cannot reach it, since an open descriptor survives the unlink. `open_parts` checks each part's size against the head, as a reader that seeks needs, and with `sha256=True` its digest too, as the writer that merges a part and `perf_fingerprint` do, since they read every byte anyway.
 
+By probe (`MERGE_PROBE`), the settle memos', whose parts are binary files a reader maps rather than gzipped lines, so they go through neither stream merge nor `write_part` (`write_plain_part` writes them). Each part carries its own probe index, and a segment its blocked Bloom filter (`bloom_filter`, 10 bits a key in 64-byte blocks, keyed on the 64-bit hash every part's index already uses, so one hash serves every part) and its dead bitmaps, a bit a row of each earlier part it drops rows of, each naming that part's generation and number, which a reader refuses when the generation is not the head's. A reader probes the segments newest first, filter and then index, then the base, and the newest live row at a window wins. The head records, for the base and every segment, the stamp and the family keys its rows were settled under (`Part.settled`, a `PartStamp`), holding each distinct keys map once in its `family_keys` with each part naming it by place, so a reader marks a part's rows stale against that part's own keys; a head whose parts record nothing writes neither field, so the unit store's and the windows rows' heads read as they did before. `conform`'s module docstring and `conform._MemoStore` state the rest of the layout and the reader.
+
 The materialized form of an output is its head, base and segments merged and re-serialized into the base's layout under the head's stamps: what a writer of the whole file would have written at this content. A fold writes it as the next generation's base, and the acceptance bar's fingerprint reads it (#618's decision 48).
 
-Two rules decide when a writer writes a new base instead of a segment. The share rule (`writes_base`): a segment that would pass half its base's row bytes, or a pass whose stamps say every row is re-derived, as an output names them (the unit store names a structure-stamp move and a letter batch), writes a new base directly. The fold (`fold_due`): when a head's segments' row bytes reach the base's or their count reaches the output's cap (`SEGMENT_CAP`), the next writer writes the materialized form as the next generation's base. Either way no segment follows the new base in that pass. The windows rows take the fold alone and neither half of the share rule (#618's decisions 74 and 75): a table build re-derives every row cold, so it writes a segment of the rows that differ on every pass, a letter batch and a structure-stamp move included, whatever its size, and its route is decided from the head before the crate starts, never from a count of what the crate writes.
+Two rules decide when a writer writes a new base instead of a segment. The share rule (`writes_base`): a segment that would pass half its base's row bytes, or a pass whose stamps say every row is re-derived, as an output names them (the unit store names a structure-stamp move and a letter batch), writes a new base directly. The fold (`fold_due`): when a head's segments' row bytes reach the base's or their count reaches the output's cap (`SEGMENT_CAP`), the next writer writes the materialized form as the next generation's base. Either way no segment follows the new base in that pass. The windows rows and the settle memos take the fold alone and neither half of the share rule (#618's decisions 74 and 75): a table build re-derives every row cold, and a full replay refills every settle memo row, so each writes a segment of the rows that differ on every pass, a letter batch, a structure-stamp move and a crate edit included, whatever its size, and each output's route is decided from its head before any writer of the pass starts, never from a count of what the writer writes. A settle memo's segment is one an absorb, so a pass that runs both the oracle's absorb and gate:conform's writes two.
 
 At most one output folds a pass (`claim_fold`), so the largest fold a pass writes is one base. The pass is the artifact cycle's run (`CYCLE_RUN_ENV`, which every process of a pass inherits), whose claim is one small file in the cycle's directory (`cycle_paths.CYCLE_VAR`, `cycle_paths.FOLD_CLAIM_NAME`) holding the run and the output that holds it, or, outside a cycle, the process, which holds its claim in memory, one for each cycle directory it names, so a test's own directory starts with none. An output whose fold is due and that does not hold the claim writes a segment and waits for a later pass, up to `FOLD_OVERRUN` segments past its cap (`fold_forced`), where it folds whether or not another output folded that pass.
 
@@ -29,12 +31,17 @@ import gzip
 import hashlib
 import heapq
 import json
+import operator
 import os
 import re
-from collections.abc import Callable, Iterable, Iterator, Sequence
+import sys
+from array import array
+from collections import deque
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from itertools import repeat
 from pathlib import Path
-from typing import BinaryIO, Protocol
+from typing import BinaryIO, Protocol, cast
 
 from rebuild.pipeline import output_sink
 from rebuild.tools import cycle_paths
@@ -43,7 +50,9 @@ HEAD_FORMAT = "ams-row-delta-head/1"
 SEGMENT_FORMAT = "ams-row-delta-segment/1"
 MERGE_PLACE = "place"
 MERGE_KEY = "key"
-# The segment cap for every output in this format but the audit, which takes 32 (#618's decision 53), the unit store and the windows rows among them: a reader holds one stream a segment, and at 16 the folds add 0.160 to 0.399 GB to a rune edit at 45 runes, where caps of 8 would add 0.270 to 0.433.
+MERGE_PROBE = "probe"
+_MERGES = (MERGE_PLACE, MERGE_KEY, MERGE_PROBE)
+# The segment cap for every output in this format but the audit, which takes 32 (#618's decision 53), the unit store, the windows rows and the settle memos among them, the settle memos' counted one an absorb: a reader holds one stream or one mapping a segment, and at 16 the folds add 0.160 to 0.399 GB to a rune edit at 45 runes, where caps of 8 would add 0.270 to 0.433.
 SEGMENT_CAP = 16
 # How many segments past its cap an output whose fold is due waits for the pass's one fold before it folds anyway (#618's decision 53): six outputs reaching the cap on one pass fold on six successive passes, the last at its cap plus five.
 FOLD_OVERRUN = 5
@@ -53,6 +62,15 @@ UPSERT = b"+"
 TOMBSTONE = b"-"
 _DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
 _CHUNK = 1 << 20
+BLOOM_BITS_PER_KEY = 10
+BLOOM_BLOCK_BITS = 512
+BLOOM_PROBES = 7
+_BLOOM_FIELD = 9
+_BLOOM_REMIX = 0xC2B2AE3D27D4EB4F
+_WORD = (1 << 64) - 1
+_BITS_OF_BYTE = tuple(bytes((value >> bit) & 1 for bit in range(8)) for value in range(256))
+_GATHER = 0x0102040810204080
+_BIT_OF = bytes(1 << bit for bit in range(8))
 
 Place = tuple[int, str]
 
@@ -68,35 +86,54 @@ class HeadError(ValueError):
 
 
 @dataclass(frozen=True)
+class PartStamp:
+    """The stamp and the family keys one part's rows were settled under, for an output whose parts each record their own (the settle memos): `stamp`, and `keys`, the place in the head's `family_keys` of the keys map."""
+
+    stamp: str
+    keys: int
+
+
+@dataclass(frozen=True)
 class Part:
-    """One part as the head lists it: its file name, size and sha256, and its rows and their uncompressed bytes, which the share rule and the fold compare."""
+    """One part as the head lists it: its file name, size and sha256, its rows and their bytes (uncompressed lines, or a mapped part's key and value columns), which the share rule and the fold compare, and, for an output whose parts each record what they were settled under, `settled`, written into the head only when present."""
 
     name: str
     size: int
     sha256: str
     rows: int
     rows_bytes: int
+    settled: PartStamp | None = None
 
     def document(self) -> dict:
-        return {
+        document: dict = {
             "name": self.name,
             "size": self.size,
             "sha256": self.sha256,
             "rows": self.rows,
             "rows_bytes": self.rows_bytes,
         }
+        if self.settled is not None:
+            document["stamp"] = self.settled.stamp
+            document["family_keys"] = self.settled.keys
+        return document
 
     @classmethod
     def parse(cls, document: object) -> Part:
         if not isinstance(document, dict):
             raise HeadError(f"a head lists a part as {document!r}")
         try:
+            settled = None
+            if "stamp" in document or "family_keys" in document:
+                if not isinstance(document["stamp"], str) or type(document["family_keys"]) is not int:
+                    raise ValueError("a part's stamp is not a string or its family keys not a place")
+                settled = PartStamp(document["stamp"], document["family_keys"])
             return cls(
                 str(document["name"]),
                 int(document["size"]),
                 str(document["sha256"]),
                 int(document["rows"]),
                 int(document["rows_bytes"]),
+                settled,
             )
         except (KeyError, TypeError, ValueError) as error:
             raise HeadError(f"a head lists a part it does not describe: {error!r}") from None
@@ -104,7 +141,7 @@ class Part:
 
 @dataclass(frozen=True)
 class Head:
-    """One output's head: see the module docstring. `merge` is how its parts merge, `MERGE_PLACE` or `MERGE_KEY`, written into the head only for an output that merges by key, so a head by place reads as it did before outputs merged by key."""
+    """One output's head: see the module docstring. `merge` is how its parts merge, `MERGE_PLACE`, `MERGE_KEY` or `MERGE_PROBE`, written into the head only for an output that does not merge by place, so a head by place reads as it did before outputs merged another way. `family_keys` holds each distinct family keys map its parts record (`Part.settled`) once, written only when a part records one."""
 
     output: str
     generation: int
@@ -113,6 +150,7 @@ class Head:
     base: Part
     segments: tuple[Part, ...] = ()
     merge: str = MERGE_PLACE
+    family_keys: tuple[dict, ...] = ()
 
     @property
     def parts(self) -> tuple[Part, ...]:
@@ -126,6 +164,10 @@ class Head:
     def identity(self) -> str:
         return f"{self.output}@{self.content}"
 
+    def part_keys(self, part: Part) -> dict | None:
+        """The family keys `part` records it was settled under, or None for a part that records none."""
+        return None if part.settled is None else self.family_keys[part.settled.keys]
+
     def document(self) -> dict:
         document = {
             "format": HEAD_FORMAT,
@@ -138,7 +180,26 @@ class Head:
         }
         if self.merge != MERGE_PLACE:
             document["merge"] = self.merge
+        if self.family_keys:
+            document["family_keys"] = [dict(keys) for keys in self.family_keys]
         return document
+
+
+def settled_parts(head: Head, settled: Sequence[tuple[str, Mapping[str, str]]]) -> Head:
+    """`head` with each of its parts, base first, recorded under the stamp and family keys at its place in `settled`, and each distinct keys map held once in `family_keys`, in the order the parts first name it."""
+    parts = head.parts
+    if len(settled) != len(parts):
+        raise ValueError(f"{len(settled)} stamps for {len(parts)} parts")
+    tables: list[dict] = []
+    places: dict[str, int] = {}
+    stamped: list[Part] = []
+    for part, (stamp, keys) in zip(parts, settled):
+        canonical = json.dumps(dict(keys), sort_keys=True)
+        place = places.setdefault(canonical, len(tables))
+        if place == len(tables):
+            tables.append(dict(keys))
+        stamped.append(replace(part, settled=PartStamp(stamp, place)))
+    return replace(head, base=stamped[0], segments=tuple(stamped[1:]), family_keys=tuple(tables))
 
 
 def head_name(output: str) -> str:
@@ -164,25 +225,38 @@ def read_head(directory: Path, output: str) -> Head | None:
         raw = path.read_bytes()
     except FileNotFoundError:
         return None
+    return parse_head(raw, output)
+
+
+def parse_head(raw: bytes, output: str) -> Head:
+    """Parse `raw`, the bytes of `output`'s head file, as `read_head` does, for a reader that opened the file itself. A head that does not parse, or names another output or format, raises `HeadError`."""
+    name = head_name(output)
     try:
         document = json.loads(raw)
     except ValueError as error:
-        raise HeadError(f"{path.name} does not parse: {error}") from None
+        raise HeadError(f"{name} does not parse: {error}") from None
     if not isinstance(document, dict) or document.get("format") != HEAD_FORMAT:
-        raise HeadError(f"{path.name} is not an {HEAD_FORMAT} head")
+        raise HeadError(f"{name} is not an {HEAD_FORMAT} head")
     if document.get("output") != output:
-        raise HeadError(f"{path.name} names the output {document.get('output')!r}")
+        raise HeadError(f"{name} names the output {document.get('output')!r}")
     stamps = document.get("stamps")
     segments = document.get("segments")
     if not isinstance(stamps, dict) or not isinstance(segments, list):
-        raise HeadError(f"{path.name} holds no stamps or no segment list")
+        raise HeadError(f"{name} holds no stamps or no segment list")
     try:
         generation, content = int(document["generation"]), int(document["content"])
     except KeyError, TypeError, ValueError:
-        raise HeadError(f"{path.name} names no generation") from None
+        raise HeadError(f"{name} names no generation") from None
     merge = document.get("merge", MERGE_PLACE)
-    if merge not in (MERGE_PLACE, MERGE_KEY):
-        raise HeadError(f"{path.name} merges its parts by {merge!r}")
+    if merge not in _MERGES:
+        raise HeadError(f"{name} merges its parts by {merge!r}")
+    family_keys = document.get("family_keys", [])
+    if not isinstance(family_keys, list) or not all(
+        isinstance(keys, dict)
+        and all(isinstance(key, str) and isinstance(value, str) for key, value in keys.items())
+        for keys in family_keys
+    ):
+        raise HeadError(f"{name} holds family keys that are not maps of names to keys")
     head = Head(
         output,
         generation,
@@ -191,12 +265,16 @@ def read_head(directory: Path, output: str) -> Head | None:
         Part.parse(document.get("base")),
         tuple(Part.parse(part) for part in segments),
         merge,
+        tuple(family_keys),
     )
     if head.base.name != base_name(output, generation):
-        raise HeadError(f"{path.name} lists {head.base.name} as generation {generation}'s base")
+        raise HeadError(f"{name} lists {head.base.name} as generation {generation}'s base")
     for number, part in enumerate(head.segments, start=1):
         if part.name != segment_name(output, generation, number):
-            raise HeadError(f"{path.name} lists {part.name} as segment {number} of generation {generation}")
+            raise HeadError(f"{name} lists {part.name} as segment {number} of generation {generation}")
+    for part in head.parts:
+        if part.settled is not None and not 0 <= part.settled.keys < len(head.family_keys):
+            raise HeadError(f"{name} records {part.name} under family keys it does not hold")
     return head
 
 
@@ -257,14 +335,32 @@ class _Counting:
     def write(self, data) -> int:
         self._handle.write(data)
         self._digest.update(data)
-        self.size += len(data)
-        return len(data)
+        size = memoryview(data).nbytes
+        self.size += size
+        return size
 
     def flush(self) -> None:
         self._handle.flush()
 
     def hexdigest(self) -> str:
         return self._digest.hexdigest()
+
+
+def write_plain_part(
+    directory: Path, name: str, pieces: Iterable[bytes | memoryview], rows: int, rows_bytes: int
+) -> Part:
+    """Write one part that is not gzipped lines, `name` under `directory`, from `pieces` in order, through `output_sink.replace_output`, and return its `Part` with `rows` and `rows_bytes`: a settle memo's base or segment, which readers map."""
+    written: dict[str, Part] = {}
+
+    def staged(staging: Path) -> None:
+        with open(staging, "wb") as raw:
+            counting = _Counting(raw)
+            for piece in pieces:
+                counting.write(piece)
+        written["part"] = Part(name, counting.size, counting.hexdigest(), rows, rows_bytes)
+
+    output_sink.replace_output(Path(directory) / name, writer=staged)
+    return written["part"]
 
 
 def write_part(
@@ -369,8 +465,109 @@ def write_segment(directory: Path, output: str, generation: int, number: int, ro
     return write_part(directory, name, fill)
 
 
+def bloom_blocks(keys: int) -> int:
+    """The blocks a Bloom filter over `keys` keys takes at `BLOOM_BITS_PER_KEY` bits a key, `BLOOM_BLOCK_BITS` bits a block: none for no key."""
+    return -(-keys * BLOOM_BITS_PER_KEY // BLOOM_BLOCK_BITS)
+
+
+def bloom_block(hashed: int, blocks: int) -> int:
+    """The block a 64-bit hash falls in, from its top 32 bits scaled onto `blocks`."""
+    return ((hashed >> 32) * blocks) >> 32
+
+
+def bloom_mask(hashed: int) -> int:
+    """The `BLOOM_PROBES` bits a 64-bit hash sets within its block, as an integer of `BLOOM_BLOCK_BITS` bits: nine-bit fields of the hash multiplied by an odd constant, so the bits do not follow the top bits that chose the block. One mask serves every filter a reader tests the hash against."""
+    mixed = (hashed * _BLOOM_REMIX) & _WORD
+    mask = 0
+    for probe in range(BLOOM_PROBES):
+        mask |= 1 << ((mixed >> (_BLOOM_FIELD * probe)) & (BLOOM_BLOCK_BITS - 1))
+    return mask
+
+
+def bloom_contains(filter_bytes: Sequence[int] | memoryview, blocks: int, hashed: int, mask: int) -> bool:
+    """Whether the blocked Bloom filter `filter_bytes`, `blocks` blocks long, may hold the key whose 64-bit hash is `hashed` and whose `bloom_mask` is `mask`: False means it holds no such key."""
+    if not blocks:
+        return False
+    start = bloom_block(hashed, blocks) * (BLOOM_BLOCK_BITS // 8)
+    block = int.from_bytes(cast(memoryview, filter_bytes)[start : start + BLOOM_BLOCK_BITS // 8], "little")
+    return block & mask == mask
+
+
+def bloom_filter(chunks: Iterable[Sequence[int]], blocks: int) -> bytes:
+    """The blocked Bloom filter of `blocks` blocks over the keys whose 64-bit hashes `chunks` yields a chunk at a time: each key sets the bits of its `bloom_mask` in its `bloom_block`, a block being `BLOOM_BLOCK_BITS` bits, little-endian, so `bloom_contains` reads one block as one integer. It sets the bits in the packed filter itself, each probe of a chunk as a read, an OR and a write a key through C-level maps, which apply one key after another, so two keys setting bits of one byte both land; it holds the filter, `BLOOM_BITS_PER_KEY` bits a key, and one chunk's block starts, mixed hashes and positions, and runs no Python-level loop over the keys."""
+    if not blocks:
+        return b""
+    bits = bytearray(blocks * (BLOOM_BLOCK_BITS // 8))
+    for hashes in chunks:
+        starts = array(
+            "Q",
+            map(
+                operator.mul,
+                map(
+                    operator.rshift,
+                    map(operator.mul, map(operator.rshift, hashes, repeat(32)), repeat(blocks)),
+                    repeat(32),
+                ),
+                repeat(BLOOM_BLOCK_BITS),
+            ),
+        )
+        mixed = array("Q", map(_WORD.__and__, map(operator.mul, hashes, repeat(_BLOOM_REMIX))))
+        for probe in range(BLOOM_PROBES):
+            positions = array(
+                "Q",
+                map(
+                    operator.add,
+                    starts,
+                    map(
+                        operator.and_,
+                        map(operator.rshift, mixed, repeat(_BLOOM_FIELD * probe)),
+                        repeat(BLOOM_BLOCK_BITS - 1),
+                    ),
+                ),
+            )
+            at = array("Q", map(operator.rshift, positions, repeat(3)))
+            deque(
+                map(
+                    bits.__setitem__,
+                    at,
+                    map(
+                        operator.or_,
+                        map(bits.__getitem__, at),
+                        map(_BIT_OF.__getitem__, map(operator.and_, positions, repeat(7))),
+                    ),
+                ),
+                maxlen=0,
+            )
+    return bytes(bits)
+
+
+def packed_flags(flags: bytes | bytearray | memoryview) -> bytes:
+    """A byte a row, each zero or one, packed into a bitmap a bit a row, little-endian a byte: row `r` is bit `r % 8` of byte `r // 8`. `bitmap_flags` unpacks it. It gathers eight flags to a byte with one multiply, through C-level maps, `_CHUNK` flags at a time, so it holds one chunk's words beside the bitmap."""
+    view = memoryview(flags).cast("B")
+    packed = bytearray()
+    for start in range(0, len(view), _CHUNK):
+        piece = view[start : start + _CHUNK]
+        words = array("Q")
+        words.frombytes(piece if len(piece) % 8 == 0 else bytes(piece) + bytes(-len(piece) % 8))
+        if sys.byteorder == "big":
+            words.byteswap()
+        packed += bytes(
+            map(
+                operator.and_,
+                map(operator.rshift, map(operator.mul, words, repeat(_GATHER)), repeat(56)),
+                repeat(0xFF),
+            )
+        )
+    return bytes(packed[: (len(view) + 7) // 8])
+
+
+def bitmap_flags(bitmap: bytes | memoryview, rows: int) -> bytes:
+    """A dead bitmap unpacked to a byte a row, one where its bit is set, for `rows` rows."""
+    return b"".join(map(_BITS_OF_BYTE.__getitem__, bitmap))[:rows]
+
+
 def segment_rows(handle: BinaryIO, output: str, generation: int, number: int) -> Iterator[Row]:
-    """Yield one segment's rows from an open handle, from its start, after checking its header names `output`, `generation` and `number` and a merge by place. A header that names another raises `HeadError`."""
+    """Yield one segment's rows from an open handle, from its start, after checking its header names `output`, `generation` and `number` and a merge by place. A header that names another, a merge by key or by probe among them, raises `HeadError`."""
     handle.seek(0)
     with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
         check_segment_header(stream.readline(), output, generation, number, MERGE_PLACE)
@@ -381,7 +578,7 @@ def segment_rows(handle: BinaryIO, output: str, generation: int, number: int) ->
 def keyed_segment_rows(
     handle: BinaryIO, output: str, generation: int, number: int
 ) -> Iterator[tuple[bytes, bytes]]:
-    """Yield one segment's rows of a merge by key from an open handle, from its start, each as its operation and its payload with its newline (a row for an upsert, a key for a tombstone), after checking its header names `output`, `generation`, `number` and a merge by key. A header that names another raises `HeadError`."""
+    """Yield one segment's rows of a merge by key from an open handle, from its start, each as its operation and its payload with its newline (a row for an upsert, a key for a tombstone), after checking its header names `output`, `generation`, `number` and a merge by key. A header that names another, a merge by place or by probe among them, raises `HeadError`."""
     handle.seek(0)
     with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
         check_segment_header(stream.readline(), output, generation, number, MERGE_KEY)

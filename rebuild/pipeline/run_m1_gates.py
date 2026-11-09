@@ -17,8 +17,8 @@ import threading
 import time
 import zlib
 from collections import deque
-from concurrent.futures import FIRST_COMPLETED, Executor, Future, wait
-from contextlib import contextmanager, suppress
+from concurrent.futures import FIRST_COMPLETED, Executor, Future, ThreadPoolExecutor, wait
+from contextlib import closing, contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Iterator, Mapping, NoReturn, Sequence, cast
@@ -75,7 +75,7 @@ def run_font_conformance(
 
     Above `jobs` 1 the sweep runs in units (`_pooled_conformance`): the ss10 overlay whole and each settlement configuration once per symbol of the alphabet (`sweep_units`), one spawn process each. The serial path sweeps each configuration whole inside `conform.run_conformance`, and both write the same summary. The pooled path computes the `doc/rebuild-design.md` §5.7 formation-guard verdicts (`kernel_exec.guard_sweep`) once for the whole run and passes them with each submission. A spawned worker inherits nothing, so each would otherwise build the crate and sweep the spec itself.
 
-    At the per-edit maximum length, each settlement configuration's walks share its settle memo with the string replay that fills it and with the oracle's walk over the same texts, through a file under `out_dir` keyed per family as the oracle row cache is (`conform.settle_memo_files`, from `run_m1.settle_memo_inputs` taken before the spec loads). The replay writes what it settled, each later phase loads it and writes back what it added, and a rune edit invalidates only the entries whose windows name an edited family. This sweep also prunes the rows no text reaches: the serial path in its walk's save, the pooled path in the parent over the units' reaches (`_pooled_conformance`). A deeper sweep shares nothing: its memo is a multiple of the conformance sweep's, and a file that size would cost the next conformance-sweep and oracle workers more to decode than they save.
+    At the per-edit maximum length, each settlement configuration's walks share its settle memo with the string replay that fills it and with the oracle's walk over the same texts, through a memo under `out_dir` keyed per family as the oracle row cache is (`conform.settle_memo_files`, from `run_m1.settle_memo_inputs` taken before the spec loads), a base and segments under a head. The replay fills it, each later phase loads it and writes a segment of what it added, and a rune edit invalidates only the entries whose windows name an edited family. This sweep also prunes the rows no text reaches, naming them in its segment's dead bitmaps: the serial path in its walk's save, the pooled path in the parent over the units' reaches (`_pooled_conformance`). A deeper sweep shares nothing: its memo is a multiple of the conformance sweep's, and a file that size would cost the next conformance-sweep and oracle workers more to decode than they save.
 
     A pooled conformance sweep at `conform.SWEEP_MAX_LENGTH` writes one `conform-sweep` pool record (`cycle_timings.record_pool`), which `make job-costs` reports: one observation per configuration, its units' highest peak footprint (`_conformance_unit`), and one per settle-memo absorb that ran, labeled `<config> absorb`. The serial path starts no pool, and a hand sweep past `conform.SWEEP_MAX_LENGTH` has a different unit peak, so neither records one.
     """
@@ -358,7 +358,7 @@ def _conformance_unit(
     memo_to: str | None = None,
     spec_path: Path | None = None,
 ) -> tuple[conform.ConformanceConfigResult, int, oracle.Shipped | None]:
-    """Run one unit of the pooled conformance sweep in a pool worker (`conform.conformance_config_worker` with `last`) and return the result, its peak footprint (`peak_rss.peak_footprint_self_bytes`), so the parent can write the `conform-sweep` pool record, and the segment that holds the unit's fresh settle memo windows. The unit ships those windows (`conform.MemoReach.fresh`) into the POSIX shared memory segment `memo_to` names (`oracle.ship`), the parent hands the segment to its configuration's absorb, and the result's reach keeps only their counts, so no block reaches the parent on a pickled message. `spec_path` names the parent's dump of `spec`, which the unit's settle calls read (`kernel_exec.adopt_spec_dump`), so it writes no `spec.json`. The pool runs one unit per process, so the reading is this unit's own. It is a footprint rather than a resident peak because every settlement unit of a configuration maps the same settle memo file, whose clean pages the page cache holds once however many units touch them, while each unit's resident peak counts them again. The peak is returned in a tuple instead of as a field on the result because conform.py is in `oracle_cache.ORACLE_ROW_CODE_PATHS`, and an edit there would invalidate every settle memo and row store."""
+    """Run one unit of the pooled conformance sweep in a pool worker (`conform.conformance_config_worker` with `last`) and return the result, its peak footprint (`peak_rss.peak_footprint_self_bytes`), so the parent can write the `conform-sweep` pool record, and the segment that holds the unit's fresh settle memo windows. The unit ships those windows (`conform.MemoReach.fresh`) into the POSIX shared memory segment `memo_to` names (`oracle.ship`), the parent hands the segment to its configuration's absorb, and the result's reach keeps only their counts, so no block reaches the parent on a pickled message. `spec_path` names the parent's dump of `spec`, which the unit's settle calls read (`kernel_exec.adopt_spec_dump`), so it writes no `spec.json`. The pool runs one unit per process, so the reading is this unit's own. It is a footprint rather than a resident peak because every settlement unit of a configuration maps the same settle memo parts, whose clean pages the page cache holds once however many units touch them, while each unit's resident peak counts them again. The peak is returned in a tuple instead of as a field on the result because conform.py is in `oracle_cache.ORACLE_ROW_CODE_PATHS`, and an edit there would invalidate every settle memo and row store."""
     if spec_path is not None:
         kernel_exec.adopt_spec_dump(spec, spec_path)
     result = conform.conformance_config_worker(
@@ -382,8 +382,9 @@ def _absorb_memo(
     spec: ResolvedSpec,
     parts: Sequence[tuple[oracle.Shipped | None, conform.FreshMemo]],
     sweep: conform.SweepPrune | None = None,
+    route: conform.SettleMemoRoute | None = None,
 ) -> tuple[conform.MemoAbsorb, float, int]:
-    """Absorb one configuration's fresh settle memo windows into its file (`conform.absorb_settle_memo`) in a fresh pool process: the oracle's ranges' in range order, or the conformance sweep's units' in unit-slot order with the units' prune (`sweep`). Each part is the segment a range or a unit shipped its blocks in, and its counts; this maps every segment at once and unlinks its name (`oracle._Mapped`), hands the absorb the mapped pieces, and closes each mapping once the absorb has read it, or as this returns. Return what the absorb did, its seconds, and this process's peak footprint (`peak_rss.peak_footprint_self_bytes`), which goes into the pool record as `<config> absorb`: the pool runs one task a process, so the reading is the absorb's own. The absorb calls no crate."""
+    """Absorb one configuration's fresh settle memo windows into its memo (`conform.absorb_settle_memo`) in a fresh pool process, on the route the parent planned before it submitted any absorb (`conform.plan_settle_memos`): the oracle's ranges' in range order, or the conformance sweep's units' in unit-slot order with the units' prune (`sweep`). The absorb writes its part, a segment or a base, under its final name and commits its configuration's head itself, one writer a configuration at a time, and refuses to write once the memo on disk is not the one its route was planned against. Each part is the shared memory segment a range or a unit shipped its blocks in, and its counts; this maps every one at once and unlinks its name (`oracle._Mapped`), hands the absorb the mapped pieces, and closes each mapping once the absorb has read it, or as this returns. Return what the absorb did, its seconds, and this process's peak footprint (`peak_rss.peak_footprint_self_bytes`), which goes into the pool record as `<config> absorb`: the pool runs one task a process, so the reading is the absorb's own. The absorb calls no crate."""
     started = time.perf_counter()
     mapped: list[oracle._Mapped] = []
     try:
@@ -395,11 +396,37 @@ def _absorb_memo(
             segment = oracle._Mapped(shipped)
             mapped.append(segment)
             fresh.append(replace(counts, blocks=segment.pieces, release=segment.close))
-        absorbed = conform.absorb_settle_memo(memo, spec, fresh, sweep)
+        absorbed = conform.absorb_settle_memo(memo, spec, fresh, sweep, route=route)
     finally:
         for segment in mapped:
             segment.close()
     return absorbed, time.perf_counter() - started, peak_footprint_self_bytes()
+
+
+class _PlannedRoutes:
+    """The settle memo routes one fan-out's absorbs take, planned on a thread of its own as the fan-out starts (`conform.plan_settle_memos`), so that reading every configuration's head and hashing its parts overlaps the first ranges or units instead of holding them back. The first absorb's submission waits for the plan, and every absorb then gets its configuration's route, decided, its fold claim among them, before any absorb writes. `[t] settle_memo_plan` (`conform.SettleMemoPlan.report`) prints once, when the first absorb's submission takes the plan or, for a fan-out that submits none, when `close` does. `close` waits for the plan and deletes what it made for each configuration no absorb committed (`conform.SettleMemoPlan.discard`)."""
+
+    def __init__(self, memos: Mapping[str, conform.SettleMemoFile]) -> None:
+        self._planner = ThreadPoolExecutor(max_workers=1, thread_name_prefix="settle-memo-plan")
+        self._future = self._planner.submit(conform.plan_settle_memos, memos) if memos else None
+        self._plan: conform.SettleMemoPlan | None = None
+
+    def _taken(self) -> conform.SettleMemoPlan:
+        if self._plan is None:
+            assert self._future is not None
+            self._plan = self._future.result()
+            self._plan.report()
+        return self._plan
+
+    def route(self, config: str) -> conform.SettleMemoRoute:
+        return self._taken().routes[config]
+
+    def close(self) -> None:
+        try:
+            if self._future is not None:
+                self._taken().discard()
+        finally:
+            self._planner.shutdown(wait=True)
 
 
 def _shipped_bytes(shipped: oracle.Shipped | None) -> int:
@@ -408,9 +435,9 @@ def _shipped_bytes(shipped: oracle.Shipped | None) -> int:
 
 @dataclass
 class _MemoFold:
-    """One settlement configuration's settle-memo use across its conformance-sweep units, folded in the parent as each unit finishes: the version of the file the first unit mapped, the union of every unit's reached rows as one integer (each flag byte is zero or one, so OR-ing the little-endian integers ORs the flags), the fresh windows each unit shipped, by unit slot, and their summed memo seconds. `agree` turns False when a unit mapped another version of the file than the first, and then nothing is pruned. `retired` turns True when a unit's probe found the file corrupt, and then the absorb drops every row of the file rather than the unreached ones (`conform.SweepPrune`'s `discard`). `shipped` counts the bytes of the units' segments that wait for the absorb."""
+    """One settlement configuration's settle-memo use across its conformance-sweep units, folded in the parent as each unit finishes: the version of the memo the first unit mapped (`conform._MemoStore.identity`), the union of every unit's reached rows as one integer (each flag byte is zero or one, so OR-ing the little-endian integers ORs the flags), the fresh windows each unit shipped, by unit slot, and their summed memo seconds. `agree` turns False when a unit mapped another version of the file than the first, and then nothing is pruned. `retired` turns True when a unit's probe found the file corrupt, and then the absorb drops every row of the file rather than the unreached ones (`conform.SweepPrune`'s `discard`). `shipped` counts the bytes of the units' segments that wait for the absorb."""
 
-    identity: tuple[int, int, int, int] | None = None
+    identity: tuple | None = None
     rows: int = 0
     live: int = 0
     loaded: int = 0
@@ -517,9 +544,9 @@ def _pooled_conformance(
 ) -> conform.ConformReport:
     """Sweep every unit of `sweep_units` at `max_length`, `jobs` at a time, one spawn process per unit (`run_m1._spawn_pool` with `max_tasks_per_child=1`), and return the merged report; `run_font_conformance` writes it.
 
-    The units are submitted in unit order and only as slots free, so at most `jobs` tasks are submitted and not yet finished at once, and an absorb submitted as a configuration completes takes the next slot a unit frees rather than waiting behind every unit still to run. Each unit reads the parent's spec dump (`kernel_exec._spec_dump`, `kernel_exec.adopt_spec_dump`). A settlement unit whose configuration has a settle memo maps the shared file, ships the windows it settled fresh into the shared memory segment the parent names for its slot (`_SweepSegments`, `_conformance_unit`), and returns its reach with their counts. As each unit finishes, the parent folds its reach into its configuration's `_MemoFold` and drops the unit's flags, so the parent holds one integer the size of the file's row count per configuration however many units there are.
+    The units are submitted in unit order and only as slots free, so at most `jobs` tasks are submitted and not yet finished at once, and an absorb submitted as a configuration completes takes the next slot a unit frees rather than waiting behind every unit still to run. Each unit reads the parent's spec dump (`kernel_exec._spec_dump`, `kernel_exec.adopt_spec_dump`). A settlement unit whose configuration has a settle memo maps the shared memo, every part its head lists, ships the windows it settled fresh into the shared memory segment the parent names for its slot (`_SweepSegments`, `_conformance_unit`), and returns its reach with their counts. As each unit finishes, the parent folds its reach into its configuration's `_MemoFold` and drops the unit's flags, so the parent holds one integer the size of the memo's row count per configuration however many units there are. Each configuration's settle memo route is planned on a thread as the sweep starts, before any absorb is submitted (`_PlannedRoutes`, `conform.plan_settle_memos`, printed as `[t] settle_memo_plan`), and each absorb gets its configuration's route.
 
-    As soon as all of a configuration's units have finished, its units merge into its result (`conform.merge_unit_results`, in unit-slot order), whose sequences must be every text of its lengths (`config_texts`), or this raises before that configuration's file is written, so no memo is ever pruned from a partial set of units. Then, if its units shipped fresh windows, left a live row unreached, or found the file corrupt, its absorb is submitted to a fresh process (`_absorb_memo`), with the units' segments in unit-slot order, so the file it writes does not depend on the order the units finished in; a configuration with neither (a current memo) gets no task and its file is not touched. When a unit raises or a configuration's count falls short, the tasks still queued are cancelled, the error propagates once the units and absorbs already running have finished, and a configuration absorbed before then holds only rows its own finished, checked units settled. `[t] conform_fan_in` follows the last task with the seconds the parent spent folding units and submitting absorbs and, as `memo_held_gb`, the most bytes its units' segments held at once while they waited for their absorbs, from a unit's landing until its configuration's absorb finished. One `[t] settle_memo` line per settlement configuration follows (`conform.settle_memo_line`), with the units' loaded and stale counts, the absorb's fresh and pruned counts, the units' memo seconds plus the absorb's, and the absorb's path and row counts when it laid a file out. The configurations then merge in `conform.ACCEPTANCE_CONFIGS` order, so the report is the serial sweep's at any width and in any finishing order. At `conform.SWEEP_MAX_LENGTH` this writes the `conform-sweep` pool record.
+    As soon as all of a configuration's units have finished, its units merge into its result (`conform.merge_unit_results`, in unit-slot order), whose sequences must be every text of its lengths (`config_texts`), or this raises before that configuration's memo is written, so no memo is ever pruned from a partial set of units. Then, if its units shipped fresh windows, left a live row unreached, or found a part corrupt, its absorb is submitted to a fresh process (`_absorb_memo`), with the units' shared memory segments in unit-slot order, so the part it writes, a segment or on a fold a base, does not depend on the order the units finished in; a configuration with neither (a current memo) gets no task and its memo is not touched. When a unit raises or a configuration's count falls short, the tasks still queued are cancelled, the error propagates once the units and absorbs already running have finished, and a configuration absorbed before then holds only rows its own finished, checked units settled. `[t] conform_fan_in` follows the last task with the seconds the parent spent folding units and submitting absorbs and, as `memo_held_gb`, the most bytes its units' segments held at once while they waited for their absorbs, from a unit's landing until its configuration's absorb finished. One `[t] settle_memo` line per settlement configuration follows (`conform.settle_memo_line`), with the units' loaded and stale counts, the absorb's fresh and pruned counts, the units' memo seconds plus the absorb's, and the absorb's path, row counts and what it wrote when it laid a part out (`conform.MemoAbsorb.tokens`). The configurations then merge in `conform.ACCEPTANCE_CONFIGS` order, so the report is the serial sweep's at any width and in any finishing order. At `conform.SWEEP_MAX_LENGTH` this writes the `conform-sweep` pool record.
     """
     font_path = out_dir / "M1.otf"
     units = sweep_units(conform.spec_alphabet(spec), max_length)
@@ -538,7 +565,8 @@ def _pooled_conformance(
     width = min(jobs, len(units))
     held = held_peak = 0
     folding = 0.0
-    with _SweepSegments(out_dir, len(units)) as segments:
+    routes = _PlannedRoutes(settle_memos)
+    with _SweepSegments(out_dir, len(units)) as segments, closing(routes):
         with run_m1._spawn_pool(jobs, len(units), max_tasks_per_child=1) as pool:
             queued = iter(enumerate(units))
             running: dict[Future, tuple[str, int]] = {}
@@ -606,6 +634,7 @@ def _pooled_conformance(
                                     spec,
                                     [fold.parts[at] for at in sorted(fold.parts)],
                                     fold.prune(),
+                                    routes.route(config),
                                 )
                                 running[absorb_future] = (config, -1)
                         folding += time.perf_counter() - started
@@ -668,7 +697,7 @@ def _in_thread(call: Callable[[], object]) -> Future:
 
 
 class _OracleMemos:
-    """The pooled oracle's settle memo fan-in in `run_m1`'s parent: each settlement configuration's ranges' fresh windows as they land (`land`, which takes them off the result), in range order, until all of the configuration's ranges have landed and `memo_ready` has returned (`ready`), and then its absorb, submitted to a fresh process of the pool (`_absorb_memo`) if any range settled a window fresh. `held_peak_bytes` is the most bytes the ranges' segments held at once while they waited, from a range's landing until its configuration's absorb finished, which, like what the in-order writer holds, counts in no process's footprint while it waits."""
+    """The pooled oracle's settle memo fan-in in `run_m1`'s parent: each settlement configuration's ranges' fresh windows as they land (`land`, which takes them off the result), in range order, until all of the configuration's ranges have landed and `memo_ready` has returned (`ready`), and then its absorb, submitted to a fresh process of the pool (`_absorb_memo`) with the route the plan gave its configuration (`_PlannedRoutes`) if any range settled a window fresh. `held_peak_bytes` is the most bytes the ranges' segments held at once while they waited, from a range's landing until its configuration's absorb finished, which, like what the in-order writer holds, counts in no process's footprint while it waits."""
 
     def __init__(
         self,
@@ -677,10 +706,12 @@ class _OracleMemos:
         memos: Mapping[str, conform.SettleMemoFile],
         shards: Sequence[oracle.OracleShard],
         ready: bool,
+        routes: _PlannedRoutes,
     ) -> None:
         self._pool = pool
         self._spec = spec
         self._memos = memos
+        self._routes = routes
         self._remaining = {config: 0 for config in memos}
         for shard in shards:
             if shard.config in memos:
@@ -729,7 +760,12 @@ class _OracleMemos:
         parts = self._parts[config]
         if parts:
             future = self._pool.submit(
-                _absorb_memo, self._memos[config], self._spec, [parts[row] for row in sorted(parts)]
+                _absorb_memo,
+                self._memos[config],
+                self._spec,
+                [parts[row] for row in sorted(parts)],
+                None,
+                self._routes.route(config),
             )
             self.absorbs[future] = config
 
@@ -749,9 +785,9 @@ def run_oracle(
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
     memo_ready: Callable[[], float | None] | None = None,
 ) -> dict:
-    """Run the baseline oracle (`rebuild/M1-PLAN.md` §6) over the subset tables, reading the row cache before the first row and writing it after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table: `oracle.oracle_shard_plan` splits every table (by the row counts the subset stamp records, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that each of `jobs` workers gets an equal share of the whole, and `run_m1._spawn_pool` starts up to `jobs` workers, one per range at most. The pool runs one task a process (`max_tasks_per_child=1`), so every range and every absorb starts fresh and reads its own peak, and the parent submits ranges, in plan order, only while the ranges and absorbs it has out number fewer than the pool's width, so an absorb never waits behind a range, and every range reads the spec dump this process writes once (`kernel_exec._spec_dump`, `kernel_exec.adopt_spec_dump`). Each range ships its audit lines, compressed, home in a POSIX shared memory segment the parent's in-order writer names for it, a range of a cut configuration also ships its store segment in another, and a range that settled windows fresh ships them, compressed, in a third (`oracle.ship`); its result carries their names and the fresh windows' counts. The parent writes the audit once, in row order, as the ranges land, and each cut configuration's store once its last range has landed (`oracle.InOrderWriter`, whose docstring states what the parent holds meanwhile and where), and merges the ranges' tallies (`oracle.merge_config_shards`), all in row order, so the summary, the audit and every store's records match an unsplit run. As soon as all of a configuration's ranges have landed and `memo_ready` has returned, it submits that configuration's absorb to the same pool, which runs it in a fresh process in the next slot free, ahead of the ranges not yet submitted (`_OracleMemos`, `_absorb_memo`): the absorb maps the ranges' segments in range order and merges their fresh windows into the shared memo file (`conform.absorb_settle_memo`). A configuration none of whose ranges settled anything fresh gets no absorb. The absorbs stay inside the oracle's width, each in a range's slot, and each one's peak goes into the pool record as `<config> absorb` beside the ranges'; `[t] settle_memo_absorb <config>` reports each that wrote its file, with its path and row counts (`conform.MemoAbsorb.tokens`). The crate's formation-guard verdicts are computed once here and passed with every submission, as in the conformance sweep's fan-out. `[t] oracle_setup` times this process's work before the pool takes over, from entry to the submission of the first ranges, one a slot: the cache keys, the shard plan, the guard sweep and those submissions. `[t] oracle_fan_in` follows the last range's landing with the time the parent spent landing ranges (`oracle.InOrderWriter.landing_seconds`), as `held_gb`, the most the writer held in shared memory at once (`oracle.InOrderWriter.held_peak_bytes`), and as `memo_held_gb`, the most the ranges' settle memo segments held at once while they waited for their absorbs (`_OracleMemos.held_peak_bytes`). Both count in no process's footprint while they wait, so the parent's peak footprint leaves them out; `cycle_timings.parse_inner_timings` keeps both from a cycle's run_m1 step, and the line joins `run_m1._build_phase_lines`, so a hand run's check line carries it too.
+    """Run the baseline oracle (`rebuild/M1-PLAN.md` §6) over the subset tables, reading the row cache before the first row and writing it after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table: `oracle.oracle_shard_plan` splits every table (by the row counts the subset stamp records, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that each of `jobs` workers gets an equal share of the whole, and `run_m1._spawn_pool` starts up to `jobs` workers, one per range at most. The pool runs one task a process (`max_tasks_per_child=1`), so every range and every absorb starts fresh and reads its own peak, and the parent submits ranges, in plan order, only while the ranges and absorbs it has out number fewer than the pool's width, so an absorb never waits behind a range, and every range reads the spec dump this process writes once (`kernel_exec._spec_dump`, `kernel_exec.adopt_spec_dump`). Each range ships its audit lines, compressed, home in a POSIX shared memory segment the parent's in-order writer names for it, a range of a cut configuration also ships its store segment in another, and a range that settled windows fresh ships them, compressed, in a third (`oracle.ship`); its result carries their names and the fresh windows' counts. The parent writes the audit once, in row order, as the ranges land, and each cut configuration's store once its last range has landed (`oracle.InOrderWriter`, whose docstring states what the parent holds meanwhile and where), and merges the ranges' tallies (`oracle.merge_config_shards`), all in row order, so the summary, the audit and every store's records match an unsplit run. Each configuration's settle memo route is planned on a thread as the pool starts (`_PlannedRoutes`, `conform.plan_settle_memos`, printed as `[t] settle_memo_plan` once the first absorb waits for it), its fold claim among them, before any absorb is submitted. As soon as all of a configuration's ranges have landed and `memo_ready` has returned, it submits that configuration's absorb, with its route, to the same pool, which runs it in a fresh process in the next slot free, ahead of the ranges not yet submitted (`_OracleMemos`, `_absorb_memo`): the absorb maps the ranges' shared memory segments in range order and writes their fresh windows as one segment of the shared memo, or on a fold as the next generation's base, and commits its head (`conform.absorb_settle_memo`). A configuration none of whose ranges settled anything fresh gets no absorb. The absorbs stay inside the oracle's width, each in a range's slot, and each one's peak goes into the pool record as `<config> absorb` beside the ranges'; `[t] settle_memo_absorb <config>` reports each that wrote a part, with its path, row counts and what it wrote (`conform.MemoAbsorb.tokens`). The crate's formation-guard verdicts are computed once here and passed with every submission, as in the conformance sweep's fan-out. `[t] oracle_setup` times this process's work before the pool takes over, from entry to the submission of the first ranges, one a slot: the cache keys, the shard plan, the guard sweep and those submissions. `[t] oracle_fan_in` follows the last range's landing with the time the parent spent landing ranges (`oracle.InOrderWriter.landing_seconds`), as `held_gb`, the most the writer held in shared memory at once (`oracle.InOrderWriter.held_peak_bytes`), and as `memo_held_gb`, the most the ranges' settle memo segments held at once while they waited for their absorbs (`_OracleMemos.held_peak_bytes`). Both count in no process's footprint while they wait, so the parent's peak footprint leaves them out; `cycle_timings.parse_inner_timings` keeps both from a cycle's run_m1 step, and the line joins `run_m1._build_phase_lines`, so a hand run's check line carries it too.
 
-    `memo_inputs` is `run_m1.settle_memo_inputs` as the caller took it before loading `spec`, and names the settle memo files this pass shares with the conformance sweep (`conform.settle_memo_files`). The oracle's rows are the conformance sweep's texts, so a settlement configuration whose file the replay or the conformance sweep already wrote under these keys settles nothing here, and one neither has reached yet writes the file the conformance sweep will load. A caller with no inputs shares nothing, the overlay configuration has no memo, since its worker settles nothing, and this pass leaves an M1-only configuration's memo (`conform.M1_ONLY_CONFIGS`) to the other passes, since the oracle never compares it. `memo_ready`, when given, is called before this pass writes a shared settle memo file. On the pooled path it runs on a thread of its own while the ranges land, and no absorb is submitted until it has returned, because ranges write no settle memo file and the absorbs are the pass's only writes to the files; when it raises, its error stops the pass as a range's does, and no absorb runs. On the `--jobs 1` path it is called before the first walk, because those walks replace the files whole as they go. It returns the seconds it blocked, or None. `[t] witness_memo_wait` reports the part of the wait that held this pass's writes back: on the pooled path the time from the last range's landing to its return, printed only when it returns after that landing, since until then the ranges, not the wait, hold the absorbs back; on the `--jobs 1` path the whole wait, printed only when it blocked. `run_m1.full_run` passes `run_m1.TableGates.wait_for_memo`, which returns once the witness stage, which reads the files and writes none, has returned. That lets the pool start after the string replay alone while the witness stage still runs, and it holds every write this pass makes until the stage has read the files, so the stage reads each file as the replay left it and its counts do not depend on when this pass's absorbs land.
+    `memo_inputs` is `run_m1.settle_memo_inputs` as the caller took it before loading `spec`, and names the settle memos this pass shares with the conformance sweep (`conform.settle_memo_files`). The oracle's rows are the conformance sweep's texts, so a settlement configuration whose file the replay or the conformance sweep already wrote under these keys settles nothing here, and one neither has reached yet writes the file the conformance sweep will load. A caller with no inputs shares nothing, the overlay configuration has no memo, since its worker settles nothing, and this pass leaves an M1-only configuration's memo (`conform.M1_ONLY_CONFIGS`) to the other passes, since the oracle never compares it. `memo_ready`, when given, is called before this pass writes to a shared settle memo. On the pooled path it runs on a thread of its own while the ranges land, and no absorb is submitted until it has returned, because ranges write no settle memo part and the absorbs are the pass's only writes to the memos; when it raises, its error stops the pass as a range's does, and no absorb runs. On the `--jobs 1` path it is called before the first walk, because those walks write their own segments as they go, each planning its own route (`conform._SettledWindowWalk.save_memo`). It returns the seconds it blocked, or None. `[t] witness_memo_wait` reports the part of the wait that held this pass's writes back: on the pooled path the time from the last range's landing to its return, printed only when it returns after that landing, since until then the ranges, not the wait, hold the absorbs back; on the `--jobs 1` path the whole wait, printed only when it blocked. `run_m1.full_run` passes `run_m1.TableGates.wait_for_memo`, which returns once the witness stage, which reads the files and writes none, has returned. That lets the pool start after the string replay alone while the witness stage still runs, and it holds every write this pass makes until the stage has read the memos, so the stage reads each memo as the replay left it and its counts do not depend on when this pass's absorbs land.
 
     The cache keys are computed once here (the row keys from the rune tree, the position keys from the compiled font and the kern sidecar) and passed to the workers, then computed again at promotion, where a store is written only if no stamp and no key changed while the run used them. The second computation is needed because `fingerprint.rune_digests` reads the rune files from disk, a full run takes minutes, and a long run is usually detached while editing continues. Without it, a rune edited mid-run would be recorded under a digest the stored verdicts were never built from, and later passes would serve pre-edit verdicts as current indefinitely. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys follow the same rule for the same reason.
 
@@ -810,9 +846,12 @@ def run_oracle(
                 config: [] for config in conform.ORACLE_CONFIGS
             }
             width = min(jobs, len(shards))
-            with oracle.InOrderWriter(out_dir, shards, row_cache) as in_order:
+            routes = _PlannedRoutes(settle_memos)
+            with oracle.InOrderWriter(out_dir, shards, row_cache) as in_order, closing(routes):
                 with run_m1._spawn_pool(jobs, len(shards), max_tasks_per_child=1) as pool:
-                    memos = _OracleMemos(pool, spec, settle_memos, shards, ready=memo_ready is None)
+                    memos = _OracleMemos(
+                        pool, spec, settle_memos, shards, ready=memo_ready is None, routes=routes
+                    )
                     queued = deque(shards)
                     running: dict[Future, oracle.OracleShard] = {}
 

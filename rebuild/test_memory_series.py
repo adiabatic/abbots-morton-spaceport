@@ -322,7 +322,7 @@ def _absorb_child(peak_footprint, sha256, absorb=None):
 
 
 def test_an_absorbs_line_runs_both_absorbs_and_says_whether_their_files_agree(tmp_path):
-    """An absorbs line runs the absorb's child and then the carry-and-append absorb's, each over its own job, between the meter's readings, unlinks any segment a child left, and keeps the absorb's path and row counts, both children's peaks, CPU and seconds, both files' rows, sizes and digests, and whether the digests are equal."""
+    """An absorbs line runs the absorb's child and then the carry-and-append absorb's, each over its own job, between the meter's readings, unlinks any segment a child left, and keeps the absorb's path and row counts, both children's peaks, CPU and seconds, both files' rows, sizes and digests, and whether the digests are equal. An absorb that wrote its part into the line's clone of the standing memo is compared through that memo's materialized form, read once the meter's last reading is taken."""
     from multiprocessing import shared_memory
 
     stats = {
@@ -385,6 +385,23 @@ def test_an_absorbs_line_runs_both_absorbs_and_says_whether_their_files_agree(tm
         run=lambda payload, **rest: _absorb_child(1, "ab" * 32 if payload == b"absorb" else "cd" * 32),
     )
     assert not differing["same"]
+    written = {**stats, "wrote": "segment", "part_bytes": 512}
+    for digest, same in (("ab" * 32, True), ("cd" * 32, False)):
+        meters = iter(_reading(at, 0) for at in (0.0, 1.0))
+        compared = ms.measure_absorb_line(
+            {"absorb": b"absorb", "carry": b"carry"},
+            [],
+            idle_s=0,
+            after_s=0,
+            meter=lambda: next(meters),
+            machine=lambda: QUIET,
+            run=lambda payload, **rest: (
+                _absorb_child(1, "ef" * 32, written) if payload == b"absorb" else _absorb_child(1, "ab" * 32)
+            ),
+            materialized=lambda digest=digest: (30, 4096, digest),
+        )
+        assert compared["same"] == same and compared["sha256"] == digest
+        assert compared["absorb"]["wrote"] == "segment" and compared["absorb"]["part_bytes"] == 512
 
 
 def test_the_absorbs_inputs_restate_the_live_rows_under_labels_of_their_own(tmp_path):
@@ -405,7 +422,7 @@ def test_the_absorbs_inputs_restate_the_live_rows_under_labels_of_their_own(tmp_
             made = ms.absorb_count(name, source, live, live.path, tmp_path, 3, True)
             assert made.standing is not None
             assert made.rows == count and made.written == (name != ms.LIVE)
-            header = conform._settle_memo_header(replace(live, path=made.standing))
+            header = ms._memo_header(made.standing)
             assert header is not None and header["rows"] == count
             windows = [window for window, _outcome in source.rows(0, count)]
             assert len(set(windows)) == count
@@ -452,7 +469,7 @@ def test_the_absorbs_inputs_restate_the_live_rows_under_labels_of_their_own(tmp_
 
 
 def test_an_absorbs_run_makes_each_counts_inputs_once_and_records_every_line(monkeypatch, tmp_path):
-    """An absorbs run clones the live `default` settle memo into its tree, makes each distinct count's inputs once, and measures each named count, a count named twice twice, on every path `--paths` names, in order, each line's two jobs in the series' own environment; it records each line under the absorbs holder with its count, path and row counts, then each path's fit against rows, and removes the clone and every standing file it wrote however it ends. A run whose paths read no standing file writes none. Every segment a line ships is unlinked once the line ends, however it ends, and a run killed before its cleanup leaves their names for the next run's `empty_tree` to unlink."""
+    """An absorbs run clones the live `default` settle memo, its head and every part the head lists, into its tree, makes each distinct count's inputs once, and measures each named count, a count named twice twice, on every path `--paths` names, in order, each line's two jobs in the series' own environment; it records each line under the absorbs holder with its count, path and row counts, then each path's fit against rows, and removes the clone and every standing file it wrote however it ends. A run whose paths read no standing file writes none. Every segment a line ships is unlinked once the line ends, however it ends, and a run killed before its cleanup leaves their names for the next run's `empty_tree` to unlink."""
     from multiprocessing import shared_memory
 
     from rebuild.pipeline import oracle_cache, run_m1
@@ -463,9 +480,23 @@ def test_an_absorbs_run_makes_each_counts_inputs_once_and_records_every_line(mon
     out_dir.mkdir()
     keys = {name: f"{name}@0" for name in spec.registry.families}
     live = conform.SettleMemoFile(out_dir / "settle-memo-default.bin", "stamp", keys)
-    walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=live)
-    walker.walk_many(list(conform.spec_alphabet(spec)))
-    assert walker.save_memo()
+    alphabet = list(conform.spec_alphabet(spec))
+    windows: set = set()
+    for texts in (alphabet[: len(alphabet) // 2], alphabet):
+        walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=live)
+        walker.walk_many(texts)
+        assert walker.save_memo()
+        windows |= set(walker.windows)
+    head = ms.row_delta.read_head(out_dir, live.path.name)
+    assert head is not None and len(head.segments) == 1
+    cloned: list = []
+    clone_memo = ms.clone_memo
+
+    def cloning(memo, directory):
+        cloned.append(sorted(path.name for path in memo.path.parent.glob(f"{memo.path.name}*")))
+        return clone_memo(memo, directory)
+
+    monkeypatch.setattr(ms, "clone_memo", cloning)
     made: list = []
     inputs: list = []
     measured: list = []
@@ -515,15 +546,16 @@ def test_an_absorbs_run_makes_each_counts_inputs_once_and_records_every_line(mon
     assert [(line["step"], line["count"], line["path"], line["rows"]) for line in recorded] == [
         ("absorbs", 5, "fast", 5),
         ("absorbs", 5, "fresh", 5),
-        ("absorbs", "live", "fast", len(walker.windows)),
-        ("absorbs", "live", "fresh", len(walker.windows)),
+        ("absorbs", "live", "fast", len(windows)),
+        ("absorbs", "live", "fresh", len(windows)),
         ("absorbs", 5, "fast", 5),
         ("absorbs", 5, "fresh", 5),
     ]
     assert recorded[1]["standing_rows"] == 0 and recorded[0]["standing_rows"] == 5
     assert any(line.startswith("absorbs fast over 3 lines") for line in text)
     assert not (tmp_path / ms.TREE_PATH / ms.ABSORBS).exists()
-    assert live.path.is_file()
+    assert conform.settle_memo_standing(live)
+    assert cloned[0] == sorted([ms.row_delta.head_name(live.path.name), *(part.name for part in head.parts)])
     assert [count.written for count in inputs] == [True, False]
 
     del made[:], inputs[:]

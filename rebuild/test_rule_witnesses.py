@@ -12,10 +12,29 @@ from collections import Counter
 
 import pytest
 
-from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, oracle_cache, run_m1, settle, witness
+from rebuild.pipeline import (
+    conform,
+    emit_gsub,
+    fixtures,
+    kernel_exec,
+    oracle_cache,
+    row_delta,
+    run_m1,
+    settle,
+    witness,
+)
 from rebuild.pipeline.table import Rule
 
 CONFIGS = ("default", "ss03")
+
+
+def _memo_files(memo: conform.SettleMemoFile) -> dict[str, tuple[bytes, int, int]]:
+    """Every file of `memo`'s output, its head, its parts and a single file, by name, with its bytes, inode and modification time."""
+    return {
+        path.name: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
+        for path in sorted(memo.path.parent.glob(f"{memo.path.name}*"))
+        if path.is_file()
+    }
 
 
 @pytest.fixture(scope="module")
@@ -148,7 +167,7 @@ def test_the_witness_stage_writes_a_summary_and_no_settle_memo_byte(spec, tables
         record = again["configs"][config]
         assert not record["served_windows"]
         assert record["fresh_windows"] == summary["configs"][config]["fresh_windows"]
-        assert not memos[config].path.exists()
+        assert not _memo_files(memos[config])
     written = tmp_path / "witness_summary.json"
     os.utime(written, ns=(1_000_000_000, 1_000_000_000))
     inode = written.stat().st_ino
@@ -156,17 +175,24 @@ def test_the_witness_stage_writes_a_summary_and_no_settle_memo_byte(spec, tables
     assert (written.stat().st_ino, written.stat().st_mtime_ns) == (inode, 1_000_000_000)
 
     seeded = memos["default"]
-    seed = conform._SettledWindowWalk(spec, conform.features_for_config("default"), {}, guard, memo=seeded)
-    seed.walk_many(
-        sorted({witness._token_text(spec, tokens) for tokens in tables["default"][0].certificates})
-    )
-    assert seed.save_memo()
-    os.utime(seeded.path, ns=(1_000_000_000, 1_000_000_000))
-    standing = seeded.path.read_bytes()
+    certificates = sorted({witness._token_text(spec, tokens) for tokens in tables["default"][0].certificates})
+    windows: set = set()
+    for pile in (certificates[::2], certificates):
+        seed = conform._SettledWindowWalk(
+            spec, conform.features_for_config("default"), {}, guard, memo=seeded
+        )
+        seed.walk_many(pile)
+        assert seed.save_memo()
+        windows |= set(seed.windows)
+    head = row_delta.read_head(seeded.path.parent, seeded.path.name)
+    assert head is not None and len(head.segments) == 1
+    for name in _memo_files(seeded):
+        os.utime(seeded.path.parent / name, ns=(1_000_000_000, 1_000_000_000))
+    standing = _memo_files(seeded)
     served = run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs)["configs"]["default"]
-    assert served["served_windows"] == len(seed.windows) and not served["fresh_windows"]
-    assert seeded.path.read_bytes() == standing and seeded.path.stat().st_mtime_ns == 1_000_000_000
-    assert not memos["ss03"].path.exists()
+    assert served["served_windows"] == len(windows) and not served["fresh_windows"]
+    assert _memo_files(seeded) == standing
+    assert not _memo_files(memos["ss03"])
 
 
 def test_the_stage_in_a_process_of_its_own_writes_what_it_writes_in_process(
@@ -240,7 +266,7 @@ def test_the_stage_loads_only_the_windows_its_certificates_can_ask(spec, tables,
         assert seed.save_memo()
         seeded[config] = _memo_rows(memos[config], spec)
         assert seeded[config] == set(seed.windows)
-        standing[config] = memos[config].path.read_bytes()
+        standing[config] = _memo_files(memos[config])
     summary = run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs)
     assert summary["pass"]
     for config in CONFIGS:
@@ -258,7 +284,7 @@ def test_the_stage_loads_only_the_windows_its_certificates_can_ask(spec, tables,
         )
         unrestricted.walk_many(pile)
         assert record["fresh_windows"] == unrestricted.fresh_windows
-        assert memos[config].path.read_bytes() == standing[config]
+        assert _memo_files(memos[config]) == standing[config]
 
 
 def test_a_restricted_walk_settles_a_text_outside_its_asks_fresh_and_alike(spec, guard, tmp_path):

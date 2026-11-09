@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import gzip
+import itertools
 import json
+import operator
 from pathlib import Path
 
 import pytest
@@ -274,3 +276,98 @@ def test_one_output_folds_a_pass_and_one_at_its_overrun_folds_anyway(monkeypatch
         OUTPUT, 0, 0, {}, base, (segment,) * (row_delta.SEGMENT_CAP + row_delta.FOLD_OVERRUN)
     )
     assert row_delta.fold_forced(at_overrun)
+
+
+def test_a_head_records_each_parts_stamp_and_keys_and_one_without_them_reads_as_before(tmp_path):
+    """A head over parts that record what they were settled under, the settle memos', holds each distinct family keys map once and each part its stamp and the place of its keys, and reads back as it was written; a head whose parts record nothing writes neither field, so the unit store's and the windows rows' heads read and write as before. A part naming keys the head does not hold is refused."""
+    base = row_delta.Part(row_delta.base_name(OUTPUT, 0), 1, "a", 10, 140)
+    segments = tuple(row_delta.Part(row_delta.segment_name(OUTPUT, 0, n), 1, "b", 1, 14) for n in (1, 2, 3))
+    plain = row_delta.Head(OUTPUT, 0, 2, {"stamp": "s"}, base, segments, row_delta.MERGE_PROBE)
+    old, new = {"qsPea": "p0", "qsTea": "t0"}, {"qsPea": "p0", "qsTea": "t1"}
+    head = row_delta.settled_parts(plain, [("s0", old), ("s0", old), ("s1", new), ("s1", dict(new))])
+    assert head.family_keys == (old, new)
+    assert [part.settled for part in head.parts] == [
+        row_delta.PartStamp("s0", 0),
+        row_delta.PartStamp("s0", 0),
+        row_delta.PartStamp("s1", 1),
+        row_delta.PartStamp("s1", 1),
+    ]
+    row_delta.commit(tmp_path, head)
+    document = json.loads(row_delta.head_path(tmp_path, OUTPUT).read_text())
+    assert document["merge"] == "probe" and document["family_keys"] == [old, new]
+    assert document["segments"][1] == {**segments[1].document(), "stamp": "s1", "family_keys": 1}
+    read = row_delta.read_head(tmp_path, OUTPUT)
+    assert read == head and read is not None
+    assert [read.part_keys(part) for part in head.parts] == [
+        old,
+        old,
+        new,
+        new,
+    ]
+
+    unstamped = row_delta.Head(OUTPUT, 0, 0, {}, base, segments[:1])
+    assert "family_keys" not in unstamped.document()
+    assert set(unstamped.document()["base"]) == {"name", "size", "sha256", "rows", "rows_bytes"}
+    row_delta.commit(tmp_path, unstamped)
+    assert row_delta.read_head(tmp_path, OUTPUT) == unstamped
+
+    document["segments"][2]["family_keys"] = 2
+    row_delta.head_path(tmp_path, OUTPUT).write_text(json.dumps(document))
+    with pytest.raises(row_delta.HeadError, match="family keys it does not hold"):
+        row_delta.read_head(tmp_path, OUTPUT)
+
+
+def test_a_segment_that_merges_by_probe_is_refused_by_both_stream_readers(tmp_path):
+    """A settle memo's head names the probe merge, which `read_head` accepts, and every segment header repeats it, so neither stream reader reads one as its own kind: the merge by place and the merge by key both refuse a header that names the probe merge."""
+    probing = row_delta.write_part(
+        tmp_path,
+        row_delta.segment_name(OUTPUT, 0, 1),
+        lambda stream: (stream.write(row_delta.segment_header(OUTPUT, 0, 1, row_delta.MERGE_PROBE)), (0, 0))[
+            1
+        ],
+    )
+    with open(tmp_path / probing.name, "rb") as handle:
+        with pytest.raises(
+            row_delta.HeadError, match="merges by place, and segment 1's header says it merges by probe"
+        ):
+            list(row_delta.segment_rows(handle, OUTPUT, 0, 1))
+        with pytest.raises(
+            row_delta.HeadError, match="merges by key, and segment 1's header says it merges by probe"
+        ):
+            list(row_delta.keyed_segment_rows(handle, OUTPUT, 0, 1))
+    base = row_delta.Part(row_delta.base_name(OUTPUT, 0), 1, "", 1, 14)
+    row_delta.commit(tmp_path, row_delta.Head(OUTPUT, 0, 0, {}, base, (probing,), row_delta.MERGE_PROBE))
+    read = row_delta.read_head(tmp_path, OUTPUT)
+    assert read is not None and read.merge == row_delta.MERGE_PROBE
+
+
+def test_the_bloom_filter_has_no_false_negatives_and_about_its_designed_false_positive_rate():
+    """A blocked Bloom filter at 10 bits a key in 512-bit blocks answers every key it holds, and holds about one in a hundred keys it does not, near the 0.8% an unblocked filter of 10 bits a key gives; built from its keys a chunk at a time, it matches a filter set a key at a time through `bloom_block` and `bloom_mask`, and a filter over no key holds nothing. Dead bitmaps pack a byte a row into a bit a row and unpack to the same bytes, over more rows than one chunk of the packing too."""
+    import random
+
+    chooser = random.Random(30)
+    keys = [chooser.getrandbits(64) for _ in range(20_000)]
+    blocks = row_delta.bloom_blocks(len(keys))
+    assert blocks == -(-len(keys) * 10 // 512)
+    built = row_delta.bloom_filter([keys[:7_001], keys[7_001:]], blocks)
+    one_at_a_time = bytearray(blocks * 64)
+    for key in keys:
+        at = row_delta.bloom_block(key, blocks) * 64
+        block = int.from_bytes(one_at_a_time[at : at + 64], "little") | row_delta.bloom_mask(key)
+        one_at_a_time[at : at + 64] = block.to_bytes(64, "little")
+    assert built == bytes(one_at_a_time)
+    view = memoryview(built)
+    assert all(row_delta.bloom_contains(view, blocks, key, row_delta.bloom_mask(key)) for key in keys)
+    others = [chooser.getrandbits(64) for _ in range(100_000)]
+    rate = sum(
+        row_delta.bloom_contains(view, blocks, key, row_delta.bloom_mask(key)) for key in others
+    ) / len(others)
+    assert 0.002 < rate < 0.02
+    assert row_delta.bloom_filter([], 0) == b"" and not row_delta.bloom_contains(b"", 0, keys[0], 1)
+    flags = bytes(chooser.getrandbits(1) for _ in range(1001))
+    packed = row_delta.packed_flags(flags)
+    assert len(packed) == 126 and row_delta.bitmap_flags(packed, 1001) == flags
+    rows = row_delta._CHUNK + 1001
+    flags = bytes(map(operator.and_, chooser.randbytes(rows), itertools.repeat(1)))
+    packed = row_delta.packed_flags(bytearray(flags))
+    assert len(packed) == (rows + 7) // 8 and row_delta.bitmap_flags(packed, rows) == flags

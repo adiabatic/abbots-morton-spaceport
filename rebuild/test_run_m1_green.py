@@ -22,6 +22,7 @@ from rebuild.pipeline import (
     fixtures,
     oracle,
     oracle_cache,
+    row_delta,
     run_m1,
     run_m1_gates,
 )
@@ -976,7 +977,8 @@ class TestOracleFanIn:
         )
         absorbed: dict[str, list[int]] = {}
 
-        def absorb(memo, spec, parts, sweep=None):
+        def absorb(memo, spec, parts, sweep=None, route=None):
+            assert route is not None and route.output == memo.path.name and route.reason == "first"
             absorbed[memo.path.name] = [counts.rows for _shipped, counts in parts]
             written = memo.path.name == "settle-memo-default.bin"
             return conform.MemoAbsorb(written, 3, 0, 2, standing=3, parts=2, index="reused"), 0.5, 7
@@ -1044,7 +1046,8 @@ class TestOracleFanIn:
             },
         )
 
-        def absorb(memo, spec, parts, sweep=None):
+        def absorb(memo, spec, parts, sweep=None, route=None):
+            assert route is not None and route.output == memo.path.name
             order.append(("absorb", memo.path.name, [counts for _shipped, counts in parts]))
             return conform.MemoAbsorb(False, 0, 0, 0), 0.0, 7_000
 
@@ -1442,7 +1445,8 @@ class TestConformFanIn:
         monkeypatch.setattr(conform, "_conformance_config", swept)
         absorbed: dict[str, list] = {}
 
-        def absorb(memo, spec, parts, sweep):
+        def absorb(memo, spec, parts, sweep, route=None):
+            assert route is not None and route.output == memo.path.name
             flags = zlib.decompress(sweep.reached)
             absorbed[memo.path.stem.removeprefix("settle-memo-")] = [
                 [counts for _shipped, counts in parts],
@@ -1638,7 +1642,7 @@ class TestConformFanIn:
     def test_the_sweeps_file_is_the_same_whatever_order_its_units_finish_in(
         self, monkeypatch, tmp_path, capsys
     ):
-        """Every unit of `default` restates one window with an outcome of its own, so the outcome the file keeps is the last unit's its absorb reads. The parent hands the absorb its units' fresh windows in unit-slot order, so whether the units finish in slot order or the reverse, the file comes out byte for byte as the absorb writes it from the units in slot order. Each unit reads the parent's spec dump and runs in a process of its own, and the parent reports the most its units' segments held at once on its `[t] conform_fan_in` line."""
+        """Every unit of `default` restates one window with an outcome of its own, so the outcome the file keeps is the last unit's its absorb reads. The parent hands the absorb its units' fresh windows in unit-slot order, so whether the units finish in slot order or the reverse, the file, its first base, comes out byte for byte as the absorb writes it from the units in slot order. Each unit reads the parent's spec dump and runs in a process of its own, and the parent reports the most its units' segments held at once on its `[t] conform_fan_in` line."""
         self._pool(monkeypatch)
         memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", "stamp")
         monkeypatch.setattr(conform, "settle_memo_files", lambda out_dir, spec, inputs: {"default": memo})
@@ -1679,8 +1683,11 @@ class TestConformFanIn:
                 run_m1_gates, "wait", lambda futures, return_when, order=order: (order(list(futures)), set())
             )
             run_m1_gates.run_font_conformance(out_dir=tmp_path, jobs=4)
-            written[name] = memo.path.read_bytes()
-            memo.path.unlink()
+            head = row_delta.read_head(tmp_path, memo.path.name)
+            assert head is not None and not head.segments
+            written[name] = (tmp_path / head.base.name).read_bytes()
+            for path in tmp_path.glob(f"{memo.path.name}*"):
+                path.unlink()
         reference = tmp_path / "reference.bin"
         conform.absorb_settle_memo(
             memo,
