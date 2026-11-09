@@ -15,7 +15,7 @@ rows:
     slug: third-slot-forced-dead-ah-before-gay-no
     patch: faults/01.patch
     alphabet: [qsPea, qsTea, qsGay, qsSee, qsNo, qsAh, qsOy, qsUtter, qsSee_qsUtter]
-    effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
+    effect: [rebuild/out/m1/windows-default.tsv.gz.head, rebuild/out/m1/windows-default.head.json.gz, rebuild/out/m1/settlement-default.tsv]
     unreached: [witness]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
@@ -35,7 +35,7 @@ rows:
     slug: product-row-dropped-awe-after-ah-before-at-may
     patch: faults/02.patch
     alphabet: [qsPea, qsTea, qsSee, qsMay, qsAt, qsAh, qsAwe, qsUtter, qsSee_qsUtter]
-    effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
+    effect: [rebuild/out/m1/windows-default.tsv.gz.head, rebuild/out/m1/windows-default.head.json.gz, rebuild/out/m1/settlement-default.tsv]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
         gate: string-replay
@@ -54,7 +54,7 @@ rows:
     slug: right1-unpinned-ye-loop-before-see
     patch: faults/03.patch
     alphabet: [qsPea, qsTea, qsSee, qsYe, qsUtter, qsSee_qsUtter]
-    effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
+    effect: [rebuild/out/m1/windows-default.tsv.gz.head, rebuild/out/m1/windows-default.head.json.gz, rebuild/out/m1/settlement-default.tsv]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
         gate: enumeration
@@ -66,7 +66,7 @@ rows:
     slug: member-settles-apart-bay-after-extended-utter
     patch: faults/04.patch
     alphabet: [qsPea, qsBay, qsTea, qsDay, qsGay, qsSee, qsIt, qsUtter, qsDay_qsUtter]
-    effect: [rebuild/out/m1/windows-default.tsv.gz, rebuild/out/m1/settlement-default.tsv]
+    effect: [rebuild/out/m1/windows-default.tsv.gz.head, rebuild/out/m1/windows-default.head.json.gz, rebuild/out/m1/settlement-default.tsv]
     steps:
       - argv: [uv, run, python, -m, rebuild.pipeline.run_m1]
         exit: 0

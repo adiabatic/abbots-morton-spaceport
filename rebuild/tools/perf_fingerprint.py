@@ -8,7 +8,7 @@ Run it with the tree under test's own interpreter and code, never the harness's:
 
 The output is one `ams-perf-fingerprint/1` document:
 
-- `tables`: for each `rebuild/out/m1/windows-<config>.tsv.gz` present, `table.table_digest` over its decision table and `joins-<config>.tsv`, read one configuration at a time through the official readers, so a missing configuration shows up as a difference.
+- `tables`: for each configuration with a windows head under `rebuild/out/m1` (`windows-<config>.tsv.gz.head`), and for a tree from before the segment format each `windows-<config>.tsv.gz` present, `table.table_digest` over its decision table and `joins-<config>.tsv`, read one configuration at a time through the tree's own readers, so a missing configuration shows up as a difference. A configuration with a head is read in its materialized form (`table.read_materialized_windows`): its head file checked against its head, every part's size and sha256 checked against it too, and the base and segments merged into the whole payload. The digest recomputed from those rows must equal the crate's own, which the head records (`table.TABLE_DIGEST_STAMP`), and the script exits nonzero naming the configuration when it does not, so a fault in the merge cannot hide behind a digest the crate reported of itself.
 - `fonts`: `fingerprint.font_content_digest` of `rebuild/out/m1/M1.otf`, the corpus's `fonts/{before,after}.otf` and the six site fonts, null for a font that is missing.
 - `corpus`: one digest per file under `rebuild/out/review/` but the two stores, and a digest over the sorted `path<TAB>digest` lines. `manifest.json` and `review-facts.json` are digested as canonical JSON without the keys `MANIFEST_STAMPS` names (for the facts file, inside its `corpus` block), and without each manifest font's raw `sha256`; a gzip sidecar as its decompressed stream, with a JSON header line re-serialized without the keys `SIDECAR_STAMPS` names; a corpus font by its content digest; every other file raw.
 - `stores`: the same header projection applied to the stores `STORES` names. A difference there is an intermediate format differing, which a report names apart.
@@ -19,7 +19,7 @@ The output is one `ams-perf-fingerprint/1` document:
 
 A corpus whose unit store has a head (`unit-cache.ndjson.gz.head`, #618's change 28) is read in its materialized form (decision 48, the tree's `build.MaterializedCorpus`): each class's live fragments laid into the parts a from-scratch build writes, the manifest's `shards` lists, the app sidecars' rows and their locator blocks in that layout, and the unit store's head, base and segments merged into the single file a whole write gives, under the key `unit-cache.ndjson.gz`, every store part checked against its head's size and sha256. The store's head, base and segment files are left out of the `corpus` block. So a build that appends a changed fragment, and a later fold, move no digest.
 
-Two readings of the same outputs fingerprint identically, so a difference across a pass that changed no output names a missed stamp.
+Two readings of the same outputs fingerprint identically, so a difference across a pass that changed no output names a missed stamp, and a tree whose windows rows are held as a base and segments fingerprints as its folded form and as the single file a build before the segment format wrote.
 """
 
 from __future__ import annotations
@@ -253,16 +253,37 @@ def complaints_digest(path: Path) -> str | None:
     return sha256_bytes(canonical(document))
 
 
+class DigestMismatch(Exception):
+    """Raised when a configuration's table digest, recomputed from its materialized rows, is not the crate's digest its windows head records."""
+
+
+def table_configs(m1: Path) -> dict[str, bool]:
+    """Return each configuration with windows rows under `m1`, mapped to whether it has a windows head: every `windows-<config>.tsv.gz.head`, and every `windows-<config>.tsv.gz` a tree from before the segment format holds without one."""
+    prefix = "windows-"
+    found: dict[str, bool] = {}
+    for suffix, headed in ((".tsv.gz.head", True), (".tsv.gz", False)):
+        for path in m1.glob(f"{prefix}*{suffix}"):
+            found.setdefault(path.name[len(prefix) : -len(suffix)], headed)
+    return dict(sorted(found.items()))
+
+
 def table_digests(m1: Path, table: ModuleType) -> dict[str, str]:
-    """Return `table.table_digest` per configuration whose windows file exists, through the tree's own readers, one configuration at a time so only one decision table is held."""
+    """Return `table.table_digest` per configuration with windows rows (`table_configs`), through the tree's own readers, one configuration at a time so only one decision table is held: from the materialized form, every part checked, where the configuration has a windows head, and raising `DigestMismatch` naming it when the digest is not the one its head records; from the single file otherwise."""
     digests: dict[str, str] = {}
-    prefix, suffix = "windows-", ".tsv.gz"
-    for path in sorted(m1.glob(f"{prefix}*{suffix}")):
-        config = path.name[len(prefix) : -len(suffix)]
-        _, decision = table.read_windows(table.windows_path(m1, config))
+    for config, headed in table_configs(m1).items():
         joins = table.read_join_tsv(m1 / f"joins-{config}.tsv")
+        if headed:
+            _, decision = table.read_materialized_windows(m1, config, sha256=True)
+            recorded = table.windows_head(m1, config).stamps.get(table.TABLE_DIGEST_STAMP)
+        else:
+            _, decision = table.read_windows(table.windows_path(m1, config))
+            recorded = None
         digests[config] = table.table_digest(decision, joins)
         del decision, joins
+        if headed and digests[config] != recorded:
+            raise DigestMismatch(
+                f"{config}: the table digest of its materialized rows, {digests[config]}, is not the crate's {recorded} its windows head records"
+            )
     return digests
 
 
@@ -312,9 +333,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     root = args.root.resolve()
     table, fingerprint = tree_modules(root)
-    document = fingerprint_tree(
-        root, table=table, font_digest=fingerprint.font_content_digest, materialize=tree_materialize
-    )
+    try:
+        document = fingerprint_tree(
+            root, table=table, font_digest=fingerprint.font_content_digest, materialize=tree_materialize
+        )
+    except DigestMismatch as error:
+        print(f"perf_fingerprint: {error}", file=sys.stderr)
+        return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(document, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return 0

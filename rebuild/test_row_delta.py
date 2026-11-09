@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 from pathlib import Path
 
@@ -23,8 +24,6 @@ def _base(directory: Path, rows: list[bytes], generation: int = 0) -> row_delta.
 
 
 def _materialized(directory: Path) -> list[tuple[row_delta.Place, bytes]]:
-    import gzip
-
     head = row_delta.read_head(directory, OUTPUT)
     assert head is not None
     with row_delta.open_parts(directory, head, sha256=True) as opened:
@@ -178,3 +177,100 @@ def test_the_share_rule_and_the_fold_decide_a_new_base(monkeypatch):
     assert row_delta.fold_due(row_delta.Head(OUTPUT, 0, 0, {}, base, (segment,) * 3), cap=3)
     monkeypatch.setattr(row_delta, "SEGMENT_CAP", 2)
     assert row_delta.fold_due(row_delta.Head(OUTPUT, 0, 0, {}, base, (segment,) * 2))
+
+
+def _keyed_segment(directory: Path, number: int, rows: list[bytes], generation: int = 0) -> row_delta.Part:
+    def fill(stream) -> tuple[int, int]:
+        stream.write(row_delta.segment_header(OUTPUT, generation, number, row_delta.MERGE_KEY))
+        for row in rows:
+            stream.write(row)
+        return len(rows), sum(map(len, rows))
+
+    return row_delta.write_part(directory, row_delta.segment_name(OUTPUT, generation, number), fill)
+
+
+def _key(row: bytes) -> list[bytes]:
+    return row[: row.rindex(b"\t")].split(b"\t")
+
+
+def _tombstone_key(payload: bytes) -> list[bytes]:
+    return payload.rstrip(b"\n").split(b"\t")
+
+
+def test_a_keyed_merge_lets_the_latest_part_win_at_each_key_and_says_so_in_every_header(tmp_path):
+    """Parts that merge by key: the head and every segment header say so, a segment's rows are upserts and tombstones in key order, and the merge yields the live rows in key order, the latest part's row winning at each key, a tombstone removing it, and a key no earlier part holds added. Keys compare field by field, so `a\\tb` sorts before `ab`, as the crate sorts them, and a segment out of key order is refused."""
+    base_rows = [b"a\tb\t1\n", b"ab\t\t1\n", b"c\tc\t1\n"]
+    base = _base(tmp_path, base_rows)
+    first = _keyed_segment(tmp_path, 1, [b"+\ta\tb\t2\n", b"-\tc\tc\n", b"+\td\td\t2\n"])
+    second = _keyed_segment(tmp_path, 2, [b"+\ta\tb\t3\n", b"+\tc\tc\t3\n", b"-\td\td\n", b"-\tz\tz\n"])
+    head = row_delta.Head(OUTPUT, 0, 2, {}, base, (first, second), row_delta.MERGE_KEY)
+    row_delta.commit(tmp_path, head)
+    assert json.loads(row_delta.head_path(tmp_path, OUTPUT).read_text())["merge"] == "key"
+    read = row_delta.read_head(tmp_path, OUTPUT)
+    assert read is not None and read == head
+    with row_delta.open_parts(tmp_path, read, sha256=True) as opened:
+        opened.handles[0].seek(0)
+        with gzip.GzipFile(fileobj=opened.handles[0], mode="rb") as stream:
+            next(stream)
+            segments = [
+                row_delta.keyed_segment_rows(handle, OUTPUT, 0, number)
+                for number, handle in enumerate(opened.handles[1:], start=1)
+            ]
+            merged = list(row_delta.merge_keyed(stream, segments, _key, _tombstone_key))
+    assert merged == [b"a\tb\t3\n", b"ab\t\t1\n", b"c\tc\t3\n"]
+    backwards = [(row_delta.UPSERT, b"b\tb\t1\n"), (row_delta.UPSERT, b"a\ta\t1\n")]
+    with pytest.raises(ValueError, match="out of key order"):
+        list(row_delta.merge_keyed(iter(base_rows), [backwards], _key, _tombstone_key))
+
+
+def test_a_segment_of_the_other_kind_of_merge_is_refused(tmp_path):
+    """A head's merge, by place or by key, is repeated in each segment's header, so a reader refuses a segment written for the other: a placed segment under a keyed head, and a keyed one read as placed. A head by place writes no `merge` field, so the unit store's head reads as it did before outputs merged by key."""
+    base = _base(tmp_path, [b"a\ta\t1\n"])
+    placed = row_delta.write_segment(
+        tmp_path, OUTPUT, 0, 1, [row_delta.Row(row_delta.UPSERT, (0, ""), b"a\ta\t2\n")]
+    )
+    keyed = row_delta.Head(OUTPUT, 0, 1, {}, base, (placed,), row_delta.MERGE_KEY)
+    row_delta.commit(tmp_path, keyed)
+    with row_delta.open_parts(tmp_path, keyed) as opened:
+        with pytest.raises(
+            row_delta.HeadError, match="merges by key, and segment 1's header says it merges by place"
+        ):
+            list(row_delta.keyed_segment_rows(opened.handles[1], OUTPUT, 0, 1))
+    assert "merge" not in row_delta.Head(OUTPUT, 0, 0, {}, base).document()
+    by_key = _keyed_segment(tmp_path, 1, [b"+\ta\ta\t2\n"])
+    with open(tmp_path / by_key.name, "rb") as handle:
+        with pytest.raises(
+            row_delta.HeadError, match="merges by place, and segment 1's header says it merges by key"
+        ):
+            list(row_delta.segment_rows(handle, OUTPUT, 0, 1))
+
+
+def test_one_output_folds_a_pass_and_one_at_its_overrun_folds_anyway(monkeypatch, tmp_path):
+    """At most one output holds a pass's fold: under a cycle's run the claim is a file in the cycle's directory naming the run and the output, so a second output loses it for the rest of that run, the holder keeps it, and the next run's first claimant takes it over. Outside a cycle the process holds it, one a cycle directory. An output whose segments reach its cap plus `FOLD_OVERRUN` folds whatever the claim says, and one below that waits."""
+    from rebuild.tools import cycle_paths, cycle_timings
+
+    assert row_delta.CYCLE_RUN_ENV == cycle_timings.CYCLE_RUN_ENV
+    monkeypatch.setattr(cycle_paths, "CYCLE_VAR", tmp_path / "process")
+    assert row_delta.claim_fold("windows-default.tsv.gz")
+    assert row_delta.claim_fold("windows-default.tsv.gz")
+    assert not row_delta.claim_fold("windows-ss03.tsv.gz")
+    monkeypatch.setattr(cycle_paths, "CYCLE_VAR", tmp_path / "cycle")
+    monkeypatch.setenv(row_delta.CYCLE_RUN_ENV, "run-1")
+    assert row_delta.claim_fold("windows-ss03.tsv.gz")
+    assert not row_delta.claim_fold("unit-cache.ndjson.gz")
+    assert row_delta.claim_fold("windows-ss03.tsv.gz")
+    claim = tmp_path / "cycle" / cycle_paths.FOLD_CLAIM_NAME
+    assert json.loads(claim.read_text()) == {"run": "run-1", "output": "windows-ss03.tsv.gz"}
+    monkeypatch.setenv(row_delta.CYCLE_RUN_ENV, "run-2")
+    assert row_delta.claim_fold("unit-cache.ndjson.gz")
+    assert not row_delta.claim_fold("windows-ss03.tsv.gz")
+    base = row_delta.Part(row_delta.base_name(OUTPUT, 0), 1, "", 10, 1000)
+    segment = row_delta.Part(row_delta.segment_name(OUTPUT, 0, 1), 1, "", 1, 10)
+    waiting = row_delta.Head(
+        OUTPUT, 0, 0, {}, base, (segment,) * (row_delta.SEGMENT_CAP + row_delta.FOLD_OVERRUN - 1)
+    )
+    assert row_delta.fold_due(waiting) and not row_delta.fold_forced(waiting)
+    at_overrun = row_delta.Head(
+        OUTPUT, 0, 0, {}, base, (segment,) * (row_delta.SEGMENT_CAP + row_delta.FOLD_OVERRUN)
+    )
+    assert row_delta.fold_forced(at_overrun)

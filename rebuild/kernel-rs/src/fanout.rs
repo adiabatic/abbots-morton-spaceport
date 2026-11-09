@@ -24,6 +24,7 @@ use crate::memo::{Exclusion, MemoSnapshot, SharedMemo, unlocking_runes};
 use crate::model::Sym;
 use crate::options::WindowOptions;
 use crate::replay;
+use crate::row_merge;
 use crate::stream::{self, FixpointProduct};
 
 /// One configuration to run: the token that names it (the file name, the stream head's `config`, and the label on its timing lines) and the features the token resolves to.
@@ -338,13 +339,13 @@ pub struct TableAnswer {
 /// How many exchange rounds a table build allows before it gives up. Each round that does not end the exchange imports at least one window that no configuration held before it, so the bound only catches a fault in the exchange itself.
 const EXCHANGE_ROUNDS: usize = 64;
 
-/// Builds every configuration's settlement table, join table, window file, and digest under `outdir`, running at most `workers` enumerations or folds at once. Each delta reads `default`'s memo where `sharing` allows.
+/// Builds every configuration's settlement table, join table, window file, and digest under `outdir`, running at most `workers` enumerations or folds at once. Each delta reads `default`'s memo where `sharing` allows. `previous` lists, by listed position, each configuration's previous windows rows, its base and then its segments ([`row_merge::PriorPart`]), against which its window file holds only the rows that differ ([`artifacts::write_windows`]); a configuration with none, or past the list's end, writes its whole enumeration.
 ///
 /// Every configuration runs on a thread of its own from its enumeration to its files, because its product and window options hold `Rc`s and cannot cross threads (`EnumeratedTables`). The threads meet on a `Board`, which grants `workers` slots in ticket order and holds the rendezvous of the exchange:
 ///
 /// - Each configuration enumerates, then prepares its fold ([`fold::Prepared`]), folds its rules from its own rows, publishes them in canonical labels ([`crossconfig::SharedRules`]), and parks its prepared product ([`fold::Parked`]), all inside one slot, so that every product waits compact beside the deltas still enumerating.
 /// - Once every configuration has published and parked, each reads its product back whole ([`fold::Parked::unpark`]), and the exchange runs in rounds ([`crossconfig`]). In each, every configuration evaluates every configuration's rules over its own rows, for the inputs any configuration refolded in the last round, and leaves each other configuration the rows that configuration answers wrongly where the shipped order lets that answer fire, and the rows one of the evaluator's own rules answers where that configuration publishes the rule's key with another outcome, wherever that configuration's own rule ships ([`crossconfig::exports`]); then every configuration takes in what it was left, refolds the inputs that gained rows, and publishes again. The rounds end when no configuration took in anything, and a configuration fails if another still publishes one of its rule keys with another outcome ([`crossconfig::one_outcome_per_key`]), which the emitter refuses. The exchange holds no slot: what a configuration holds through it is its product read back, expansion and row chains included, and the evaluation adds little.
-/// - Each configuration then finishes its fold inside a slot: the partition replay over its own and its imported rows, the certificates, the three artifact files, and the digest.
+/// - Each configuration then finishes its fold inside a slot: the partition replay over its own and its imported rows, the certificates, the three artifact files, with the merge of its window rows against its previous ones when it has any, and the digest.
 ///
 /// When `default_memo_sharing` is on and the set has the no-feature configuration and at least one other, `default` enumerates on the calling thread, taking no slot. Beside it, the head of [`delta_worklist`] that [`scratch_tiers`] takes from at most `scratch_beside_default` entries, capped at one less than `workers`, enumerates from scratch on threads of their own from the start, each taking a slot in that order; with none of them, `default` enumerates alone. `default` keeps its memo only while a delta is left to read it ([`default_access`]). The calling thread then continues as `default`'s thread, whose preparation takes the next slot, while each remaining delta takes a slot in [`delta_worklist`] order and reads `default`'s memo behind an exclusion of its own unlocking runes; `default`'s memo is freed when the last delta has enumerated. A failure or a panic in `default`'s enumeration halts the board, so the configurations enumerating beside it stop at their next turn. When `default_memo_sharing` is off, or the set has no `default` or nothing beside it, there is no in-process memo to share, and every configuration enumerates from scratch, reading no memo and keeping none, and takes its slot in list order.
 ///
@@ -361,6 +362,7 @@ pub fn run_configs_tables(
     workers: usize,
     report: Report,
     sharing: MemoSharing,
+    previous: &[Vec<row_merge::PriorPart>],
 ) -> Result<Vec<TableAnswer>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
     let spellings = Spellings::new(
@@ -377,6 +379,7 @@ pub fn run_configs_tables(
         report,
         spellings: &spellings,
         board: &board,
+        previous,
     };
     let default_position = sharing
         .default_memo_sharing
@@ -475,7 +478,7 @@ pub fn run_configs_tables(
     settle_ends(ended, configs.len())
 }
 
-/// What every thread of one table build reads: the spec, where to write, the report flags, the build's spellings, and the board.
+/// What every thread of one table build reads: the spec, where to write, the report flags, the build's spellings, the board, and each configuration's previous windows rows by listed position.
 struct TableRun<'a> {
     index: &'a SpecIndex,
     outdir: &'a Path,
@@ -483,6 +486,7 @@ struct TableRun<'a> {
     report: Report,
     spellings: &'a Spellings,
     board: &'a Board,
+    previous: &'a [Vec<row_merge::PriorPart>],
 }
 
 /// Why a configuration's thread ended without its tables: its own failure, with the message the run reports, or a halt another configuration's failure caused while this thread waited.
@@ -708,7 +712,7 @@ fn settle_ends(
     }
 }
 
-/// One configuration's table build on its own thread, from its enumeration to its files, as [`run_configs_tables`] describes. `enumerate` runs inside the slot `ticket` is due. When asked, the timing lines are the enumeration's `enumerate[<config>]` after the cache stats' `[c]` lines, then `fold.prefixes[<config>]`, then, with the cache stats, `[c] <config> parked bytes= class_rows= fold_rows= stretches=`, the bytes its parked product's coded forms hold ([`fold::Parked::bytes`]) and how many class rows, label-grain rows and chain stretches they code, then `[c] <config> resident_parked`, the process's resident size once every configuration has parked its prepared product and before any reads it back, and, with the report's heap readings ([`Report`]), on the first-listed configuration's thread `[c] <config> parked_heap`, the bytes the process's malloc zones hold allocated at that point ([`crate::fixpoint::heap_bytes`]), which every other thread waits for before it reads its product back and which `kernel_exec.PARKED_FOLD_BYTES` is set from, and `[c] <config> read_back_heap`, the same once every configuration has read its product back, which every other thread waits for before the exchange starts and which `kernel_exec.READ_BACK_FOLD_BYTES` rests on as its floor, then `fold.exchange[<config>]` (the time this configuration spent evaluating, taking in and refolding, without the waits), and `fold.partition[<config>]` at millisecond precision, then `fold[<config>]`, which covers the preparation, the parking, the reading back and the finish.
+/// One configuration's table build on its own thread, from its enumeration to its files, as [`run_configs_tables`] describes. `enumerate` runs inside the slot `ticket` is due. When asked, the timing lines are the enumeration's `enumerate[<config>]` after the cache stats' `[c]` lines, then `fold.prefixes[<config>]`, then, with the cache stats, `[c] <config> parked bytes= class_rows= fold_rows= stretches=`, the bytes its parked product's coded forms hold ([`fold::Parked::bytes`]) and how many class rows, label-grain rows and chain stretches they code, then `[c] <config> resident_parked`, the process's resident size once every configuration has parked its prepared product and before any reads it back, and, with the report's heap readings ([`Report`]), on the first-listed configuration's thread `[c] <config> parked_heap`, the bytes the process's malloc zones hold allocated at that point ([`crate::fixpoint::heap_bytes`]), which every other thread waits for before it reads its product back and which `kernel_exec.PARKED_FOLD_BYTES` is set from, and `[c] <config> read_back_heap`, the same once every configuration has read its product back, which every other thread waits for before the exchange starts and which `kernel_exec.READ_BACK_FOLD_BYTES` rests on as its floor, then `fold.exchange[<config>]` (the time this configuration spent evaluating, taking in and refolding, without the waits), and `fold.partition[<config>]` at millisecond precision, then `fold.windows[<config>]`, the window file's write inside the finish, its merge against the previous rows included, at millisecond precision, then `fold[<config>]`, which covers the preparation, the parking, the reading back and the finish.
 fn table_thread<'a>(
     run: &TableRun<'a>,
     listed: usize,
@@ -899,11 +903,17 @@ fn table_thread<'a>(
             Some((run.spellings, listed)),
             if timings { Some(&mut reporter) } else { None },
         )
-        .and_then(|folded| write_tables(run, token, &folded));
+        .and_then(|folded| write_tables(run, token, listed, &folded));
     run.board.give_slot();
     watch.armed = false;
-    let digest = finished.map_err(fail)?;
+    let (digest, windowing) = finished.map_err(fail)?;
     timed.append(&mut fold_lines);
+    if timings {
+        timed.push(fold_timing_line(
+            &format!("fold.windows[{token}]"),
+            windowing,
+        ));
+    }
     folding += started.elapsed();
     if timings {
         timed.push(timing_line(&format!("fold[{token}]"), folding));
@@ -911,19 +921,36 @@ fn table_thread<'a>(
     Ok(TableAnswer { digest, timed })
 }
 
-/// Writes one configuration's three artifact files and returns its table digest. The settlement and join tables go through [`write_text`], which leaves a table whose bytes come out the same in place; the windows rows are written whole every time.
-fn write_tables(run: &TableRun<'_>, token: &str, folded: &fold::Folded) -> Result<String, String> {
+/// Writes one configuration's three artifact files and returns its table digest beside the time the window file's write took. The settlement and join tables go through [`write_text`], which leaves a table whose bytes come out the same in place. The window file is the whole enumeration for a configuration with no previous rows, and for one with them the rows that differ, merged by key against its base and segments, which it opens here, inside the finish's slot, each through one buffer of [`row_merge::BUFFER_BYTES`] ([`artifacts::write_windows`]). The digest is over the table's own rows either way.
+fn write_tables(
+    run: &TableRun<'_>,
+    token: &str,
+    listed: usize,
+    folded: &fold::Folded,
+) -> Result<(String, Duration), String> {
     let settlement = run.outdir.join(format!("settlement-{token}.tsv"));
     write_text(&settlement, &artifacts::settlement_tsv(&folded.decision))?;
     let joins = run.outdir.join(format!("joins-{token}.tsv"));
     write_text(&joins, &artifacts::join_tsv(&folded.joins))?;
     let windows = run.outdir.join(format!("windows-{token}.tsv"));
-    artifacts::write_windows(run.index, &folded.decision, run.inputs, &windows)
-        .map_err(|error| format!("{}: {error}", windows.display()))?;
-    Ok(artifacts::table_digest(
-        run.index,
-        &folded.decision,
-        &folded.joins,
+    let started = Instant::now();
+    match run.previous.get(listed).filter(|parts| !parts.is_empty()) {
+        Some(parts) => {
+            let mut merge = row_merge::KeyedMerge::open(token, parts)?;
+            artifacts::write_windows(
+                run.index,
+                &folded.decision,
+                run.inputs,
+                &windows,
+                Some(&mut merge),
+            )?;
+        }
+        None => artifacts::write_windows(run.index, &folded.decision, run.inputs, &windows, None)?,
+    }
+    let windowing = started.elapsed();
+    Ok((
+        artifacts::table_digest(run.index, &folded.decision, &folded.joins),
+        windowing,
     ))
 }
 
@@ -1607,6 +1634,7 @@ mod tests {
                         heap,
                     },
                     sharing.clone(),
+                    &[],
                 )
                 .expect("every configuration answers");
                 assert_eq!(answers.len(), configs.len());
@@ -1693,6 +1721,7 @@ mod tests {
                 workers,
                 Report::timed(true),
                 sharing,
+                &[],
             )
             .expect("every configuration answers");
             let labels: Vec<String> = answers
@@ -1712,16 +1741,19 @@ mod tests {
                     "fold.prefixes[default]",
                     "fold.exchange[default]",
                     "fold.partition[default]",
+                    "fold.windows[default]",
                     "fold[default]",
                     "enumerate[ss09]",
                     "fold.prefixes[ss09]",
                     "fold.exchange[ss09]",
                     "fold.partition[ss09]",
+                    "fold.windows[ss09]",
                     "fold[ss09]",
                     "enumerate[ss03]",
                     "fold.prefixes[ss03]",
                     "fold.exchange[ss03]",
                     "fold.partition[ss03]",
+                    "fold.windows[ss03]",
                     "fold[ss03]"
                 ],
                 "{arm} at {workers} workers"
@@ -1831,6 +1863,7 @@ mod tests {
             8,
             Report::timed(false),
             MemoSharing::default(),
+            &[],
         )
         .expect("ss03 closes on its own");
         let error = run_configs_tables(
@@ -1842,6 +1875,7 @@ mod tests {
             8,
             Report::timed(false),
             beside_default(),
+            &[],
         )
         .expect_err("default's labels collide");
         assert!(
@@ -1872,6 +1906,7 @@ mod tests {
             2,
             Report::timed(false),
             MemoSharing::default(),
+            &[],
         )
         .expect_err("a directory in the settlement table's place is not writable");
         assert!(
@@ -1895,6 +1930,7 @@ mod tests {
             2,
             Report::timed(false),
             MemoSharing::default(),
+            &[],
         )
         .expect_err("no configuration can write its settlement table");
         assert!(

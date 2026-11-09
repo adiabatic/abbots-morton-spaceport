@@ -305,7 +305,7 @@ def route(out_dir: Path, configs: Sequence[str]) -> dict[str, Path]:
     out_dir.mkdir(parents=True)
     paths: dict[str, Path] = {}
     for config in configs:
-        settlement, joins, _packed = run_m1.config_table_files(out_dir, config)
+        settlement, joins = run_m1.config_table_files(out_dir, config)[:2]
         settlement.symlink_to(os.devnull)
         joins.symlink_to(os.devnull)
         paths[f"{WINDOWS} {config}"] = kernel_exec.windows_payload(out_dir, config)

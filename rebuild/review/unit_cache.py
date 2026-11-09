@@ -193,6 +193,7 @@ KERNEL_NON_CORPUS_MODULES = frozenset(
         "liveness.rs",
         "options.rs",
         "replay.rs",
+        "row_merge.rs",
         "rulefold.rs",
         "sha256.rs",
         "shipped_order.rs",
@@ -978,7 +979,7 @@ def update_store(
 
     With a prior store that read to its end in this format, which the plan put under a head (`adopt_single_file`) if it had none, it writes only what changed, as one segment of the prior generation. A record is matched to its prior line by input key (`prior_line`, which the plan filled), and `unchanged` says, without building the line, that a record is its prior line (a cached fragment written as it was, at its own address). The base's lines carry no triage key, so each record has a place (`row_delta.Place`): the records that keep theirs are the longest run of them whose prior lines ascend in this order (`_kept`), so the fewest move. A kept record whose line changed is an upsert at its own place; every other record of this pass is an upsert at a place cut between the kept records around it (`row_delta.places_between`); and every prior line no kept record holds is a tombstone at its place, a record no unit of this pass names and the old place of every record that moved. The segment's rows are built in that order, which is place order, and held as columns of ordinals and places (`_SegmentRows`) until the share rule is decided, so the parent holds the changed records' places and not their lines, and each changed line is built twice.
 
-    A new base is written instead, under the format's rules: when no store read before (`first` when none existed, `unusable` when one did, which `output_sink.note_rewritten` counts as `rewritten whole`), when a stamp line says every record is re-derived (`rederived`), when the prior head's fold is due (`fold`), or when the segment would pass half the base's row bytes (`share`, `row_delta.writes_base` over the segment's exact line bytes). With no record changed, it writes the head alone, with this pass's stamps. Before any part is written, the parts no head lists are deleted, and the single file a store written before the segment format leaves is removed once the new head is in place.
+    A new base is written instead, under the format's rules: when no store read before (`first` when none existed, `unusable` when one did, which `output_sink.note_rewritten` counts as `rewritten whole`), when a stamp line says every record is re-derived (`rederived`), when the prior head's fold is due and the store holds the pass's one fold or has waited `row_delta.FOLD_OVERRUN` segments past its cap for it (`fold`, `row_delta.claim_fold`, `row_delta.fold_forced`; a store whose fold another output holds writes its segment), or when the segment would pass half the base's row bytes (`share`, `row_delta.writes_base` over the segment's exact line bytes). With no record changed, it writes the head alone, with this pass's stamps. Before any part is written, the parts no head lists are deleted, and the single file a store written before the segment format leaves is removed once the new head is in place.
     """
     header = store_header(out_dir, environment, parts)
     prior = plan.head
@@ -1009,7 +1010,11 @@ def update_store(
         return whole("share")
     finally:
         opened.close()
-    if plan.head is not None and row_delta.fold_due(plan.head):
+    if (
+        plan.head is not None
+        and row_delta.fold_due(plan.head)
+        and (row_delta.claim_fold(STORE_NAME) or row_delta.fold_forced(plan.head))
+    ):
         if not rows:
             content -= 1
         return whole("fold")

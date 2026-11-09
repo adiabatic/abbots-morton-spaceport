@@ -11,17 +11,27 @@ Rows carry two deep slots, `right3` and `right4`. The kernel splits a window by 
 A row is joint when either §6.1 flag applies: the final tiebreak broke a ranking tie between candidates that differ in junction, or the optimistic prospect differs from the follower's settled choice. Both TSV artifacts are diff-stable (§8): a deterministic row order, provenance pointers, and deterministic labels.
 
 The windows artifact stores a built table so the conformance sweep does not rebuild from unchanged sources: the rules, the reachable cells, one certificate per rule, and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. `read_windows` returns the windows as `Window` rows, labels only, which is all a replay reads. The head alone gives the reachable cells, the witness stage's certificates, the windows the table imported from other configurations, which the string replay's narrowing reads, and where the crate's exchange expects the emitter to ship each rule (`fold_order`, `buckets`), which `emit_gsub._fold_rules` checks against the order it ships. Neither digest in this module reads the certificates, the imports or that expectation, because they are evidence about the rules, not part of what the rules say.
+
+Each configuration's windows artifact is held in two files and the segment format (`rebuild/pipeline/row_delta.py`), all written by `run_m1.build_tables`:
+
+- The head file, `windows-<config>.head.json.gz` (`windows_head_file`): the payload's head line exactly as the crate writes it, the marker, a tab, the JSON head and a newline, gzipped as a base is, so `read_windows` reads it with `windows=False` as it reads a whole payload.
+- The rows, the output `windows-<config>.tsv.gz` (`windows_output`): a head, `windows-<config>.tsv.gz.head` (`windows_head_path`), which merges its parts by key (`row_delta.MERGE_KEY`), lists a base, a whole payload as the crate wrote it once, its inline head line included, and the segments of the rows that differ that later builds wrote over it. Its stamps are the build's `inputs`, the crate's `table_digest` over the table's own rows and the head file's name, size and sha256, so the head is the single commit point for both files.
+
+`read_windows_head` is the one reader of a configuration's head: it checks the head file against the head's stamps before it parses it, so a head file a build left without committing its head reads as a missing build, never as a current stamp over old rows. Every reader of the head (`run_m1.serialized_tables` and through it the conformance sweep, `--gates-only`, the artifact cycle's stamp checks and the deep tools, `artifact_cycle.tables_imports_digest` and `deep_sweep.targeted_lines`) goes through it, and `rebuild/test_windows.py`'s contract test fails on any other. The materialized form of the rows (`materialized_windows`) is the head file's line, the column line and the base and segments merged by key: the whole payload the crate would write for the same table, byte for byte (#618's decision 48), which `read_materialized_windows` and `perf_fingerprint` read. A tree from before the segment format holds the whole payload gzipped in the single file `windows-<config>.tsv.gz` (`windows_path`), which the next build adopts as its output's first base.
 """
 
 from __future__ import annotations
 
+import errno
 import gzip
 import hashlib
+import io
 import json
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, Iterator, Mapping
+from typing import IO, Iterable, Iterator, Mapping, Protocol
 
+from rebuild.pipeline import row_delta
 from rebuild.pipeline.model import RIGHT_WINDOW_SLOTS, CellId, Settled
 
 EDGE_LABEL = "#EDGE"
@@ -239,10 +249,148 @@ def read_join_tsv(path: Path) -> JoinTable:
 
 WINDOWS_FORMAT = "ams-m1-windows/3"
 WINDOWS_COLUMNS = ("input", "left", "lookahead1", "lookahead2", "lookahead3", "lookahead4", "outcome")
+WINDOWS_COLUMN_LINE = ("\t".join(WINDOWS_COLUMNS) + "\n").encode()
+WINDOWS_MARKER = f"# {WINDOWS_FORMAT}\t".encode()
+# The stamps a windows output's head carries (`read_windows_head`).
+INPUTS_STAMP = "inputs"
+TABLE_DIGEST_STAMP = "table_digest"
+HEAD_FILE_STAMP = "head_file"
+
+
+def windows_output(config: str) -> str:
+    """The name of one configuration's windows rows as an output in the segment format (`row_delta`), whose head is `<name>.head` and whose parts are `<name>.<gen>.base` and `<name>.<gen>.<n>.delta`; also the name of the single file a tree from before the segment format holds (`windows_path`)."""
+    return f"windows-{config}.tsv.gz"
 
 
 def windows_path(out_dir: Path, config: str) -> Path:
-    return Path(out_dir) / f"windows-{config}.tsv.gz"
+    """The single file, the whole payload gzipped, that a tree from before the segment format holds for one configuration, and that the next build adopts as its output's first base."""
+    return Path(out_dir) / windows_output(config)
+
+
+def windows_head_path(out_dir: Path, config: str) -> Path:
+    """One configuration's windows output's head, the commit point for its rows and its head file."""
+    return row_delta.head_path(Path(out_dir), windows_output(config))
+
+
+def windows_head_file(out_dir: Path, config: str) -> Path:
+    """One configuration's head file, its payload's head line gzipped, which the head's `head_file` stamp names."""
+    return Path(out_dir) / f"windows-{config}.head.json.gz"
+
+
+def windows_head(out_dir: Path, config: str) -> row_delta.Head:
+    """Read one configuration's windows output's head. Raises `FileNotFoundError` when there is none, and `row_delta.HeadError`, a `ValueError`, when it does not read or does not merge by key."""
+    path = windows_head_path(out_dir, config)
+    head = row_delta.read_head(Path(out_dir), windows_output(config))
+    if head is None:
+        raise FileNotFoundError(errno.ENOENT, "no windows head", str(path))
+    if head.merge != row_delta.MERGE_KEY:
+        raise row_delta.HeadError(f"{path.name} does not merge its parts by key")
+    return head
+
+
+def _head_file_bytes(out_dir: Path, config: str, head: row_delta.Head) -> bytes:
+    """Read the head file `head`'s stamps name and check it against them: its name, size and sha256. A head file that differs raises `ValueError`, since the build that wrote it never committed a head over it."""
+    recorded = head.stamps.get(HEAD_FILE_STAMP)
+    path = windows_head_file(out_dir, config)
+    if not isinstance(recorded, dict) or recorded.get("name") != path.name:
+        raise ValueError(f"{windows_head_path(out_dir, config).name} names no head file {path.name}")
+    raw = path.read_bytes()
+    if len(raw) != recorded.get("size") or hashlib.sha256(raw).hexdigest() != recorded.get("sha256"):
+        raise ValueError(
+            f"{path.name} is not the head file its head records: the build that wrote it never committed"
+        )
+    return raw
+
+
+def read_windows_head(out_dir: Path, config: str) -> tuple[str, DecisionTable]:
+    """Read one configuration's table from its head file, without the window rows, as `read_windows` reads a payload with `windows=False`: the fingerprint of the sources it was built from and the decision table. The one reader of a configuration's head: it reads the windows output's head and checks the head file against the name, size and sha256 its stamps record before it parses it. Raises OSError when the head or the head file is missing, and ValueError when either does not read, the head file is not the one the head records, or it is not a head line in this format, so a head file a build left without committing reads as a missing build."""
+    head = windows_head(out_dir, config)
+    path = windows_head_file(out_dir, config)
+    raw = _head_file_bytes(out_dir, config, head)
+    with gzip.GzipFile(fileobj=io.BytesIO(raw), mode="rb") as stream:
+        line = stream.readline()
+    stamp, decision = _windows_of(_Lines(iter((line,))), False, str(path))
+    if stamp != head.stamps.get(INPUTS_STAMP):
+        raise ValueError(
+            f"{path.name} is stamped {stamp!r} where its head records {head.stamps.get(INPUTS_STAMP)!r}"
+        )
+    return stamp, decision
+
+
+_HEADER_SKIP_BYTES = 1 << 16
+
+
+def check_windows_header(stream: IO[bytes] | gzip.GzipFile, name: str) -> None:
+    """Read past a whole payload's head line and column line in `stream`, checking that the first begins with this format's marker and that the second is the column line. The head line, megabytes of JSON, is skipped in reads of at most 64 KiB and never held whole, since no caller needs it and a large line's pieces would stay in the reading process's footprint. A payload that fails either check raises `ValueError`."""
+    if stream.read(len(WINDOWS_MARKER)) != WINDOWS_MARKER:
+        raise ValueError(f"{name}: not a {WINDOWS_FORMAT} enumeration")
+    while (piece := stream.readline(_HEADER_SKIP_BYTES)) and not piece.endswith(b"\n"):
+        continue
+    if stream.readline(len(WINDOWS_COLUMN_LINE) + 1) != WINDOWS_COLUMN_LINE:
+        raise ValueError(f"{name}: window columns are not {WINDOWS_COLUMNS}")
+
+
+def window_key(row: bytes) -> list[bytes]:
+    """A window row's key, its six leading fields, as the list `row_delta.merge_keyed` compares field by field."""
+    return row[: row.rindex(b"\t")].split(b"\t")
+
+
+def _tombstone_key(payload: bytes) -> list[bytes]:
+    return payload.rstrip(b"\n").split(b"\t")
+
+
+def materialized_windows(out_dir: Path, config: str, *, sha256: bool = False) -> Iterator[bytes]:
+    """Return one configuration's windows output's materialized form as its lines: the head file's line, the column line, and the base's rows merged by key with its segments' (`row_delta.merge_keyed`), which is the whole payload the crate writes for the same table, byte for byte. A head with no segment streams the base's rows after the head file's line. The head is read and every part it lists opened before this returns (`row_delta.open_parts`, which checks each part's size, and with `sha256` its digest too), so a later build's deletes cannot reach the parts; the returned generator closes them when it ends or is closed. Raises what `windows_head` and `read_windows_head` raise, and `row_delta.HeadError` for a part that is missing or differs from its head."""
+    head = windows_head(out_dir, config)
+    head_line = gzip.decompress(_head_file_bytes(out_dir, config, head))
+    opened = row_delta.open_parts(Path(out_dir), head, sha256=sha256)
+    output = windows_output(config)
+
+    def lines() -> Iterator[bytes]:
+        try:
+            yield head_line
+            yield WINDOWS_COLUMN_LINE
+            with gzip.GzipFile(fileobj=opened.handles[0], mode="rb") as base:
+                check_windows_header(base, head.base.name)
+                segments = [
+                    row_delta.keyed_segment_rows(handle, output, head.generation, number)
+                    for number, handle in enumerate(opened.handles[1:], start=1)
+                ]
+                yield from row_delta.merge_keyed(base, segments, window_key, _tombstone_key)
+        finally:
+            opened.close()
+
+    return lines()
+
+
+def read_materialized_windows(
+    out_dir: Path, config: str, *, sha256: bool = False
+) -> tuple[str, DecisionTable]:
+    """Read one configuration's table with its window rows from its windows output's materialized form (`materialized_windows`), as `read_windows` reads a whole payload."""
+    return _windows_of(
+        _Lines(materialized_windows(out_dir, config, sha256=sha256)),
+        True,
+        str(windows_head_path(out_dir, config)),
+    )
+
+
+class _LineSource(Protocol):
+    def readline(self) -> str: ...
+
+    def __iter__(self) -> Iterator[str]: ...
+
+
+class _Lines:
+    """Byte lines read as the text stream `_windows_of` reads: `readline`, then iteration over the rest."""
+
+    def __init__(self, lines: Iterable[bytes]) -> None:
+        self._lines = iter(lines)
+
+    def readline(self) -> str:
+        return next(self._lines, b"").decode("utf-8")
+
+    def __iter__(self) -> Iterator[str]:
+        return (line.decode("utf-8") for line in self._lines)
 
 
 def _cell_key(cell: CellId) -> tuple:
@@ -267,9 +415,9 @@ def _rule_of(row: list) -> Rule:
 
 
 def read_windows(source: Path | IO[str], windows: bool = True) -> tuple[str, DecisionTable]:
-    """Read the windows artifact back: return the fingerprint of the sources the table was built from, and the table with `Window` rows as its transitions. The crate's `artifacts::write_windows` writes the payload and `run_m1.build_tables` gzips it, so the format is defined on both sides and `WINDOWS_FORMAT` is where a mismatch is caught. `windows=False` stops after the head, so a caller that wants only the rules and the reachable cells reads one line and the rest of the gzip stream is never decompressed. Raises OSError when the file is missing and ValueError when it is not an enumeration in this format. A caller that must decide whether to trust the artifact compares the returned fingerprint itself.
+    """Read a whole windows payload back: return the fingerprint of the sources the table was built from, and the table with `Window` rows as its transitions. The crate's `artifacts::write_windows` writes the payload and `run_m1.build_tables` gzips it, so the format is defined on both sides and `WINDOWS_FORMAT` is where a mismatch is caught. `windows=False` stops after the head, so a caller that wants only the rules and the reachable cells reads one line and the rest of the gzip stream is never decompressed; the head file `run_m1.build_tables` keeps is that one line, gzipped. Raises OSError when the file is missing and ValueError when it is not an enumeration in this format. A caller that must decide whether to trust the artifact compares the returned fingerprint itself. A configuration's table on disk is read through `read_windows_head` or `read_materialized_windows`, which read its head and check what it records.
 
-    A path is opened as gzip. An open text stream is read as is, which lets the build read the head of the plain payload the kernel just wrote without compressing it first.
+    A path is opened as gzip. An open text stream is read as is, which lets the build read the head line it kept of the plain payload the kernel wrote without compressing it first.
     """
     if isinstance(source, Path):
         with gzip.open(source, "rt") as handle:
@@ -277,7 +425,7 @@ def read_windows(source: Path | IO[str], windows: bool = True) -> tuple[str, Dec
     return _windows_of(source, windows, str(getattr(source, "name", source)))
 
 
-def _windows_of(handle: IO[str], windows: bool, name: str) -> tuple[str, DecisionTable]:
+def _windows_of(handle: IO[str] | _LineSource, windows: bool, name: str) -> tuple[str, DecisionTable]:
     marker, _, payload = handle.readline().rstrip("\n").partition("\t")
     if marker != f"# {WINDOWS_FORMAT}":
         raise ValueError(f"{name}: not a {WINDOWS_FORMAT} enumeration")

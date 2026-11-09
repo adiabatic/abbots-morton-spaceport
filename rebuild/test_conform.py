@@ -1451,6 +1451,8 @@ class TestOracleAudit:
                 "settlement-*.tsv",
                 "joins-*.tsv",
                 "windows-*.tsv.gz",
+                "windows-*.tsv.gz.*",
+                "windows-*.head.json.gz",
                 "transitions-*.ndjson",
                 "*.json",
             )

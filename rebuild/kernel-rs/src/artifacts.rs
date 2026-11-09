@@ -1,6 +1,6 @@
 //! Produces the four outputs of one configuration's fold: `settlement-<config>.tsv`, `joins-<config>.tsv`, the windows enumeration, and the table digest ([`table_digest`]). Separators, the `-` for an absent slot, and every ordering match the writers and readers in `rebuild/pipeline/table.py`. `rebuild/test_windows.py` reads a built artifact back through `table.read_windows` and `table.read_join_tsv`, writes it again with `DecisionTable.write_tsv` and `JoinTable.write_tsv`, and requires the same bytes and the same `table.table_digest`.
 //!
-//! The windows payload is written uncompressed. `run_m1._pack_windows` gzips it into `windows-<config>.tsv.gz` with a zeroed timestamp. This keeps the compressor out of the crate, whose only dependency is serde_json, and makes the decompressed bytes the artifact's identity.
+//! The windows payload is written uncompressed, and its head line always comes first. With no previous rows the payload is the whole enumeration, the head line, the column line and every row, which `run_m1` packs into a new base of the configuration's windows output, gzipped with a zeroed timestamp. With previous rows, the base and segments the output's head lists ([`crate::row_merge`]), the payload is the head line and then only the rows that differ from them, an upsert for a row whose key is new or whose outcome changed and a tombstone for a key that is gone, which `run_m1` packs into the output's next segment. Either way `run_m1` keeps the head line as the output's head file, which every reader of the head reads, and the materialized form of the output, its head file's line, the column line and its merged rows, is the whole enumeration this build would have written. This keeps the compressor out of the crate, whose only dependency is serde_json, and makes the decompressed bytes the artifact's identity.
 //!
 //! The digest is not written to a file. `build-tables` prints it on stdout as one JSON line per configuration, and the caller keeps it. No other step reads it, and a file would be one more copy that could go stale.
 //!
@@ -15,6 +15,7 @@ use crate::emit::{escape_into, json_string};
 use crate::fold::{DecisionTable, JoinTable, Rule};
 use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
+use crate::row_merge;
 use crate::sha256;
 use crate::stream::{TransitionRow, cell_key};
 use crate::types::{CellId, adjustment_text};
@@ -198,16 +199,20 @@ fn sorted_cells<'a>(index: &SpecIndex, cells: &'a [CellId]) -> Vec<&'a CellId> {
     keyed.into_iter().map(|(_, cell)| cell).collect()
 }
 
-/// Writes the uncompressed windows payload to `path`: a head line with the format marker and a JSON head, the column line, then one row per enumerated window.
+/// Writes the uncompressed windows payload to `path`: a head line with the format marker and a JSON head, then, with no `previous` rows, the column line and one row per enumerated window, and with them, the rows that differ, merged by key.
 ///
 /// The head's keys, in order, are `config`, `inputs` (the fingerprint of the sources the table was built from), `identity_guard_rules`, `cited_provenance`, `cells`, `deep_classes`, `rules`, `certificates`, `imports`, `fold_order`, and `buckets`. The set-valued ones are sorted here. `table.read_windows` reads the keys by name. `certificates` holds one token list per rule, in rule order: the strings from [`crate::certificate`] that should make each rule fire, which `run_m1`'s witness stage settles; a guard rule's list starts with [`crate::certificate::GUARD_MARKER`] and the configuration it settles under. `imports` holds the windows the table took from other configurations ([`crate::crossconfig`]), in key order, each as its six labels, its outcome, and the configuration it is live in. `fold_order`, the build's configurations in the order the emitter folds them, and `buckets`, one per rule in rule order, are where the exchange expects the emitter to ship the rules ([`crate::crossconfig::Spellings::fold_order`], [`crate::crossconfig::rule_buckets`]), which `emit_gsub._fold_rules` checks; both are empty outside a table build. These four are left out of `table.table_digest` and `table.windows_digest` because they are evidence about the rules, not part of the rules; the rules an import shapes are in both digests.
+///
+/// With `previous`, the configuration's previous rows ([`row_merge::KeyedMerge`]), its own rows are merged against them in key order and only the rows that differ are written, each as a segment row: `+\t<row>` for a key the previous rows lack or hold with another outcome, and `-\t<six key fields>` for a key they hold that this table lacks. A row that is the same is written not at all. The table's own rows must strictly ascend by key, as every part's do, and a refusal names what failed. There is no size test: however many rows differ, they are all written as rows that differ.
 pub fn write_windows(
     index: &SpecIndex,
     decision: &DecisionTable,
     inputs: &str,
     path: &Path,
-) -> Result<(), std::io::Error> {
-    let file = std::fs::File::create(path)?;
+    previous: Option<&mut row_merge::KeyedMerge<'_>>,
+) -> Result<(), String> {
+    let fail = |error: std::io::Error| format!("{}: {error}", path.display());
+    let file = std::fs::File::create(path).map_err(fail)?;
     let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
     let mut line = String::new();
     line.push_str("# ");
@@ -215,15 +220,74 @@ pub fn write_windows(
     line.push('\t');
     head_into(&mut line, index, decision, inputs);
     line.push('\n');
-    line.push_str(&WINDOWS_COLUMNS.join("\t"));
-    line.push('\n');
-    out.write_all(line.as_bytes())?;
+    let Some(previous) = previous else {
+        line.push_str(&WINDOWS_COLUMNS.join("\t"));
+        line.push('\n');
+        out.write_all(line.as_bytes()).map_err(fail)?;
+        for row in &decision.transitions {
+            line.clear();
+            window_line_into(&mut line, row, decision);
+            out.write_all(line.as_bytes()).map_err(fail)?;
+        }
+        return out.flush().map_err(fail);
+    };
+    out.write_all(line.as_bytes()).map_err(fail)?;
+    let mut prior = Vec::new();
+    let mut held = previous.next_into(&mut prior)?;
+    let mut last: Option<&TransitionRow> = None;
     for row in &decision.transitions {
+        if let Some(before) = last
+            && row.key(&decision.labels) <= before.key(&decision.labels)
+        {
+            return Err(format!(
+                "{}: the table's rows are not in strictly ascending key order: {:?} follows {:?}",
+                decision.config,
+                row.key(&decision.labels),
+                before.key(&decision.labels)
+            ));
+        }
+        last = Some(row);
         line.clear();
         window_line_into(&mut line, row, decision);
-        out.write_all(line.as_bytes())?;
+        let key = &line.as_bytes()[..line.rfind('\t').expect("a window row has seven fields")];
+        while held && row_merge::compare_keys(prior_key(&prior), key) == std::cmp::Ordering::Less {
+            write_tombstone(&mut out, prior_key(&prior)).map_err(fail)?;
+            held = previous.next_into(&mut prior)?;
+        }
+        if held && prior_key(&prior) == key {
+            if prior != line.as_bytes() {
+                write_upsert(&mut out, line.as_bytes()).map_err(fail)?;
+            }
+            held = previous.next_into(&mut prior)?;
+        } else {
+            write_upsert(&mut out, line.as_bytes()).map_err(fail)?;
+        }
     }
-    out.flush()
+    while held {
+        write_tombstone(&mut out, prior_key(&prior)).map_err(fail)?;
+        held = previous.next_into(&mut prior)?;
+    }
+    out.flush().map_err(fail)
+}
+
+/// The key of a previous row the merge yielded: everything before its last tab.
+fn prior_key(row: &[u8]) -> &[u8] {
+    let end = row
+        .iter()
+        .rposition(|byte| *byte == b'\t')
+        .expect("the merge yields window rows");
+    &row[..end]
+}
+
+fn write_upsert(out: &mut impl std::io::Write, row: &[u8]) -> std::io::Result<()> {
+    out.write_all(&[row_merge::UPSERT, b'\t'])?;
+    out.write_all(row)
+}
+
+fn write_tombstone(out: &mut impl std::io::Write, key: &[u8]) -> std::io::Result<()> {
+    out.write_all(&[row_merge::TOMBSTONE, b'\t'])?;
+    out.write_all(key)?;
+    out.write_all(b"\n")
 }
 
 fn head_into(out: &mut String, index: &SpecIndex, decision: &DecisionTable, inputs: &str) {
@@ -454,6 +518,98 @@ mod tests {
             ..folded.decision
         };
         assert_eq!(settlement_tsv(&again), text);
+    }
+
+    /// With previous rows, the windows payload is the head line and exactly the rows that differ, by key: an upsert for the row the previous rows lack, one for the row whose outcome they hold another way, and a tombstone for the key the table lacks, and nothing for a row that is the same. Merged over the previous rows, the segment gives the table's own rows, which is the whole payload's body.
+    #[test]
+    fn the_rows_that_differ_are_written_and_merge_back_into_the_table() {
+        use crate::fixpoint::{EnumerationModes, enumerate_transitions};
+        use crate::fold::fold_product;
+        use crate::row_merge::KeyedMerge;
+        use std::io::BufRead;
+
+        let index = fixtures::mini();
+        let product = enumerate_transitions(&index, &[], EnumerationModes::default())
+            .expect("the fixture's fixpoint closes");
+        let decision = fold_product(&index, product).expect("and folds").decision;
+        let root = std::env::temp_dir().join(format!("ams-windows-delta-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("a scratch directory");
+        let whole = root.join("whole.tsv");
+        write_windows(&index, &decision, "stamp", &whole, None).expect("the whole payload");
+        let text = std::fs::read_to_string(&whole).expect("it reads back");
+        let rows: Vec<&str> = text.lines().skip(2).collect();
+        let (dropped, changed, stray_after) = (rows[2], rows[5], rows[7]);
+        let (changed_key, changed_outcome) = changed.rsplit_once('\t').expect("a window row");
+        let (stray_key, stray_outcome) = stray_after.rsplit_once('\t').expect("a window row");
+        let stray_key = format!("{stray_key}~");
+        let mut previous = String::new();
+        for row in &rows {
+            if *row == dropped {
+                continue;
+            }
+            if *row == changed {
+                previous.push_str(&format!("{changed_key}\t{changed_outcome}.before\n"));
+            } else {
+                previous.push_str(row);
+                previous.push('\n');
+            }
+            if *row == stray_after {
+                previous.push_str(&format!("{stray_key}\t{stray_outcome}\n"));
+            }
+        }
+        let previous_rows = previous.lines().count() as u64;
+        let mut merge = KeyedMerge::new(
+            "default",
+            (Box::new(previous.as_bytes()), previous_rows),
+            Vec::new(),
+        )
+        .expect("the previous rows open");
+        let delta = root.join("delta.tsv");
+        write_windows(&index, &decision, "stamp", &delta, Some(&mut merge))
+            .expect("the rows that differ");
+        let written = std::fs::read_to_string(&delta).expect("it reads back");
+        let mut lines = written.lines();
+        assert_eq!(
+            lines.next(),
+            text.lines().next(),
+            "the head line comes first, as in the whole payload"
+        );
+        let mut expected = vec![
+            format!("+\t{dropped}"),
+            format!("+\t{changed}"),
+            format!("-\t{stray_key}"),
+        ];
+        expected.sort_by(|left, right| {
+            crate::row_merge::compare_keys(&left.as_bytes()[2..], &right.as_bytes()[2..])
+        });
+        assert_eq!(lines.map(str::to_owned).collect::<Vec<_>>(), expected);
+        let segment: String = written
+            .lines()
+            .skip(1)
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let mut merged = KeyedMerge::new(
+            "default",
+            (Box::new(previous.as_bytes()), previous_rows),
+            vec![(
+                Box::new(segment.as_bytes()) as Box<dyn BufRead>,
+                expected.len() as u64,
+            )],
+        )
+        .expect("the parts merge");
+        let mut line = Vec::new();
+        let mut body = String::new();
+        while merged.next_into(&mut line).expect("the merge reads") {
+            body.push_str(std::str::from_utf8(&line).expect("text"));
+        }
+        assert_eq!(
+            body,
+            text.lines()
+                .skip(2)
+                .map(|row| format!("{row}\n"))
+                .collect::<String>()
+        );
+        std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
     }
 
     /// The reader fails on a file with no config comment, on a column line that differs from the writer's, and on a row with fewer than nine fields.

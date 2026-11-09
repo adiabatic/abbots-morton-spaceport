@@ -2,7 +2,7 @@
 //!
 //! The walk renames every row of the configuration's enumeration into the labels the configuration's marker lookups produce, tries the emitted rules for the row's input in shipped order, and requires the first rule that matches to give the row's outcome (the input itself when no rule matches). A `#NA` after a letter ([`crate::fold::open_slot`]) means the window does not carry that slot, so the row claims its outcome for every label there and in every later slot, and the walk checks every such continuation the configuration's stream can carry by first match over the shipped order, the row's own configuration's rules included. The continuations at a slot are the labels the input's candidate rules name there, less class tokens, the context's foreign labels and the raw labels its renames replace, and one more that stands for every label none of them names and for the end of the run; the walk reads on past each of them, a boundary included, to the end of the window. `uni200C` and a `#NA` after a boundary are literal labels. The cross-configuration exchange ([`crate::crossconfig`]) reads `#NA` the same way when it decides which windows a configuration takes in from another; the walk shares only that definition of an open slot and evaluates the continuations itself, so it checks the exchange's reading independently. A row whose shipped-order outcome differs from the table's, on the row or on any continuation, is an error naming the configuration, the row, the continuation, the emitted rule that fired, and the table's own rule with what it answers there.
 //!
-//! The walk checks every row, not a sample. The rows are the table's own, at the table's grain. Rows are renamed before matching because, under a configuration, every raw label of a rune with a marker copy for one of the active sets (its unlock features plus the policy-only sets its own records are gated on) is renamed to its marker copy, and the emitted rules already use the copy names. The context also lists the labels the configuration's stream never carries, the bare runes, marker copies and locked copies that the other feature states of its marker runes are spelled with (`emit_gsub.emitted_context_tsv`); they are never continuations, and a row that carries one is an error, so a wrong list stops the walk instead of narrowing what it checks. A deep slot that holds a class token is checked against the whole class. When the rules are indexed, each deep slot of each emitted rule is compared with every class of the configuration. A class that a rule's slot contains entirely matches through its token. A class that the slot contains only in part makes the walk try the row once per member (once per member pair when both deep slots are classes, and once per look3 member, with look4's continuations checked for each, when look4 is open), and each member's first match must give the row's outcome; the fiber construction makes that outcome the same for every member. `fold::assert_deep_class_unions` does not cover this case: it checks a configuration's own rules against its own classes, but the shipped lookup holds every configuration's rules, so a rule folded from another configuration's fiber partition can match part of a class. That is harmless only when the rule gives each member the row's outcome, which is what the member-by-member check verifies.
+//! The walk checks every row, not a sample. The rows are the table's own, at the table's grain: a whole payload, or the base and segments a configuration's windows head lists, merged by key as they are read ([`crate::row_merge::MergedPayload`]), which gives the same rows in the same order, so the walk and its report do not depend on how the rows are held. Rows are renamed before matching because, under a configuration, every raw label of a rune with a marker copy for one of the active sets (its unlock features plus the policy-only sets its own records are gated on) is renamed to its marker copy, and the emitted rules already use the copy names. The context also lists the labels the configuration's stream never carries, the bare runes, marker copies and locked copies that the other feature states of its marker runes are spelled with (`emit_gsub.emitted_context_tsv`); they are never continuations, and a row that carries one is an error, so a wrong list stops the walk instead of narrowing what it checks. A deep slot that holds a class token is checked against the whole class. When the rules are indexed, each deep slot of each emitted rule is compared with every class of the configuration. A class that a rule's slot contains entirely matches through its token. A class that the slot contains only in part makes the walk try the row once per member (once per member pair when both deep slots are classes, and once per look3 member, with look4's continuations checked for each, when look4 is open), and each member's first match must give the row's outcome; the fiber construction makes that outcome the same for every member. `fold::assert_deep_class_unions` does not cover this case: it checks a configuration's own rules against its own classes, but the shipped lookup holds every configuration's rules, so a rule folded from another configuration's fiber partition can match part of a class. That is harmless only when the rule gives each member the row's outcome, which is what the member-by-member check verifies.
 //!
 //! The walk is O(rows), with a bounded number of rules per input, and settles nothing: the tables already hold the settled outcomes, and the walk checks that the shipped lookup reproduces them. A row's candidate rules are its input's rules that admit its left and then its look1 (all of the former when look1 is open), and the walk keeps both lists for the next row while those labels agree; the rows arrive in key order, so each list is built once per block, and the walk reads only the fields in which a row differs from the row before it. A row whose first candidate to pass the slots before its open slot constrains nothing from there on costs what a row without an open slot does, since that rule answers every continuation. Only a row whose deciding rule constrains the open slot or a later one takes the continuation search, which the report counts. The search's scratch is reused from row to row and is bounded by the largest input's emitted rules and the labels their slots name. That makes the walk cheap enough to run on every build, keyed on the same inputs as the tables. The HarfBuzz conformance sweep also checks the shipped order, but its key (`artifact_cycle.conform_skip_fingerprint`) covers the compile code and the emitted lookup's behavior classes, not the runes, so it skips a rune edit that adds no new behavior class.
 
@@ -435,7 +435,7 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Checks every row of a windows enumeration read from `source` (the head line under [`WINDOWS_FORMAT`], the column line, then one row per line) against the shipped order, at every continuation of a row's open slot, and member by member where an emitted lookahead class contains the row's deep class only in part. A row whose shipped-order outcome differs from the table's is a disagreement, and the walk stops after [`NAMED_DISAGREEMENTS`] of them. A head line with another format, a wrong column line, a row without seven fields, or a row that carries a label its context lists as foreign is an error by itself.
+    /// Checks every row of a windows enumeration read from `source` (the head line under [`WINDOWS_FORMAT`], the column line, then one row per line, as a whole payload holds them and [`crate::row_merge::MergedPayload`] yields them from a base and its segments) against the shipped order, at every continuation of a row's open slot, and member by member where an emitted lookahead class contains the row's deep class only in part. A row whose shipped-order outcome differs from the table's is a disagreement, and the walk stops after [`NAMED_DISAGREEMENTS`] of them. A head line with another format, a wrong column line, a row without seven fields, or a row that carries a label its context lists as foreign is an error by itself.
     pub fn walk(&mut self, source: &mut impl BufRead) -> Result<Report, String> {
         let mut line = String::new();
         self.read_line(source, &mut line)?;
@@ -974,6 +974,70 @@ mod tests {
         assert!(report.rows > 0);
         assert_eq!(report.checked_per_member, 0);
         assert!(report.open_rows > 0);
+    }
+
+    /// A walk over a base and segments reports what a walk over their materialized payload reports: the base lacks every third row and holds one row the table lacks, and the segments put the missing rows back, one with an outcome a later segment corrects, and remove the stray row, so the merged rows are the table's.
+    #[test]
+    fn a_walk_over_a_base_and_segments_reports_what_its_materialized_payload_does() {
+        use crate::row_merge::MergedPayload;
+        let index = fixtures::mini();
+        let decision = table(&index, &[]);
+        let context = context_of(&decision);
+        let whole = windows_text(&decision);
+        let mut lines = whole.lines();
+        let mut base = format!(
+            "{}\n{}\n",
+            lines.next().expect("a head line"),
+            lines.next().expect("a column line")
+        );
+        let rows: Vec<&str> = lines.collect();
+        let (mut first, mut second) = (String::new(), String::new());
+        let mut base_rows = 0u64;
+        let stray_after = rows[1];
+        for (at, row) in rows.iter().enumerate() {
+            if at % 3 == 0 {
+                let (key, outcome) = row.rsplit_once('\t').expect("a window row");
+                first.push_str(&format!("+\t{key}\t{outcome}.wrong\n"));
+                second.push_str(&format!("+\t{row}\n"));
+            } else {
+                base.push_str(row);
+                base.push('\n');
+                base_rows += 1;
+            }
+            if *row == stray_after {
+                let (key, outcome) = row.rsplit_once('\t').expect("a window row");
+                let stray_key = format!("{key}~");
+                base.push_str(&format!("{stray_key}\t{outcome}\n"));
+                base_rows += 1;
+                first.push_str(&format!("-\t{stray_key}\n"));
+            }
+        }
+        let count = |text: &str| text.lines().count() as u64;
+        let segments: Vec<(Box<dyn BufRead>, u64)> = vec![
+            (
+                Box::new(std::io::Cursor::new(first.clone().into_bytes())),
+                count(&first),
+            ),
+            (
+                Box::new(std::io::Cursor::new(second.clone().into_bytes())),
+                count(&second),
+            ),
+        ];
+        let mut merged = MergedPayload::new(
+            "default",
+            Box::new(std::io::Cursor::new(base.into_bytes())),
+            base_rows,
+            segments,
+        )
+        .expect("the parts merge");
+        let mut walked = Walk::new(&decision.config, &decision.rules, &decision.rules, &context);
+        let over_parts = walked
+            .walk(&mut merged)
+            .expect("the merged rows are the table's");
+        let over_whole =
+            walk(&decision, &decision.rules, &context).expect("the table reads itself back");
+        assert_eq!(over_parts, over_whole);
+        assert_eq!(over_parts.rows as usize, decision.transitions.len());
     }
 
     /// Swapping two rules of one input, so that a row the later rule matched is now matched by the earlier one, produces an error naming the configuration, the row, the emitted rule that fired, and the table's own rule.

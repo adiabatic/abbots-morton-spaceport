@@ -6,7 +6,7 @@ import threading
 
 import pytest
 
-from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, model, run_m1, table
+from rebuild.pipeline import conform, emit_gsub, fixtures, kernel_exec, model, run_m1, spec_load, table
 
 STAMP = "emitted-order-test"
 
@@ -128,7 +128,7 @@ def test_an_order_that_answers_a_row_differently_is_refused_naming_the_row(spec,
 def test_an_order_that_answers_an_open_slot_continuation_differently_is_refused(spec, built, monkeypatch):
     """A `#NA` after a letter stands for every label in that slot, so a rule that matches one of a row's continuations and gives another outcome fails the walk, though it matches no row's literal key. The rule copies a `default` row's input, left and carried lookahead slots, names at the row's open slot a rune that no row with those slots carries there, and is put first in the shipped order. The summary's `error` names the continuation and the emitted rule."""
     out_dir, tables = built
-    _stamp, windows = table.read_windows(table.windows_path(out_dir, "default"))
+    _stamp, windows = table.read_materialized_windows(out_dir, "default")
     plain = [name for name in spec.runes if not model.relevant_marker_features(spec, name)]
     for row in windows.transitions:
         key = row.key
@@ -200,23 +200,33 @@ def test_the_kernel_interface_refuses_a_missing_enumeration(spec, built, tmp_pat
     out_dir, tables = built
     with pytest.raises(kernel_exec.KernelRunError, match="windows-default.tsv.gz"):
         kernel_exec.replay_emitted(
-            tmp_path / "windows-default.tsv.gz",
+            table.windows_head_path(tmp_path, "default"),
             table=out_dir / "settlement-default.tsv",
             **walk_inputs(spec, tables),
         )
 
 
-def test_a_walk_that_ends_before_it_reads_its_pipes_fails_and_leaves_no_writer_behind(spec, built, tmp_path):
-    """The crate reads its settlement table before any pipe, so a table path that does not exist ends the walk before it reads the order, the context or the windows. The order is padded past what a pipe holds and the windows are the real packed enumeration, so their writers are still writing when the crate exits and must end on the broken pipe instead of blocking. The walk fails naming the table, and no thread the call started outlives it."""
-    out_dir, tables = built
+def test_a_walk_that_ends_before_it_reads_its_pipes_fails_and_leaves_no_writer_behind(spec, tmp_path):
+    """The crate reads its settlement table before any pipe, so a table path that does not exist ends the walk before it reads the order, the context or the windows. The order is padded past what a pipe holds, and the windows are a real base and the segment a later build wrote over it, each on a pipe of its own and each larger than a pipe holds, so their writers are still writing when the crate exits and must end on the broken pipe instead of blocking. The walk fails naming the table, and no thread the call started outlives it."""
+    out_dir = tmp_path / "tables"
+    run_m1.build_tables(spec_load.narrowed(spec, ("qsTea", "qsMay", "qsIt")), out_dir, inputs=STAMP)
+    tables, _digests = run_m1.build_tables(spec, out_dir, inputs=STAMP)
+    head = table.windows_head(out_dir, "default")
+    assert len(head.segments) == 1 and min(part.rows_bytes for part in head.parts) > 1 << 16
     inputs = walk_inputs(spec, tables)
     inputs["order"] = inputs["order"].ljust(1 << 20, b"\n")
     before = set(threading.enumerate())
     with pytest.raises(kernel_exec.KernelRunError, match="no-such-table.tsv"):
         kernel_exec.replay_emitted(
-            table.windows_path(out_dir, "default"), table=tmp_path / "no-such-table.tsv", **inputs
+            table.windows_head_path(out_dir, "default"), table=tmp_path / "no-such-table.tsv", **inputs
         )
     assert [thread for thread in threading.enumerate() if thread not in before] == []
+    answer = kernel_exec.replay_emitted(
+        table.windows_head_path(out_dir, "default"),
+        table=out_dir / "settlement-default.tsv",
+        **walk_inputs(spec, tables),
+    )
+    assert answer["rows"] == len(table.read_materialized_windows(out_dir, "default")[1].transitions)
 
 
 def test_an_order_shorter_than_its_count_is_refused_naming_both_counts(spec, built):
@@ -229,7 +239,7 @@ def test_an_order_shorter_than_its_count_is_refused_naming_both_counts(spec, bui
         kernel_exec.KernelRunError, match=f"holds {rules} rules where --order-rules= names {rules + 1}"
     ):
         kernel_exec.replay_emitted(
-            table.windows_path(out_dir, "default"), table=out_dir / "settlement-default.tsv", **inputs
+            table.windows_head_path(out_dir, "default"), table=out_dir / "settlement-default.tsv", **inputs
         )
 
 

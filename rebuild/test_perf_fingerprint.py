@@ -162,6 +162,50 @@ def test_the_tables_are_digested_with_the_trees_own_code(tmp_path):
     assert document["accepted"] == hashlib.sha256(listed.read_bytes()).hexdigest()
 
 
+def test_windows_rows_held_as_a_base_and_segments_fingerprint_as_their_folded_form(
+    tmp_path, monkeypatch, capsys
+):
+    """A tree whose windows rows are a base and segments fingerprints as the tree a from-scratch build of the same tables leaves, and as the single file per configuration a tree from before the segment format holds, so the bar's `tables` block reads the same across the landing pass and across any later segment or fold. A head whose recorded digest is not the one its materialized rows give stops the fingerprint naming the configuration, and the script exits 1 without writing its document."""
+    import io
+    import shutil
+
+    import pytest
+
+    from rebuild.pipeline import conform, fingerprint, fixtures, run_m1, spec_load
+    from rebuild.pipeline import table as table_module
+
+    spec = fixtures.mini_spec()
+    narrow = spec_load.narrowed(spec, ("qsTea", "qsMay", "qsIt"))
+    held, scratch, single = (
+        tmp_path / name / "rebuild" / "out" / "m1" for name in ("held", "scratch", "single")
+    )
+    run_m1.build_tables(narrow, held, inputs="fp")
+    run_m1.build_tables(spec, held, inputs="fp")
+    run_m1.build_tables(spec, scratch, inputs="fp")
+    assert all(table_module.windows_head(held, config).segments for config in conform.SETTLEMENT_CONFIGS)
+    single.mkdir(parents=True)
+    for config in conform.SETTLEMENT_CONFIGS:
+        shutil.copyfile(scratch / f"joins-{config}.tsv", single / f"joins-{config}.tsv")
+        payload = io.BytesIO(b"".join(table_module.materialized_windows(held, config)))
+        head = payload.readline()
+        part = run_m1._pack_windows(payload, single, table_module.windows_output(config), head)
+        assert part.name == table_module.windows_path(single, config).name
+    digests = pf.table_digests(held, table_module)
+    assert sorted(digests) == sorted(conform.SETTLEMENT_CONFIGS)
+    assert digests == pf.table_digests(scratch, table_module) == pf.table_digests(single, table_module)
+    path = table_module.windows_head_path(held, "ss04")
+    document = json.loads(path.read_text())
+    document["stamps"][table_module.TABLE_DIGEST_STAMP] = "0" * 64
+    path.write_text(json.dumps(document))
+    with pytest.raises(pf.DigestMismatch, match="^ss04: "):
+        pf.table_digests(held, table_module)
+    monkeypatch.setattr(pf, "tree_modules", lambda root: (table_module, fingerprint))
+    out = tmp_path / "fingerprint.json"
+    assert pf.main(["--root", str(tmp_path / "held"), "--out", str(out)]) == 1
+    assert "perf_fingerprint: ss04: " in capsys.readouterr().err
+    assert not out.exists()
+
+
 def test_a_corpus_appended_to_reads_as_its_materialized_form(mini_corpus, mini_bundle, tmp_path):
     """A build that appends changed fragments to overflow parts and writes its unit store as a base and a segment fingerprints as its materialized form (#618's decision 48): the corpus and stores blocks equal those of the files a from-scratch build of the same units writes (`build.materialize_corpus`), with the store's head, base and segment files left out of the per-file block and the store read under `unit-cache.ndjson.gz`, as a store written before the segment format was. A corpus no build has appended to, already laid out as its materialized form, reads the same way. A class that lost its last unit by id on a pass that appended nothing keeps its part as it was, every live slot where a from-scratch build puts it and the lost unit's slot dead at its end, so the corpus is not its materialized form and reads as that form, whose part ends at the last live slot."""
     import shutil

@@ -119,6 +119,36 @@ CORPUS_BUILD_TOKENS: dict[str, Callable[[str], object]] = {"jobs": int}
 REPLAY_TOKENS: dict[str, Callable[[str], object]] = {"scope": _replay_scope}
 BASELINE_SUBSET_TOKENS: dict[str, Callable[[str], object]] = {"refreshed": _true_or_false}
 FAN_IN_TOKENS: dict[str, Callable[[str], object]] = {"held_gb": float, "memo_held_gb": float}
+
+
+def _windows_wrote(value: str) -> str:
+    if value not in ("head", "segment", "base"):
+        raise ValueError(f"not what a windows output writes: {value!r}")
+    return value
+
+
+def _windows_reason(value: str) -> str:
+    if value not in ("first", "fold", "unusable"):
+        raise ValueError(f"not a reason for a windows base: {value!r}")
+    return value
+
+
+# What `run_m1`'s `[t] pack_windows[<config>]` line says a configuration's windows output wrote (`run_m1.WindowsRoute.note`), its rows' plain bytes beside the part's and the head file's packed bytes, its `[t] windows_plan` line how many configurations took each route and adopted a single file, and its `[t] emitted_order[<config>]` line how many parts the walk merged.
+WINDOWS_TOKENS: dict[str, Callable[[str], object]] = {
+    "wrote": _windows_wrote,
+    "reason": _windows_reason,
+    "adopted": _true_or_false,
+    "overrun": _true_or_false,
+    "rows_written": int,
+    "rows_bytes": int,
+    "packed_bytes": int,
+    "head_file_bytes": int,
+    "segments": int,
+    "segment_routes": int,
+    "base_routes": int,
+    "adopting": int,
+    "parts": int,
+}
 PHASE_TOKENS: dict[str, Callable[[str], object]] = {
     **TABLE_BUILD_TOKENS,
     **READBACK_TOKENS,
@@ -126,6 +156,7 @@ PHASE_TOKENS: dict[str, Callable[[str], object]] = {
     **REPLAY_TOKENS,
     **BASELINE_SUBSET_TOKENS,
     **FAN_IN_TOKENS,
+    **WINDOWS_TOKENS,
 }
 READBACK_FIGURES = tuple(name for name in READBACK_TOKENS if name != "commit")
 
@@ -266,7 +297,7 @@ def record_check(
 
 
 def parse_inner_timings(text: str) -> list[dict]:
-    """Return every `[t]` line in `text` as a phase entry: its label and seconds, the two RSS tokens and the peak-footprint token, and each `key=value` token `PHASE_TOKENS` names (the table build's record, the read-back's figures, the corpus build's units-pool and write widths, the string replay's scope, whether the subset refresh ran, and what the oracle's and the conformance sweep's fan-ins held in shared memory), read by that key's reader. A token whose value its reader rejects is left out, and every other part of the tail is dropped."""
+    """Return every `[t]` line in `text` as a phase entry: its label and seconds, the two RSS tokens and the peak-footprint token, and each `key=value` token `PHASE_TOKENS` names (the table build's record, the read-back's figures, the corpus build's units-pool and write widths, the string replay's scope, whether the subset refresh ran, what the oracle's and the conformance sweep's fan-ins held in shared memory, what each configuration's windows output wrote, how many configurations took each windows route, and how many parts each walk merged), read by that key's reader. A token whose value its reader rejects is left out, and every other part of the tail is dropped."""
     entries: list[dict] = []
     for match in INNER_LINE.finditer(text):
         entry: dict = {"label": match.group(1), "elapsed_s": float(match.group(2))}

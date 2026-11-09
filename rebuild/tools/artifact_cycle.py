@@ -525,10 +525,29 @@ def moved_inputs_note(record: dict | None, current: dict[str, str], limit: int =
     return capped_labels([f"{name} ({how})" for name, how in moved], limit)
 
 
+def m1_table_head_names() -> list[str]:
+    """Every settlement configuration's windows head and head file (`table.windows_head_path`, `table.windows_head_file`), which `m1_artifacts_present` requires beside `M1_ARTIFACT_NAMES`, so a configuration whose head is missing reads as a missing build."""
+    from rebuild.pipeline import conform
+    from rebuild.pipeline import table as table_module
+
+    return [
+        path.name
+        for config in conform.SETTLEMENT_CONFIGS
+        for path in (
+            table_module.windows_head_path(Path(), config),
+            table_module.windows_head_file(Path(), config),
+        )
+    ]
+
+
 def m1_artifacts_present(root: Path = ROOT) -> bool:
-    """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries the skip re-evaluates the gate from, and the artifacts the corpus build reads. It is the plain skip's predicate only. Two of those summaries (manual_pins_summary.json and oracle_summary.json), the audit and the Stage A record are files a gates-only rerun writes without reading, so it is planned on what it reads instead (`m1_gates_only_base_present`). An M1 build and a gates-only pass each delete the Stage A record immediately before their first write here and write it back only once their gates pass, so after one that wrote here and then stopped or failed this is False and the plain skip is refused; the pass then reruns the gates or rebuilds, as `gates_only_rerun` decides."""
+    """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries the skip re-evaluates the gate from, the artifacts the corpus build reads, and every settlement configuration's windows head and head file (`m1_table_head_names`). It is the plain skip's predicate only. Two of those summaries (manual_pins_summary.json and oracle_summary.json), the audit and the Stage A record are files a gates-only rerun writes without reading, so it is planned on what it reads instead (`m1_gates_only_base_present`). An M1 build and a gates-only pass each delete the Stage A record immediately before their first write here and write it back only once their gates pass, so after one that wrote here and then stopped or failed this is False and the plain skip is refused; the pass then reruns the gates or rebuilds, as `gates_only_rerun` decides."""
     m1 = root / "rebuild" / "out" / "m1"
-    names = [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + list(M1_ARTIFACT_NAMES)
+    names = [
+        *(path.name for path in cycle_paths.M1_SUMMARY_FILES.values()),
+        *M1_ARTIFACT_NAMES,
+        *m1_table_head_names(),
+    ]
     return all((m1 / name).exists() for name in names)
 
 
@@ -675,7 +694,7 @@ def record_deep_replay_green(
 
 
 def tables_imports_digest(root: Path | None = None) -> str | None:
-    """Return `run_m1.imports_digest` over the windows heads a tree's M1 build left under `rebuild/out/m1`, the windows each configuration's table imported from the others (`rebuild/kernel-rs/src/crossconfig.rs`), or None when some settlement configuration's head is missing or unreadable. The deep replay's record stores it, and a walk whose tables import other windows covers every text (`record_deep_replay_green`). Only the heads are read. The root defaults at call time, as in `deep_replay_green_path`."""
+    """Return `run_m1.imports_digest` over the table heads a tree's M1 build left under `rebuild/out/m1`, the windows each configuration's table imported from the others (`rebuild/kernel-rs/src/crossconfig.rs`), or None when some settlement configuration's head or head file is missing, unreadable or not what its head records (`table.read_windows_head`). The deep replay's record stores it, and a walk whose tables import other windows covers every text (`record_deep_replay_green`). Only the head files are read. The root defaults at call time, as in `deep_replay_green_path`."""
     from rebuild.pipeline import conform, run_m1
     from rebuild.pipeline import table as table_module
 
@@ -683,9 +702,7 @@ def tables_imports_digest(root: Path | None = None) -> str | None:
     tables = {}
     for config in conform.SETTLEMENT_CONFIGS:
         try:
-            _stamp, tables[config] = table_module.read_windows(
-                table_module.windows_path(out_dir, config), windows=False
-            )
+            _stamp, tables[config] = table_module.read_windows_head(out_dir, config)
         except OSError, ValueError:
             return None
     return run_m1.imports_digest(tables)

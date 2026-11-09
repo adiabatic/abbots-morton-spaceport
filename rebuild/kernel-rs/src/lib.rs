@@ -25,6 +25,7 @@ pub mod model;
 pub mod options;
 pub mod parse;
 pub mod replay;
+pub mod row_merge;
 pub mod rulefold;
 pub(crate) mod sha256;
 pub mod shipped_order;

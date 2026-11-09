@@ -413,6 +413,100 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     }
 }
 
+/// A table build with `--previous=` for a configuration writes that configuration's head line and then only the rows that differ from its previous rows, with no column line, and every other configuration's whole payload, byte for byte what a build with no previous rows writes. Previous rows that are the table's own leave the head line alone. A part whose rows are not the count it names exits 1 naming the part, and a `--previous=` for a configuration the build does not name, or given twice for one, is a usage error.
+#[test]
+fn a_table_build_over_previous_rows_writes_the_rows_that_differ() {
+    let root = scratch("cli-tables-previous");
+    let spec = spec_at(&root);
+    let build = |outdir: &Path, extra: &[&str]| {
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(outdir),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            "--threads=2",
+        ];
+        arguments.extend(extra);
+        run(&arguments)
+    };
+    let whole = root.join("whole");
+    let output = build(&whole, &[]);
+    assert!(output.status.success(), "{}", stderr_of(&output));
+    let payload = std::fs::read_to_string(whole.join("windows-ss03.tsv")).expect("the payload");
+    let head = payload.lines().next().expect("a head line");
+    let rows: Vec<&str> = payload.lines().skip(2).collect();
+    let previous = |name: &str, skipped: Option<usize>| {
+        let path = root.join(name);
+        let kept: String = rows
+            .iter()
+            .enumerate()
+            .filter(|(at, _)| Some(*at) != skipped)
+            .map(|(_, row)| format!("{row}\n"))
+            .collect();
+        std::fs::write(&path, &kept).expect("the previous rows are writable");
+        (path, kept.lines().count())
+    };
+    let (lacking, lacking_rows) = previous("lacking.tsv", Some(1));
+    let flag = format!("--previous=ss03={}:{lacking_rows}", word(&lacking));
+    let merged = root.join("merged");
+    let output = build(&merged, &[&flag]);
+    assert!(output.status.success(), "{}", stderr_of(&output));
+    assert_eq!(
+        output.stdout,
+        build(&root.join("again"), &[]).stdout,
+        "the digests are the table's own"
+    );
+    assert_eq!(
+        std::fs::read_to_string(merged.join("windows-ss03.tsv")).expect("the rows that differ"),
+        format!("{head}\n+\t{}\n", rows[1])
+    );
+    assert_eq!(
+        std::fs::read(merged.join("windows-default.tsv")).expect("the whole payload"),
+        std::fs::read(whole.join("windows-default.tsv")).expect("the whole payload"),
+    );
+    let (same, same_rows) = previous("same.tsv", None);
+    let output = build(
+        &merged,
+        &[&format!("--previous=ss03={}:{same_rows}", word(&same))],
+    );
+    assert!(output.status.success(), "{}", stderr_of(&output));
+    assert_eq!(
+        std::fs::read_to_string(merged.join("windows-ss03.tsv")).expect("the head line"),
+        format!("{head}\n")
+    );
+    let output = build(
+        &merged,
+        &[&format!(
+            "--previous=ss03={}:{}",
+            word(&same),
+            same_rows + 1
+        )],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr_of(&output).contains(&format!(
+            "ss03: the base ({}) ends after {same_rows} rows where its head lists {}",
+            word(&same),
+            same_rows + 1
+        )),
+        "{}",
+        stderr_of(&output)
+    );
+    for refused in [
+        format!("--previous=ss05={}:{same_rows}", word(&same)),
+        format!("--previous=ss03={}", word(&same)),
+    ] {
+        assert_eq!(
+            build(&merged, &[&refused]).status.code(),
+            Some(2),
+            "{refused}"
+        );
+    }
+    let twice = format!("--previous=ss03={}:{same_rows}", word(&same));
+    assert_eq!(build(&merged, &[&twice, &twice]).status.code(), Some(2));
+}
+
 /// A second table build into the same directory leaves each settlement and join table whose bytes come out the same in place, so each keeps its inode and modification time, and a table path linked to the null device, as `memory_series.route` links both, is written through and stays a link.
 #[test]
 fn a_second_table_build_leaves_its_unchanged_tables_in_place() {
@@ -837,7 +931,7 @@ fn family_word(family: &str) -> &str {
     }
 }
 
-/// A table build's timed phases, which the cycle reads like a stream run's, including `fold.prefixes`, `fold.exchange` and `fold.partition` before each `fold` line.
+/// A table build's timed phases, which the cycle reads like a stream run's, including `fold.prefixes`, `fold.exchange`, `fold.partition` and `fold.windows` before each `fold` line.
 #[test]
 fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
     let root = scratch("cli-tables-timings");
@@ -862,11 +956,13 @@ fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
             "fold.prefixes[default]",
             "fold.exchange[default]",
             "fold.partition[default]",
+            "fold.windows[default]",
             "fold[default]",
             "enumerate[ss03]",
             "fold.prefixes[ss03]",
             "fold.exchange[ss03]",
             "fold.partition[ss03]",
+            "fold.windows[ss03]",
             "fold[ss03]",
             "tables_total"
         ]
@@ -898,7 +994,7 @@ fn a_table_build_without_a_stamp_is_a_usage_error() {
     }
 }
 
-/// `replay-emitted` through the binary. Given as its order a table's own settlement TSV, with the marker renames the context file declares applied, it accounts for every row of the table's enumeration, whether the windows come from a file or from stdin. The answer counts the rows that leave a slot open after a letter, none of which needs the continuation search. A context file with a line that is not a `rename`, `class`, or `foreign` record exits 1 naming the file, and so does an order whose rule count is not the one `--order-rules=` names, naming both counts. A command line missing one of the three files or the rule count, or with a mode flag, exits 2.
+/// `replay-emitted` through the binary. Given as its order a table's own settlement TSV, with the marker renames the context file declares applied, it accounts for every row of the table's enumeration, whether the windows come from a file, from stdin, or from a base and a segment merged by key, and a base whose rows are not `--base-rows=` exits 1 naming it, while `--segments=` without `--base-rows=` exits 2. The answer counts the rows that leave a slot open after a letter, none of which needs the continuation search. A context file with a line that is not a `rename`, `class`, or `foreign` record exits 1 naming the file, and so does an order whose rule count is not the one `--order-rules=` names, naming both counts. A command line missing one of the three files or the rule count, or with a mode flag, exits 2.
 #[test]
 fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     let root = scratch("cli-emitted");
@@ -1015,6 +1111,73 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
         .map(String::as_str)
         .collect();
     assert_eq!(phases, ["replay_emitted[ss03]", "replay_emitted_total"]);
+
+    let payload = std::fs::read_to_string(&windows).expect("the enumeration landed");
+    let mut base = String::new();
+    let mut segment = String::new();
+    let mut base_rows = 0;
+    for (number, line) in payload.lines().enumerate() {
+        if number >= 2 && number % 2 == 0 {
+            segment.push_str(&format!("+\t{line}\n"));
+        } else {
+            base.push_str(&format!("{line}\n"));
+            base_rows += usize::from(number >= 2);
+        }
+    }
+    let base_path = root.join("base.tsv");
+    let segment_path = root.join("segment.tsv");
+    std::fs::write(&base_path, base).expect("writable");
+    std::fs::write(&segment_path, &segment).expect("writable");
+    let segments_flag = format!(
+        "--segments={}:{}",
+        word(&segment_path),
+        segment.lines().count()
+    );
+    let base_rows_flag = format!("--base-rows={base_rows}");
+    let parted = run(&[
+        "replay-emitted",
+        word(&base_path),
+        "--config=ss03",
+        &table_flag,
+        &order_flag,
+        &rules_flag,
+        &context_flag,
+        &base_rows_flag,
+        &segments_flag,
+    ]);
+    assert!(parted.status.success(), "{}", stderr_of(&parted));
+    assert_eq!(
+        parted.stdout, output.stdout,
+        "a base and its segment are the whole payload's walk"
+    );
+    let miscounted = run(&[
+        "replay-emitted",
+        word(&base_path),
+        "--config=ss03",
+        &table_flag,
+        &order_flag,
+        &rules_flag,
+        &context_flag,
+        &format!("--base-rows={}", base_rows + 1),
+        &segments_flag,
+    ]);
+    assert_eq!(miscounted.status.code(), Some(1));
+    assert!(
+        stderr_of(&miscounted).contains("ss03: the base ends after"),
+        "{}",
+        stderr_of(&miscounted)
+    );
+    let uncounted_base = run(&[
+        "replay-emitted",
+        word(&base_path),
+        "--config=ss03",
+        &table_flag,
+        &order_flag,
+        &rules_flag,
+        &context_flag,
+        &segments_flag,
+    ]);
+    assert_eq!(uncounted_base.status.code(), Some(2));
 
     let stray = root.join("stray.tsv");
     std::fs::write(&stray, "label\tx\n").expect("writable");

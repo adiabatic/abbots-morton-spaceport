@@ -11,7 +11,7 @@ from typing import cast
 
 import pytest
 
-from rebuild.pipeline import conform, model, table
+from rebuild.pipeline import conform, model, row_delta, table
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import console, cycle_paths, deep_sweep, memory_budget
@@ -903,8 +903,21 @@ def _write_heads(root, tables: dict[str, table.DecisionTable]) -> None:
             "certificates": [list(tokens) for tokens in decision.certificates],
             "cells": [],
         }
-        with gzip.open(table.windows_path(out_dir, config), "wt") as handle:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        head_file = table.windows_head_file(out_dir, config)
+        with gzip.open(head_file, "wt") as handle:
             handle.write(f"# {table.WINDOWS_FORMAT}\t{json.dumps(head)}\n")
+        output = table.windows_output(config)
+        stamps = {
+            table.INPUTS_STAMP: "stamp",
+            table.HEAD_FILE_STAMP: {
+                "name": head_file.name,
+                "size": head_file.stat().st_size,
+                "sha256": row_delta.file_sha256(head_file),
+            },
+        }
+        base = row_delta.Part(row_delta.base_name(output, 0), 0, "", 0, 0)
+        row_delta.commit(out_dir, row_delta.Head(output, 0, 0, stamps, base, (), row_delta.MERGE_KEY))
 
 
 def _stub_targeted(monkeypatch, summary):

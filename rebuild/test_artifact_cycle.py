@@ -5280,10 +5280,18 @@ def test_moved_inputs_note_names_changed_new_and_gone():
 
 
 def test_m1_artifacts_present(tmp_path):
-    """The plain skip's predicate needs every gate summary and every artifact the corpus build reads, so a missing gate summary alone fails it. A gates-only rerun is planned on `m1_gates_only_base_present` instead."""
+    """The plain skip's predicate needs every gate summary, every artifact the corpus build reads and every settlement configuration's windows head and head file, so a missing gate summary alone fails it, and so does a missing head. A gates-only rerun is planned on `m1_gates_only_base_present` instead."""
+    from rebuild.pipeline import conform
+
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
-    names = [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + list(ac.M1_ARTIFACT_NAMES)
+    names = [
+        *(path.name for path in cycle_paths.M1_SUMMARY_FILES.values()),
+        *ac.M1_ARTIFACT_NAMES,
+        *ac.m1_table_head_names(),
+    ]
+    assert len(ac.m1_table_head_names()) == 2 * len(conform.SETTLEMENT_CONFIGS)
+    assert "windows-default.tsv.gz.head" in names and "windows-default.head.json.gz" in names
     assert not ac.m1_artifacts_present(tmp_path)
     for name in names:
         (m1 / name).write_text("{}")
@@ -5292,6 +5300,9 @@ def test_m1_artifacts_present(tmp_path):
     assert not ac.m1_artifacts_present(tmp_path)
     (m1 / "oracle_summary.json").write_text("{}")
     (m1 / "M1.otf").unlink()
+    assert not ac.m1_artifacts_present(tmp_path)
+    (m1 / "M1.otf").write_text("{}")
+    (m1 / "windows-ss04.tsv.gz.head").unlink()
     assert not ac.m1_artifacts_present(tmp_path)
 
 

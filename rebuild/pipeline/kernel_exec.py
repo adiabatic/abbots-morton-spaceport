@@ -4,7 +4,7 @@ The semantics defaults live here beside the flags that pass them to the kernel. 
 
 The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build. `make kernel-build` runs the same build by hand through `main`.
 
-`build_table_files` is what `run_m1` calls. It hands the crate the spec dump (`kernel_io.spec_bytes`) through a pipe the crate inherits (`_InheritedPipes`), which the crate reads once, front to back, before it opens any payload, so the dump never reaches the disk. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window enumeration, and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines and the process's own resident peak and peak footprint (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest; `rebuild/kernel-rs/src/memo.rs` gives the argument. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`); when every delta does, `default` keeps no memo. The memo lives only inside the process: every build enumerates cold, and none reads or writes a memo file. Before any table is written, the configurations exchange windows (`rebuild/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
+`build_table_files` is what `run_m1` calls. It hands the crate the spec dump (`kernel_io.spec_bytes`) through a pipe the crate inherits (`_InheritedPipes`), which the crate reads once, front to back, before it opens any payload, so the dump never reaches the disk. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window payload, which for a configuration whose previous windows rows it is handed (`PriorPart`, each part decompressed into a pipe of its own by a thread of this process, headers stripped) holds only the rows that differ from them, merged by key at the configuration's finish (`rebuild/kernel-rs/src/row_merge.rs`), and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines and the process's own resident peak and peak footprint (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest; `rebuild/kernel-rs/src/memo.rs` gives the argument. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`); when every delta does, `default` keeps no memo. The memo lives only inside the process: every build enumerates cold, and none reads or writes a memo file. Before any table is written, the configurations exchange windows (`rebuild/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
 
 `enumerate_configs` is the stream fan-out. One process enumerates every named configuration and writes each one's transition stream to its own file. Nothing on the build's path calls it; `enumerate_transitions` and the tests do.
 
@@ -13,6 +13,8 @@ The table build's width is limited by memory, because a live configuration holds
 `build_tables` and `enumerate_transitions` are the single-configuration forms, and neither writes anything that outlives the call. A single configuration has no other configuration to take windows from, so `build_tables` gives the same windows and joins as a build of the whole set but can give a different settlement table. `build_tables` hands `build-tables` its spec through a pipe, as `build_table_files` does, runs it into a scratch directory, and reads the two tables back through `table.read_windows` and `table.read_join_tsv`. `enumerate_transitions` dumps one spec to a scratch directory, enumerates the raw product into it as a stream and parses that into a `table.FixpointProduct`. Only tests call either.
 
 `guard_sweep` runs `guard-sweep` once and returns the complete mapping from `(ligature, first raw slot, second raw slot)` to the configuration-independent formation verdict. It is memoized per spec identity, so a process sweeps a spec once however many callers ask. `guard_sweep_under` returns the same mapping for one named configuration instead of quantifying over the powerset. It is not memoized, because only tests read it; they compare each configuration's verdicts with the quantified ones.
+
+`replay_emitted` is the shipped-order walk: it reads a configuration's windows head (`row_delta`), opens every part the head lists, and hands the crate's `replay-emitted` the base on its standard input and each segment on a pipe of its own, each decompressed by a thread of this process, and the crate walks the rows merged by key. A build and its walks hold a descriptor or two a part, which can pass macOS's default soft limit, so `raise_descriptor_limit` raises it toward the hard limit where each starts, and the crate inherits it.
 
 The settlement and replay functions share the memoized spec dump. `replay_strings` and `replay_memo_walk` are the enumeration-completeness check `run_m1.run_replay_strings` runs after every table build. A `replay-strings` process reads the settlement TSVs the build wrote and walks every text up to the maximum length, or only the texts naming the families the caller says changed, checking each window against the crate's own settlement: `replay_strings` walks every named configuration in one process, and `replay_memo_walk` walks one configuration in a process of its own and hands its window memo to a reader through a FIFO, which is how a full replay fills the settle memo. A disagreement raises `ReplayDisagreement` with the crate's message, which names the configuration, the window and the text. `settle_cases` is the raw form. It writes one tab-separated case line per independent window (`case_line` writes one) and returns the full Rust trace for each. It checks the case result count and that each output line starts with its case line verbatim, and decodes each distinct result once however many windows returned it. `settle_windows` asks the crate for the settled record alone (seven tab-separated fields under `--settled-only`) and decodes each straight to a `Settled`. The conform walker and the ligature outgoing check use it because they need only outcomes, not traces. Like `settle_sequences`, it takes an `on_error` argument, so a caller prefilling windows it may never read can get `None` for a refused window and keep the rest of the batch, and its `tolerate` argument gives `None` for only the refusal buckets it names. `settle_sequences` is what explain, the probe and the review corpus call. The subcommand takes independent windows, but a sequence's next left context is the previous window's result, so a batch of sequences advances in waves: every sequence's first position, then every second position using the first wave's results. Boundary positions are settled locally because their results are model constants. `settle_codepoints` settles one text. The CLI writes boundary tokens as `edge`, `space`, `zwnj`, `namer-dot` and `unknown`. The guard parser converts them to the `RightToken` constants in `settle`, so consumers never confuse these model tokens with glyph names such as `uni200C` or `periodcentered`.
 
@@ -33,7 +35,7 @@ import gzip
 import io
 import json
 import os
-import shutil
+import resource
 import signal
 import subprocess
 import sys
@@ -45,9 +47,9 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import Future, wait
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO
+from typing import IO, BinaryIO
 
-from rebuild.pipeline import kernel_io, labels, settle, table
+from rebuild.pipeline import kernel_io, labels, row_delta, settle, table
 from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, Settled, feature_config_token
 from rebuild.pipeline.table import DecisionTable, FixpointProduct, JoinTable
 from rebuild.tools import memory_budget
@@ -70,7 +72,7 @@ UNCAPPED_SCRATCH_PEAK_BYTES = 3_300_000_000
 DEFAULT_MEMO_BYTES = 1_400_000_000
 # What one configuration's prepared fold product holds while it waits parked (`fold::Parked`, `fanout::run_configs_tables`): its class rows coded against the previous row in blocks of about 4 KiB that end at near-slot run boundaries, each with a 27-byte index entry, its label-grain expansion as one joint bit a row, and its row chains as stretches of rows that share a parent and a chain length, nine bytes a stretch, beside its window options, its first rules, its source-row index, its label pool, whose texts are `Rc`s, and its outcome, settled and provenance tables, which stay as they are, from the end of its preparation, inside its slot, until every configuration has parked. Every configuration's parked product is resident at once at the end of the wave, so a wave that reuses a worker slot holds the finished configurations' products beside the deltas still enumerating; `table_build_booking_bytes` books one per configuration, and DELTA_SLOT_BYTES and FOLD_PREPARATION_BYTES each count a slot beyond its own configuration's product. Once every configuration has parked, each reads its product back whole for the cross-configuration exchange, which READ_BACK_FOLD_BYTES books. With `--cache-stats` each configuration's `[c] <config> parked bytes= class_rows= fold_rows= stretches=` line gives what its coded forms hold and how many class rows, label-grain rows and stretches they code, so a build reads off its parked bytes a class row. The reading is `build-tables` with `--cache-stats`, whose `[c] <config> parked_heap` line gives the bytes the process's malloc zones hold allocated at the rendezvous before any product is read back, where every configuration's parked product and the parsed spec are all the process holds (`fixpoint::heap_bytes`, from `/usr/bin/heap`). The constant is the highest reading divided by the count of settlement configurations that reading built, the spec's share included, rounded up to the tenth. In the whole-wave readings DELTA_SLOT_BYTES cites, the line reads 0.612 to 0.614 GB over six configurations at every width and every count from scratch, 0.10 GB a configuration, and 0.097 to 0.106 GB for each configuration built alone, so the constant is 0.2 GB. Of that, each configuration's `parked` line reads 0.056 to 0.057 GB of coded forms, 3.64 to 3.68 bytes a class row over 15.28M to 15.55M class rows, 20.38M to 22.31M label-grain rows and 0.46M to 0.51M stretches, and the rest is the part of the product that stays as it is and the spec's share. With the other terms as they stand, no value below SCRATCH_PEAK_BYTES, which `rebuild/test_memory_budget.py` holds it under, costs either fleet machine its whole wave or a delta from scratch, alone or under a gated cycle. Re-measure it with DELTA_SLOT_BYTES whenever the alphabet grows or what a parked product holds changes.
 PARKED_FOLD_BYTES = 200_000_000
-# What one configuration's prepared fold product holds once it is read back (`fold::Parked::unpark`): the class rows, their label-grain expansion, whose row holds pool ids rather than strings (`fold::FoldRow`, sixteen bytes) and is allocated at its exact length, the row chains, the window options, its first rules and its source-row index, from the rendezvous through the cross-configuration exchange (`rebuild/kernel-rs/src/crossconfig.rs`) until the configuration finishes. Every configuration reads its product back once every configuration has parked, which is after the last delta has enumerated, whatever the width, so the rendezvous holds every configuration's product read back at once and nothing that enumerates: `table_build_booking_bytes` books this term once per configuration as the rendezvous and books no width below it, so a narrow `AMS_KERNEL_THREADS` books no less than the rendezvous holds. Each configuration's share of what the exchange and the allocator hold beside the products is booked here too. The reading is the whole build's peak where it falls after every configuration has parked, the higher of its resident and footprint lines, in the whole-wave readings DELTA_SLOT_BYTES cites: at 45 runes that is every width with every delta over default's memo and the build with two deltas from scratch, while with three or more the build peaks at its start (DELTA_SLOT_BYTES says how the two are told apart). It reads 7.93 GB one wide to 8.39 GB six wide and 8.42 to 8.48 GB with two from scratch, its resident line in every run. The constant is the highest reading, 8.48 GB, divided by the six settlement configurations that build holds, 1.41 GB, rounded up to the tenth. The floor it rests on is the `[c] <config> read_back_heap` line `--cache-stats` prints: the bytes the process's malloc zones hold allocated once every configuration has read its product back and before the exchange's first round, where those products and the parsed spec are all the process holds (`fixpoint::heap_bytes`, from `/usr/bin/heap`). It reads 7.09 GB over six configurations at every width and every count from scratch, 1.18 GB a configuration, and 1.14 to 1.21 GB for each configuration built alone. The rest of the peak is the exchange's working set beside the products and the allocator's retained pages: the peak footprint of those builds reads 7.09 to 7.34 GB, and the resident line 0.83 to 1.14 GB above it. With the other terms as they stand, a value of 6.81 GB or more leaves the 18-core machine under a gated cycle, with gate:make-test's pytest pool running, no width whose booking fits, which costs it its whole wave and every delta from scratch, 6.96 GB or more does the same to the 12-core machine under a gated cycle, and 7.26 GB or more to both machines alone. Re-measure it with DELTA_SLOT_BYTES whenever the alphabet grows or what a prepared product holds changes.
+# What one configuration's prepared fold product holds once it is read back (`fold::Parked::unpark`): the class rows, their label-grain expansion, whose row holds pool ids rather than strings (`fold::FoldRow`, sixteen bytes) and is allocated at its exact length, the row chains, the window options, its first rules and its source-row index, from the rendezvous through the cross-configuration exchange (`rebuild/kernel-rs/src/crossconfig.rs`) until the configuration finishes. Every configuration reads its product back once every configuration has parked, which is after the last delta has enumerated, whatever the width, so the rendezvous holds every configuration's product read back at once and nothing that enumerates: `table_build_booking_bytes` books this term once per configuration as the rendezvous and books no width below it, so a narrow `AMS_KERNEL_THREADS` books no less than the rendezvous holds. Each configuration's share of what the exchange and the allocator hold beside the products is booked here too. The reading is the whole build's peak where it falls after every configuration has parked, the higher of its resident and footprint lines, in the whole-wave readings DELTA_SLOT_BYTES cites: at 45 runes that is every width with every delta over default's memo and the build with two deltas from scratch, while with three or more the build peaks at its start (DELTA_SLOT_BYTES says how the two are told apart). It reads 7.93 GB one wide to 8.39 GB six wide and 8.42 to 8.48 GB with two from scratch, its resident line in every run. The constant is the highest reading, 8.48 GB, divided by the six settlement configurations that build holds, 1.41 GB, rounded up to the tenth. The floor it rests on is the `[c] <config> read_back_heap` line `--cache-stats` prints: the bytes the process's malloc zones hold allocated once every configuration has read its product back and before the exchange's first round, where those products and the parsed spec are all the process holds (`fixpoint::heap_bytes`, from `/usr/bin/heap`). It reads 7.09 GB over six configurations at every width and every count from scratch, 1.18 GB a configuration, and 1.14 to 1.21 GB for each configuration built alone. The rest of the peak is the exchange's working set beside the products and the allocator's retained pages: the peak footprint of those builds reads 7.09 to 7.34 GB, and the resident line 0.83 to 1.14 GB above it. With the other terms as they stand, a value of 6.81 GB or more leaves the 18-core machine under a gated cycle, with gate:make-test's pytest pool running, no width whose booking fits, which costs it its whole wave and every delta from scratch, 6.96 GB or more does the same to the 12-core machine under a gated cycle, and 7.26 GB or more to both machines alone. A configuration's finish also holds, beside its product, the merge of its windows rows against its previous ones when it has any (`rebuild/kernel-rs/src/row_merge.rs`): one buffer of 1 MiB a part it reads, and since an output at its segment cap plus `row_delta.FOLD_OVERRUN` folds and reads no part, at most a base and twenty segments, 21 streams and 21 MiB a configuration; this term books it with the rest of the finish, at the value above. Re-measure it with DELTA_SLOT_BYTES whenever the alphabet grows or what a prepared product holds changes.
 READ_BACK_FOLD_BYTES = 1_500_000_000
 # The peak `table_build_booking_bytes` books for the one `build-tables` process at the configuration count with every delta started from scratch beside default: the width and the count `kernel_threads_default` and `deltas_from_scratch` give a bare run_m1 on the 48 GiB machines (`doc/fleet.md`). A gated cycle there runs the same width and count, since gate:make-test's pytest pool still leaves room for every delta from scratch (SCRATCH_PEAK_BYTES), so it books the same. It is the highest of the wave, DEFAULT_MEMO_BYTES plus PARKED_FOLD_BYTES per configuration plus SCRATCH_PEAK_BYTES less PARKED_FOLD_BYTES for each delta from scratch plus DELTA_SLOT_BYTES for each other delta plus FOLD_PREPARATION_BYTES, the start, a SCRATCH_PEAK_BYTES for each delta from scratch and, for default, UNCAPPED_SCRATCH_PEAK_BYTES while a delta is left to read its memo or one more SCRATCH_PEAK_BYTES once none is, and the rendezvous, READ_BACK_FOLD_BYTES per configuration; with every delta from scratch the wave's 13.5 GB binds over the start's 12.6 GB and the rendezvous's 9.0 GB. `rebuild/test_memory_budget.py` checks that it equals that booking, so it moves whenever a term is re-measured. `make job-costs` compares every run_m1 step since its commit with it, and an overrun means a build outgrew what its width books, so the kernel constants need re-measuring. Its reading is the higher of two lines: the step's peak, which is the build process's resident line, and the build's peak footprint, which `build_table_files` reads between the process's exit and its reap and run_m1 writes on its `[t] kernel_build_tables` line. The resident line leaves out what the memory compressor holds of the build, so the row prints both lines, and an overrun the compressor's share makes can be told apart from a build that grew. A record without a footprint, which includes every build on Linux, where an exited process's footprint cannot be read, reads its resident line alone. At 45 runes the whole-build peak comes at the rendezvous for every count below three from scratch and at the start from three up (DELTA_SLOT_BYTES). Every reading in `var/keep/ram-inventory/v4/change8-readings/` is inside it, the highest, 11.59 GB with every delta from scratch, by 1.91 GB, and every reading of a build over the whole set there is inside the booking at its own width and count, by 0.74 GB or more: 11.55 to 11.59 GB with five from scratch, booked at 13.5 GB, 9.10 to 9.12 GB with three and four, booked at 12.5 and 13.0 GB, 8.42 to 8.48 GB with two, booked at 12.0 GB, and 7.93 to 8.39 GB with none, booked at 9.0 GB one to four wide, 9.6 GB five wide and 11.0 GB six wide. Building a snapshot is inside this bound. `Engine::take_memo` releases the other live memos, then drains the trace map into an array one shard at a time, holding the array beside the shards not yet drained and freeing each shard's table once its entries have moved, so the map is gone before partitioning. Partitioning holds a four-byte source position per record and the offset cursors, plus a temporary sort buffer for an unusually large collision bucket, and frees the positions before it builds the tag blocks. Enumeration and the fold still hold corpus-sized state. An enumeration frees its worklist's stack, its item table, its pending class-grain rows and its row log's base index once its member cross-check has appended the class rows to its row log (after its `--cache-stats` lines, when they are asked for), ahead of its memo release, so everything from there to its return (its snapshot build, its drain, its sort and its partition check) runs without them, and the partition check holds the member claims of one base at a time (`fixpoint::DeepPartitionCheck`). Every engine of the build, `default`'s, each delta's and each delta's started from scratch, holds its prospect and candidate memos to the ceilings SCRATCH_PEAK_BYTES describes (`fixpoint::TABLE_MEMO_CEILINGS`), its rows in a row log, its pending class-grain rows as narrowed ids and its worklist's stack as item ids, and every reading the terms rest on is of that crate.
 TABLE_BUILD_PEAK_BYTES = 13_500_000_000
@@ -388,25 +390,71 @@ def _allocator_environment() -> dict[str, str] | None:
     return {**os.environ, **KERNEL_ALLOCATOR_ENVIRONMENT} if sys.platform == "darwin" else None
 
 
+def _write_all(descriptor: int, view: memoryview) -> None:
+    while view:
+        view = view[os.write(descriptor, view) :]
+
+
 def _feed_bytes(data: bytes) -> Callable[[int], None]:
     """An `_InheritedPipes` input that writes `data` whole through a view of it, so however many pipes carry one object, none copies it."""
 
     def write(descriptor: int) -> None:
-        view = memoryview(data)
-        while view:
-            view = view[os.write(descriptor, view) :]
+        _write_all(descriptor, memoryview(data))
 
     return write
 
 
-def _feed_gunzipped(path: Path) -> Callable[[int], None]:
-    """An `_InheritedPipes` input that writes the gzip file at `path` decompressed, a megabyte at a time, because the crate has no decompressor."""
+# The one buffer each decompressing writer copies through: a pipe holds 64 KiB at most on macOS, so a larger buffer only adds to what a writer blocked on its pipe holds.
+FEED_CHUNK_BYTES = 1 << 16
+
+
+def _feed_gunzipped(
+    source: Path | BinaryIO, strip: Callable[[gzip.GzipFile], object] | None = None
+) -> Callable[[int], None]:
+    """An `_InheritedPipes` input that writes the gzip file at `source`, a path or a handle open at any position, decompressed, because the crate has no decompressor. It copies through one buffer of `FEED_CHUNK_BYTES` written straight to the descriptor, so a writer blocked on its pipe holds that buffer, the gzip stream's read buffer and the inflate window, and nothing else. `strip`, when given, reads and checks the leading lines the crate is not to see, a part's header lines, before the rest is copied; what it raises fails the writer, and so the call."""
 
     def write(descriptor: int) -> None:
-        with gzip.open(path, "rb") as source, os.fdopen(descriptor, "wb", 1 << 20, closefd=False) as sink:
-            shutil.copyfileobj(source, sink, length=1 << 20)
+        if isinstance(source, Path):
+            opened = gzip.open(source, "rb")
+        else:
+            source.seek(0)
+            opened = gzip.GzipFile(fileobj=source, mode="rb")
+        with opened as stream:
+            if strip is not None:
+                strip(stream)
+            buffer = memoryview(bytearray(FEED_CHUNK_BYTES))
+            while count := stream.readinto(buffer):
+                _write_all(descriptor, buffer[:count])
 
     return write
+
+
+@dataclass(frozen=True)
+class PriorPart:
+    """One part of a configuration's previous windows rows that `build-tables` merges its own against: its name, which labels its pipe, the rows its head lists, which the crate checks, and the input that writes its rows, decompressed and without its header lines, into a pipe (`_feed_gunzipped`)."""
+
+    name: str
+    rows: int
+    feed: Callable[[int], None]
+
+    @classmethod
+    def gunzipped(
+        cls, name: str, rows: int, handle: BinaryIO, strip: Callable[[gzip.GzipFile], object]
+    ) -> PriorPart:
+        """A part read from its open handle and decompressed, `strip` checking and dropping its header lines (`_feed_gunzipped`)."""
+        return cls(name, rows, _feed_gunzipped(handle, strip))
+
+
+def raise_descriptor_limit() -> int:
+    """Raise this process's soft limit on open descriptors to its hard limit and return the limit in force. A build or a walk over windows outputs at their widest holds a descriptor or two a part, more than the 256 macOS's launchd gives a process by default, and a crate it spawns inherits the raised limit. A system that refuses the raise keeps its limit, and a build that then needs more fails at the open that passes it."""
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft == hard:
+        return soft
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+    except ValueError, OSError:
+        return soft
+    return hard
 
 
 class _InheritedPipes:
@@ -728,12 +776,15 @@ def build_table_files(
     default_memo_sharing: bool = True,
     scratch_beside_default: int = 0,
     verdict_sharing: bool = True,
+    previous: Mapping[str, Sequence[PriorPart]] | None = None,
 ) -> TableBuild:
-    """Every named configuration folded in the crate: its settlement TSV, its join TSV, its plain window enumeration stamped `inputs`, and the table digest of the pair, returned as `TableBuild.digests` (`{config: digest}`) beside the `[t]` lines `--timings` made the crate write.
+    """Every named configuration folded in the crate: its settlement TSV, its join TSV, its plain window payload stamped `inputs`, and the table digest of the pair, returned as `TableBuild.digests` (`{config: digest}`) beside the `[t]` lines `--timings` made the crate write.
+
+    `previous` maps a configuration to its previous windows rows, its base and then its segments in order (`PriorPart`), and its payload then holds its head line and only the rows that differ from them, merged by key at its finish, with no column line (`rebuild/kernel-rs/src/row_merge.rs`). Each part reaches the crate decompressed on a pipe of its own (`_InheritedPipes`), written by a thread of this process for the crate's whole run, and the crate reads it once, front to back, at the configuration's finish, refusing a part whose keys do not strictly ascend or whose rows are not its count. A configuration it does not name writes its whole payload, as every configuration does when it is empty.
 
     `spec_bytes` is the spec dump (`kernel_io.spec_bytes`). The crate reads it as its spec positional, `/dev/fd/<number>`, from a pipe it inherits (`_InheritedPipes`), once, front to back, before it opens any payload, so the dump never reaches the disk.
 
-    This is `enumerate-configs` plus the fold in one process, so there is no stream between them: the fold runs on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json. The crate opens its path (`windows_payload`) with `File::create`, so the caller decides where the payload goes by what it puts at that path before the call: `run_m1.build_tables`, which packs it into the `.gz` artifact, and `rebuild/tools/scaling_sweep.py`, which counts it, a FIFO each reads it through (`stream_payloads`); a reading that wants no payload, a symbolic link to the null device; and a caller that wants the file, such as this module's `build_tables` and the tests, nothing.
+    This is `enumerate-configs` plus the fold in one process, so there is no stream between them: the fold runs on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json. The crate opens its path (`windows_payload`) with `File::create`, so the caller decides where the payload goes by what it puts at that path before the call: `run_m1.build_tables`, which keeps its head line as the configuration's head file and packs the rest into the next segment or base of its windows output, and `rebuild/tools/scaling_sweep.py`, which counts it, a FIFO each reads it through (`stream_payloads`); a reading that wants no payload, a symbolic link to the null device; and a caller that wants the file, such as this module's `build_tables` and the tests, nothing. Only `run_m1.build_tables` passes `previous`, so every other caller's payload is the whole enumeration.
 
     One process handles every named configuration because the configurations after `default` are enumerated as deltas over it. `default` enumerates first and keeps its trace memo. Each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and settles only the rest, `threads` worker slots at a time, with `default`'s fold preparation in one of them. `rebuild/kernel-rs/src/memo.rs` gives the argument; the window locality rule, applied across configurations, makes the shared results exact. `default_memo_sharing=False` enumerates every configuration from scratch, and `rebuild/test_kernel_exec.py` checks that it writes the same tables as the delta build. `scratch_beside_default` starts up to that many of the heaviest deltas from scratch beside `default` instead, in whole tiers of equal unlocking-rune count, which writes the same tables and holds what `table_build_booking_bytes` books for it (`deltas_from_scratch` decides it); when every delta starts that way, `default` keeps no memo. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts beside it, and a delta served one reruns only the probe's asks that name one of its own unlocking runes (`rebuild/kernel-rs/src/liveness.rs`); `verdict_sharing=False` runs every probe whole, and `rebuild/test_kernel_exec.py` checks that it writes the same tables.
 
@@ -745,7 +796,11 @@ def build_table_files(
 
     The digests are returned on stdout, one JSON object per line in the order the configurations were named, because a digest is a value the caller keeps and reports, not a separate artifact. Raises `KernelRunError` for every kind of failure the CLI contract distinguishes, and for a clean exit whose output names a different set of configurations from the one requested.
     """
-    with _InheritedPipes({"spec": _feed_bytes(spec_bytes)}) as pipes:
+    parts = {config: list(listed) for config, listed in (previous or {}).items() if listed}
+    inputs_of = {"spec": _feed_bytes(spec_bytes)} | {
+        part.name: part.feed for listed in parts.values() for part in listed
+    }
+    with _InheritedPipes(inputs_of) as pipes:
         arguments = [
             str(BINARY),
             "build-tables",
@@ -756,6 +811,9 @@ def build_table_files(
             f"--threads={threads}",
             *mode_flags(),
         ]
+        for config, listed in parts.items():
+            named = ",".join(f"{pipes.path(part.name)}:{part.rows}" for part in listed)
+            arguments.append(f"--previous={config}={named}")
         if not default_memo_sharing:
             arguments.append("--no-default-memo-sharing")
         if not verdict_sharing:
@@ -1106,7 +1164,7 @@ EMITTED_COUNTS = ("rows", "checked_per_member", "open_rows", "continued")
 
 
 def replay_emitted(
-    windows: Path,
+    head: Path,
     *,
     config: str,
     table: Path,
@@ -1115,27 +1173,49 @@ def replay_emitted(
     context: bytes,
     timings: bool = False,
 ) -> dict[str, int]:
-    """Walk one configuration's packed window enumeration against the shipped settlement order with the crate's `replay-emitted` subcommand (`rebuild/kernel-rs/src/shipped_order.rs`). Returns `{rows, checked_per_member, open_rows, continued}` on a clean walk, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class contained their deep class only in part, `open_rows` the rows whose key leaves a slot open after a letter (every continuation of which the walk checks), and `continued` those whose continuations it searched because their deciding rule constrains the open slot or a later one. `windows` is the `.gz` the build packed (`table.windows_path`). It is decompressed here and streamed to the subcommand's standard input, because the crate reads the plain payload and has no decompressor. `table` is the configuration's settlement TSV. `order` is the text `emit_gsub.emitted_order_tsv` returns, encoded, and `context` the text `emit_gsub.emitted_context_tsv` returns, encoded; each reaches the crate on a pipe of its own that it inherits and opens as `/dev/fd/<number>` (`_InheritedPipes`), written whole from the object passed, so callers that walk at once can share one `order` and none copies it. The crate reads the table, the order and the context in turn, then the windows, so no writer waits on another. `order_rules` is the number of rules `order` holds, which the crate checks the order it read against, so an order that ends short is refused rather than walked. A disagreement raises `EmittedOrderDisagreement` with the crate's message; every other failure raises `KernelRunError`."""
+    """Walk one configuration's window rows against the shipped settlement order with the crate's `replay-emitted` subcommand (`rebuild/kernel-rs/src/shipped_order.rs`). Returns `{rows, checked_per_member, open_rows, continued}` on a clean walk, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class contained their deep class only in part, `open_rows` the rows whose key leaves a slot open after a letter (every continuation of which the walk checks), and `continued` those whose continuations it searched because their deciding rule constrains the open slot or a later one. `head` is the configuration's windows head the build committed (`table.windows_head_path`). Every part it lists is opened here, its size checked against the head (`row_delta.open_parts`), and fed decompressed, because the crate reads plain rows and has no decompressor: the base whole, its head and column lines included, on the subcommand's standard input, and each segment, its header checked and stripped, on a pipe of its own, with each part's row count beside it (`--base-rows=`, `--segments=`), so the crate walks the rows merged by key and refuses a part whose keys or count are wrong, naming it. A head that is missing or does not read, or a part missing or of another size, raises `KernelRunError` naming it. `table` is the configuration's settlement TSV. `order` is the text `emit_gsub.emitted_order_tsv` returns, encoded, and `context` the text `emit_gsub.emitted_context_tsv` returns, encoded; each reaches the crate on a pipe of its own that it inherits and opens as `/dev/fd/<number>` (`_InheritedPipes`), written whole from the object passed, so callers that walk at once can share one `order` and none copies it. The crate reads the table, the order and the context in turn, then the windows, so no writer waits on another. `order_rules` is the number of rules `order` holds, which the crate checks the order it read against, so an order that ends short is refused rather than walked. A disagreement raises `EmittedOrderDisagreement` with the crate's message; every other failure raises `KernelRunError`."""
     ensure_built()
-    inputs = {
-        "order": _feed_bytes(order),
-        "context": _feed_bytes(context),
-        str(windows): _feed_gunzipped(windows),
-    }
-    with _InheritedPipes(inputs, stdin=str(windows)) as pipes:
-        arguments = [
-            str(BINARY),
-            "replay-emitted",
-            "-",
-            f"--config={config}",
-            f"--table={table}",
-            f"--order={pipes.path('order')}",
-            f"--order-rules={order_rules}",
-            f"--context={pipes.path('context')}",
-        ]
-        if timings:
-            arguments.append("--timings")
-        finished, _peaks = _run_kernel_reaped(arguments, "replay-emitted", timeout=TIMEOUT, pipes=pipes)
+    directory, output = head.parent, head.name.removesuffix(".head")
+    try:
+        read = row_delta.read_head(directory, output)
+        if read is None:
+            raise row_delta.HeadError("no such head")
+        if read.merge != row_delta.MERGE_KEY:
+            raise row_delta.HeadError("not a head of window rows, which merge by key")
+        opened = row_delta.open_parts(directory, read)
+    except row_delta.HeadError as error:
+        raise KernelRunError(f"{head}: {error}") from None
+    with opened:
+        base, *segments = read.parts
+        inputs = {
+            "order": _feed_bytes(order),
+            "context": _feed_bytes(context),
+            base.name: _feed_gunzipped(opened.handles[0]),
+        }
+        for number, (part, handle) in enumerate(zip(segments, opened.handles[1:], strict=True), start=1):
+            inputs[part.name] = _feed_gunzipped(
+                handle,
+                functools.partial(_strip_segment_header, read=read, number=number),
+            )
+        with _InheritedPipes(inputs, stdin=base.name) as pipes:
+            arguments = [
+                str(BINARY),
+                "replay-emitted",
+                "-",
+                f"--config={config}",
+                f"--table={table}",
+                f"--order={pipes.path('order')}",
+                f"--order-rules={order_rules}",
+                f"--context={pipes.path('context')}",
+                f"--base-rows={base.rows}",
+            ]
+            if segments:
+                arguments.append(
+                    "--segments=" + ",".join(f"{pipes.path(part.name)}:{part.rows}" for part in segments)
+                )
+            if timings:
+                arguments.append("--timings")
+            finished, _peaks = _run_kernel_reaped(arguments, "replay-emitted", timeout=TIMEOUT, pipes=pipes)
     errors = finished.stderr.decode(errors="replace").strip()
     if finished.returncode == 2:
         raise KernelRunError(
@@ -1159,6 +1239,11 @@ def replay_emitted(
             f"replay-emitted answered {answer!r} where a {{config: {config!r}, {', '.join(EMITTED_COUNTS)}}} line was asked for"
         )
     return {key: int(answer[key]) for key in EMITTED_COUNTS}
+
+
+def _strip_segment_header(stream: gzip.GzipFile, *, read: row_delta.Head, number: int) -> None:
+    """Read segment `number`'s header line from its decompressed stream and check it against the head that lists it, a merge by key included (`row_delta.check_segment_header`)."""
+    row_delta.check_segment_header(stream.readline(), read.output, read.generation, number, read.merge)
 
 
 def _forward_stderr(

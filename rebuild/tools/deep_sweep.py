@@ -1058,14 +1058,14 @@ def targeted_rules_digest(decision: DecisionTable) -> str:
 
 
 def targeted_lines(root: Path = ROOT) -> list[str] | None:
-    """Return the targeted mode's record key lines: the deep sweep's (`deep_sweep_skip_lines`) and one `settle:bk1-la4[<config>]` line per settlement configuration with `targeted_rules_digest` over the table head its M1 build left. A rune edit that changes a settle:bk1-la4 rule or its certificate therefore makes the mode due, as does a change in the deep sweep's lines, and a rune edit that changes none leaves it current. None when there is no behavior-class sidecar or a head is missing or unreadable."""
+    """Return the targeted mode's record key lines: the deep sweep's (`deep_sweep_skip_lines`) and one `settle:bk1-la4[<config>]` line per settlement configuration with `targeted_rules_digest` over the table head its M1 build left, read from its head file through its windows head (`table.read_windows_head`). A rune edit that changes a settle:bk1-la4 rule or its certificate therefore makes the mode due, as does a change in the deep sweep's lines, and a rune edit that changes none leaves it current. None when there is no behavior-class sidecar or a head or head file is missing, unreadable or not what its head records."""
     lines = deep_sweep_skip_lines(root)
     if lines is None:
         return None
     out_dir = root / "rebuild" / "out" / "m1"
     for config in conform.SETTLEMENT_CONFIGS:
         try:
-            _stamp, decision = table.read_windows(table.windows_path(out_dir, config), windows=False)
+            _stamp, decision = table.read_windows_head(out_dir, config)
         except OSError, ValueError:
             return None
         lines.append(f"{TARGETED_CLASS}[{config}]\t{targeted_rules_digest(decision)}")

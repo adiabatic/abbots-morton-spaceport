@@ -895,7 +895,7 @@ class TestTheKernelInvocation:
         assert list(digests) == list(conform.SETTLEMENT_CONFIGS)
         assert any(head.deep_classes for head, _joins in tables.values())
         for config, (_head, joins) in tables.items():
-            stamp, decision = table_module.read_windows(table_module.windows_path(tmp_path, config))
+            stamp, decision = table_module.read_materialized_windows(tmp_path, config)
             assert stamp == STAMP
             assert decision.transitions
             assert digests[config] == table_module.table_digest(decision, joins), config
@@ -929,8 +929,8 @@ class TestTheKernelInvocation:
         alone, narrowed = run_m1.build_tables(SPEC, one, inputs=STAMP, configs=["default"])
         whole_tables, whole = run_m1.build_tables(SPEC, every, inputs=STAMP)
         assert (one / "joins-default.tsv").read_bytes() == (every / "joins-default.tsv").read_bytes()
-        _stamp, one_rows = table_module.read_windows(table_module.windows_path(one, "default"))
-        _stamp, every_rows = table_module.read_windows(table_module.windows_path(every, "default"))
+        _stamp, one_rows = table_module.read_materialized_windows(one, "default")
+        _stamp, every_rows = table_module.read_materialized_windows(every, "default")
         assert one_rows.transitions == every_rows.transitions
         assert alone["default"][0].imports == ()
         assert whole_tables["default"][0].imports == (), "the fixture stopped importing nothing into default"
