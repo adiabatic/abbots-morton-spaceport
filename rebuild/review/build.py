@@ -3019,7 +3019,7 @@ def build_m1(
         raise SystemExit(
             f"missing or empty baseline subset tables under {subset_dir}: {', '.join(missing_subsets)}"
         )
-    # The pack is written before the pool starts, so no worker races the write. Its table digests are also the environment stamp's `subsets` line, so each table is hashed once for both.
+    # The pack is written before any pool starts, so no worker races the write, and its own processes, one a configuration (`subset_pack.write_pack`), have exited before the load begins, so a pass that rewrites the pack spends that time ahead of the step's first phase line. Its table digests are also the environment stamp's `subsets` line, so each table is hashed once for both.
     subset_digests = table_digests(subset_dir, ACCEPTANCE_CONFIGS)
     subset_pack = ensure_pack(subset_dir, ACCEPTANCE_CONFIGS, subset_digests, subset_pack)
     memory_tally.mark("pack")

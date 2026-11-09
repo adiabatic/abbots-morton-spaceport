@@ -31,6 +31,10 @@ clones = pytest.mark.skipif(
     sys.platform != "darwin",
     reason="the corpus step clones its inputs, which APFS alone does without writing them",
 )
+null_pack = pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="the pack child links its pack to the null device, which takes `ftruncate` on macOS alone",
+)
 
 
 def _spec_path(tmp_path):
@@ -469,7 +473,7 @@ def test_the_absorbs_inputs_restate_the_live_rows_under_labels_of_their_own(tmp_
 
 
 def test_an_absorbs_run_makes_each_counts_inputs_once_and_records_every_line(monkeypatch, tmp_path):
-    """An absorbs run clones the live `default` settle memo, its head and every part the head lists, into its tree, makes each distinct count's inputs once, and measures each named count, a count named twice twice, on every path `--paths` names, in order, each line's two jobs in the series' own environment; it records each line under the absorbs holder with its count, path and row counts, then each path's fit against rows, and removes the clone and every standing file it wrote however it ends. A run whose paths read no standing file writes none. Every segment a line ships is unlinked once the line ends, however it ends, and a run killed before its cleanup leaves their names for the next run's `empty_tree` to unlink."""
+    """An absorbs run clones the live `default` settle memo, its head and every part the head lists, into its tree, makes each distinct count's inputs once, and measures each named count, a count named twice twice, on every path `--paths` names, in order, each line's two jobs in the series' own environment, without the allocator setting a corpus line takes; it records each line under the absorbs holder with its count, path and row counts, then each path's fit against rows, and removes the clone and every standing file it wrote however it ends. A run whose paths read no standing file writes none. Every segment a line ships is unlinked once the line ends, however it ends, and a run killed before its cleanup leaves their names for the next run's `empty_tree` to unlink."""
     from multiprocessing import shared_memory
 
     from rebuild.pipeline import oracle_cache, run_m1
@@ -511,6 +515,7 @@ def test_an_absorbs_run_makes_each_counts_inputs_once_and_records_every_line(mon
 
     def measure_absorb_line(jobs, names, *, env, **rest):
         assert set(jobs) == {"absorb", "carry"} and env is not None
+        assert not set(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT) & set(env)
         for name in names:
             with suppress(FileNotFoundError):
                 shared_memory.SharedMemory(name, track=False).close()
@@ -528,6 +533,8 @@ def test_an_absorbs_run_makes_each_counts_inputs_once_and_records_every_line(mon
         }
 
     monkeypatch.delenv(spec_load.M1_RUNES_ENV, raising=False)
+    for name in kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT:
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(ms, "ROOT", tmp_path)
     monkeypatch.setattr(ms.spec_load, "load_default_spec", lambda: spec)
     monkeypatch.setattr(run_m1, "OUT_DIR", out_dir)
@@ -864,7 +871,7 @@ def _audit_rows(excluded=frozenset()):
 def test_a_cut_line_builds_over_the_cut_audit_and_writes_only_what_the_build_reads_back(
     mini_bundle, mini_corpus, monkeypatch, tmp_path
 ):
-    """A cut line feeds the build the audit rows whose windows use only the cut's letters, here every letter but ·Out and ·Fee. As the child starts, its out dir holds a clone of the live signature store and a link to the null device at every staging name `null_routes` gives, and once the line is done the only regular files it left are the ones the build reads back or does not route, and its directory is gone. The line reads every mark in `CORPUS_MARKS` order, the signatures all answered by the clone, both pools' workers from their pool records and from the sampler, and one held sidecar figure a write run from the write phase's note. The checkout's code digests are read after the idle wait and before the after-wait, so an edit made during either wait is not one made during the build."""
+    """A cut line feeds the build the audit rows whose windows use only the cut's letters, here every letter but ·Out and ·Fee. As the child starts, its out dir holds a clone of the live signature store and a link to the null device at every staging name `null_routes` gives, and once the line is done the only regular files it left are the ones the build reads back or does not route, and its directory is gone. The line reads every mark in `CORPUS_MARKS` order, the signatures all answered by the clone, both pools' workers from their pool records and from the sampler, one held sidecar figure a write run from the write phase's note, and its pack child's block with one pack process a configuration, the child run with the line's allocator setting. The checkout's code digests are read after the idle wait and before the after-wait, so an edit made during either wait is not one made during the build."""
     inputs = _mini_inputs(mini_bundle, mini_corpus)
     routes = _routes(inputs)
     excluded = frozenset({0xE67B, 0xE658})
@@ -889,6 +896,7 @@ def test_a_cut_line_builds_over_the_cut_audit_and_writes_only_what_the_build_rea
         step_dir,
         ms.CorpusCut("r-test", ("qsDay",), 1, excluded),
         routes,
+        env={**ms.corpus_environment(), **kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT},
         idle_s=1,
         after_s=1,
         sleep=waits.append,
@@ -907,11 +915,54 @@ def test_a_cut_line_builds_over_the_cut_audit_and_writes_only_what_the_build_rea
         assert pool["width"] == 2 and pool["reading"] == "footprint", pool
         assert len(pool["peaks"]) == len(pool["resident"]) == 2, pool
     assert measured["pools"]["signature"]["peaks"] == []
+    assert measured["pools"]["pack"]["width"] == len(audit.ACCEPTANCE_CONFIGS) and measured["pack"]["rows"]
+    assert measured["pack"]["allocator_env"] == dict(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT)
     assert len(measured["sidecar_lines_mb"]) == len(measured["write_runs"]) and all(
         measured["sidecar_lines_mb"]
     )
     assert measured["recomputed"] == measured["units"] and measured["fragments"]["deflated"]
     assert not step_dir.exists()
+
+
+@null_pack
+def test_a_cut_lines_pack_child_packs_the_cut_tables_through_fifos_onto_the_null_device(tmp_path):
+    """A cut line's pack child runs `write_pack` over each configuration's subset table cut to the line's letters, here every letter but ·Out and ·Fee, each served through a FIFO that is filled on every open, so the two passes read each table twice, with its pack linked to the null device, so it leaves only the FIFOs. It records the cut tables' rows and strings, each pass's seconds, its own peaks and environment, and one pack process a configuration under the `pack` pool."""
+    excluded = frozenset({0xE67B, 0xE658})
+    rows = 0
+    strings: set[str] = set()
+    for config in audit.ACCEPTANCE_CONFIGS:
+        for key, glyphs, _clusters, junctions in subset_pack._projected_rows(
+            subset_pack.table_path(MINI, config)
+        ):
+            if not {int(part, 16) for part in subset_pack.key_codepoints(key).split(":")} & excluded:
+                rows += 1
+                strings.update((*glyphs, *junctions))
+    env = {**ms.corpus_environment(), **kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT}
+    pack_dir = tmp_path / ms.PACK_DIR
+    pack, pool = ms.measure_pack(
+        MINI,
+        pack_dir,
+        ms.CorpusCut("r-test", ("qsDay",), 1, excluded),
+        env=env,
+        cwd=build.REPO_ROOT,
+        interval_s=0.05,
+        machine=lambda: QUIET,
+    )
+    assert (pack["rows"], pack["strings"]) == (rows, len(strings))
+    assert [mark["label"] for mark in pack["marks"]] == [
+        ms.PACK_STARTED_MARK,
+        subset_pack.SURVEYED_MARK,
+        ms.PACK_MARK,
+    ]
+    assert pack["survey_s"] > 0 and pack["write_s"] > 0 and pack["peak_footprint"] and pack["peak_resident"]
+    assert pack["fills"] == 2 * len(audit.ACCEPTANCE_CONFIGS)
+    assert pack["allocator_env"] == dict(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT)
+    assert pool["width"] == len(audit.ACCEPTANCE_CONFIGS) == len(pool["peaks"]) == len(pool["resident"])
+    left = sorted(path.name for path in pack_dir.iterdir())
+    assert left == sorted(
+        subset_pack.table_path(pack_dir, config).name for config in audit.ACCEPTANCE_CONFIGS
+    )
+    assert not any(path.is_file() or path.is_symlink() for path in pack_dir.iterdir())
 
 
 @clones
@@ -1025,8 +1076,9 @@ def test_the_listing_names_every_file_the_build_left_and_strays_what_it_was_not_
 def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_stray(
     mini_bundle, mini_corpus, monkeypatch, tmp_path, capsys
 ):
-    """A corpus run records each line under the corpus holder as it finishes, and a line that leaves a file the step does not expect is recorded and then stops the run, naming the file, before any later line or the fit. Code that moved during a line's build is warned about under that line and recorded beside the digests it started with, code that moved since the first line is warned about too, and the run removes its clones however it ends."""
+    """A corpus run records each line under the corpus holder as it finishes, and a line that leaves a file the step does not expect is recorded and then stops the run, naming the file, before any later line or the fit. Code that moved during a line's build is warned about under that line and recorded beside the digests it started with, code that moved since the first line is warned about too, and the run removes its clones however it ends. Each line, its build and its pack child, runs with the allocator's large cache off on macOS, as the cycle's corpus-build step runs the build, and without it elsewhere."""
     measured_names: list[str] = []
+    environments: list[dict[str, str]] = []
     readings = iter(
         [
             {"code": {"corpus_code": "first"}, "code_after": {"corpus_code": "moved"}},
@@ -1043,6 +1095,7 @@ def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_str
 
     def measure_corpus_line(inputs, step_dir, cut, *arguments, **rest):
         measured_names.append(cut.name)
+        environments.append(rest["env"])
         stray = {"out/units-index.ndjson.gz": 5} if len(measured_names) == 2 else {}
         return {
             "written": {"end": None, "after": None},
@@ -1053,6 +1106,8 @@ def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_str
 
     monkeypatch.delenv(spec_load.M1_RUNES_ENV, raising=False)
     monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
+    for name in kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT:
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(ms, "ROOT", tmp_path)
     monkeypatch.setattr(ms.kernel_exec, "cargo_build", lambda: None)
     monkeypatch.setattr(ms, "clone_inputs", clone_inputs)
@@ -1082,6 +1137,14 @@ def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_str
         "[warn] r4: the checkout's corpus code or crate binary moved since the first line",
     ]
     assert not clones.parent.exists()
+    allocator = dict(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT) if sys.platform == "darwin" else {}
+    assert [
+        {key: env[key] for key in kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT if key in env}
+        for env in environments
+    ] == [
+        allocator,
+        allocator,
+    ]
 
 
 def test_a_run_replaces_only_its_own_holders_lines_and_fit_in_the_record(tmp_path):

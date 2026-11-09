@@ -2888,7 +2888,7 @@ class TestTheConformSweepWidth:
             ac.conform_job_derivation(**narrow)
         )
         assert ac.conform_job_budget(**dict(narrow, ncores=4)) == 4
-        assert ac.conform_job_budget(**dict(narrow, total_bytes=MACHINE_32_GIB // 2)) < configs
+        assert ac.conform_job_budget(**dict(narrow, total_bytes=16_000_000_000)) < configs
 
     def test_a_conform_sweep_width_of_one_is_stated_on_the_argv(self, monkeypatch):
         """A machine where the pooled conformance sweep does not fit beside the corpus build floors at one, the serial conformance sweep, and the argv states that width like any other; without it run_m1 would use its own default, a width this plan did not budget. The oracle's width is a separate budget and stays above one."""
@@ -6815,6 +6815,33 @@ def _moved_invariant() -> dict:
         },
         "volatile": {"audit": {"row_count": 12, "units": 5}},
     }
+
+
+def test_the_corpus_build_runs_with_the_allocators_large_cache_off_on_macos_alone(monkeypatch, tmp_path):
+    """On macOS the cycle spawns the corpus build with `MallocLargeCache=0` overlaid on its environment through the step's `env`, since the allocator reads it as the process starts and the build's pools' workers inherit it, and the line hook that releases a held gate:rebuild-contracts still sees the build's lines; elsewhere it passes no environment, which leaves the child the cycle's own."""
+    corpus = _built_corpus(tmp_path, units=1, rows=2, batches=3, duplicate_groups=4)
+    seen: list[tuple[str, dict[str, str] | None]] = []
+
+    def spawn(name, argv, *, emit, registry, stream, env=None, on_line=None):
+        seen.append((name, env))
+        assert on_line is not None
+        on_line(ac.CORPUS_UNITS_LINE + "1.0s")
+        return _step(name, 0)
+
+    for platform in ("darwin", "linux"):
+        monkeypatch.setattr(ac.sys, "platform", platform)
+        units_done = threading.Event()
+        assert ac._do_corpus_build(
+            ac.CycleReport(),
+            spawn=spawn,
+            emit=ac._Emitter(),
+            registry=ac._ChildRegistry(),
+            review_out=corpus,
+            argv=["uv", "run", "python", "-m", "rebuild.review.build"],
+            units_done=units_done,
+        )
+        assert units_done.is_set()
+    assert seen == [("corpus-build", {"MallocLargeCache": "0"}), ("corpus-build", None)]
 
 
 def test_the_invariant_diff_prints_under_the_review_facts_step_in_full(tmp_path, capsys, monkeypatch):

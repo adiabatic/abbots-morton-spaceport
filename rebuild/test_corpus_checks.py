@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import app_index, drafts, facts, unit_index
+from rebuild.review import app_index, drafts, facts, subset_pack, unit_index
 from rebuild.review import build as review_build
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
@@ -821,6 +821,156 @@ def test_a_pack_is_written_once_and_rewritten_only_when_a_table_moves(tmp_path, 
     assert "other packer code" in str(other_code.value)
     assert module.ensure_pack(tmp_path, ("default",)) == first and len(writes) == 5
     module.SubsetPack.open(first, table_digests(tmp_path, ("default",))).close()
+
+
+def _row(codepoints: tuple[int, ...], glyphs: tuple[str, ...], junctions: tuple[str, ...]) -> Row:
+    return Row(
+        codepoints=codepoints,
+        glyphs=glyphs,
+        clusters=tuple(range(len(glyphs))),
+        junctions=junctions,
+        positions=tuple((0, 0, 10) for _ in glyphs),
+    )
+
+
+def _table_lines(path: Path, *lines: str) -> Path:
+    with gzip.open(path, "wt", encoding="utf-8") as stream:
+        stream.write("# config: default\n")
+        for line in lines:
+            stream.write(line + "\n")
+    return path
+
+
+def test_the_two_passes_write_the_bytes_the_in_memory_path_writes(tmp_path, mini_bundle):
+    """`write_pack` writes, byte for byte, the file `write_pack_in_memory` writes over the same tables, header, padding, sections and the gaps between them alike: here two configurations that share a row, rows with no junction, the widest record, four glyphs and three junctions, in one table only, and a table with no rows last, so each slot count and the string table come from every table at once and the file ends on an aligned gap; and the mini bundle's tables, which its fixture packs in memory."""
+    shared = _row((0xE650, 0xE652), ("qsPea", "qsTea"), ("y0",))
+    _subset_table(
+        tmp_path / "baseline-first.subset.tsv.gz",
+        _row((0xE650,), ("qsPea",), ()),
+        shared,
+        _row((0xE650, 0xE652, 0xE650), ("qsPea", "qsTea", "qsPea"), ("y0", "y5")),
+    )
+    _subset_table(
+        tmp_path / "baseline-second.subset.tsv.gz",
+        _row((0xE652,), ("qsTea",), ()),
+        shared,
+        _row((0xE652, 0xE650), ("qsTea", "qsPea.alt"), ("break",)),
+    )
+    _subset_table(
+        tmp_path / "baseline-wide.subset.tsv.gz",
+        _row(
+            (0xE650, 0xE652, 0xE650, 0xE652),
+            ("qsPea", "qsTea", "qsPea_qsTea", "qsTea.half"),
+            ("lig", "absent", "y0"),
+        ),
+    )
+    _subset_table(tmp_path / "baseline-empty.subset.tsv.gz")
+    configs = ("first", "second", "wide", "empty")
+    digests = table_digests(tmp_path, configs)
+    two = write_pack(tmp_path, configs, digests, tmp_path / "two.pack")
+    one = subset_pack.write_pack_in_memory(tmp_path, configs, digests, tmp_path / "one.pack")
+    assert two.read_bytes() == one.read_bytes()
+    header, base = subset_pack._read_header(two)
+    assert (header["glyph_slots"], header["cluster_slots"], header["junction_slots"]) == (4, 4, 3)
+    assert (
+        header["sections"]["empty"]["rows"] == 0
+        and two.stat().st_size == base + header["sections"]["empty"]["keys"]
+    )
+    mini = write_pack(
+        MINI, ACCEPTANCE_CONFIGS, table_digests(MINI, ACCEPTANCE_CONFIGS), tmp_path / "mini.pack"
+    )
+    assert mini.read_bytes() == mini_bundle.subset_pack.read_bytes()
+
+
+def test_the_two_passes_raise_the_earliest_configurations_error_and_leave_no_file(tmp_path):
+    """Pass 1 reads every table at once, each in a process of its own, so the tables finish in any order; the parent collects every survey and raises the error a serial read in configuration order meets first, the in-memory path's, by type and message. Each case fails in two configurations in different ways (a compound junction, a window `pack_key` refuses, a duplicate window in an otherwise sorted table, a line short of fields), the earlier one's failure behind a few thousand good rows so its table finishes last, and each way fails both first and second. No pack and no temporary file is left."""
+    filler = [
+        _row((first, second), (f"g{first:04X}", f"g{second:04X}"), ("y0",)).to_tsv()
+        for first in range(0xE650, 0xE680)
+        for second in range(0xE650, 0xE680)
+    ]
+    bad = {
+        "compound": _row((0xE650, 0xE652, 0xE650), ("qsPea", "qsTea", "qsPea"), ("y0", "y0+y5")).to_tsv(),
+        "five": _row((0xE650,) * 5, ("qsPea",) * 5, ("y0",) * 4).to_tsv(),
+        "duplicate": filler[-1],
+        "short": "E650:E652:E650\tqsPea|qsTea|qsPea",
+    }
+    clean = _row((0xE650, 0xE652), ("qsPea", "qsTea"), ("y0",)).to_tsv()
+    for first, second in (
+        ("compound", "five"),
+        ("five", "duplicate"),
+        ("duplicate", "short"),
+        ("short", "compound"),
+    ):
+        directory = tmp_path / f"{first}-{second}"
+        directory.mkdir()
+        _table_lines(directory / "baseline-clean.subset.tsv.gz", clean)
+        _table_lines(directory / f"baseline-{first}.subset.tsv.gz", *filler, bad[first])
+        _table_lines(directory / f"baseline-{second}.subset.tsv.gz", bad[second], *filler)
+        configs = ("clean", first, second)
+        digests = table_digests(directory, configs)
+        with pytest.raises(Exception) as serial:
+            subset_pack.write_pack_in_memory(directory, configs, digests, directory / "serial.pack")
+        with pytest.raises(type(serial.value)) as raised:
+            write_pack(directory, configs, digests, directory / "refused.pack")
+        assert str(raised.value) == str(serial.value), (first, second)
+        assert not (directory / "refused.pack").exists() and not list(directory.glob("*.tmp-*"))
+
+
+def test_each_section_lands_the_same_whatever_order_the_writers_open_the_pack_in(tmp_path):
+    """Pass 2's writers open the staged pack by path without truncating it and write only their own sections, so a late opener leaves its neighbors' bytes as they are: run one after another in reverse configuration order, over a file sized as `write_pack` sizes it, they leave the bytes `write_pack` writes."""
+    pair = (0xE650, 0xE652)
+    _subset_table(tmp_path / "baseline-first.subset.tsv.gz", _subset_row(pair, ("y0",)))
+    _subset_table(tmp_path / "baseline-second.subset.tsv.gz", _subset_row(pair, ("break",)))
+    _subset_table(
+        tmp_path / "baseline-third.subset.tsv.gz",
+        _subset_row(pair, ("y5",)),
+        _subset_row((*pair, 0xE650), ("y5", "lig")),
+    )
+    configs = ("first", "second", "third")
+    digests = table_digests(tmp_path, configs)
+    paths = [str(subset_pack.table_path(tmp_path, config)) for config in configs]
+    layout = subset_pack._layout(configs, [subset_pack._survey(path) for path in paths], digests)
+    staged = tmp_path / "staged.pack"
+    with open(staged, "wb") as out:
+        out.write(layout.head)
+        out.truncate(layout.size)
+    for config, path in reversed(list(zip(configs, paths))):
+        section = layout.header["sections"][config]
+        written = subset_pack._write_section(
+            str(staged),
+            path,
+            section["rows"],
+            layout.base + section["keys"],
+            layout.base + section["records"],
+            layout.header["strings"],
+            layout.slots,
+        )
+        assert written is None
+    assert (
+        staged.read_bytes() == write_pack(tmp_path, configs, digests, tmp_path / "subsets.pack").read_bytes()
+    )
+
+
+def test_a_table_out_of_key_order_sends_the_whole_pack_down_the_in_memory_path(tmp_path, monkeypatch):
+    """A table whose keys do not strictly increase is packed, with every table beside it, by the in-memory path, which sorts it, as `test_a_subset_key_is_spelled_the_way_the_row_model_spells_it` reads back; tables in key order never reach that path."""
+    taken: list[tuple[str, ...]] = []
+    in_memory = subset_pack.write_pack_in_memory
+
+    def counted(subset_dir, configs, digests, destination):
+        taken.append(tuple(configs))
+        return in_memory(subset_dir, configs, digests, destination)
+
+    monkeypatch.setattr(subset_pack, "write_pack_in_memory", counted)
+    pair, triple = _subset_row((0xE650, 0xE652), ("y0",)), _subset_row((0xE650, 0xE652, 0xE650), ("y0", "y5"))
+    _subset_table(tmp_path / "baseline-sorted.subset.tsv.gz", pair, triple)
+    _subset_table(tmp_path / "baseline-unsorted.subset.tsv.gz", triple, pair)
+    _pack(tmp_path, "sorted").close()
+    assert taken == []
+    pack = _pack(tmp_path, "sorted", "unsorted")
+    assert taken == [("sorted", "unsorted")]
+    assert [codepoints for codepoints, _row in pack.rows("unsorted")] == ["E650:E652", "E650:E652:E650"]
+    pack.close()
 
 
 def test_a_cached_unit_skips_check_unit_but_not_the_cross_unit_grain():

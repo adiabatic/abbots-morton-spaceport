@@ -577,7 +577,7 @@ class MiniBundle:
 def mini_bundle(build_once) -> MiniBundle:
     """Materialize the spec the mini bundle's rows settled under, once a run (`build_once`), and pack the bundle's subset tables beside it. The spec comes out of git from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records. Pass `spec_root` to `build_m1` or `load_spec`, `ledger` to `load_workload` or `load_ledger`, and `subset_pack` to `build_m1` and `Enricher`, and the settlement the enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say.
 
-    The git subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` accepts: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture keeps traced inputs.
+    The git subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` accepts: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture keeps traced inputs. The pack is written by `subset_pack.write_pack_in_memory`, which reads the tables in this process and writes the bytes `write_pack` writes, for the same reason: `write_pack` reads them in pack processes, which would leave every such test's inputs untraced.
     """
     pin = announced_import("rebuild.review.fixtures.mini.pin")
     subset_pack = announced_import("rebuild.review.subset_pack")
@@ -585,7 +585,12 @@ def mini_bundle(build_once) -> MiniBundle:
 
     def build(spec_root: Path) -> None:
         pin.materialize(spec_root)
-        subset_pack.ensure_pack(MINI, audit.ACCEPTANCE_CONFIGS, pack=spec_root / subset_pack.PACK_NAME)
+        subset_pack.write_pack_in_memory(
+            MINI,
+            audit.ACCEPTANCE_CONFIGS,
+            subset_pack.table_digests(MINI, audit.ACCEPTANCE_CONFIGS),
+            spec_root / subset_pack.PACK_NAME,
+        )
 
     spec_root = build_once("mini-spec", build)
     return MiniBundle(
