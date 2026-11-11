@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import conform, fingerprint, fixtures, kernel_exec, kernel_io, spec_load
+from rebuild.pipeline import conform, fingerprint, fixtures, kernel_exec, kernel_io, oracle, spec_load
 from rebuild.review import audit, build, store_lock, subset_pack, unit_cache
 from rebuild.tools import memory_series as ms
 from rebuild.tools import memory_tally, scaling_sweep, write_meter
@@ -1039,7 +1039,7 @@ def test_a_line_that_fails_partway_kills_the_builds_whole_process_group(monkeypa
 def test_the_cut_audit_keeps_the_rows_whose_windows_use_only_the_cuts_letters_and_the_doubled_one_merges_each_section_with_its_moved_copy(
     tmp_path,
 ):
-    """The cut keeps a row when none of its window's code points is one the cut leaves out, matched as a whole token, so ·Bay's E651 does not drop a window holding 1E651, and it keeps the audit's sections in their order. The doubled audit merges each section in window order with its rows' moved copies, each Quikscript code point moved up by `MOVED` and both name fields tagged, so it stays in sorted sections."""
+    """The cut keeps a row when none of its window's code points is one the cut leaves out, matched as a whole token, so ·Bay's E651 does not drop a window holding 1E651, and it keeps the audit's sections in their order. The doubled audit merges each section in window order with its rows' moved copies, each Quikscript code point moved up by `MOVED` and both name fields tagged, so it stays in sorted sections. Both read the live audit's materialized stream: over a head, its base and a segment, they write what they write over the single file, and the corpus step clones the head and every part it lists."""
     header = "\t".join(audit.AUDIT_HEADER)
     rows = [
         "default\t0020:E650\tcell\tUNMATCHED\tspace|qsPea\tspace/c|qsPea/d",
@@ -1083,6 +1083,26 @@ def test_the_cut_audit_keeps_the_rows_whose_windows_use_only_the_cuts_letters_an
             reader.seek(start)
             keys = [ms._window_order(line) for line in reader.read(end - start).splitlines()]
         assert keys == sorted(keys) and len(set(keys)) == len(keys)
+    headed = tmp_path / "m1"
+    for lines in (rows[1:], rows):
+        with oracle.AuditWriter(headed) as writer:
+            writer.feed("".join(f"{line}\n" for line in lines).encode("utf-8"))
+    under_a_head = headed / oracle.AUDIT_NAME
+    assert ms._audit_files(headed) == [
+        "divergence-audit.tsv.head",
+        "divergence-audit.tsv.0.base",
+        "divergence-audit.tsv.0.1.delta",
+    ]
+    assert ms.audit_bytes(under_a_head) == sum(
+        (headed / name).stat().st_size for name in ms._audit_files(headed)
+    )
+    for written, wanted in (
+        (ms.write_cut_audit(under_a_head, tmp_path / "headed-cut.tsv", ms.cut_pattern({0xE651})), cut),
+        (ms.write_doubled_audit(under_a_head, tmp_path / "headed-doubled.tsv"), doubled),
+    ):
+        assert written == wanted.read_text(encoding="utf-8").count("\n") - 1
+    assert (tmp_path / "headed-cut.tsv").read_bytes() == cut.read_bytes()
+    assert (tmp_path / "headed-doubled.tsv").read_bytes() == doubled.read_bytes()
 
 
 def test_the_doubled_mini_audit_is_read_as_a_stream(tmp_path, mini_bundle):
@@ -1094,7 +1114,7 @@ def test_the_doubled_mini_audit_is_read_as_a_stream(tmp_path, mini_bundle):
     assert rows == 2 * len(_audit_rows())
     descriptor = os.open(doubled, os.O_RDONLY)
     try:
-        layout = audit.audit_layout(descriptor, doubled)
+        layout = audit.audit_layout((descriptor,), doubled)
         assert layout.sections is not None and [section.config for section in layout.sections] == [
             "default",
             "ss03",
@@ -1103,7 +1123,8 @@ def test_the_doubled_mini_audit_is_read_as_a_stream(tmp_path, mini_bundle):
             "ss03+ss05",
         ]
         assert (
-            sum(len(found) for _window, found in audit_stream.lockstep(descriptor, layout.sections)) == rows
+            sum(len(found) for _window, found in audit_stream.lockstep((descriptor,), layout.sections))
+            == rows
         )
     finally:
         os.close(descriptor)

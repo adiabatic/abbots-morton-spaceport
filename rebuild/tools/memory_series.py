@@ -24,7 +24,7 @@ The corpus step builds the review corpus with `build.build_m1`, called as a libr
 
 The corpus step reads the live tree only through clones it makes as a run starts (`clone_inputs`, `clonefile(2)` through `build._clone`, which writes no data) under `<tree>/corpus/inputs/`: the audit, the subset tables and their pack, the M1 font and its Stage A record, the live corpus's manifest and ink-signature store, the spec root's paths (`SPEC_PATHS`, the ledger among them) and the two site fonts. A clone the volume refuses stops the run, since a copy would write gigabytes. A run refuses while the debug tally's switch (`memory_tally.TALLY_ENV`) is set, since the tally keeps alive the collections it reads, and `check_inputs` refuses when the live corpus was not built over the M1 outputs' Stage A record, since its signature store would then miss and the load would shape, or when the pack is not current for the tables, since the build would rewrite it. The child runs from this checkout, so its units workers run the checkout's code and crate binary, and each line reads their digests (`corpus_code`) just before the spawn, once its idle wait is over, and again as soon as the child is reaped, before the wait for the meter's last reading, so the two readings bracket the build and none of the line's waits; a digest that moves between them, or from the first line's to a later line's first reading, prints a `[warn]` line naming the line. An edit made during a line's waits shows at the next line, the first whose build runs it. As the run ends, however it ends, it removes `<tree>/corpus/`, the clones with it, since once the live tree's next pass replaces those files the clones alone would keep their blocks allocated.
 
-A line's build reads its audit from a real file, since the build opens the audit once and reads it by `pread` through that descriptor, in sorted sections a stream (`audit.stream_workload`) and split across the key-only read's processes. The whole alphabet's cut line and `load-x1` read the cloned live audit itself, which the clone wrote no data for. Every other line reads a file the run writes under `<tree>/corpus/audits/` (`prepare_audit`): a cut line its cut audit (`write_cut_audit`), and `load-x2` the doubled audit (`write_doubled_audit`). Each file is written, then flushed with `os.sync` and given `SETTLE_S` to reach the device, before its line's pack child and idle reading, so no meter window holds its writing or its write-back, once a run for a cut the run names several times, and removed after that cut's last line; at 45 runes the cuts below 45 come to about 5.3 GB and the doubled audit to about 3.35 GB a run. Each corpus line's directory, `<tree>/corpus/<line>`, holds the build's out dir, `out/`, the temporary directory the child's `TMPDIR` names, `temp/`, and `pools.ndjson`, where the child points `cycle_timings.JOURNAL`, so the build's pool records land there and not in the live journal. A cut line's out dir holds a clone of the live signature store, which the build's load reads, and a link to the null device at the staging name of every output the build writes and never reads back (`null_routes`): each shard part a class can take, the units index, the three app sidecars, the unit store's head and parts and the signature store's rewrite. The build writes for real only what it reads back or what is too small to route: the manifest, the fonts, the static files and `review-facts.json`. Beside them, each process that settles windows, every units worker, writes one dump of the whole alphabet's spec into `temp/` (`kernel_exec._spec_dump`; every line settles over the whole spec, so the dump is the same at every cut) and removes it as it exits, and runs `kernel_exec.ensure_built`'s `cargo build`, which rewrites the crate's dep-info files under `rebuild/kernel-rs/target/`, outside the line's directory, even when it builds nothing. Those writes are part of how far a cut line's `written` exceeds its `files.kept`, not all of it: `written` counts every byte the coalition writes over the line's window, and `files` only the files the line leaves, so a file written outside the line's directory, or written and removed during the build, counts in the first alone. Once the child is reaped the step lists every regular file the line left (`step_files`); any other is a stray, which the line records under `files` and which stops the run once the line is in the record. The directory is removed when the line ends.
+A line's build reads its audit from real files, since the build opens the audit's parts once and reads them by `pread` through those descriptors, in sorted sections a stream (`audit.stream_workload`) and split across the key-only read's processes. The whole alphabet's cut line and `load-x1` read the cloned live audit itself, its head and every part it lists, which the clone wrote no data for. Every other line reads a single file the run writes under `<tree>/corpus/audits/` (`prepare_audit`) from the live audit's materialized stream (`oracle.materialized_audit`): a cut line its cut audit (`write_cut_audit`), and `load-x2` the doubled audit (`write_doubled_audit`). Each file is written, then flushed with `os.sync` and given `SETTLE_S` to reach the device, before its line's pack child and idle reading, so no meter window holds its writing or its write-back, once a run for a cut the run names several times, and removed after that cut's last line; at 45 runes the cuts below 45 come to about 5.3 GB and the doubled audit to about 3.35 GB a run. Each corpus line's directory, `<tree>/corpus/<line>`, holds the build's out dir, `out/`, the temporary directory the child's `TMPDIR` names, `temp/`, and `pools.ndjson`, where the child points `cycle_timings.JOURNAL`, so the build's pool records land there and not in the live journal. A cut line's out dir holds a clone of the live signature store, which the build's load reads, and a link to the null device at the staging name of every output the build writes and never reads back (`null_routes`): each shard part a class can take, the units index, the three app sidecars, the unit store's head and parts and the signature store's rewrite. The build writes for real only what it reads back or what is too small to route: the manifest, the fonts, the static files and `review-facts.json`. Beside them, each process that settles windows, every units worker, writes one dump of the whole alphabet's spec into `temp/` (`kernel_exec._spec_dump`; every line settles over the whole spec, so the dump is the same at every cut) and removes it as it exits, and runs `kernel_exec.ensure_built`'s `cargo build`, which rewrites the crate's dep-info files under `rebuild/kernel-rs/target/`, outside the line's directory, even when it builds nothing. Those writes are part of how far a cut line's `written` exceeds its `files.kept`, not all of it: `written` counts every byte the coalition writes over the line's window, and `files` only the files the line leaves, so a file written outside the line's directory, or written and removed during the build, counts in the first alone. Once the child is reaped the step lists every regular file the line left (`step_files`); any other is a stray, which the line records under `files` and which stops the run once the line is in the record. The directory is removed when the line ends.
 
 Each cut line also runs a pack child, a block of the line rather than a line of its own, before its idle reading, so none of the build's meter windows holds it (`measure_pack`, `memory_series_child`'s `pack`). It calls `subset_pack.write_pack` itself, not `ensure_pack`, so its tables are not hashed, in the build's environment, over the subset tables cut to the line's alphabet. Each table is a FIFO under its own name in the step's `pack/`, which a harness thread fills on every open, since the pack's two passes read it twice: with the cut table, which the harness makes in memory from the cloned table before the spawn (`cut_table`: a row is kept when every Quikscript code point of its window, the table's first field, is one of the cut's letters, the rule `cut_pattern` applies to the audit's window), gzip-compressed, or with the cloned table itself when the cut keeps every row. The child links the pack's temporary name to the null device, where `ftruncate` and `pwrite` both succeed on macOS, so the line writes no pack, and removes the link the rename leaves. The build keeps the cloned live pack, which `check_inputs` requires to be current.
 
@@ -754,8 +754,16 @@ def _clone_input(source: Path, target: Path) -> None:
         )
 
 
+def _audit_files(directory: Path, name: str = oracle.AUDIT_NAME) -> list[str]:
+    """The names of the files that hold the audit `name` names under `directory`: its head and every part the head lists, or the single file a tree with no head holds."""
+    head = row_delta.read_head(directory, name)
+    if head is None:
+        return [name]
+    return [row_delta.head_name(name), *(part.name for part in head.parts)]
+
+
 def clone_inputs(root: Path, base: Path) -> CorpusInputs:
-    """Clone every input a corpus line's build reads from the checkout at `root` into `base` (`CorpusInputs.under`) and return where they are. Each clone is `build._clone`'s, which writes no data and refuses where the volume cannot clone."""
+    """Clone every input a corpus line's build reads from the checkout at `root` into `base` (`CorpusInputs.under`) and return where they are: the audit as its head and every part it lists (`_audit_files`), or its single file. Each clone is `build._clone`'s, which writes no data and refuses where the volume cannot clone."""
     from rebuild.pipeline import fingerprint
     from rebuild.review import build, subset_pack, unit_cache
 
@@ -764,7 +772,7 @@ def clone_inputs(root: Path, base: Path) -> CorpusInputs:
     inputs = CorpusInputs.under(base)
     pairs = [
         *((table, inputs.m1 / table.name) for table in sorted(m1.glob("baseline-*.subset.tsv.gz"))),
-        (m1 / build.M1_AUDIT.name, inputs.audit),
+        *((m1 / name, inputs.audit.parent / name) for name in _audit_files(m1)),
         (m1 / subset_pack.PACK_NAME, inputs.subset_pack),
         (m1 / fingerprint.STAGE_A_FILENAME, inputs.m1 / fingerprint.STAGE_A_FILENAME),
         (m1 / build.M1_AFTER_FONT.name, inputs.after_font),
@@ -964,7 +972,7 @@ def moved_row(line: bytes) -> bytes:
     return b"\t".join((config, moved, kinds, entry, baseline + b".x", new + b".x")) + b"\n"
 
 
-def _kept_blocks(reader: io.BufferedIOBase, pattern: re.Pattern[bytes] | None) -> Iterator[bytes]:
+def _kept_blocks(reader: io.BufferedIOBase | IO[bytes], pattern: re.Pattern[bytes] | None) -> Iterator[bytes]:
     """Yield the lines `pattern` keeps (every line when it is None) of what `reader` holds from where it stands, a block at a time: the file is read `READ_CHUNK_BYTES` at a time and each chunk is cut at its last newline, so the pattern runs over whole lines, and a last line without a newline is given one."""
     remainder = b""
     while True:
@@ -980,10 +988,44 @@ def _kept_blocks(reader: io.BufferedIOBase, pattern: re.Pattern[bytes] | None) -
             return
 
 
+class _ChunkReader(io.RawIOBase):
+    """A readable stream over an iterator of byte runs, so a buffered reader can read lines and blocks from the materialized audit."""
+
+    def __init__(self, chunks: Iterable[bytes]) -> None:
+        self._chunks = iter(chunks)
+        self._buffer = b""
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:  # pyright: ignore[reportIncompatibleMethodOverride]
+        while not self._buffer:
+            chunk = next(self._chunks, None)
+            if chunk is None:
+                return 0
+            self._buffer = chunk
+        count = min(len(buffer), len(self._buffer))
+        buffer[:count] = self._buffer[:count]
+        self._buffer = self._buffer[count:]
+        return count
+
+
+def _audit_reader(source: Path) -> IO[bytes]:
+    """The materialized audit `source` names, read from its header on: run_m1's audit under the head beside it, every part the head lists merged (`oracle.materialized_audit`), or a single file with no head."""
+    if row_delta.read_head(source.parent, source.name) is None:
+        return source.open("rb")
+    return io.BufferedReader(_ChunkReader(oracle.materialized_audit(source.parent)), READ_CHUNK_BYTES)
+
+
+def audit_bytes(source: Path) -> int:
+    """The bytes the files that hold the audit `source` names take: its head's parts beside the head, or its single file."""
+    return sum((source.parent / name).stat().st_size for name in _audit_files(source.parent, source.name))
+
+
 def write_cut_audit(source: Path, target: Path, pattern: re.Pattern[bytes] | None) -> int:
-    """Write `source`'s header and each line `pattern` keeps (every line when it is None, `_kept_blocks`) to the file `target`, and return how many rows it wrote. The cut keeps the audit's sections and their order, so the cut file is in sorted sections when the live audit is, as run_m1 writes the audit at that alphabet."""
+    """Write the materialized audit's header and each line `pattern` keeps (every line when it is None, `_kept_blocks`) to the file `target`, and return how many rows it wrote. The cut keeps the audit's sections and their order, so the cut file is in sorted sections when the live audit is, as run_m1 writes the audit at that alphabet."""
     rows = 0
-    with source.open("rb") as reader, target.open("wb") as sink:
+    with _audit_reader(source) as reader, target.open("wb") as sink:
         sink.write(reader.readline())
         for kept in _kept_blocks(reader, pattern):
             rows += kept.count(b"\n")
@@ -1015,30 +1057,22 @@ def audit_sections(source: Path) -> list[tuple[int, int]]:
     return ranges
 
 
-def _section_lines(source: Path, start: int, end: int) -> Iterator[bytes]:
-    with source.open("rb") as reader:
-        reader.seek(start)
-        position = start
-        while position < end:
-            line = reader.readline()
-            if not line:
-                return
-            position += len(line)
-            yield line if line.endswith(b"\n") else line + b"\n"
+def _config_of(line: bytes) -> bytes:
+    return line.split(b"\t", 1)[0]
 
 
 def write_doubled_audit(source: Path, target: Path) -> int:
-    """Write the ×2 load line's audit to the file `target`: `source`'s header, then each of its sections merged in window order with its moved copy (`moved_row`), and return how many rows it wrote. A moved copy keeps its section's order, since `MOVED` moves every Quikscript code point the same way and every other code point a window holds lies below them, so the merge streams two readers over each section and the file is in sorted sections when `source` is. A window whose moved copy is itself, one with no Quikscript code point, would then be repeated in its section, and the build would read the file through its in-memory source; its load line's note says so."""
+    """Write the ×2 load line's audit to the file `target`: the materialized audit's header, then each of its sections merged in window order with its moved copy (`moved_row`), and return how many rows it wrote. A moved copy keeps its section's order, since `MOVED` moves every Quikscript code point the same way and every other code point a window holds lies below them, so the merge streams two readers of the materialized audit over each section, a section a configuration's run of lines, and the file is in sorted sections when `source` is. A window whose moved copy is itself, one with no Quikscript code point, would then be repeated in its section, and the build would read the file through its in-memory source; its load line's note says so."""
     rows = 0
-    with source.open("rb") as reader, target.open("wb") as sink:
+    with _audit_reader(source) as reader, _audit_reader(source) as copies, target.open("wb") as sink:
         sink.write(reader.readline())
-        for start, end in audit_sections(source):
-            for line in heapq.merge(
-                _section_lines(source, start, end),
-                map(moved_row, _section_lines(source, start, end)),
-                key=_window_order,
-            ):
-                sink.write(line)
+        copies.readline()
+        for (config, lines), (copied, others) in zip(
+            itertools.groupby(reader, key=_config_of), itertools.groupby(copies, key=_config_of)
+        ):
+            assert config == copied
+            for line in heapq.merge(lines, map(moved_row, others), key=_window_order):
+                sink.write(line if line.endswith(b"\n") else line + b"\n")
                 rows += 1
     return rows
 
@@ -1047,7 +1081,7 @@ def prepare_audit(inputs: CorpusInputs, cut: CorpusCut, directory: Path) -> Audi
     """The audit a line's build reads: the cloned live audit itself for a line that keeps every row at ×1 (the whole alphabet's cut line and `load-x1`), and otherwise a file under `directory` the run writes once for every line that names the cut, the cut audit (`write_cut_audit`) or, for `load-x2`, the doubled one (`write_doubled_audit`)."""
     pattern = cut_pattern(cut.excluded)
     if pattern is None and cut.scale == 1:
-        return AuditFile(inputs.audit, "clone", inputs.audit.stat().st_size)
+        return AuditFile(inputs.audit, "clone", audit_bytes(inputs.audit))
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / f"{cut.name}.tsv"
     started = time.perf_counter()

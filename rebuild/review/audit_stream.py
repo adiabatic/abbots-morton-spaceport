@@ -1,17 +1,18 @@
-"""The divergence audit read as sorted sections, one window at a time, through a descriptor the caller holds. It imports only the standard library, so the corpus build's key-only read runs it as a process of its own (`python -m rebuild.review.audit_stream`) that holds this module and its job and nothing of the build's.
+"""The divergence audit read as sorted sections, one window at a time, through the descriptors the caller holds, one a part. It imports only the standard library, so the corpus build's key-only read runs it as a process of its own (`python -m rebuild.review.audit_stream`) that holds this module and its job and nothing of the build's.
 
-run_m1 writes the audit as one section a configuration, the sections in configuration rank (`audit._config_index`), each section's rows in strictly increasing window order: by the window's length, then its code points (`audit.triage_key`'s window terms). Every window is written in `audit.format_codepoints`' form, four uppercase hex digits a code point, so a window field's length and then its text order windows as their code points do. `audit_sections` finds each section's byte range by bisecting on line starts with `os.pread` (`first_line`), and `lockstep` walks the sections together, one cursor a section, yielding each window's rows from every section that has the window. Every read is a `pread` on the held descriptor, never a reopening of the path, since a `--gates-only` pass can replace the audit by rename during a build, and never a mapping, whose page touches count in the reader's resident set.
+run_m1 writes the audit as a base and plain keyed segments under a head (`rebuild/pipeline/row_delta.py`, `oracle.AuditWriter`), each part in sorted sections: one section a configuration, the sections in configuration rank (`audit._config_index`), each section's rows in strictly increasing window order, by the window's length, then its code points (`audit.triage_key`'s window terms). The base's lines are rows, and a segment's are upserts, `+\t<row>`, and tombstones, `-\t<config>\t<window>`, after its header line. Every window is written in `audit.format_codepoints`' form, four uppercase hex digits a code point, so a window field's length and then its text order windows as their code points do. `audit_sections` finds each section's byte range in a part by bisecting on line starts with `os.pread` (`first_line`), `Section.part` naming the part, and `lockstep` walks the sections together, a configuration's sections across its parts merged by window (`_merged`: the latest part's row wins at a window, and a tombstone removes it), yielding each window's rows from every configuration that has the window, so it reads the materialized audit one window at a time; `materialized_lines` gives the same rows in the audit's own order. Every read is a `pread` on a held descriptor, never a reopening of a path, since a `--gates-only` pass can commit a new head during a build, and never a mapping, whose page touches count in the reader's resident set.
 
 A file in any other shape is no error here: a cursor that meets a row of another configuration, a window that does not strictly increase, a window not in the canonical form, a row without six fields, a carriage return or bytes that are not UTF-8 raises `OrderBreak`, and the build reads the file through its in-memory source instead (`audit.load_audit_table`), which takes rows in any order.
 
 `FamilyLines` gives a window's family lines, the suffix both store keys append to their lines (`unit_cache.UnitKeyer`), and `signature_key` and `input_key` compute the ink-signature store's key of a row and the unit store's input key of a unit from the audit's raw lines and fields, byte for byte as `UnitKeyer` computes them from the parsed rows.
 
-Run as a module, it is one process of the key-only read (`main`): it reads its job from stdin, a JSON line naming the held descriptor, the sections, its window range and the family keys, followed by the prior ink-signature store's sorted keys as raw `u64`s; walks its range in lockstep; keys every row of a window whose rows name two or more (baseline, new) pairs, the windows the ink-duplicate merge compares; bisects each key in the prior keys; and writes JSON lines to stdout a frame at a time, flushing each frame at the first window end after its rows' estimated size reaches `FRAME_BYTES`, so a frame holds at most `FRAME_BYTES` plus one window's rows: `hits`, the prior keys' positions it found, `misses`, `[key, section, window]` for each key it did not, then `break` with the reason if its range broke the layout, and `done` with its counts, seconds and resident peak.
+Run as a module, it is one process of the key-only read (`main`): it reads its job from stdin, a JSON line naming every held descriptor of the audit's parts, which it inherits, the sections across them, its window range and the family keys, followed by the prior ink-signature store's sorted keys as raw `u64`s; walks its range in lockstep; keys every row of a window whose rows name two or more (baseline, new) pairs, the windows the ink-duplicate merge compares; bisects each key in the prior keys; and writes JSON lines to stdout a frame at a time, flushing each frame at the first window end after its rows' estimated size reaches `FRAME_BYTES`, so a frame holds at most `FRAME_BYTES` plus one window's rows: `hits`, the prior keys' positions it found, `misses`, `[key, section, window]` for each key it did not, then `break` with the reason if its range broke the layout, and `done` with its counts, seconds and resident peak.
 """
 
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import os
 import re
@@ -24,12 +25,15 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import NamedTuple
 
 READ_BYTES = 1 << 20
+# A segment's sections are read this much at a time, the base's `READ_BYTES`: a walk primes a cursor for every section of every part at once and each holds its read's lines while it waits (`section_rows`), and a segment's rows are 1.3% to 10% of the base's at 45 runes, so a read this size of a segment spans the windows of 0.6 to 5 MiB of the base's.
+SEGMENT_READ_BYTES = 1 << 16
 PROBE_BYTES = 4096
 FRAME_BYTES = 1 << 19
 FIELDS = 6
 CANONICAL_WINDOW = re.compile(r"[0-9A-F]{4}(?::[0-9A-F]{4})*")
 
 WindowKey = tuple[int, str]
+Row = tuple[WindowKey, list[str], str]
 
 
 class OrderBreak(Exception):
@@ -37,12 +41,13 @@ class OrderBreak(Exception):
 
 
 class Section(NamedTuple):
-    """One configuration's rows: its configuration, its rank, and the byte range `[start, end)` of its lines."""
+    """One configuration's rows in one part: its configuration, its rank, the byte range `[start, end)` of its lines, and its part, the base's 0 and each segment's number, which names the descriptor it is read through and whether its lines are rows (the base's) or a segment's upserts and tombstones."""
 
     config: str
     rank: int
     start: int
     end: int
+    part: int = 0
 
 
 def window_key(field: str) -> WindowKey:
@@ -120,34 +125,39 @@ def _field(line: bytes, index: int) -> str:
     return parts[index].decode("utf-8", "replace") if len(parts) > index else ""
 
 
-def audit_sections(descriptor: int, start: int, end: int, rank: Callable[[str], int]) -> list[Section] | str:
-    """The audit's sections from byte `start`, the first line after the header, to `end`: each one's configuration and rank, from its first line, and its end, the first line of a higher rank (`first_line`). A configuration with no rows has no section. Return why the file is not in sections instead when a section's rank is not above the one before it, or its last line is another configuration's. Whether every line inside a section is its configuration's, in order, is checked by the walk that reads it (`section_rows`)."""
+def audit_sections(
+    descriptor: int, start: int, end: int, rank: Callable[[str], int], part: int = 0
+) -> list[Section] | str:
+    """The sections of one part from byte `start`, the first line after its header, to `end`: each one's configuration and rank, from its first line, and its end, the first line of a higher rank (`first_line`). A segment's line (`part` above 0) is an upsert or a tombstone, its configuration and window one field later than a row's. A configuration with no rows has no section. Return why the part is not in sections instead when a section's rank is not above the one before it, or its last line is another configuration's. Whether every line inside a section is its configuration's, in order, is checked by the walk that reads it (`section_rows`)."""
+    shift = 1 if part else 0
     sections: list[Section] = []
     position = start
     last = -1
     while position < end:
         line, _after = line_at(descriptor, position, end)
-        config = _field(line, 0)
+        config = _field(line, shift)
         ranked = rank(config)
         if ranked <= last:
-            return f"the {config!r} rows at byte {position} do not rank above the section before them"
-        position_end = first_line(descriptor, position, end, lambda line: rank(_field(line, 0)) > ranked)
+            return f"the {config!r} rows at byte {position} of part {part} do not rank above the section before them"
+        position_end = first_line(descriptor, position, end, lambda line: rank(_field(line, shift)) > ranked)
         last, _after = line_at(descriptor, last_line_start(descriptor, position, position_end), position_end)
-        if _field(last, 0) != config:
-            return f"the {config!r} rows from byte {position} end in a row of {_field(last, 0)!r}"
-        sections.append(Section(config, ranked, position, position_end))
+        if _field(last, shift) != config:
+            return f"the {config!r} rows from byte {position} of part {part} end in a row of {_field(last, shift)!r}"
+        sections.append(Section(config, ranked, position, position_end, part))
         last = ranked
         position = position_end
     return sections
 
 
 def window_ranges(
-    descriptor: int, sections: Sequence[Section], count: int
+    descriptors: Sequence[int], sections: Sequence[Section], count: int
 ) -> list[tuple[WindowKey | None, WindowKey | None]]:
-    """Split the windows into at most `count` ranges `[low, high)` of about equal bytes, the ends None for the first and the last, at the windows found at equal byte fractions of the largest section."""
+    """Split the windows into at most `count` ranges `[low, high)` of about equal bytes, the ends None for the first and the last, at the windows found at equal byte fractions of the largest section of any part."""
     if not sections:
         return []
     largest = max(sections, key=lambda section: section.end - section.start)
+    descriptor = descriptors[largest.part]
+    shift = 1 if largest.part else 0
     cuts: list[WindowKey] = []
     for part in range(1, count):
         offset = largest.start + (largest.end - largest.start) * part // count
@@ -155,7 +165,7 @@ def window_ranges(
         if start >= largest.end:
             continue
         line, _after = line_at(descriptor, start, largest.end)
-        key = window_key(_field(line, 1))
+        key = window_key(_field(line, 1 + shift))
         if not cuts or key > cuts[-1]:
             cuts.append(key)
     bounds: list[WindowKey | None] = [None, *cuts, None]
@@ -163,20 +173,24 @@ def window_ranges(
 
 
 def section_rows(
-    descriptor: int, section: Section, start: int, stop: WindowKey | None = None
+    descriptors: Sequence[int], section: Section, start: int, stop: WindowKey | None = None
 ) -> Iterator[tuple[WindowKey, list[str], str]]:
-    """Yield each row of `section` from byte `start` with its window's key, its six fields and its line without the newline, reading `READ_BYTES` at a time, until a window at or past `stop`. A row of another configuration, one without six fields, a window that does not follow the one before it, a carriage return (which the in-memory source's text read takes as a line end), or bytes that are not UTF-8 raise `OrderBreak`."""
+    """Yield each row of `section` from byte `start` with its window's key, its six fields and its line without the newline, reading through its part's descriptor `READ_BYTES` at a time from the base and `SEGMENT_READ_BYTES` from a segment, until a window at or past `stop`. While it waits at a row it holds only that read's lines, as one list of strings, and the partial line after them, about 1.3 times the read for the audit's rows. A segment's upsert yields its row; its tombstone yields an empty field list and an empty line, which the merge across parts reads as the removal of the row at its key (`_merged`). A row of another configuration, one without six fields, a segment line that is neither an upsert nor a tombstone, a window that does not follow the one before it, a carriage return (which the in-memory source's text read takes as a line end), or bytes that are not UTF-8 raise `OrderBreak`."""
+    descriptor = descriptors[section.part]
+    segment = section.part > 0
+    read_bytes = SEGMENT_READ_BYTES if segment else READ_BYTES
     config = section.config
     end = section.end
     position = start
     previous: WindowKey | None = None
     remainder = b""
     while position < end:
-        chunk = os.pread(descriptor, min(READ_BYTES, end - position), position)
+        chunk = os.pread(descriptor, min(read_bytes, end - position), position)
         if not chunk:
             raise OrderBreak(f"the audit ended at byte {position}, inside the {config!r} section")
         position += len(chunk)
         data = remainder + chunk if remainder else chunk
+        del chunk
         if position < end:
             cut = data.rfind(b"\n")
             if cut < 0:
@@ -185,17 +199,33 @@ def section_rows(
             body, remainder = data[:cut], data[cut + 1 :]
         else:
             body, remainder = (data[:-1] if data.endswith(b"\n") else data), b""
+        del data
         try:
             text = body.decode("utf-8")
         except UnicodeDecodeError as error:
             raise OrderBreak(f"the {config!r} section holds bytes that are not UTF-8: {error}") from None
+        del body
         if "\r" in text:
             raise OrderBreak(
                 f"the {config!r} section holds a carriage return, which a text read takes as a line end"
             )
-        for line in text.split("\n"):
-            fields = line.split("\t")
-            if len(fields) != FIELDS or fields[0] != config:
+        lines = text.split("\n")
+        del text
+        for line in lines:
+            if segment:
+                op, _tab, line = line.partition("\t")
+                fields = line.split("\t")
+                if op == "-" and len(fields) == 2:
+                    line = ""
+                elif op != "+" or len(fields) != FIELDS:
+                    raise OrderBreak(
+                        f"the {config!r} section of part {section.part} holds the line {op}\t{line[:120]!r}"
+                    )
+            else:
+                fields = line.split("\t")
+                if len(fields) != FIELDS:
+                    raise OrderBreak(f"the {config!r} section holds the row {line[:120]!r}")
+            if fields[0] != config:
                 raise OrderBreak(f"the {config!r} section holds the row {line[:120]!r}")
             field = fields[1]
             key = (len(field), field)
@@ -204,26 +234,94 @@ def section_rows(
             if stop is not None and key >= stop:
                 return
             previous = key
+            yield key, (fields if line else []), line
+
+
+_PAST: Row = ((sys.maxsize, ""), [], "")
+
+
+def _tagged(part: int, cursor: Iterator[Row]) -> Iterator[tuple[WindowKey, int, list[str], str]]:
+    for key, fields, line in cursor:
+        yield key, -part, fields, line
+
+
+def _latest(segments: Sequence[tuple[int, Iterator[Row]]]) -> Iterator[Row]:
+    """The segments' rows merged among themselves by window, the latest part's row or tombstone alone at each."""
+    last: WindowKey | None = None
+    for key, _part, fields, line in heapq.merge(*(_tagged(part, cursor) for part, cursor in segments)):
+        if key != last:
+            last = key
             yield key, fields, line
 
 
+def _merged(parts: Sequence[tuple[int, Iterator[Row]]]) -> Iterator[Row]:
+    """One configuration's rows merged across its parts' cursors, each beside its part's number: at each window the latest part's row wins, and a tombstone there removes the row. As `row_delta.merge_plain_keyed` merges a head, the segments are merged among themselves first (`_latest`) and that one sparse stream is merged with the base's cursor, the part numbered 0 when the configuration has rows there, so a base row costs a window comparison or two however many parts there are."""
+    base = next((cursor for part, cursor in parts if part == 0), None)
+    segments = [(part, cursor) for part, cursor in parts if part]
+    if not segments:
+        if base is not None:
+            yield from base
+        return
+    changes = _latest(segments)
+    change = next(changes, _PAST)
+    if base is not None:
+        for row in base:
+            key = row[0]
+            if key < change[0]:
+                yield row
+                continue
+            while change[0] < key:
+                if change[2]:
+                    yield change
+                change = next(changes, _PAST)
+            if change[0] == key:
+                if change[2]:
+                    yield change
+                change = next(changes, _PAST)
+            else:
+                yield row
+    while change is not _PAST:
+        if change[2]:
+            yield change
+        change = next(changes, _PAST)
+
+
+def _cursors(
+    descriptors: Sequence[int],
+    sections: Sequence[Section],
+    low: WindowKey | None,
+    high: WindowKey | None,
+) -> tuple[list[int], list[Iterator[tuple[WindowKey, list[str], str]]]]:
+    """Each configuration's merged cursor (`_merged`) over `[low, high)`, in configuration rank, beside the index in `sections` of its first section, which names it. Each part's cursor starts at its first window at or past `low`, found by `first_line`."""
+    named: list[int] = []
+    groups: list[list[tuple[int, Iterator[Row]]]] = []
+    for index, section in enumerate(sections):
+        start = section.start
+        if low is not None:
+            bound, shift = low, 1 if section.part else 0
+            start = first_line(
+                descriptors[section.part],
+                section.start,
+                section.end,
+                lambda line: window_key(_field(line, 1 + shift)) >= bound,
+            )
+        cursor = (section.part, section_rows(descriptors, section, start, high))
+        if named and sections[named[-1]].config == section.config:
+            groups[-1].append(cursor)
+        else:
+            named.append(index)
+            groups.append([cursor])
+    return named, [_merged(group) for group in groups]
+
+
 def lockstep(
-    descriptor: int,
+    descriptors: Sequence[int],
     sections: Sequence[Section],
     low: WindowKey | None = None,
     high: WindowKey | None = None,
 ) -> Iterator[tuple[str, list[tuple[int, list[str], str]]]]:
-    """Yield every window in `[low, high)` (every window when both are None) in window order, with its rows: `(section index, fields, line)` for each section that has the window, in section order, so in configuration rank. Each section's cursor starts at its first window at or past `low`, found by `first_line`. A window not in the canonical form raises `OrderBreak`, as the cursors do."""
-    starts = [section.start for section in sections]
-    if low is not None:
-        bound = low
-        starts = [
-            first_line(
-                descriptor, section.start, section.end, lambda line: window_key(_field(line, 1)) >= bound
-            )
-            for section in sections
-        ]
-    cursors = [section_rows(descriptor, section, start, high) for section, start in zip(sections, starts)]
+    """Yield every window in `[low, high)` (every window when both are None) in window order, with its rows: `(section index, fields, line)` for each configuration that has the window, in configuration rank, the index that of the configuration's first section in `sections`, which run in rank and then part order. A configuration's rows in several parts are merged by window (`_merged`), so the walk reads the materialized audit one window at a time. A window not in the canonical form raises `OrderBreak`, as the cursors do."""
+    named, cursors = _cursors(descriptors, sections, low, high)
     heads = [next(cursor, None) for cursor in cursors]
     while True:
         least: WindowKey | None = None
@@ -239,9 +337,17 @@ def lockstep(
         rows: list[tuple[int, list[str], str]] = []
         for index, head in enumerate(heads):
             if head is not None and head[0] == least:
-                rows.append((index, head[1], head[2]))
+                rows.append((named[index], head[1], head[2]))
                 heads[index] = next(cursors[index], None)
         yield least[1], rows
+
+
+def materialized_lines(descriptors: Sequence[int], sections: Sequence[Section]) -> Iterator[str]:
+    """The materialized audit's rows, each line without its newline, in the audit's own order: configuration by configuration in rank, each one's rows merged across its parts by window (`_merged`)."""
+    _named, cursors = _cursors(descriptors, sections, None, None)
+    for cursor in cursors:
+        for _key, _fields, line in cursor:
+            yield line
 
 
 def parse_window(field: str) -> tuple[int, ...]:
@@ -313,7 +419,7 @@ def main() -> int:
     source = sys.stdin.buffer
     job = json.loads(source.readline())
     prior = _read_prior(source, int(job["prior"]))
-    descriptor = int(job["descriptor"])
+    descriptors = [int(descriptor) for descriptor in job["descriptors"]]
     sections = [Section(*section) for section in job["sections"]]
     family = FamilyLines({int(value): name for value, name in job["family_of"].items()}, job["family_keys"])
     out = sys.stdout.buffer
@@ -337,7 +443,7 @@ def main() -> int:
 
     count = len(prior)
     try:
-        for field, found in lockstep(descriptor, sections, _key(job["low"]), _key(job["high"])):
+        for field, found in lockstep(descriptors, sections, _key(job["low"]), _key(job["high"])):
             windows += 1
             rows += len(found)
             if not sibling_window(found):

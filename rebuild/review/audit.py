@@ -1,10 +1,10 @@
-"""M1-mode unit assembly for the review corpus (rebuild/REVIEW-PLAN.md §1.1, §2.1). It loads rebuild/out/m1/divergence-audit.tsv and rebuild/m1-divergences.yaml, dedupes the audit rows to (codepoints, baseline, new) units, and orders them for triage (`triage_key`): ledger class in ledger file order, then the lead family-pair group in code-point order, then the window's length and codepoints, then the unit's id. `assign_batches` assigns fixed batch slices over that order.
+"""M1-mode unit assembly for the review corpus (rebuild/REVIEW-PLAN.md §1.1, §2.1). It loads the divergence audit under rebuild/out/m1 (`divergence-audit.tsv`, its head and parts) and rebuild/m1-divergences.yaml, dedupes the audit rows to (codepoints, baseline, new) units, and orders them for triage (`triage_key`): ledger class in ledger file order, then the lead family-pair group in code-point order, then the window's length and codepoints, then the unit's id. `assign_batches` assigns fixed batch slices over that order.
 
 This module does not assign unit ids. A unit's id is `unit_cache.unit_id_for` over the content key the build stamps once the unit is enriched, so it depends on what the reviewer judges and not on where the unit sits in the order.
 
 The dedupe key is name-grain, so a config that renames a glyph without moving ink splits one visual question into sibling units. The build merges them back with the ink-duplicate merge (`merge_ink_duplicate_units`' rules) before enrichment and batching.
 
-The build reads the audit through one of two window sources, both over the descriptor it holds for the whole build. The stream (`stream_workload`) reads an audit in sorted sections (`rebuild/review/audit_stream.py`: one section a configuration, in rank order, each section's windows strictly increasing), as run_m1 writes it, one window at a time: it groups each window's rows into units, merges the window's ink duplicates, keys each unit from its raw lines, and appends the unit's columns, so it holds one window's rows and never the audit's. Any other file, the fixture audit's one-row sections among them, takes the in-memory source (`load_workload`, `load_audit_table`), which stages every row and dedupes them whole, and which a stream that meets a break partway restarts on; `load_table` over parsed rows is the same load and the tests' reference. Both give the same table in load order, the same pre-merge snapshot and merge, and the same input keys.
+The build reads the audit through one of two window sources, both over the descriptors it holds for the whole build (`AuditParts`): under the audit's head, every part the head lists, a base and run_m1's plain keyed segments, each in sorted sections; for a tree with no head, the single file. The stream (`stream_workload`) reads an audit in sorted sections (`rebuild/review/audit_stream.py`: one section a configuration in each part, in rank order, each section's windows strictly increasing, a configuration's sections merged across the parts by window), as run_m1 writes it, one window at a time: it groups each window's rows into units, merges the window's ink duplicates, keys each unit from its raw lines, and appends the unit's columns, so it holds one window's rows and never the audit's. Any other file, the fixture audit's one-row sections among them, takes the in-memory source (`load_workload`, `load_audit_table`), which stages every row and dedupes them whole, reading the materialized rows of an audit under a head (`audit_stream.materialized_lines`), and which a stream that meets a break partway restarts on; `load_table` over parsed rows is the same load and the tests' reference. Both give the same table in load order, the same pre-merge snapshot and merge, and the same input keys.
 
 The workload is held as packed columns over the unit's ordinal (`UnitTable`, built on the `columns` module like `unit_store.UnitStore`), not as a list of records. `Unit` is the per-unit record that a worker, the enricher, the drafter and the fragment writer read; `UnitTable.unit` builds one at a time, and the build's parent never holds a list of them. The in-memory source holds the audit rows as five id columns (`RowColumns`), about seventeen bytes a row: one byte for the config and four each for the kinds, entry, baseline and new ids. It parses each audit line straight into those ids (`load_audit_table`) and builds no `AuditRow`. The stream builds no row columns: what the build reads of a unit's rows after the load is its row count, kept on the table.
 """
@@ -23,6 +23,7 @@ from typing import NamedTuple, Protocol
 
 import yaml
 
+from rebuild.pipeline import row_delta
 from rebuild.review import audit_stream, change_groups
 from rebuild.review.columns import (
     MappingPool,
@@ -907,11 +908,11 @@ def load_audit_table(
     family_of: dict[int, str],
     *,
     mark: Callable[[str], None] | None = None,
-    descriptor: int | None = None,
+    descriptors: Sequence[int] | None = None,
 ) -> tuple[UnitTable, RowColumns]:
-    """`load_table(load_audit(path, names), ledger, family_of, names)` with the parse fused into the row loop (`_stage_audit`), which is how the build's in-memory source loads the audit; the columns, the name pool, the string table and the config vocabulary come out identical to that form. `mark` is `load_workload`'s. With `descriptor`, the audit is read through that open descriptor from its start, and `path` only names it in messages."""
+    """`load_table(load_audit(path, names), ledger, family_of, names)` with the parse fused into the row loop (`_stage_audit`), which is how the build's in-memory source loads the audit; the columns, the name pool, the string table and the config vocabulary come out identical to that form. `mark` is `load_workload`'s. With `descriptors`, the audit is read through those open descriptors, its parts' (`_audit_text`), and `path` only names it in messages."""
     columns = RowColumns()
-    return _load_staged(columns, lambda: _stage_audit(path, columns, descriptor), ledger, family_of, mark)
+    return _load_staged(columns, lambda: _stage_audit(path, columns, descriptors), ledger, family_of, mark)
 
 
 _Staged = tuple[array, array, array, array, array, array, array, list[str]]
@@ -959,16 +960,44 @@ def _stage_rows(rows: Iterable[AuditRow], columns: RowColumns) -> _Staged:
     return config_f, kinds_f, entry_f, baseline_f, new_f, unit_f, counts, windows
 
 
-def _audit_text(path: Path, descriptor: int | None) -> io.TextIOBase:
-    """The audit as UTF-8 text from its start: opened by `path`, or, with `descriptor`, read through a duplicate of the descriptor the build holds, so a file replaced by rename since the build opened it is not read."""
-    if descriptor is None:
+class _MaterializedText:
+    """The materialized audit of several parts as text lines, its header and then its rows merged across the parts (`audit_stream.materialized_lines`), each with its newline, for the in-memory source's row loop."""
+
+    def __init__(self, descriptors: Sequence[int], path: Path) -> None:
+        layout = audit_layout(descriptors, path)
+        if layout.sections is None:
+            raise ValueError(f"{path}: its parts do not merge, since {layout.why}")
+        self._lines = audit_stream.materialized_lines(descriptors, layout.sections)
+        self._header = "\t".join(AUDIT_HEADER) + "\n"
+
+    def __enter__(self) -> _MaterializedText:
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        return None
+
+    def __iter__(self) -> Iterator[str]:
+        return self
+
+    def __next__(self) -> str:
+        if self._header:
+            header, self._header = self._header, ""
+            return header
+        return next(self._lines) + "\n"
+
+
+def _audit_text(path: Path, descriptors: Sequence[int] | None) -> io.TextIOBase | _MaterializedText:
+    """The audit as UTF-8 text from its start: opened by `path`; with one descriptor, read through a duplicate of the descriptor the build holds, so a file replaced by rename since the build opened it is not read; and with several, the parts the build holds read as their materialized stream (`_MaterializedText`)."""
+    if descriptors is None:
         return open(path, encoding="utf-8")
-    duplicate = os.dup(descriptor)
+    if len(descriptors) > 1:
+        return _MaterializedText(descriptors, path)
+    duplicate = os.dup(descriptors[0])
     os.lseek(duplicate, 0, os.SEEK_SET)
     return io.TextIOWrapper(io.BufferedReader(io.FileIO(duplicate, "rb", closefd=True)), encoding="utf-8")
 
 
-def _stage_audit(path: Path, columns: RowColumns, descriptor: int | None = None) -> _Staged:
+def _stage_audit(path: Path, columns: RowColumns, descriptors: Sequence[int] | None = None) -> _Staged:
     """`_stage_rows` over the audit file, parsing each line straight into the arrays. Each of a line's kinds, rendered-name, matched-entry and config fields maps to its id through a memo keyed on the raw field string, so a repeated field costs one dict lookup; a field seen for the first time is split, interned and pooled as `load_audit` does it, kinds, then baseline, then new, so the ids are assigned in the same order. A unit's window string is interned once, when the unit is first seen. The memos are freed beside the pool's seal."""
     names = columns.names
     config_id = columns.config_id
@@ -990,7 +1019,7 @@ def _stage_audit(path: Path, columns: RowColumns, descriptor: int | None = None)
     names_memo: dict[str, int] = {}
     entry_memo: dict[str, int] = {}
     config_memo: dict[str, int] = {}
-    with _audit_text(path, descriptor) as handle:
+    with _audit_text(path, descriptors) as handle:
         _check_audit_header(handle, path)
         for line in handle:
             if not line.strip():
@@ -1506,20 +1535,70 @@ def merge_ink_duplicate_units(
     return stats
 
 
+class AuditParts:
+    """The audit as the corpus build holds it from its load to its end: under a head (`row_delta`, the plain keyed merge run_m1's oracle writes), every part the head lists, opened as the head is read and checked against the sizes it records, so a later commit's deletes cannot reach them; or, for a tree with no head (every fixture audit among them), the single file. `descriptors` are the base's and then each segment's, never reopened by path, since a `--gates-only` pass can commit a new head during a build. A head read between a commit that folds and its deletes of the old generation can list a part already gone, so the head is read again, up to three times, before that fails the build."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.head: row_delta.Head | None = None
+        self._opened: row_delta.OpenParts | None = None
+        self._single: int | None = None
+        for attempt in range(3):
+            head = row_delta.read_head(self.path.parent, self.path.name)
+            if head is None:
+                self._single = os.open(self.path, os.O_RDONLY)
+                return
+            try:
+                self._opened = row_delta.open_parts(self.path.parent, head)
+            except row_delta.HeadError:
+                if attempt == 2:
+                    raise
+                continue
+            self.head = head
+            return
+
+    @property
+    def descriptors(self) -> tuple[int, ...]:
+        if self._opened is not None:
+            return tuple(handle.fileno() for handle in self._opened.handles)
+        assert self._single is not None
+        return (self._single,)
+
+    @property
+    def content_time(self) -> float:
+        """When the audit's content last moved, in seconds since the epoch: the head's `row_delta.CONTENT_TIME_STAMP`, or the single file's modification time."""
+        if self.head is not None:
+            return int(self.head.stamps[row_delta.CONTENT_TIME_STAMP]) / 1e9
+        return os.fstat(self.descriptors[0]).st_mtime
+
+    @property
+    def segment_rows(self) -> int:
+        return 0 if self.head is None else sum(part.rows for part in self.head.segments)
+
+    def close(self) -> None:
+        if self._opened is not None:
+            self._opened.close()
+            self._opened = None
+        if self._single is not None:
+            os.close(self._single)
+            self._single = None
+
+
 class AuditLayout(NamedTuple):
-    """What `audit_layout` finds: the audit's sections (`audit_stream.Section`) when it is in sorted sections, or None and `why` it is not, beside the byte its rows start at."""
+    """What `audit_layout` finds: the audit's sections (`audit_stream.Section`) across its parts when it is in sorted sections, or None and `why` it is not, beside the byte the base's rows start at."""
 
     sections: list[audit_stream.Section] | None
     why: str
     rows_start: int
 
 
-def audit_layout(descriptor: int, path: Path) -> AuditLayout:
-    """Check the audit's header through the held descriptor, raising the in-memory source's `ValueError` for an empty file or another header, and find its sections (`audit_stream.audit_sections`), or why it has none: a header that is not UTF-8 or holds a carriage return, which the in-memory source's text read takes, or sections out of rank order."""
-    size = os.fstat(descriptor).st_size
+def audit_layout(descriptors: Sequence[int], path: Path) -> AuditLayout:
+    """Check the audit's header through the held descriptor of its base, raising the in-memory source's `ValueError` for an empty file or another header, and find the sections of the base and of each segment (`audit_stream.audit_sections`), sorted by rank and then part, or why it has none: a header that is not UTF-8 or holds a carriage return, which the in-memory source's text read takes, or sections out of rank order in any part. A segment's own header line is passed over: the build checked each part's size against the head that lists it as it opened it (`AuditParts`)."""
+    base = descriptors[0]
+    size = os.fstat(base).st_size
     if size == 0:
         raise ValueError(f"{path}: empty audit, no header")
-    line, start = audit_stream.line_at(descriptor, 0, size)
+    line, start = audit_stream.line_at(base, 0, size)
     try:
         text = line.decode("utf-8")
     except UnicodeDecodeError:
@@ -1529,10 +1608,15 @@ def audit_layout(descriptor: int, path: Path) -> AuditLayout:
     header = text.split("\t")
     if tuple(header) != AUDIT_HEADER:
         raise ValueError(f"{path}: unexpected audit header {header!r}")
-    sections = audit_stream.audit_sections(descriptor, start, size, _config_index)
-    if isinstance(sections, str):
-        return AuditLayout(None, sections, start)
-    return AuditLayout(sections, "", start)
+    found: list[audit_stream.Section] = []
+    for part, descriptor in enumerate(descriptors):
+        end = os.fstat(descriptor).st_size
+        rows = start if part == 0 else audit_stream.line_at(descriptor, 0, end)[1]
+        sections = audit_stream.audit_sections(descriptor, rows, end, _config_index, part)
+        if isinstance(sections, str):
+            return AuditLayout(None, sections, start)
+        found.extend(sections)
+    return AuditLayout(sorted(found, key=lambda section: (section.rank, section.part)), "", start)
 
 
 class PremergeColumns(NamedTuple):
@@ -1572,7 +1656,7 @@ def _merged_rows(first: list, second: list) -> list:
 
 
 def stream_workload(
-    descriptor: int,
+    descriptors: Sequence[int],
     audit_path: Path,
     ledger_path: Path,
     sections: Sequence[audit_stream.Section],
@@ -1637,7 +1721,7 @@ def stream_workload(
     def name_id(field: str) -> int:
         return names.id(tuple(map(label, field.split("|"))))
 
-    for window, found in audit_stream.lockstep(descriptor, sections):
+    for window, found in audit_stream.lockstep(descriptors, sections):
         row_total += len(found)
         values = audit_stream.parse_window(window)
         offset = len(window_values)
@@ -1896,11 +1980,11 @@ def load_workload(
     family_of: dict[int, str],
     *,
     mark: Callable[[str], None] | None = None,
-    descriptor: int | None = None,
+    descriptors: Sequence[int] | None = None,
 ) -> Workload:
-    """Load the ledger and the audit into a `Workload` through the in-memory source, the table in load order before the ink-duplicate merge, beside its row columns. Every row's `matched_entry` must be UNMATCHED or a ledger id: an audit written by run_m1 under an older ledger, one whose ids have since been renamed, would otherwise list its units under classes the ledger does not describe. `mark` is the build's sub-step hook (`memory_tally.mark`), passed in rather than imported for the reason `RowColumns` gives. With `descriptor`, the audit is read through that open descriptor (`load_audit_table`)."""
+    """Load the ledger and the audit into a `Workload` through the in-memory source, the table in load order before the ink-duplicate merge, beside its row columns. Every row's `matched_entry` must be UNMATCHED or a ledger id: an audit written by run_m1 under an older ledger, one whose ids have since been renamed, would otherwise list its units under classes the ledger does not describe. `mark` is the build's sub-step hook (`memory_tally.mark`), passed in rather than imported for the reason `RowColumns` gives. With `descriptors`, the audit is read through those open descriptors, its parts' (`load_audit_table`)."""
     ledger = load_ledger(ledger_path)
-    table, rows = load_audit_table(audit_path, ledger, family_of, mark=mark, descriptor=descriptor)
+    table, rows = load_audit_table(audit_path, ledger, family_of, mark=mark, descriptors=descriptors)
     named = {rows.table[index] for index in set(rows.entry)}
     unknown = sorted(named - {UNMATCHED_CLASS} - {entry.id for entry in ledger})
     if unknown:

@@ -1480,7 +1480,7 @@ def test_the_signature_store_columns_die_where_the_store_is_written(tmp_path, mi
 _SIGNATURE_NOTE = (
     r"\(signatures: \d[\d,]* cached, \d[\d,]* shaped(?: serially| across \d+ workers)?\) "
     r"\(key-only read (?:ran \d+\.\d\d s across \d+ processes, the largest \d+\.\d{3} GB resident|skipped, the store's stamps held); read as a stream; "
-    r"prior store \d[\d,]* hit, \d[\d,]* unhit, \d[\d,]* missed\)"
+    r"audit \d+ parts, \d[\d,]* segment rows; prior store \d[\d,]* hit, \d[\d,]* unhit, \d[\d,]* missed\)"
 )
 _TALLY_COLLECTION = re.compile(
     r"^\[tally\] (\S+) (\S+) count=(\d+) est_bytes=(\d+) est_gb=\d+\.\d\d"
@@ -2380,3 +2380,48 @@ def test_a_build_into_the_served_corpus_refuses_while_the_review_server_listens(
     review_build.refuse_the_served_corpus(tmp_path / "elsewhere")
     monkeypatch.setattr(review_build, "review_server_listening", lambda port=PORT: False)
     review_build.refuse_the_served_corpus(review_build.DEFAULT_OUT)
+
+
+def test_the_corpus_identity_moves_with_the_audit_s_content_and_not_with_a_fold(tmp_path, monkeypatch):
+    """The corpus's `generated_at` takes the audit's time from its head, the time its content last moved (`AuditParts.content_time`), and the ink-signature store's stamp its content generation beside that time (`unit_cache.audit_identity`). A pass that writes a segment moves both; a pass that changes no row writes the head alone and moves neither, and so does a fold, which writes the materialized audit as a new base, since the content is the one the head already served. A corpus over a single file keeps the file's modification time."""
+    from rebuild.pipeline import oracle, row_delta
+    from rebuild.review.audit import AuditParts
+
+    out = tmp_path / "m1"
+    rows = [f"default\tE65{digit}\tcell\tclass-a\tqsPea\tqsPea/g" for digit in "0123"]
+
+    def write(lines: list[str]) -> None:
+        with oracle.AuditWriter(out) as writer:
+            writer.feed(("\n".join(lines) + "\n").encode("utf-8"))
+
+    def identity() -> tuple[str, list[int]]:
+        parts = AuditParts(out / oracle.AUDIT_NAME)
+        try:
+            return (
+                review_build._generated_at(mtimes=(parts.content_time,)),
+                unit_cache.audit_identity(parts.descriptors[0], parts.head),
+            )
+        finally:
+            parts.close()
+
+    single = out / oracle.AUDIT_NAME
+    out.mkdir()
+    single.write_text("\n".join([oracle.ORACLE_AUDIT_HEADER, *rows]) + "\n", encoding="utf-8")
+    earlier = 1_793_491_200_000_000_000
+    os.utime(single, ns=(earlier, earlier))
+    held = identity()
+    assert held[0] == "2026-11-01T00:00:00Z"
+    write(rows)
+    assert identity()[0] == held[0]
+    adopted = identity()
+    write(rows)
+    assert identity() == adopted
+    rows[1] = rows[1].replace("class-a", "UNMATCHED")
+    write(rows)
+    moved = identity()
+    assert moved[0] > adopted[0] and moved[1] != adopted[1]
+    monkeypatch.setattr(row_delta, "AUDIT_SEGMENT_CAP", 1)
+    write(rows)
+    head = row_delta.read_head(out, oracle.AUDIT_NAME)
+    assert head is not None and (head.generation, head.segments) == (1, ())
+    assert identity() == moved

@@ -5287,7 +5287,7 @@ def test_moved_inputs_note_names_changed_new_and_gone():
 
 
 def test_m1_artifacts_present(tmp_path):
-    """The plain skip's predicate needs every gate summary, every artifact the corpus build reads and every settlement configuration's windows head and head file, so a missing gate summary alone fails it, and so does a missing head. A gates-only rerun is planned on `m1_gates_only_base_present` instead."""
+    """The plain skip's predicate needs every gate summary, every artifact the corpus build reads and every settlement configuration's windows head and head file, so a missing gate summary alone fails it, and so does a missing head, the audit's among them, which names the audit's parts: a single audit file of a tree from before the segment format is not enough. A gates-only rerun is planned on `m1_gates_only_base_present` instead."""
     from rebuild.pipeline import conform
 
     m1 = tmp_path / "rebuild" / "out" / "m1"
@@ -5299,6 +5299,7 @@ def test_m1_artifacts_present(tmp_path):
     ]
     assert len(ac.m1_table_head_names()) == 2 * len(conform.SETTLEMENT_CONFIGS)
     assert "windows-default.tsv.gz.head" in names and "windows-default.head.json.gz" in names
+    assert "divergence-audit.tsv.head" in names and "divergence-audit.tsv" not in names
     assert not ac.m1_artifacts_present(tmp_path)
     for name in names:
         (m1 / name).write_text("{}")
@@ -5309,6 +5310,9 @@ def test_m1_artifacts_present(tmp_path):
     (m1 / "M1.otf").unlink()
     assert not ac.m1_artifacts_present(tmp_path)
     (m1 / "M1.otf").write_text("{}")
+    (m1 / "divergence-audit.tsv.head").rename(m1 / "divergence-audit.tsv")
+    assert not ac.m1_artifacts_present(tmp_path)
+    (m1 / "divergence-audit.tsv").rename(m1 / "divergence-audit.tsv.head")
     (m1 / "windows-ss04.tsv.gz.head").unlink()
     assert not ac.m1_artifacts_present(tmp_path)
 

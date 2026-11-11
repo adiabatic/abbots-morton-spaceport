@@ -1094,8 +1094,8 @@ _AUDIT_SHAPES = (
         "default": ["default\tE668:E665\tcell\tmay-utter\tqsRoe|qsMay\tqsRoe.alt|qsMay"],
         "ss03": [],
         "ss10": [
-            "ss10\tE652:E679\tligation,junction\tUNMATCHED\tqsTea_qsOy\tqsTea|qsOy",
             "ss10\tE650:0020\tcell\ta+b\tqsPea\tqsPea.half",
+            "ss10\tE652:E679\tligation,junction\tUNMATCHED\tqsTea_qsOy\tqsTea|qsOy",
         ],
     },
     {
@@ -1107,8 +1107,31 @@ _AUDIT_SHAPES = (
 )
 
 
+def _audit_bytes(out: Path) -> bytes:
+    """The audit's materialized form under `out` (`oracle.materialized_audit`), the bytes today's single file holds."""
+    return b"".join(oracle.materialized_audit(out))
+
+
+def _audit_files(out: Path) -> dict[str, bytes]:
+    """Every file of the audit under `out`, its head and parts, by name, with its bytes."""
+    return {
+        path.name: path.read_bytes()
+        for path in sorted(out.iterdir())
+        if path.name.startswith(oracle.AUDIT_NAME)
+    }
+
+
+def _head_document(out: Path) -> dict:
+    """The audit's head under `out` without the time its content last moved, which differs between two writers of the same rows."""
+    document = json.loads((out / "divergence-audit.tsv.head").read_bytes())
+    document["stamps"] = {
+        key: value for key, value in document["stamps"].items() if key != oracle.CONTENT_TIME_STAMP
+    }
+    return document
+
+
 class TestOracleAudit:
-    """`divergence-audit.tsv` is fingerprinted and later stages parse it from disk, so its bytes must not change. Each row range ships its lines home in a shared memory segment, compressed a block at a time, and the parent's in-order writer writes them after the header in configuration order and row order, whatever order the ranges land in. These tests check that the file equals the header and all rows joined with newlines, for every shape the audit can take, including an empty configuration and an empty audit, however the lines are cut into ranges and blocks. They also check that a range that never lands, or lands short of the rows it counted, fails instead of producing a short audit that looks complete."""
+    """`divergence-audit.tsv` is fingerprinted by its materialized form and later stages parse it from disk, so its bytes must not change: the head, its base and its segments merged by key must be the file today's writer writes over the same rows. Each row range ships its lines home in a shared memory segment, compressed a block at a time, and the parent's in-order writer feeds them to the audit's writer in configuration order and row order, whatever order the ranges land in. These tests check that the materialized audit equals the header and all rows joined with newlines, for every shape the audit can take, including an empty configuration and an empty audit, however the lines are cut into ranges and blocks; that a first pass writes that file as its base; and that a pass over a standing audit writes only the rows that differ, or nothing. They also check that a range that never lands, or lands short of the rows it counted, fails instead of producing a short audit that looks complete, and leaves the standing head and parts as they were."""
 
     @staticmethod
     def _blocks(lines: Sequence[str]) -> list[bytes]:
@@ -1150,14 +1173,147 @@ class TestOracleAudit:
             for shard, lines in reversed(ranges):
                 writer.land(shard, self._result(writer, shard, lines))
 
+    @staticmethod
+    def _today(per_config: Mapping[str, Sequence[str]]) -> bytes:
+        """The file today's writer writes over these lines: the header and every line, joined with newlines."""
+        every = [line for lines in per_config.values() for line in lines]
+        return ("\n".join([oracle.ORACLE_AUDIT_HEADER, *every]) + "\n").encode("utf-8")
+
     @pytest.mark.parametrize("cuts", (1, 2))
     @pytest.mark.parametrize("per_config", _AUDIT_SHAPES)
     def test_the_ranges_lines_follow_the_header_in_order(self, tmp_path, per_config, cuts):
-        """A configuration cut into row ranges arrives as one set of lines per range. The file must be the same however the rows were split, including an empty last range."""
+        """A configuration cut into row ranges arrives as one set of lines per range. The audit must be the same however the rows were split, including an empty last range. With no standing audit the writer takes the `first` route: its base is today's file byte for byte, and its head lists that base alone."""
         self._write(tmp_path, per_config, cuts)
-        every = [line for lines in per_config.values() for line in lines]
-        joined = "\n".join([oracle.ORACLE_AUDIT_HEADER, *every]) + "\n"
-        assert (tmp_path / "divergence-audit.tsv").read_bytes() == joined.encode("utf-8")
+        assert (tmp_path / "divergence-audit.tsv.0.base").read_bytes() == self._today(per_config)
+        assert _audit_bytes(tmp_path) == self._today(per_config)
+        head = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert head is not None and head.segments == () and head.merge == row_delta.MERGE_PLAIN_KEY
+        assert sorted(_audit_files(tmp_path)) == ["divergence-audit.tsv.0.base", "divergence-audit.tsv.head"]
+
+    @pytest.mark.parametrize("block", (oracle.ORACLE_AUDIT_BLOCK, 64))
+    @pytest.mark.parametrize("cuts", (1, 2))
+    def test_a_pass_over_a_standing_audit_writes_only_the_rows_that_differ(
+        self, tmp_path, monkeypatch, cuts, block
+    ):
+        """Over a standing head the writer compares the ranges' rows with the materialized audit in lockstep. A pass that changes one row, removes one and adds one writes one plain keyed segment of exactly those upserts and tombstones, keyed by configuration and window in the base's order, and the materialized audit is the file today's writer writes over the same ranges; the head's content generation and its time move with it. A pass that changes nothing writes no segment, and its head, which comes out byte for byte the same, keeps its inode and modification time. Blocks of a few lines make the ranges ship several blocks and the compare refill its old stream several times a pass."""
+        monkeypatch.setattr(oracle, "ORACLE_AUDIT_BLOCK", block)
+        first = {
+            "default": [
+                f"default\tE6{low:02X}:E650\tcell\tpea-half\tqsPea\tqsPea.half" for low in range(0x50, 0x58)
+            ],
+            "ss03": ["ss03\tE650:E650\tcell\tpea-half\tqsPea\tqsPea.half"],
+        }
+        self._write(tmp_path, first, cuts)
+        standing = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert standing is not None
+        second = {
+            "default": [
+                *first["default"][:2],
+                first["default"][2].replace("pea-half", "UNMATCHED"),
+                *first["default"][4:],
+                "default\tE650:E650:E650\tcell\tpea-half\tqsPea\tqsPea.half",
+            ],
+            "ss03": first["ss03"],
+        }
+        self._write(tmp_path, second, cuts)
+        assert _audit_bytes(tmp_path) == self._today(second)
+        head = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert head is not None and len(head.segments) == 1 and head.base == standing.base
+        assert head.content == standing.content + 1
+        assert head.stamps[oracle.CONTENT_TIME_STAMP] > standing.stamps[oracle.CONTENT_TIME_STAMP]
+        segment = (tmp_path / "divergence-audit.tsv.0.1.delta").read_bytes().decode("utf-8").splitlines()
+        assert json.loads(segment[0])["merge"] == row_delta.MERGE_PLAIN_KEY
+        assert segment[1:] == [
+            "+\t" + second["default"][2],
+            "-\tdefault\tE653:E650",
+            "+\tdefault\tE650:E650:E650\tcell\tpea-half\tqsPea\tqsPea.half",
+        ]
+        before = os.stat(tmp_path / "divergence-audit.tsv.head")
+        files = _audit_files(tmp_path)
+        self._write(tmp_path, second, cuts)
+        after = os.stat(tmp_path / "divergence-audit.tsv.head")
+        assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+        assert _audit_files(tmp_path) == files
+
+    def test_a_tree_from_before_the_format_is_adopted_by_link_and_its_head_written_alone(self, tmp_path):
+        """The first pass over a tree whose audit is today's single file links it as generation 0's base, which writes no data, and, when no row differs, writes the head alone: the base keeps the single file's inode, the head records its modification time as the time its content last moved, so the corpus's `generated_at` stays where it was, and the single file goes once the head is committed."""
+        per_config = {"default": ["default\tE650\tcell\tpea-half\tqsPea\tqsPea.half"]}
+        single = tmp_path / "divergence-audit.tsv"
+        single.write_bytes(self._today(per_config))
+        before = os.stat(single)
+        self._write(tmp_path, per_config)
+        assert sorted(_audit_files(tmp_path)) == ["divergence-audit.tsv.0.base", "divergence-audit.tsv.head"]
+        assert os.stat(tmp_path / "divergence-audit.tsv.0.base").st_ino == before.st_ino
+        head = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert head is not None and head.content == 0
+        assert head.stamps[oracle.CONTENT_TIME_STAMP] == before.st_mtime_ns
+        assert _audit_bytes(tmp_path) == self._today(per_config)
+
+    def test_a_part_that_fails_its_check_is_rewritten_whole(self, tmp_path):
+        """A part whose sha256 is not the one its head records takes the `unusable` route: the pass writes today's file as the next generation's base, whatever it would have compared, and deletes the generation it replaces once its head is in place."""
+        per_config = {"default": ["default\tE650\tcell\tpea-half\tqsPea\tqsPea.half"]}
+        self._write(tmp_path, per_config)
+        base = tmp_path / "divergence-audit.tsv.0.base"
+        damaged = bytearray(base.read_bytes())
+        damaged[-3] ^= 0x01
+        base.write_bytes(bytes(damaged))
+        self._write(tmp_path, per_config)
+        assert sorted(_audit_files(tmp_path)) == ["divergence-audit.tsv.1.base", "divergence-audit.tsv.head"]
+        assert (tmp_path / "divergence-audit.tsv.1.base").read_bytes() == self._today(per_config)
+
+    def test_rows_out_of_the_audit_s_order_are_refused_and_commit_nothing(self, tmp_path, monkeypatch):
+        """The compare merges by key, so rows that do not strictly increase in configuration rank and window order are a defect: the writer raises naming the row, and the standing head and parts stay as they were. That holds for a row that repeats or goes back right after a row equal to the standing audit's, or right after a block whose bytes equal the standing audit's, on the segment route and on a fold, where a merge by key would otherwise drop the repeat or put the row back in order and commit an audit that is not the file of the rows fed."""
+        per_config = {"default": [f"default\tE65{digit}\tcell\ta\tqsPea\tqsPea.half" for digit in "0123"]}
+        self._write(tmp_path, per_config)
+        files = _audit_files(tmp_path)
+        swapped = {"default": [per_config["default"][0], per_config["default"][2], per_config["default"][1]]}
+        with pytest.raises(ValueError, match=r"out of the audit's order at 'default\\tE651"):
+            self._write(tmp_path, swapped)
+        assert _audit_files(tmp_path) == files
+        rows = [f"{line}\n".encode("utf-8") for line in per_config["default"]]
+        lower = b"default\tE64F\tcell\ta\tqsPea\tqsPea.half\n"
+
+        def fed(*blocks: bytes) -> None:
+            with oracle.AuditWriter(tmp_path) as writer:
+                for block in blocks:
+                    writer.feed(block)
+
+        for blocks in ((rows[0] + rows[0],), (rows[0] + lower,), (b"".join(rows), rows[2] + rows[3])):
+            with pytest.raises(ValueError, match="out of the audit's order"):
+                fed(*blocks)
+            assert _audit_files(tmp_path) == files
+        monkeypatch.setattr(row_delta, "AUDIT_SEGMENT_CAP", 1)
+        changed = [per_config["default"][0].replace("\ta\t", "\tb\t"), *per_config["default"][1:]]
+        self._write(tmp_path, {"default": changed})
+        files = _audit_files(tmp_path)
+        assert "divergence-audit.tsv.0.1.delta" in files
+        with pytest.raises(ValueError, match=r"out of the audit's order at 'default\\tE652"):
+            fed("".join(f"{line}\n" for line in changed).encode("utf-8"), rows[2] + rows[3])
+        assert _audit_files(tmp_path) == files
+
+    def test_the_audit_folds_at_its_cap_and_keeps_its_identity(self, tmp_path):
+        """A head that lists `row_delta.AUDIT_SEGMENT_CAP` segments folds on its next pass, which holds the pass's fold: that pass writes the materialized audit with its own changes as the next generation's base, deletes the old generation once its head is in place, and, changing no row, keeps the content generation and its time, so the corpus's identity stays. A segment after the fold lands on the new base, and the materialized audit is the file today's writer writes."""
+        lines = [f"default\tE650:{0xE600 + at:04X}\tcell\ta\tqsPea\tqsPea.half" for at in range(400)]
+        self._write(tmp_path, {"default": lines})
+        for at in range(row_delta.AUDIT_SEGMENT_CAP):
+            lines[at] = lines[at].replace("\ta\t", "\tb\t")
+            self._write(tmp_path, {"default": lines})
+        folding = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert folding is not None and len(folding.segments) == row_delta.AUDIT_SEGMENT_CAP
+        self._write(tmp_path, {"default": lines})
+        folded = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert folded is not None and (folded.generation, folded.segments) == (1, ())
+        assert (folded.content, folded.stamps) == (folding.content, folding.stamps)
+        assert sorted(_audit_files(tmp_path)) == ["divergence-audit.tsv.1.base", "divergence-audit.tsv.head"]
+        assert (tmp_path / "divergence-audit.tsv.1.base").read_bytes() == self._today({"default": lines})
+        lines[0] = lines[0].replace("\tb\t", "\tc\t")
+        self._write(tmp_path, {"default": lines})
+        assert sorted(_audit_files(tmp_path)) == [
+            "divergence-audit.tsv.1.1.delta",
+            "divergence-audit.tsv.1.base",
+            "divergence-audit.tsv.head",
+        ]
+        assert _audit_bytes(tmp_path) == self._today({"default": lines})
 
     def test_the_frozen_mini_audit_reassembles_byte_for_byte(self, tmp_path, monkeypatch):
         """The same check over a real audit. The mini bundle's `audit.tsv` is a filtered live audit that `fixtures/mini/regenerate.py` writes by joining its rows with newlines, and its configuration blocks are contiguous and in `ORACLE_CONFIGS` order. Returned whole or cut, in blocks small enough that each range's lines span several, the lines must reproduce the file."""
@@ -1172,7 +1328,7 @@ class TestOracleAudit:
             out = tmp_path / str(cuts)
             out.mkdir()
             self._write(out, per_config, cuts)
-            assert (out / "divergence-audit.tsv").read_bytes() == source.read_bytes()
+            assert _audit_bytes(out) == source.read_bytes()
         widest = max(per_config, key=lambda config: len(per_config[config]))
         assert len(self._blocks(per_config[widest])) > 2
 
@@ -1196,23 +1352,40 @@ class TestOracleAudit:
         assert landed == [[2], [2], []]
         assert writer.held_peak_bytes == sizes[2] + max(sizes[0], sizes[1])
         joined = "\n".join([oracle.ORACLE_AUDIT_HEADER, *lines]) + "\n"
-        assert (tmp_path / "divergence-audit.tsv").read_bytes() == joined.encode("utf-8")
+        assert _audit_bytes(tmp_path) == joined.encode("utf-8")
 
     def test_the_two_oracle_paths_write_the_same_file(self, spec, tmp_path, monkeypatch):
-        """`--jobs 1` writes the audit as it goes, and the pool's ranges return their lines for the parent's in-order writer. Both must produce the same bytes. The two paths run here over the same hand-made subset tables: a pending alias makes every row diverge and an empty ledger leaves every divergence UNMATCHED, so every row reaches the file through each path. Each range settles through the parent's spec dump, handed to it as its parent hands it, and writes no `spec.json` of its own."""
-        tables = tmp_path / "tables"
-        tables.mkdir()
-        for config, rows in (
-            (
-                "default",
-                ["E652\tqsTea.noentry\t0\t\t0,0,150", "0020:E652\tspace|qsTea\t0,1\tbreak\t0,0,150|0,0,150"],
-            ),
-            ("ss03", ["E652:E652\tqsTea|qsTea\t0,1\tbreak\t0,0,150|0,0,150"]),
-        ):
-            with gzip.open(tables / f"baseline-{config}.subset.tsv.gz", "wt", encoding="utf-8") as fh:
-                fh.write(f"# config: {config}\n")
-                for row in rows:
-                    fh.write(row + "\n")
+        """`--jobs 1` feeds the audit's writer as it goes, and the pool's ranges return their lines for the parent's in-order writer. Both must leave the same head, parts and materialized bytes, on a first pass and on a later pass over each one's own head that changes one row, removes one and adds one, which each writes as one segment whose materialized audit is the whole file over that pass's rows; the serial path walks its configurations in the audit's order whatever order it is handed them in. The two paths run here over the same hand-made subset tables: a pending alias makes every row diverge and an empty ledger leaves every divergence UNMATCHED, so every row reaches the file through each path. Each range settles through the parent's spec dump, handed to it as its parent hands it, and writes no `spec.json` of its own."""
+
+        def subset_tables(directory: Path, per_config: Mapping[str, Sequence[str]]) -> Path:
+            directory.mkdir()
+            for config, rows in per_config.items():
+                with gzip.open(directory / f"baseline-{config}.subset.tsv.gz", "wt", encoding="utf-8") as fh:
+                    fh.write(f"# config: {config}\n")
+                    for row in rows:
+                        fh.write(row + "\n")
+            return directory
+
+        tables = subset_tables(
+            tmp_path / "tables",
+            {
+                "default": [
+                    "E652\tqsTea.noentry\t0\t\t0,0,150",
+                    "0020:E652\tspace|qsTea\t0,1\tbreak\t0,0,150|0,0,150",
+                ],
+                "ss03": ["E652:E652\tqsTea|qsTea\t0,1\tbreak\t0,0,150|0,0,150"],
+            },
+        )
+        later = subset_tables(
+            tmp_path / "later",
+            {
+                "default": ["E652\tqsTea\t0\t\t0,0,150"],
+                "ss03": [
+                    "E652\tqsTea.noentry\t0\t\t0,0,150",
+                    "E652:E652\tqsTea|qsTea\t0,1\tbreak\t0,0,150|0,0,150",
+                ],
+            },
+        )
         aliases = tmp_path / "aliases.yaml"
         aliases.write_text("qsTea: pending\nqsTea.noentry: pending\n")
         ledger = tmp_path / "ledger.yaml"
@@ -1224,7 +1397,10 @@ class TestOracleAudit:
             spec, tables, aliases, ledger, configs=configs, out_dir=serial
         )
         assert in_process.divergent_rows == 3
-        assert [path.name for path in serial.iterdir()] == ["divergence-audit.tsv"]
+        assert [path.name for path in sorted(serial.iterdir())] == [
+            "divergence-audit.tsv.0.base",
+            "divergence-audit.tsv.head",
+        ]
 
         fanned = tmp_path / "fanned"
         fanned.mkdir()
@@ -1236,26 +1412,45 @@ class TestOracleAudit:
 
         monkeypatch.setattr(kernel_exec.kernel_io, "write_spec", refused)
         shards = [oracle.OracleShard(config) for config in configs]
-        with oracle.InOrderWriter(fanned, shards, configs=configs) as writer:
-            for shard in reversed(shards):
-                writer.land(
-                    shard,
-                    oracle.oracle_config_worker(
-                        mini_spec(),
-                        tables,
-                        aliases,
-                        ledger,
-                        shard.config,
-                        None,
-                        None,
-                        ship_to=writer.ship_to(shard),
-                        spec_path=parent,
-                    ),
-                )
-        assert (fanned / "divergence-audit.tsv").read_bytes() == (
-            serial / "divergence-audit.tsv"
+
+        def pooled(subset: Path) -> None:
+            with oracle.InOrderWriter(fanned, shards, configs=configs) as writer:
+                for shard in reversed(shards):
+                    writer.land(
+                        shard,
+                        oracle.oracle_config_worker(
+                            mini_spec(),
+                            subset,
+                            aliases,
+                            ledger,
+                            shard.config,
+                            None,
+                            None,
+                            ship_to=writer.ship_to(shard),
+                            spec_path=parent,
+                        ),
+                    )
+
+        pooled(tables)
+        assert _audit_bytes(fanned) == _audit_bytes(serial)
+        assert (fanned / "divergence-audit.tsv.0.base").read_bytes() == (
+            serial / "divergence-audit.tsv.0.base"
         ).read_bytes()
-        assert [path.name for path in fanned.iterdir()] == ["divergence-audit.tsv"]
+        assert _head_document(fanned) == _head_document(serial)
+        assert [path.name for path in sorted(fanned.iterdir())] == [
+            "divergence-audit.tsv.0.base",
+            "divergence-audit.tsv.head",
+        ]
+
+        whole = tmp_path / "whole"
+        oracle.compare_against_baseline(spec, later, aliases, ledger, configs=configs, out_dir=whole)
+        oracle.compare_against_baseline(spec, later, aliases, ledger, configs=configs[::-1], out_dir=serial)
+        pooled(later)
+        for out in (serial, fanned):
+            head = row_delta.read_head(out, oracle.AUDIT_NAME)
+            assert head is not None and [part.rows for part in head.segments] == [3]
+            assert _audit_bytes(out) == (whole / "divergence-audit.tsv.0.base").read_bytes()
+        assert _head_document(fanned) == _head_document(serial)
 
     def test_a_serial_oracle_that_dies_partway_leaves_the_audit_it_found_standing(
         self, monkeypatch, spec, tmp_path
@@ -1289,9 +1484,9 @@ class TestOracleAudit:
         ]
 
     def test_a_range_that_never_lands_is_named_rather_than_quietly_skipped(self, tmp_path):
-        """Every planned range must land before the audit is promoted, so the writer cannot leave a short audit that reads as complete. The standing audit must survive, because the run's scratch is deleted afterward and the staged copy with it."""
-        standing = tmp_path / "divergence-audit.tsv"
-        standing.write_bytes(b"the audit of the last green run\n")
+        """Every planned range must land before the audit's head is committed, so the writer cannot leave a short audit that reads as complete. The standing head and its parts must survive as they were, and a part the failed pass had begun is gone."""
+        self._write(tmp_path, {"default": ["default\tE650\tcell\ta\tqsPea\tqsPea.half"]})
+        standing = _audit_files(tmp_path)
         ranges = [
             (oracle.OracleShard("default"), ["default\tE650\tcell\ta\tqsPea\tqsPea.half"]),
             *self._cut("ss03", ["ss03\tE650\tcell\ta\tqsPea\tqsPea.half"], 2),
@@ -1302,32 +1497,34 @@ class TestOracleAudit:
             ) as writer:
                 for shard, lines in ranges[:2]:
                     writer.land(shard, self._result(writer, shard, lines))
-        assert standing.read_bytes() == b"the audit of the last green run\n"
-        assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
+        assert _audit_files(tmp_path) == standing
+        assert sorted(path.name for path in tmp_path.iterdir()) == sorted(standing)
 
     def test_an_audit_short_of_the_rows_its_ranges_counted_is_not_promoted(self, tmp_path):
-        """The ranges' row counts and their lines travel home separately, so comparing the two is the only cross-check the parent can make. It catches lines dropped on the way, which checking that every range landed cannot find."""
-        standing = tmp_path / "divergence-audit.tsv"
-        standing.write_bytes(b"the audit of the last green run\n")
+        """The ranges' row counts and their lines travel home separately, so comparing the two is the only cross-check the parent can make. It catches lines dropped on the way, which checking that every range landed cannot find. The standing head and its parts stay as they were."""
+        self._write(tmp_path, {"default": ["default\tE651\tcell\ta\tqsPea\tqsPea.half"]})
+        standing = _audit_files(tmp_path)
         shard = oracle.OracleShard("default")
         with pytest.raises(ValueError, match="2 divergent"):
             with oracle.InOrderWriter(tmp_path, [shard], configs=("default",)) as writer:
                 writer.land(
                     shard, self._result(writer, shard, ["default\tE650\tcell\ta\tqsPea\tqsPea.half"], 2)
                 )
-        assert standing.read_bytes() == b"the audit of the last green run\n"
+        assert _audit_files(tmp_path) == standing
+        assert sorted(path.name for path in tmp_path.iterdir()) == sorted(standing)
 
     @pytest.mark.parametrize("stop", ("between landings", "in a landing"))
     def test_a_fan_in_that_stops_partway_leaves_no_segment_behind(self, monkeypatch, tmp_path, stop):
         """A pass can stop between two landings (a range raises, the pool breaks, SIGINT reaches the parent) or in one, when the disk fills as the writer writes the lines now due. By then the writer holds a landed range's lines that wait on an earlier range and a cut configuration's segment short of its last range, a range may have shipped bytes whose result the writer never took, and no absorb has mapped any range's settle memo segment. Shared memory outlives every process that maps it until it is unlinked, so the writer closes and unlinks all of it as the block unwinds, holds no mapping afterward, and stages nothing."""
         stamp = oracle_cache.EnvironmentStamp(lines=("subset\tdigest",))
         cache = oracle.OracleRowCache({"default": stamp}, {}, write_dir=tmp_path / "scratch")
-        ranges = self._cut("default", ["default\tE650\tcell\ta\tqsPea\tqsPea.half"] * 3, 3)
+        ranges = self._cut(
+            "default", [f"default\tE65{digit}\tcell\ta\tqsPea\tqsPea.half" for digit in "012"], 3
+        )
         names: list[str] = []
 
-        class FullDisk:
-            def write(self, data):
-                raise OSError(errno.ENOSPC, "No space left on device")
+        def full_disk(block: bytes) -> None:
+            raise OSError(errno.ENOSPC, "No space left on device")
 
         def shipped(writer, shard, part):
             result = self._result(writer, shard, part)
@@ -1336,7 +1533,8 @@ class TestOracleAudit:
             result.memo_blocks = oracle.ship([b"head", b"rows"], writer.ship_to(shard).memo)
             return shard, result
 
-        writer = oracle.InOrderWriter(tmp_path, [shard for shard, _ in ranges], cache, ("default",))
+        stores = oracle_cache.StoreSet(tmp_path, ("default",), {"default": stamp}, {})
+        writer = oracle.InOrderWriter(tmp_path, [shard for shard, _ in ranges], cache, ("default",), stores)
         failure = {"between landings": "the pool broke", "in a landing": "No space left"}[stop]
         with pytest.raises((RuntimeError, OSError), match=failure):
             with writer:
@@ -1350,7 +1548,7 @@ class TestOracleAudit:
                 writer.land(*waiting[1])
                 assert writer._waiting and writer._segments
                 if stop == "in a landing":
-                    monkeypatch.setattr(writer, "_target", FullDisk())
+                    monkeypatch.setattr(writer._audit, "feed", full_disk)
                     writer.land(*shipped(writer, *ranges[0]))
                 raise RuntimeError("the pool broke")
         for name in names:
@@ -1368,14 +1566,14 @@ class TestOracleAudit:
                 "from rebuild.pipeline import conform, oracle, run_m1, run_m1_gates",
                 "out, mode = Path(sys.argv[1]), sys.argv[2]",
                 'shards = [oracle.OracleShard("default", 0, 1, 0, 2), oracle.OracleShard("default", 1, None, 1, 2)]',
-                'line = zlib.compress(b"default\\tE650\\tcell\\ta\\tqsPea\\tqsPea.half\\n")',
+                'lines = [zlib.compress(b"default\\tE65%d\\tcell\\ta\\tqsPea\\tqsPea.half\\n" % digit) for digit in range(2)]',
                 'fresh = conform._fresh_memo([(("qsPea", "#EDGE", "#EDGE", "#EDGE", "#EDGE", "#EDGE"), ("settled", "", ""))])',
                 'memo = conform.SettleMemoFile(out / "settle-memo-default.bin", "stamp")',
                 'with oracle.InOrderWriter(out, shards, configs=("default",)) as writer:',
                 "    names = [writer.ship_to(shard).audit for shard in shards] + [writer.ship_to(shards[0]).memo]",
                 "    print(*names, flush=True)",
                 "    with run_m1._spawn_pool(2, len(shards), max_tasks_per_child=1) as pool:",
-                "        shipped = [future.result() for future in [pool.submit(oracle.ship, [line], name) for name in names[:2]]]",
+                "        shipped = [future.result() for future in [pool.submit(oracle.ship, [line], name) for line, name in zip(lines, names[:2])]]",
                 "        blocks = pool.submit(oracle.ship, list(fresh.blocks), names[2]).result()",
                 '        if mode == "land":',
                 "            counts = conform.FreshMemo((), fresh.rows, fresh.labels, fresh.records)",
@@ -1404,12 +1602,12 @@ class TestOracleAudit:
             for name in names:
                 with pytest.raises(FileNotFoundError):
                     shared_memory.SharedMemory(name, track=False)
-            assert (out / "divergence-audit.tsv").is_file() == (mode == "land")
+            assert (out / "divergence-audit.tsv.head").is_file() == (mode == "land")
             assert (out / "settle-memo-default.bin.head").is_file() == (mode == "land")
 
     def test_the_scratch_goes_whether_or_not_the_oracle_got_that_far(self, tmp_path):
         scratch = oracle.oracle_audit_scratch(tmp_path)
-        for path in (oracle_cache.scratch_store_path(scratch, "default"), scratch / oracle.SEGMENT_RECORD):
+        for path in (scratch / "left-over", scratch / oracle.SEGMENT_RECORD):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"")
         oracle.discard_oracle_audit_scratch(tmp_path)
@@ -1502,7 +1700,7 @@ class TestOracleUnmatchedTally:
             f"{left:04X}:{right:04X}" for left, right in wide[: oracle.ORACLE_UNMATCHED_EXEMPLARS]
         ]
         assert all(row.divergence_tags for row in quoted)
-        audit = (serial / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
+        audit = _audit_bytes(serial).decode("utf-8").splitlines()
         assert len(audit) == 29
         assert sum(line.split("\t")[3] == "UNMATCHED" for line in audit[1:]) == 28
 
@@ -1580,7 +1778,7 @@ class TestOracleMultiMatchedTally:
         assert report.unmatched_count == 0
         assert report.counts_by_entry == {"every-row": 16}
         assert self._accounted_for(report) == report.divergent_rows == 28
-        audit = (serial / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
+        audit = _audit_bytes(serial).decode("utf-8").splitlines()
         assert [
             line.split("\t")[1] for line in audit[1:] if line.split("\t")[3] == "every-row+pea-rows"
         ] == doubled["default"] + doubled["ss03"]
@@ -1664,22 +1862,35 @@ def _cache_stamp(config: str, table: Path) -> oracle_cache.EnvironmentStamp:
     )
 
 
+def _store_bytes(path: Path) -> bytes:
+    """The store `path` names as today's single file holds it: its materialized form under the set head beside it (`oracle_cache.materialized_store`), or the single file itself."""
+    config = path.name[len(f"{oracle_cache.STORE_STEM}-") : -len(".tsv.gz")]
+    return b"".join(oracle_cache.materialized_store(path.parent, config))
+
+
+def _single_file(path: Path) -> None:
+    """Put the store `path` names back as today's single file, its materialized form, with no set head beside it, as a tree from before the segment format holds it, so a test can damage its bytes as it could a single file's."""
+    data = _store_bytes(path)
+    oracle_cache.discard_stores(path.parent, conform.ORACLE_CONFIGS)
+    path.write_bytes(data)
+
+
 def _cache_ages(path: Path) -> list[int]:
-    """Every record's row-verdict `derived_at_pass`, read directly from the store file instead of through `load_store`, so the test sees what a pass recomputed independently of the reader that decides what to serve. A record whose age is this pass's ordinal was derived in this pass; an older ordinal means it was served."""
-    body = gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()
+    """Every record's row-verdict `derived_at_pass`, read from the store's materialized form instead of through `load_store`, so the test sees what a pass recomputed independently of the reader that decides what to serve. A record whose age is this pass's ordinal was derived in this pass; an older ordinal means it was served."""
+    body = gzip.decompress(_store_bytes(path)).decode("utf-8").splitlines()
     return [int(line.rsplit("\t", 2)[1]) for line in body[1:-1]]
 
 
 def _cache_position_ages(path: Path) -> list[int]:
     """The pass each record's position verdict was derived at, the last field of every record."""
-    body = gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()
+    body = gzip.decompress(_store_bytes(path)).decode("utf-8").splitlines()
     return [int(line.rsplit("\t", 1)[1]) for line in body[1:-1]]
 
 
 def _cache_position_tags(path: Path) -> list[str]:
     """Each record's position tag, read without loading the store: `?` never shaped, `-` shaped with no mismatch, `D` mismatched."""
     tags: list[str] = []
-    for line in gzip.decompress(path.read_bytes()).decode("utf-8").splitlines()[1:-1]:
+    for line in gzip.decompress(_store_bytes(path)).decode("utf-8").splitlines()[1:-1]:
         fields = line.split("\t")
         tags.append(fields[3] if fields[2] == "-" else fields[8])
     return tags
@@ -1759,7 +1970,7 @@ def _cache_rederived(rows: int, pass_ordinal: int) -> set[int]:
 
 
 def _position_bench(spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_LEDGER):
-    """The position comparison's test bench. Its rows are the frozen mini bundle's default-table rows that use only mini-spec letters and boundaries, with real old-font positions and glyph names, plus three hand-made ·Tea·May rows at the end: the bundle has no adjacent ·Tea·May pair, and the rune edit these tests share changes that pair. The alias map is all-pending, so every row diverges, and the ledger's one ink-identical entry matches every row, so every row without a ligation or junction divergence enters the position comparison. The font is the bundle's frozen `M1.otf`, the after font of the build the rows were sliced from."""
+    """The position comparison's test bench. Its rows are the frozen mini bundle's default-table rows that use only mini-spec letters and boundaries, with real old-font positions and glyph names, plus three hand-made ·Tea·May rows, all in the table's canonical `(length, codepoints)` order: the bundle has no adjacent ·Tea·May pair, and the rune edit these tests share changes that pair. The alias map is all-pending, so every row diverges, and the ledger's one ink-identical entry matches every row, so every row without a ligation or junction divergence enters the position comparison. The font is the bundle's frozen `M1.otf`, the after font of the build the rows were sliced from."""
     letters = {rune.codepoint for rune in spec.runes.values() if rune.codepoint is not None}
     boundaries = {token.codepoint for token in spec.registry.boundary_tokens.values()}
     rows: list[str] = []
@@ -1787,6 +1998,7 @@ def _position_bench(spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_L
                 )
             )
         )
+    rows.sort(key=lambda row: (len(row.split("\t", 1)[0]), row.split("\t", 1)[0]))
     tables = tmp_path / "tables"
     tables.mkdir(parents=True, exist_ok=True)
     table = tables / "baseline-default.subset.tsv.gz"
@@ -1850,7 +2062,6 @@ class TestOracleRowCache:
         rotation: int = 0,
     ):
         out = tmp_path / name
-        scratch = tmp_path / f"{name}-scratch"
         stores = tmp_path / f"{name}-stores"
         position_keys, position_stamp = (None, None) if position is None else position
         row_cache = (
@@ -1858,12 +2069,17 @@ class TestOracleRowCache:
                 stamps,
                 keys,
                 read_dir=read_dir,
-                write_dir=scratch if write else None,
+                write_dir=stores if write else None,
                 rotation=rotation,
                 position_environment=position_stamp,
                 position_keys=position_keys,
             )
             if cached
+            else None
+        )
+        writing = (
+            oracle_cache.StoreSet(stores, configs, stamps, keys, position_stamp, position_keys)
+            if cached and write
             else None
         )
         report = oracle.compare_against_baseline(
@@ -1876,10 +2092,13 @@ class TestOracleRowCache:
             font_path=font,
             kern_sidecar_path=kern,
             row_cache=row_cache,
+            stores=writing,
         )
-        if cached and write:
-            assert oracle_cache.promote_stores(scratch, stores, configs) == list(configs)
-        return report, out / "divergence-audit.tsv", stores
+        if writing is not None:
+            assert oracle_cache.promote_stores(writing, configs) == list(configs)
+        audit = tmp_path / f"{name}-audit.tsv"
+        audit.write_bytes(_audit_bytes(out))
+        return report, audit, stores
 
     def _position_bench(self, spec, tmp_path: Path, ledger_entries: str = _INK_IDENTICAL_LEDGER):
         return _position_bench(spec, tmp_path, ledger_entries)
@@ -2415,6 +2634,7 @@ class TestOracleRowCache:
         _cold, cold_audit, cold_stores = self._pass(spec, tmp_path, "cold", **shared)
 
         store = oracle_cache.store_path(cold_stores, "default")
+        _single_file(store)
         if damage == "truncated":
             raw = store.read_bytes()
             store.write_bytes(raw[: len(raw) // 2])
@@ -2457,11 +2677,11 @@ class TestOracleRowCache:
         assert set(_cache_ages(oracle_cache.store_path(stores, "default"))) == {0}
 
     def test_order_survives_the_interleave(self, spec, tmp_path):
-        """The audit's line order is the subset table's row order, and the split into served and fresh rows must not affect it. Here the two alternate row by row (every even row names the moved family and is re-derived, every odd row is served), and the file still lists rows in table order, configuration by configuration in the order the caller gave."""
+        """The audit's line order is the subset table's row order, and the split into served and fresh rows must not affect it. Here the two alternate row by row in the table's canonical order (every even row names the moved family and is re-derived, every odd row is served), and the file still lists rows in table order, configuration by configuration in the order the caller gave."""
         clean = CACHE_LETTERS[1:]
         rows: list[tuple[int, ...]] = []
         for letter in clean:
-            rows.append((CACHE_LETTERS[0], letter))
+            rows.append((letter, CACHE_LETTERS[0]))
             rows.append((letter, letter))
         tables, aliases, stamps, configs = self._bench(tmp_path, rows=rows)
         ledger = tmp_path / "ledger.yaml"
@@ -2538,7 +2758,6 @@ class TestOracleRowRanges:
         position=None,
     ):
         """One pass through the fan-out's pieces without a pool: a worker per range, each landing on the parent's in-order writer in reverse of row order, the fold, and the joined store promoted. A single whole-table shard is the uncut reference."""
-        scratch = tmp_path / f"{name}-scratch"
         stores = tmp_path / f"{name}-stores"
         out = tmp_path / name
         out.mkdir(exist_ok=True)
@@ -2548,16 +2767,21 @@ class TestOracleRowRanges:
                 stamps,
                 keys,
                 read_dir=read_dir,
-                write_dir=scratch if write else None,
+                write_dir=stores if write else None,
                 position_environment=position_stamp,
                 position_keys=position_keys,
             )
             if cached
             else None
         )
+        writing = (
+            oracle_cache.StoreSet(stores, configs, stamps, keys, position_stamp, position_keys)
+            if cached and write
+            else None
+        )
         guard = kernel_exec.guard_sweep(spec)
         landed: list[tuple[oracle.OracleShard, oracle.OracleConfigResult]] = []
-        with oracle.InOrderWriter(out, shards, row_cache, configs) as writer:
+        with oracle.InOrderWriter(out, shards, row_cache, configs, stores=writing) as writer:
             for shard in sorted(shards, key=lambda shard: shard.first_row, reverse=True):
                 result = oracle.oracle_config_worker(
                     spec,
@@ -2578,9 +2802,11 @@ class TestOracleRowRanges:
         for shard, result in sorted(landed, key=lambda pair: pair[0].first_row):
             by_config.setdefault(shard.config, []).append(result)
         merged = [oracle.merge_config_shards(by_config[config]) for config in configs]
-        if cached and write:
-            assert oracle_cache.promote_stores(scratch, stores, configs) == list(configs)
-        return merged, out / "divergence-audit.tsv", stores
+        if writing is not None:
+            assert oracle_cache.promote_stores(writing, configs) == list(configs)
+        audit = tmp_path / f"{name}-audit.tsv"
+        audit.write_bytes(_audit_bytes(out))
+        return merged, audit, stores
 
     def _bench(self, spec, tmp_path: Path):
         tables, aliases, ledger, stamps, configs, rows = _position_bench(spec, tmp_path)
@@ -2628,11 +2854,7 @@ class TestOracleRowRanges:
             out_dir=serial,
             font_path=shared["font"],
         )
-        assert (
-            cut_audit.read_bytes()
-            == whole_audit.read_bytes()
-            == (serial / "divergence-audit.tsv").read_bytes()
-        )
+        assert cut_audit.read_bytes() == whole_audit.read_bytes() == _audit_bytes(serial)
         assert whole[0].divergent_rows > 0 and whole[0].positions_compared > 0
         assert whole[0].peak_footprint_bytes == 560_000_000
         assert asdict(cut[0]) == asdict(whole[0])
@@ -2648,11 +2870,13 @@ class TestOracleRowRanges:
         whole_path = oracle_cache.store_path(whole_stores, "default")
         cut_path = oracle_cache.store_path(cut_stores, "default")
         assert cut_audit.read_bytes() == whole_audit.read_bytes()
-        assert gzip.decompress(cut_path.read_bytes()) == gzip.decompress(whole_path.read_bytes())
-        assert cut_path.read_bytes() == _joined_framing(
-            whole_path, sorted(shard.first_row for shard in shards)
+        assert gzip.decompress(_store_bytes(cut_path)) == gzip.decompress(_store_bytes(whole_path))
+        whole_file = tmp_path / "whole-store.tsv.gz"
+        whole_file.write_bytes(_store_bytes(whole_path))
+        assert _store_bytes(cut_path) == _joined_framing(
+            whole_file, sorted(shard.first_row for shard in shards)
         )
-        assert cut_path.read_bytes() != whole_path.read_bytes()
+        assert _store_bytes(cut_path) != _store_bytes(whole_path)
         stamp = shared["stamps"]["default"]
         loaded = oracle_cache.load_store(
             cut_path, stamp, stamp.labels["subset"], spec, shared["keys"], 0, *reversed(shared["position"])
@@ -2681,7 +2905,7 @@ class TestOracleRowRanges:
         assert 0 < middle.first_row < middle.stop_row < len(rows)
         for index in range(middle.first_row, middle.stop_row):
             assert sliced.serve(index, rows[index]) == reference.serve(index, rows[index])
-        payload = gzip.decompress(cut_path.read_bytes())
+        payload = gzip.decompress(_store_bytes(cut_path))
         short = cut_path.with_name("short.tsv.gz")
         short.write_bytes(gzip.compress(payload[: len(payload) - 40]))
         assert oracle_cache.load_store(short, stamp, stamp.labels["subset"], spec, shared["keys"]) is None
@@ -2706,8 +2930,10 @@ class TestOracleRowRanges:
         assert whole[0].positions_served > 0
         assert cut_audit.read_bytes() == whole_audit.read_bytes()
         assert asdict(cut[0]) == {**asdict(whole[0]), "peak_footprint_bytes": cut[0].peak_footprint_bytes}
-        assert cut_path.read_bytes() == _joined_framing(
-            whole_path, sorted(shard.first_row for shard in shards)
+        whole_file = tmp_path / "whole-store.tsv.gz"
+        whole_file.write_bytes(_store_bytes(whole_path))
+        assert _store_bytes(cut_path) == _joined_framing(
+            whole_file, sorted(shard.first_row for shard in shards)
         )
         assert cut[0].pass_ordinal == whole[0].pass_ordinal == 1
         rederived = {index for index, age in enumerate(_cache_ages(cut_path)) if age == 1}

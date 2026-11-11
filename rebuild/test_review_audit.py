@@ -5,6 +5,7 @@ None of it reads the live audit. Ordering, batch slicing, config order, and the 
 The live counts change with every migrated letter, so they are not asserted here. The corpus build's review facts report them, and the artifact cycle diffs them into rebuild/review-facts-pins.json.
 """
 
+import collections
 import hashlib
 import os
 import sys
@@ -15,10 +16,12 @@ from typing import NamedTuple
 import pytest
 import yaml
 
+from rebuild.pipeline import oracle, row_delta
 from rebuild.review import audit_stream, change_groups
 from rebuild.review import unit_cache
 from rebuild.review import unit_store
 from rebuild.review.audit import (
+    AuditParts,
     ACCEPTANCE_CONFIGS,
     AUDIT_HEADER,
     LEDGER_STATUSES,
@@ -51,6 +54,7 @@ from rebuild.review.audit import (
     stream_workload,
     triage_key,
 )
+from rebuild.review import build as review_build
 from rebuild.review.build import row_column_sizes, signature_text, unit_table_sizes
 from rebuild.review.columns import MappingPool, TuplePool, WindowIndex
 from rebuild.review.facts import PremergeSnapshot, capture_premerge
@@ -218,9 +222,61 @@ class _Loaded(NamedTuple):
     rows: int
 
 
+def _segmented(audit: Path, directory: Path) -> Path:
+    """An audit under a head in `directory` whose materialized form is `audit`'s single file, as run_m1's oracle writes it over three passes (`oracle.AuditWriter`): a base of `audit`'s rows with every fifth row's kinds changed, every seventh row dropped, a row at a window no pass keeps added to each configuration and the rows of the configuration with the fewest left out, then a plain keyed segment of the second pass's upserts and tombstones, which also changes every eleventh row's kinds, and a segment of the third pass's, which changes them back. So the materialized rows come from every part, a window's rows among them, a window's latest row from the later of two segments, and one configuration's rows from the segments alone."""
+    header, *rows = audit.read_text(encoding="utf-8").splitlines()
+    counts = collections.Counter(row.split("\t", 1)[0] for row in rows)
+    sparse = min(counts, key=lambda config: (counts[config], config))
+    first: list[str] = []
+    for index, row in enumerate(rows):
+        fields = row.split("\t")
+        if index % 7 == 3 or fields[0] == sparse:
+            continue
+        if index % 5 == 1:
+            fields[2] = fields[2] + ",junction"
+        first.append("\t".join(fields))
+        following = rows[index + 1].split("\t", 1)[0] if index + 1 < len(rows) else None
+        if following != fields[0]:
+            first.append("\t".join((fields[0], ":".join(["E650"] * 9), *fields[2:])))
+    middle = [
+        "\t".join((*fields[:2], fields[2] + ",middle", *fields[3:])) if index % 11 == 5 else row
+        for index, row in enumerate(rows)
+        for fields in [row.split("\t")]
+    ]
+    for lines in (first, middle, rows):
+        with oracle.AuditWriter(directory) as writer:
+            writer.feed(("\n".join(lines) + "\n").encode("utf-8"))
+    head = row_delta.read_head(directory, oracle.AUDIT_NAME)
+    assert head is not None and len(head.segments) == 2
+    assert b"".join(oracle.materialized_audit(directory)) == audit.read_bytes()
+    return directory / oracle.AUDIT_NAME
+
+
+def _misses(audit: Path) -> list[tuple[int, str, str]]:
+    """What the build's key-only read finds over `audit` against an empty ink-signature store, so every sibling row misses: each miss's key, configuration and window, in window order, read through the descriptors of the audit's parts (`review_build._key_only_read`)."""
+    parts = AuditParts(audit)
+    try:
+        layout = audit_layout(parts.descriptors, audit)
+        assert layout.sections is not None, layout.why
+        found = review_build._key_only_read(
+            parts.descriptors, layout.sections, dict(LETTERS), _family_keys(), unit_cache.SignatureArrays()
+        )
+    finally:
+        parts.close()
+    assert not found.broken
+    return [
+        (key, layout.sections[section].config, window)
+        for key, section, window in zip(found.keys, found.sections, found.windows)
+    ]
+
+
 def _in_memory(audit: Path, ledger_path: Path, split: Collection[str]) -> _Loaded:
-    """The in-memory source as the build runs it: the load, the signature rows' keys, the pre-merge snapshot, the merge, the compaction and each unit's input key."""
-    workload = load_workload(audit, ledger_path, dict(LETTERS))
+    """The in-memory source as the build runs it: the load, the signature rows' keys, the pre-merge snapshot, the merge, the compaction and each unit's input key. An audit under a head is read through the descriptors of its parts (`AuditParts`), as the build reads it."""
+    parts = AuditParts(audit)
+    try:
+        workload = load_workload(audit, ledger_path, dict(LETTERS), descriptors=parts.descriptors)
+    finally:
+        parts.close()
     table, rows = workload.table, workload.rows
     assert rows is not None
     keyer = unit_cache.UnitKeyer(_family_keys(), dict(LETTERS))
@@ -245,15 +301,22 @@ def _streamed(audit: Path, ledger_path: Path, split: Collection[str]) -> _Loaded
         requested.append(key)
         return signature(window, config)
 
-    descriptor = os.open(audit, os.O_RDONLY)
+    parts = AuditParts(audit)
     try:
-        layout = audit_layout(descriptor, audit)
+        layout = audit_layout(parts.descriptors, audit)
         assert layout.sections is not None, layout.why
         streamed = stream_workload(
-            descriptor, audit, ledger_path, layout.sections, ledger, dict(LETTERS), _family_keys(), digest
+            parts.descriptors,
+            audit,
+            ledger_path,
+            layout.sections,
+            ledger,
+            dict(LETTERS),
+            _family_keys(),
+            digest,
         )
     finally:
-        os.close(descriptor)
+        parts.close()
     table = streamed.workload.table
     snapshot = PremergeSnapshot.from_columns(
         table, streamed.premerge, frozenset(entry.id for entry in ledger if entry.ink_identical)
@@ -304,10 +367,10 @@ def _snapshot(snapshot: PremergeSnapshot) -> tuple:
     )
 
 
-@pytest.mark.parametrize("source", ["mini", "synthetic"])
+@pytest.mark.parametrize("source", ["mini", "synthetic", "mini under a head", "synthetic under a head"])
 def test_the_stream_gives_the_in_memory_sources_table_snapshot_merge_and_keys(source, mini_bundle, tmp_path):
-    """The build's two window sources agree. Over the mini audit, which run_m1 wrote in sorted sections, and over a synthetic audit in sorted sections with siblings that merge, siblings the merge keeps apart because they match two ledger classes, siblings whose ink differs, an absent section and a window in every section, the stream (`stream_workload`) and the in-memory source (`load_workload`, then the merge and the compaction, as the build's in-memory source runs them) give the same table through every accessor in load order, the same pre-merge snapshot with the same survivors, the same merge stats, the same input keys, and request the same ink-signature keys. The stream's window index is the one the table would sort for itself."""
-    if source == "mini":
+    """The build's two window sources agree, and so do its key-only reads. Over the mini audit, which run_m1 wrote in sorted sections, and over a synthetic audit in sorted sections with siblings that merge, siblings the merge keeps apart because they match two ledger classes, siblings whose ink differs, an absent section and a window in every section, the stream (`stream_workload`) and the in-memory source (`load_workload`, then the merge and the compaction, as the build's in-memory source runs them) give the same table through every accessor in load order, the same pre-merge snapshot with the same survivors, the same merge stats, the same input keys, and request the same ink-signature keys. The stream's window index is the one the table would sort for itself. Each audit is also read under a head, as a base and two segments of upserts, tombstones and inserted windows whose materialized form is the single file (`_segmented`): the stream and the in-memory source over its parts give what the in-memory source gives over the single file."""
+    if source.startswith("mini"):
         audit, ledger = MINI_AUDIT, mini_bundle.ledger
         split = {
             window
@@ -318,6 +381,13 @@ def test_the_stream_gives_the_in_memory_sources_table_snapshot_merge_and_keys(so
         audit, ledger = _synthetic_audit(tmp_path)
         split = SPLIT
     expected = _in_memory(audit, ledger, split)
+    if source.endswith("under a head"):
+        misses = _misses(audit)
+        audit = _segmented(audit, tmp_path / "segmented")
+        in_memory = _in_memory(audit, ledger, split)
+        assert _accessors(in_memory.table) == _accessors(expected.table)
+        assert in_memory.input_keys == expected.input_keys and in_memory.stats == expected.stats
+        assert _misses(audit) == misses and misses
     streamed = _streamed(audit, ledger, split)
     assert expected.stats["units_merged"] > 0 and streamed.stats == expected.stats
     if source == "synthetic":
@@ -366,14 +436,14 @@ def test_an_audit_not_in_sorted_sections_takes_the_in_memory_source(shape, mini_
         audit, ledger = _synthetic_audit(tmp_path, sections)
     descriptor = os.open(audit, os.O_RDONLY)
     try:
-        layout = audit_layout(descriptor, audit)
+        layout = audit_layout((descriptor,), audit)
         if shape in ("fixture", "sections out of rank order"):
             assert layout.sections is None and layout.why
         else:
             assert layout.sections is not None
             with pytest.raises(audit_stream.OrderBreak):
                 stream_workload(
-                    descriptor,
+                    (descriptor,),
                     audit,
                     ledger,
                     layout.sections,
@@ -382,7 +452,7 @@ def test_an_audit_not_in_sorted_sections_takes_the_in_memory_source(shape, mini_
                     _family_keys(),
                     None,
                 )
-        assert load_workload(audit, ledger, dict(LETTERS), descriptor=descriptor).table.n > 0
+        assert load_workload(audit, ledger, dict(LETTERS), descriptors=(descriptor,)).table.n > 0
     finally:
         os.close(descriptor)
 
@@ -1140,3 +1210,24 @@ def test_the_live_ledger_loads_one_class_per_entry():
     entries = yaml.safe_load(path.read_text(encoding="utf-8"))
     classes = load_ledger(path)
     assert [entry["id"] for entry in entries] == [entry.id for entry in classes]
+
+
+def test_a_held_descriptor_keeps_reading_a_part_a_later_commit_deleted(tmp_path):
+    """The build opens every part its head lists as it reads the head and reads them through those descriptors alone (`AuditParts`), so a commit during the build that deletes them, as a fold does, cannot reach what the build reads: the stream still walks the parts it opened, and gives the rows the head it read describes."""
+    header = "\t".join(AUDIT_HEADER)
+    rows = [f"default\tE65{digit}\tcell\tclass-a\tqsPea\tqsPea/g" for digit in "0123"]
+    out = tmp_path / "m1"
+    with oracle.AuditWriter(out) as writer:
+        writer.feed(("\n".join(rows) + "\n").encode("utf-8"))
+    parts = AuditParts(out / oracle.AUDIT_NAME)
+    try:
+        assert parts.head is not None and len(parts.descriptors) == 1
+        for name in [row_delta.head_name(oracle.AUDIT_NAME), parts.head.base.name]:
+            (out / name).unlink()
+        layout = audit_layout(parts.descriptors, out / oracle.AUDIT_NAME)
+        assert layout.sections is not None
+        walked = [found for _window, found in audit_stream.lockstep(parts.descriptors, layout.sections)]
+    finally:
+        parts.close()
+    assert [line for found in walked for _index, _fields, line in found] == rows
+    assert header == oracle.ORACLE_AUDIT_HEADER

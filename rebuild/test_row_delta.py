@@ -371,3 +371,86 @@ def test_the_bloom_filter_has_no_false_negatives_and_about_its_designed_false_po
     flags = bytes(map(operator.and_, chooser.randbytes(rows), itertools.repeat(1)))
     packed = row_delta.packed_flags(bytearray(flags))
     assert len(packed) == (rows + 7) // 8 and row_delta.bitmap_flags(packed, rows) == flags
+
+
+def test_a_plain_keyed_segment_round_trips_and_no_other_reader_takes_it(tmp_path, monkeypatch):
+    """The audit's kind of part merges by key in plain lines (`MERGE_PLAIN_KEY`): a segment written through `StreamedPart` under its header, which names the plain keyed merge, reads back row for row, and `merge_plain_keyed` yields the materialized rows as runs of whole lines over a base read in chunks, bisected only where a change falls: the latest part's row at a key, a tombstone removing it, an insert at a key no part held, and the base's own runs as they were read, at every chunk size and however dense the changes are. A segment out of key order, or a base run whose last line is not above the last one before it, is refused. A reader of gzipped keyed segments refuses a plain one, and the plain reader a gzipped one, as each refuses every other kind."""
+    monkeypatch.setattr(row_delta, "_CHUNK", 16)
+    lines = [b"a\t%02d\n" % index for index in range(12)]
+    (tmp_path / "base").write_bytes(b"header\n" + b"".join(lines))
+    first = row_delta.StreamedPart(
+        tmp_path,
+        row_delta.segment_name(OUTPUT, 0, 1),
+        row_delta.segment_header(OUTPUT, 0, 1, row_delta.MERGE_PLAIN_KEY),
+        gzipped=False,
+    )
+    for row in (b"+\ta\t03\tx\n", b"-\ta\t05\n", b"+\ta\t055\n", b"+\tb\t00\n"):
+        first.write(row)
+    part = first.close()
+    assert part is not None and (part.rows, part.rows_bytes) == (4, 31)
+    second = row_delta.StreamedPart(
+        tmp_path,
+        row_delta.segment_name(OUTPUT, 0, 2),
+        row_delta.segment_header(OUTPUT, 0, 2, row_delta.MERGE_PLAIN_KEY),
+        gzipped=False,
+    )
+    assert second.close() is None and not (tmp_path / row_delta.segment_name(OUTPUT, 0, 2)).exists()
+
+    def key(row: bytes) -> tuple[bytes, ...]:
+        return tuple(row.rstrip(b"\n").split(b"\t")[:2])
+
+    with open(tmp_path / part.name, "rb") as handle:
+        rows = list(row_delta.plain_keyed_segment_rows(handle, OUTPUT, 0, 1))
+        assert rows == [
+            (row_delta.UPSERT, b"a\t03\tx\n"),
+            (row_delta.TOMBSTONE, b"a\t05\n"),
+            (row_delta.UPSERT, b"a\t055\n"),
+            (row_delta.UPSERT, b"b\t00\n"),
+        ]
+        with pytest.raises(row_delta.HeadError, match="is not a gzipped segment"):
+            list(row_delta.keyed_segment_rows(handle, OUTPUT, 0, 1))
+        with pytest.raises(row_delta.HeadError, match="is not a gzipped segment"):
+            list(row_delta.segment_rows(handle, OUTPUT, 0, 1))
+    with open(tmp_path / "base", "rb") as base:
+        base.readline()
+        merged = b"".join(row_delta.merge_plain_keyed(base, [rows], key, key))
+    expected = [*lines[:3], b"a\t03\tx\n", lines[4], b"a\t055\n", *lines[6:], b"b\t00\n"]
+    assert merged == b"".join(expected)
+    with open(tmp_path / "base", "rb") as base:
+        base.readline()
+        assert b"".join(row_delta.merge_plain_keyed(base, [], key, key)) == b"".join(lines)
+    dense = {key(line): line for line in (b"c\t%05d\t.\n" % index for index in range(4000))}
+    (tmp_path / "dense").write_bytes(b"header\n" + b"".join(dense.values()))
+    changed: list[tuple[bytes, bytes]] = []
+    for index in range(4000):
+        if index % 3 == 0:
+            changed.append((row_delta.UPSERT, b"c\t%05d\tx\n" % index))
+        elif index % 3 == 1:
+            changed.append((row_delta.TOMBSTONE, b"c\t%05d\n" % index))
+        changed.append((row_delta.UPSERT, b"c\t%05d5\tnew\n" % index))
+    live = dict(dense)
+    for op, payload in changed:
+        if op == row_delta.UPSERT:
+            live[key(payload)] = payload
+        else:
+            live.pop(key(payload))
+    for chunk in (1 << 20, 1 << 10, 16):
+        monkeypatch.setattr(row_delta, "_CHUNK", chunk)
+        with open(tmp_path / "dense", "rb") as base:
+            base.readline()
+            merged = b"".join(row_delta.merge_plain_keyed(base, [changed], key, key))
+        assert merged == b"".join(live[at] for at in sorted(live))
+    gzipped = _keyed_segment(tmp_path, 1, [b"+\ta\ta\t2\n"])
+    with open(tmp_path / gzipped.name, "rb") as handle:
+        with pytest.raises(row_delta.HeadError, match="segment 1 has no header"):
+            list(row_delta.plain_keyed_segment_rows(handle, OUTPUT, 0, 1))
+    backwards = [(row_delta.UPSERT, b"b\t01\n"), (row_delta.UPSERT, b"a\t01\n")]
+    with open(tmp_path / "base", "rb") as base:
+        base.readline()
+        with pytest.raises(ValueError, match="out of key order"):
+            b"".join(row_delta.merge_plain_keyed(base, [backwards], key, key))
+    (tmp_path / "unsorted").write_bytes(b"header\n" + b"".join([*lines[6:], *lines[:6]]))
+    with open(tmp_path / "unsorted", "rb") as base:
+        base.readline()
+        with pytest.raises(ValueError, match="the base is out of key order"):
+            b"".join(row_delta.merge_plain_keyed(base, [[(row_delta.UPSERT, b"b\t00\n")]], key, key))

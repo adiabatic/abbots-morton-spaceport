@@ -45,7 +45,7 @@ from typing import BinaryIO, NoReturn, cast
 
 from rebuild.pipeline import fingerprint, output_sink, spec_load
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
-from rebuild.review import app_index, audit_stream, facts, tablediff, unit_cache, unit_index
+from rebuild.review import app_index, audit, audit_stream, facts, tablediff, unit_cache, unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
@@ -209,7 +209,7 @@ UNIT_ASSEMBLY_EPOCH = "2026-10-11T08:52:00Z"
 
 
 def _generated_at(*inputs: Path, mtimes: Iterable[float] = ()) -> str:
-    """Return the manifest's `generated_at` stamp: the latest input mtime as UTC ISO, floored at UNIT_ASSEMBLY_EPOCH. It is the same for consecutive builds of the same inputs (the §6 determinism gate) and changes whenever an input changes. The stamp is the corpus's identity: the app, the server, the merge, both fills and the review tools take an ams-review-verdicts/1 document stamped for this corpus as already carried onto it, a pass that skips the corpus build merges a master that is an ams-review-verdicts/1 document stamped for it straight into the store (`artifact_cycle.master_stamped_for_corpus`), or, when the snapshot of the store the verdict update reads is stamped for an older corpus or is not an ams-review-verdicts/1 document, carries that snapshot onto this one first and merges any other master into it (`verdict_update.merge_sets_store_aside`; the carry refuses a snapshot it cannot read, naming it, and the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update), a pass tells the open tabs to move only when the served stamp moves, and `rebuild.tools.rekey_verdicts` refuses a corpus stamped as one its map was computed from. Bump the epoch whenever a build-code change re-keys units without changing any input: without the floor the stamp would not move. The pass that builds the re-keyed corpus would still carry by unit id its master and, in a landing pass whose master is not the store, the store's snapshot as a second input when the snapshot step found a store (`verdict_update`), and that carry refuses when more than `landing.ORPHAN_SHARE_LIMIT` of the prior verdicts `carry_verdicts.resolve_prior` resolves across those files, skips aside, are orphaned, but the re-key its refusal points to would refuse the re-keyed corpus as the one its map was computed from. A carry that goes through (a smaller re-key, or `--allow-orphans`) would merge into an ams-review-verdicts/1 store that carries the same stamp, so the merge would keep the store's records on the old ids instead of stashing the store, and the land's orphan guard, which runs only when the stamp moves, would not run. Once a corpus re-keyed under the old stamp is served, landed by such a pass or written in place by a hand `make review-build`, the store, an export or an open tab's saves still on the old ids would be taken as carried onto it, with no carry and no orphan-share refusal (a pass that skips the build merges its master directly), leaving their verdicts on ids the corpus no longer has."""
+    """Return the manifest's `generated_at` stamp: the latest input mtime as UTC ISO, floored at UNIT_ASSEMBLY_EPOCH. The m1-audit build passes the audit's time in `mtimes`: under its head, the time its content last moved (`audit.AuditParts.content_time`, the head's `row_delta.CONTENT_TIME_STAMP`), which a segment moves and a head-alone write or a fold does not; for a single file, its modification time. It is the same for consecutive builds of the same inputs (the §6 determinism gate) and changes whenever an input changes. The stamp is the corpus's identity: the app, the server, the merge, both fills and the review tools take an ams-review-verdicts/1 document stamped for this corpus as already carried onto it, a pass that skips the corpus build merges a master that is an ams-review-verdicts/1 document stamped for it straight into the store (`artifact_cycle.master_stamped_for_corpus`), or, when the snapshot of the store the verdict update reads is stamped for an older corpus or is not an ams-review-verdicts/1 document, carries that snapshot onto this one first and merges any other master into it (`verdict_update.merge_sets_store_aside`; the carry refuses a snapshot it cannot read, naming it, and the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update), a pass tells the open tabs to move only when the served stamp moves, and `rebuild.tools.rekey_verdicts` refuses a corpus stamped as one its map was computed from. Bump the epoch whenever a build-code change re-keys units without changing any input: without the floor the stamp would not move. The pass that builds the re-keyed corpus would still carry by unit id its master and, in a landing pass whose master is not the store, the store's snapshot as a second input when the snapshot step found a store (`verdict_update`), and that carry refuses when more than `landing.ORPHAN_SHARE_LIMIT` of the prior verdicts `carry_verdicts.resolve_prior` resolves across those files, skips aside, are orphaned, but the re-key its refusal points to would refuse the re-keyed corpus as the one its map was computed from. A carry that goes through (a smaller re-key, or `--allow-orphans`) would merge into an ams-review-verdicts/1 store that carries the same stamp, so the merge would keep the store's records on the old ids instead of stashing the store, and the land's orphan guard, which runs only when the stamp moves, would not run. Once a corpus re-keyed under the old stamp is served, landed by such a pass or written in place by a hand `make review-build`, the store, an export or an open tab's saves still on the old ids would be taken as carried onto it, with no carry and no orphan-share refusal (a pass that skips the build merges its master directly), leaving their verdicts on ids the corpus no longer has."""
     latest = max([path.stat().st_mtime for path in inputs if path.exists()] + list(mtimes))
     stamp = (
         datetime.datetime.fromtimestamp(latest, tz=datetime.timezone.utc)
@@ -1316,15 +1316,15 @@ def _read_replies(stream: BinaryIO, replies: list[dict]) -> None:
 
 
 def _key_only_read(
-    descriptor: int,
+    descriptors: Sequence[int],
     sections: Sequence[audit_stream.Section],
     family_of: Mapping[int, str],
     family_keys: Mapping[str, str],
     signatures: unit_cache.SignatureArrays,
 ) -> _KeyOnly:
-    """Run the key-only read: split the audit's windows into `KEY_ONLY_PROCESSES` ranges (`audit_stream.window_ranges`) and run one process of `audit_stream` a range, each a subprocess of that standard-library module, not a spawn worker, so it imports nothing of the build's. Each is handed the held descriptor (`pass_fds`), its range, the family keys and the prior store's keys, and replies with the prior entries it hit and the misses it found, a frame at a time, each flushed at the first window end after its rows' estimated size reaches `audit_stream.FRAME_BYTES`, so a frame holds at most that plus one window's rows, read by a thread a process. The hits are marked in `signatures` and the misses returned in window order. A range that broke the sections' layout returns the reason, and the build then reads the audit through its in-memory source; a process that fails raises."""
+    """Run the key-only read: split the audit's windows into `KEY_ONLY_PROCESSES` ranges (`audit_stream.window_ranges`) and run one process of `audit_stream` a range, each a subprocess of that standard-library module, not a spawn worker, so it imports nothing of the build's. Each is handed every held descriptor of the audit's parts (`pass_fds`), its window range across all of them, the family keys and the prior store's keys, and replies with the prior entries it hit and the misses it found, a frame at a time, each flushed at the first window end after its rows' estimated size reaches `audit_stream.FRAME_BYTES`, so a frame holds at most that plus one window's rows, read by a thread a process. The hits are marked in `signatures` and the misses returned in window order. A range that broke the sections' layout returns the reason, and the build then reads the audit through its in-memory source; a process that fails raises."""
     started = time.perf_counter()
-    ranges = audit_stream.window_ranges(descriptor, sections, KEY_ONLY_PROCESSES)
+    ranges = audit_stream.window_ranges(descriptors, sections, KEY_ONLY_PROCESSES)
     found = _KeyOnly(True, processes=len(ranges))
     processes: list[subprocess.Popen] = []
     readers: list[threading.Thread] = []
@@ -1336,7 +1336,7 @@ def _key_only_read(
                 [sys.executable, "-m", audit_stream.__name__],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                pass_fds=(descriptor,),
+                pass_fds=tuple(descriptors),
                 cwd=REPO_ROOT,
             )
             processes.append(process)
@@ -1349,7 +1349,7 @@ def _key_only_read(
         for process, (low, high) in zip(processes, ranges):
             assert process.stdin is not None
             job = {
-                "descriptor": descriptor,
+                "descriptors": list(descriptors),
                 "sections": [list(section) for section in sections],
                 "low": low,
                 "high": high,
@@ -1393,7 +1393,7 @@ def _key_only_read(
 
 
 def _find_misses(
-    descriptor: int,
+    descriptors: Sequence[int],
     sections: Sequence[audit_stream.Section],
     signatures: unit_cache.SignatureArrays,
     family_of: Mapping[int, str],
@@ -1405,7 +1405,7 @@ def _find_misses(
     digest = stamps[unit_cache.FAMILY_KEYS_KEY]
     if signatures.stamps_hold(identity, digest):  # pyright: ignore[reportArgumentType]
         return _KeyOnly(False)
-    return _key_only_read(descriptor, sections, family_of, family_keys, signatures)
+    return _key_only_read(descriptors, sections, family_of, family_keys, signatures)
 
 
 def _shape_found_misses(
@@ -3250,14 +3250,17 @@ class _Loaded:
     key_only: str
     shaped: int
     width: int
+    parts: int = 1
+    segment_rows: int = 0
 
     def note(self) -> str:
-        """The load phase's note: its signature counts (the rows the store answered and those shaped, and how), whether the key-only read ran, in how many seconds across how many processes and the largest process's resident peak, or was skipped, the source the load took, and the prior store's hits and unhit entries and the misses."""
+        """The load phase's note: its signature counts (the rows the store answered and those shaped, and how), whether the key-only read ran, in how many seconds across how many processes and the largest process's resident peak, or was skipped, the source the load took, the audit's parts and its segments' rows, and the prior store's hits and unhit entries and the misses."""
         signatures = self.signatures
         how = "" if not self.shaped else " serially" if self.width == 1 else f" across {self.width} workers"
         return (
             f"(signatures: {signatures.hits():,} cached, {self.shaped:,} shaped{how}) (key-only read {self.key_only}; "
-            f"{self.source}; prior store {signatures.hits():,} hit, {signatures.unhit():,} unhit, "
+            f"{self.source}; audit {self.parts} parts, {self.segment_rows:,} segment rows; "
+            f"prior store {signatures.hits():,} hit, {signatures.unhit():,} unhit, "
             f"{signatures.misses():,} missed)"
         )
 
@@ -3279,7 +3282,7 @@ def _key_only_note(key_only: _KeyOnly | None) -> str:
 
 
 def _load_corpus(
-    descriptor: int,
+    parts: audit.AuditParts,
     audit_path: Path,
     ledger_path: Path,
     ledger: list[LedgerClass],
@@ -3295,7 +3298,7 @@ def _load_corpus(
     recompute_all: bool,
     identical_classes: frozenset[str],
 ) -> _Loaded:
-    """Load the audit for the build through `descriptor`, which `build_m1` opened once and holds until the build returns, every read of the audit going through it (`audit.audit_layout`, the key-only read, the stream, the in-memory source), never through the path again, since a `--gates-only` pass can replace the audit by rename meanwhile. The ink-signature store is read into columns first (`unit_cache.SignatureArrays.load`). An audit in sorted sections is read as a stream (`audit.stream_workload`) once its misses are found (`_find_misses`) and shaped (`_shape_found_misses`), its windows merged as it reads them through the columns (`_LateShaper`). Any other audit, or one whose key-only read or stream meets a break, is read through the in-memory source, which keys its sibling rows in the parent and shapes their misses as the stream's are shaped (`_resolve_signature_digests`, through `_shape_misses`: the spawn pool at `signature_jobs` above 1 and at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially in the parent), captures the pre-merge snapshot, merges, compacts and keys every unit, with the columns' hits and misses cleared first. Both give the same table, snapshot, merge and input keys."""
+    """Load the audit for the build through `parts`, the descriptors of the audit's parts that `build_m1` opened once and holds until the build returns (`audit.AuditParts`), every read of the audit going through them (`audit.audit_layout`, the key-only read, the stream, the in-memory source), never through a path again, since a `--gates-only` pass can commit a new head meanwhile. The ink-signature store is read into columns first (`unit_cache.SignatureArrays.load`). An audit in sorted sections is read as a stream (`audit.stream_workload`) once its misses are found (`_find_misses`) and shaped (`_shape_found_misses`), its windows merged as it reads them through the columns (`_LateShaper`). Any other audit, or one whose key-only read or stream meets a break, is read through the in-memory source, which keys its sibling rows in the parent and shapes their misses as the stream's are shaped (`_resolve_signature_digests`, through `_shape_misses`: the spawn pool at `signature_jobs` above 1 and at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially in the parent), captures the pre-merge snapshot, merges, compacts and keys every unit, with the columns' hits and misses cleared first. Both give the same table, snapshot, merge and input keys."""
     environment = unit_cache.signature_environment(repo_root, before_font, helpers_digest)
     prior = None if recompute_all else unit_cache.SignatureArrays.load(out_dir, environment)
     if not recompute_all and prior is None:
@@ -3305,14 +3308,15 @@ def _load_corpus(
     signatures = prior if prior is not None else unit_cache.SignatureArrays()
     exempt_classes = {entry.id for entry in ledger if entry.no_verdict}
     key_only_note = "not run, the audit is not in sorted sections"
+    descriptors = parts.descriptors
     stamps = {
-        unit_cache.AUDIT_IDENTITY_KEY: unit_cache.audit_identity(descriptor),
+        unit_cache.AUDIT_IDENTITY_KEY: unit_cache.audit_identity(descriptors[0], parts.head),
         unit_cache.FAMILY_KEYS_KEY: unit_cache.family_keys_digest(family_keys),
     }
-    layout = audit_layout(descriptor, audit_path)
+    layout = audit_layout(descriptors, audit_path)
     why = layout.why
     if layout.sections is not None:
-        key_only = _find_misses(descriptor, layout.sections, signatures, family_of, family_keys, stamps)
+        key_only = _find_misses(descriptors, layout.sections, signatures, family_of, family_keys, stamps)
         key_only_note = _key_only_note(key_only)
         memory_tally.mark(
             "key-only read",
@@ -3334,7 +3338,7 @@ def _load_corpus(
             late = None if key_only is None else _LateShaper(signatures, before_font, after_font)
             try:
                 streamed = stream_workload(
-                    descriptor,
+                    descriptors,
                     audit_path,
                     ledger_path,
                     layout.sections,
@@ -3369,13 +3373,15 @@ def _load_corpus(
                     key_only_note,
                     shaped + late_shaped,
                     width if shaped else 1,
+                    len(descriptors),
+                    parts.segment_rows,
                 )
             finally:
                 if late is not None:
                     late.release()
     signatures.reset()
     workload = load_workload(
-        audit_path, ledger_path, dict(family_of), mark=memory_tally.mark, descriptor=descriptor
+        audit_path, ledger_path, dict(family_of), mark=memory_tally.mark, descriptors=descriptors
     )
     table = workload.table
     rows = workload.rows
@@ -3415,6 +3421,8 @@ def _load_corpus(
         key_only_note,
         shaped,
         width,
+        len(descriptors),
+        parts.segment_rows,
     )
 
 
@@ -3438,11 +3446,11 @@ def build_m1(
     gates_idle_marker: Path | None = None,
     write_jobs: int | None = None,
 ) -> dict:
-    """Build the m1-audit review corpus into `out_dir` (`_build_m1`) while holding the audit open: the descriptor opened here, before anything else, is the one every read of the audit goes through until the build returns, the load's reads and the manifest's stamp's (`_generated_at`) alike, never the path again, since a `--gates-only` pass can replace the audit by rename during a build."""
-    descriptor = os.open(audit_path, os.O_RDONLY)
+    """Build the m1-audit review corpus into `out_dir` (`_build_m1`) while holding the audit open: its head read and every part it lists opened here, before anything else, or the single file a tree with no head holds (`audit.AuditParts`), and those descriptors are the ones every read of the audit goes through until the build returns, the load's reads and the manifest's stamp's (`_generated_at`) alike, never a path again, since a `--gates-only` pass can commit a new head during a build. The build holds one descriptor a part, up to `row_delta.AUDIT_SEGMENT_CAP` and `row_delta.FOLD_OVERRUN` segments past it beside the base, and the key-only read's processes inherit them."""
+    parts = audit.AuditParts(audit_path)
     try:
         return _build_m1(
-            descriptor,
+            parts,
             out_dir,
             audit_path,
             ledger_path,
@@ -3463,11 +3471,11 @@ def build_m1(
             write_jobs,
         )
     finally:
-        os.close(descriptor)
+        parts.close()
 
 
 def _build_m1(
-    descriptor: int,
+    parts: audit.AuditParts,
     out_dir: Path,
     audit_path: Path,
     ledger_path: Path,
@@ -3522,7 +3530,7 @@ def _build_m1(
     memory_tally.mark("family keys")
     identical_classes = frozenset(entry.id for entry in ledger if entry.ink_identical)
     loaded = _load_corpus(
-        descriptor,
+        parts,
         audit_path,
         ledger_path,
         ledger,
@@ -3917,7 +3925,7 @@ def _build_m1(
             total_batches,
             batch_size,
             audit_path,
-            os.fstat(descriptor).st_mtime,
+            parts.content_time,
             ledger_path,
             subset_dir,
             before_font,

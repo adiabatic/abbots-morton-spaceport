@@ -4,7 +4,7 @@ The bundle lets the contracts lane test the corpus cache without reading `rebuil
 
 The bundle holds:
 
-- `audit.tsv`, the live divergence audit filtered to the union of two sets: every window drawn from `LETTERS` and `BOUNDARIES`, and every window in `EXAMPLE_WINDOWS`, which the tests in `rebuild/test_review_enrich.py` and `rebuild/test_review_drafts.py` name by codepoint. Regeneration fails when a window in `EXAMPLE_WINDOWS` selects no row, so a lost example is found here and not in a test failure after a later rune edit.
+- `audit.tsv`, the live divergence audit's materialized form (`oracle.materialized_audit`) filtered to the union of two sets: every window drawn from `LETTERS` and `BOUNDARIES`, and every window in `EXAMPLE_WINDOWS`, which the tests in `rebuild/test_review_enrich.py` and `rebuild/test_review_drafts.py` name by codepoint. Regeneration fails when a window in `EXAMPLE_WINDOWS` selects no row, so a lost example is found here and not in a test failure after a later rune edit.
 - `baseline-<config>.subset.tsv.gz` for each of `conform.ORACLE_CONFIGS` and no other configuration, sliced to the same windows. The live build directory can also hold subset tables for other configurations, which nothing reads.
 - `M1.otf`, a copy of the after font the slices were extracted against.
 - `settlement-default.tsv` and `joins-default.tsv`, which `rebuild/test_review_tablediff.py` and the table-diff build test use as real tables beside a real font.
@@ -31,7 +31,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-from rebuild.pipeline import fingerprint  # noqa: E402
+from rebuild.pipeline import fingerprint, oracle, row_delta  # noqa: E402
 from rebuild.pipeline.conform import ORACLE_CONFIGS  # noqa: E402
 from rebuild.review.fixtures.mini import pin  # noqa: E402
 
@@ -63,9 +63,9 @@ EXAMPLE_WINDOWS = frozenset(
 )
 
 
-def selected_windows(audit: Path) -> tuple[str, list[str]]:
-    """Return the audit's header and every row either filter keeps: a window drawn entirely from `LETTERS` and `BOUNDARIES` that contains at least one letter, or a window in `EXAMPLE_WINDOWS`. The example windows are added by name instead of by widening `LETTERS`, which would pull in every window of the letters they use."""
-    lines = audit.read_text(encoding="utf-8").splitlines()
+def selected_windows(out_dir: Path) -> tuple[str, list[str]]:
+    """Return the header and every row either filter keeps of the materialized audit under `out_dir` (`oracle.materialized_audit`): a window drawn entirely from `LETTERS` and `BOUNDARIES` that contains at least one letter, or a window in `EXAMPLE_WINDOWS`. The example windows are added by name instead of by widening `LETTERS`, which would pull in every window of the letters they use."""
+    lines = b"".join(oracle.materialized_audit(out_dir)).decode("utf-8").splitlines()
     header, rows = lines[0], lines[1:]
     kept = []
     for row in rows:
@@ -77,7 +77,7 @@ def selected_windows(audit: Path) -> tuple[str, list[str]]:
 
 
 def main() -> int:
-    if not (LIVE / "divergence-audit.tsv").exists():
+    if not row_delta.head_path(LIVE, oracle.AUDIT_NAME).exists() and not (LIVE / oracle.AUDIT_NAME).exists():
         print(f"no live build output under {LIVE}; run run_m1 first", file=sys.stderr)
         return 1
     dirty = pin.dirty_paths()
@@ -98,7 +98,7 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    header, kept = selected_windows(LIVE / "divergence-audit.tsv")
+    header, kept = selected_windows(LIVE)
     if len(kept) <= 200:
         print("the letter filter no longer selects a meaningful workload", file=sys.stderr)
         return 1

@@ -12,6 +12,7 @@ import random
 import shutil
 from array import array
 from dataclasses import replace
+from fnmatch import fnmatch
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ from rebuild.pipeline import (
     oracle_cache,
     oracle_positions,
     position_record,
+    row_delta,
     run_m1,
     run_m1_gates,
 )
@@ -352,15 +354,33 @@ def test_a_cited_family_absent_from_the_recorded_keys_is_a_miss(repo, tmp_path):
 # --- the promotion refusal ---------------------------------------------------------------
 
 
-def _stage(scratch: Path, stamps, keys) -> None:
+def _stage(directory: Path, stamps, keys) -> oracle_cache.StoreSet:
+    """A pass's stores written under `directory` and not yet committed: one record a configuration, each its whole file, through the store set's writer as the oracle writes them."""
+    stores = oracle_cache.StoreSet(directory, conform.ORACLE_CONFIGS, stamps, keys)
     for config in conform.ORACLE_CONFIGS:
-        path = oracle_cache.scratch_store_path(scratch, config)
-        with oracle_cache.RowWriter(path, stamps[config], "subset-digest", 0, keys) as writer:
+        stamp = stamps[config]
+        with oracle_cache.RowWriter(None, stamp, stamp.labels["subset"], 0, keys, whole=True) as writer:
             writer.append((PEA,), None, 0)
+        assert writer.member is not None
+        stores.put(config, [(1, writer.member)], True, 0)
+    stores.finish()
+    return stores
 
 
 def _promoted(out_dir: Path) -> set[str]:
-    return {config for config in conform.ORACLE_CONFIGS if oracle_cache.store_path(out_dir, config).is_file()}
+    head = oracle_cache.read_set_head(out_dir)
+    return set() if head is None else set(head.configs)
+
+
+def _unlisted_parts(directory: Path) -> list[str]:
+    """The store parts under `directory`, which a refused promotion leaves for the next plan to delete: no head lists them."""
+    head = oracle_cache.read_set_head(directory)
+    listed = set() if head is None else head.names()
+    return sorted(
+        path.name
+        for path in directory.iterdir()
+        if oracle_cache._PART_NAMES.fullmatch(path.name) and path.name not in listed
+    )
 
 
 def test_the_stamp_is_snapshotted_before_the_work_and_reverified_at_promotion(
@@ -373,32 +393,29 @@ def test_the_stamp_is_snapshotted_before_the_work_and_reverified_at_promotion(
     out_dir = tmp_path / "m1"
     keys, stamps = run_m1_gates.oracle_row_cache_keys(spec, out_dir)
 
-    steady = tmp_path / "steady"
-    _stage(steady, stamps, keys)
-    run_m1_gates._promote_oracle_row_cache(spec, out_dir, steady, keys, stamps)
+    run_m1_gates._promote_oracle_row_cache(spec, out_dir, _stage(out_dir, stamps, keys), keys, stamps)
     assert _promoted(out_dir) == set(conform.ORACLE_CONFIGS)
     assert "written for" in capsys.readouterr().out
+    assert _unlisted_parts(out_dir) == []
 
     rune = repo / "glyph_data" / "runes" / "qsPea.yaml"
     original = rune.read_bytes()
     _perturb_rune(rune)
-    edited_rune = tmp_path / "edited-rune"
-    _stage(edited_rune, stamps, keys)
-    run_m1_gates._promote_oracle_row_cache(spec, tmp_path / "m1-rune", edited_rune, keys, stamps)
+    edited_rune = tmp_path / "m1-rune"
+    run_m1_gates._promote_oracle_row_cache(spec, edited_rune, _stage(edited_rune, stamps, keys), keys, stamps)
     message = capsys.readouterr().out
-    assert _promoted(tmp_path / "m1-rune") == set()
+    assert _promoted(edited_rune) == set()
     assert "not written" in message and "qsPea (changed)" in message
-    assert all(
-        oracle_cache.scratch_store_path(edited_rune, config).is_file() for config in conform.ORACLE_CONFIGS
-    )
+    assert len(_unlisted_parts(edited_rune)) == len(conform.ORACLE_CONFIGS) + 1
 
     rune.write_bytes(original)
     _rewrite_script(repo, lambda document: document["heights"].update({"y6": 7}))
-    edited_registry = tmp_path / "edited-registry"
-    _stage(edited_registry, stamps, keys)
-    run_m1_gates._promote_oracle_row_cache(spec, tmp_path / "m1-registry", edited_registry, keys, stamps)
+    edited_registry = tmp_path / "m1-registry"
+    run_m1_gates._promote_oracle_row_cache(
+        spec, edited_registry, _stage(edited_registry, stamps, keys), keys, stamps
+    )
     message = capsys.readouterr().out
-    assert _promoted(tmp_path / "m1-registry") == set()
+    assert _promoted(edited_registry) == set()
     assert "not written" in message and "data (changed)" in message
 
 
@@ -411,18 +428,18 @@ def test_an_alias_map_edited_into_a_shape_the_guard_refuses_promotes_nothing(
     spec = fixtures.mini_spec()
     out_dir = tmp_path / "m1"
     keys, stamps = run_m1_gates.oracle_row_cache_keys(spec, out_dir)
-    scratch = tmp_path / "scratch"
-    _stage(scratch, stamps, keys)
+    stores = _stage(out_dir, stamps, keys)
 
     _write_alias(repo, {**ALIAS_MAP, "qsBay.en-y0": {"rune": "qsBay", "stance": "full"}})
-    run_m1_gates._promote_oracle_row_cache(spec, out_dir, scratch, keys, stamps)
+    run_m1_gates._promote_oracle_row_cache(spec, out_dir, stores, keys, stamps)
     assert _promoted(out_dir) == set()
     assert "not written" in capsys.readouterr().out
 
     _alias(repo).write_text("qsPea.half: [unclosed\n", encoding="utf-8")
-    run_m1_gates._promote_oracle_row_cache(spec, out_dir, scratch, keys, stamps)
+    run_m1_gates._promote_oracle_row_cache(spec, out_dir, stores, keys, stamps)
     assert _promoted(out_dir) == set()
     assert "not written" in capsys.readouterr().out
+    assert len(_unlisted_parts(out_dir)) == len(conform.ORACLE_CONFIGS) + 1
 
 
 # --- the age cap and the verification sample ---------------------------------------------
@@ -740,9 +757,8 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
         assert payload.count(b"\n") == len(rows)
         segments.append((len(rows), writer.member))
     assert set(tmp_path.rglob("*")) == files
-    scratch = tmp_path / "scratch"
-    joined = oracle_cache.join_store_segments(scratch, "default", segments, stamp, "subset-digest", 4, keys)
-    assert joined == oracle_cache.scratch_store_path(scratch, "default")
+    joined = tmp_path / "scratch" / "joined.tsv.gz"
+    oracle_cache.join_store_segments(joined, segments, stamp, "subset-digest", 4, keys)
     assert gzip.decompress(joined.read_bytes()) == gzip.decompress(whole.read_bytes())
     store = oracle_cache.load_store(joined, stamp, "subset-digest", spec, keys)
     assert store is not None and store.rows == 6 and store.pass_ordinal == 4
@@ -754,8 +770,9 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
     shards = [oracle.OracleShard("default", 0, 2, 0, 2), oracle.OracleShard("default", 2, None, 1, 2)]
     for name, returned in (("every", segments), ("short", [segments[0], (4, None)])):
         out = tmp_path / name
-        cache = oracle.OracleRowCache({"default": stamp}, keys, write_dir=out / "scratch")
-        with oracle.InOrderWriter(out, shards, cache, ("default",)) as fan_in:
+        cache = oracle.OracleRowCache({"default": stamp}, keys, write_dir=out / "stores")
+        stores = oracle_cache.StoreSet(out / "stores", ("default",), {"default": stamp}, keys)
+        with oracle.InOrderWriter(out, shards, cache, ("default",), stores) as fan_in:
             for shard, (rows, member) in reversed(list(zip(shards, returned))):
                 result = oracle.OracleConfigResult(
                     config="default",
@@ -767,16 +784,20 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
                 )
                 fan_in.land(shard, result)
                 assert result.store_segment is None
-        staged = oracle_cache.scratch_store_path(out / "scratch", "default")
-        assert staged.is_file() == (name == "every")
+        assert oracle_cache.promote_stores(stores, ("default",)) == (["default"] if name == "every" else [])
     every = oracle_cache.load_store(
-        oracle_cache.scratch_store_path(tmp_path / "every" / "scratch", "default"),
+        oracle_cache.store_path(tmp_path / "every" / "stores", "default"),
         stamp,
         stamp.labels["subset"],
         spec,
         keys,
     )
     assert every is not None and every.rows == 6 and every.pass_ordinal == 4
+    rejoined = tmp_path / "rejoined" / "joined.tsv.gz"
+    oracle_cache.join_store_segments(rejoined, segments, stamp, stamp.labels["subset"], 4, keys)
+    assert b"".join(oracle_cache.materialized_store(tmp_path / "every" / "stores", "default")) == (
+        rejoined.read_bytes()
+    )
 
 
 def _joined_store(tmp_path: Path, repo: Path, spec, segment_rows=(3, 2, 4), pass_ordinal=3):
@@ -799,8 +820,14 @@ def _joined_store(tmp_path: Path, repo: Path, spec, segment_rows=(3, 2, 4), pass
         assert writer.member is not None
         segments.append(writer.member)
         first += count
-    joined = oracle_cache.join_store_segments(
-        scratch, "default", list(zip(segment_rows, segments)), stamp, "subset-digest", pass_ordinal, keys
+    joined = scratch / "joined.tsv.gz"
+    oracle_cache.join_store_segments(
+        joined,
+        list(zip(segment_rows, segments)),
+        stamp,
+        "subset-digest",
+        pass_ordinal,
+        keys,
     )
     return joined, whole, stamp, keys, segments
 
@@ -1165,21 +1192,415 @@ def test_a_record_whose_age_will_not_parse_refuses_the_load_from_any_range(repo,
 
 
 def test_the_store_is_not_an_m1_artifact(tmp_path):
-    """The store sits in `rebuild/out/m1` beside the artifacts but is not one of them. Its name matches neither `M1_ARTIFACT_NAMES` nor the subset-table glob, so it is in neither the run_m1 skip key (`run_m1_skip_lines`) nor the `m1_artifacts_present` check, and deleting it costs only time. The test checks the name against `M1_ARTIFACT_NAMES` and `_subset_tables` directly, not against a fixed string."""
+    """The stores sit in `rebuild/out/m1` beside the artifacts but are not among them. No name they take, a single file of a tree from before the segment format, the set head, a configuration's base or segment, or the ages column, matches `M1_ARTIFACT_NAMES`, the subset-table glob or the glob of any other table, so none is in the run_m1 skip key (`run_m1_skip_lines`) or the `m1_artifacts_present` check, and deleting them costs only time. The test checks the names against `M1_ARTIFACT_NAMES` and `_subset_tables` directly, not against a fixed string."""
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
     for name in artifact_cycle.M1_ARTIFACT_NAMES:
         (m1 / name).write_bytes(b"")
+    stores = {oracle_cache.SET_HEAD_NAME, oracle_cache.ages_name(3)}
     for config in conform.ORACLE_CONFIGS:
         (m1 / f"baseline-{config}.subset.tsv.gz").write_bytes(b"")
-        oracle_cache.store_path(m1, config).write_bytes(b"")
+        output = oracle_cache.store_output(config)
+        stores |= {
+            oracle_cache.store_path(m1, config).name,
+            row_delta.base_name(output, 2),
+            row_delta.segment_name(output, 2, 7),
+        }
+    for name in stores:
+        (m1 / name).write_bytes(b"")
 
-    stores = {oracle_cache.store_path(m1, config).name for config in conform.ORACLE_CONFIGS}
     assert stores.isdisjoint(artifact_cycle.M1_ARTIFACT_NAMES)
     assert {path.name for path in artifact_cycle._subset_tables(tmp_path)} == {
         f"baseline-{config}.subset.tsv.gz" for config in conform.ORACLE_CONFIGS
     }
-    assert oracle_cache.scratch_store_path(tmp_path, "default").parent.name == oracle_cache.SCRATCH_SUBDIR
+    assert not any(
+        fnmatch(name, pattern)
+        for name in stores
+        for pattern in (
+            "baseline-*.subset.tsv.gz",
+            "settlement-*.tsv",
+            "joins-*.tsv",
+            "windows-*.tsv.gz",
+            "windows-*.tsv.gz.*",
+            "windows-*.head.json.gz",
+            "transitions-*.ndjson",
+            "*.json",
+            "divergence-audit.parts.*",
+        )
+    )
+
+
+# --- the stores' set head ----------------------------------------------------------------
+
+_DIVERGENT = oracle_cache.CachedRow(("cell",), 1, ("qsPea/full", "qsTea/half"), ("y5",), ("stance",))
+_MISMATCHED = oracle_cache.CachedPosition(("slot 1 (qsTea): origin want (150, 0), got (100, 0)",), True)
+
+
+def _store_records(rows: int, ordinal: int, changed: tuple[int, ...] = ()) -> list[tuple]:
+    """Each row's record as a writing pass at `ordinal` gives it: verdicts that vary by row, a row at `UNCOVERED_AGE`, ages from `ordinal` back, and the rows in `changed` with another row verdict."""
+    records = []
+    for index in range(rows):
+        cached = _DIVERGENT if index % 2 else None
+        if index in changed:
+            cached = None if cached is not None else _DIVERGENT
+        position = (oracle_cache.UNSHAPED, None, _MISMATCHED)[index % 3]
+        derived = oracle_cache.UNCOVERED_AGE if index == 1 else ordinal - index % 4
+        records.append((cached, derived, position, ordinal - index % 3))
+    return records
+
+
+def _members(stamp, keys, position, ordinal: int, records: list[tuple], cut) -> list[tuple[int, bytes]]:
+    """The members a pass's ranges ship for `records`: one a range of `cut`, records alone, or, with `cut` None, one of the whole file."""
+    position_keys, position_stamp = position
+    members: list[tuple[int, bytes]] = []
+    first = 0
+    for count in [len(records)] if cut is None else cut:
+        with oracle_cache.RowWriter(
+            None,
+            stamp,
+            stamp.labels["subset"],
+            ordinal,
+            keys,
+            position_stamp,
+            position_keys,
+            whole=cut is None,
+        ) as writer:
+            for index in range(first, first + count):
+                cached, derived, verdict, position_at = records[index]
+                writer.append((PEA, PEA + index), cached, derived, verdict, position_at, f"{index:016x}")
+        assert writer.member is not None
+        members.append((count, writer.member))
+        first += count
+    return members
+
+
+def _store_pass(directory: Path, stamp, keys, position, ordinal: int, records, cut) -> oracle_cache.StoreSet:
+    """One pass's stores through the store set's writer, committed."""
+    position_keys, position_stamp = position
+    stores = oracle_cache.StoreSet(
+        directory, ("default",), {"default": stamp}, keys, position_stamp, position_keys
+    )
+    stores.put("default", _members(stamp, keys, position, ordinal, records, cut), cut is None, ordinal)
+    stores.finish()
+    assert oracle_cache.promote_stores(stores, ("default",)) == ["default"]
+    return stores
+
+
+def _today(path: Path, stamp, keys, position, ordinal: int, records, cut) -> Path:
+    """The file today's writer writes over the same records: `RowWriter`'s one member for a whole configuration, 11a's join of the ranges' members for a cut one."""
+    position_keys, position_stamp = position
+    if cut is not None:
+        oracle_cache.join_store_segments(
+            path,
+            _members(stamp, keys, position, ordinal, records, cut),
+            stamp,
+            stamp.labels["subset"],
+            ordinal,
+            keys,
+            position_stamp,
+            position_keys,
+        )
+        return path
+    with oracle_cache.RowWriter(
+        path, stamp, stamp.labels["subset"], ordinal, keys, position_stamp, position_keys
+    ) as writer:
+        for index, (cached, derived, verdict, position_at) in enumerate(records):
+            writer.append((PEA, PEA + index), cached, derived, verdict, position_at, f"{index:016x}")
+    return path
+
+
+def _stored(directory: Path) -> bytes:
+    return b"".join(oracle_cache.materialized_store(directory, "default"))
+
+
+@pytest.mark.parametrize("cut", [(3, 2, 4), None], ids=["cut", "whole"])
+def test_a_store_under_its_head_writes_only_the_records_that_changed_and_reads_as_its_whole_file(
+    repo, tmp_path, cut
+):
+    """Over a standing set head a pass writes one segment of the records whose line less its two ages differs from the prior's at its ordinal, and the ages column whole; a pass whose records move only their ages writes no segment, only the column and the head. After each, the materialized store is the file today's writer writes over the same records, 11a's join of the members for a cut configuration and `RowWriter`'s file for a whole one, and a load over the head answers what a load of that file answers for every range, the records, `RowStore.age` and `position_age` among them, `UNCOVERED_AGE` included, whether the row stamp holds or moved, when each range keeps only each record's position part."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position = _position(repo, spec, MINI_FONT)
+    stores = tmp_path / "m1"
+    moved = oracle_cache.EnvironmentStamp(
+        lines=tuple(
+            "oracle_code\tmoved" if line.startswith("oracle_code\t") else line for line in stamp.lines
+        )
+    )
+
+    def matches(ordinal: int, records, name: str) -> None:
+        today = _today(tmp_path / f"{name}.tsv.gz", stamp, keys, position, ordinal, records, cut)
+        assert _stored(stores) == today.read_bytes()
+        for first_row, stop_row in ((0, None), (0, 3), (3, 5), (5, None), (2, 7), (9, None)):
+            for environment in (stamp, moved):
+                loaded = [
+                    oracle_cache.load_store(
+                        path,
+                        environment,
+                        stamp.labels["subset"],
+                        spec,
+                        keys,
+                        0,
+                        position[1],
+                        position[0],
+                        first_row=first_row,
+                        stop_row=stop_row,
+                    )
+                    for path in (oracle_cache.store_path(stores, "default"), today)
+                ]
+                headed, single = loaded
+                assert headed is not None and single is not None
+                assert (headed.first_row, headed.stop_row, headed.rows, headed.pass_ordinal) == (
+                    single.first_row,
+                    single.stop_row,
+                    single.rows,
+                    single.pass_ordinal,
+                )
+                assert headed.row_verdicts_held == single.row_verdicts_held == (environment is stamp)
+                for index in range(headed.first_row, headed.stop_row):
+                    codepoints = (PEA, PEA + index)
+                    if headed.row_verdicts_held:
+                        assert headed.serve(index, codepoints) == single.serve(index, codepoints)
+                    assert headed.serve_position(index, codepoints) == single.serve_position(
+                        index, codepoints
+                    )
+                    assert headed.settled(index) == single.settled(index)
+                    assert (headed.age(index), headed.position_age(index)) == (
+                        single.age(index),
+                        single.position_age(index),
+                    )
+                    assert (headed.due(index), headed.position_due(index)) == (
+                        single.due(index),
+                        single.position_due(index),
+                    )
+
+    first = _store_records(9, 3)
+    _store_pass(stores, stamp, keys, position, 3, first, cut)
+    assert oracle_cache.read_set_head(stores) is not None
+    matches(3, first, "first")
+    aged = [
+        (cached, derived if index % 5 else 4, verdict, at)
+        for index, (cached, derived, verdict, at) in enumerate(first)
+    ]
+    written = _store_pass(stores, stamp, keys, position, 4, aged, cut)
+    head = oracle_cache.read_set_head(stores)
+    assert head is not None and head.configs["default"].segments == () and written.changed == 0
+    assert sorted(path.name for path in stores.iterdir()) == [
+        "oracle-rows-default.tsv.gz.0.base",
+        oracle_cache.ages_name(1),
+        oracle_cache.SET_HEAD_NAME,
+    ]
+    matches(4, aged, "aged")
+    changed = _store_records(9, 5, changed=(4,))
+    written = _store_pass(stores, stamp, keys, position, 5, changed, cut)
+    head = oracle_cache.read_set_head(stores)
+    assert head is not None and len(head.configs["default"].segments) == 1 and written.changed == 1
+    segment = gzip.decompress((stores / "oracle-rows-default.tsv.gz.0.1.delta").read_bytes()).splitlines()
+    assert json.loads(segment[0])["merge"] == row_delta.MERGE_ORDINAL
+    assert [line.split(b"\t", 2)[1] for line in segment[1:]] == [b"4"]
+    matches(5, changed, "changed")
+
+
+@pytest.mark.parametrize("cut", [(3, 2, 4), None], ids=["cut", "whole"])
+def test_a_tree_s_single_store_file_is_adopted_as_the_first_base(repo, tmp_path, cut):
+    """A tree from before the segment format holds each configuration's single file and no set head. The first pass over it adopts the file by hard link as generation 0's base, reading its header, rows, cut and sha256 from the file's own bytes, and compares the pass's records with it as with a head's base: a pass whose records move only their ages writes no segment, only the column and the head, the base keeps the single file's inode, the single file goes once the head is in place, and the materialized store is the file one writer writes over that pass's records."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position = _position(repo, spec, MINI_FONT)
+    stores = tmp_path / "m1"
+    stores.mkdir()
+    first = _store_records(9, 3)
+    single = _today(oracle_cache.store_path(stores, "default"), stamp, keys, position, 3, first, cut)
+    inode = single.stat().st_ino
+    aged = [
+        (cached, derived if index % 5 else 4, verdict, at)
+        for index, (cached, derived, verdict, at) in enumerate(first)
+    ]
+    written = _store_pass(stores, stamp, keys, position, 4, aged, cut)
+    head = oracle_cache.read_set_head(stores)
+    assert head is not None and written.changed == 0
+    entry = head.configs["default"]
+    assert (entry.generation, entry.cut, entry.segments) == (0, cut, ())
+    assert (stores / entry.base.name).stat().st_ino == inode
+    assert sorted(path.name for path in stores.iterdir()) == [
+        "oracle-rows-default.tsv.gz.0.base",
+        oracle_cache.ages_name(0),
+        oracle_cache.SET_HEAD_NAME,
+    ]
+    expected = _today(tmp_path / "aged.tsv.gz", stamp, keys, position, 4, aged, cut)
+    assert _stored(stores) == expected.read_bytes()
+
+
+@pytest.mark.parametrize(
+    "damage", ("a byte in the first member", "a short base", "a short segment", "a short column")
+)
+def test_every_range_refuses_a_store_under_its_head_that_its_writer_did_not_write(repo, tmp_path, damage):
+    """Under the set head every range of a configuration must still agree on whether the store loads. A range on one member's bounds inflates that member alone, so it first checks every member against the CRC-32 the member index records and the trailer against the head's row count, and a range that reads the base to its end refuses the same damage; a part whose size is not the one the head records, the base, a segment or the ages column, is refused by every reader, which checks sizes against the head as it opens the parts."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position = _position(repo, spec, MINI_FONT)
+    stores = tmp_path / "m1"
+    _store_pass(stores, stamp, keys, position, 3, _store_records(9, 3), (3, 2, 4))
+    _store_pass(stores, stamp, keys, position, 4, _store_records(9, 4, changed=(5,)), (3, 2, 4))
+    head = oracle_cache.read_set_head(stores)
+    assert head is not None
+    entry = head.configs["default"]
+    base = stores / entry.base.name
+    if damage == "a byte in the first member":
+        data = bytearray(base.read_bytes())
+        data[len(data) // 3] ^= 0xFF
+        base.write_bytes(bytes(data))
+    else:
+        part = {
+            "a short base": base,
+            "a short segment": stores / entry.segments[0].name,
+            "a short column": stores / head.ages.name,
+        }[damage]
+        part.write_bytes(part.read_bytes()[:-3])
+    for first_row, stop_row in ((0, None), (0, 3), (3, 5), (5, None), (1, 4)):
+        assert (
+            oracle_cache.load_store(
+                oracle_cache.store_path(stores, "default"),
+                stamp,
+                stamp.labels["subset"],
+                spec,
+                keys,
+                first_row=first_row,
+                stop_row=stop_row,
+            )
+            is None
+        )
+
+
+def test_a_pass_ordinal_reset_to_zero_writes_its_ages_against_zero(repo, tmp_path):
+    """A pass that loaded no store records ordinal 0 and every row at it, or at `UNCOVERED_AGE`, over a set head whose prior ordinal was higher; the column holds them against 0, and the store loads with every age as the records hold them."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position = _position(repo, spec, MINI_FONT)
+    stores = tmp_path / "m1"
+    _store_pass(stores, stamp, keys, position, 9, _store_records(5, 9), None)
+    reset = [
+        (cached, 0 if derived != oracle_cache.UNCOVERED_AGE else derived, verdict, 0)
+        for cached, derived, verdict, _at in _store_records(5, 9)
+    ]
+    _store_pass(stores, stamp, keys, position, 0, reset, None)
+    loaded = oracle_cache.load_store(
+        oracle_cache.store_path(stores, "default"), stamp, stamp.labels["subset"], spec, keys
+    )
+    assert loaded is not None and loaded.pass_ordinal == 0
+    assert [loaded.age(index) for index in range(5)] == [0, oracle_cache.UNCOVERED_AGE, 0, 0, 0]
+    assert (
+        _stored(stores)
+        == _today(tmp_path / "reset.tsv.gz", stamp, keys, position, 0, reset, None).read_bytes()
+    )
+
+
+def test_the_ages_column_refuses_a_pass_it_cannot_hold_and_a_reader_one_naming_another_generation(
+    repo, tmp_path
+):
+    """The column holds an age as the pass ordinal less the pass a verdict was derived at, a signed byte, so a recorded pass above the ordinal, or one more than 127 passes back, is refused, naming the row. A column whose header names another generation than its head's is refused by every reader, so a reader that paired an old head with a newer column would fail rather than read another pass's ages."""
+    with pytest.raises(ValueError, match="default row 7 records pass 6 under pass ordinal 5"):
+        oracle_cache.encoded_ages([5, 6], 5, "default", 6)
+    with pytest.raises(ValueError, match="default row 1 records pass 0 under pass ordinal 200"):
+        oracle_cache.encoded_ages([200, 0], 200, "default", 0)
+    assert list(oracle_cache.encoded_ages([5, oracle_cache.UNCOVERED_AGE, 0], 5, "default", 0)) == [0, -20, 5]
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position = _position(repo, spec, MINI_FONT)
+    stores = tmp_path / "m1"
+    _store_pass(stores, stamp, keys, position, 3, _store_records(4, 3), None)
+    path = oracle_cache.store_path(stores, "default")
+    assert oracle_cache.load_store(path, stamp, stamp.labels["subset"], spec, keys) is not None
+    column = stores / oracle_cache.ages_name(0)
+    data = column.read_bytes()
+    column.write_bytes(data.replace(b'"generation": 0', b'"generation": 1', 1))
+    assert len(column.read_bytes()) == len(data)
+    assert oracle_cache.load_store(path, stamp, stamp.labels["subset"], spec, keys) is None
+
+
+def test_a_subset_move_writes_new_bases_and_a_fresh_cache_deletes_every_part(repo, tmp_path):
+    """A pass whose `subset` stamp line moved, as a letter batch's does, finds no ordinal naming the row it named, so it writes a new base and deletes the old generation once its head is in place. `--fresh-oracle-cache` deletes the set head and every part, of every generation, the ages column and any staging file among them, and the single files of a tree from before the segment format."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position = _position(repo, spec, MINI_FONT)
+    stores = tmp_path / "m1"
+    _store_pass(stores, stamp, keys, position, 3, _store_records(4, 3), None)
+    _store_pass(stores, stamp, keys, position, 4, _store_records(4, 4, changed=(2,)), None)
+    head = oracle_cache.read_set_head(stores)
+    assert head is not None and len(head.configs["default"].segments) == 1
+    batch = oracle_cache.EnvironmentStamp(
+        lines=tuple("subset\tanother" if line.startswith("subset\t") else line for line in stamp.lines)
+    )
+    _store_pass(stores, batch, keys, position, 0, _store_records(4, 0), None)
+    head = oracle_cache.read_set_head(stores)
+    assert (
+        head is not None
+        and head.configs["default"].generation == 1
+        and head.configs["default"].segments == ()
+    )
+    assert sorted(path.name for path in stores.iterdir()) == [
+        "oracle-rows-default.tsv.gz.1.base",
+        oracle_cache.ages_name(2),
+        oracle_cache.SET_HEAD_NAME,
+    ]
+    for name in ("oracle-rows-default.tsv.gz", "oracle-rows-default.tsv.gz.1.1.delta.partial", "notes.txt"):
+        (stores / name).write_bytes(b"")
+    oracle_cache.discard_stores(stores, ("default",))
+    assert sorted(path.name for path in stores.iterdir()) == ["notes.txt"]
+
+
+def test_the_stores_fold_at_their_cap_into_the_next_generation_s_base(repo, tmp_path):
+    """A configuration whose head lists `row_delta.SEGMENT_CAP` segments folds on the next pass, which holds the pass's fold: the pass writes its own whole file as the next generation's base, which is the materialized store with its changes, and deletes the old generation once its head is in place. A later segment lands on the new base, and the materialized store is the file today's writer writes."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position = _position(repo, spec, MINI_FONT)
+    stores = tmp_path / "m1"
+    rows = 4 * row_delta.SEGMENT_CAP
+    _store_pass(stores, stamp, keys, position, 1, _store_records(rows, 1), (rows // 2, rows - rows // 2))
+    for ordinal in range(2, 2 + row_delta.SEGMENT_CAP):
+        _store_pass(
+            stores,
+            stamp,
+            keys,
+            position,
+            ordinal,
+            _store_records(rows, ordinal, changed=(ordinal,)),
+            (rows // 2, rows - rows // 2),
+        )
+    head = oracle_cache.read_set_head(stores)
+    assert head is not None and len(head.configs["default"].segments) == row_delta.SEGMENT_CAP
+    folding = 2 + row_delta.SEGMENT_CAP
+    records = _store_records(rows, folding, changed=(0,))
+    _store_pass(stores, stamp, keys, position, folding, records, (rows // 2, rows - rows // 2))
+    head = oracle_cache.read_set_head(stores)
+    assert (
+        head is not None
+        and head.configs["default"].generation == 1
+        and head.configs["default"].segments == ()
+    )
+    today = _today(
+        tmp_path / "folded.tsv.gz", stamp, keys, position, folding, records, (rows // 2, rows - rows // 2)
+    )
+    assert (stores / "oracle-rows-default.tsv.gz.1.base").read_bytes() == today.read_bytes()
+    assert not any(path.name.startswith("oracle-rows-default.tsv.gz.0.") for path in stores.iterdir())
+    later = _store_records(rows, folding + 1, changed=(0, 5))
+    _store_pass(stores, stamp, keys, position, folding + 1, later, (rows // 2, rows - rows // 2))
+    head = oracle_cache.read_set_head(stores)
+    assert head is not None and [part.name for part in head.configs["default"].segments] == [
+        "oracle-rows-default.tsv.gz.1.1.delta"
+    ]
+    assert (
+        _stored(stores)
+        == _today(
+            tmp_path / "later.tsv.gz",
+            stamp,
+            keys,
+            position,
+            folding + 1,
+            later,
+            (rows // 2, rows - rows // 2),
+        ).read_bytes()
+    )
 
 
 # --- the position store ------------------------------------------------------------------
@@ -1472,9 +1893,9 @@ def test_a_store_whose_row_stamp_moved_holds_only_each_record_s_position_part(re
         assert writer.member is not None
         segments.append((count, writer.member))
         first += count
-    joined = oracle_cache.join_store_segments(
-        scratch,
-        "default",
+    joined = scratch / "joined.tsv.gz"
+    oracle_cache.join_store_segments(
+        joined,
         segments,
         stamp,
         "subset-digest",
@@ -1547,36 +1968,29 @@ def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypat
     assert position_keys is not None and position_stamp is not None
     assert run_m1_gates.oracle_position_keys(keys, tmp_path / "nowhere") == (None, None)
 
-    steady = tmp_path / "steady"
-    _stage(steady, stamps, keys)
-    run_m1_gates._promote_oracle_row_cache(spec, out_dir, steady, keys, stamps, position_keys, position_stamp)
+    run_m1_gates._promote_oracle_row_cache(
+        spec, out_dir, _stage(out_dir, stamps, keys), keys, stamps, position_keys, position_stamp
+    )
     assert _promoted(out_dir) == set(conform.ORACLE_CONFIGS)
     assert "written for" in capsys.readouterr().out
-    promoted = {
-        config: oracle_cache.store_path(out_dir, config).read_bytes() for config in conform.ORACLE_CONFIGS
-    }
+    promoted = (out_dir / oracle_cache.SET_HEAD_NAME).read_bytes()
 
     _font_edited(MINI_FONT, out_dir / "M1.otf", lambda name: name.split(".")[0] == "qsTea")
-    edited_font = tmp_path / "edited-font"
-    _stage(edited_font, stamps, keys)
     run_m1_gates._promote_oracle_row_cache(
-        spec, out_dir, edited_font, keys, stamps, position_keys, position_stamp
+        spec, out_dir, _stage(out_dir, stamps, keys), keys, stamps, position_keys, position_stamp
     )
     message = capsys.readouterr().out
     assert "not written" in message and "positions qsTea (changed)" in message
     shutil.copyfile(MINI_FONT, out_dir / "M1.otf")
 
     kern.write_text("global:\n  value: 2\n", encoding="utf-8")
-    edited_kern = tmp_path / "edited-kern"
-    _stage(edited_kern, stamps, keys)
     run_m1_gates._promote_oracle_row_cache(
-        spec, out_dir, edited_kern, keys, stamps, position_keys, position_stamp
+        spec, out_dir, _stage(out_dir, stamps, keys), keys, stamps, position_keys, position_stamp
     )
     message = capsys.readouterr().out
     assert "not written" in message and "positions kern (changed)" in message
-    assert {
-        config: oracle_cache.store_path(out_dir, config).read_bytes() for config in conform.ORACLE_CONFIGS
-    } == promoted
+    assert (out_dir / oracle_cache.SET_HEAD_NAME).read_bytes() == promoted
+    assert _unlisted_parts(out_dir) == [oracle_cache.ages_name(1)]
 
 
 # --- the settle memo's keys ----------------------------------------------------------------

@@ -6,6 +6,7 @@ import os
 import pickle
 import subprocess
 import sys
+import threading
 import time
 import zlib
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -806,8 +807,16 @@ class _InlinePool:
         pass
 
 
+_AUDIT_FILES = ["divergence-audit.tsv.0.base", "divergence-audit.tsv.head"]
+
+
+def _audit_lines(out_dir: Path) -> list[str]:
+    """The audit's materialized form under `out_dir` (`oracle.materialized_audit`), as lines."""
+    return b"".join(oracle.materialized_audit(out_dir)).decode("utf-8").splitlines()
+
+
 class TestOracleFanIn:
-    """Each range ships its own audit lines home, so the order of `divergence-audit.tsv` comes from the parent's in-order writer, not from the order the futures resolve. A run that fails partway must leave the previous audit in place: a short audit hashes differently, so the corpus build would read it as a new, smaller audit instead of a stale one."""
+    """Each range ships its own audit lines home, so the order of the audit comes from the parent's in-order writer, not from the order the futures resolve. A run that fails partway must leave the previous audit in place: a short audit hashes differently, so the corpus build would read it as a new, smaller audit instead of a stale one."""
 
     def _pool(self, monkeypatch, worker, rows=None):
         """Stubs out every process in the fan-out: an inline pool, a `wait` that hands back every future it is given, in reverse, the worker, the crate's guard sweep, and the subset stamp's row counts, which are `rows` or, by default, none, giving one range per configuration."""
@@ -886,10 +895,37 @@ class TestOracleFanIn:
     def test_the_audit_follows_acceptance_order_however_the_workers_finish(self, monkeypatch, tmp_path):
         self._pool(monkeypatch, self._worker())
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
-        lines = (tmp_path / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
+        lines = _audit_lines(tmp_path)
         assert lines[0] == oracle.ORACLE_AUDIT_HEADER
         assert [line.split("\t")[0] for line in lines[1:]] == list(conform.ORACLE_CONFIGS)
-        assert self._files_left(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
+        assert self._files_left(tmp_path) == [*_AUDIT_FILES, "oracle_summary.json"]
+
+    def test_two_oracles_over_one_out_dir_take_turns(self, monkeypatch, tmp_path, capsys):
+        """Each output's writer plans by deleting the staging files and unlisted parts it finds and writes its parts under their final names, so two oracles over one out dir, such as a hand `--gates-only` pass beside a cycle's run_m1, would delete or replace each other's parts. A run holds the oracle's lock over the out dir from before its first cleanup, a second waits for it and names its pid, and no lock file is left once the last holder lets go."""
+        lock = tmp_path / run_m1_gates.ORACLE_LOCK_NAME
+        entered = threading.Event()
+
+        def second() -> None:
+            with run_m1_gates.oracle_lock(tmp_path):
+                entered.set()
+
+        with run_m1_gates.oracle_lock(tmp_path):
+            assert lock.read_text() == f"{os.getpid()}\n"
+            waiting = threading.Thread(target=second)
+            waiting.start()
+            assert not entered.wait(0.3)
+        waiting.join(10)
+        assert entered.is_set() and not lock.exists()
+        assert f"waiting for the oracle of pid {os.getpid()}" in capsys.readouterr().out
+
+        def held(out_dir: Path) -> None:
+            assert lock.read_text() == f"{os.getpid()}\n"
+            raise RuntimeError("planned under the lock")
+
+        monkeypatch.setattr(oracle, "discard_oracle_audit_scratch", held)
+        with pytest.raises(RuntimeError, match="planned under the lock"):
+            run_m1_gates.run_oracle(out_dir=tmp_path, spec=fixtures.mini_spec())
+        assert not lock.exists()
 
     def test_an_oracle_summary_that_comes_out_the_same_is_left_in_place(self, monkeypatch, tmp_path):
         """A second oracle run whose summary comes out the same leaves `oracle_summary.json` in place, keeping its inode and its modification time, here set long ago so that any write would move it."""
@@ -998,7 +1034,7 @@ class TestOracleFanIn:
         assert absorbed == {
             f"settle-memo-{config}.bin": [1] * count for config, count in planned_by_config.items()
         }
-        lines = (tmp_path / "divergence-audit.tsv").read_text(encoding="utf-8").splitlines()
+        lines = _audit_lines(tmp_path)
         assert lines[0] == oracle.ORACLE_AUDIT_HEADER
         planned = sorted(
             oracle.oracle_shard_plan(10, rows),
@@ -1012,7 +1048,7 @@ class TestOracleFanIn:
                 assert memo is None
             else:
                 assert memo is not None and memo.returns_fresh
-        assert self._files_left(tmp_path) == ["divergence-audit.tsv", "oracle_summary.json"]
+        assert self._files_left(tmp_path) == [*_AUDIT_FILES, "oracle_summary.json"]
 
     def test_a_range_that_falls_over_leaves_the_standing_audit_alone(self, monkeypatch, tmp_path):
         """The range that falls over is the last one of the first ranges the pool starts, one a slot, so every other range out has already shipped its lines into shared memory, none of their results is ever landed, and the ranges still to be submitted never start. The writer's exit must unlink those segments too, since shared memory outlives the run until someone does."""
@@ -1222,7 +1258,7 @@ class TestOracleFanIn:
     def test_a_cut_configurations_store_is_joined_from_its_ranges_segments_and_read_back(
         self, monkeypatch, tmp_path
     ):
-        """Runs the parent's row-store handling through `run_oracle`: each range of a cut configuration builds its segment in memory through `open_row_cache` and ships it home in shared memory, the parent's in-order writer joins a cut configuration's segments under the header its ranges agreed on once its last range lands, and every configuration's store is promoted, and the next pass's ranges load the joined store through the same reader and write under the next ordinal. The promoted store must equal what one writer over the whole table writes, which checks that the join's arguments (the stamp, the subset digest, the ordinal, the keys, and the row count) come from the range results."""
+        """Runs the parent's row-store handling through `run_oracle`: each range of a cut configuration builds its members in memory through `open_row_cache` and ships them home in shared memory, the parent's in-order writer hands the store set's writer a configuration's members under the ordinal its ranges agreed on once its last range lands, and the set head commits every configuration at once, and the next pass's ranges load the store through its head and write under the next ordinal. The materialized store must equal what one writer over the whole table writes, which checks that the header's inputs (the stamp, the subset digest, the ordinal, the keys, and the row count) come from the range results. The second pass re-derives every row to the same verdicts, so it writes no segment, only the ages column and the set head."""
         spec = fixtures.mini_spec()
         rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         stamps = {
@@ -1276,7 +1312,8 @@ class TestOracleFanIn:
             with oracle_cache.RowWriter(whole, stamps[config], f"{config}-digest", 0, keys) as writer:
                 for index in range(rows[config]):
                     writer.append((0xE650, 0xE650 + index), None, 0)
-            assert gzip.decompress(promoted.read_bytes()) == gzip.decompress(whole.read_bytes())
+            materialized = b"".join(oracle_cache.materialized_store(tmp_path, config))
+            assert gzip.decompress(materialized) == gzip.decompress(whole.read_bytes())
             whole.unlink()
             store = oracle_cache.load_store(promoted, stamps[config], f"{config}-digest", spec, keys)
             assert store is not None and store.rows == rows[config] and store.pass_ordinal == 0
@@ -1284,6 +1321,9 @@ class TestOracleFanIn:
         loaded.clear()
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         assert loaded and all(ordinal == 0 for _label, ordinal in loaded)
+        head = oracle_cache.read_set_head(tmp_path)
+        assert head is not None and head.generation == 1 and head.ages.name == oracle_cache.ages_name(1)
+        assert all(entry.segments == () for entry in head.configs.values())
         for config in conform.ORACLE_CONFIGS:
             promoted = oracle_cache.store_path(tmp_path, config)
             store = oracle_cache.load_store(promoted, stamps[config], f"{config}-digest", spec, keys)
@@ -1317,7 +1357,7 @@ class TestOracleFanIn:
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         assert len(seen) == len(conform.ORACLE_CONFIGS) and set(seen) == {None}
         assert "[warn] oracle row cache: unavailable" in capsys.readouterr().out
-        assert (tmp_path / "divergence-audit.tsv").is_file()
+        assert (tmp_path / "divergence-audit.tsv.head").is_file()
 
     def test_a_pass_that_may_not_write_a_store_rotates_its_verification_sample(self, monkeypatch, tmp_path):
         """The verification sample advances on the pass ordinal, which advances only when a store is written. `--gates-only` writes no store, so without a rotation it would verify the same sample on every run. A pass that writes no store therefore passes a nonzero `rotation` and leaves `write_dir` None, which also skips the scheduled re-derivation (`oracle.open_row_cache`); a writing pass passes zero."""
@@ -2301,7 +2341,7 @@ class TestGatesOnly:
     def test_a_pass_that_stops_before_its_gates_pass_leaves_no_stage_a_record(
         self, monkeypatch, tmp_path, stop, raised
     ):
-        """After an edit to a Stage A input such as the ledger, a pass that stops at a red defect or Manual-pin gate, on an exception from the oracle, or at Ctrl-C in it leaves the previous pass's audit in place (`oracle._staged_oracle_audit`), and the previous green, which is for other inputs. It leaves no Stage A record beside them, neither the previous pass's nor one for the edited sources: a corpus built over the old audit then carries null Stage A values, which `make verdict-ready` refuses, and the next cycle neither skips nor promotes a corpus over it (`artifact_cycle.m1_stage_a_current`) until a pass whose gates pass writes the record beside its own audit."""
+        """After an edit to a Stage A input such as the ledger, a pass that stops at a red defect or Manual-pin gate, on an exception from the oracle, or at Ctrl-C in it leaves the previous pass's audit in place (`oracle.AuditWriter.abandon`), and the previous green, which is for other inputs. It leaves no Stage A record beside them, neither the previous pass's nor one for the edited sources: a corpus built over the old audit then carries null Stage A values, which `make verdict-ready` refuses, and the next cycle neither skips nor promotes a corpus over it (`artifact_cycle.m1_stage_a_current`) until a pass whose gates pass writes the record beside its own audit."""
         out = tmp_path / "rebuild" / "out" / "m1"
         out.mkdir(parents=True)
         (out / fingerprint.STAGE_A_FILENAME).write_text(
