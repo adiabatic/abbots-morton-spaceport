@@ -1124,7 +1124,7 @@ _FULL_VERDICT_UPDATE = (
 def _run_verdict_update(plan, stdout, returncode=0, spy=None):
     """Run `_do_verdict_update` over a canned stdout. The fake spawn passes every line through the emitter as `_run_step` does, so the terminal output is what a real pass would print."""
 
-    def fake_spawn(name, argv, *, emit, registry, stream):
+    def fake_spawn(name, argv, *, emit, registry, stream, **passthrough):
         if spy is not None:
             spy.append((name, argv))
         for line in stdout.splitlines():
@@ -6864,6 +6864,33 @@ def test_the_corpus_build_runs_with_the_allocators_large_cache_off_on_macos_alon
         )
         assert units_done.is_set()
     assert seen == [("corpus-build", {"MallocLargeCache": "0"}), ("corpus-build", None)]
+
+
+def test_the_verdict_update_runs_with_the_allocators_large_cache_off_on_macos_alone(monkeypatch):
+    """On macOS the cycle spawns the verdict update with `MallocLargeCache=0` overlaid on its environment through the step's `env`, since the allocator reads it as the process starts and the standing fill's refill workers inherit it; elsewhere it passes no environment, which leaves the child the cycle's own. Either way the child runs the argv the plan holds."""
+    plan = _plan()
+    seen: list[tuple[str, list[str] | None, dict[str, str] | None]] = []
+
+    def spawn(name, argv, *, emit, registry, stream, env=None):
+        seen.append((name, argv, env))
+        return _step(name, 0, stdout=_verdict_update_stdout(*_FULL_VERDICT_UPDATE))
+
+    for platform in ("darwin", "linux"):
+        monkeypatch.setattr(ac.sys, "platform", platform)
+        report = ac.CycleReport()
+        assert (
+            ac._do_verdict_update(
+                report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan
+            )
+            == []
+        )
+        assert report.verdict_update_complete
+    argv = plan.argv("verdict-update")
+    assert argv
+    assert seen == [
+        ("verdict-update", argv, {"MallocLargeCache": "0"}),
+        ("verdict-update", argv, None),
+    ]
 
 
 def test_the_invariant_diff_prints_under_the_review_facts_step_in_full(tmp_path, capsys, monkeypatch):

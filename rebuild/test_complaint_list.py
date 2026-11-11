@@ -5,7 +5,8 @@ import weakref
 
 import pytest
 
-from rebuild.review import audit
+from rebuild.review import accepted, audit
+from rebuild.test_duplicate_verdicts import verdicts_layouts
 from rebuild.tools import complaint_list as cl
 from rebuild.tools.review_queue import QUEUE_SECTION, load_human_units
 
@@ -298,11 +299,31 @@ def test_defer_refuses_unknown_ids_and_empty_candidate_sets(repo):
 
 
 def test_refuses_a_verdicts_file_from_another_manifest(repo, capsys):
+    """The refusal names the stamp the file's head settles, and nothing past the head is parsed, so a file whose records are not JSON is refused as one whose records are. A head that does not settle the stamp leaves it to the whole parse, which refuses the file, or fails as `json.loads` fails on text that is not JSON. A file stamped for the corpus gives the same complaint list in every layout."""
     write_corpus(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject")], stamp="2026-07-01T00:00:00Z")
     assert run(repo) == 1
     assert "has not been carried onto this corpus" in capsys.readouterr().err
     assert not repo["data_out"].exists()
+    refusal = f"{repo['verdicts']} is stamped {OLD} but the corpus is {STAMP}, so it has not been carried onto this corpus"
+    for text in (
+        f'{{"format": "ams-review-verdicts/1", "manifest_generated_at": "{OLD}", "verdicts": [not json',
+        *verdicts_layouts(OLD, [v("u-0001", "reject")])[1:],
+    ):
+        repo["verdicts"].write_text(text)
+        assert run(repo) == 1
+        assert capsys.readouterr().err.startswith(refusal)
+        assert not repo["data_out"].exists()
+    repo["verdicts"].write_text('{"verdicts": [not json')
+    with pytest.raises(json.JSONDecodeError):
+        run(repo)
+    written = set()
+    for text in verdicts_layouts(STAMP, [v("u-0001", "reject", at=NEW)]):
+        repo["verdicts"].write_text(text)
+        assert run(repo) == 0
+        written.add((repo["data_out"].read_bytes(), *capsys.readouterr()))
+    assert len(written) == 1
+    assert data(repo)["totals"]["complaints"] == 1
 
 
 def test_exempt_units_never_complain_and_are_never_deferred(repo):
@@ -425,6 +446,7 @@ def test_complaints_with_no_provenance_go_in_a_terminal_unattributed_group(repo)
 
 
 def test_no_open_complaints_still_writes_a_valid_empty_feed(repo, capsys):
+    """With no complaint open, the list is empty and says so. When the caller hands over the human records and the corpus ids, as the verdict update does, the records are never read, and the data file, the printed lines, the warning about records on units off the corpus and an unknown `--defer` group's refusal are a standalone run's, which walks the corpus. One override reject on an accepted unit sends the handed run through the records, and it writes what a standalone run writes."""
     write_corpus(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [])
     assert run(repo) == 0
@@ -432,3 +454,70 @@ def test_no_open_complaints_still_writes_a_valid_empty_feed(repo, capsys):
     payload = data(repo)
     assert payload["groups"] == []
     assert payload["totals"]["complaints"] == 0
+
+    listed_unit, overridden = "u-1AAAAAAAAAA", "u-1BBBBBBBBBB"
+    write_corpus(
+        repo,
+        [
+            unit("u-0001", [P_EXTEND_1]),
+            unit("u-0002", [P_EXTEND_1, P_EXTEND_2]),
+            unit("u-0003", [P_EXTEND_2], cls="ruled-class"),
+            unit("u-0004", [P_EXTEND_1]),
+            {**unit("u-0005", [P_EXTEND_1]), "id": listed_unit},
+            {**unit("u-0006", [P_EXTEND_2]), "id": overridden},
+            unit("u-0007", [P_EXTEND_1], batch=None),
+        ],
+    )
+    path = repo["root"] / "rebuild" / "accepted-units.txt"
+    path.parent.mkdir()
+    path.write_bytes(accepted.render("2026-07-05T00:00:00Z", {listed_unit: "approve", overridden: "either"}))
+    units, unit_ids = load_human_units(repo["corpus"])
+
+    def write_store(override):
+        repo["verdicts"].write_text(
+            json.dumps(
+                {
+                    "format": "ams-review-verdicts/1",
+                    "manifest_generated_at": STAMP,
+                    "exported_at": STAMP,
+                    "verdicts": [
+                        v("u-0001", "approve"),
+                        v("u-0002", "identical", at=NEW),
+                        v("u-0004", "skip"),
+                        v("u-0007", "approve"),
+                        v("u-0009", "approve"),
+                    ],
+                    "overrides": {"verdicts": [v(overridden, override, note="looks off", at=NEW)]},
+                    "accepted": accepted.read(path).field(),
+                }
+            )
+        )
+
+    def outcome(code, *args, **held):
+        assert run(repo, *args, **held) == code
+        return repo["data_out"].read_bytes(), *capsys.readouterr()
+
+    def unread():
+        raise AssertionError("a handed stream is read with no complaint open")
+        yield
+
+    def read(log):
+        for record in units:
+            log.append(record["id"])
+            yield record
+
+    write_store("approve")
+    for args, code in (((), 0), (("--defer", "g-00000000"), 1)):
+        walked = outcome(code, *args)
+        assert outcome(code, *args, units=unread(), unit_ids=set(unit_ids)) == walked
+        assert walked[1] == "no open complaints\n"
+    assert walked[2] == (
+        "warning: 1 verdict records name units absent from this corpus\nunknown group id g-00000000 (known: none)\n"
+    )
+
+    write_store("reject")
+    walked = outcome(0)
+    log = []
+    assert outcome(0, units=read(log), unit_ids=set(unit_ids)) == walked
+    assert log == [record["id"] for record in units]
+    assert data(repo)["totals"]["rejects"] == 1

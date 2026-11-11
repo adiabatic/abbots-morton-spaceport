@@ -1,6 +1,6 @@
 """Write a machine-readable snapshot of the review queue for the live corpus: cluster the blank human units by the build's `cluster` signature (the duplicate-group key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the classes outside Open questions (the manifest's `section`, which `rebuild.review.audit.class_section` decides) that still have blank units, and list the duplicate groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=queue` computes the same clustering live from the in-memory verdict store. This tool writes tmp/queue-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file.
 
-This module is also the read path's loader of a verdicts file: `latest_verdicts` reads it through the accepted list it pairs with (`rebuild.review.accepted`), so a unit a close-out accepted reads as its mark and not as a blank in this tool, the duplicate and standing fills, the complaint list, the novelty order and the standing probe, and each of them takes the list's `--accepted` flag from `add_accepted_argument` and reads it through `accepted_list`.
+This module is also the read path's loader of a verdicts file: `latest_verdicts` reads it through the accepted list it pairs with (`rebuild.review.accepted`), so a unit a close-out accepted reads as its mark and not as a blank in this tool, the duplicate and standing fills, the complaint list, the novelty order and the standing probe, and each of them takes the list's `--accepted` flag from `add_accepted_argument` and reads it through `accepted_list`. This tool, the duplicate and standing fills and the complaint list read the file's stamp first through `verdicts_stamp`, from the file's head when the head settles it, so a file stamped for another corpus is refused without a whole parse, and a file stamped for the corpus is parsed once, inside `latest_verdicts`. A document with a second top-level `manifest_generated_at` after its `verdicts` array is judged by the first; no repo writer makes one.
 """
 
 import argparse
@@ -112,6 +112,15 @@ def latest_verdicts(
         raise SystemExit(str(refusal)) from None
 
 
+def verdicts_stamp(path: str | pathlib.Path) -> tuple[Any, Any]:
+    """Return the top-level `manifest_generated_at` of the verdicts file at `path` and the file's parsed content, None in its place when the file's head settles the stamp (`accepted.read_head_stamp`). Each reader compares the stamp with its corpus's and hands the content to `latest_verdicts`, so a file stamped for another corpus is refused without a whole parse, and one stamped for it is parsed once, inside `latest_verdicts` when the head settled the stamp, and the reader holds the view alone. The head read moves no file offset and consumes no byte, and a path that is not a regular file, such as a pipe or a missing file, takes none, so the parse that follows, here or in `latest_verdicts`, reads the bytes it reads without the head read. A head that does not settle the stamp leaves it to the whole parse, the file's text through `json.loads`, so a file that is not JSON raises as that parse raises, and one that is not an object as `.get` on it does. The two reads differ only on a document with a second top-level `manifest_generated_at` after its `verdicts` array, which the head judges by the first and the whole parse by the second; no repo writer makes one."""
+    stamp = accepted.read_head_stamp(path)
+    if stamp is not None:
+        return stamp, None
+    data = json.loads(pathlib.Path(path).read_text())
+    return data.get("manifest_generated_at"), data
+
+
 def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     """Write the review queue snapshot. `units` lets a caller that already holds the corpus's index records pass them instead of having this tool read them again. Only human records (`batch` not None) enter the snapshot either way."""
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
@@ -129,10 +138,10 @@ def main(argv=None, *, units: Iterable[Mapping[str, Any]] | None = None):
     manifest = json.loads((corpus / "manifest.json").read_text())
     ruled_ids = ruled_class_ids(manifest)
     verdicts_path = pathlib.Path(args.verdicts)
-    data = json.loads(verdicts_path.read_text())
-    if data.get("manifest_generated_at") != manifest["generated_at"]:
+    file_stamp, data = verdicts_stamp(verdicts_path)
+    if file_stamp != manifest["generated_at"]:
         raise SystemExit(
-            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the corpus is "
+            f"{args.verdicts} is stamped {file_stamp} but the corpus is "
             f"{manifest['generated_at']}, so it has not been carried onto this corpus: it can hold skips, "
             "which the carry drops, and verdicts on units the corpus does not have, and it is missing the "
             "fills a cycle runs on this corpus; a cycle pass (make artifact-cycle) leaves the store carried "

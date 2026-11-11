@@ -64,7 +64,7 @@ A rule's except_left guard refuses the whole unit, never one position, so a guar
 
 Standing fills complement duplicate_verdicts.py. The duplicate fill copies the user's verdicts to units whose change is pixel-identical, while a standing rule applies a recorded decision to units the user has never seen, such as windows with new left letters created by later migrations, so those units never wait for human review.
 
-Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A deferred unit carries a skip verdict, so it is not blank and is never filled. The verdicts file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is verdicted under its mark: never filled, counted in the already-verdicted column and in `--explain`'s lists, and outside `--open-only`'s domain, while an override on it that is a reject stays open and the disputed-match warning reports it. The verdict update (rebuild/tools/verdict_update.py) runs this after the duplicate fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its combined-match count; the totals do not sum across rules, because a window two rules explain counts toward both.
+Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A deferred unit carries a skip verdict, so it is not blank and is never filled. The verdicts file's stamp is read from its head when the head settles it (`review_queue.verdicts_stamp`), so a file stamped for another corpus is refused without a whole parse and a document with a second top-level `manifest_generated_at` after its `verdicts` array, which no repo writer makes, is judged by the first. The file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is verdicted under its mark: never filled, counted in the already-verdicted column and in `--explain`'s lists, and outside `--open-only`'s domain, while an override on it that is a reject stays open and the disputed-match warning reports it. The verdict update (rebuild/tools/verdict_update.py) runs this after the duplicate fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its combined-match count; the totals do not sum across rules, because a window two rules explain counts toward both.
 
 Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider.decide` computes the decision and `_decision_reach` aggregates a run from the decisions. The memo (`Memo`, the `--memo` flag, which the verdict update passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. When the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` decides them across a spawn pool at the width `--jobs` gives. The tool derives no width of its own; the verdict update forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, so its pass over the whole domain costs no second evaluation.
 
@@ -104,6 +104,7 @@ from rebuild.tools.review_queue import (  # noqa: E402
     add_accepted_argument,
     latest_verdicts,
     load_human_units,
+    verdicts_stamp,
 )
 
 CORPUS = ROOT / "rebuild/out/review"
@@ -3500,10 +3501,10 @@ def main(
 
     corpus = pathlib.Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text())
-    data = json.loads(pathlib.Path(args.verdicts).read_text())
-    if data.get("manifest_generated_at") != manifest["generated_at"]:
+    file_stamp, data = verdicts_stamp(args.verdicts)
+    if file_stamp != manifest["generated_at"]:
         raise SystemExit(
-            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the corpus is "
+            f"{args.verdicts} is stamped {file_stamp} but the corpus is "
             f"{manifest['generated_at']}, so it has not been carried onto this corpus: it can hold skips, "
             "which the carry drops, and verdicts on units the corpus does not have, and it is missing the "
             "fills a cycle runs on this corpus; a cycle pass (make artifact-cycle) leaves the store carried "

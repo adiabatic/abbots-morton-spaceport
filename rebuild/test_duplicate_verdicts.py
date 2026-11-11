@@ -1,6 +1,8 @@
 """Tests for the duplicate-group agreement rule, `review_queue.verdicts_agree`, and the two tools that use it: the duplicate fill and disagreement audit in duplicate_verdicts.py, and the conflicts list review_queue.py writes into the queue snapshot."""
 
 import json
+import os
+import re
 
 import pytest
 
@@ -55,6 +57,22 @@ def verdicts_file(tmp_path, records, name="verdicts-autosave.json"):
     path = tmp_path / name
     path.write_text(json.dumps({"manifest_generated_at": STAMP, "verdicts": list(records)}))
     return path
+
+
+def verdicts_layouts(stamp, records):
+    """Return a verdicts file's text in three layouts: its stamp ahead of `verdicts`, which the file's head settles, and `verdicts` first and more than the head's bytes ahead of `verdicts`, which leave the stamp to the whole parse (`review_queue.verdicts_stamp`)."""
+    members = {"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "exported_at": stamp}
+    texts = [
+        json.dumps({**members, "verdicts": records}),
+        json.dumps({"verdicts": records, **members}),
+        json.dumps({**members, "exported_at": "x" * accepted.HEAD_BYTES, "verdicts": records}),
+    ]
+    assert [accepted.head_stamp(text.encode()[: accepted.HEAD_BYTES]) for text in texts] == [
+        stamp,
+        None,
+        None,
+    ]
+    return texts
 
 
 @pytest.mark.parametrize(
@@ -238,6 +256,74 @@ def test_duplicate_projection_matches_streamed_fill_and_reports(tmp_path, monkey
         dv.main(argv, units=projection)
         assert out.read_bytes() == expected_bytes
         assert capsys.readouterr().out == expected_report
+
+
+@pytest.mark.parametrize("reader", ["duplicate-fill", "queue"])
+def test_a_verdicts_file_stamped_for_another_corpus_is_refused_on_its_heads_stamp(tmp_path, capsys, reader):
+    """The duplicate fill and the queue snapshot refuse a verdicts file stamped for another corpus on the stamp its head settles, naming it, and parse nothing past the head, so a file whose records are not JSON is refused as one whose records are. A head that does not settle the stamp, its `verdicts` key first or more than the head's bytes ahead of that key, leaves it to the whole parse, which refuses the file, or fails as `json.loads` fails on text that is not JSON. A file stamped for the corpus gives the same fills, queue snapshot and printed lines in every layout. A path that is not a regular file, a pipe, is parsed whole with no head read, and a `/dev/fd` path to the file, whose descriptor shares its offset on macOS, is read with its offset left where it was, so each is refused or read in every layout as the file is, the queue snapshot naming the file it read."""
+    corpus = corpus_with(
+        tmp_path,
+        [
+            unit("u-0001", "e-0001"),
+            unit("u-0002", "e-0001"),
+            unit("u-0003", "e-0002"),
+            unit("u-0004", "e-0002"),
+        ],
+    )
+    path = tmp_path / "verdicts-autosave.json"
+    out = tmp_path / "out.json"
+    main, flag = (dv.main, "--out") if reader == "duplicate-fill" else (rq.main, "--data-out")
+    argv = [str(path), "--corpus", str(corpus), flag, str(out)]
+    old = "2026-07-01T00:00:00Z"
+    records = [v("u-0001", "approve", note="looks right"), v("u-0003", "approve"), v("u-0004", "reject")]
+    refusal = re.escape(
+        f"{path} is stamped {old} but the corpus is {STAMP}, so it has not been carried onto this corpus"
+    )
+    for text in (
+        f'{{"format": "ams-review-verdicts/1", "manifest_generated_at": "{old}", "verdicts": [not json',
+        *verdicts_layouts(old, records)[1:],
+    ):
+        path.write_text(text)
+        with pytest.raises(SystemExit, match=refusal):
+            main(argv)
+    path.write_text('{"verdicts": [not json')
+    with pytest.raises(json.JSONDecodeError):
+        main(argv)
+    assert not out.exists()
+    written = set()
+    for text in verdicts_layouts(STAMP, records):
+        path.write_text(text)
+        main(argv)
+        written.add((out.read_bytes(), *capsys.readouterr()))
+    assert len(written) == 1
+    if reader == "duplicate-fill":
+        assert [record["unit"] for record in json.loads(out.read_text())["verdicts"]] == ["u-0002"]
+    else:
+        assert [entry["duplicate_group"] for entry in json.loads(out.read_text())["conflicts"]] == ["e-0002"]
+    expected = {**json.loads(out.read_text()), "verdicts_file": None}
+    for stamp in (old, STAMP):
+        for text in verdicts_layouts(stamp, records):
+            path.write_text(text)
+            read_end, write_end = os.pipe()
+            os.write(write_end, text.encode())
+            os.close(write_end)
+            descriptors = [read_end, os.open(path, os.O_RDONLY)]
+            try:
+                for descriptor in descriptors:
+                    named = f"/dev/fd/{descriptor}"
+                    named_argv = [named, "--accepted", str(accepted.path_for(path)), *argv[1:]]
+                    if stamp == old:
+                        with pytest.raises(
+                            SystemExit, match=re.escape(f"{named} is stamped {old} but the corpus")
+                        ):
+                            main(named_argv)
+                    else:
+                        out.unlink()
+                        main(named_argv)
+                        assert {**json.loads(out.read_text()), "verdicts_file": None} == expected
+            finally:
+                for descriptor in descriptors:
+                    os.close(descriptor)
 
 
 def test_the_queue_snapshot_lists_the_split_group_and_not_the_approve_identical_one(

@@ -741,7 +741,7 @@ def test_no_parsed_verdicts_file_outlives_the_read_of_the_next(tmp_path, monkeyp
     assert overlaps == [0] * len(overlaps)
 
 
-DEFAULT_HEAD_BYTES = status._HEAD_BYTES
+DEFAULT_HEAD_BYTES = accepted.HEAD_BYTES
 ESCAPED_VALUE_STAMP = "2026-07-04T00:00:00Z"
 
 
@@ -766,14 +766,14 @@ def _spy_on_parses(monkeypatch):
 
 
 def _spy_on_head_reads(monkeypatch):
-    real = status._head_stamp
+    real = accepted.head_stamp
     heads = []
 
     def spy(head):
         heads.append(len(head))
         return real(head)
 
-    monkeypatch.setattr(status, "_head_stamp", spy)
+    monkeypatch.setattr(accepted, "head_stamp", spy)
     return heads
 
 
@@ -984,15 +984,15 @@ def test_pick_fullest_verdicts_parses_no_candidate_stamped_for_another_corpus(tm
     _write(stash, verdicts_doc(OTHER_STAMP, _records(200)))
     _write_raw(tmp_path / "verdicts-escaped-key.json", _escaped_key_text(OTHER_STAMP, _records(3)))
     _write(tmp_path / "verdicts-export.json", verdicts_doc(OTHER_STAMP, _records(3)))
-    assert stash.stat().st_size > status._HEAD_BYTES
+    assert stash.stat().st_size > accepted.HEAD_BYTES
     parsed = _spy_on_parses(monkeypatch)
     reads = _spy_on_reads(monkeypatch)
     assert pick_fullest_verdicts(tmp_path, STAMP) == (aligned, 2)
-    assert reads[stash] <= status._HEAD_BYTES
+    assert reads[stash] <= accepted.HEAD_BYTES
     assert parsed == [_digest(aligned)]
     reads.clear()
     assert pick_fullest_verdicts(tmp_path, None) is None
-    assert reads[stash] <= status._HEAD_BYTES
+    assert reads[stash] <= accepted.HEAD_BYTES
     assert parsed == [_digest(aligned)]
 
 
@@ -1047,7 +1047,7 @@ def test_a_stamp_far_from_the_head_of_its_file_is_still_read(tmp_path):
         {
             "format": "ams-review-verdicts/1",
             "verdicts": _records(2),
-            "exported_at": "x" * (status._HEAD_BYTES + 100),
+            "exported_at": "x" * (accepted.HEAD_BYTES + 100),
             "manifest_generated_at": STAMP,
         },
     )
@@ -1087,10 +1087,10 @@ def test_the_fullest_verdicts_file_and_the_carry_source_answer_as_a_whole_parse_
 ):
     stamps = [*_write_verdict_files(tmp_path), None, "no-such-stamp", 0]
     autosave = tmp_path / "verdicts-autosave.json"
-    monkeypatch.setattr(status, "_HEAD_BYTES", head_bytes)
+    monkeypatch.setattr(accepted, "HEAD_BYTES", head_bytes)
     monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
     for stamp in stamps:
-        message = (stamp, status._HEAD_BYTES)
+        message = (stamp, accepted.HEAD_BYTES)
         expected_fullest = _reference_pick_fullest_verdicts(tmp_path, stamp)
         expected_carry = _reference_resolve_carry_source(tmp_path, stamp, autosave)
         monkeypatch.setattr(status, "_MEMO", {})
@@ -1104,12 +1104,12 @@ def test_the_fullest_verdicts_file_and_the_carry_source_answer_as_a_whole_parse_
         assert resolve_carry_source(tmp_path, stamp, autosave) == expected_carry, message
     monkeypatch.setattr(status, "_MEMO", {})
     for stamp in stamps:
-        message = (stamp, status._HEAD_BYTES)
+        message = (stamp, accepted.HEAD_BYTES)
         assert pick_fullest_verdicts(tmp_path, stamp) == _reference_pick_fullest_verdicts(
             tmp_path, stamp
         ), message
     for stamp in stamps:
-        message = (stamp, status._HEAD_BYTES)
+        message = (stamp, accepted.HEAD_BYTES)
         assert resolve_carry_source(tmp_path, stamp, autosave) == _reference_resolve_carry_source(
             tmp_path, stamp, autosave
         ), message
@@ -1126,7 +1126,7 @@ def test_the_head_read_agrees_with_a_whole_parse_at_every_window_size(tmp_path, 
         assert path.read_bytes().index(b'"verdicts"') + len(b'"verdicts"') < 190
     autosave = tmp_path / "verdicts-autosave.json"
     for size in range(1, 200):
-        monkeypatch.setattr(status, "_HEAD_BYTES", size)
+        monkeypatch.setattr(accepted, "HEAD_BYTES", size)
         for stamp in (STAMP, OTHER_STAMP, ESCAPED_VALUE_STAMP, None, "no-such-stamp"):
             monkeypatch.setattr(status, "_MEMO", {})
             assert pick_fullest_verdicts(tmp_path, stamp) == _reference_pick_fullest_verdicts(
@@ -1146,7 +1146,7 @@ def test_pick_fullest_verdicts_answers_an_unchanged_tree_from_the_memo(tmp_path,
     _write(aligned, verdicts_doc(STAMP, _records(2)))
     _write(foreign, verdicts_doc(OTHER_STAMP, _records(200)))
     write_autosave(tmp_path, records=_records(1))
-    assert foreign.stat().st_size > status._HEAD_BYTES
+    assert foreign.stat().st_size > accepted.HEAD_BYTES
     parsed = _spy_on_parses(monkeypatch)
     heads = _spy_on_head_reads(monkeypatch)
     assert pick_fullest_verdicts(tmp_path, STAMP) == (aligned, 2)

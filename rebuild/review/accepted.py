@@ -21,6 +21,8 @@ The API:
 - `iter_lines(path)`: each `(id, verdict)` in the list's order, holding one line at a time, for a streaming reader; `Malformed` when it reaches a malformed line; nothing when the file does not exist.
 - `read_tail(path) -> Tail | None`: a verdicts store document read once a block of about 1 MiB at a time, holding one record of its `verdicts` list at a time: every top-level member but that list, with its stamp (`.stamp`), `accepted` field (`.accepted`), tombstones (`.cleared`, as `journal.parse_cleared` reads them) and override section (`.overrides()`), how many records the list holds, the first record `verdict_store.well_formed` refuses with its index (`.malformed`), and how many `verdicts` members it names; None for a file that is missing, unreadable, not JSON anywhere in it or not an ams-review-verdicts/1 document, as `verdict_store.parse_autosave_payload` reads one. It decodes the file as `json.loads` decodes bytes, UTF-16 and a byte order mark among them, so a reader that checks a store with it gives the answer the readers that parse it whole give. The land reads its stores through it and `iter_records` (`rebuild.review.landing`).
 - `iter_records(source)`: the records of a document's first `verdicts` list, from a path or a binary file read from its start, in file order and one at a time, for a reader that checked the document with `read_tail`; `ValueError` for text that is not a JSON object.
+- `head_stamp(head) -> str | None`: a verdicts document's top-level `manifest_generated_at` read from its first bytes, member by member up to its `verdicts` key, without parsing a record; None when those bytes do not settle it, and the caller parses the whole file. It answers as `json.loads` does except on a document with a second top-level `manifest_generated_at` after its `verdicts` array, which it judges by the first and `json.loads` by the second; no repo writer makes one.
+- `read_head_stamp(path) -> str | None`: `head_stamp` of the first `HEAD_BYTES` (4096) bytes a read of the regular file at `path` starts with, read at the opened descriptor's offset without moving it, so a later read of the path sees every byte, and None for a path that is not a regular file, such as a pipe, whose bytes a read consumes; for a reader that checks a verdicts file's stamp before it parses the file: the duplicate and standing fills, the complaint list and the queue snapshot, through `review_queue.verdicts_stamp`. `rebuild.review.status` reads the same head and hands it to `head_stamp` itself, since it parses a file the head holds whole from those bytes.
 - `render(closed_at, verdicts) -> bytes`: the file's bytes for a dict from id to verdict, sorted; `ValueError` for a stamp, id or verdict the format cannot hold.
 - `pair(document, listed, *, store)`: `Mismatch` unless the store document (None when no store file exists) pairs with `listed`, an `Accepted` or a `ListStamp`; `store` names the store in the refusal, whose remedy is `make close-out ARGS=--apply` while a close-out's intent is left beside the list.
 - `close_out_intent_for(list_path)`: where a close-out leaves its intent, var/cycle/close-out.json beside the store whose list is at `list_path`, or None for a list no close-out writes.
@@ -46,6 +48,7 @@ import codecs
 import hashlib
 import io
 import json
+import os
 import re
 from collections.abc import Callable, Container, Iterator, Mapping
 from dataclasses import dataclass, field
@@ -66,6 +69,7 @@ ACCEPTING_VERDICTS = frozenset(MARKS)
 ID_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 ID_SYMBOLS = 11
 STAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+HEAD_BYTES = 4096
 
 _VERDICT_OF_MARK = {mark: verdict for verdict, mark in MARKS.items() if mark}
 _UNIT_ID = re.compile(rf"u-[{ID_ALPHABET}]{{{ID_SYMBOLS}}}")
@@ -658,6 +662,59 @@ def _records(handle: BinaryIO) -> Iterator[object]:
             text.value()
     except _NotJSON:
         raise ValueError(f"{getattr(handle, 'name', 'the file')} is not a JSON object") from None
+
+
+def _skip_whitespace(text: str, index: int) -> int:
+    match = _WHITESPACE.match(text, index)
+    return match.end() if match else index
+
+
+def head_stamp(head: bytes) -> str | None:
+    """Return the top-level manifest_generated_at of a verdicts document from its first bytes, without parsing its records, or None when the head does not settle it.
+
+    The head settles a stamp only when it decodes as strict UTF-8 to a JSON object whose top-level members, decoded one at a time with the decoder json.loads uses, reach the `verdicts` key after exactly one manifest_generated_at with a string value. Any other head returns None and the caller parses the whole file: a head that ends first, is not an object, starts with a BOM or uses another encoding, has a non-string stamp, has the stamp twice before `verdicts`, or closes before `verdicts`.
+
+    The result differs from json.loads only on a document with a second top-level manifest_generated_at after the `verdicts` array, where json.loads takes the later one. Repo writers serialize one dict or one JS object (json.dumps, VerdictStore.payload_bytes, the app's JSON.stringify), which produces no duplicate top-level members. Externally supplied files may contain duplicate members.
+    """
+    try:
+        text = codecs.getincrementaldecoder("utf-8")().decode(head)
+        decoder = json.JSONDecoder()
+        index = _skip_whitespace(text, 0)
+        if index >= len(text) or text[index] != "{":
+            return None
+        index = _skip_whitespace(text, index + 1)
+        stamp: str | None = None
+        while index < len(text) and text[index] == '"':
+            key, index = decoder.raw_decode(text, index)
+            if not isinstance(key, str):
+                return None
+            index = _skip_whitespace(text, index)
+            if index >= len(text) or text[index] != ":":
+                return None
+            index = _skip_whitespace(text, index + 1)
+            if key == "verdicts":
+                return stamp
+            value, index = decoder.raw_decode(text, index)
+            if key == "manifest_generated_at":
+                if stamp is not None or not isinstance(value, str):
+                    return None
+                stamp = value
+            index = _skip_whitespace(text, index)
+            if index >= len(text) or text[index] != ",":
+                return None
+            index = _skip_whitespace(text, index + 1)
+    except ValueError:
+        return None
+    return None
+
+
+def read_head_stamp(path: str | Path) -> str | None:
+    """Return `head_stamp` of the first HEAD_BYTES bytes a read of the regular file at `path` starts with, or None when `path` is not a regular file. The bytes are read at the opened descriptor's offset without moving it, so a later read of `path` sees every byte it sees without this one, also where opening the path shares an offset with another descriptor, as `/dev/stdin` and `/dev/fd/N` do on macOS; a pipe, whose bytes a read consumes, is not read."""
+    path = Path(path)
+    if not path.is_file():
+        return None
+    with path.open("rb", buffering=0) as handle:
+        return head_stamp(os.pread(handle.fileno(), HEAD_BYTES, handle.tell()))
 
 
 def _describe(named: object) -> str:

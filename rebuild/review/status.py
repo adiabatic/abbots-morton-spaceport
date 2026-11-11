@@ -5,10 +5,8 @@ An effective verdict is a unit's latest verdict when that verdict is not skip, a
 
 from __future__ import annotations
 
-import codecs
 import json
 import os
-import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,54 +78,6 @@ def _summarize(raw: bytes) -> _Candidate:
     return _Candidate(data["manifest_generated_at"], _effective_count(data), True)
 
 
-_HEAD_BYTES = 4096
-_JSON_WHITESPACE = re.compile(r"[ \t\n\r]*")
-
-
-def _skip_whitespace(text: str, index: int) -> int:
-    match = _JSON_WHITESPACE.match(text, index)
-    return match.end() if match else index
-
-
-def _head_stamp(head: bytes) -> str | None:
-    """Return the top-level manifest_generated_at of a verdicts file from its first bytes, without parsing its records, or None when the head does not settle it.
-
-    The head settles a stamp only when it decodes as strict UTF-8 to a JSON object whose top-level members, decoded one at a time with the decoder json.loads uses, reach the `verdicts` key after exactly one manifest_generated_at with a string value. Any other head returns None and the caller parses the whole file: a head that ends first, is not an object, starts with a BOM or uses another encoding, has a non-string stamp, has the stamp twice before `verdicts`, or closes before `verdicts`.
-
-    The result differs from json.loads only on a file with a second top-level manifest_generated_at after the `verdicts` array, where json.loads takes the later one. On such a file, pick_fullest_verdicts's result also depends on earlier calls: once resolve_carry_source has memoized the file's whole parse, pick_fullest_verdicts uses that parse's stamp, the later one. Repo writers serialize one dict or one JS object (json.dumps, VerdictStore.payload_bytes, the app's JSON.stringify), which produces no duplicate top-level members. Externally supplied files may contain duplicate members.
-    """
-    try:
-        text = codecs.getincrementaldecoder("utf-8")().decode(head)
-        decoder = json.JSONDecoder()
-        index = _skip_whitespace(text, 0)
-        if index >= len(text) or text[index] != "{":
-            return None
-        index = _skip_whitespace(text, index + 1)
-        stamp: str | None = None
-        while index < len(text) and text[index] == '"':
-            key, index = decoder.raw_decode(text, index)
-            if not isinstance(key, str):
-                return None
-            index = _skip_whitespace(text, index)
-            if index >= len(text) or text[index] != ":":
-                return None
-            index = _skip_whitespace(text, index + 1)
-            if key == "verdicts":
-                return stamp
-            value, index = decoder.raw_decode(text, index)
-            if key == "manifest_generated_at":
-                if stamp is not None or not isinstance(value, str):
-                    return None
-                stamp = value
-            index = _skip_whitespace(text, index)
-            if index >= len(text) or text[index] != ",":
-                return None
-            index = _skip_whitespace(text, index + 1)
-    except ValueError:
-        return None
-    return None
-
-
 _SETTLE_NS = 2_000_000_000
 _StatKey = tuple[int, int, int, int, int]
 _MEMO: dict[Path, tuple[_StatKey, _Candidate]] = {}
@@ -138,7 +88,10 @@ def _stat_key(stat: os.stat_result) -> _StatKey:
 
 
 def _read_candidate(path: Path, manifest_stamp, *, counts: bool) -> tuple[_StatKey, bool, _Candidate] | None:
-    """Read one verdicts file and return its stat key from the open handle, whether its last change was at least _SETTLE_NS before the read began, and its candidate; or None when the file cannot be read. With `counts`, every file is parsed whole. Without it, a file whose head settles a stamp other than manifest_stamp returns a head-only candidate, and every other file is parsed whole, so a candidate stamped manifest_stamp always carries the parsed stamp. The handle is unbuffered so that the whole-file read after the head returns one bytes object, with no copy that joins a buffered head onto the rest. The head is the whole file only when the size fstat reported fits inside it."""
+    """Read one verdicts file and return its stat key from the open handle, whether its last change was at least _SETTLE_NS before the read began, and its candidate; or None when the file cannot be read. With `counts`, every file is parsed whole. Without it, a file whose head, its first `accepted.HEAD_BYTES` bytes, settles a stamp other than manifest_stamp (`accepted.head_stamp`) returns a head-only candidate, and every other file is parsed whole, so a candidate stamped manifest_stamp always carries the parsed stamp. The handle is unbuffered so that the whole-file read after the head returns one bytes object, with no copy that joins a buffered head onto the rest. The head is the whole file only when the size fstat reported fits inside it.
+
+    The head read judges a file with a second top-level manifest_generated_at after its `verdicts` array by the first, where a whole parse takes the later one. On such a file, pick_fullest_verdicts's result also depends on earlier calls: once resolve_carry_source has memoized the file's whole parse, pick_fullest_verdicts uses that parse's stamp, the later one. No repo writer makes such a file.
+    """
     try:
         with path.open("rb", buffering=0) as handle:
             stat = os.fstat(handle.fileno())
@@ -147,8 +100,8 @@ def _read_candidate(path: Path, manifest_stamp, *, counts: bool) -> tuple[_StatK
             settled = now - max(stat.st_mtime_ns, stat.st_ctime_ns) >= _SETTLE_NS
             if counts:
                 return key, settled, _summarize(handle.read())
-            head = handle.read(_HEAD_BYTES)
-            stamp = _head_stamp(head)
+            head = handle.read(accepted.HEAD_BYTES)
+            stamp = accepted.head_stamp(head)
             if stamp is not None and stamp != manifest_stamp:
                 return key, settled, _Candidate(stamp, None, False)
             if stat.st_size <= len(head):

@@ -6,6 +6,8 @@ Deferring uses skip verdicts. A defer file holds one skip verdict per defer cand
 
 The verdicts file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is never a defer candidate and counts among a group's approved units at risk under its mark, while the warning about records on units absent from the corpus counts the file's records, its overrides among them, and no accepted unit.
 
+The file's stamp is read from its head when the head settles it (`review_queue.verdicts_stamp`), so a file stamped for another corpus is refused without a whole parse, and a file stamped for this one is parsed once, inside `latest_verdicts`; a document with a second top-level `manifest_generated_at` after its `verdicts` array is judged by the first, which no repo writer makes. When the caller hands over the human records and the corpus ids, as the verdict update does, and no record the file holds, its overrides among them, is a reject or a neither (`_may_complain`), the human records are never read: the walk would find no complaint, and its projections of the blank and at-risk units serve only the groups. A standalone run walks the corpus whatever the file holds, because that walk collects the corpus ids the absent-unit warning counts against.
+
 Writes tmp/complaints-data.json. `--defer g-XXXXXXXX` also writes a verdicts-deferred-*.json for that group.
 """
 
@@ -24,13 +26,14 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from rebuild.review.accepted import Accepted  # noqa: E402
+from rebuild.review.accepted import Accepted, View  # noqa: E402
 from rebuild.tools.review_queue import (  # noqa: E402
     ACCEPTING_VERDICTS,
     accepted_list,
     add_accepted_argument,
     latest_verdicts,
     ruled_class_ids,
+    verdicts_stamp,
 )
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.review.verdict_store import note_of  # noqa: E402
@@ -248,6 +251,15 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
     return finalized, naming
 
 
+def _may_complain(records: View) -> bool:
+    """Return whether the walk of the human units could find an open complaint in `records`, or fail on a record: whether a record it holds of its own or in its override section is a reject or a neither, or has no verdict for the walk to read. The accepted list holds only accepting verdicts."""
+    return any(
+        "verdict" not in record or record["verdict"] in COMPLAINT_KINDS
+        for held in (records.records, records.overrides.records)
+        for record in held.values()
+    )
+
+
 def emit_defer(group, marker_target, *, stamp, defer_dir, note_text):
     marker = f"[deferred: {marker_target} — complaint list {stamp}]"
     note = f"{marker} {note_text}" if note_text else marker
@@ -274,7 +286,7 @@ def main(
 ):
     """Write the complaint list data, and defer files for any `--defer` groups.
 
-    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and at-risk units are kept from the stream. `listed` is the accepted list when the caller already holds the one `--accepted` names, as the verdict update does; without it the list is read here (`review_queue.accepted_list`).
+    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and at-risk units are kept from the stream, and the stream is never read when no record the file holds can be an open complaint (`_may_complain`). `listed` is the accepted list when the caller already holds the one `--accepted` names, as the verdict update does; without it the list is read here (`review_queue.accepted_list`).
     """
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
@@ -313,10 +325,10 @@ def main(
     ruled_ids = ruled_class_ids(manifest)
     stamp = manifest["generated_at"]
     verdicts_path = pathlib.Path(args.verdicts)
-    data = json.loads(verdicts_path.read_text())
-    if data.get("manifest_generated_at") != stamp:
+    file_stamp, data = verdicts_stamp(verdicts_path)
+    if file_stamp != stamp:
         print(
-            f"{args.verdicts} is stamped {data.get('manifest_generated_at')} but the corpus is "
+            f"{args.verdicts} is stamped {file_stamp} but the corpus is "
             f"{stamp}, so it has not been carried onto this corpus: it can hold skips, "
             "which the carry drops, and verdicts on units the corpus does not have, and it is missing the "
             "fills a cycle runs on this corpus; a cycle pass (make artifact-cycle) leaves the store carried "
@@ -329,6 +341,8 @@ def main(
     if units is None or unit_ids is None:
         unit_ids = set()
         units = iter_human_units(corpus, unit_ids=unit_ids)
+    elif not _may_complain(records):
+        units = ()
     complaints = []
     human = []
     for unit in units:

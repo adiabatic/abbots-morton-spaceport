@@ -13,6 +13,7 @@ from collections.abc import Iterable
 
 import pytest
 
+from rebuild.test_duplicate_verdicts import verdicts_layouts
 from rebuild.tools import standing_verdicts as sv
 
 STAMP = "2026-07-10T00:00:00Z"
@@ -3164,8 +3165,9 @@ def test_main_ignores_multi_render_group_units(tmp_path, monkeypatch):
     assert payload["verdicts"] == []
 
 
-def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
-    corpus = _corpus(tmp_path, [canonical("u-1")])
+def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch, capsys):
+    """The refusal names the stamp the file's head settles, and nothing past the head is parsed, so a file whose records are not JSON is refused as one whose records are. A head that does not settle the stamp, its `verdicts` key first or more than the head's bytes ahead of that key, leaves it to the whole parse, which refuses the file, or fails as `json.loads` fails on text that is not JSON. A file stamped for the corpus gives the same fills and report in every layout."""
+    corpus = _corpus(tmp_path, [canonical("u-1"), canonical("u-2")])
     rules = tmp_path / "rules.yaml"
     rules.write_text(json.dumps({"format": sv.FORMAT, "rules": [RULE]}))
     verdicts_path = tmp_path / "verdicts-autosave.json"
@@ -3178,6 +3180,7 @@ def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
             }
         )
     )
+    out = tmp_path / "out.json"
     monkeypatch.setattr(
         sys,
         "argv",
@@ -3189,11 +3192,35 @@ def test_main_refuses_a_stale_stamped_verdicts_file(tmp_path, monkeypatch):
             "--rules",
             str(rules),
             "--out",
-            str(tmp_path / "out.json"),
+            str(out),
         ],
     )
     with pytest.raises(SystemExit, match="has not been carried onto this corpus"):
         sv.main()
+
+    old = "2026-01-01T00:00:00Z"
+    records = [{"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-11T00:00:00Z"}]
+    refusal = re.escape(
+        f"{verdicts_path} is stamped {old} but the corpus is {STAMP}, so it has not been carried onto this corpus"
+    )
+    for text in (
+        f'{{"format": "ams-review-verdicts/1", "manifest_generated_at": "{old}", "verdicts": [not json',
+        *verdicts_layouts(old, records)[1:],
+    ):
+        verdicts_path.write_text(text)
+        with pytest.raises(SystemExit, match=refusal):
+            sv.main()
+    verdicts_path.write_text('{"verdicts": [not json')
+    with pytest.raises(json.JSONDecodeError):
+        sv.main()
+    assert not out.exists()
+    written = set()
+    for text in verdicts_layouts(STAMP, records):
+        verdicts_path.write_text(text)
+        assert sv.main() == 0
+        written.add((out.read_bytes(), *capsys.readouterr()))
+    assert len(written) == 1
+    assert [record["unit"] for record in json.loads(out.read_text())["verdicts"]] == ["u-1"]
 
 
 def out_window(uid="o-1"):
