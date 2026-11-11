@@ -641,7 +641,7 @@ def test_node_check_passes_on_every_shipped_script():
 
 
 def _seed_refreshable_corpus(corpus: Path, inputs_fingerprint: dict, root: Path) -> dict:
-    """Build a corpus holding only the files `_check_output_files` requires: an empty manifest, the per-unit index and both app sidecars stamped for that manifest, and the copied after font, whose bytes match both the sha the manifest records and the M1.otf under `root`. `refresh_assets` writes index.html itself from the static tree it copies. The font record names no `source`, so the check compares the copy with the manifest only and resolves no path inside the fixture tree."""
+    """Build a corpus holding only the files `_check_output_files` requires, and the unit store `corpus_build_skippable` requires: an empty manifest, the per-unit index, both app sidecars and the store stamped for that manifest, and the copied after font, whose bytes match both the sha the manifest records and the M1.otf under `root`. `refresh_assets` writes index.html itself from the static tree it copies. The font record names no `source`, so the check compares the copy with the manifest only and resolves no path inside the fixture tree."""
     corpus.mkdir(parents=True, exist_ok=True)
     font_bytes = b"OTTO-fixture"
     (root / "rebuild" / "out" / "m1").mkdir(parents=True, exist_ok=True)
@@ -658,6 +658,7 @@ def _seed_refreshable_corpus(corpus: Path, inputs_fingerprint: dict, root: Path)
     (corpus / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
     unit_index.write_index(corpus, [])
     app_index.write_app_artifacts(corpus, {}, {})
+    unit_cache.write_store(corpus, "environment", [], parts=[])
     return manifest
 
 
@@ -670,7 +671,7 @@ def _fake_static_tree(root: Path) -> Path:
 
 
 def test_refresh_assets_restamps_only_the_static_component(tmp_path):
-    """Checks everything an assets refresh does: it copies the app shell onto the corpus, rewrites the `static` fingerprint component in place, and changes nothing else. `generated_at` stays, so an open review session keeps its verdict store. The index and both sidecars stay current, because the manifest's identity excludes this component. A corpus that `corpus_build_skippable` reported as stale before the refresh reports as current after it, so the next pass skips the build."""
+    """Checks everything an assets refresh does: it copies the app shell onto the corpus, rewrites the `static` fingerprint component in place, and changes nothing else. `generated_at` stays, so an open review session keeps its verdict store. The index, both sidecars and the unit store stay current, because the manifest's identity excludes this component. A corpus that `corpus_build_skippable` reported as stale before the refresh reports as current after it, so the next pass skips the build."""
     from rebuild.tools.artifact_cycle import corpus_build_skippable
 
     root = tmp_path / "repo"
@@ -701,6 +702,7 @@ def test_refresh_assets_restamps_only_the_static_component(tmp_path):
     assert unit_index.index_is_current(corpus)
     for name, fmt in app_index.ARTIFACTS:
         assert app_index.artifact_is_current(corpus, name, fmt)
+    assert unit_index.store_is_current(corpus)
     assert corpus_build_skippable(root, corpus)
 
 
@@ -886,7 +888,7 @@ def test_write_shard_leaves_no_staging_file_behind_when_serializing_fails(tmp_pa
 
 
 def test_the_shard_writer_keeps_the_previous_corpus_whole_until_commit(tmp_path):
-    """The m1 build reads cached units out of the previous corpus's shards by address while it writes the new ones, so a part replaces the old file only at `commit`, after every class has closed. Until then the old file stays on disk under its name, and `abort` deletes the staged parts without touching it. Appended to, a class keeps its parts: a kept fragment's span is its prior address, an appended one goes to the first overflow part, staged until `commit`, and a later append clones that part to its staging name, cuts its closing bytes and appends, so the part on disk is the previous corpus's until `commit`."""
+    """The m1 build reads cached units out of the previous corpus's shards by address while it writes the new ones, so a part replaces the old file only at `commit`, after every class has closed. Until then the old file stays on disk under its name, and `abort` deletes the staged parts without touching it. Appended to, a class keeps its parts: a kept fragment's span is its prior address, an appended one goes to the first overflow part, staged until `commit`, and a later append clones that part to its staging name, cuts its closing bytes and appends, so the part on disk is the previous corpus's until `commit`. A class whose writes deflate (#618's change 35) appends each fragment deflated alone (`unit_index.deflate_fragment`) within the same framing, so it continues an overflow part that holds plain fragments, and its span carries the fragment's inflated length, which a kept fragment's span carries from its prior address too."""
     _write_shard(tmp_path, "a", [{"id": "u-0000"}])
     units = tmp_path / "units"
     before = (units / "a.json").read_bytes()
@@ -920,11 +922,12 @@ def test_the_shard_writer_keeps_the_previous_corpus_whole_until_commit(tmp_path)
             0,
             1,
             len(held) - 4,
+            0,
         )
         span = writer.add(appended)
         names, total = writer.close()
         assert names == ["units/a.json", "units/a.x000.json"]
-        assert span == (1, len(overflow) - 2 if overflow else 1, len(_fragment_bytes(appended)))
+        assert span == (1, len(overflow) - 2 if overflow else 1, len(_fragment_bytes(appended)), 0)
         assert (units / "a.json").read_bytes() == held
         assert (units / "a.x000.json").exists() == bool(round)
         if round:
@@ -941,6 +944,21 @@ def test_the_shard_writer_keeps_the_previous_corpus_whole_until_commit(tmp_path)
     writer.abort()
     assert json.loads((units / "a.x000.json").read_bytes()) == [appended] * 2
     assert not list(units.glob("*.partial"))
+    plain = (units / "a.x000.json").read_bytes()
+    body = _fragment_bytes(appended)
+    stored = unit_index.deflate_fragment(body)
+    writer = _ShardWriter(tmp_path)
+    writer.open("a", ["units/a.json", "units/a.x000.json"], append=True, deflate=True)
+    kept = unit_cache.PriorFragment("units/a.x000.json", 1, len(body), "u-0002", None, inflated=len(body))
+    assert writer.keep(kept) == (1, 1, len(body), len(body))
+    span = writer.add(appended)
+    assert span == (1, len(plain) - 2, len(stored), len(body))
+    assert (writer.appended, writer.appended_inflated, writer.deflated) == (len(stored) + 1, len(body) + 1, 1)
+    writer.close()
+    writer.commit()
+    part = (units / "a.x000.json").read_bytes()
+    assert part == plain[: -len(unit_index.PART_CLOSING)] + b"," + stored + unit_index.PART_CLOSING
+    assert unit_index.inflate_fragment(part[span[1] : span[1] + span[2]], span[3]) == body
 
 
 def test_the_arena_reads_every_fragment_back_by_address():
@@ -1715,7 +1733,7 @@ def test_a_cached_rebuild_estimates_the_records_the_walk_has_to_place(
         if match
     }
     assert sizes[("plan", "unit_cache.addressless")] == 20 * total
-    assert sizes[("locate", "unit_cache.addressless_located")] == 60 * total
+    assert sizes[("locate", "unit_cache.addressless_located")] == 64 * total
     assert tallies["plan"]["unit_store"] == total
     assert not _subsumed_collections(tallies)
 

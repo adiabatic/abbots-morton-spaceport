@@ -121,10 +121,24 @@ export function coalesceSpans(rows, gap = SPAN_GAP_BYTES) {
   return runs;
 }
 
-// One row's fragment from the text a run's Range request returned. The shard is ASCII (`build._write_shard` writes it so), so a byte offset is a character offset.
-export function sliceRecordText(runText, run, row) {
+// One row's bytes from the bytes a run's Range request returned, at the row's byte span on disk.
+export function sliceRecordBytes(runBytes, run, row) {
   const start = row.byte_start - run.byte_start;
-  return runText.slice(start, start + row.byte_length);
+  return runBytes.subarray(start, start + row.byte_length);
+}
+
+const asciiDecoder = new TextDecoder();
+
+// A deflated fragment's bytes inflated, as `unit_index.deflate_fragment` deflates them: one raw deflate stream with no dictionary. A stream that is cut short or runs on past its end rejects.
+export async function inflateRaw(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Response(stream).text();
+}
+
+// One row's fragment as JSON text, from the bytes its run returned: a row marked `deflated` (#618's change 35) is inflated, and a plain one is ASCII, so it decodes byte for byte.
+export async function recordText(runBytes, run, row) {
+  const bytes = sliceRecordBytes(runBytes, run, row);
+  return row.deflated ? inflateRaw(bytes) : asciiDecoder.decode(bytes);
 }
 
 export function shardPartPath(manifest, row) {

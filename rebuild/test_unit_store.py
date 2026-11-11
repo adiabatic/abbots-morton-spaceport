@@ -15,9 +15,9 @@ import pytest
 
 from rebuild.review import build as review_build
 from rebuild.review import unit_cache, unit_store
-from rebuild.review.audit import load_workload, sort_for_triage, triage_key
+from rebuild.review.audit import UnitTable, load_workload, sort_for_triage, triage_key
 from rebuild.review.build import _junction_records
-from rebuild.review.columns import RepeatedKey
+from rebuild.review.columns import RepeatedKey, StringTable, TuplePool
 from rebuild.review.drafts import build_corpus_index
 from rebuild.review.enrich import LETTERS, PrimaryUnitProjection
 from rebuild.review.unit_store import UnitStore
@@ -456,6 +456,60 @@ def test_a_cached_record_is_loaded_with_the_fragment_the_plan_located(tmp_path):
         exemplar=False,
         no_verdict=False,
     )
+
+
+def _route_table(n: int) -> UnitTable:
+    """A workload table of `n` units whose duplicate group and ledger flags, the per-unit values `build._route` reads, are the ones `_cached_record` patched its fragments with."""
+    table = UnitTable(n, StringTable(), TuplePool())
+    for ordinal in range(n):
+        table.set_duplicate_group(ordinal, "e-2WvdGAWe6bX")
+    return table
+
+
+def test_the_share_rule_weighs_every_unit_at_its_inflated_length(tmp_path):
+    """The share rule writes a class directly when its changed units pass half its live bytes (`build._route`), and every unit weighs its plain length (#618's decision 76): a recomputed unit its drafted fragment's, and a cached unit its prior fragment's inflated length, which a deflated fragment's store address records, while the unit is read by its length on disk. So a class whose parts hold its fragments deflated goes direct at half its content changed: here 7 cached units held deflated at 40 bytes, 100 inflated, beside 3 recomputed units of 100, 30% of its content changed, append, where weights at the bytes on disk would have sent the class direct, and 4 such cached units beside 6 recomputed ones, 60%, go direct. A class with no parts in the previous corpus is a first base."""
+    cached = [
+        replace(
+            _cached_record(f"held-{index}", [[None, False]], ("units/small.json", 1 + 41 * index, 40)),
+            inflated=100,
+        )
+        for index in range(7)
+    ]
+    loaded = _load(tmp_path, cached)
+
+    def route(held: int, recomputed: int) -> str:
+        store = UnitStore(held + recomputed)
+        for ordinal, record in enumerate(cached[:held]):
+            store.load_cached(ordinal, loaded[record.key], codepoints=(0xE652, 0xE670 + ordinal))
+        for index in range(recomputed):
+            projection = _projection(f"drafted-{index}", (0xE652, 0xE700 + index))
+            store.load_projection(projection, no_verdict=False, ordinal=held + index, length=100)
+        source = store.source(0)
+        assert source is not None and (store.shard_length(0), source.length, source.inflated) == (
+            100,
+            40,
+            100,
+        )
+        predicted = bytearray(store.n)
+        found = review_build._route(
+            "split-by-space-or-zwnj",
+            range(store.n),
+            ("units/small.json",),
+            _route_table(store.n),
+            store,
+            None,
+            predicted,
+        )
+        assert list(predicted) == [1] * held + [0] * recomputed
+        return found
+
+    assert 2 * 3 * 101 > 7 * 41 + 3 * 101
+    assert route(7, 3) == review_build.APPEND
+    assert route(4, 6) == review_build.DIRECT
+    store = UnitStore(1)
+    store.load_cached(0, loaded[cached[0].key], codepoints=_WINDOW)
+    first = review_build._route("split-by-space-or-zwnj", [0], (), _route_table(1), store, None, bytearray(1))
+    assert first == review_build.FIRST
 
 
 def test_the_id_index_refuses_a_duplicate_and_answers_ordinal_of():

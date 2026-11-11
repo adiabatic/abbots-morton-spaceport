@@ -1,4 +1,4 @@
-"""Compute the review corpus's readiness: whether the served corpus exists, whether it matches the runes and code on disk (its after font is the M1 font on disk, and its per-unit index and both app sidecars are stamped for its manifest), whether a green artifact cycle produced it, and whether the verdict store (the autosave) is stamped for it. The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs.
+"""Compute the review corpus's readiness: whether the served corpus exists, whether it matches the runes and code on disk (its after font is the M1 font on disk, and its per-unit index, both app sidecars and its unit store are stamped for its manifest, the check of a finished corpus the cycle shares, `app_index.outputs_not_current`), whether a green artifact cycle produced it, and whether the verdict store (the autosave) is stamped for it. The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs.
 
 An effective verdict is a unit's latest verdict when that verdict is not skip, a store's override records on listed units (`rebuild.review.accepted.Overrides`) counted with its own. The store's count also takes the accepted list beside it (`rebuild.review.accepted`): each listed unit of the served corpus's human units that holds no override is an effective verdict of the store's, under its mark, so a store a close-out emptied counts the units it folded and no verdicts file at the root outranks it. A root file's count takes no listed unit, or a ten-record export would outrank the store. A list the readers cannot read, or a store that does not pair with it (`accepted.pair`), fails the verdict-store check, as the review server and every pass refuse it. The only state kept between calls is `_MEMO`, keyed on each verdicts file's stat. It records the file's stamp and, once the file has been parsed, its effective count, so a long-lived server checks an unchanged file with one stat.
 """
@@ -377,10 +377,7 @@ def _freshness_check(
             "remedy": artifact_cycle_remedy,
             "components": components,
         }
-    missing = [] if unit_index.index_is_current(review_dir) else [unit_index.INDEX_NAME]
-    missing += [
-        name for name, fmt in app_index.ARTIFACTS if not app_index.artifact_is_current(review_dir, name, fmt)
-    ]
+    missing = app_index.outputs_not_current(review_dir)
     if missing:
         return {
             "level": "fail",

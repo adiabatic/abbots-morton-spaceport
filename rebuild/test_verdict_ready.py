@@ -12,7 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import accepted, app_index, journal, status, store_lock, unit_index
+from rebuild.pipeline import row_delta
+from rebuild.review import accepted, app_index, journal, status, store_lock, unit_cache, unit_index
 from rebuild.review.status import (
     compute_status,
     count_effective,
@@ -88,7 +89,7 @@ def write_corpus(
     after_font: str = "present",
     sidecars: bool = True,
 ) -> None:
-    """`after_font` sets how the manifest's after-font record relates to the `M1.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of different bytes (as after a `run_m1` that ran after the corpus build), and "omit" writes no `fonts` block. `sidecars` writes the per-unit index and both app sidecars stamped for the manifest, as a finished build leaves them; a test that needs one missing deletes it."""
+    """`after_font` sets how the manifest's after-font record relates to the `M1.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of different bytes (as after a `run_m1` that ran after the corpus build), and "omit" writes no `fonts` block. `sidecars` writes the class shards, and the per-unit index, both app sidecars and the unit store stamped for the manifest, as a finished build leaves them; a test that needs one missing deletes it."""
     manifest: dict[str, object] = {
         "format": "ams-review-manifest/2",
         "generated_at": generated_at,
@@ -112,8 +113,13 @@ def write_corpus(
         }
     _write(review_dir / "manifest.json", manifest)
     if sidecars:
+        parts = [part for meta in DEFAULT_CLASSES for part in meta["shards"]]
+        for part in parts:
+            (review_dir / part).parent.mkdir(parents=True, exist_ok=True)
+            (review_dir / part).write_text("[]")
         unit_index.write_index(review_dir, [])
         app_index.write_app_artifacts(review_dir, {}, {})
+        unit_cache.write_store(review_dir, "environment", [], parts=parts)
 
 
 def write_summary(
@@ -252,7 +258,7 @@ def test_freshness_fails_when_the_after_font_moved(tmp_path):
 
 
 def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
-    """The per-unit index and both app sidecars are written after the manifest and are not part of it. A build killed between the two, or a manifest rewritten without them, leaves a corpus whose fingerprint reads fresh while the app loads files that describe another corpus."""
+    """The per-unit index, both app sidecars and the unit store are written after the manifest and are not part of it, the store last. A build killed between the two, or a manifest rewritten without them, leaves a corpus whose fingerprint reads fresh while the app loads files that describe another corpus. A build killed after its sidecars and before its store leaves deflated fragments (#618's change 35) that only a store written for the manifest can place, so the check names the store's head too, as the cycle's `corpus_complete` does through the same `app_index.outputs_not_current`."""
     setup_green(tmp_path)
     review_dir = tmp_path / "rebuild" / "out" / "review"
     unit_index.index_path(review_dir).unlink()
@@ -261,6 +267,16 @@ def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
     assert freshness["level"] == "fail"
     assert unit_index.INDEX_NAME in freshness["detail"]
     assert freshness["remedy"] == "make artifact-cycle"
+    assert result["ready"] is False
+
+    write_corpus(review_dir, repo_head="def5678", sidecars=False)
+    unit_index.write_index(review_dir, [])
+    app_index.write_app_artifacts(review_dir, {}, {})
+    result = call(tmp_path)
+    freshness = result["checks"]["freshness"]
+    assert freshness["level"] == "fail"
+    assert app_index.outputs_not_current(review_dir) == [row_delta.head_name(unit_index.STORE_NAME)]
+    assert row_delta.head_name(unit_index.STORE_NAME) in freshness["detail"]
     assert result["ready"] is False
 
 

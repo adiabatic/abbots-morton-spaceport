@@ -127,8 +127,8 @@ import {
   looksGzipped,
   machineFoldPlan,
   rangeHeader,
+  recordText,
   shardPartPath,
-  sliceRecordText,
   splitLines,
 } from './slim.js';
 import {
@@ -496,7 +496,7 @@ async function resolveMachineIds(unitIds) {
   return found;
 }
 
-// Fetches the shard records for a set of addresses with as few Range requests as the spans allow: neighbors in a part share one request, and each record is sliced from the response at its own span. Every record read goes into fullRecords, so a card's fetch also serves its explain panel.
+// Fetches the shard records for a set of addresses with as few Range requests as the spans allow: neighbors in a part share one request, and each record is sliced from the response's bytes at its own span, inflated when its row marks it deflated and decoded as text when it is plain. Every record read goes into fullRecords, so a card's fetch also serves its explain panel.
 async function fetchRecordsBySpans(rows) {
   const found = new Map();
   const wanted = [];
@@ -509,7 +509,7 @@ async function fetchRecordsBySpans(rows) {
     coalesceSpans(wanted).map(async (run) => {
       const path = shardPartPath(manifest, run);
       if (!path) return;
-      let text = null;
+      let bytes = null;
       try {
         const response = await fetch(path, { headers: { Range: rangeHeader(run) } });
         if (RANGE_GONE_STATUSES.has(response.status)) {
@@ -520,7 +520,7 @@ async function fetchRecordsBySpans(rows) {
         if (response.status !== 206 && Number(response.headers.get('Content-Length')) > run.byte_length) {
           throw new Error('the server ignored the byte range');
         }
-        text = await response.text();
+        bytes = new Uint8Array(await response.arrayBuffer());
       } catch (error) {
         console.warn('record fetch failed', error);
         toast(`Could not read ${run.rows[0].id} out of ${path}: ${error.message}`);
@@ -529,11 +529,11 @@ async function fetchRecordsBySpans(rows) {
       for (const row of run.rows) {
         let record = null;
         try {
-          record = JSON.parse(sliceRecordText(text, run, row));
+          record = JSON.parse(await recordText(bytes, run, row));
         } catch {
           record = null;
         }
-        // A rebuild rewrites the shards, so a stale span can land on a neighboring record instead of failing. Comparing the id detects that.
+        // A rebuild rewrites the shards, so a stale span can land on a neighboring record instead of failing, or on bytes that do not inflate. Comparing the id detects the first, and the second fails the parse.
         if (!record || record.id !== row.id) {
           reportMovedRecords(`${row.id} is not where this page was told it would be — the corpus was rebuilt; reload.`);
           continue;

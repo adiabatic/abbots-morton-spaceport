@@ -620,8 +620,7 @@ def test_streaming_discards_unique_containers_after_the_reader_pool_fills(tmp_pa
     list(next_stream)
 
 
-@pytest.fixture
-def appended_corpus(mini_corpus, mini_bundle, tmp_path) -> tuple[Path, Path]:
+def _appended(mini_corpus: Path, mini_bundle, tmp_path: Path) -> tuple[Path, Path]:
     """Return a copy of the mini corpus rebuilt over an audit edit that retags two windows into one class, so that class holds an overflow part and the classes they left hold dead slots, beside its materialized form (`build.materialize_corpus`)."""
     from rebuild.review import build
     from rebuild.test_unit_cache import _build, _edited_audit
@@ -633,6 +632,40 @@ def appended_corpus(mini_corpus, mini_bundle, tmp_path) -> tuple[Path, Path]:
     form = tmp_path / "form"
     build.materialize_corpus(corpus, form)
     return corpus, form
+
+
+@pytest.fixture
+def appended_corpus(mini_corpus, mini_bundle, tmp_path) -> tuple[Path, Path]:
+    """`_appended`, whose appends the build writes deflated (#618's change 35)."""
+    return _appended(mini_corpus, mini_bundle, tmp_path)
+
+
+@pytest.fixture
+def plain_appended_corpus(mini_corpus, mini_bundle, tmp_path, monkeypatch) -> tuple[Path, Path]:
+    """`_appended` with its appends written plain, so its parts are ASCII JSON throughout and the index can walk them."""
+    from rebuild.review import build
+
+    real = build._ShardWriter.open
+
+    def plain(self, class_id, prior_parts=(), *, append=False, deflate=False):
+        real(self, class_id, prior_parts, append=append)
+
+    monkeypatch.setattr(build._ShardWriter, "open", plain)
+    found = _appended(mini_corpus, mini_bundle, tmp_path)
+    monkeypatch.setattr(build._ShardWriter, "open", real)
+    return found
+
+
+def _dead_bytes(corpus: Path) -> int:
+    """The bytes of the corpus's parts that no live fragment takes, each live fragment counted with the comma or bracket before it, as `build.PriorShards.dead_and_live` counts them over the slots the unit store gives."""
+    with unit_index.LiveCorpus(corpus) as live:
+        assert live.source == "store"
+        held = sum(
+            (corpus / part).stat().st_size - len(unit_index.PART_CLOSING)
+            for meta in live.ordered()
+            for part in unit_index.class_shards(meta)
+        )
+        return held - sum(slot.length + 1 for meta in live.ordered() for slot in live.slots(meta))
 
 
 def _every_slot(corpus: Path) -> list[str]:
@@ -647,15 +680,16 @@ def _every_slot(corpus: Path) -> list[str]:
 
 
 def test_every_whole_part_reader_reads_the_live_fragments_its_materialized_form_holds(appended_corpus):
-    """A build that appends a changed fragment to its class's overflow parts leaves its old slot dead, so a reader that walked the parts would read units twice. Every reader of fragments goes through the live-fragment iterator instead, so over a corpus with overflow parts and dead slots each reads exactly what it reads over the corpus's materialized form, in the same order: the shard walk the verdict update's fallbacks take, the triage export, the re-key map, the build's output check, the dictionary's sample and the plan's walk for addressless records."""
+    """A build that appends a changed fragment to its class's overflow parts leaves its old slot dead, so a reader that walked the parts would read units twice, and holds the append deflated (#618's change 35), which a reader that took its bytes as they are would fail to parse. Every reader of fragments goes through the live-fragment iterator instead, which reads the live slots and inflates a deflated one, so over a corpus with deflated overflow parts and dead slots each reads exactly what it reads over the corpus's materialized form, all plain, in the same order: the shard walk the verdict update's fallbacks take, the triage export, the re-key map, the build's output check, the dictionary's sample and the plan's walk for addressless records."""
     from rebuild.review import build, export, unit_cache
     from rebuild.tools import fragment_dictionary, rekey_verdicts
 
     corpus, form = appended_corpus
     with unit_index.LiveCorpus(corpus) as live:
         assert live.source == "store"
+        assert any(slot.inflated for meta in live.ordered() for slot in live.slots(meta))
     walked = [fragment["id"] for fragment in unit_index.iter_shard_fragments(corpus)]
-    assert len(_every_slot(corpus)) > len(walked) == len(set(walked))
+    assert _dead_bytes(corpus) > 0 and len(walked) == len(set(walked))
     assert [fragment["id"] for fragment in unit_index.iter_shard_fragments(form)] == walked
     assert list(unit_index.iter_shard_fragments(corpus)) == list(unit_index.iter_shard_fragments(form))
     assert list(export.load_units(corpus)[1].items()) == list(export.load_units(form)[1].items())
@@ -683,14 +717,14 @@ def test_every_whole_part_reader_reads_the_live_fragments_its_materialized_form_
 
 
 def test_the_iterator_takes_the_index_where_the_store_does_not_describe_the_shards_and_refuses_neither(
-    appended_corpus, mini_corpus, tmp_path
+    plain_appended_corpus, mini_corpus, tmp_path
 ):
-    """Where the unit store does not describe the shards beside it (a part missing under its head, or a record that names a slot outside the parts of the class it records, such as the dead slot a unit left when it changed class), the iterator takes each id the index lists from its last occurrence in manifest order, overflow parts last, and reads what the store would give. A corpus with no store head, as one whose store was deleted by hand, is taken from its index too whenever the index is current, so it is read without its dead slots whether it lists an overflow part or only holds the slot a unit left in a base part when its class lost it on a pass that appended nothing. A corpus with a store head or an overflow part whose store and index are both unusable is refused rather than walked with its dead slots."""
+    """Over a corpus whose appends are plain (`plain_appended_corpus`), so the index can walk its parts: where the unit store does not describe the shards beside it (a part missing under its head, or a record that names a slot outside the parts of the class it records, such as the dead slot a unit left when it changed class), the iterator takes each id the index lists from its last occurrence in manifest order, overflow parts last, and reads what the store would give. A corpus with no store head, as one whose store was deleted by hand, is taken from its index too whenever the index is current, so it is read without its dead slots whether it lists an overflow part or only holds the slot a unit left in a base part when its class lost it on a pass that appended nothing. A corpus with a store head or an overflow part whose store and index are both unusable is refused rather than walked with its dead slots."""
     from rebuild.pipeline import row_delta
     from rebuild.review import unit_cache
     from rebuild.test_unit_cache import _rewrite_store
 
-    corpus, _form = appended_corpus
+    corpus, _form = plain_appended_corpus
     expected = list(unit_index.iter_shard_fragments(corpus))
     overflow = next((corpus / "units").glob("*.x000.json"))
     moved = json.loads(overflow.read_bytes())[0]["id"]
@@ -753,6 +787,87 @@ def test_the_iterator_takes_the_index_where_the_store_does_not_describe_the_shar
     assert [fragment["id"] for fragment in unit_index.iter_shard_fragments(shrunk)] == [
         fragment["id"] for fragment in unit_index.iter_shard_fragments(mini_corpus) if fragment["id"] != lost
     ]
+
+
+def test_only_the_store_reads_a_corpus_that_holds_a_deflated_fragment(appended_corpus, tmp_path):
+    """The index and the parts walk each part as JSON, and a deflated fragment (#618's change 35) is a raw deflate stream that is not ASCII, so where either drives the iterator a part that is not ASCII is refused (`unit_index.LayoutError`) instead of yielding nothing, which would drop its class's every unit without a word. Here the store stops describing a corpus with a deflated append, and the index refuses it, as every whole-part reader then does, the build's output check among them; and a corpus whose deflated append was folded into a class's base, with neither a store head nor a current index, is refused by the parts."""
+    from rebuild.pipeline import row_delta
+    from rebuild.review import build, unit_cache
+    from rebuild.test_unit_cache import RETAG_CLASS, _rewrite_store
+
+    corpus, _form = appended_corpus
+    folded = tmp_path / "folded"
+    shutil.copytree(corpus, folded)
+    _rewrite_store(corpus, lambda record: record, parts=[])
+    with unit_index.LiveCorpus(corpus) as live:
+        assert live.source == "index"
+        with pytest.raises(unit_index.LayoutError, match="not ASCII"):
+            list(live.fragments())
+    with pytest.raises(unit_index.LayoutError, match="not ASCII"):
+        list(unit_index.iter_shard_fragments(corpus))
+    assert any("not ASCII" in error for error in build.check_output_dir(corpus))
+    manifest = json.loads((folded / "manifest.json").read_text(encoding="utf-8"))
+    meta = next(meta for meta in manifest["classes"] if meta["id"] == RETAG_CLASS)
+    base, overflow = meta["shards"]
+    held = (folded / base).read_bytes()[: -len(unit_index.PART_CLOSING)]
+    appended = (folded / overflow).read_bytes()[1:]
+    (folded / base).write_bytes(held + b"," + appended)
+    (folded / overflow).unlink()
+    meta["shards"] = [base]
+    build._write_json(folded / "manifest.json", manifest)
+    row_delta.head_path(folded, unit_cache.STORE_NAME).unlink()
+    with unit_index.LiveCorpus(folded) as live:
+        assert live.source == "parts"
+        with pytest.raises(unit_index.LayoutError, match="not ASCII"):
+            list(live.fragments())
+
+
+def test_a_deflated_slot_that_does_not_inflate_to_its_unit_is_refused(appended_corpus):
+    """A deflated slot is read through one checked inflate (`unit_index.inflate_fragment`), so the iterator's read (`LiveCorpus.read`) and the materialized form, which reads every part's fragments through it, refuse a deflated stream cut short, one with bytes after its end, one that inflates to another length, and one that inflates to another unit, each with `unit_index.LayoutError`, rather than hand a reader bytes that are not the unit's fragment. The codec alone refuses the same streams."""
+    from dataclasses import replace
+
+    from rebuild.review import build
+    from rebuild.test_unit_cache import _rewrite_store
+
+    corpus, _form = appended_corpus
+    with unit_index.LiveCorpus(corpus) as live:
+        held = [slot for meta in live.ordered() for slot in live.slots(meta) if slot.inflated]
+        assert len(held) == 2 and held[0].part == held[1].part
+        first, second = held
+        body = live.read(first)
+        assert unit_index.holds_unit(body, first.unit_id) and len(body) == first.inflated
+        stored = (corpus / first.part).read_bytes()[first.start : first.start + first.length]
+        assert (
+            unit_index.inflate_fragment(stored, first.inflated) == unit_index.inflate_fragment(stored) == body
+        )
+        refused = {
+            "cut short": replace(first, length=first.length - 1),
+            "bytes after its end": replace(first, length=first.length + 1),
+            "another length": replace(first, inflated=first.inflated - 1),
+            "another unit": replace(second, unit_id=first.unit_id),
+        }
+        for why, slot in refused.items():
+            with pytest.raises(unit_index.LayoutError):
+                live.read(slot)
+            if why != "another unit":
+                with pytest.raises(ValueError):
+                    unit_index.inflate_fragment(
+                        (corpus / slot.part).read_bytes()[slot.start : slot.start + slot.length],
+                        slot.inflated,
+                    )
+    _rewrite_store(
+        corpus,
+        lambda record: (
+            {**record, "address": [second.part, second.start, second.length, second.inflated]}
+            if record["id"] == first.unit_id
+            else record
+        ),
+    )
+    with build.MaterializedCorpus(corpus) as materialized:
+        with pytest.raises(unit_index.LayoutError, match="another unit"):
+            for _name, chunks in materialized.part_files():
+                for _chunk in chunks:
+                    pass
 
 
 # The readers outside the live-fragment iterator allowed to read shard part names through `unit_index.class_shards`, `unit_index.shard_paths`, `unit_index._walk_elements` or `unit_index._walk_part`, each with what it reads them for. None reads a fragment out of a part, which only the iterator does (`unit_index.LiveCorpus`), so none can read a dead slot. The whole of rebuild/review/unit_index.py, the iterator's module, is allowed.

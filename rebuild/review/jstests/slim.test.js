@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { deflateRawSync } from 'node:zlib';
 import {
   APP_INDEX_FORMAT,
   LOCATOR_FORMAT,
@@ -20,8 +21,9 @@ import {
   looksGzipped,
   machineFoldPlan,
   rangeHeader,
+  recordText,
   shardPartPath,
-  sliceRecordText,
+  sliceRecordBytes,
   splitLines,
   isUnitId,
 } from '../static/slim.js';
@@ -240,16 +242,31 @@ test('coalesceSpans joins two spans exactly a gap apart and keeps the class the 
   assert.equal(coalesceSpans(rows, 0).length, 2, 'a gap of zero shares nothing but abutting spans');
 });
 
-test('sliceRecordText cuts each row back out of the text its run returned', () => {
-  const text = '{"id":"a"},{"id":"bb"}';
-  const rows = [
-    { id: 'a', shard_part: 0, byte_start: 1000, byte_length: 10 },
-    { id: 'bb', shard_part: 0, byte_start: 1011, byte_length: 11 },
-  ];
+test('a run mixing plain and deflated rows slices each back out of its bytes and inflates the deflated ones', async () => {
+  const records = [{ id: 'a' }, { id: 'bb', text: 'x'.repeat(300) }, { id: 'ccc' }];
+  const stored = records.map((record, index) => {
+    const plain = Buffer.from(JSON.stringify(record), 'ascii');
+    return index === 1 ? deflateRawSync(plain, { level: 1 }) : plain;
+  });
+  const rows = [];
+  let start = 1000;
+  for (const [index, bytes] of stored.entries()) {
+    const marker = index === 1 ? { deflated: true } : {};
+    rows.push({ id: records[index].id, shard_part: 0, byte_start: start, byte_length: bytes.length, ...marker });
+    start += bytes.length + 1;
+  }
+  const joined = stored.flatMap((bytes, index) => (index ? [Buffer.from(','), bytes] : [bytes]));
+  const runBytes = new Uint8Array(Buffer.concat(joined));
   const [run] = coalesceSpans(rows);
-  assert.equal(run.byte_length, text.length);
-  assert.deepEqual(JSON.parse(sliceRecordText(text, run, rows[0])), { id: 'a' });
-  assert.deepEqual(JSON.parse(sliceRecordText(text, run, rows[1])), { id: 'bb' });
+  assert.equal(run.byte_length, runBytes.length);
+  assert.deepEqual([...sliceRecordBytes(runBytes, run, rows[1])], [...stored[1]]);
+  for (const [index, row] of rows.entries()) {
+    assert.deepEqual(JSON.parse(await recordText(runBytes, run, row)), records[index]);
+  }
+  const cut = { ...rows[1], byte_length: rows[1].byte_length - 1 };
+  await assert.rejects(recordText(runBytes, run, cut), 'a deflated row cut short does not inflate');
+  const runOn = { ...rows[1], byte_length: rows[1].byte_length + 1 };
+  await assert.rejects(recordText(runBytes, run, runOn), 'a deflated row that runs on past its stream does not inflate');
 });
 
 test('a fold window is a positive count', () => {

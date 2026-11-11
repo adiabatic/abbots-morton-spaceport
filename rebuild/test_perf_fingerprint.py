@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from rebuild.tools import perf_fingerprint as pf
 
 SCRIPT = Path(pf.__file__)
@@ -174,8 +176,6 @@ def test_windows_rows_held_as_a_base_and_segments_fingerprint_as_their_folded_fo
     import io
     import shutil
 
-    import pytest
-
     from rebuild.pipeline import conform, fingerprint, fixtures, run_m1, spec_load
     from rebuild.pipeline import table as table_module
 
@@ -211,8 +211,17 @@ def test_windows_rows_held_as_a_base_and_segments_fingerprint_as_their_folded_fo
     assert not out.exists()
 
 
-def test_a_corpus_appended_to_reads_as_its_materialized_form(mini_corpus, mini_bundle, tmp_path):
-    """A build that appends changed fragments to overflow parts and writes its unit store as a base and a segment fingerprints as its materialized form (#618's decision 48): the corpus and stores blocks equal those of the files a from-scratch build of the same units writes (`build.materialize_corpus`), with the store's head, base and segment files left out of the per-file block and the store read under `unit-cache.ndjson.gz`, as a store written before the segment format was. A corpus no build has appended to, already laid out as its materialized form, reads the same way. A class that lost its last unit by id on a pass that appended nothing keeps its part as it was, every live slot where a from-scratch build puts it and the lost unit's slot dead at its end, so the corpus is not its materialized form and reads as that form, whose part ends at the last live slot."""
+@pytest.fixture(scope="module")
+def deflated_corpus(build_once, mini_corpus, mini_bundle) -> tuple[Path, Path, Path]:
+    from rebuild.test_unit_cache import deflated_corpus_of
+
+    return deflated_corpus_of(build_once, mini_corpus, mini_bundle)
+
+
+def test_a_corpus_appended_to_reads_as_its_materialized_form(
+    mini_corpus, mini_bundle, deflated_corpus, tmp_path
+):
+    """A build that appends changed fragments to overflow parts, deflated (#618's change 35), and writes its unit store as a base and a segment fingerprints as its materialized form (#618's decision 48): the corpus and stores blocks equal those of the files a from-scratch build of the same units writes (`build.materialize_corpus`), every fragment plain, with the store's head, base and segment files left out of the per-file block and the store read under `unit-cache.ndjson.gz`, as a store written before the segment format was. A corpus whose classes were folded deflated beside a deflated append fingerprints as the plain from-scratch build of its units does. A corpus no build has appended to, already laid out as its materialized form, reads the same way. A class that lost its last unit by id on a pass that appended nothing keeps its part as it was, every live slot where a from-scratch build puts it and the lost unit's slot dead at its end, so the corpus is not its materialized form and reads as that form, whose part ends at the last live slot."""
     import shutil
 
     from rebuild.pipeline import fingerprint
@@ -254,4 +263,12 @@ def test_a_corpus_appended_to_reads_as_its_materialized_form(mini_corpus, mini_b
     assert (shrunk_form / last.part).stat().st_size < (shrunk / last.part).stat().st_size
     assert pf.corpus_digests(shrunk, fingerprint.font_content_digest, build.MaterializedCorpus) == (
         pf.corpus_digests(shrunk_form, fingerprint.font_content_digest)
+    )
+    deflated, scratch, _audit = deflated_corpus
+    with build.MaterializedCorpus(deflated) as materialized:
+        assert not materialized.identical
+    with build.MaterializedCorpus(scratch) as materialized:
+        assert materialized.identical
+    assert pf.corpus_digests(deflated, fingerprint.font_content_digest, build.MaterializedCorpus) == (
+        pf.corpus_digests(scratch, fingerprint.font_content_digest, build.MaterializedCorpus)
     )

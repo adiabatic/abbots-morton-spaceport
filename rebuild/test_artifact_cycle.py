@@ -5437,9 +5437,9 @@ def test_contracts_fingerprint_is_none_outside_git(tmp_path):
 
 
 def test_corpus_build_skippable_matches_manifest(tmp_path):
-    """A skip means a rebuild would reproduce this corpus byte for byte, so the test checks each thing that must match: the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, the per-unit index and both app sidecars, and the after font. The index and sidecars are written after the manifest and outside it, so each must be stamped for the current manifest, not merely present. No fingerprint component covers M1.otf, so only the manifest's recorded after-font sha compared with M1.otf on disk shows whether run_m1 has rebuilt it since."""
+    """A skip means a rebuild would reproduce this corpus byte for byte, so the test checks each thing that must match: the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, the per-unit index, both app sidecars and the unit store, and the after font. The index, the sidecars and the store are written after the manifest and outside it, so each must be stamped for the current manifest, not merely present; a build stopped after its sidecars and before its store leaves only the store stamped for the manifest before. No fingerprint component covers M1.otf, so only the manifest's recorded after-font sha compared with M1.otf on disk shows whether run_m1 has rebuilt it since."""
     from rebuild.pipeline import fingerprint
-    from rebuild.review import app_index, unit_index
+    from rebuild.review import app_index, unit_cache, unit_index
 
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
@@ -5460,10 +5460,12 @@ def test_corpus_build_skippable_matches_manifest(tmp_path):
         "fonts": {"after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(b"OTTO").hexdigest()}},
     }
 
-    def restamp():
+    def restamp(store=True):
         (corpus / "manifest.json").write_text(json.dumps(manifest))
         unit_index.write_index(corpus, [])
         app_index.write_app_artifacts(corpus, {}, {})
+        if store:
+            unit_cache.write_store(corpus, "environment", [], parts=["units-000.json"])
 
     restamp()
     assert ac.corpus_build_skippable(tmp_path, corpus)
@@ -5508,12 +5510,20 @@ def test_corpus_build_skippable_matches_manifest(tmp_path):
     unit_index.index_path(corpus).unlink()
     assert not ac.corpus_build_skippable(tmp_path, corpus)
 
-    # Rewrite the manifest without rewriting the index and sidecars. Every shard is present and the fingerprint matches, so only the stale stamps on those three files show the mismatch.
+    # Rewrite the manifest without rewriting the index, the sidecars and the store. Every shard is present and the fingerprint matches, so only the stale stamps on the files beside it show the mismatch.
     unit_index.write_index(corpus, [])
     manifest["generated_at"] = "2026-02-02T00:00:00Z"
     (corpus / "manifest.json").write_text(json.dumps(manifest))
     assert not ac.corpus_build_skippable(tmp_path, corpus)
     restamp()
+    assert ac.corpus_build_skippable(tmp_path, corpus)
+
+    manifest["generated_at"] = "2026-03-03T00:00:00Z"
+    restamp(store=False)
+    assert not ac.corpus_complete(corpus)
+    assert not ac.corpus_build_skippable(tmp_path, corpus)
+    restamp()
+    assert ac.corpus_complete(corpus)
     assert ac.corpus_build_skippable(tmp_path, corpus)
 
 
@@ -5530,9 +5540,9 @@ def _promotion_root(root):
     return {**stage_a, **fingerprint.stage_b(root, before_font, junior_font)}
 
 
-def _write_corpus(corpus, recorded, stamp):
-    """Write a synthetic corpus like the one in `test_corpus_build_skippable_matches_manifest`: one shard, a manifest with `recorded` as its inputs fingerprint and `stamp` as its generated_at, and the per-unit index and app sidecars stamped for that manifest."""
-    from rebuild.review import app_index, unit_index
+def _write_corpus(corpus, recorded, stamp, *, store=True):
+    """Write a synthetic corpus like the one in `test_corpus_build_skippable_matches_manifest`: one shard, a manifest with `recorded` as its inputs fingerprint and `stamp` as its generated_at, and the per-unit index, the app sidecars and, with `store`, the unit store stamped for that manifest. Without `store`, a store an earlier call wrote stays stamped for its manifest, as a build stopped after its sidecars and before its store leaves it."""
+    from rebuild.review import app_index, unit_cache, unit_index
 
     corpus.mkdir(parents=True, exist_ok=True)
     (corpus / "units-000.json").write_text("[]")
@@ -5551,6 +5561,8 @@ def _write_corpus(corpus, recorded, stamp):
     )
     unit_index.write_index(corpus, [])
     app_index.write_app_artifacts(corpus, {}, {})
+    if store:
+        unit_cache.write_store(corpus, "environment", [], parts=["units-000.json"])
 
 
 def test_promotable_corpus_names_a_current_staged_corpus_and_refuses_the_rest(tmp_path):
@@ -5607,7 +5619,7 @@ def test_promotable_corpus_reads_the_recorded_pointer_before_the_convention(tmp_
 
 
 def test_promotable_corpus_prefers_a_complete_review_next(tmp_path):
-    """A complete `review.next` a stopped pass left is the first candidate, ahead of the staging directories, when it reproduces these inputs; one built for other inputs is passed over for the next candidate."""
+    """A complete `review.next` a stopped pass left is the first candidate, ahead of the staging directories, when it reproduces these inputs; one built for other inputs is passed over for the next candidate, and so is one whose build stopped after its sidecars and before its unit store, which the next pass deletes as unfinished."""
     expected = _promotion_root(tmp_path)
     live = tmp_path / "rebuild" / "out" / "review"
     _write_corpus(live, {**expected, "data": "stale"}, "2026-01-01T00:00:00Z")
@@ -5619,6 +5631,10 @@ def test_promotable_corpus_prefers_a_complete_review_next(tmp_path):
     assert ac.promotable_corpus(tmp_path, summary, live) == beside
     _write_corpus(beside, {**expected, "data": "older"}, "2026-01-02T00:00:00Z")
     assert ac.promotable_corpus(tmp_path, summary, live) == staged
+    _write_corpus(beside, expected, "2026-01-03T00:00:00Z", store=False)
+    assert ac.promotable_corpus(tmp_path, summary, live) == staged
+    note = ac.recover_next_corpus(live)
+    assert note is not None and note.startswith("Deleted ") and not beside.exists()
 
 
 def test_a_kept_review_next_seeds_the_build_when_run_m1_is_due(tmp_path, monkeypatch, capsys):
@@ -5685,7 +5701,7 @@ def test_recover_superseded_corpus_settles_the_leftover_before_the_first_run_que
 
 
 def test_a_landed_corpus_still_answers_for_itself(tmp_path, mini_corpus):
-    """Every stamp inside a corpus depends only on its manifest's content, so a real corpus the land swaps in from another path still passes the skip's checks (the per-unit index and both app sidecars), and both stores load under the environment recorded in their headers. The outgoing tree ends at the staged path."""
+    """Every stamp inside a corpus depends only on its manifest's content, so a real corpus the land swaps in from another path still passes the skip's checks (the per-unit index, both app sidecars and the unit store), and both stores load under the environment recorded in their headers. The outgoing tree ends at the staged path."""
     from rebuild.review import app_index, unit_cache, unit_index
 
     source = tmp_path / "staged"
@@ -5708,6 +5724,7 @@ def test_a_landed_corpus_still_answers_for_itself(tmp_path, mini_corpus):
     assert unit_index.index_is_current(live)
     for name, fmt in app_index.ARTIFACTS:
         assert app_index.artifact_is_current(live, name, fmt), name
+    assert unit_index.store_is_current(live)
     store = unit_cache.load_store(live, environment)
     assert store
     signatures = unit_cache.load_signature_store(live, signature_environment)
@@ -5720,7 +5737,7 @@ REFUSE_RUNE = "rune: qsX\npolicy:\n  refuse:\n  - {exit: baseline, why: two vert
 def _stamped_corpus(root):
     """Write a review corpus stamped for the current inputs under `root`, so `corpus_build_skippable` is true right after. After a prose edit, a failed skip shows the edit reached the corpus's stamp, and a passing skip shows it did not."""
     from rebuild.pipeline import fingerprint
-    from rebuild.review import app_index, unit_index
+    from rebuild.review import app_index, unit_cache, unit_index
 
     stage_a = fingerprint.stage_a(root)
     m1 = root / "rebuild" / "out" / "m1"
@@ -5746,6 +5763,7 @@ def _stamped_corpus(root):
     )
     unit_index.write_index(corpus, [])
     app_index.write_app_artifacts(corpus, {}, {})
+    unit_cache.write_store(corpus, "environment", [], parts=["units-000.json"])
     return corpus
 
 

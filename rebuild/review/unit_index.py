@@ -6,7 +6,7 @@ Two fields are counts, because counting is all any reader does with them: `rende
 
 The file is stamped with the manifest's identity digest (`manifest_sha256`), as the unit store is, so an index a crashed build did not rewrite is not read as describing the shards beside it. A reader that finds no index, or one stamped for another manifest, falls back to reading the shards through the same projection.
 
-This module also holds the one reader of fragments out of shard parts, the live-fragment iterator (`LiveCorpus`), and the rule a from-scratch build cuts a class's parts by (`PartLayout`). A class's parts are its base parts, which a from-scratch build, a fold or a direct write lays out in id order, and after them its overflow parts (`units/<class>.x<NNN>.json`), to which a build appends each fragment that changed, leaving its old slot dead (`build._ShardWriter`). So a part can hold a fragment no unit owns any more, and a unit's fragment can sit in a later part than its id order puts it in. The iterator reads only live fragments, each class's in id order, and the first of these that describes the shards decides which they are: where the corpus has a store head, the unit store's records, the fragment at the address each unit's record gives (`_store_slots`, which reads the store's lines itself, with the slicers `unit_cache` reads them with too, so this module imports nothing of the corpus build); then the index, where it is current and reads to its end, each id it lists taken from its last occurrence in manifest order, since overflow parts follow the base parts and an append follows every older copy; and only for a corpus with no store head, no such index and no overflow part, the parts themselves, walked part by part with every fragment taken as live, as a from-scratch build lays them out (a build puts a store under a head before it appends, `unit_cache.adopt_single_file`, so only a head deleted by hand leaves an appended corpus without one). A corpus with a head or an overflow part that neither the store nor the index describes is refused (`LayoutError`). `rebuild/test_unit_index.py`'s contract test fails on any read of shard parts, through `class_shards`, `shard_paths` or `_walk_elements`, outside the iterator and the readers of part names it allows, each named there with its reason.
+This module also holds the one reader of fragments out of shard parts, the live-fragment iterator (`LiveCorpus`), the rule a from-scratch build cuts a class's parts by (`PartLayout`), and the codec a fragment is held deflated in (`deflate_fragment`, `inflate_fragment`). A class's parts are its base parts, which a from-scratch build, a fold or a direct write lays out in id order, and after them its overflow parts (`units/<class>.x<NNN>.json`), to which a build appends each fragment that changed, leaving its old slot dead (`build._ShardWriter`). So a part can hold a fragment no unit owns any more, and a unit's fragment can sit in a later part than its id order puts it in. A fragment is plain, its shard bytes as ASCII JSON, or deflated (#618's change 35): a fragment a build appends, folds or writes directly by the share rule into a class it already has parts for is held as its shard bytes deflated alone, a raw deflate stream that is not ASCII, between the same `[`, commas and closing bytes, while a first base, a from-scratch build's included, stays plain. A deflated fragment's unit store address records its inflated length as a fourth element (decision 76), and its app-index and locator rows carry a trailing `"deflated": true` (decision 77); a plain fragment's record and rows carry neither. The iterator reads only live fragments, each class's in id order, and always hands its readers plain bytes, inflating each deflated slot as it reads it (`LiveCorpus.read`). The first of these that describes the shards decides which fragments are live: where the corpus has a store head, the unit store's records, the fragment at the address each unit's record gives, with its inflated length when it is deflated (`_store_slots`, which reads the store's lines itself, with the slicers `unit_cache` reads them with too, so this module imports nothing of the corpus build); then the index, where it is current and reads to its end, each id it lists taken from its last occurrence in manifest order, since overflow parts follow the base parts and an append follows every older copy; and only for a corpus with no store head, no such index and no overflow part, the parts themselves, walked part by part with every fragment taken as live, as a from-scratch build lays them out (a build puts a store under a head before it appends, `unit_cache.adopt_single_file`, so only a head deleted by hand leaves an appended corpus without one). The index and the parts are walked as JSON, so neither can read a deflated fragment, and a part that is not ASCII is refused there (`LayoutError`): a corpus holding a deflated fragment is readable only through the store. A corpus with a head or an overflow part that neither the store nor the index describes is refused (`LayoutError`). `rebuild/test_unit_index.py`'s contract test fails on any read of shard parts, through `class_shards`, `shard_paths` or `_walk_elements`, outside the iterator and the readers of part names it allows, each named there with its reason.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import zlib
 from array import array
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
@@ -33,7 +34,7 @@ _ID_START = len(STORE_KEY_PREFIX) + 64 + len(b'", "id": "')
 _CLASS_SEAM = b'", "class": '
 _CONTENT_KEY_SEAM = b', "content_key": '
 _ADDRESS_SEAM = b', "address": '
-# The cap on one shard part's bytes. The app reads each byte range it fetches, which never crosses a part, as one JavaScript string, and V8's `String::kMaxLength` on a 64-bit build is 2**29 - 24 characters, a byte each in this ASCII-only JSON. When Blink cannot build a body that long, `Response.text()` resolves to an empty string instead of an error, so every fragment in an oversized range fails to parse after a fetch that appeared to succeed. This is half that limit, and the other half is headroom; whole-part readers keep their memory bound by it too.
+# The cap on one shard part's bytes on disk. The app reads each byte range it fetches, which never crosses a part, into one buffer and decodes each plain fragment in it as a JavaScript string, a byte a character in this ASCII-only JSON, and V8's `String::kMaxLength` on a 64-bit build is 2**29 - 24 characters. This is half that limit, and the other half is headroom. Whole-part readers keep their memory bound by it too; a part of deflated fragments holds about 2.5 times its bytes once inflated, but every reader inflates one fragment at a time (`LiveCorpus.read`).
 SHARD_PART_BYTES = 1 << 28
 PART_CLOSING = b"\n]\n"
 SHARD_ORDER = "shard"
@@ -48,6 +49,39 @@ MACHINE_TAIL = b'"batch": null'
 
 def index_path(corpus: Path) -> Path:
     return Path(corpus) / INDEX_NAME
+
+
+def deflate_fragment(body: bytes) -> bytes:
+    """Return a fragment's plain shard bytes (`build._fragment_bytes`) deflated alone as a shard part holds a deflated fragment (#618's change 35): raw deflate, with no zlib header or trailer and no preset dictionary, at level 1, the level the fragments' 2.5 to 1 was measured at. The app inflates it with the browser's `DecompressionStream('deflate-raw')`, which takes no dictionary, and nothing else is needed to read it back, so it outlives the build that wrote it, unlike the arena's dictionary deflate (`build._FragmentPacker`)."""
+    return zlib.compress(body, 1, wbits=-15)
+
+
+def inflate_fragment(stored: bytes, length: int | None = None) -> bytes:
+    """Return a deflated fragment's plain bytes, checked: `stored` must be exactly one raw deflate stream, which ends where `stored` ends, and inflate to `length` bytes when `length` is given (its unit store address records it, decision 76). A stream that does not inflate, is cut short, runs on past its end, or inflates to another length raises ValueError, and with `length` given the inflate stops one byte past it, so a corrupt stream cannot inflate without bound. A caller that knows the unit checks the bytes are its own."""
+    inflater = zlib.decompressobj(wbits=-15)
+    try:
+        body = inflater.decompress(stored, 0 if length is None else length + 1)
+    except zlib.error as error:
+        raise ValueError(f"it does not inflate ({error})") from None
+    if length is not None and len(body) > length:
+        raise ValueError(f"it inflates past its {length} bytes")
+    if not inflater.eof:
+        raise ValueError("its deflated stream is cut short")
+    if inflater.unused_data:
+        raise ValueError("bytes follow the end of its deflated stream")
+    if length is not None and len(body) != length:
+        raise ValueError(f"it inflates to {len(body)} bytes, not {length}")
+    return body
+
+
+def holds_unit(body: bytes, unit_id: str) -> bool:
+    """Whether a fragment's plain shard bytes are unit `unit_id`'s: the shard writer's framing puts each field on its own line as `"key": value`, so the id is found as a substring."""
+    return f'"id": {json.dumps(unit_id)}'.encode() in body
+
+
+def address_value(part: str, start: int, length: int, inflated: int = 0) -> list:
+    """Return a fragment's unit store address as a record holds it: `[part, start, length]` for a plain fragment, with `length` its bytes on disk, and `[part, start, length, inflated]` for a deflated one, whose fourth element is its inflated length (#618's decisions 76 and 77)."""
+    return [part, start, length, inflated] if inflated else [part, start, length]
 
 
 def class_shard_key(class_id: str) -> str:
@@ -479,7 +513,7 @@ def overflow_index(class_id: str, part: str) -> int | None:
 
 
 class PartLayout:
-    """The rule a from-scratch build cuts one class's fragments into parts by, which `build._ShardWriter` writes a base by and the materialized form of the corpus is laid out by. Fragments arrive in id order; `place` returns the part index, the byte start and whether the fragment opens its part (else a comma precedes it). A part is `[`, its fragments joined by commas, and `PART_CLOSING`, so its bytes equal `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` under the shard writer's framing, and a class with no fragment is one part, `[]\\n`. A part closes before the fragment that would take it past `SHARD_PART_BYTES`, so every part stays within the cap but one holding a single fragment that alone exceeds it. `sizes` closes the layout and returns each part's size."""
+    """The rule a from-scratch build cuts one class's fragments into parts by, which `build._ShardWriter` writes a base by and the materialized form of the corpus is laid out by. Fragments arrive in id order, each with its bytes on disk; `place` returns the part index, the byte start and whether the fragment opens its part (else a comma precedes it). A part is `[`, its fragments joined by commas, and `PART_CLOSING`, so a part of plain fragments equals `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` under the shard writer's framing, and a class with no fragment is one part, `[]\\n`. A base of deflated fragments, a fold's or a share-rule direct write's, is cut by the same rule over their deflated lengths, so it takes fewer parts than its plain form, the materialized form's. A part closes before the fragment that would take it past `SHARD_PART_BYTES`, so every part stays within the cap but one holding a single fragment that alone exceeds it. `sizes` closes the layout and returns each part's size."""
 
     def __init__(self, cap: int | None = None) -> None:
         self._cap = SHARD_PART_BYTES if cap is None else cap
@@ -513,16 +547,22 @@ class LayoutError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class LiveSlot:
-    """Where one live fragment lies: its unit's id, the part (as the manifest names it), and the byte start and length of its element there, the `(part, start, length)` the app's sidecars and the unit store's records use."""
+    """Where one live fragment lies: its unit's id, the part (as the manifest names it), and the byte start and length on disk of its element there, the `(part, start, length)` the app's sidecars and the unit store's records use, by which the slot is read. `inflated` is a deflated fragment's inflated length (#618's decision 76), and 0 for a plain one."""
 
     unit_id: str
     part: str
     start: int
     length: int
+    inflated: int = 0
+
+    @property
+    def content_length(self) -> int:
+        """The fragment's plain length: its inflated length when it is deflated, else its length."""
+        return self.inflated or self.length
 
 
 class ClassSlots:
-    """One class's live slots as columns, ids as their ASCII bytes padded with NUL to a unit id's width (which sorts a shorter id first, as a string does), so a corpus's worth of addresses costs a few dozen bytes a unit rather than an object each. `ordered` sorts them by id, which is the order every reader takes them in."""
+    """One class's live slots as columns, ids as their ASCII bytes padded with NUL to a unit id's width (which sorts a shorter id first, as a string does), with each slot's part, start, length on disk and inflated length (0 for a plain fragment), so a corpus's worth of addresses costs a few dozen bytes a unit rather than an object each. `ordered` sorts them by id, which is the order every reader takes them in."""
 
     ID_WIDTH = 13
 
@@ -533,11 +573,12 @@ class ClassSlots:
         self._part = array("H")
         self._start = array("Q")
         self._length = array("I")
+        self._inflated = array("I")
 
     def __len__(self) -> int:
         return len(self._part)
 
-    def add(self, unit_id: str, part: str, start: int, length: int) -> None:
+    def add(self, unit_id: str, part: str, start: int, length: int, inflated: int = 0) -> None:
         encoded = unit_id.encode("ascii")
         if len(encoded) > self.ID_WIDTH or b"\0" in encoded:
             raise LayoutError(f"{unit_id!r} is not a unit id")
@@ -549,6 +590,7 @@ class ClassSlots:
         self._part.append(index)
         self._start.append(start)
         self._length.append(length)
+        self._inflated.append(inflated)
 
     def ordered(self) -> list[LiveSlot]:
         width = self.ID_WIDTH
@@ -562,7 +604,13 @@ class ClassSlots:
                 raise LayoutError(f"{unit_id} is live twice in one class")
             previous = unit_id
             slots.append(
-                LiveSlot(unit_id, self.parts[self._part[index]], self._start[index], self._length[index])
+                LiveSlot(
+                    unit_id,
+                    self.parts[self._part[index]],
+                    self._start[index],
+                    self._length[index],
+                    self._inflated[index],
+                )
             )
         return slots
 
@@ -589,10 +637,12 @@ def _walk_elements(text: str):
 
 
 def _walk_part(path: Path) -> Iterator[tuple[int, int, dict]]:
-    """Walk one part's elements (`_walk_elements`) with byte offsets: a part that is not pure ASCII yields nothing, since its character offsets are not byte offsets, and every part a build writes is ASCII."""
+    """Walk one part's elements (`_walk_elements`) with byte offsets. A part that is not pure ASCII raises `LayoutError`: its character offsets are not byte offsets, and a part a build wrote holds a non-ASCII byte only inside a deflated fragment, which no walk as JSON can read, so yielding nothing would drop a folded class's every unit without a word."""
     raw = path.read_bytes()
     if not raw.isascii():
-        return
+        raise LayoutError(
+            f"{path.name} is not ASCII, so it holds a deflated fragment only the unit store can place"
+        )
     text = raw.decode("ascii")
     del raw
     yield from _walk_elements(text)
@@ -624,13 +674,15 @@ def record_class(line: bytes) -> str:
     return json.loads(line[start : line.index(_CONTENT_KEY_SEAM, start)])
 
 
-def record_address(line: bytes) -> tuple[str, int, int] | None:
-    """Return a unit store line's address, sliced from its end, where `to_record` writes it, or None for a record that has none."""
+def record_address(line: bytes) -> tuple[str, int, int, int] | None:
+    """Return a unit store line's address, sliced from its end, where `to_record` writes it, as its part, start, length on disk and inflated length, the last 0 for a plain fragment, whose address has three elements (`address_value`), or None for a record that has none."""
     value = json.loads(line[line.rindex(_ADDRESS_SEAM) + len(_ADDRESS_SEAM) :].rstrip()[:-1])
     if value is None:
         return None
-    part, start, length = value
-    return str(part), int(start), int(length)
+    part, start, length, *inflated = value
+    if len(inflated) > 1:
+        raise ValueError(f"an address holds three or four elements, not {len(value)}")
+    return str(part), int(start), int(length), int(inflated[0]) if inflated else 0
 
 
 def store_base_lines(handle: BinaryIO) -> Iterator[bytes]:
@@ -657,22 +709,37 @@ def store_lines(
     yield from row_delta.merge_placed(lambda: store_base_lines(handles[0]), segments)
 
 
-def _store_slots(corpus: Path, manifest: Mapping[str, Any]) -> dict[str, ClassSlots]:
-    """Return every class's live slots as the unit store's records give them: each record's unit id at the address it names, under the class whose parts list that address's part. The store must have a head and describe the shards beside it: its format this one, its manifest stamp the manifest's identity, and its recorded part sizes every part the manifest lists, at the size each has on disk. A store that does not, or a record with no address or an address outside the parts of the class it records, such as a dead slot the unit left when it changed class, raises `LayoutError`, and the iterator falls back to the index."""
+def _describing_store_head(corpus: Path, manifest: Mapping[str, Any]) -> row_delta.Head:
+    """Return the unit store's head when the store describes the shards beside it: its format this one, its manifest stamp the manifest's identity, and its recorded part sizes every part the manifest lists, at the size each has on disk. A store that does not raises `LayoutError`."""
+    head = row_delta.read_head(corpus, STORE_NAME)
+    if head is None:
+        raise LayoutError("no unit store head")
+    stamps = head.stamps
+    if stamps.get("format") != STORE_FORMAT or stamps.get("manifest_sha256") != manifest_sha256(corpus):
+        raise LayoutError("the unit store describes another manifest")
+    parts = [part for meta in manifest.get("classes") or () for part in class_shards(meta)]
+    recorded = stamps.get("parts") or {}
+    if set(recorded) != set(parts) or any((corpus / part).stat().st_size != recorded[part] for part in parts):
+        raise LayoutError("a shard part is not the one the unit store records")
+    return head
+
+
+def store_is_current(corpus: Path) -> bool:
+    """Whether the unit store beside this manifest describes it, as a read through the store requires (`_store_slots`). A build writes the store after the shards, the manifest and the sidecars, so a build stopped after its sidecars and before its store leaves the sidecars stamped for its manifest beside a store stamped for the one before, over parts whose deflated fragments (#618's change 35) only the store can place."""
+    corpus = Path(corpus)
     try:
-        head = row_delta.read_head(corpus, STORE_NAME)
-        if head is None:
-            raise LayoutError("no unit store head")
-        stamps = head.stamps
-        if stamps.get("format") != STORE_FORMAT or stamps.get("manifest_sha256") != manifest_sha256(corpus):
-            raise LayoutError("the unit store describes another manifest")
+        _describing_store_head(corpus, _manifest(corpus))
+    except OSError, ValueError, KeyError, TypeError, AttributeError:
+        return False
+    return True
+
+
+def _store_slots(corpus: Path, manifest: Mapping[str, Any]) -> dict[str, ClassSlots]:
+    """Return every class's live slots as the unit store's records give them: each record's unit id at the address it names, with its inflated length when it is deflated, under the class whose parts list that address's part. The store must have a head and describe the shards beside it (`_describing_store_head`). A store that does not, or a record with no address or an address outside the parts of the class it records, such as a dead slot the unit left when it changed class, raises `LayoutError`, and the iterator falls back to the index."""
+    try:
+        head = _describing_store_head(corpus, manifest)
         classes = list(manifest.get("classes") or ())
         part_class = {part: meta["id"] for meta in classes for part in class_shards(meta)}
-        recorded = stamps.get("parts") or {}
-        if set(recorded) != set(part_class) or any(
-            (corpus / part).stat().st_size != recorded[part] for part in part_class
-        ):
-            raise LayoutError("a shard part is not the one the unit store records")
         slots: dict[str, ClassSlots] = {str(meta["id"]): ClassSlots(class_shards(meta)) for meta in classes}
         with row_delta.open_parts(corpus, head) as opened:
             for _place, line in store_lines(head, opened.handles):
@@ -690,7 +757,7 @@ def _store_slots(corpus: Path, manifest: Mapping[str, Any]) -> dict[str, ClassSl
 
 
 class LiveCorpus:
-    """The live-fragment iterator: the one reader of fragments out of a corpus's shard parts (see the module docstring for what makes a fragment live). Open it over a corpus, take its classes in shard order (`class_shard_key`, the order of the index and the sidecars) or manifest order, and each class's live slots in id order (`slots`), their bytes (`read`), or the fragments parsed (`fragments`). `source` says what drives it: `store`, `index` or `parts`, the last for a corpus with no store head, no current index that reads to its end and no overflow part, whose every fragment it takes as live. Reads go through one descriptor a part, kept open until `close`, so a later writer's renames cannot reach a reader mid-walk."""
+    """The live-fragment iterator: the one reader of fragments out of a corpus's shard parts (see the module docstring for what makes a fragment live). Open it over a corpus, take its classes in shard order (`class_shard_key`, the order of the index and the sidecars) or manifest order, and each class's live slots in id order (`slots`), their plain bytes, a deflated slot's inflated (`read`), or the fragments parsed (`fragments`). `source` says what drives it: `store`, `index` or `parts`, the last for a corpus with no store head, no current index that reads to its end and no overflow part, whose every fragment it takes as live. The index and the parts walk each part as JSON and refuse one that is not ASCII (`LayoutError`), so only the store reads a corpus that holds a deflated fragment. Reads go through one descriptor a part, kept open until `close`, so a later writer's renames cannot reach a reader mid-walk."""
 
     def __init__(self, corpus: Path) -> None:
         self.corpus = Path(corpus)
@@ -757,7 +824,7 @@ class LiveCorpus:
         return collected.ordered()
 
     def read(self, slot: LiveSlot) -> bytes:
-        """Return one live fragment's bytes, by one `os.pread` on its part's descriptor."""
+        """Return one live fragment's plain bytes, by one `os.pread` on its part's descriptor. A deflated slot is inflated, checked (`inflate_fragment`), and must hold its unit; one that does not inflate to its recorded length, or holds another unit, raises `LayoutError`."""
         descriptor = self._descriptors.get(slot.part)
         if descriptor is None:
             descriptor = os.open(self.corpus / slot.part, os.O_RDONLY)
@@ -765,6 +832,18 @@ class LiveCorpus:
         body = os.pread(descriptor, slot.length, slot.start)
         if len(body) != slot.length:
             raise LayoutError(f"{slot.part} ends before {slot.unit_id}'s {slot.length} bytes at {slot.start}")
+        if not slot.inflated:
+            return body
+        try:
+            body = inflate_fragment(body, slot.inflated)
+        except ValueError as error:
+            raise LayoutError(
+                f"{slot.part} at {slot.start}+{slot.length} does not hold {slot.unit_id}: {error}"
+            ) from None
+        if not holds_unit(body, slot.unit_id):
+            raise LayoutError(
+                f"{slot.part} at {slot.start}+{slot.length} inflates to another unit than {slot.unit_id}"
+            )
         return body
 
     def fragments(

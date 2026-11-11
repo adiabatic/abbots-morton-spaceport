@@ -8,9 +8,9 @@ The whole-store stamp (`environment_stamp`) covers everything that can change a 
 
 Four inputs are outside the whole-store stamp. The after font's GSUB wiring is outside every stamp; `fingerprint.after_font_glyph_digests` explains why a window's glyph selection is covered without it. The divergence ledger reaches the shards through the audit's `matched_entry` column, which is in the rows, through its `ink_identical` ids, which decide which units take a change group instead of their class (`change_groups.reroutes`) and are a stamp line of their own, and through fields the build recomputes and patches on every pass (`no_verdict`, `exemplar`, class promotion), so a ledger edit that leaves those ids alone invalidates only the units whose rows it changed. The refuse `why` text the explain panel quotes is in the family keys instead, so rewording one re-enriches only the windows that contain that family. The change groups' copy (rebuild/review/change-groups.yaml) reaches only the manifest, which every build writes afresh, so rewording a group re-enriches no unit.
 
-A store record holds the address of the previous build's fragment: the shard part, byte offset, and length the shard writer returned when it wrote the fragment, so the plan does not parse the previous corpus to find it. The record also holds what the parent's whole-corpus passes need: the machine flags and ink deltas, the change group and the ledger class a re-routed unit was taken from, the judged pair, the ink-diff digest for duplicate grouping, the primary-unit projection and per-junction rects, and the unit's mismatch lines. It records whether the fragment was written slim, because the shape depends on the exemption, a ledger fact outside the key. It also records the values the fragment was written with that come from outside the key: its duplicate group, its class after change-group promotion, the ledger's exemplar and exemption flags, its primary units of secondary junctions, and the rune file its policy draft names. So a unit that becomes a human unit on a ledger edit (`no_verdict` changes) is a miss and is re-enriched in full instead of reused as the slim fragment it had before, and a unit that moves the other way is a miss too. This keeps a cached corpus byte-identical to a from-scratch one.
+A store record holds the address of the previous build's fragment: the shard part, byte offset, and length on disk the shard writer returned when it wrote the fragment, and for a fragment it wrote deflated (#618's change 35) its inflated length as a fourth element (decisions 76 and 77), so the plan does not parse the previous corpus to find it. The record also holds what the parent's whole-corpus passes need: the machine flags and ink deltas, the change group and the ledger class a re-routed unit was taken from, the judged pair, the ink-diff digest for duplicate grouping, the primary-unit projection and per-junction rects, and the unit's mismatch lines. It records whether the fragment was written slim, because the shape depends on the exemption, a ledger fact outside the key. It also records the values the fragment was written with that come from outside the key: its duplicate group, its class after change-group promotion, the ledger's exemplar and exemption flags, its primary units of secondary junctions, and the rune file its policy draft names. So a unit that becomes a human unit on a ledger edit (`no_verdict` changes) is a miss and is re-enriched in full instead of reused as the slim fragment it had before, and a unit that moves the other way is a miss too. This keeps a cached corpus byte-identical to a from-scratch one.
 
-Every field derived from the ledger or the whole-corpus passes (duplicate group, class, `no_verdict`, `exemplar`, the primary units of secondary junctions) is recomputed over all units on every build, and a unit's id depends only on its content key. A cached fragment whose recomputed fields all equal the values its record says it was written with stays at its address in the new corpus, read as bytes without parsing (`unit_store.UnitStore.cached_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). So does a recomputed or re-patched fragment whose bytes equal those at its prior record's address, found by unit id (`unit_store.UnitStore.prior_fragment`, `PriorFragmentReader.same_bytes`). The shard writer appends every other fragment to its class's overflow parts and leaves the parts it found in place, unless the class is written whole (`build._ShardWriter`, `build._route`). A cached fragment with a changed field is parsed once, patched, and serialized again, the same way a recomputed fragment is read back from the build's own arena of deflated fragments (`build._FragmentArena`), so a cache hit never keeps a stale global field. The cluster id, the change group and the ledger class are the global fields taken from the cached record, because their inputs (configs, per-config classes, junctions, highlight totals, machine flags and ink diffs) are covered by the key, the `ink_identical` ids by the stamp, and the exemption, which decides whether an identical class's unit re-routes, by the slim check, since such a unit is slim exactly when it is exempt.
+Every field derived from the ledger or the whole-corpus passes (duplicate group, class, `no_verdict`, `exemplar`, the primary units of secondary junctions) is recomputed over all units on every build, and a unit's id depends only on its content key. A cached fragment whose recomputed fields all equal the values its record says it was written with stays at its address in the new corpus, read as bytes without parsing (`unit_store.UnitStore.cached_as_is`; `PriorFragmentReader.read_bytes` checks the record's id and stamp as substrings of the bytes). So does a recomputed or re-patched fragment whose bytes equal those at its prior record's address, found by unit id (`unit_store.UnitStore.prior_fragment`, `PriorFragmentReader.same_bytes`), which compares a deflated prior's inflated bytes, never two builds' deflated bytes, so another zlib never reads as a changed fragment. The shard writer appends every other fragment to its class's overflow parts and leaves the parts it found in place, unless the class is written whole (`build._ShardWriter`, `build._route`). A cached fragment with a changed field is parsed once, patched, and serialized again, the same way a recomputed fragment is read back from the build's own arena of deflated fragments (`build._FragmentArena`), so a cache hit never keeps a stale global field. The cluster id, the change group and the ledger class are the global fields taken from the cached record, because their inputs (configs, per-config classes, junctions, highlight totals, machine flags and ink diffs) are covered by the key, the `ink_identical` ids by the stamp, and the exemption, which decides whether an identical class's unit re-routes, by the slim check, since such a unit is slim exactly when it is exempt.
 
 `stream_store` parses a store line only if the workload names its key, into a `ParsedCachedUnit`, and yields the records one at a time in the store's materialized order. The build's plan scans the store itself (`scan_store`), matching each line's key to a unit through an index over the unit store's input-key column (`columns.KeyIndex`), and keeps of a record whose address does not hold only its place, its unit's ordinal, its class and its id word (`WantedFragments`); once the walk over the previous corpus has placed them (`locate_prior_fragments`), a second scan parses those records alone and loads each whose fragment the walk found (`scan_marked`). The plan loads each into the packed unit store (`rebuild/review/unit_store.py`) and releases it, so for the rest of the build the parent holds a cached unit only as columns there. If the store stops reading after some records were yielded, the stream raises `StoreUnreadable`, and the plan discards what it loaded and runs a full build. An error the load itself raises propagates unchanged. `load_store` collects the same stream into a dict.
 
@@ -376,7 +376,7 @@ class UnitKeyer:
 class CachedUnit:
     """One store record as `write_store` serializes it; `ParsedCachedUnit` is the same record as `stream_store` parses it. It holds what the build needs to fetch the unit's previous fragment from the prior shards, plus the projection the parent's whole-corpus passes read. `content_key` is the fragment's own stamp, which differs from `key`, the content key over the unit's inputs. A prior fragment is reused only when the stamp on disk equals `content_key`, which shows the fetched bytes are the ones this record describes. `slim` records the fragment's shape (`audit.slim_fragment`), and the build reuses the fragment only when that is the shape it would write for the unit now.
 
-    `address` is the shard part (as the manifest names it), byte offset, and length the shard writer returned when it wrote the fragment, the same `(part, start, length)` the app's sidecars use for a Range fetch. It is never a copy of the stamp: `PriorFragmentReader` checks the bytes at the address against the stamp when the write reads them back. A record with no address, from an older store or in a part whose size `stream_store` found changed, is located by `locate_prior_fragments`, which reads the address off the part's text.
+    `address` is the shard part (as the manifest names it), byte offset, and length on disk the shard writer returned when it wrote the fragment, the same `(part, start, length)` the app's sidecars use for a Range fetch. It is never a copy of the stamp: `PriorFragmentReader` checks the bytes at the address against the stamp when the write reads them back. A record with no address, from an older store or in a part whose size `stream_store` found changed, is located by `locate_prior_fragments`, which reads the address off the part's text. `inflated` is the inflated length of a fragment the shard writer wrote deflated (#618's decision 76), which the record writes as its address's fourth element (`unit_index.address_value`), and 0 for a plain fragment, whose record keeps the three-element address every record of a from-scratch build has (decision 77).
 
     `duplicate_group`, `exemplar`, `no_verdict`, and `primary_units` are the values `build.patch_fragment` wrote into the fragment from the whole-corpus passes and the ledger, and `policy_file` is the one drafts field the cross-unit check reads. `unit_store.UnitStore.cached_as_is` compares the first four and the class with this build's values. When all are equal, the fragment's bytes on disk are already what this build would write, and it is copied by address; a shard part made up only of such fragments is left in place. Otherwise the fragment is read, patched, and serialized again.
     """
@@ -404,6 +404,7 @@ class CachedUnit:
     no_verdict: bool
     primary_units: list[list]
     policy_file: str | None
+    inflated: int = 0
 
     def to_record(self) -> dict:
         return {
@@ -429,13 +430,13 @@ class CachedUnit:
             "no_verdict": self.no_verdict,
             "primary_units": self.primary_units,
             "policy_file": self.policy_file,
-            "address": list(self.address) if self.address else None,
+            "address": unit_index.address_value(*self.address, self.inflated) if self.address else None,
         }
 
 
 @dataclass(frozen=True, slots=True)
 class ParsedCachedUnit:
-    """One store record as `stream_store` parses it. The plan loads each record into the packed unit store (`unit_store.UnitStore.load_cached`) as the scan yields it and then releases it, so the parent holds one at a time; a record without an address is parsed again once the walk has placed it (`scan_marked`). The projection the primary-unit resolution pass reads is stored as tuples (`pair`, the two span tuples, the three name tuples, and `junction_pairs`), which `_parsed_cached_unit` pools so that records held together share one instance per distinct value. `junction_rects` is `CachedUnit.junctions` unchanged, in the shape `patch_fragment` reads. The class uses slots because a caller holding the whole store holds one instance per line."""
+    """One store record as `stream_store` parses it, its address's inflated length, when its fragment is deflated, as `inflated` beside it (`CachedUnit`). The plan loads each record into the packed unit store (`unit_store.UnitStore.load_cached`) as the scan yields it and then releases it, so the parent holds one at a time; a record without an address is parsed again once the walk has placed it (`scan_marked`). The projection the primary-unit resolution pass reads is stored as tuples (`pair`, the two span tuples, the three name tuples, and `junction_pairs`), which `_parsed_cached_unit` pools so that records held together share one instance per distinct value. `junction_rects` is `CachedUnit.junctions` unchanged, in the shape `patch_fragment` reads. The class uses slots because a caller holding the whole store holds one instance per line."""
 
     key: str
     prior_id: str
@@ -467,26 +468,32 @@ class ParsedCachedUnit:
     before_glyphs: tuple[str, ...]
     before_junctions: tuple[str, ...]
     junction_pairs: tuple[tuple[int, int], ...]
+    inflated: int = 0
 
     def located(self) -> "PriorFragment | None":
-        """Return the record's address as a `PriorFragment` stamped with the record's `content_key` and marked byte-copied, meaning the shard writer wrote those bytes and they may be copied unchanged, or None when the walk has to locate the record."""
+        """Return the record's address as a `PriorFragment` stamped with the record's `content_key` and marked byte-copied, meaning the shard writer wrote those bytes and they may be copied unchanged, with its inflated length when it is deflated, or None when the walk has to locate the record."""
         if self.address is None:
             return None
         part, start, length = self.address
-        return PriorFragment(part, start, length, self.prior_id, self.content_key, byte_copied=True)
+        return PriorFragment(
+            part, start, length, self.prior_id, self.content_key, byte_copied=True, inflated=self.inflated
+        )
 
 
 _KEY_PREFIX = b'{"key": "'
 
 
 def _parsed_cached_unit(record: dict, trusted: Container[str], pool: dict, whole: bool) -> ParsedCachedUnit:
-    """Build the `ParsedCachedUnit` for one parsed store line. Strings that repeat across units (the class, the change group and ledger class, the cluster and diff digests, the config names and delta digests, the address's part, and the projection's glyph names, cell names, and junction tokens) are interned with `sys.intern`, the table `audit.load_audit` describes. The projection's tuples are pooled through `pool` when `whole` is true (the caller holds the whole store) or when the record has no address (a streaming caller buffers those for the walk). An addressed record in a stream is loaded and released before the next line is parsed, so it pools only within itself, and a table shared across the stream holds nothing for the records already yielded. The address is kept only when its part is in `trusted`."""
+    """Build the `ParsedCachedUnit` for one parsed store line. Strings that repeat across units (the class, the change group and ledger class, the cluster and diff digests, the config names and delta digests, the address's part, and the projection's glyph names, cell names, and junction tokens) are interned with `sys.intern`, the table `audit.load_audit` describes. The projection's tuples are pooled through `pool` when `whole` is true (the caller holds the whole store) or when the record has no address (a streaming caller buffers those for the walk). An addressed record in a stream is loaded and released before the next line is parsed, so it pools only within itself, and a table shared across the stream holds nothing for the records already yielded. The address, three elements or a deflated fragment's four, is kept only when its part is in `trusted`."""
     address = record.get("address")
-    address = (
-        (sys.intern(address[0]), int(address[1]), int(address[2]))
-        if address and address[0] in trusted
-        else None
-    )
+    inflated = 0
+    if address and len(address) not in (3, 4):
+        raise ValueError(f"an address holds three or four elements, not {len(address)}")
+    if address and address[0] in trusted:
+        inflated = int(address[3]) if len(address) == 4 else 0
+        address = (sys.intern(address[0]), int(address[1]), int(address[2]))
+    else:
+        address = None
     table = pool if whole or address is None else {}
 
     def pooled(value):
@@ -534,6 +541,7 @@ def _parsed_cached_unit(record: dict, trusted: Container[str], pool: dict, whole
         before_glyphs=names(proj["before_glyphs"]),
         before_junctions=names(proj["before_junctions"]),
         junction_pairs=spans(junction["pair"] for junction in junctions),
+        inflated=inflated,
     )
 
 
@@ -779,7 +787,7 @@ def primary_units_crc(primary_units: list[list]) -> int:
 
 @dataclass(frozen=True, slots=True)
 class PriorRecord:
-    """What the plan keeps of a prior store record it does not load as a cached unit, so the write can find the prior fragment of a unit it recomputed and decide its class's route (#618's decision 73): the unit's id, the address of its fragment, and the fields the fragment was patched with, its class, duplicate group, exemplar and exemption flags, and its primary units by CRC-32 (`primary_units_crc`). Sliced from the line, which `to_record` writes in a fixed order, without parsing the rest."""
+    """What the plan keeps of a prior store record it does not load as a cached unit, so the write can find the prior fragment of a unit it recomputed and decide its class's route (#618's decision 73): the unit's id, the address of its fragment with its inflated length when it is deflated (decision 76), and the fields the fragment was patched with, its class, duplicate group, exemplar and exemption flags, and its primary units by CRC-32 (`primary_units_crc`). Sliced from the line, which `to_record` writes in a fixed order, without parsing the rest."""
 
     unit_id: str
     class_id: str
@@ -788,6 +796,7 @@ class PriorRecord:
     no_verdict: bool
     primary_units: int
     address: tuple[str, int, int] | None
+    inflated: int = 0
 
 
 def prior_record(line: bytes) -> PriorRecord:
@@ -795,6 +804,7 @@ def prior_record(line: bytes) -> PriorRecord:
     patched = line.index(_PATCHED_SEAM)
     policy = line.index(_POLICY_SEAM, patched)
     fields = json.loads(b"{" + line[patched + 2 : policy] + b"}")
+    address = record_address(line)
     return PriorRecord(
         record_id(line),
         record_class(line),
@@ -802,7 +812,8 @@ def prior_record(line: bytes) -> PriorRecord:
         bool(fields["exemplar"]),
         bool(fields["no_verdict"]),
         primary_units_crc(fields["primary_units"]),
-        record_address(line),
+        None if address is None else address[:3],
+        0 if address is None else address[3],
     )
 
 
@@ -881,11 +892,11 @@ def scan_marked(
 def materialized_store(
     out_dir: Path,
     *,
-    address_of: Callable[[str, tuple[str, int, int] | None], tuple[str, int, int] | None] | None = None,
+    address_of: Callable[[str, tuple[str, int, int, int] | None], tuple[str, int, int] | None] | None = None,
     stamps: Mapping | None = None,
     sha256: bool = False,
 ) -> tuple[dict, Iterator[bytes]] | None:
-    """Return the store's materialized form, the file a whole write of the same records gives (`write_store`): its header under the head's stamps, with `stamps` laid over them, and its record lines in order, with each record's address replaced by `address_of(unit_id, address)` when given. The corpus's materialized form (`build.materialize_corpus`, `perf_fingerprint`) passes the address each fragment takes in a from-scratch layout, with that layout's manifest identity and part sizes. None when there is no store; a store that does not open raises `StoreUnreadable`."""
+    """Return the store's materialized form, the file a whole write of the same records gives (`write_store`): its header under the head's stamps, with `stamps` laid over them, and its record lines in order, with each record's address, as `record_address` reads it, replaced by the three-element `address_of(unit_id, address)` when given. The corpus's materialized form (`build.materialize_corpus`, `perf_fingerprint`) passes the address each fragment takes in a from-scratch layout, plain, with that layout's manifest identity and part sizes, so no record there carries a deflated fragment's fourth element (#618's decision 48). None when there is no store; a store that does not open raises `StoreUnreadable`."""
     opened = open_store(out_dir, sha256=sha256)
     if opened is None:
         return None
@@ -1558,7 +1569,7 @@ def signature_miss_note(out_dir: Path, environment: fingerprint.EnvironmentStamp
 
 @dataclass(frozen=True, slots=True)
 class PriorFragment:
-    """The location and stamp of one of the prior corpus's fragments: the shard part it was written to (as the manifest names it), the byte offset and length of its JSON element there, its unit id, and its `content_key`. The address is the same `(part, start, length)` the app's sidecars use for a Range fetch. It comes either from the store record (`ParsedCachedUnit.located`), which recorded what the shard writer returned, or from `locate_prior_fragments`, which reads it off the part's text for a record without one and so stays correct for a hand-edited shard as long as the part is still ASCII. `byte_copied` marks the first case: bytes at a store address have the shard writer's framing and may be copied into the next corpus unchanged, while bytes the walk found may be any JSON and are parsed, patched, and serialized again."""
+    """The location and stamp of one of the prior corpus's fragments: the shard part it was written to (as the manifest names it), the byte offset and length on disk of its element there, its unit id, its `content_key`, and for a fragment held deflated (#618's change 35) its inflated length, the fourth element of its store address (decision 76), 0 for a plain one. The address is the same `(part, start, length)` the app's sidecars use for a Range fetch. It comes either from the store record (`ParsedCachedUnit.located`), which recorded what the shard writer returned, or from `locate_prior_fragments`, which reads it through the live-fragment iterator for a record without one. `byte_copied` marks the first case: bytes at a store address have the shard writer's framing and may be copied into the next corpus unchanged, a deflated fragment's as it was stored, while bytes the walk found are parsed, patched, and serialized again."""
 
     part: str
     start: int
@@ -1566,6 +1577,7 @@ class PriorFragment:
     unit_id: str
     content_key: str | None
     byte_copied: bool = False
+    inflated: int = 0
 
 
 _ID_PREFIX = "u-"
@@ -1612,9 +1624,19 @@ class WantedFragments:
 
 
 class LocatedFragments:
-    """Where the walk found the wanted records' fragments (`locate_prior_fragments`), as columns over the wanted records sorted by id word: the word and the class index, copied from the wanted columns (12 bytes), and for each found fragment its part (an index into `parts`, plus one; 0 when not found), start, length and 32-byte content key (48 bytes), 60 bytes a record beside the wanted columns. `find` answers one record at a time."""
+    """Where the walk found the wanted records' fragments (`locate_prior_fragments`), as columns over the wanted records sorted by id word: the word and the class index, copied from the wanted columns (12 bytes), and for each found fragment its part (an index into `parts`, plus one; 0 when not found), start, length on disk, inflated length (0 for a plain fragment) and 32-byte content key (52 bytes), 64 bytes a record beside the wanted columns. `find` answers one record at a time."""
 
-    __slots__ = ("classes", "words", "class_of", "part", "start", "length", "content_keys", "parts")
+    __slots__ = (
+        "classes",
+        "words",
+        "class_of",
+        "part",
+        "start",
+        "length",
+        "inflated",
+        "content_keys",
+        "parts",
+    )
 
     def __init__(self, wanted: WantedFragments) -> None:
         order = sorted_by_word(wanted.words)
@@ -1625,6 +1647,7 @@ class LocatedFragments:
         self.part = array("I", [0]) * count
         self.start = array("Q", [0]) * count
         self.length = array("I", [0]) * count
+        self.inflated = array("I", [0]) * count
         self.content_keys = bytearray(32 * count)
         self.parts: list[str] = []
 
@@ -1650,6 +1673,7 @@ class LocatedFragments:
                     self.length[position],
                     unit_id,
                     self.content_keys[position * 32 : position * 32 + 32].hex(),
+                    inflated=self.inflated[position],
                 )
         return None
 
@@ -1660,12 +1684,12 @@ class LocatedFragments:
         return len(self.words)
 
     def nbytes(self) -> int:
-        columns = (self.words, self.class_of, self.part, self.start, self.length)
+        columns = (self.words, self.class_of, self.part, self.start, self.length, self.inflated)
         return sum(len(column) * column.itemsize for column in columns) + len(self.content_keys)
 
 
 def locate_prior_fragments(out_dir: Path, wanted: WantedFragments) -> LocatedFragments:
-    """Find where the prior shards hold the wanted records' fragments (`WantedFragments`, the records' classes and id words), with the stamp each fragment carries, read through the live-fragment iterator (`unit_index.LiveCorpus`) over the classes the records name, one fragment at a time, so the build never holds the previous corpus's units and never takes a dead slot. Each fragment's id word is bisected in the wanted words, and a fragment found for a wanted class and word is recorded in the result's columns (`LocatedFragments`), the last one found when a corpus holds a unit twice. A fragment whose id or content key is not in the form this code writes is not recorded, since no record could reuse it. The plan uses this only as a fallback: a store record carries the address the shard writer returned, and the walk is needed only for the records `stream_store` yielded without one, from an older store or in a part whose size changed. On a corpus this code wrote there are none. A corpus the iterator refuses, or a part that is missing, unreadable or not pure ASCII, contributes nothing, and its units are recomputed: an address is a character offset read back as a byte offset, which are equal only under `ensure_ascii`, and every part this build writes is ASCII."""
+    """Find where the prior shards hold the wanted records' fragments (`WantedFragments`, the records' classes and id words), with the stamp each fragment carries, read through the live-fragment iterator (`unit_index.LiveCorpus`) over the classes the records name, one fragment at a time, so the build never holds the previous corpus's units and never takes a dead slot. Each fragment's id word is bisected in the wanted words, and a fragment found for a wanted class and word is recorded in the result's columns (`LocatedFragments`), the last one found when a corpus holds a unit twice. A fragment whose id or content key is not in the form this code writes is not recorded, since no record could reuse it. The plan uses this only as a fallback: a store record carries the address the shard writer returned, and the walk is needed only for the records `stream_store` yielded without one, from an older store or in a part whose size changed. On a corpus this code wrote there are none. A corpus the iterator refuses, or a part that is missing or unreadable, contributes nothing past where the walk stopped, and its units are recomputed: where the store does not drive the iterator, the index and the parts walk each part as JSON and refuse one that is not ASCII, which a deflated fragment makes, since a walk's addresses are character offsets read back as byte offsets. A fragment the store places is read deflated or plain as it lies, and its inflated length is recorded with its address."""
     located = LocatedFragments(wanted)
     if not len(wanted):
         return located
@@ -1692,6 +1716,7 @@ def locate_prior_fragments(out_dir: Path, wanted: WantedFragments) -> LocatedFra
                     located.part[position] = part
                     located.start[position] = slot.start
                     located.length[position] = slot.length
+                    located.inflated[position] = slot.inflated
                     located.content_keys[position * 32 : position * 32 + 32] = content
     except OSError, ValueError:
         return located
@@ -1699,7 +1724,7 @@ def locate_prior_fragments(out_dir: Path, wanted: WantedFragments) -> LocatedFra
 
 
 class PriorFragmentReader:
-    """Reads cached fragments from the prior shards by address, from the store record or from the walk. Each read is one `os.pread` on a descriptor kept open per part, up to `OPEN_PARTS` at once, the oldest closed first, so the write's run of reads from one part opens it once. On the 18-core M5 Pro MacBook Pro (`doc/fleet.md`), reopening the part on each read costs about 16–17 µs more than an `os.pread`, and a seek and read on a buffered handle kept open costs 4–5 µs more. Each read is checked against the address it came from: the element must still be the unit with the stamp the plan reused it under. Otherwise the file changed under this build, and the read raises ValueError. For a store-addressed fragment, this is the only time its bytes are checked against its record."""
+    """Reads cached fragments from the prior shards by address, from the store record or from the walk. Each read is one `os.pread` on a descriptor kept open per part, up to `OPEN_PARTS` at once, the oldest closed first, so the write's run of reads from one part opens it once. On the 18-core M5 Pro MacBook Pro (`doc/fleet.md`), reopening the part on each read costs about 16–17 µs more than an `os.pread`, and a seek and read on a buffered handle kept open costs 4–5 µs more. Each read is checked against the address it came from: the element must still be the unit with the stamp the plan reused it under, and a deflated one (#618's change 35) must inflate, checked, to its recorded length (`unit_index.inflate_fragment`), so every check runs on the inflated bytes. Otherwise the file changed under this build, and the read raises ValueError. For a store-addressed fragment, this is the only time its bytes are checked against its record."""
 
     OPEN_PARTS = 64
 
@@ -1722,8 +1747,18 @@ class PriorFragmentReader:
             self._descriptors[located.part] = descriptor
         return os.pread(descriptor, located.length, located.start)
 
+    def _plain(self, located: PriorFragment, body: bytes) -> bytes:
+        """Return the plain bytes of `body`, read at `located`: a deflated fragment's inflated, checked against its recorded length."""
+        if not located.inflated:
+            return body
+        try:
+            return unit_index.inflate_fragment(body, located.inflated)
+        except ValueError as error:
+            raise ValueError(f"{self._refusal(located)} ({error})") from None
+
     def read(self, located: PriorFragment) -> dict:
-        fragment = json.loads(self._bytes(located))
+        """Return the fragment at `located` parsed, a deflated one inflated first."""
+        fragment = json.loads(self._plain(located, self._bytes(located)))
         if (
             not isinstance(fragment, dict)
             or fragment.get("id") != located.unit_id
@@ -1733,18 +1768,26 @@ class PriorFragmentReader:
         return fragment
 
     def read_bytes(self, located: PriorFragment) -> bytes:
-        """Return the fragment's bytes without parsing them, checked against the address. The shard writer's framing puts each field on its own line as `"key": value`, so the id and stamp the address was recorded with are found as substrings. This catches a fragment edited in place at its address, which the part-size check cannot see, as `read` does, and an address into a dead slot that holds another unit. Only a byte-copied address is checked this way, because only the shard writer's framing is known; a walked address is read with `read`."""
+        """Return the fragment's bytes as they are stored, a deflated fragment's deflated, without parsing them, checked against the address. A deflated fragment is inflated, checked against its recorded length, and its plain bytes checked. The shard writer's framing puts each field on its own line as `"key": value`, so the id and stamp the address was recorded with are found as substrings. This catches a fragment edited in place at its address, which the part-size check cannot see, as `read` does, and an address into a dead slot that holds another unit. Only a byte-copied address is checked this way, because only the shard writer's framing is known; a walked address is read with `read`."""
         body = self._bytes(located)
+        plain = self._plain(located, body)
         if located.byte_copied and (
-            f'"id": {json.dumps(located.unit_id)}'.encode() not in body
-            or f'"content_key": {json.dumps(located.content_key)}'.encode() not in body
+            not unit_index.holds_unit(plain, located.unit_id)
+            or f'"content_key": {json.dumps(located.content_key)}'.encode() not in plain
         ):
             raise self._refusal(located)
         return body
 
     def same_bytes(self, located: PriorFragment, body: bytes) -> bool:
-        """Return whether the prior corpus holds `body` at `located`: the write's compare of a fragment with its prior (#618's decision 72), and equal bytes are a byte copy. A fragment of another length is not read. Equal bytes hold this unit's own id and stamp, since `body` does, so the compare needs no check of its own: a slot that holds another unit or another stamp, as one the corpus changed under, compares unequal, and the fragment is appended."""
-        return located.length == len(body) and self._bytes(located) == body
+        """Return whether the prior corpus holds the plain shard bytes `body` at `located`: the write's compare of a fragment with its prior (#618's decision 72), and equal bytes are a byte copy, which keeps the prior's form. A fragment of another length is not read: a plain prior's length on disk, or a deflated prior's recorded inflated length (decision 76), is compared with `body`'s first, and only on equal lengths is a deflated prior read and inflated, so the compare is always over inflated bytes and never over two builds' deflated ones. Equal bytes hold this unit's own id and stamp, since `body` does, so the compare needs no check of its own: a slot that holds another unit or another stamp, as one the corpus changed under, or a deflated slot that does not inflate to its recorded length, compares unequal, and the fragment is appended."""
+        if not located.inflated:
+            return located.length == len(body) and self._bytes(located) == body
+        if located.inflated != len(body):
+            return False
+        try:
+            return unit_index.inflate_fragment(self._bytes(located), located.inflated) == body
+        except ValueError:
+            return False
 
     def close(self) -> None:
         descriptors, self._descriptors = self._descriptors, {}

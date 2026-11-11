@@ -64,6 +64,7 @@ PROTOCOL_MODULES = (
 )
 FRESHNESS_MODULES = (
     "pipeline/fingerprint.py",
+    "pipeline/row_delta.py",
     "tools/site_fonts.py",
     "review/unit_index.py",
     "review/app_index.py",
@@ -83,7 +84,7 @@ ORPHAN_SHARE_LIMIT = 0.10
 
 
 def code_digest(review_dir: Path) -> str:
-    """Return the digest of the modules whose behavior the land protocol depends on (`PROTOCOL_MODULES` under `review_dir`) and of the ones the server's /status judges the served corpus's freshness with (`FRESHNESS_MODULES`, under `review_dir`'s parent): the fingerprint components, the site font paths the `fonts` component hashes, and the per-unit index and app sidecar stamps. The server takes it at boot from the files it loaded, and the cycle from the working tree, so a server whose code differs from the tree's is never trusted to run through a pass. A server started before a change to the freshness modules would go on judging the corpus by the components it loaded and could call a stale corpus ready, so the next pass that writes under it restarts it."""
+    """Return the digest of the modules whose behavior the land protocol depends on (`PROTOCOL_MODULES` under `review_dir`) and of the ones the server's /status judges the served corpus's freshness with (`FRESHNESS_MODULES`, under `review_dir`'s parent): the fingerprint components, the site font paths the `fonts` component hashes, and the stamps of the per-unit index, the app sidecars and the unit store's head (`app_index.outputs_not_current`). The server takes it at boot from the files it loaded, and the cycle from the working tree, so a server whose code differs from the tree's is never trusted to run through a pass. A server started before a change to the freshness modules would go on judging the corpus by the components it loaded and could call a stale corpus ready, so the next pass that writes under it restarts it."""
     review_dir = Path(review_dir)
     paths = [(name, review_dir / name) for name in PROTOCOL_MODULES]
     paths += [(name, review_dir.parent / name) for name in FRESHNESS_MODULES]

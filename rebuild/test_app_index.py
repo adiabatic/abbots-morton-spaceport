@@ -1,6 +1,6 @@
 """Tests for the sidecars the review app boots from, and the byte spans that address the shards they were projected from.
 
-The tests check four properties. `app_row` matches the shard fragment field for field, as `rebuild/test_unit_index.py` does for the verdict update's index, because a field that drops out shows no error: a card just stops drawing something. Every span slices its fragment back out of the bytes `_write_shard` wrote, including across a forced part split and around a fragment too large to share a part, which catches a change to the dump's framing that leaves the offsets wrong. The two files partition the corpus: the app index holds the manifest's `human_unit_ids` in shard order and the locator holds the rest, so every id the app can link to resolves. Every block the locator table names slices out of the rows file as a gzip member that decodes alone to the rows the table says, within one class, so the app's fold and deep-link binary search read what they expect.
+The tests check four properties. `app_row` matches the shard fragment field for field, as `rebuild/test_unit_index.py` does for the verdict update's index, because a field that drops out shows no error: a card just stops drawing something. Every span slices its fragment back out of the bytes `_write_shard` wrote, including across a forced part split and around a fragment too large to share a part, which catches a change to the dump's framing that leaves the offsets wrong, and out of a build's parts that hold fragments deflated (#618's change 35), whose rows, and only theirs, end with `"deflated": true`, through the codec (`unit_index.inflate_fragment`). The two files partition the corpus: the app index holds the manifest's `human_unit_ids` in shard order and the locator holds the rest, so every id the app can link to resolves. Every block the locator table names slices out of the rows file as a gzip member that decodes alone to the rows the table says, within one class, so the app's fold and deep-link binary search read what they expect.
 
 Nothing here reads the live corpus. The fixture units are rewritten through the real writer in a temp directory, and the end-to-end tests use a mini build over the frozen bundle.
 """
@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from rebuild.review import app_index, unit_index
+from rebuild.test_unit_cache import deflated_corpus_of
 from rebuild.review.audit import MACHINE_CHECKS
 from rebuild.review.build import _check_output_files, _write_shard, check_output_dir
 
@@ -70,8 +71,13 @@ def _class_fragments(root: Path, meta: dict) -> list[dict]:
 
 
 def _corpus_shards(corpus: Path) -> tuple[dict, dict[str, list[dict]]]:
+    """Return a corpus's manifest and each class's live fragments in shard order, through the live-fragment iterator, which inflates a deflated one."""
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
-    return manifest, {meta["id"]: _class_fragments(corpus, meta) for meta in manifest["classes"]}
+    shards: dict[str, list[dict]] = {meta["id"]: [] for meta in manifest["classes"]}
+    with unit_index.LiveCorpus(corpus) as live:
+        for meta, _slot, fragment in live.fragments(unit_index.MANIFEST_ORDER):
+            shards[meta["id"]].append(fragment)
+    return manifest, shards
 
 
 def _rewrite_fixture_corpus(tmp_path: Path) -> Path:
@@ -111,11 +117,11 @@ def fixture_corpus(tmp_path) -> Path:
 
 
 def _addressed(corpus: Path, manifest: dict, row: dict) -> dict:
-    """Return the fragment a row's span points at, read the way the browser's Range request reads it: that slice of the named part's bytes, parsed alone."""
+    """Return the fragment a row's span points at, read the way the browser's Range request reads it: that slice of the named part's bytes, inflated alone when the row marks it deflated, as the app's `DecompressionStream('deflate-raw')` inflates it, without a length, and parsed alone."""
     meta = next(entry for entry in manifest["classes"] if entry["id"] == row["class"])
     part = unit_index.class_shards(meta)[row["shard_part"]]
-    raw = (corpus / part).read_bytes()
-    return json.loads(raw[row["byte_start"] : row["byte_start"] + row["byte_length"]])
+    raw = (corpus / part).read_bytes()[row["byte_start"] : row["byte_start"] + row["byte_length"]]
+    return json.loads(unit_index.inflate_fragment(raw) if row.get("deflated") else raw)
 
 
 # --- the spans -----------------------------------------------------------------------------------
@@ -165,9 +171,10 @@ def test_an_empty_class_addresses_nothing(tmp_path):
 
 
 def _assert_row_projects(row: dict, fragment: dict) -> None:
-    assert set(row) == APP_ROW_KEYS, row["id"]
+    assert set(row) - {"deflated"} == APP_ROW_KEYS, row["id"]
+    assert "deflated" not in row or (row["deflated"] is True and list(row)[-1] == "deflated"), row["id"]
     for field, value in row.items():
-        if field in ADDRESS_KEYS or field in INDEX_KEYS:
+        if field in ADDRESS_KEYS or field in INDEX_KEYS or field == "deflated":
             continue
         if field in LIST_DEFAULTED:
             assert value == (fragment.get(field) or []), f"{row['id']}.{field}"
@@ -210,6 +217,35 @@ def test_a_row_whose_flags_are_not_false_refuses_to_be_written():
     fragment = {"id": "u-0000", "picture_identical": True}
     with pytest.raises(AssertionError):
         app_index.app_row(fragment, 0, 0, 10, order=3, batch=0)
+
+
+def test_only_a_deflated_fragments_rows_carry_the_marker():
+    """A deflated fragment's app-index and locator rows end with `"deflated": true` after `byte_length`, and only theirs (#618's decision 77): a plain fragment's rows carry no `deflated` key, not even false, so each is byte for byte the row a from-scratch build writes for the fragment at that address, under the same format strings. A row copied forward for a byte-copied unit takes its marker from this build's span, whatever the previous row's tail held. Each row reads back with or without the marker."""
+    fragment = {"id": "u-0000", "class": "c"}
+    plain = app_index.locator_line(fragment, 0, 1, 2)
+    marked = app_index.locator_line(fragment, 0, 1, 2, deflated=True)
+    assert plain == b'{"id": "u-0000", "class": "c", "shard_part": 0, "byte_start": 1, "byte_length": 2}\n'
+    assert marked == plain[:-2] + b', "deflated": true}\n'
+    assert json.loads(plain) == app_index.locator_row(fragment, 0, 1, 2)
+    assert json.loads(marked) == {**json.loads(plain), "deflated": True}
+    row = app_index.app_line(fragment, 0, 1, 2, order=3, batch=0)
+    assert row.endswith(b', "shard_part": 0, "byte_start": 1, "byte_length": 2}\n') and b"deflated" not in row
+    assert app_index.app_line(fragment, 0, 1, 2, order=3, batch=0, deflated=True) == (
+        row[:-2] + b', "deflated": true}\n'
+    )
+    assert (
+        list(json.loads(app_index.app_line(fragment, 0, 1, 2, order=3, batch=0, deflated=True)))[-1]
+        == "deflated"
+    )
+    for previous in (row, row[:-2] + b', "deflated": true}\n'):
+        for deflated in (False, True):
+            assert app_index.copy_forward_app_line(
+                previous, unit_id="u-0000", order=4, batch=0, part=1, start=5, length=6, deflated=deflated
+            ) == app_index.app_line(fragment, 1, 5, 6, order=4, batch=0, deflated=deflated)
+    assert (app_index.APP_INDEX_FORMAT, app_index.LOCATOR_FORMAT) == (
+        "ams-review-app-index/1",
+        "ams-review-app-locator/2",
+    )
 
 
 def test_what_a_card_draws_from_its_record_is_not_in_the_row():
@@ -492,25 +528,39 @@ def test_the_contract_check_refuses_a_sidecar_stamped_for_another_manifest(tmp_p
 # --- what a real build writes ------------------------------------------------------------------------
 
 
-def test_a_build_writes_every_sidecar_over_its_own_shards(mini_corpus):
-    """End to end: every row of a real build's sidecars projects its fragment from that build's shards, every span slices the fragment back out, and the partition matches the manifest."""
-    manifest, shards = _corpus_shards(mini_corpus)
+@pytest.fixture(scope="module")
+def deflated_corpus(build_once, mini_corpus, mini_bundle) -> tuple[Path, Path, Path]:
+    return deflated_corpus_of(build_once, mini_corpus, mini_bundle)
+
+
+@pytest.mark.parametrize("held", ["plain", "deflated"])
+def test_a_build_writes_every_sidecar_over_its_own_shards(mini_corpus, deflated_corpus, held):
+    """End to end: every row of a real build's sidecars projects its fragment from that build's shards, every span slices the fragment back out, and the partition matches the manifest. Over a build that holds folded classes and an append deflated (#618's change 35), a deflated fragment's slice inflates through the codec to its fragment, and exactly the rows of the fragments the unit store holds deflated carry the marker, human rows and locator rows alike. The rows a build copies forward keep the marker: `rebuild/test_unit_cache.py::test_no_change_rebuild_reuses_every_unit_and_is_byte_stable` copies every row of this corpus forward and finds its sidecars byte for byte the same."""
+    corpus = mini_corpus if held == "plain" else deflated_corpus[0]
+    manifest, shards = _corpus_shards(corpus)
+    with unit_index.LiveCorpus(corpus) as live:
+        deflated = {slot.unit_id for meta in live.ordered() for slot in live.slots(meta) if slot.inflated}
+    assert bool(deflated) is (held == "deflated")
     by_id = {fragment["id"]: fragment for shard in shards.values() for fragment in shard}
-    rows = app_index.load_rows(mini_corpus, app_index.APP_INDEX_NAME)
+    rows = app_index.load_rows(corpus, app_index.APP_INDEX_NAME)
     assert rows
     assert [row["id"] for row in rows] == _shard_order_ids(manifest, shards, human=True)
     assert set(row["id"] for row in rows) == set(manifest["human_unit_ids"])
     for row in rows:
         fragment = by_id[row["id"]]
         _assert_row_projects(row, fragment)
-        assert _addressed(mini_corpus, manifest, row) == fragment
-    locator = app_index.load_locator_rows(mini_corpus)
+        assert _addressed(corpus, manifest, row) == fragment
+    locator = app_index.load_locator_rows(corpus)
     assert locator is not None
     assert [row["id"] for row in locator] == _shard_order_ids(manifest, shards, human=False)
     assert set(row["id"] for row in locator) == set(by_id) - set(manifest["human_unit_ids"])
     for row in locator:
-        assert _addressed(mini_corpus, manifest, row) == by_id[row["id"]]
-    _blocks_address_their_rows(mini_corpus)
+        assert _addressed(corpus, manifest, row) == by_id[row["id"]]
+    marked = {row["id"] for row in rows + locator if row.get("deflated")}
+    assert marked == deflated
+    if held == "deflated":
+        assert marked & {row["id"] for row in rows} and marked & {row["id"] for row in locator}
+    _blocks_address_their_rows(corpus)
 
 
 def test_a_build_satisfies_the_whole_corpus_contract(mini_corpus):
