@@ -1930,8 +1930,8 @@ def test_an_audit_replaced_by_rename_after_the_load_opened_it_is_not_read(
     replacement = _write_audit(tmp_path / "replacement.tsv", header, rows[:10])
     layout = review_build.audit_layout
 
-    def replaced(descriptor, path):
-        found = layout(descriptor, path)
+    def replaced(descriptor, path, members=None):
+        found = layout(descriptor, path, members)
         os.replace(replacement, path)
         return found
 
@@ -1946,6 +1946,51 @@ def test_an_audit_replaced_by_rename_after_the_load_opened_it_is_not_read(
     else:
         assert "; read in memory, since " in report
     assert _same_units(corpus, expected)
+
+
+@pytest.mark.parametrize("damage", ["a flipped bit", "rows that break the walk first"])
+@pytest.mark.parametrize("reader", ["the key-only read", "the stream"])
+def test_a_member_that_does_not_inflate_fails_the_build_naming_its_configuration(
+    reader, damage, mini_bundle, tmp_path, monkeypatch
+):
+    """An audit whose base a fold wrote as gzip members (#618's change 36) is read by member, and a reader that seeks checks only the parts' sizes, so a member whose bytes are damaged at its recorded size is found as it is inflated: by a key-only read process, which replies with the failure the build raises, or by the stream when the store's stamps skip that read. Either fails the build with `audit_stream.MemberError` naming the section's configuration, and the build never reads the audit through its in-memory source. That holds for damage zlib catches as it inflates, and for damage that inflates to rows that break the walk before the member's end is checked, as damage inside a large member usually does: here a whole gzip member of a row repeated at a window past every other, so only the last window range reaches it, then padding to the member's recorded length."""
+    from rebuild.pipeline import oracle
+
+    header, rows = _mini_audit_lines()
+    out = tmp_path / "m1"
+    with monkeypatch.context() as patched:
+        patched.setattr(row_delta, "AUDIT_SEGMENT_CAP", 1)
+        for lines in (rows[:-1], rows[1:], rows):
+            with oracle.AuditWriter(out) as writer:
+                writer.feed(("\n".join(lines) + "\n").encode("utf-8"))
+    head = row_delta.read_head(out, oracle.AUDIT_NAME)
+    assert head is not None and not head.segments and head.base.members is not None
+    largest = max(head.base.members, key=lambda member: member.inflated)
+    victim = next(member for member in head.base.members[1:] if member != largest)
+    offset = sum(member.length for member in head.base.members[: head.base.members.index(victim)])
+    base = out / head.base.name
+    damaged = bytearray(base.read_bytes())
+    if damage == "a flipped bit":
+        damaged[offset + victim.length // 2] ^= 0x01
+    else:
+        fields = next(row for row in rows if row.startswith(f"{victim.section}\t")).split("\t")
+        reach = max(row.split("\t")[1].count(":") for row in rows) + 2
+        row = "\t".join([victim.section, ":".join(["E650"] * reach), *fields[2:]])
+        member = gzip.compress(f"{row}\n{row}\n".encode("utf-8"), compresslevel=1, mtime=0)
+        assert len(member) < victim.length
+        damaged[offset : offset + victim.length] = member.ljust(victim.length, b"\0")
+    base.write_bytes(bytes(damaged))
+    if reader == "the stream":
+        monkeypatch.setattr(review_build, "_find_misses", lambda *_args: review_build._KeyOnly(False))
+    monkeypatch.setattr(
+        review_build,
+        "load_workload",
+        lambda *_args, **_kwargs: pytest.fail("the build read the audit through its in-memory source"),
+    )
+    with pytest.raises(
+        audit_stream.MemberError, match=re.escape(f"the {victim.section!r} section in a member that")
+    ):
+        _build(tmp_path / "corpus", mini_bundle, audit_path=out / oracle.AUDIT_NAME, jobs=1)
 
 
 def test_a_pass_that_hits_every_prior_signature_leaves_the_store_alone(

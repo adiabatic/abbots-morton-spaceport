@@ -58,6 +58,7 @@ from rebuild.review import build as review_build
 from rebuild.review.build import row_column_sizes, signature_text, unit_table_sizes
 from rebuild.review.columns import MappingPool, TuplePool, WindowIndex
 from rebuild.review.facts import PremergeSnapshot, capture_premerge
+from rebuild.test_conform import plain_audit_segments
 from rebuild.review.enrich import LETTERS
 from rebuild.review.unit_store import UnitStore
 from rebuild.tools import memory_tally
@@ -222,8 +223,28 @@ class _Loaded(NamedTuple):
     rows: int
 
 
-def _segmented(audit: Path, directory: Path) -> Path:
-    """An audit under a head in `directory` whose materialized form is `audit`'s single file, as run_m1's oracle writes it over three passes (`oracle.AuditWriter`): a base of `audit`'s rows with every fifth row's kinds changed, every seventh row dropped, a row at a window no pass keeps added to each configuration and the rows of the configuration with the fewest left out, then a plain keyed segment of the second pass's upserts and tombstones, which also changes every eleventh row's kinds, and a segment of the third pass's, which changes them back. So the materialized rows come from every part, a window's rows among them, a window's latest row from the later of two segments, and one configuration's rows from the segments alone."""
+_HEAD_FORMS = (
+    "under a head",
+    "under change 31's plain segments",
+    "under a transition",
+    "under a folded head",
+    "under a lone folded base",
+)
+
+
+def _segmented(audit: Path, directory: Path, form: str = "under a head") -> Path:
+    """An audit under a head in `directory` whose materialized form is `audit`'s single file, as run_m1's oracle writes it over three passes (`oracle.AuditWriter`): a base of `audit`'s rows with every fifth row's kinds changed, every seventh row dropped, a row at a window no pass keeps added to each configuration and the rows of the configuration with the fewest left out, then a plain keyed segment of the second pass's upserts and tombstones, which also changes every eleventh row's kinds, and a segment of the third pass's, which changes them back. So the materialized rows come from every part, a window's rows among them, a window's latest row from the later of two segments, and one configuration's rows from the segments alone. `form` says which of the parts are held as gzip members (#618's change 36): `under a head`, the plain base the first pass writes and both segments as members; `under change 31's plain segments`, both segments rewritten as the plain lines change 31's writer wrote (`test_conform.plain_audit_segments`); `under a transition`, the first segment plain and the second as members; `under a folded head`, the base a fold writes as members over the first pass's rows and both segments as members; and `under a lone folded base`, a fold of the third pass's rows into a base held as members, with no segment."""
+    if form == "under a lone folded base":
+        rows = audit.read_text(encoding="utf-8").splitlines()[1:]
+        with pytest.MonkeyPatch.context() as patched:
+            patched.setattr(row_delta, "AUDIT_SEGMENT_CAP", 1)
+            for lines in (rows[:-1], rows[1:], rows):
+                with oracle.AuditWriter(directory) as writer:
+                    writer.feed(("\n".join(lines) + "\n").encode("utf-8"))
+        head = row_delta.read_head(directory, oracle.AUDIT_NAME)
+        assert head is not None and not head.segments and head.base.members is not None
+        assert b"".join(oracle.materialized_audit(directory)) == audit.read_bytes()
+        return directory / oracle.AUDIT_NAME
     header, *rows = audit.read_text(encoding="utf-8").splitlines()
     counts = collections.Counter(row.split("\t", 1)[0] for row in rows)
     sparse = min(counts, key=lambda config: (counts[config], config))
@@ -243,11 +264,30 @@ def _segmented(audit: Path, directory: Path) -> Path:
         for index, row in enumerate(rows)
         for fields in [row.split("\t")]
     ]
-    for lines in (first, middle, rows):
+    passes = [first, middle, rows]
+    if form == "under a folded head":
+        with pytest.MonkeyPatch.context() as patched:
+            patched.setattr(row_delta, "AUDIT_SEGMENT_CAP", 1)
+            passes = [first, middle, first, middle, rows]
+            for lines in passes[:3]:
+                with oracle.AuditWriter(directory) as writer:
+                    writer.feed(("\n".join(lines) + "\n").encode("utf-8"))
+            passes = passes[3:]
+    for at, lines in enumerate(passes):
         with oracle.AuditWriter(directory) as writer:
             writer.feed(("\n".join(lines) + "\n").encode("utf-8"))
+        if form == "under a transition" and at == 1:
+            plain_audit_segments(directory, [1])
+    if form == "under change 31's plain segments":
+        plain_audit_segments(directory, [1, 2])
     head = row_delta.read_head(directory, oracle.AUDIT_NAME)
     assert head is not None and len(head.segments) == 2
+    assert [part.members is not None for part in head.parts] == {
+        "under a head": [False, True, True],
+        "under change 31's plain segments": [False, False, False],
+        "under a transition": [False, False, True],
+        "under a folded head": [True, True, True],
+    }[form]
     assert b"".join(oracle.materialized_audit(directory)) == audit.read_bytes()
     return directory / oracle.AUDIT_NAME
 
@@ -256,7 +296,7 @@ def _misses(audit: Path) -> list[tuple[int, str, str]]:
     """What the build's key-only read finds over `audit` against an empty ink-signature store, so every sibling row misses: each miss's key, configuration and window, in window order, read through the descriptors of the audit's parts (`review_build._key_only_read`)."""
     parts = AuditParts(audit)
     try:
-        layout = audit_layout(parts.descriptors, audit)
+        layout = audit_layout(parts.descriptors, audit, parts.members)
         assert layout.sections is not None, layout.why
         found = review_build._key_only_read(
             parts.descriptors, layout.sections, dict(LETTERS), _family_keys(), unit_cache.SignatureArrays()
@@ -274,7 +314,9 @@ def _in_memory(audit: Path, ledger_path: Path, split: Collection[str]) -> _Loade
     """The in-memory source as the build runs it: the load, the signature rows' keys, the pre-merge snapshot, the merge, the compaction and each unit's input key. An audit under a head is read through the descriptors of its parts (`AuditParts`), as the build reads it."""
     parts = AuditParts(audit)
     try:
-        workload = load_workload(audit, ledger_path, dict(LETTERS), descriptors=parts.descriptors)
+        workload = load_workload(
+            audit, ledger_path, dict(LETTERS), descriptors=parts.descriptors, members=parts.members
+        )
     finally:
         parts.close()
     table, rows = workload.table, workload.rows
@@ -303,7 +345,7 @@ def _streamed(audit: Path, ledger_path: Path, split: Collection[str]) -> _Loaded
 
     parts = AuditParts(audit)
     try:
-        layout = audit_layout(parts.descriptors, audit)
+        layout = audit_layout(parts.descriptors, audit, parts.members)
         assert layout.sections is not None, layout.why
         streamed = stream_workload(
             parts.descriptors,
@@ -367,9 +409,12 @@ def _snapshot(snapshot: PremergeSnapshot) -> tuple:
     )
 
 
-@pytest.mark.parametrize("source", ["mini", "synthetic", "mini under a head", "synthetic under a head"])
+@pytest.mark.parametrize(
+    "source",
+    ["mini", "synthetic", *(f"{audit} {form}" for audit in ("mini", "synthetic") for form in _HEAD_FORMS)],
+)
 def test_the_stream_gives_the_in_memory_sources_table_snapshot_merge_and_keys(source, mini_bundle, tmp_path):
-    """The build's two window sources agree, and so do its key-only reads. Over the mini audit, which run_m1 wrote in sorted sections, and over a synthetic audit in sorted sections with siblings that merge, siblings the merge keeps apart because they match two ledger classes, siblings whose ink differs, an absent section and a window in every section, the stream (`stream_workload`) and the in-memory source (`load_workload`, then the merge and the compaction, as the build's in-memory source runs them) give the same table through every accessor in load order, the same pre-merge snapshot with the same survivors, the same merge stats, the same input keys, and request the same ink-signature keys. The stream's window index is the one the table would sort for itself. Each audit is also read under a head, as a base and two segments of upserts, tombstones and inserted windows whose materialized form is the single file (`_segmented`): the stream and the in-memory source over its parts give what the in-memory source gives over the single file."""
+    """The build's two window sources agree, and so do its key-only reads. Over the mini audit, which run_m1 wrote in sorted sections, and over a synthetic audit in sorted sections with siblings that merge, siblings the merge keeps apart because they match two ledger classes, siblings whose ink differs, an absent section and a window in every section, the stream (`stream_workload`) and the in-memory source (`load_workload`, then the merge and the compaction, as the build's in-memory source runs them) give the same table through every accessor in load order, the same pre-merge snapshot with the same survivors, the same merge stats, the same input keys, and request the same ink-signature keys. The stream's window index is the one the table would sort for itself. Each audit is also read under a head, as a base and two segments of upserts, tombstones and inserted windows whose materialized form is the single file (`_segmented`), in every mix of plain parts and parts held as gzip members a tree passes through (#618's change 36), and as a lone base a fold wrote as members: the stream, the in-memory source and the key-only read over its parts give what they give over the single file. Over the lone folded base the key-only read cuts its window ranges where it cuts them over the single file, the same lines found by inflating the largest section's member."""
     if source.startswith("mini"):
         audit, ledger = MINI_AUDIT, mini_bundle.ledger
         split = {
@@ -381,9 +426,13 @@ def test_the_stream_gives_the_in_memory_sources_table_snapshot_merge_and_keys(so
         audit, ledger = _synthetic_audit(tmp_path)
         split = SPLIT
     expected = _in_memory(audit, ledger, split)
-    if source.endswith("under a head"):
+    form = next((form for form in _HEAD_FORMS if source.endswith(form)), None)
+    if form is not None:
         misses = _misses(audit)
-        audit = _segmented(audit, tmp_path / "segmented")
+        single = _layout_ranges(audit)
+        audit = _segmented(audit, tmp_path / "segmented", form)
+        if form == "under a lone folded base":
+            assert _layout_ranges(audit) == single
         in_memory = _in_memory(audit, ledger, split)
         assert _accessors(in_memory.table) == _accessors(expected.table)
         assert in_memory.input_keys == expected.input_keys and in_memory.stats == expected.stats
@@ -402,6 +451,17 @@ def test_the_stream_gives_the_in_memory_sources_table_snapshot_merge_and_keys(so
     )
     index = streamed.table.window_index()
     assert (list(index.ordinals), list(index.keys)) == (list(built.ordinals), list(built.keys))
+
+
+def _layout_ranges(audit: Path) -> list:
+    """The window ranges the key-only read cuts `audit` into (`audit_stream.window_ranges`), through the descriptors of its parts and their member indexes."""
+    parts = AuditParts(audit)
+    try:
+        layout = audit_layout(parts.descriptors, audit, parts.members)
+        assert layout.sections is not None, layout.why
+        return audit_stream.window_ranges(parts.descriptors, layout.sections, review_build.KEY_ONLY_PROCESSES)
+    finally:
+        parts.close()
 
 
 def parse_audit_windows(path: Path) -> set[str]:

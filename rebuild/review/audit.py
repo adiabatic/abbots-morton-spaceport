@@ -4,7 +4,7 @@ This module does not assign unit ids. A unit's id is `unit_cache.unit_id_for` ov
 
 The dedupe key is name-grain, so a config that renames a glyph without moving ink splits one visual question into sibling units. The build merges them back with the ink-duplicate merge (`merge_ink_duplicate_units`' rules) before enrichment and batching.
 
-The build reads the audit through one of two window sources, both over the descriptors it holds for the whole build (`AuditParts`): under the audit's head, every part the head lists, a base and run_m1's plain keyed segments, each in sorted sections; for a tree with no head, the single file. The stream (`stream_workload`) reads an audit in sorted sections (`rebuild/review/audit_stream.py`: one section a configuration in each part, in rank order, each section's windows strictly increasing, a configuration's sections merged across the parts by window), as run_m1 writes it, one window at a time: it groups each window's rows into units, merges the window's ink duplicates, keys each unit from its raw lines, and appends the unit's columns, so it holds one window's rows and never the audit's. Any other file, the fixture audit's one-row sections among them, takes the in-memory source (`load_workload`, `load_audit_table`), which stages every row and dedupes them whole, reading the materialized rows of an audit under a head (`audit_stream.materialized_lines`), and which a stream that meets a break partway restarts on; `load_table` over parsed rows is the same load and the tests' reference. Both give the same table in load order, the same pre-merge snapshot and merge, and the same input keys.
+The build reads the audit through one of two window sources, both over the descriptors it holds for the whole build (`AuditParts`): under the audit's head, every part the head lists, a base and run_m1's keyed segments, each in sorted sections, plain or held as gzip members, a section a member, whose index the head holds (`AuditParts.members`); for a tree with no head, the single file. The stream (`stream_workload`) reads an audit in sorted sections (`rebuild/review/audit_stream.py`: one section a configuration in each part, in rank order, each section's windows strictly increasing, a configuration's sections merged across the parts by window), as run_m1 writes it, one window at a time: it groups each window's rows into units, merges the window's ink duplicates, keys each unit from its raw lines, and appends the unit's columns, so it holds one window's rows and never the audit's. Any other file, the fixture audit's one-row sections among them, takes the in-memory source (`load_workload`, `load_audit_table`), which stages every row and dedupes them whole, reading the materialized rows of an audit under a head (`audit_stream.materialized_lines`), its members inflated, and which a stream that meets a break partway restarts on; `load_table` over parsed rows is the same load and the tests' reference. Both give the same table in load order, the same pre-merge snapshot and merge, and the same input keys.
 
 The workload is held as packed columns over the unit's ordinal (`UnitTable`, built on the `columns` module like `unit_store.UnitStore`), not as a list of records. `Unit` is the per-unit record that a worker, the enricher, the drafter and the fragment writer read; `UnitTable.unit` builds one at a time, and the build's parent never holds a list of them. The in-memory source holds the audit rows as five id columns (`RowColumns`), about seventeen bytes a row: one byte for the config and four each for the kinds, entry, baseline and new ids. It parses each audit line straight into those ids (`load_audit_table`) and builds no `AuditRow`. The stream builds no row columns: what the build reads of a unit's rows after the load is its row count, kept on the table.
 """
@@ -909,10 +909,13 @@ def load_audit_table(
     *,
     mark: Callable[[str], None] | None = None,
     descriptors: Sequence[int] | None = None,
+    members: Sequence[Sequence[row_delta.Member] | None] | None = None,
 ) -> tuple[UnitTable, RowColumns]:
-    """`load_table(load_audit(path, names), ledger, family_of, names)` with the parse fused into the row loop (`_stage_audit`), which is how the build's in-memory source loads the audit; the columns, the name pool, the string table and the config vocabulary come out identical to that form. `mark` is `load_workload`'s. With `descriptors`, the audit is read through those open descriptors, its parts' (`_audit_text`), and `path` only names it in messages."""
+    """`load_table(load_audit(path, names), ledger, family_of, names)` with the parse fused into the row loop (`_stage_audit`), which is how the build's in-memory source loads the audit; the columns, the name pool, the string table and the config vocabulary come out identical to that form. `mark` is `load_workload`'s. With `descriptors`, the audit is read through those open descriptors, its parts' (`_audit_text`), each held as gzip members where `members` gives its index, and `path` only names it in messages."""
     columns = RowColumns()
-    return _load_staged(columns, lambda: _stage_audit(path, columns, descriptors), ledger, family_of, mark)
+    return _load_staged(
+        columns, lambda: _stage_audit(path, columns, descriptors, members), ledger, family_of, mark
+    )
 
 
 _Staged = tuple[array, array, array, array, array, array, array, list[str]]
@@ -961,10 +964,15 @@ def _stage_rows(rows: Iterable[AuditRow], columns: RowColumns) -> _Staged:
 
 
 class _MaterializedText:
-    """The materialized audit of several parts as text lines, its header and then its rows merged across the parts (`audit_stream.materialized_lines`), each with its newline, for the in-memory source's row loop."""
+    """The materialized audit of its parts as text lines, its header and then its rows merged across the parts (`audit_stream.materialized_lines`), a part held as gzip members inflated as it is read, each line with its newline, for the in-memory source's row loop."""
 
-    def __init__(self, descriptors: Sequence[int], path: Path) -> None:
-        layout = audit_layout(descriptors, path)
+    def __init__(
+        self,
+        descriptors: Sequence[int],
+        path: Path,
+        members: Sequence[Sequence[row_delta.Member] | None] | None = None,
+    ) -> None:
+        layout = audit_layout(descriptors, path, members)
         if layout.sections is None:
             raise ValueError(f"{path}: its parts do not merge, since {layout.why}")
         self._lines = audit_stream.materialized_lines(descriptors, layout.sections)
@@ -986,18 +994,27 @@ class _MaterializedText:
         return next(self._lines) + "\n"
 
 
-def _audit_text(path: Path, descriptors: Sequence[int] | None) -> io.TextIOBase | _MaterializedText:
-    """The audit as UTF-8 text from its start: opened by `path`; with one descriptor, read through a duplicate of the descriptor the build holds, so a file replaced by rename since the build opened it is not read; and with several, the parts the build holds read as their materialized stream (`_MaterializedText`)."""
+def _audit_text(
+    path: Path,
+    descriptors: Sequence[int] | None,
+    members: Sequence[Sequence[row_delta.Member] | None] | None = None,
+) -> io.TextIOBase | _MaterializedText:
+    """The audit as UTF-8 text from its start: opened by `path`; with one plain part, read through a duplicate of the descriptor the build holds, so a file replaced by rename since the build opened it is not read; and with several, or a lone base held as gzip members (`members`, as a fold leaves it before its first segment), the parts the build holds read as their materialized stream (`_MaterializedText`), never the bytes on disk."""
     if descriptors is None:
         return open(path, encoding="utf-8")
-    if len(descriptors) > 1:
-        return _MaterializedText(descriptors, path)
+    if len(descriptors) > 1 or (members is not None and members[0] is not None):
+        return _MaterializedText(descriptors, path, members)
     duplicate = os.dup(descriptors[0])
     os.lseek(duplicate, 0, os.SEEK_SET)
     return io.TextIOWrapper(io.BufferedReader(io.FileIO(duplicate, "rb", closefd=True)), encoding="utf-8")
 
 
-def _stage_audit(path: Path, columns: RowColumns, descriptors: Sequence[int] | None = None) -> _Staged:
+def _stage_audit(
+    path: Path,
+    columns: RowColumns,
+    descriptors: Sequence[int] | None = None,
+    members: Sequence[Sequence[row_delta.Member] | None] | None = None,
+) -> _Staged:
     """`_stage_rows` over the audit file, parsing each line straight into the arrays. Each of a line's kinds, rendered-name, matched-entry and config fields maps to its id through a memo keyed on the raw field string, so a repeated field costs one dict lookup; a field seen for the first time is split, interned and pooled as `load_audit` does it, kinds, then baseline, then new, so the ids are assigned in the same order. A unit's window string is interned once, when the unit is first seen. The memos are freed beside the pool's seal."""
     names = columns.names
     config_id = columns.config_id
@@ -1019,7 +1036,7 @@ def _stage_audit(path: Path, columns: RowColumns, descriptors: Sequence[int] | N
     names_memo: dict[str, int] = {}
     entry_memo: dict[str, int] = {}
     config_memo: dict[str, int] = {}
-    with _audit_text(path, descriptors) as handle:
+    with _audit_text(path, descriptors, members) as handle:
         _check_audit_header(handle, path)
         for line in handle:
             if not line.strip():
@@ -1536,7 +1553,7 @@ def merge_ink_duplicate_units(
 
 
 class AuditParts:
-    """The audit as the corpus build holds it from its load to its end: under a head (`row_delta`, the plain keyed merge run_m1's oracle writes), every part the head lists, opened as the head is read and checked against the sizes it records, so a later commit's deletes cannot reach them; or, for a tree with no head (every fixture audit among them), the single file. `descriptors` are the base's and then each segment's, never reopened by path, since a `--gates-only` pass can commit a new head during a build. A head read between a commit that folds and its deletes of the old generation can list a part already gone, so the head is read again, up to three times, before that fails the build."""
+    """The audit as the corpus build holds it from its load to its end: under a head (`row_delta`, the plain keyed merge run_m1's oracle writes), every part the head lists, opened as the head is read and checked against the sizes it records, so a later commit's deletes cannot reach them; or, for a tree with no head (every fixture audit among them), the single file. `descriptors` are the base's and then each segment's, never reopened by path, since a `--gates-only` pass can commit a new head during a build, and `members` is each one's member index from the head it holds, aligned with them, None for a plain part (`row_delta.Part.members`), with `compressed` counting the parts held as gzip members. A head read between a commit that folds and its deletes of the old generation can list a part already gone, so the head is read again, up to three times, before that fails the build."""
 
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
@@ -1563,6 +1580,16 @@ class AuditParts:
             return tuple(handle.fileno() for handle in self._opened.handles)
         assert self._single is not None
         return (self._single,)
+
+    @property
+    def members(self) -> tuple[tuple[row_delta.Member, ...] | None, ...]:
+        if self.head is None:
+            return (None,)
+        return tuple(part.members for part in self.head.parts)
+
+    @property
+    def compressed(self) -> int:
+        return sum(members is not None for members in self.members)
 
     @property
     def content_time(self) -> float:
@@ -1592,13 +1619,25 @@ class AuditLayout(NamedTuple):
     rows_start: int
 
 
-def audit_layout(descriptors: Sequence[int], path: Path) -> AuditLayout:
-    """Check the audit's header through the held descriptor of its base, raising the in-memory source's `ValueError` for an empty file or another header, and find the sections of the base and of each segment (`audit_stream.audit_sections`), sorted by rank and then part, or why it has none: a header that is not UTF-8 or holds a carriage return, which the in-memory source's text read takes, or sections out of rank order in any part. A segment's own header line is passed over: the build checked each part's size against the head that lists it as it opened it (`AuditParts`)."""
+def audit_layout(
+    descriptors: Sequence[int],
+    path: Path,
+    members: Sequence[Sequence[row_delta.Member] | None] | None = None,
+) -> AuditLayout:
+    """Check the audit's header through the held descriptor of its base, raising the in-memory source's `ValueError` for an empty file or another header, and find the sections of the base and of each segment, sorted by rank and then part, or why it has none: a header that is not UTF-8 or holds a carriage return, which the in-memory source's text read takes, or sections out of rank order in any part. `members` gives each part's member index, aligned with `descriptors` (`AuditParts.members`), every part plain when it is None: a plain part's sections are found by bisection (`audit_stream.audit_sections`), and a part held as gzip members has one section a member after its header's, from the index, each carrying its inflated bytes (`audit_stream.Section.inflated`), and a base held as members has its header member inflated for the check (`audit_stream.member_bytes`), a member that fails raising `audit_stream.MemberError`. A segment's own header line is passed over: the build checked each part's size against the head that lists it as it opened it (`AuditParts`), and the head's index against that size."""
+    held = members if members is not None else (None,) * len(descriptors)
     base = descriptors[0]
-    size = os.fstat(base).st_size
-    if size == 0:
-        raise ValueError(f"{path}: empty audit, no header")
-    line, start = audit_stream.line_at(base, 0, size)
+    if held[0] is None:
+        size = os.fstat(base).st_size
+        if size == 0:
+            raise ValueError(f"{path}: empty audit, no header")
+        line, start = audit_stream.line_at(base, 0, size)
+    else:
+        header = held[0][0]
+        line = audit_stream.member_bytes(
+            base, audit_stream.Section("", -1, 0, header.length, 0, header.inflated)
+        ).removesuffix(b"\n")
+        start = header.length
     try:
         text = line.decode("utf-8")
     except UnicodeDecodeError:
@@ -1609,14 +1648,36 @@ def audit_layout(descriptors: Sequence[int], path: Path) -> AuditLayout:
     if tuple(header) != AUDIT_HEADER:
         raise ValueError(f"{path}: unexpected audit header {header!r}")
     found: list[audit_stream.Section] = []
-    for part, descriptor in enumerate(descriptors):
-        end = os.fstat(descriptor).st_size
-        rows = start if part == 0 else audit_stream.line_at(descriptor, 0, end)[1]
-        sections = audit_stream.audit_sections(descriptor, rows, end, _config_index, part)
+    for part, (descriptor, index) in enumerate(zip(descriptors, held, strict=True)):
+        if index is None:
+            end = os.fstat(descriptor).st_size
+            rows = start if part == 0 else audit_stream.line_at(descriptor, 0, end)[1]
+            sections = audit_stream.audit_sections(descriptor, rows, end, _config_index, part)
+        else:
+            sections = _member_sections(index, part)
         if isinstance(sections, str):
             return AuditLayout(None, sections, start)
         found.extend(sections)
     return AuditLayout(sorted(found, key=lambda section: (section.rank, section.part)), "", start)
+
+
+def _member_sections(members: Sequence[row_delta.Member], part: int) -> list[audit_stream.Section] | str:
+    """The sections of a part held as gzip members, one a member after its header's, from its index, or why the part is not in sections: a section whose rank is not above the one before it."""
+    sections: list[audit_stream.Section] = []
+    offset = members[0].length
+    last = -1
+    for member in members[1:]:
+        ranked = _config_index(member.section)
+        if ranked <= last:
+            return f"the {member.section!r} member of part {part} does not rank above the section before it"
+        sections.append(
+            audit_stream.Section(
+                member.section, ranked, offset, offset + member.length, part, member.inflated
+            )
+        )
+        offset += member.length
+        last = ranked
+    return sections
 
 
 class PremergeColumns(NamedTuple):
@@ -1981,10 +2042,13 @@ def load_workload(
     *,
     mark: Callable[[str], None] | None = None,
     descriptors: Sequence[int] | None = None,
+    members: Sequence[Sequence[row_delta.Member] | None] | None = None,
 ) -> Workload:
-    """Load the ledger and the audit into a `Workload` through the in-memory source, the table in load order before the ink-duplicate merge, beside its row columns. Every row's `matched_entry` must be UNMATCHED or a ledger id: an audit written by run_m1 under an older ledger, one whose ids have since been renamed, would otherwise list its units under classes the ledger does not describe. `mark` is the build's sub-step hook (`memory_tally.mark`), passed in rather than imported for the reason `RowColumns` gives. With `descriptors`, the audit is read through those open descriptors, its parts' (`load_audit_table`)."""
+    """Load the ledger and the audit into a `Workload` through the in-memory source, the table in load order before the ink-duplicate merge, beside its row columns. Every row's `matched_entry` must be UNMATCHED or a ledger id: an audit written by run_m1 under an older ledger, one whose ids have since been renamed, would otherwise list its units under classes the ledger does not describe. `mark` is the build's sub-step hook (`memory_tally.mark`), passed in rather than imported for the reason `RowColumns` gives. With `descriptors`, the audit is read through those open descriptors, its parts', each held as gzip members where `members` gives its index (`load_audit_table`)."""
     ledger = load_ledger(ledger_path)
-    table, rows = load_audit_table(audit_path, ledger, family_of, mark=mark, descriptors=descriptors)
+    table, rows = load_audit_table(
+        audit_path, ledger, family_of, mark=mark, descriptors=descriptors, members=members
+    )
     named = {rows.table[index] for index in set(rows.entry)}
     unknown = sorted(named - {UNMATCHED_CLASS} - {entry.id for entry in ledger})
     if unknown:

@@ -1,9 +1,9 @@
 """The segment format: an output held as a base and segments under a head, so a pass writes the rows it changes instead of the whole file. The review corpus's unit store (`rebuild/review/unit_cache.py`), each settlement configuration's windows rows (`windows-<config>.tsv.gz`, `run_m1.build_tables`, read through `table.read_windows_head` and `table.materialized_windows`) and each settlement configuration's settle memo (`settle-memo-<config>.bin`, `conform.SettleMemoFile`), the divergence audit (`divergence-audit.tsv`, `oracle.AuditWriter`, read through `oracle.materialized_audit` and the corpus build's `review.audit.AuditParts`) and the oracle stores (`oracle-rows-<config>.tsv.gz`, one configuration's parts a part of one set under one head, `oracle_cache.StoreSet`) take it, and #618's change 32 takes it for the units index.
 
-For an output named `<name>`, its file name (`unit-cache.ndjson.gz`), the directory holds three kinds of file, each written through `output_sink.replace_output`, or, for a part its writer pushes over a span of its own, through `output_sink.replacing` (`StreamedPart`, which opens the part at its first row, so a writer with nothing to write makes no part):
+For an output named `<name>`, its file name (`unit-cache.ndjson.gz`), the directory holds three kinds of file, each written through `output_sink.replace_output`, or, for a part its writer pushes over a span of its own, through `output_sink.replacing` (`StreamedPart`, or `MemberPart` for a part held as gzip members, each of which opens the part at its first row, so a writer with nothing to write makes no part):
 
-- The head, `<name>.head`, one JSON document: the output's generation, its content generation, its stamps, and every part with its size, its sha256, its rows and its row bytes (the rows' uncompressed bytes). It is renamed into place last, so it is the single commit point. Parts are referenced only from the head: a part no head lists, left by a failed pass, is ignored by every reader and deleted by the next writer (`remove_unlisted`), and a generation the head no longer names is deleted once the head that replaced it is in place (`commit`). A staging file a writer killed mid-write leaves under a part's name, which no later part takes, is deleted by the windows rows' next writer before it writes (`remove_staging`).
-- The base, `<name>.<gen>.base`: the output's own file byte for byte, its inline header and stamps included. The head's stamps override the inline ones, so a pass that moves a stamp and changes no row writes the head alone.
+- The head, `<name>.head`, one JSON document: the output's generation, its content generation, its stamps, and every part with its size and sha256 on disk, its rows and its row bytes (the rows' uncompressed bytes), beside what a part records only when it holds one: the stamp and family keys a settle memo part was settled under (`Part.settled`), and the member index of a part held as gzip members (`Part.members`). It is renamed into place last, so it is the single commit point. Parts are referenced only from the head: a part no head lists, left by a failed pass, is ignored by every reader and deleted by the next writer (`remove_unlisted`), and a generation the head no longer names is deleted once the head that replaced it is in place (`commit`). A staging file a writer killed mid-write leaves under a part's name, which no later part takes, is deleted by the windows rows' next writer before it writes (`remove_staging`).
+- The base, `<name>.<gen>.base`: the output's own file byte for byte, its inline header and stamps included, or, for the divergence audit once it has folded, that file as gzip members (below). The head's stamps override the inline ones, so a pass that moves a stamp and changes no row writes the head alone.
 - Segments, `<name>.<gen>.<n>.delta`, numbered from 1 within their generation, at most one a writer step. A segment is gzipped lines: a header naming the format, the output, the generation, the segment's number and, for an output that merges by key, `"merge": "key"` (`segment_header`), then rows, each an upsert or a tombstone of one row in the base's own row encoding. A row in a later part supersedes every earlier part's row at its place or key: an upsert replaces it, and a tombstone removes it.
 
 An output merges its parts one of five ways, which its head names (`Head.merge`) and every segment header repeats, so a reader refuses a segment written for another (`HeadError`).
@@ -14,7 +14,7 @@ Readers (`merge_placed`) merge the base and the segments as streams by place, an
 
 By key (`MERGE_KEY`), the windows rows', whose base is in key order with one row a key, as the crate writes it. A segment's rows are in key order too: `+\t<row>` upserts a row at its key and `-\t<key>` removes the row at a key, where a key is a row's leading fields, as the output defines them. The crate's `build-tables` merges a configuration's rows against its previous parts and writes only the rows that differ, and its `replay-emitted` walks the merged rows (`rebuild/kernel-rs/src/row_merge.rs`); here `merge_keyed` merges them for a materialized form. At each key the row of the latest part that has one there is live, unless it is a tombstone, and a part whose keys do not strictly ascend is refused. A reader opens every part the head lists when it reads the head (`open_parts`), so a later writer's deletes cannot reach it, since an open descriptor survives the unlink. `open_parts` checks each part's size against the head, as a reader that seeks needs, and with `sha256=True` its digest too, as the writer that merges a part and `perf_fingerprint` do, since they read every byte anyway.
 
-By plain key (`MERGE_PLAIN_KEY`), the divergence audit's, whose base is the audit's whole plain file, its header line and every row in the audit's own order (`oracle.audit_key`). A segment is plain lines too, so a reader can find its sections by `pread` bisection as it does the base's (`review.audit_stream`): its header, then `+\t<row>` upserts and `-\t<key>` tombstones in key order (`plain_keyed_segment_rows`), which a reader of gzipped keyed segments refuses and which refuses a gzipped one. `merge_plain_keyed` gives the materialized rows as runs of whole lines: it reads the base a chunk at a time, passes a run below the next change through as it was read, and bisects only where a change falls, so a merge takes a few keys a chunk and a change.
+By plain key (`MERGE_PLAIN_KEY`), the divergence audit's, whose base is the audit's whole file, its header line and every row in the audit's own order (`oracle.audit_key`), and whose segments hold its header, then `+\t<row>` upserts and `-\t<key>` tombstones in key order (`plain_keyed_segment_rows`). The base stays the plain file it was adopted or first written as until its first fold; every segment and every base a fold writes is a run of gzip members (`MemberPart`): the header line alone in the first, then one a section, a section being one configuration's run of lines, so a reader finds a part's sections from its member index in the head (`Part.members`, `review.audit_stream`) where it finds a plain part's by `pread` bisection, and inflates only the members it reads. Inflated in order, a part's members are the plain part's bytes. A plain segment the segment format's first audit writer left reads beside the members until the fold rewrites it. Every reader that reads a whole part reads it through `part_stream`, which inflates a part held as members and checks each member against its index. A reader of gzipped keyed segments refuses an audit segment, and the audit's reader refuses a gzipped keyed one. `merge_plain_keyed` gives the materialized rows as runs of whole lines: it reads the base a chunk at a time, passes a run below the next change through as it was read, and bisects only where a change falls, so a merge takes a few keys a chunk and a change.
 
 By ordinal (`MERGE_ORDINAL`), each oracle store configuration's, whose base is the configuration's whole store file, as `oracle_cache.RowWriter` writes one member for a whole configuration and `oracle_cache.join_store_segments` joins a cut one's members, and whose segments are gzipped lines of whole records, each `+\t<ordinal>\t<record>`, since a record's key is its row's ordinal in the subset table. A configuration's parts carry no head of their own: the stores' set head lists every configuration's, with the header fields, row count and cut of each, and one ages column beside them, a positional encoding that names the generation it indexes (`oracle_cache.SetHead`, `oracle_cache.read_set_head`).
 
@@ -34,19 +34,22 @@ from __future__ import annotations
 import gzip
 import hashlib
 import heapq
+import io
 import json
 import operator
 import os
 import re
 import sys
+import time
+import zlib
 from array import array
 from collections import deque
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from dataclasses import dataclass, field, replace
-from itertools import repeat
+from itertools import groupby, repeat
 from pathlib import Path
-from typing import BinaryIO, Protocol, cast
+from typing import BinaryIO, NamedTuple, Protocol, cast
 
 from rebuild.pipeline import output_sink
 from rebuild.tools import cycle_paths
@@ -75,6 +78,8 @@ _DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
 _CHUNK = 1 << 20
 # The read buffer each of a plan's hashing threads reuses (`part_hashes_to`): the audit's and the stores' plans hash every part at once, up to 38 for the audit and 22 a configuration for the stores at their caps and overrun, so at this size they hold 11 MB at most, and sha256 from the page cache runs within 5% of its speed through fresh 1 MiB reads.
 HASH_READ_BYTES = 1 << 16
+# What a reader of a part held as gzip members (`part_stream`) reads of it at a time, compressed, and what its buffer holds inflated: the audit's compare reads the base and every segment at once, up to 38 parts at its cap and overrun, and each holds a piece, its unconsumed tail and its buffer beside an inflate state of about 45 KB, about 0.2 MB a part.
+INFLATE_READ_BYTES = 1 << 16
 BLOOM_BITS_PER_KEY = 10
 BLOOM_BLOCK_BITS = 512
 BLOOM_PROBES = 7
@@ -106,9 +111,17 @@ class PartStamp:
     keys: int
 
 
+class Member(NamedTuple):
+    """One gzip member of a part held as members, as the head's member index records it (`Part.members`): the section it holds (`""` for the header line's member), its bytes on disk and its inflated bytes. Its offset is the sum of the lengths before it."""
+
+    section: str
+    length: int
+    inflated: int
+
+
 @dataclass(frozen=True)
 class Part:
-    """One part as the head lists it: its file name, size and sha256, its rows and their bytes (uncompressed lines, or a mapped part's key and value columns), which the share rule and the fold compare, and, for an output whose parts each record what they were settled under, `settled`, written into the head only when present."""
+    """One part as the head lists it: its file name, size and sha256, its rows and their bytes (uncompressed lines, or a mapped part's key and value columns, so a part held as gzip members records its rows' inflated bytes), which the share rule and the fold compare; for an output whose parts each record what they were settled under, `settled`; and, for a part written as gzip members (`MemberPart`), `members`, its member index, one `Member` a member in file order. Each of the last two is written into the head only when present, so a plain part's entry reads as it did before either existed. `parse` refuses an index whose lengths do not sum to the part's `size`, or whose inflated lengths do not sum to its header member's plus `rows_bytes`."""
 
     name: str
     size: int
@@ -116,6 +129,7 @@ class Part:
     rows: int
     rows_bytes: int
     settled: PartStamp | None = None
+    members: tuple[Member, ...] | None = None
 
     def document(self) -> dict:
         document: dict = {
@@ -128,6 +142,8 @@ class Part:
         if self.settled is not None:
             document["stamp"] = self.settled.stamp
             document["family_keys"] = self.settled.keys
+        if self.members is not None:
+            document["members"] = [list(member) for member in self.members]
         return document
 
     @classmethod
@@ -140,16 +156,45 @@ class Part:
                 if not isinstance(document["stamp"], str) or type(document["family_keys"]) is not int:
                     raise ValueError("a part's stamp is not a string or its family keys not a place")
                 settled = PartStamp(document["stamp"], document["family_keys"])
-            return cls(
+            part = cls(
                 str(document["name"]),
                 int(document["size"]),
                 str(document["sha256"]),
                 int(document["rows"]),
                 int(document["rows_bytes"]),
                 settled,
+                None if "members" not in document else _parse_members(document["members"]),
             )
         except (KeyError, TypeError, ValueError) as error:
             raise HeadError(f"a head lists a part it does not describe: {error!r}") from None
+        if part.members is not None:
+            if sum(member.length for member in part.members) != part.size:
+                raise HeadError(
+                    f"a head records members of {part.name} that do not sum to its {part.size} bytes"
+                )
+            if sum(member.inflated for member in part.members[1:]) != part.rows_bytes:
+                raise HeadError(
+                    f"a head records members of {part.name} that do not inflate to its header line and its {part.rows_bytes} row bytes"
+                )
+        return part
+
+
+def _parse_members(entries: object) -> tuple[Member, ...]:
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("a part's member index is not a list of members")
+    members = []
+    for entry in entries:
+        if (
+            not isinstance(entry, list)
+            or len(entry) != 3
+            or not isinstance(entry[0], str)
+            or not all(type(value) is int and value >= 0 for value in entry[1:])
+        ):
+            raise ValueError(f"a part's member index lists {entry!r}")
+        members.append(Member(*entry))
+    if members[0].section:
+        raise ValueError("a part's member index does not start with its header line's member")
+    return tuple(members)
 
 
 @dataclass(frozen=True)
@@ -348,6 +393,108 @@ def open_parts(directory: Path, head: Head, *, sha256: bool = False) -> OpenPart
     except BaseException:
         opened.close()
         raise
+
+
+def part_stream(handle: BinaryIO, part: Part) -> BinaryIO:
+    """A whole part's bytes from its start, inflated, for a reader that reads the part through: a plain part's open handle, returned to its start, or, for a part held as gzip members (`part.members`), a buffered stream that inflates each member in turn, read from the handle's descriptor by position (`os.pread`), so the handle stays where it was, `INFLATE_READ_BYTES` compressed at a time into output bounded by each read. It checks every member against the index as it reaches the member's end: a member that does not inflate, whose gzip stream ends before its recorded length or runs past it, or that inflates to another length than the index records raises `HeadError` naming the part and the member's section. Closing the stream leaves the handle open."""
+    if part.members is None:
+        handle.seek(0)
+        return handle
+    return cast(BinaryIO, io.BufferedReader(_Inflating(handle.fileno(), part), INFLATE_READ_BYTES))
+
+
+def part_header_line(handle: BinaryIO, part: Part) -> bytes:
+    """A part's header line, the handle left at its start: a plain part's first line, or, for a part held as gzip members, its header member inflated whole and checked against its index as `part_stream` checks a member, so a header member that does not inflate, ends before its recorded length or runs past it, or inflates to another length than the index records raises `HeadError`."""
+    if part.members is None:
+        handle.seek(0)
+        line = handle.readline()
+    else:
+        line = _Inflating(handle.fileno(), replace(part, members=part.members[:1])).readall()
+    handle.seek(0)
+    return line
+
+
+class _Inflating(io.RawIOBase):
+    """The raw stream under `part_stream` for a part held as gzip members: each member inflated in file order by one `zlib.decompressobj` with gzip framing (`wbits` 31), which checks its CRC-32 and length trailer, no read returning more than it is asked for and none crossing from one member into the next."""
+
+    def __init__(self, descriptor: int, part: Part) -> None:
+        super().__init__()
+        self._descriptor = descriptor
+        self._part = part
+        assert part.members is not None
+        self._members = iter(part.members)
+        self._member: Member | None = None
+        self._offset = 0
+        self._end = 0
+        self._inflater: zlib._Decompress | None = None
+        self._pending = b""
+        self._inflated = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def _fail(self, why: str) -> HeadError:
+        assert self._member is not None
+        section = self._member.section
+        return HeadError(
+            f"{self._part.name}'s member of {f'the {section!r} section' if section else 'its header line'} {why}"
+        )
+
+    def readinto(self, buffer) -> int:
+        view = memoryview(buffer).cast("B")
+        if not view:
+            return 0
+        while True:
+            if self._inflater is None:
+                member = next(self._members, None)
+                if member is None:
+                    return 0
+                self._member, self._end = member, self._offset + member.length
+                self._inflater, self._inflated = zlib.decompressobj(31), 0
+            out = self._inflate(len(view))
+            if out:
+                view[: len(out)] = out
+                return len(out)
+            self._finish()
+
+    def _inflate(self, limit: int) -> bytes:
+        inflater = self._inflater
+        assert inflater is not None and self._member is not None
+        while not inflater.eof:
+            if not self._pending and self._offset < self._end:
+                self._pending = os.pread(
+                    self._descriptor, min(INFLATE_READ_BYTES, self._end - self._offset), self._offset
+                )
+                if not self._pending:
+                    raise self._fail(f"ends at byte {self._offset} of the file, inside its recorded length")
+                self._offset += len(self._pending)
+            try:
+                out = inflater.decompress(self._pending, limit)
+            except zlib.error as error:
+                raise self._fail(f"does not inflate: {error}") from None
+            self._pending = inflater.unconsumed_tail
+            if out:
+                self._inflated += len(out)
+                if self._inflated > self._member.inflated:
+                    raise self._fail(f"inflates past the {self._member.inflated} bytes its index records")
+                return out
+            if not self._pending and self._offset >= self._end:
+                break
+        return b""
+
+    def _finish(self) -> None:
+        inflater = self._inflater
+        assert inflater is not None and self._member is not None
+        if not inflater.eof:
+            raise self._fail(f"runs past its recorded {self._member.length} bytes")
+        if inflater.unused_data or self._pending or self._offset < self._end:
+            raise self._fail(f"ends before its recorded {self._member.length} bytes")
+        if self._inflated != self._member.inflated:
+            raise self._fail(
+                f"inflates to {self._inflated} bytes where its index records {self._member.inflated}"
+            )
+        self._offset = self._end
+        self._inflater = None
 
 
 class _Counting:
@@ -593,7 +740,7 @@ def bitmap_flags(bitmap: bytes | memoryview, rows: int) -> bytes:
 
 
 def gzipped_header(stream: gzip.GzipFile, output: str, number: int) -> bytes:
-    """Read a gzipped segment's header line, raising `HeadError` for a segment that is not gzipped, as a plain keyed segment is not."""
+    """Read a gzipped segment's header line, raising `HeadError` for a segment that is not gzipped, as a plain audit segment is not."""
     try:
         return stream.readline()
     except gzip.BadGzipFile as error:
@@ -628,16 +775,15 @@ def keyed_segment_rows(
 
 
 def plain_keyed_segment_rows(
-    handle: BinaryIO, output: str, generation: int, number: int
+    stream: BinaryIO, output: str, generation: int, number: int
 ) -> Iterator[tuple[bytes, bytes]]:
-    """Yield one plain keyed segment's rows (`MERGE_PLAIN_KEY`, the divergence audit's) from an open handle, from its start, as `keyed_segment_rows` yields a gzipped one's, after checking its header names `output`, `generation`, `number` and a merge by plain key. A header that names another raises `HeadError`, and so does a gzipped segment, whose first line is not a header."""
-    handle.seek(0)
-    check_segment_header(handle.readline(), output, generation, number, MERGE_PLAIN_KEY)
-    yield from _keyed_rows(handle, output, number)
+    """Yield one plain keyed segment's rows (`MERGE_PLAIN_KEY`, the divergence audit's) from its inflated stream at its start (`part_stream`, which reads a plain segment and a segment held as gzip members alike), as `keyed_segment_rows` yields a gzipped one's, after checking its header names `output`, `generation`, `number` and a merge by plain key. A header that names another raises `HeadError`, and so does a single gzip stream read as its bytes on disk, whose first line is not a header."""
+    check_segment_header(stream.readline(), output, generation, number, MERGE_PLAIN_KEY)
+    yield from _keyed_rows(stream, output, number)
 
 
 class StreamedPart:
-    """One part written as its writer pushes its rows over a span of its own, under its final name, which no head lists until the writer's commit: opened at the first `write`, through `output_sink.replacing`, so a part no row reaches is never made, with `header` written first, plain or, with `gzipped`, through a gzip stream at level 1 with a fixed mtime naming the part, as `write_part` writes one. `close` returns its `Part`, or None when nothing was written; `abandon` removes the staging file, leaving nothing under the part's name. `rows` and `rows_bytes` count what follows the header."""
+    """One part written as its writer pushes its rows over a span of its own, under its final name, which no head lists until the writer's commit: opened at the first `write`, through `output_sink.replacing`, so a part no row reaches is never made, with `header` written first, plain or, with `gzipped`, through a gzip stream at level 1 with a fixed mtime naming the part, as `write_part` writes one; `MemberPart` writes one as gzip members, a section a member. `close` returns its `Part`, or None when nothing was written; `abandon` removes the staging file, leaving nothing under the part's name. `rows` and `rows_bytes` count what follows the header."""
 
     def __init__(self, directory: Path, name: str, header: bytes, *, gzipped: bool) -> None:
         self.directory = Path(directory)
@@ -659,17 +805,27 @@ class StreamedPart:
         try:
             handle = stack.enter_context(output_sink.replacing(self.directory / self.name))
             counting = _Counting(handle)
-            sink: Sink = counting
-            if self._gzipped:
-                sink = stack.enter_context(
-                    gzip.GzipFile(filename=self.name, fileobj=counting, mode="wb", mtime=0, compresslevel=1)
-                )
-            sink.write(self._header)
+            self._counting = counting
+            sink = self._begin(stack, counting)
         except BaseException:
+            self._discard()
             stack.__exit__(_Abandoned, _Abandoned(), None)
             raise
-        self._stack, self._counting, self._sink = stack, counting, sink
+        self._stack, self._sink = stack, sink
         return sink
+
+    def _begin(self, stack: ExitStack, counting: _Counting) -> Sink:
+        """Open the part's stream over `counting` and write its header."""
+        sink: Sink = counting
+        if self._gzipped:
+            sink = stack.enter_context(
+                gzip.GzipFile(filename=self.name, fileobj=counting, mode="wb", mtime=0, compresslevel=1)
+            )
+        sink.write(self._header)
+        return sink
+
+    def _discard(self) -> None:
+        """Drop whatever the part holds open beside its staging file, before the file is removed."""
 
     def write(self, data: bytes) -> None:
         sink = self._sink if self._sink is not None else self._open()
@@ -689,7 +845,109 @@ class StreamedPart:
     def abandon(self) -> None:
         stack, self._stack = self._stack, None
         if stack is not None:
+            self._discard()
             stack.__exit__(_Abandoned, _Abandoned(), None)
+
+
+class MemberPart(StreamedPart):
+    """A `StreamedPart` written as a run of gzip members (RFC 1952) in place of plain lines: the header alone in the first member, then one member a section, a section being a run of lines that share the field at `field`, the divergence audit's configuration (a base row's first field, a segment line's second, after its `+` or `-`). A member is opened at its section's first line and closed at the next section's, and each block is written through as it arrives, so the part never gathers a section's plain bytes; a write whose first and last lines name one section is taken whole as that section's, as the audit's order (`oracle.audit_key`) holds it, and a section that comes back after another refuses the write (`ValueError`). Each member is written by its own `gzip.GzipFile` at level 1 with mtime 0 and no file name, the settings of `oracle_cache._open_member`, so the bytes depend only on the lines and their order, never on how the writer cuts its writes, and inflated in order they are the plain part's bytes, header line included. `close` returns the `Part` with its member index (`Part.members`); `rows` and `rows_bytes` count the inflated lines after the header, and `seconds` is the time spent in the members' writes and closes, the compression and the writes it passes on to the file."""
+
+    def __init__(self, directory: Path, name: str, header: bytes, *, field: int) -> None:
+        super().__init__(directory, name, header, gzipped=False)
+        self._field = field
+        self._members: list[Member] = []
+        self._closed: set[bytes] = set()
+        self._section: bytes | None = None
+        self._stream: gzip.GzipFile | None = None
+        self._started = 0
+        self._inflated = 0
+        self.seconds = 0.0
+
+    def _begin(self, stack: ExitStack, counting: _Counting) -> Sink:
+        started = time.perf_counter()
+        self._start(b"")
+        assert self._stream is not None
+        self._stream.write(self._header)
+        self._inflated += len(self._header)
+        self._end()
+        self.seconds += time.perf_counter() - started
+        return counting
+
+    def _start(self, section: bytes) -> None:
+        counting = self._counting
+        assert counting is not None
+        if section in self._closed:
+            raise ValueError(f"{self.name} meets the {section.decode('utf-8', 'replace')!r} section again")
+        self._started, self._inflated, self._section = counting.size, 0, section
+        self._stream = gzip.GzipFile(filename="", fileobj=counting, mode="wb", mtime=0, compresslevel=1)
+
+    def _end(self) -> None:
+        stream, self._stream = self._stream, None
+        if stream is None:
+            return
+        stream.close()
+        counting = self._counting
+        assert counting is not None and self._section is not None
+        self._members.append(
+            Member(self._section.decode("utf-8"), counting.size - self._started, self._inflated)
+        )
+        self._closed.add(self._section)
+
+    def _discard(self) -> None:
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            with suppress(Exception):
+                stream.close()
+
+    def _section_at(self, data: bytes, start: int) -> bytes:
+        end = data.find(b"\n", start)
+        if end < 0:
+            end = len(data)
+        for _ in range(self._field):
+            tab = data.find(b"\t", start, end)
+            if tab < 0:
+                return b""
+            start = tab + 1
+        tab = data.find(b"\t", start, end)
+        return data[start : end if tab < 0 else tab]
+
+    def write(self, data: bytes) -> None:
+        if self._stack is None:
+            self._open()
+        if not data:
+            return
+        started = time.perf_counter()
+        first = self._section_at(data, 0)
+        if first == self._section_at(data, data.rfind(b"\n", 0, len(data) - 1) + 1):
+            self._run(first, data)
+        else:
+            pieces = data.split(b"\n")
+            lines = [piece + b"\n" for piece in pieces[:-1]]
+            if pieces[-1]:
+                lines.append(pieces[-1])
+            for section, run in groupby(lines, key=lambda line: self._section_at(line, 0)):
+                self._run(section, b"".join(run))
+        self.seconds += time.perf_counter() - started
+        self.rows += data.count(b"\n")
+        self.rows_bytes += len(data)
+
+    def _run(self, section: bytes, run: bytes) -> None:
+        if section != self._section or self._stream is None:
+            self._end()
+            self._start(section)
+        assert self._stream is not None
+        self._stream.write(run)
+        self._inflated += len(run)
+
+    def close(self) -> Part | None:
+        if self._stack is None:
+            return None
+        started = time.perf_counter()
+        self._end()
+        self.seconds += time.perf_counter() - started
+        part = super().close()
+        assert part is not None
+        return replace(part, members=tuple(self._members))
 
 
 class _Abandoned(Exception):
@@ -717,7 +975,7 @@ def merge_plain_keyed(
     key: Callable[[bytes], object],
     tombstone_key: Callable[[bytes], object],
 ) -> Iterator[bytes]:
-    """Yield the live rows of a plain base and its segments merged by key, as runs of whole lines: the materialized rows, without the base's header. `base` is open at its first row, each of `segments` yields one segment's `(operation, payload)` rows (`plain_keyed_segment_rows`), oldest first, and `key` gives a row's key and `tombstone_key` a tombstone's, comparable values. The segments are merged among themselves first, the latest winning at each key, as `merge_keyed` merges them; the base is read `_CHUNK` bytes at a time, a run of base lines below the next change passes through as it was read, and only the lines at a run's end and those a bisection reaches have their keys taken, so a merge reads the base once, walks each chunk by an offset, so it copies each base byte a fixed number of times however dense the changes are, and takes keys a few times a chunk and a change. A segment whose keys do not strictly ascend, or a base line whose key is not above the last base key taken, raises `ValueError`."""
+    """Yield the live rows of a plain base and its segments merged by key, as runs of whole lines: the materialized rows, without the base's header. `base` is any binary stream with `read` at its first row, a plain base's handle or a base held as gzip members read through `part_stream`, each of `segments` yields one segment's `(operation, payload)` rows (`plain_keyed_segment_rows`), oldest first, and `key` gives a row's key and `tombstone_key` a tombstone's, comparable values. The segments are merged among themselves first, the latest winning at each key, as `merge_keyed` merges them; the base is read `_CHUNK` bytes at a time, a run of base lines below the next change passes through as it was read, and only the lines at a run's end and those a bisection reaches have their keys taken, so a merge reads the base once, walks each chunk by an offset, so it copies each base byte a fixed number of times however dense the changes are, and takes keys a few times a chunk and a change. A segment whose keys do not strictly ascend, or a base line whose key is not above the last base key taken, raises `ValueError`."""
 
     def keyed(number: int, rows: Iterable[tuple[bytes, bytes]]) -> Iterator[tuple[object, int, bytes, bytes]]:
         previous: object = None

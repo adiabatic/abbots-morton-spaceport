@@ -8,7 +8,7 @@ The rows the oracle classifies are produced in conform.py. `_compare_row` and `_
 
 run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and ships the range's audit rows, compressed (`AuditBlocks`), home in a POSIX shared memory segment, its store records, one gzip member, in another, and the windows it settled fresh, compressed (`conform.FreshMemo`), in a third (`ship`); its result names them. The parent's `InOrderWriter` feeds the audit's rows, in row order, to the audit's writer (`AuditWriter`), and hands each configuration's members, once its last range has returned, to the stores' writer (`oracle_cache.StoreSet`), and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, which goes through the same two writers, because `_compare_config` addresses every row by its absolute index in the table: the store records, the scheduled re-derivation, and the verification samples all key on it.
 
-The audit, `divergence-audit.tsv`, is held as a base and segments under a head (`rebuild/pipeline/row_delta.py`'s plain keyed merge): the base is the whole file, its header line and every row in the audit's order, and each pass that changes rows writes one plain segment of upserts and tombstones keyed by configuration and window, in the base's own order (`audit_key`). The audit's writer plans its route before any range starts (`AuditPlan`, `AuditRoute`), compares the pass's rows with the materialized audit in lockstep, and writes the rows that differ, or nothing and the head alone; a tree from before the segment format has its single file adopted by link as generation 0's base. The materialized audit (`materialized_audit`) is the whole file over the live rows, byte for byte, and the head records when its content last moved (`CONTENT_TIME_STAMP`), which the review corpus takes as its identity.
+The audit, `divergence-audit.tsv`, is held as a base and segments under a head (`rebuild/pipeline/row_delta.py`'s plain keyed merge): the base is the whole file, its header line and every row in the audit's order, and each pass that changes rows writes one segment of upserts and tombstones keyed by configuration and window, in the base's own order (`audit_key`). The audit's writer plans its route before any range starts (`AuditPlan`, `AuditRoute`), compares the pass's rows with the materialized audit in lockstep, and writes the rows that differ, or nothing and the head alone; a tree from before the segment format has its single file adopted by link as generation 0's base. A base stays the plain file it was adopted or first written as until its first fold; every segment and every base a fold writes is a run of gzip members, the header line alone and then one a configuration (`row_delta.MemberPart`), indexed by the head (`row_delta.Part.members`), so the corpus build inflates only the sections it reads. The materialized audit (`materialized_audit`) is the whole file over the live rows, byte for byte, its parts inflated, and the head records when its content last moved (`CONTENT_TIME_STAMP`), which the review corpus takes as its identity.
 
 For the overlay configuration (ss10), no settlement table produces the new side. Its rows are walked by `conform.IsolatedOverlayWalk`, which returns every letter bare from the registry alone, and shaped by `shapers.IsolatedOverlayShaper`, which uses the copies' `hmtx` advances instead of HarfBuzz. Read-back's isolation check and the conformance sweep over the overlay are what make both valid. So the old font's ss10 rows are compared with an all-bare stream, and no settlement or shaping runs for them.
 
@@ -718,13 +718,11 @@ def oracle_audit_scratch(out_dir: Path) -> Path:
 
 
 def _audit_parts_read(opened: row_delta.OpenParts) -> bool:
-    """Whether every part of an open audit head passes its header check: the base's first line is the audit's header, and each segment's header names the plain keyed merge, the head's output and generation and its own number. Each handle is left at its start."""
+    """Whether every part of an open audit head passes its header check: the base's first line is the audit's header, and each segment's header names the plain keyed merge, the head's output and generation and its own number. A part held as gzip members has its header member inflated whole (`row_delta.part_header_line`), and one that does not inflate to what its index records fails the check. Each handle is left at its start."""
     head = opened.head
     try:
-        for number, handle in enumerate(opened.handles):
-            handle.seek(0)
-            line = handle.readline()
-            handle.seek(0)
+        for number, (handle, part) in enumerate(zip(opened.handles, head.parts)):
+            line = row_delta.part_header_line(handle, part)
             if number == 0:
                 if line != _AUDIT_HEADER_LINE:
                     return False
@@ -741,8 +739,8 @@ def _audit_parts_read(opened: row_delta.OpenParts) -> bool:
 class AuditRoute:
     """How the audit is written this pass, decided before any range starts (`AuditPlan`), under #618's decisions 72 to 75 as change 31 applies them, with no size test and no stamp clause:
 
-    - `segment`: one plain keyed segment of the rows that differ from what `head` serves, upserts and tombstones, or nothing and the head alone when no row differs.
-    - `base`: the whole file, its header line and every row, as the next generation's base, with its `reason`: `first`, no head and no single file; `unusable`, a head that does not parse, a part missing or not the size and sha256 its head records or whose header does not read, or a single file whose header does not read, which the cycle reports as `rewritten whole` (`output_sink.note_rewritten`); or `fold`, `head`'s fold is due at `row_delta.AUDIT_SEGMENT_CAP` and the audit holds the pass's fold (`row_delta.claim_fold`), or holds `row_delta.FOLD_OVERRUN` segments past its cap (`forced`).
+    - `segment`: one plain keyed segment of the rows that differ from what `head` serves, upserts and tombstones, written as gzip members, a configuration a member (`row_delta.MemberPart`), or nothing and the head alone when no row differs.
+    - `base`: the whole file, its header line and every row, as the next generation's base, with its `reason`: `first`, no head and no single file; `unusable`, a head that does not parse, a part missing or not the size and sha256 its head records or whose header does not read, or a single file whose header does not read, which the cycle reports as `rewritten whole` (`output_sink.note_rewritten`); or `fold`, `head`'s fold is due at `row_delta.AUDIT_SEGMENT_CAP` and the audit holds the pass's fold (`row_delta.claim_fold`), or holds `row_delta.FOLD_OVERRUN` segments past its cap (`forced`). A `first` or `unusable` base is the plain file, and a `fold` base is that file as gzip members, as a segment is (#618's decision 48).
 
     `adopted` says `head` is the single file a tree from before the segment format holds, linked as generation 0's base under a head no writer has committed. `opened` holds every part `head` lists, open, for the compare to read in lockstep, on the segment and fold routes.
     """
@@ -982,9 +980,9 @@ class _OldRows:
 
 
 class AuditWriter:
-    """The audit's writer for one pass, the pooled path's (`InOrderWriter`) and the serial path's (`compare_against_baseline`) alike: it plans the route as it is made (`AuditPlan`), takes the pass's rows in the audit's order a block of whole lines at a time (`feed`), and on `commit` writes the head. Over a usable head (the segment and fold routes) it reads the old materialized audit in lockstep, the base and the segments merged by key through buffers (`row_delta.merge_plain_keyed`), never held whole: a block whose bytes equal the old stream's next bytes costs a memory compare; a block whose rows name the same keys as the old stream's next rows, as after a ledger edit that rewrites rows in place, has its changed rows upserted with a compare a line through C-level maps; and any other block drops to line level, where an equal line is passed over, a changed or new row is an upsert, and an old row the new stream lacks is a tombstone. The keys must strictly increase on both streams (`audit_key`): the line level takes every line's key, and a block the old stream holds byte for byte or key for key has the keys at its two ends taken on both streams, its first against the row before it and its last against its first, since within it the new stream's order is the old stream's, which the writer of those rows checked; a break raises `ValueError` naming the row, and nothing is committed. On the segment route it writes the upserts and tombstones as one plain keyed segment, opened at the first difference, so a pass that changes nothing writes no segment and commits a head that `row_delta.commit` leaves in place; on a base route it writes the whole file, its header line and every row, as the next generation's base, `first`, `unusable` or `fold`, a `first` or `unusable` base with every key checked. Parts are written under their final names (`row_delta.StreamedPart`), which no head lists until `commit`, and `abandon` leaves nothing listed: a part already under its final name is deleted by the next plan (`row_delta.remove_unlisted`).
+    """The audit's writer for one pass, the pooled path's (`InOrderWriter`) and the serial path's (`compare_against_baseline`) alike: it plans the route as it is made (`AuditPlan`), takes the pass's rows in the audit's order a block of whole lines at a time (`feed`), and on `commit` writes the head. Over a usable head (the segment and fold routes) it reads the old materialized audit in lockstep, the base and the segments merged by key through buffers (`row_delta.merge_plain_keyed`), never held whole: a block whose bytes equal the old stream's next bytes costs a memory compare; a block whose rows name the same keys as the old stream's next rows, as after a ledger edit that rewrites rows in place, has its changed rows upserted with a compare a line through C-level maps; and any other block drops to line level, where an equal line is passed over, a changed or new row is an upsert, and an old row the new stream lacks is a tombstone. The keys must strictly increase on both streams (`audit_key`): the line level takes every line's key, and a block the old stream holds byte for byte or key for key has the keys at its two ends taken on both streams, its first against the row before it and its last against its first, since within it the new stream's order is the old stream's, which the writer of those rows checked; a break raises `ValueError` naming the row, and nothing is committed. On the segment route it writes the upserts and tombstones as one plain keyed segment held as gzip members, a configuration a member (`row_delta.MemberPart`), opened at the first difference, so a pass that changes nothing writes no segment and commits a head that `row_delta.commit` leaves in place; on a base route it writes the whole file, its header line and every row, as the next generation's base, `first`, `unusable` or `fold`, a `first` or `unusable` base plain and with every key checked, and a `fold` base as gzip members. It compresses on the thread that feeds it, as each block arrives, and a member's bytes do not depend on how the rows were cut into blocks, so the serial path and the pooled one write the same parts. Parts are written under their final names (`row_delta.StreamedPart`, `row_delta.MemberPart`), which no head lists until `commit`, and `abandon` leaves nothing listed: a part already under its final name is deleted by the next plan (`row_delta.remove_unlisted`).
 
-    The head's content generation and its `CONTENT_TIME_STAMP` move when a segment, or a base whose rows differ from what the head served, is written, and stay on a head-alone commit and on a fold that changes no row (`Head.identity`). A base written because a head or a part did not read is counted as `rewritten whole` (`output_sink.note_rewritten`). `commit` prints `[t] oracle_audit` with the rows streamed, the upserts and tombstones, the part's bytes, the segments after the commit, the compare's seconds and the most its old stream held at once.
+    The head's content generation and its `CONTENT_TIME_STAMP` move when a segment, or a base whose rows differ from what the head served, is written, and stay on a head-alone commit and on a fold that changes no row (`Head.identity`). A base written because a head or a part did not read is counted as `rewritten whole` (`output_sink.note_rewritten`). `commit` prints `[t] oracle_audit` with the rows streamed, the upserts and tombstones, the part's bytes on disk and inflated, its members (0 for a plain part) and the seconds spent compressing them, the segments after the commit, the compare's seconds and the most its old stream held at once.
     """
 
     def __init__(self, out_dir: Path) -> None:
@@ -1011,16 +1009,18 @@ class AuditWriter:
         if route.route == SEGMENT_ROUTE:
             assert prior is not None
             number = len(prior.segments) + 1
-            self._part = row_delta.StreamedPart(
+            self._part = row_delta.MemberPart(
                 self.out_dir,
                 row_delta.segment_name(AUDIT_NAME, prior.generation, number),
                 row_delta.segment_header(AUDIT_NAME, prior.generation, number, row_delta.MERGE_PLAIN_KEY),
-                gzipped=False,
+                field=1,
             )
         else:
-            generation = 0 if prior is None else prior.generation + 1
-            self._part = row_delta.StreamedPart(
-                self.out_dir, row_delta.base_name(AUDIT_NAME, generation), _AUDIT_HEADER_LINE, gzipped=False
+            name = row_delta.base_name(AUDIT_NAME, 0 if prior is None else prior.generation + 1)
+            self._part = (
+                row_delta.MemberPart(self.out_dir, name, _AUDIT_HEADER_LINE, field=0)
+                if route.reason == "fold"
+                else row_delta.StreamedPart(self.out_dir, name, _AUDIT_HEADER_LINE, gzipped=False)
             )
         return route
 
@@ -1101,9 +1101,9 @@ class AuditWriter:
             self.seconds += time.perf_counter() - started
             return
         for line in lines:
+            at = self._new_key(line)
             if writes_rows:
                 part.write(line)
-            at = self._new_key(line)
             if old.peek() == line:
                 self._old_key(line, at=at)
                 old.advance(line)
@@ -1182,11 +1182,18 @@ class AuditWriter:
             output_sink.note_rewritten(AUDIT_NAME)
         row_delta.commit(self.out_dir, head)
         (self.out_dir / AUDIT_NAME).unlink(missing_ok=True)
+        size = inflated = members = 0
+        if part is not None:
+            size = inflated = part.size
+            if part.members is not None:
+                inflated, members = sum(member.inflated for member in part.members), len(part.members)
+        compressing = part_writer.seconds if isinstance(part_writer, row_delta.MemberPart) else 0.0
         console.timing(
             "oracle_audit",
             self.seconds,
             f"rows={self.rows} upserts={self.upserts} tombstones={self.tombstones} "
-            f"wrote={'nothing' if part is None else route.route} part_bytes={0 if part is None else part.size} "
+            f"wrote={'nothing' if part is None else route.route} part_bytes={size} inflated_bytes={inflated} "
+            f"members={members} compress_seconds={compressing:.2f} "
             f"segments={len(head.segments)} held_mb={(0 if old is None else old.held_peak_bytes) / 1e6:.1f}",
         )
         return head
@@ -1208,20 +1215,21 @@ class AuditWriter:
 
 
 def _materialized_rows(opened: row_delta.OpenParts) -> Iterator[bytes]:
-    """The rows of an open audit head's materialized form, as runs of whole lines: the base after its header merged by key with the segments (`row_delta.merge_plain_keyed`), or the base's own bytes when it has none."""
+    """The rows of an open audit head's materialized form, as runs of whole lines: the base after its header merged by key with the segments (`row_delta.merge_plain_keyed`), or the base's own bytes when it has none. Each part is read through its inflated stream (`row_delta.part_stream`), so a plain base, plain segments and parts held as gzip members merge alike."""
     head = opened.head
-    base = opened.handles[0]
-    base.seek(0)
+    base = row_delta.part_stream(opened.handles[0], head.base)
     base.readline()
     segments = [
-        row_delta.plain_keyed_segment_rows(handle, head.output, head.generation, number)
-        for number, handle in enumerate(opened.handles[1:], start=1)
+        row_delta.plain_keyed_segment_rows(
+            row_delta.part_stream(handle, part), head.output, head.generation, number
+        )
+        for number, (handle, part) in enumerate(zip(opened.handles[1:], head.segments), start=1)
     ]
     yield from row_delta.merge_plain_keyed(base, segments, audit_key, audit_key)
 
 
 def materialized_audit(out_dir: Path) -> Iterator[bytes]:
-    """The audit's materialized form under `out_dir`, a run of bytes at a time: the head's base and segments merged by key after the header (`_materialized_rows`), which is the whole file over the live rows byte for byte, its header line and every row in the audit's order, or, for a tree with no head, the single file's bytes. Every part is opened, and checked against the size its head records, before the first byte is yielded."""
+    """The audit's materialized form under `out_dir`, a run of bytes at a time: the head's base and segments, each inflated where it is held as gzip members, merged by key after the header (`_materialized_rows`), which is the whole file over the live rows byte for byte, its header line and every row in the audit's order, or, for a tree with no head, the single file's bytes. Every part is opened, and checked against the size its head records, before the first byte is yielded; a member that does not inflate to what its index records raises `row_delta.HeadError` as it is read."""
     out = Path(out_dir)
     head = row_delta.read_head(out, AUDIT_NAME)
     if head is None:

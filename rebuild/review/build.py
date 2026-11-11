@@ -1322,7 +1322,7 @@ def _key_only_read(
     family_keys: Mapping[str, str],
     signatures: unit_cache.SignatureArrays,
 ) -> _KeyOnly:
-    """Run the key-only read: split the audit's windows into `KEY_ONLY_PROCESSES` ranges (`audit_stream.window_ranges`) and run one process of `audit_stream` a range, each a subprocess of that standard-library module, not a spawn worker, so it imports nothing of the build's. Each is handed every held descriptor of the audit's parts (`pass_fds`), its window range across all of them, the family keys and the prior store's keys, and replies with the prior entries it hit and the misses it found, a frame at a time, each flushed at the first window end after its rows' estimated size reaches `audit_stream.FRAME_BYTES`, so a frame holds at most that plus one window's rows, read by a thread a process. The hits are marked in `signatures` and the misses returned in window order. A range that broke the sections' layout returns the reason, and the build then reads the audit through its in-memory source; a process that fails raises."""
+    """Run the key-only read: split the audit's windows into `KEY_ONLY_PROCESSES` ranges (`audit_stream.window_ranges`) and run one process of `audit_stream` a range, each a subprocess of that standard-library module, not a spawn worker, so it imports nothing of the build's. Each is handed every held descriptor of the audit's parts (`pass_fds`), its window range across all of them, the sections with what a cursor needs to inflate a section held as a gzip member (`audit_stream.Section.inflated`), the family keys and the prior store's keys, and replies with the prior entries it hit and the misses it found, a frame at a time, each flushed at the first window end after its rows' estimated size reaches `audit_stream.FRAME_BYTES`, so a frame holds at most that plus one window's rows, read by a thread a process. The hits are marked in `signatures` and the misses returned in window order. A range that broke the sections' layout returns the reason, and the build then reads the audit through its in-memory source; a member that does not inflate to what its index records is a `failed` reply, which this raises as `audit_stream.MemberError` naming the section's configuration; any other failure of a process raises."""
     started = time.perf_counter()
     ranges = audit_stream.window_ranges(descriptors, sections, KEY_ONLY_PROCESSES)
     found = _KeyOnly(True, processes=len(ranges))
@@ -1363,8 +1363,11 @@ def _key_only_read(
                     process.stdin.write(prior[at : at + audit_stream.READ_BYTES])
         for reader in readers:
             reader.join()
-        for process in processes:
+        for process, got in zip(processes, replies):
             if process.wait() != 0:
+                for reply in got:
+                    if "failed" in reply:
+                        raise audit_stream.MemberError(reply["failed"])
                 raise SystemExit(f"a key-only read process exited {process.returncode}")
     except BaseException:
         for process in processes:
@@ -3252,14 +3255,15 @@ class _Loaded:
     width: int
     parts: int = 1
     segment_rows: int = 0
+    compressed: int = 0
 
     def note(self) -> str:
-        """The load phase's note: its signature counts (the rows the store answered and those shaped, and how), whether the key-only read ran, in how many seconds across how many processes and the largest process's resident peak, or was skipped, the source the load took, the audit's parts and its segments' rows, and the prior store's hits and unhit entries and the misses."""
+        """The load phase's note: its signature counts (the rows the store answered and those shaped, and how), whether the key-only read ran, in how many seconds across how many processes and the largest process's resident peak, or was skipped, the source the load took, the audit's parts, how many of them are held as gzip members and its segments' rows, and the prior store's hits and unhit entries and the misses."""
         signatures = self.signatures
         how = "" if not self.shaped else " serially" if self.width == 1 else f" across {self.width} workers"
         return (
             f"(signatures: {signatures.hits():,} cached, {self.shaped:,} shaped{how}) (key-only read {self.key_only}; "
-            f"{self.source}; audit {self.parts} parts, {self.segment_rows:,} segment rows; "
+            f"{self.source}; audit {self.parts} parts, {self.compressed} compressed, {self.segment_rows:,} segment rows; "
             f"prior store {signatures.hits():,} hit, {signatures.unhit():,} unhit, "
             f"{signatures.misses():,} missed)"
         )
@@ -3298,7 +3302,7 @@ def _load_corpus(
     recompute_all: bool,
     identical_classes: frozenset[str],
 ) -> _Loaded:
-    """Load the audit for the build through `parts`, the descriptors of the audit's parts that `build_m1` opened once and holds until the build returns (`audit.AuditParts`), every read of the audit going through them (`audit.audit_layout`, the key-only read, the stream, the in-memory source), never through a path again, since a `--gates-only` pass can commit a new head meanwhile. The ink-signature store is read into columns first (`unit_cache.SignatureArrays.load`). An audit in sorted sections is read as a stream (`audit.stream_workload`) once its misses are found (`_find_misses`) and shaped (`_shape_found_misses`), its windows merged as it reads them through the columns (`_LateShaper`). Any other audit, or one whose key-only read or stream meets a break, is read through the in-memory source, which keys its sibling rows in the parent and shapes their misses as the stream's are shaped (`_resolve_signature_digests`, through `_shape_misses`: the spawn pool at `signature_jobs` above 1 and at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially in the parent), captures the pre-merge snapshot, merges, compacts and keys every unit, with the columns' hits and misses cleared first. Both give the same table, snapshot, merge and input keys."""
+    """Load the audit for the build through `parts`, the descriptors of the audit's parts that `build_m1` opened once and holds until the build returns (`audit.AuditParts`), every read of the audit going through them (`audit.audit_layout`, the key-only read, the stream, the in-memory source), never through a path again, since a `--gates-only` pass can commit a new head meanwhile, and a part held as gzip members read through the member index the head gave them (`audit.AuditParts.members`), its sections inflated as they are read; a member that does not inflate to what its index records raises `audit_stream.MemberError`, from the key-only read or the stream, which fails the build rather than send it to the in-memory source. The ink-signature store is read into columns first (`unit_cache.SignatureArrays.load`). An audit in sorted sections is read as a stream (`audit.stream_workload`) once its misses are found (`_find_misses`) and shaped (`_shape_found_misses`), its windows merged as it reads them through the columns (`_LateShaper`). Any other audit, or one whose key-only read or stream meets a break, is read through the in-memory source, which keys its sibling rows in the parent and shapes their misses as the stream's are shaped (`_resolve_signature_digests`, through `_shape_misses`: the spawn pool at `signature_jobs` above 1 and at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially in the parent), captures the pre-merge snapshot, merges, compacts and keys every unit, with the columns' hits and misses cleared first. Both give the same table, snapshot, merge and input keys."""
     environment = unit_cache.signature_environment(repo_root, before_font, helpers_digest)
     prior = None if recompute_all else unit_cache.SignatureArrays.load(out_dir, environment)
     if not recompute_all and prior is None:
@@ -3313,7 +3317,7 @@ def _load_corpus(
         unit_cache.AUDIT_IDENTITY_KEY: unit_cache.audit_identity(descriptors[0], parts.head),
         unit_cache.FAMILY_KEYS_KEY: unit_cache.family_keys_digest(family_keys),
     }
-    layout = audit_layout(descriptors, audit_path)
+    layout = audit_layout(descriptors, audit_path, parts.members)
     why = layout.why
     if layout.sections is not None:
         key_only = _find_misses(descriptors, layout.sections, signatures, family_of, family_keys, stamps)
@@ -3375,13 +3379,19 @@ def _load_corpus(
                     width if shaped else 1,
                     len(descriptors),
                     parts.segment_rows,
+                    parts.compressed,
                 )
             finally:
                 if late is not None:
                     late.release()
     signatures.reset()
     workload = load_workload(
-        audit_path, ledger_path, dict(family_of), mark=memory_tally.mark, descriptors=descriptors
+        audit_path,
+        ledger_path,
+        dict(family_of),
+        mark=memory_tally.mark,
+        descriptors=descriptors,
+        members=parts.members,
     )
     table = workload.table
     rows = workload.rows
@@ -3423,6 +3433,7 @@ def _load_corpus(
         width,
         len(descriptors),
         parts.segment_rows,
+        parts.compressed,
     )
 
 

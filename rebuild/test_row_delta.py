@@ -6,6 +6,7 @@ import gzip
 import itertools
 import json
 import operator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -278,8 +279,37 @@ def test_one_output_folds_a_pass_and_one_at_its_overrun_folds_anyway(monkeypatch
     assert row_delta.fold_forced(at_overrun)
 
 
+_AUDIT_HEAD_31 = """{
+ "format": "ams-row-delta-head/1",
+ "output": "divergence-audit.tsv",
+ "generation": 2,
+ "content": 7,
+ "stamps": {
+  "content_mtime_ns": 1794221130561484846
+ },
+ "base": {
+  "name": "divergence-audit.tsv.2.base",
+  "size": 1676822099,
+  "sha256": "2f5963c39c4b55d730f2edffa50287cbe421c56bdc1c0aef50baa97cc0675122",
+  "rows": 8342256,
+  "rows_bytes": 1676822048
+ },
+ "segments": [
+  {
+   "name": "divergence-audit.tsv.2.1.delta",
+   "size": 21934,
+   "sha256": "07a3793c94d8b8395036c1b67ea2f782d926b1ed0ea6397734c6fb72ca06eaeb",
+   "rows": 105,
+   "rows_bytes": 21859
+  }
+ ],
+ "merge": "plain-key"
+}
+"""
+
+
 def test_a_head_records_each_parts_stamp_and_keys_and_one_without_them_reads_as_before(tmp_path):
-    """A head over parts that record what they were settled under, the settle memos', holds each distinct family keys map once and each part its stamp and the place of its keys, and reads back as it was written; a head whose parts record nothing writes neither field, so the unit store's and the windows rows' heads read and write as before. A part naming keys the head does not hold is refused."""
+    """A head over parts that record what they were settled under, the settle memos', holds each distinct family keys map once and each part its stamp and the place of its keys, and reads back as it was written; a head whose parts record nothing writes neither field, so the unit store's and the windows rows' heads read and write as before. A part naming keys the head does not hold is refused. A part held as gzip members, the divergence audit's (#618's change 36), records its member index, `[section, length, inflated]` a member, which reads back as written; a head over plain parts, as change 31's writer committed the audit's, reads and commits byte for byte as it was, its file left in place; and an index whose lengths do not sum to the part's size, or whose inflated lengths do not sum to its header member's and its rows' bytes, is refused."""
     base = row_delta.Part(row_delta.base_name(OUTPUT, 0), 1, "a", 10, 140)
     segments = tuple(row_delta.Part(row_delta.segment_name(OUTPUT, 0, n), 1, "b", 1, 14) for n in (1, 2, 3))
     plain = row_delta.Head(OUTPUT, 0, 2, {"stamp": "s"}, base, segments, row_delta.MERGE_PROBE)
@@ -315,6 +345,34 @@ def test_a_head_records_each_parts_stamp_and_keys_and_one_without_them_reads_as_
     row_delta.head_path(tmp_path, OUTPUT).write_text(json.dumps(document))
     with pytest.raises(row_delta.HeadError, match="family keys it does not hold"):
         row_delta.read_head(tmp_path, OUTPUT)
+
+    audit = "divergence-audit.tsv"
+    path = row_delta.head_path(tmp_path, audit)
+    path.write_text(_AUDIT_HEAD_31)
+    written = path.stat()
+    plain_parts = row_delta.read_head(tmp_path, audit)
+    assert plain_parts is not None and all(part.members is None for part in plain_parts.parts)
+    row_delta.commit(tmp_path, plain_parts)
+    assert path.read_text() == _AUDIT_HEAD_31
+    assert (path.stat().st_ino, path.stat().st_mtime_ns) == (written.st_ino, written.st_mtime_ns)
+    members = (
+        row_delta.Member("", 68, 51),
+        row_delta.Member("default", 900, 1000),
+        row_delta.Member("ss03", 32, 40),
+    )
+    held = row_delta.Part(row_delta.segment_name(audit, 2, 2), 1000, "c", 7, 1040, members=members)
+    compressed = replace(plain_parts, segments=(*plain_parts.segments, held), content=8)
+    row_delta.commit(tmp_path, compressed)
+    document = json.loads(path.read_text())
+    assert document["segments"][1]["members"] == [["", 68, 51], ["default", 900, 1000], ["ss03", 32, 40]]
+    assert "members" not in document["segments"][0] and "members" not in document["base"]
+    assert row_delta.read_head(tmp_path, audit) == compressed
+    for at, why in ((1, "do not sum to its 1000 bytes"), (2, "do not inflate to its header line")):
+        lying = json.loads(json.dumps(document))
+        lying["segments"][1]["members"][1][at] += 1
+        path.write_text(json.dumps(lying))
+        with pytest.raises(row_delta.HeadError, match=why):
+            row_delta.read_head(tmp_path, audit)
 
 
 def test_a_segment_that_merges_by_probe_is_refused_by_both_stream_readers(tmp_path):
@@ -374,7 +432,7 @@ def test_the_bloom_filter_has_no_false_negatives_and_about_its_designed_false_po
 
 
 def test_a_plain_keyed_segment_round_trips_and_no_other_reader_takes_it(tmp_path, monkeypatch):
-    """The audit's kind of part merges by key in plain lines (`MERGE_PLAIN_KEY`): a segment written through `StreamedPart` under its header, which names the plain keyed merge, reads back row for row, and `merge_plain_keyed` yields the materialized rows as runs of whole lines over a base read in chunks, bisected only where a change falls: the latest part's row at a key, a tombstone removing it, an insert at a key no part held, and the base's own runs as they were read, at every chunk size and however dense the changes are. A segment out of key order, or a base run whose last line is not above the last one before it, is refused. A reader of gzipped keyed segments refuses a plain one, and the plain reader a gzipped one, as each refuses every other kind."""
+    """The audit's kind of part merges by key in plain lines (`MERGE_PLAIN_KEY`): a segment written through `StreamedPart` under its header, which names the plain keyed merge, reads back row for row, and `merge_plain_keyed` yields the materialized rows as runs of whole lines over a base read in chunks, bisected only where a change falls: the latest part's row at a key, a tombstone removing it, an insert at a key no part held, and the base's own runs as they were read, at every chunk size and however dense the changes are. A segment out of key order, or a base run whose last line is not above the last one before it, is refused. A reader of gzipped keyed segments refuses a plain one, and the plain reader a gzipped one, as each refuses every other kind. The same rows written through `MemberPart` (#618's change 36) are a run of gzip members, the header line's and one a section, whatever way the writes cut them, whose inflated stream (`part_stream`) is the plain segment's bytes, and `plain_keyed_segment_rows` reads the rows of both; a member damaged at its recorded size, or an index whose inflated lengths do not match the members, fails the read with `HeadError` naming the part and the section."""
     monkeypatch.setattr(row_delta, "_CHUNK", 16)
     lines = [b"a\t%02d\n" % index for index in range(12)]
     (tmp_path / "base").write_bytes(b"header\n" + b"".join(lines))
@@ -411,6 +469,48 @@ def test_a_plain_keyed_segment_round_trips_and_no_other_reader_takes_it(tmp_path
             list(row_delta.keyed_segment_rows(handle, OUTPUT, 0, 1))
         with pytest.raises(row_delta.HeadError, match="is not a gzipped segment"):
             list(row_delta.segment_rows(handle, OUTPUT, 0, 1))
+    written = [b"+\ta\t03\tx\n", b"-\ta\t05\n", b"+\ta\t055\n", b"+\tb\t00\n"]
+    held: list[row_delta.Part] = []
+    for name, writes in (("held", written), ("held-whole", [b"".join(written)])):
+        member_part = row_delta.MemberPart(
+            tmp_path, name, row_delta.segment_header(OUTPUT, 0, 1, row_delta.MERGE_PLAIN_KEY), field=1
+        )
+        for data in writes:
+            member_part.write(data)
+        closed = member_part.close()
+        assert closed is not None and (closed.rows, closed.rows_bytes) == (4, 31)
+        assert closed.members is not None and [member.section for member in closed.members] == ["", "a", "b"]
+        held.append(closed)
+    assert held[0].members == held[1].members
+    assert (tmp_path / "held").read_bytes() == (tmp_path / "held-whole").read_bytes()
+    with open(tmp_path / "held", "rb") as handle, open(tmp_path / part.name, "rb") as plain:
+        assert row_delta.part_stream(handle, held[0]).read() == plain.read()
+        assert (
+            list(row_delta.plain_keyed_segment_rows(row_delta.part_stream(handle, held[0]), OUTPUT, 0, 1))
+            == rows
+        )
+        assert (
+            list(row_delta.plain_keyed_segment_rows(row_delta.part_stream(plain, part), OUTPUT, 0, 1)) == rows
+        )
+    members = held[0].members
+    assert members is not None
+    damaged = bytearray((tmp_path / "held").read_bytes())
+    damaged[members[0].length + members[1].length // 2] ^= 0x01
+    (tmp_path / "damaged").write_bytes(bytes(damaged))
+    lying = replace(
+        held[0],
+        members=(
+            members[0],
+            members[1]._replace(inflated=members[1].inflated + 1),
+            members[2]._replace(inflated=members[2].inflated - 1),
+        ),
+    )
+    for name, described, why in (
+        ("damaged", held[0], "member of the 'a' section does not inflate"),
+        ("held", lying, "member of the 'a' section inflates to 24 bytes where its index records 25"),
+    ):
+        with open(tmp_path / name, "rb") as handle, pytest.raises(row_delta.HeadError, match=why):
+            row_delta.part_stream(handle, described).read()
     with open(tmp_path / "base", "rb") as base:
         base.readline()
         merged = b"".join(row_delta.merge_plain_keyed(base, [rows], key, key))

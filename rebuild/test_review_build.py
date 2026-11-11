@@ -1480,7 +1480,7 @@ def test_the_signature_store_columns_die_where_the_store_is_written(tmp_path, mi
 _SIGNATURE_NOTE = (
     r"\(signatures: \d[\d,]* cached, \d[\d,]* shaped(?: serially| across \d+ workers)?\) "
     r"\(key-only read (?:ran \d+\.\d\d s across \d+ processes, the largest \d+\.\d{3} GB resident|skipped, the store's stamps held); read as a stream; "
-    r"audit \d+ parts, \d[\d,]* segment rows; prior store \d[\d,]* hit, \d[\d,]* unhit, \d[\d,]* missed\)"
+    r"audit \d+ parts, \d+ compressed, \d[\d,]* segment rows; prior store \d[\d,]* hit, \d[\d,]* unhit, \d[\d,]* missed\)"
 )
 _TALLY_COLLECTION = re.compile(
     r"^\[tally\] (\S+) (\S+) count=(\d+) est_bytes=(\d+) est_gb=\d+\.\d\d"
@@ -2383,7 +2383,7 @@ def test_a_build_into_the_served_corpus_refuses_while_the_review_server_listens(
 
 
 def test_the_corpus_identity_moves_with_the_audit_s_content_and_not_with_a_fold(tmp_path, monkeypatch):
-    """The corpus's `generated_at` takes the audit's time from its head, the time its content last moved (`AuditParts.content_time`), and the ink-signature store's stamp its content generation beside that time (`unit_cache.audit_identity`). A pass that writes a segment moves both; a pass that changes no row writes the head alone and moves neither, and so does a fold, which writes the materialized audit as a new base, since the content is the one the head already served. A corpus over a single file keeps the file's modification time."""
+    """The corpus's `generated_at` takes the audit's time from its head, the time its content last moved (`AuditParts.content_time`), and the ink-signature store's stamp its content generation beside that time (`unit_cache.audit_identity`). A pass that writes a segment moves both; a pass that changes no row writes the head alone and moves neither, and so does a fold, which writes the materialized audit as a new base held as gzip members (#618's change 36), since the content is the one the head already served. A corpus over a single file keeps the file's modification time."""
     from rebuild.pipeline import oracle, row_delta
     from rebuild.review.audit import AuditParts
 
@@ -2424,4 +2424,5 @@ def test_the_corpus_identity_moves_with_the_audit_s_content_and_not_with_a_fold(
     write(rows)
     head = row_delta.read_head(out, oracle.AUDIT_NAME)
     assert head is not None and (head.generation, head.segments) == (1, ())
+    assert head.base.members is not None
     assert identity() == moved

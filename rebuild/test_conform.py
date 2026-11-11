@@ -1121,6 +1121,37 @@ def _audit_files(out: Path) -> dict[str, bytes]:
     }
 
 
+def audit_members(out: Path, part: row_delta.Part) -> list[tuple[str, bytes]]:
+    """The members of the audit's part `part` under `out`, each its section and its inflated bytes, read by the head's member index: each member a gzip stream of its own at the offset the lengths before it give, inflating to the length the index records, and the lengths covering the file."""
+    raw = (out / part.name).read_bytes()
+    assert part.members is not None
+    found: list[tuple[str, bytes]] = []
+    offset = 0
+    for member in part.members:
+        inflater = zlib.decompressobj(31)
+        inflated = inflater.decompress(raw[offset : offset + member.length])
+        assert inflater.eof and not inflater.unused_data and len(inflated) == member.inflated
+        found.append((member.section, inflated))
+        offset += member.length
+    assert offset == len(raw)
+    return found
+
+
+def plain_audit_segments(out: Path, numbers: Sequence[int]) -> None:
+    """Rewrite the audit's segments `numbers` under `out` as #618's change 31 wrote every segment, plain lines, and commit the head to match: a part's members inflated in order are the plain segment that writer wrote over the same rows, so this gives the plain segments a tree keeps from before change 36 until its fold."""
+    head = row_delta.read_head(out, oracle.AUDIT_NAME)
+    assert head is not None
+    segments = list(head.segments)
+    for number in numbers:
+        part = segments[number - 1]
+        plain = gzip.decompress((out / part.name).read_bytes())
+        (out / part.name).write_bytes(plain)
+        segments[number - 1] = replace(
+            part, size=len(plain), sha256=hashlib.sha256(plain).hexdigest(), members=None
+        )
+    row_delta.commit(out, replace(head, segments=tuple(segments)))
+
+
 def _head_document(out: Path) -> dict:
     """The audit's head under `out` without the time its content last moved, which differs between two writers of the same rows."""
     document = json.loads((out / "divergence-audit.tsv.head").read_bytes())
@@ -1182,12 +1213,13 @@ class TestOracleAudit:
     @pytest.mark.parametrize("cuts", (1, 2))
     @pytest.mark.parametrize("per_config", _AUDIT_SHAPES)
     def test_the_ranges_lines_follow_the_header_in_order(self, tmp_path, per_config, cuts):
-        """A configuration cut into row ranges arrives as one set of lines per range. The audit must be the same however the rows were split, including an empty last range. With no standing audit the writer takes the `first` route: its base is today's file byte for byte, and its head lists that base alone."""
+        """A configuration cut into row ranges arrives as one set of lines per range. The audit must be the same however the rows were split, including an empty last range. With no standing audit the writer takes the `first` route: its base is today's file byte for byte, plain, with no member index in its head, and its head lists that base alone."""
         self._write(tmp_path, per_config, cuts)
         assert (tmp_path / "divergence-audit.tsv.0.base").read_bytes() == self._today(per_config)
         assert _audit_bytes(tmp_path) == self._today(per_config)
         head = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
         assert head is not None and head.segments == () and head.merge == row_delta.MERGE_PLAIN_KEY
+        assert head.base.members is None and "members" not in _head_document(tmp_path)["base"]
         assert sorted(_audit_files(tmp_path)) == ["divergence-audit.tsv.0.base", "divergence-audit.tsv.head"]
 
     @pytest.mark.parametrize("block", (oracle.ORACLE_AUDIT_BLOCK, 64))
@@ -1195,7 +1227,7 @@ class TestOracleAudit:
     def test_a_pass_over_a_standing_audit_writes_only_the_rows_that_differ(
         self, tmp_path, monkeypatch, cuts, block
     ):
-        """Over a standing head the writer compares the ranges' rows with the materialized audit in lockstep. A pass that changes one row, removes one and adds one writes one plain keyed segment of exactly those upserts and tombstones, keyed by configuration and window in the base's order, and the materialized audit is the file today's writer writes over the same ranges; the head's content generation and its time move with it. A pass that changes nothing writes no segment, and its head, which comes out byte for byte the same, keeps its inode and modification time. Blocks of a few lines make the ranges ship several blocks and the compare refill its old stream several times a pass."""
+        """Over a standing head the writer compares the ranges' rows with the materialized audit in lockstep. A pass that changes one row, removes one and adds one writes one plain keyed segment of exactly those upserts and tombstones, keyed by configuration and window in the base's order, and the materialized audit is the file today's writer writes over the same ranges; the head's content generation and its time move with it. The segment is held as gzip members (#618's change 36): its header line's and then one for each configuration it has a line of, as its head's member index lists them, and inflated it is exactly the plain segment change 31's writer wrote over the same rows, header line included. Its bytes do not depend on how the rows were fed: the same two passes cut into other ranges and blocks write the same segment. A pass that changes nothing writes no segment, and its head, which comes out byte for byte the same, keeps its inode and modification time. Blocks of a few lines make the ranges ship several blocks and the compare refill its old stream several times a pass."""
         monkeypatch.setattr(oracle, "ORACLE_AUDIT_BLOCK", block)
         first = {
             "default": [
@@ -1221,13 +1253,26 @@ class TestOracleAudit:
         assert head is not None and len(head.segments) == 1 and head.base == standing.base
         assert head.content == standing.content + 1
         assert head.stamps[oracle.CONTENT_TIME_STAMP] > standing.stamps[oracle.CONTENT_TIME_STAMP]
-        segment = (tmp_path / "divergence-audit.tsv.0.1.delta").read_bytes().decode("utf-8").splitlines()
-        assert json.loads(segment[0])["merge"] == row_delta.MERGE_PLAIN_KEY
-        assert segment[1:] == [
-            "+\t" + second["default"][2],
-            "-\tdefault\tE653:E650",
-            "+\tdefault\tE650:E650:E650\tcell\tpea-half\tqsPea\tqsPea.half",
-        ]
+        header = row_delta.segment_header(oracle.AUDIT_NAME, 0, 1, row_delta.MERGE_PLAIN_KEY)
+        rows = "".join(
+            f"{line}\n"
+            for line in (
+                "+\t" + second["default"][2],
+                "-\tdefault\tE653:E650",
+                "+\tdefault\tE650:E650:E650\tcell\tpea-half\tqsPea\tqsPea.half",
+            )
+        ).encode("utf-8")
+        assert json.loads(header)["merge"] == row_delta.MERGE_PLAIN_KEY
+        segment = (tmp_path / "divergence-audit.tsv.0.1.delta").read_bytes()
+        assert gzip.decompress(segment) == header + rows
+        assert audit_members(tmp_path, head.segments[0]) == [("", header), ("default", rows)]
+        assert (head.segments[0].rows, head.segments[0].rows_bytes) == (3, len(rows))
+        other = tmp_path / "other"
+        with pytest.MonkeyPatch.context() as patched:
+            patched.setattr(oracle, "ORACLE_AUDIT_BLOCK", 32)
+            for per_config in (first, second):
+                self._write(other, per_config, 3)
+        assert (other / "divergence-audit.tsv.0.1.delta").read_bytes() == segment
         before = os.stat(tmp_path / "divergence-audit.tsv.head")
         files = _audit_files(tmp_path)
         self._write(tmp_path, second, cuts)
@@ -1250,7 +1295,7 @@ class TestOracleAudit:
         assert _audit_bytes(tmp_path) == self._today(per_config)
 
     def test_a_part_that_fails_its_check_is_rewritten_whole(self, tmp_path):
-        """A part whose sha256 is not the one its head records takes the `unusable` route: the pass writes today's file as the next generation's base, whatever it would have compared, and deletes the generation it replaces once its head is in place."""
+        """A part whose sha256 is not the one its head records takes the `unusable` route: the pass writes today's file as the next generation's base, whatever it would have compared, and deletes the generation it replaces once its head is in place. The base is the plain file, with no member index, whether the damaged part was plain or a segment held as gzip members, whose bytes are damaged inside a member at their recorded size. So does a segment whose sha256 holds but whose header member does not inflate to the length its head's index records, with the index's lengths still summing as `row_delta.Part.parse` requires: the header check inflates that member whole, so the compare never meets it."""
         per_config = {"default": ["default\tE650\tcell\tpea-half\tqsPea\tqsPea.half"]}
         self._write(tmp_path, per_config)
         base = tmp_path / "divergence-audit.tsv.0.base"
@@ -1260,9 +1305,34 @@ class TestOracleAudit:
         self._write(tmp_path, per_config)
         assert sorted(_audit_files(tmp_path)) == ["divergence-audit.tsv.1.base", "divergence-audit.tsv.head"]
         assert (tmp_path / "divergence-audit.tsv.1.base").read_bytes() == self._today(per_config)
+        changed = {"default": [*per_config["default"], "default\tE651\tcell\tpea-half\tqsPea\tqsPea.half"]}
+        self._write(tmp_path, changed)
+        head = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert head is not None and head.segments[0].members is not None
+        segment = tmp_path / head.segments[0].name
+        damaged = bytearray(segment.read_bytes())
+        damaged[-12] ^= 0x01
+        segment.write_bytes(bytes(damaged))
+        self._write(tmp_path, changed)
+        assert sorted(_audit_files(tmp_path)) == ["divergence-audit.tsv.2.base", "divergence-audit.tsv.head"]
+        assert (tmp_path / "divergence-audit.tsv.2.base").read_bytes() == self._today(changed)
+        head = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert head is not None and head.base.members is None
+        grown = {"default": [*changed["default"], "default\tE652\tcell\tpea-half\tqsPea\tqsPea.half"]}
+        self._write(tmp_path, grown)
+        head = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert head is not None
+        segment = head.segments[0]
+        assert segment.members is not None
+        header, *sections = segment.members
+        misread = replace(segment, members=(header._replace(inflated=header.inflated + 1), *sections))
+        row_delta.commit(tmp_path, replace(head, segments=(misread,)))
+        self._write(tmp_path, grown)
+        assert sorted(_audit_files(tmp_path)) == ["divergence-audit.tsv.3.base", "divergence-audit.tsv.head"]
+        assert (tmp_path / "divergence-audit.tsv.3.base").read_bytes() == self._today(grown)
 
     def test_rows_out_of_the_audit_s_order_are_refused_and_commit_nothing(self, tmp_path, monkeypatch):
-        """The compare merges by key, so rows that do not strictly increase in configuration rank and window order are a defect: the writer raises naming the row, and the standing head and parts stay as they were. That holds for a row that repeats or goes back right after a row equal to the standing audit's, or right after a block whose bytes equal the standing audit's, on the segment route and on a fold, where a merge by key would otherwise drop the repeat or put the row back in order and commit an audit that is not the file of the rows fed."""
+        """The compare merges by key, so rows that do not strictly increase in configuration rank and window order are a defect: the writer raises naming the row, and the standing head and parts stay as they were. That holds for a row that repeats or goes back right after a row equal to the standing audit's, or right after a block whose bytes equal the standing audit's, on the segment route and on a fold, where a merge by key would otherwise drop the repeat or put the row back in order and commit an audit that is not the file of the rows fed. On a fold, whose base is held a configuration a member, a row that goes back to a configuration after a later one's row is refused by the same check, naming the row, before the base's writer could meet a member it has closed."""
         per_config = {"default": [f"default\tE65{digit}\tcell\ta\tqsPea\tqsPea.half" for digit in "0123"]}
         self._write(tmp_path, per_config)
         files = _audit_files(tmp_path)
@@ -1290,9 +1360,24 @@ class TestOracleAudit:
         with pytest.raises(ValueError, match=r"out of the audit's order at 'default\\tE652"):
             fed("".join(f"{line}\n" for line in changed).encode("utf-8"), rows[2] + rows[3])
         assert _audit_files(tmp_path) == files
+        both = {
+            "default": changed,
+            "ss03": [line.replace("default", "ss03") for line in per_config["default"]],
+        }
+        self._write(tmp_path, both)
+        both["ss03"][0] = both["ss03"][0].replace("\ta\t", "\tb\t")
+        self._write(tmp_path, both)
+        files = _audit_files(tmp_path)
+        assert "divergence-audit.tsv.1.1.delta" in files
+        with pytest.raises(ValueError, match=r"out of the audit's order at 'default\\tE659"):
+            fed(
+                "".join(f"{line}\n" for line in [*both["default"], both["ss03"][0]]).encode("utf-8"),
+                f"default\tE659\tcell\ta\tqsPea\tqsPea.half\n{both['ss03'][1]}\n".encode("utf-8"),
+            )
+        assert _audit_files(tmp_path) == files
 
     def test_the_audit_folds_at_its_cap_and_keeps_its_identity(self, tmp_path):
-        """A head that lists `row_delta.AUDIT_SEGMENT_CAP` segments folds on its next pass, which holds the pass's fold: that pass writes the materialized audit with its own changes as the next generation's base, deletes the old generation once its head is in place, and, changing no row, keeps the content generation and its time, so the corpus's identity stays. A segment after the fold lands on the new base, and the materialized audit is the file today's writer writes."""
+        """A head that lists `row_delta.AUDIT_SEGMENT_CAP` segments folds on its next pass, which holds the pass's fold: that pass writes the materialized audit with its own changes as the next generation's base, deletes the old generation once its head is in place, and, changing no row, keeps the content generation and its time, so the corpus's identity stays. The folded base is held as gzip members (#618's change 36), its header line's and one a configuration, as its head's member index lists them, its `rows_bytes` the inflated rows', and inflated it is the file today's writer writes. A pass over it that changes nothing writes no segment, and its head keeps its inode and modification time. A segment after the fold lands on the new base, and the materialized audit is the file today's writer writes."""
         lines = [f"default\tE650:{0xE600 + at:04X}\tcell\ta\tqsPea\tqsPea.half" for at in range(400)]
         self._write(tmp_path, {"default": lines})
         for at in range(row_delta.AUDIT_SEGMENT_CAP):
@@ -1305,7 +1390,18 @@ class TestOracleAudit:
         assert folded is not None and (folded.generation, folded.segments) == (1, ())
         assert (folded.content, folded.stamps) == (folding.content, folding.stamps)
         assert sorted(_audit_files(tmp_path)) == ["divergence-audit.tsv.1.base", "divergence-audit.tsv.head"]
-        assert (tmp_path / "divergence-audit.tsv.1.base").read_bytes() == self._today({"default": lines})
+        today = self._today({"default": lines})
+        assert gzip.decompress((tmp_path / "divergence-audit.tsv.1.base").read_bytes()) == today
+        header = (oracle.ORACLE_AUDIT_HEADER + "\n").encode("utf-8")
+        assert audit_members(tmp_path, folded.base) == [("", header), ("default", today[len(header) :])]
+        assert folded.base.rows_bytes == len(today) - len(header) and folded.base.rows == len(lines)
+        assert _audit_bytes(tmp_path) == today
+        before = os.stat(tmp_path / "divergence-audit.tsv.head")
+        files = _audit_files(tmp_path)
+        self._write(tmp_path, {"default": lines})
+        after = os.stat(tmp_path / "divergence-audit.tsv.head")
+        assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+        assert _audit_files(tmp_path) == files
         lines[0] = lines[0].replace("\tb\t", "\tc\t")
         self._write(tmp_path, {"default": lines})
         assert sorted(_audit_files(tmp_path)) == [
@@ -1314,6 +1410,66 @@ class TestOracleAudit:
             "divergence-audit.tsv.head",
         ]
         assert _audit_bytes(tmp_path) == self._today({"default": lines})
+
+    @pytest.mark.parametrize(
+        "form", ("plain segments", "compressed segments", "compressed base", "transition")
+    )
+    def test_the_materialized_audit_is_today_s_file_over_plain_and_compressed_parts(self, tmp_path, form):
+        """#618's change 36 compresses only what a pass writes after it lands, so on the way to its first fold a tree holds a plain base with change 31's plain segments, a plain base with segments held as gzip members, a base a fold wrote as members with such segments, or, through the transition, a plain base with a plain segment and one held as members. Over each, the materialized audit is `cmp`-equal to the file today's writer writes over the latest pass's rows, and a pass over it, whose compare reads every part in lockstep, writes the rows that differ as one segment held as members, after which the materialized audit is today's file over that pass's rows."""
+
+        def moved(per_config: Mapping[str, Sequence[str]], step: int, kind: str) -> dict[str, list[str]]:
+            return {
+                config: [
+                    line.replace("\ta\t", f"\t{kind}\t") if index % 7 == step else line
+                    for index, line in enumerate(lines)
+                    if index % 11 != step + 4
+                ]
+                + [f"{config}\tE650:E650:{0xE600 + step:04X}\tcell\t{kind}\tqsPea\tqsPea.half"]
+                for config, lines in per_config.items()
+            }
+
+        states = [
+            {
+                config: [
+                    f"{config}\tE65{digit}:{0xE600 + at:04X}\tcell\ta\tqsPea\tqsPea.half" for at in range(30)
+                ]
+                for config, digit in (("default", 0), ("ss03", 1), ("ss10", 2))
+            }
+        ]
+        for step, kind in enumerate("bcd", start=1):
+            states.append(moved(states[-1], step, kind))
+        if form == "compressed base":
+            self._write(tmp_path, states[0])
+            with pytest.MonkeyPatch.context() as patched:
+                patched.setattr(row_delta, "AUDIT_SEGMENT_CAP", 1)
+                self._write(tmp_path, states[1])
+                self._write(tmp_path, states[0])
+        for state in states[: 2 if form == "transition" else 3]:
+            self._write(tmp_path, state)
+        if form == "transition":
+            plain_audit_segments(tmp_path, [1])
+            self._write(tmp_path, states[2])
+        elif form == "plain segments":
+            plain_audit_segments(tmp_path, [1, 2])
+        head = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert head is not None
+        assert [part.members is not None for part in head.parts] == {
+            "plain segments": [False, False, False],
+            "compressed segments": [False, True, True],
+            "compressed base": [True, True, True],
+            "transition": [False, False, True],
+        }[form]
+        assert _audit_bytes(tmp_path) == self._today(states[2])
+        self._write(tmp_path, states[3])
+        head = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert head is not None and len(head.segments) == 3 and head.segments[2].members is not None
+        assert [section for section, _lines in audit_members(tmp_path, head.segments[2])] == [
+            "",
+            "default",
+            "ss03",
+            "ss10",
+        ]
+        assert _audit_bytes(tmp_path) == self._today(states[3])
 
     def test_the_frozen_mini_audit_reassembles_byte_for_byte(self, tmp_path, monkeypatch):
         """The same check over a real audit. The mini bundle's `audit.tsv` is a filtered live audit that `fixtures/mini/regenerate.py` writes by joining its rows with newlines, and its configuration blocks are contiguous and in `ORACLE_CONFIGS` order. Returned whole or cut, in blocks small enough that each range's lines span several, the lines must reproduce the file."""
@@ -1355,7 +1511,7 @@ class TestOracleAudit:
         assert _audit_bytes(tmp_path) == joined.encode("utf-8")
 
     def test_the_two_oracle_paths_write_the_same_file(self, spec, tmp_path, monkeypatch):
-        """`--jobs 1` feeds the audit's writer as it goes, and the pool's ranges return their lines for the parent's in-order writer. Both must leave the same head, parts and materialized bytes, on a first pass and on a later pass over each one's own head that changes one row, removes one and adds one, which each writes as one segment whose materialized audit is the whole file over that pass's rows; the serial path walks its configurations in the audit's order whatever order it is handed them in. The two paths run here over the same hand-made subset tables: a pending alias makes every row diverge and an empty ledger leaves every divergence UNMATCHED, so every row reaches the file through each path. Each range settles through the parent's spec dump, handed to it as its parent hands it, and writes no `spec.json` of its own."""
+        """`--jobs 1` feeds the audit's writer as it goes, and the pool's ranges return their lines for the parent's in-order writer. Both must leave the same head, parts and materialized bytes, on a first pass, on a later pass over each one's own head that changes one row, removes one and adds one, which each writes as one segment whose materialized audit is the whole file over that pass's rows, and on a pass that folds; the segment and the folded base are held as gzip members, whose bytes and member index are the same on both paths (#618's change 36). The serial path walks its configurations in the audit's order whatever order it is handed them in. The two paths run here over the same hand-made subset tables: a pending alias makes every row diverge and an empty ledger leaves every divergence UNMATCHED, so every row reaches the file through each path. Each range settles through the parent's spec dump, handed to it as its parent hands it, and writes no `spec.json` of its own."""
 
         def subset_tables(directory: Path, per_config: Mapping[str, Sequence[str]]) -> Path:
             directory.mkdir()
@@ -1401,6 +1557,7 @@ class TestOracleAudit:
             "divergence-audit.tsv.0.base",
             "divergence-audit.tsv.head",
         ]
+        first_pass = _audit_bytes(serial)
 
         fanned = tmp_path / "fanned"
         fanned.mkdir()
@@ -1446,11 +1603,25 @@ class TestOracleAudit:
         oracle.compare_against_baseline(spec, later, aliases, ledger, configs=configs, out_dir=whole)
         oracle.compare_against_baseline(spec, later, aliases, ledger, configs=configs[::-1], out_dir=serial)
         pooled(later)
+
+        def parts(out: Path) -> dict[str, bytes]:
+            return {name: data for name, data in _audit_files(out).items() if not name.endswith(".head")}
+
         for out in (serial, fanned):
             head = row_delta.read_head(out, oracle.AUDIT_NAME)
             assert head is not None and [part.rows for part in head.segments] == [3]
+            assert head.segments[0].members is not None
             assert _audit_bytes(out) == (whole / "divergence-audit.tsv.0.base").read_bytes()
         assert _head_document(fanned) == _head_document(serial)
+        assert parts(fanned) == parts(serial)
+        monkeypatch.setattr(row_delta, "AUDIT_SEGMENT_CAP", 1)
+        oracle.compare_against_baseline(spec, tables, aliases, ledger, configs=configs, out_dir=serial)
+        pooled(tables)
+        folded = row_delta.read_head(serial, oracle.AUDIT_NAME)
+        assert folded is not None and folded.generation == 1 and folded.base.members is not None
+        assert _head_document(fanned) == _head_document(serial)
+        assert parts(fanned) == parts(serial) and list(parts(serial)) == [folded.base.name]
+        assert _audit_bytes(fanned) == _audit_bytes(serial) == first_pass
 
     def test_a_serial_oracle_that_dies_partway_leaves_the_audit_it_found_standing(
         self, monkeypatch, spec, tmp_path
