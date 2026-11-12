@@ -1368,11 +1368,11 @@ class TestTheMemoryDerivedThreadDefault:
         ],
     )
     def test_the_width_follows_the_machine_and_never_falls_below_one(self, total, wanted):
-        """With `DEFAULT_MEMO_BYTES` (1.4 GB) and six parked products at `PARKED_FOLD_BYTES` (0.2 GB) off the machine, a 14 GB machine fits two delta slots at `DELTA_SLOT_BYTES` (1.4 GB), a 15.5 GB machine three and a 17 GB machine four, the widest whose wave fits even where the rendezvous, six products read back at `READ_BACK_FOLD_BYTES` (1.5 GB), does not, since every width holds it. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
+        """With `DEFAULT_MEMO_BYTES` (0.6 GB) and six parked products at `PARKED_FOLD_BYTES` (0.2 GB) off the machine, a 14 GB machine fits two delta slots at `DELTA_SLOT_BYTES` (1.6 GB), a 15.5 GB machine three and a 17 GB machine four, the widest whose wave fits even where the rendezvous, six products read back at `READ_BACK_FOLD_BYTES` (1.5 GB), does not, since every width holds it. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_machine_before_it_is_divided(self):
-        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 21.8 GB machine leaves too little for the whole wave's 11.0 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
+        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 21.8 GB machine leaves too little for the whole wave's 11.2 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=21_800_000_000) == 6
         assert (
             kernel_exec.kernel_threads_default(
@@ -1488,11 +1488,11 @@ class TestTheMemoryDerivedThreadDefault:
         assert kernel_exec.deltas_from_scratch(2, configs=2, total_bytes=roomy, from_scratch=True) == 0
 
     def test_a_build_without_default_s_memo_books_each_slot_from_scratch(self, monkeypatch, tmp_path):
-        """A set without `default` enumerates every configuration from scratch, so its slots book `SCRATCH_PEAK_BYTES` less a parked product, not a delta's slot, and its width is that division, capped at the configuration count. On an invented 13 GB machine, whose 5.0 GB beside the reserve holds a two-configuration build that shares `default`'s memo at 4.6 GB, both run at once, while the from-scratch division fits one: the memo and two parked products leave 3.2 GB, and `SCRATCH_PEAK_BYTES` (2.1 GB) less a parked product (0.2 GB) is 1.9 GB a slot. `run_m1.build_tables` asks for that width exactly when `default` is not in the set it builds."""
+        """A set without `default` enumerates every configuration from scratch, so its slots book `SCRATCH_PEAK_BYTES` less a parked product, not a delta's slot, and its width is that division, capped at the configuration count. On an invented 12.5 GB machine, whose 4.5 GB beside the reserve holds a two-configuration build that shares `default`'s memo at 4.0 GB, both run at once, while the from-scratch division fits one: the memo and two parked products leave 3.5 GB, and `SCRATCH_PEAK_BYTES` (2.1 GB) less a parked product (0.2 GB) is 1.9 GB a slot. `run_m1.build_tables` asks for that width exactly when `default` is not in the set it builds."""
         fixed = kernel_exec.DEFAULT_MEMO_BYTES + 2 * kernel_exec.PARKED_FOLD_BYTES
         slot = kernel_exec.SCRATCH_PEAK_BYTES - kernel_exec.PARKED_FOLD_BYTES
         assert kernel_exec.table_build_booking_bytes(2, configs=2, from_scratch=True) == fixed + 2 * slot
-        total = 13_000_000_000
+        total = 12_500_000_000
         budget = total - memory_budget.os_reserve_bytes(total_bytes=total) - fixed
         assert budget // slot < 2 == kernel_exec.kernel_threads_default(configs=2, total_bytes=total)
         assert (

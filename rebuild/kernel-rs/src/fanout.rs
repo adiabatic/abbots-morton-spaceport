@@ -20,7 +20,9 @@ use crate::fixpoint::{self, EnumerationModes, MemoAccess};
 use crate::fold;
 use crate::hash::HashSet;
 use crate::index::SpecIndex;
-use crate::memo::{Exclusion, MemoSnapshot, SharedMemo, unlocking_runes};
+use crate::memo::{
+    Exclusion, MemoSnapshot, SNAPSHOT_CACHE_BLOCKS, SharedMemo, SnapshotPacking, unlocking_runes,
+};
 use crate::model::Sym;
 use crate::options::WindowOptions;
 use crate::replay;
@@ -40,6 +42,7 @@ pub struct Configuration<'a> {
 /// - `verdict_sharing`: in a build where at least one delta reads `default`'s memo, `default` also publishes its liveness verdicts in that memo, for each distinct unlocking-rune set among those deltas ([`verdict_groups`]), and each delta is served the ones its exclusion admits, rerunning only the asks that name one of its unlocking runes ([`crate::liveness`]). A build whose deltas all enumerate from scratch publishes none, since the capture costs `default` time. The tables are the same bytes either way.
 /// - `memo_ceilings`: the ceilings each configuration's engine holds its prospect and candidate memos to, [`fixpoint::TABLE_MEMO_CEILINGS`] unless the caller sets others. The tables are the same bytes at any ceiling.
 /// - `trace_ceiling`: the ceiling each configuration's engine holds its trace memo to whenever no delta reads that memo, which is every delta and `default` once no delta is left to read it ([`default_access`]), [`fixpoint::TABLE_TRACE_CEILING`] unless the caller sets another. The tables are the same bytes at any ceiling.
+/// - `snapshot_packing`: how `default` packs its snapshot at its release when a delta reads it ([`crate::memo::SnapshotEntries`]), and `snapshot_cache_blocks`: how many decoded blocks of it each delta's engine caches, [`SNAPSHOT_CACHE_BLOCKS`] unless the caller sets another. The tables are the same bytes under any packing and at any cache size.
 #[derive(Clone, Debug)]
 pub struct MemoSharing {
     pub default_memo_sharing: bool,
@@ -47,6 +50,8 @@ pub struct MemoSharing {
     pub verdict_sharing: bool,
     pub memo_ceilings: MemoCeilings,
     pub trace_ceiling: TraceCeiling,
+    pub snapshot_packing: SnapshotPacking,
+    pub snapshot_cache_blocks: usize,
 }
 
 impl Default for MemoSharing {
@@ -57,6 +62,8 @@ impl Default for MemoSharing {
             verdict_sharing: true,
             memo_ceilings: fixpoint::TABLE_MEMO_CEILINGS,
             trace_ceiling: fixpoint::TABLE_TRACE_CEILING,
+            snapshot_packing: SnapshotPacking::default(),
+            snapshot_cache_blocks: SNAPSHOT_CACHE_BLOCKS,
         }
     }
 }
@@ -302,7 +309,7 @@ fn verdict_groups(deltas: &[(usize, DeltaWork<'_>)]) -> Vec<HashSet<Sym>> {
     groups
 }
 
-/// The memo access `default`'s enumeration runs under, given the deltas that will read its memo: no shared memo, its own memo kept only when some delta reads it, its verdicts published for those deltas' unlocking-rune sets when `sharing` shares verdicts ([`verdict_groups`]), and `sharing`'s ceilings. So when every delta starts from scratch, `default` keeps no memo and releases it at its release point, as they do, and holds its trace memo to the trace ceiling as they do; while a delta is left to read it, `default`'s trace memo keeps every window.
+/// The memo access `default`'s enumeration runs under, given the deltas that will read its memo: no shared memo, its own memo kept only when some delta reads it and packed under `sharing`'s packing, its verdicts published for those deltas' unlocking-rune sets when `sharing` shares verdicts ([`verdict_groups`]), and `sharing`'s ceilings. So when every delta starts from scratch, `default` keeps no memo and releases it at its release point, as they do, and holds its trace memo to the trace ceiling as they do; while a delta is left to read it, `default`'s trace memo keeps every window.
 fn default_access(sharing: &MemoSharing, deltas: &[(usize, DeltaWork<'_>)]) -> MemoAccess {
     MemoAccess {
         shared_memos: Vec::new(),
@@ -314,6 +321,8 @@ fn default_access(sharing: &MemoSharing, deltas: &[(usize, DeltaWork<'_>)]) -> M
         },
         memo_ceilings: sharing.memo_ceilings,
         trace_ceiling: sharing.trace_ceiling,
+        snapshot_packing: sharing.snapshot_packing,
+        snapshot_cache_blocks: sharing.snapshot_cache_blocks,
     }
 }
 
@@ -460,6 +469,8 @@ pub fn run_configs_tables(
                             publish_verdicts: Vec::new(),
                             memo_ceilings: sharing.memo_ceilings,
                             trace_ceiling: sharing.trace_ceiling,
+                            snapshot_packing: sharing.snapshot_packing,
+                            snapshot_cache_blocks: sharing.snapshot_cache_blocks,
                         };
                         enumerate_config_tables(index, config, modes, report, access)
                     });
@@ -1518,6 +1529,22 @@ mod tests {
             .expect("as a count")
     }
 
+    /// The blocks of a shared memo one configuration decoded, as the `shared_memo_store` line among its cache stats counts them.
+    fn blocks_decoded(timed: &[String]) -> u64 {
+        timed
+            .iter()
+            .find_map(|line| {
+                line.strip_prefix("[c] ")?
+                    .split_once(" shared_memo_store id=0 ")?
+                    .1
+                    .split(' ')
+                    .find_map(|field| field.strip_prefix("decoded="))
+            })
+            .unwrap_or_else(|| panic!("the cache stats report the store's decodes: {timed:?}"))
+            .parse()
+            .expect("as a count")
+    }
+
     /// The bytes, class rows, label-grain rows and chain stretches one configuration's `parked` cache-stats line reports.
     fn parked_counts(timed: &[String]) -> [u64; 4] {
         let line = timed
@@ -1593,7 +1620,7 @@ mod tests {
             .expect("a directory can occupy a settlement table's path");
     }
 
-    /// The table fan-out writes the same bytes at every width and on every schedule, over the set whose claim order differs from its listed order. Tables and digests match per configuration at 0, 1, 2, and 8 workers. At 2, one worker takes the heavy delta and the lead claims the cheap one after `default`'s fold, which is the case the claim order is for. At 8, the deltas enumerate while `default`'s fold runs on the calling thread. They match too when every configuration enumerates from scratch, which shows that reading `default`'s memo changes no table, and when `default` publishes no verdicts, so that every delta runs every liveness probe instead of being served `default`'s. So must those of the case that enumerates deltas from scratch beside `default`, as many as the width leaves room for: none at 0 and 1 workers, the heavy delta at 2, and both at 8, where no delta reads `default`'s memo and `default` keeps none. Every run reports its cache stats, whose `shared_memo_hits` lines show that each case ran its own schedule: a delta over `default`'s memo takes windows from it, and a configuration enumerated from scratch takes none. Each configuration's `parked` line reports the same bytes, class rows, label-grain rows and chain stretches in every case, and the first-listed configuration reports the heap once every product has parked and once every product is read back in the one case that asks for the heap readings, two workers sharing `default`'s memo, and in no other.
+    /// The table fan-out writes the same bytes at every width and on every schedule, over the set whose claim order differs from its listed order. Tables and digests match per configuration at 0, 1, 2, and 8 workers. At 2, one worker takes the heavy delta and the lead claims the cheap one after `default`'s fold, which is the case the claim order is for. At 8, the deltas enumerate while `default`'s fold runs on the calling thread. They match too when every configuration enumerates from scratch, which shows that reading `default`'s memo changes no table, and when `default` publishes no verdicts, so that every delta runs every liveness probe instead of being served `default`'s. So must those of the case that enumerates deltas from scratch beside `default`, as many as the width leaves room for: none at 0 and 1 workers, the heavy delta at 2, and both at 8, where no delta reads `default`'s memo and `default` keeps none. Every run reports its cache stats, whose `shared_memo_hits` lines show that each case ran its own schedule: a delta over `default`'s memo takes windows from it, and a configuration enumerated from scratch takes none. Each delta reads `default`'s snapshot through a cache of two decoded blocks, fewer than the snapshot's, and its `shared_memo_store` line shows it decoding more blocks than that cache holds. Each configuration's `parked` line reports the same bytes, class rows, label-grain rows and chain stretches in every case, and the first-listed configuration reports the heap once every product has parked and once every product is read back in the one case that asks for the heap readings, two workers sharing `default`'s memo, and in no other.
     #[test]
     fn a_table_fan_out_files_the_same_bytes_at_every_width() {
         let index = fixtures::mini();
@@ -1618,6 +1645,10 @@ mod tests {
             ),
             ("beside default", beside_default()),
         ] {
+            let sharing = MemoSharing {
+                snapshot_cache_blocks: 2,
+                ..sharing
+            };
             for workers in [0, 1, 2, 8] {
                 let outdir = root.join(arm).join(format!("at-{workers}"));
                 let heap = arm == "shared" && workers == 2;
@@ -1651,6 +1682,10 @@ mod tests {
                         assert_eq!(hits, 0, "{run}: {token} reads no shared memo");
                     } else {
                         assert!(hits > 0, "{run}: {token} reads default's memo");
+                        assert!(
+                            blocks_decoded(&answer.timed) > 2,
+                            "{run}: {token} decodes more blocks than its cache holds"
+                        );
                     }
                 }
                 let parked: Vec<[u64; 4]> = answers

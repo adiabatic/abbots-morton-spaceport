@@ -19,6 +19,9 @@ const SMALL_MEMO_CEILINGS: [&str; 2] = ["--prospect-memo-buckets=8", "--candidat
 /// The smallest ceiling `build-tables` takes on each engine's trace memo, 128 buckets, eight a shard, which every configuration of the fixture whose memo no other reads passes many times.
 const SMALL_TRACE_CEILING: &str = "--trace-memo-buckets=128";
 
+/// A cache of two decoded blocks a delta's engine keeps of `default`'s snapshot, which at the fixture's 2,336 windows holds five blocks of 512, so a delta over it searches the fences, decodes past what its cache holds and evicts. Every table build that `tests/cli.rs` compares with another build's files runs with it, but the arms at other caches of `a_table_build_under_any_snapshot_packing_files_the_bytes_a_small_cache_files`, which that test compares with a build at this one, so the store's miss path runs in every other lane where a delta reads the snapshot.
+const SMALL_SNAPSHOT_CACHE: &str = "--snapshot-cache-blocks=2";
+
 /// This test's own scratch directory, cleared first so that files from a previous run cannot pass for this run's output. It is under `target/`, which is gitignored.
 fn scratch(name: &str) -> PathBuf {
     let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -426,6 +429,7 @@ fn a_table_build_over_previous_rows_writes_the_rows_that_differ() {
             "--configs=default,ss03",
             "--inputs=cli-stamp",
             "--threads=2",
+            SMALL_SNAPSHOT_CACHE,
         ];
         arguments.extend(extra);
         run(&arguments)
@@ -522,6 +526,7 @@ fn a_second_table_build_leaves_its_unchanged_tables_in_place() {
             "--configs=default,ss03",
             "--inputs=cli-stamp",
             "--threads=2",
+            SMALL_SNAPSHOT_CACHE,
         ]);
         assert!(output.status.success(), "{}", stderr_of(&output));
     };
@@ -558,7 +563,7 @@ fn a_second_table_build_leaves_its_unchanged_tables_in_place() {
     );
 }
 
-/// Sharing `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--no-default-memo-sharing`, which enumerates every configuration from scratch. Serving the deltas `default`'s liveness verdicts changes no file either: a build with `--no-verdict-sharing` writes the sharing build's tables and digests. Each build's cache stats show the schedule its flag asks for: `ss03` takes windows from `default`'s memo in the sharing build and the one serving no verdicts, and none in the build from scratch. Every build here runs at [`SMALL_MEMO_CEILINGS`].
+/// Sharing `default`'s memo does not change the artifacts: a table build that reuses `default`'s memo for the other configurations writes the same three files per configuration, byte for byte, and the same digests as a build with `--no-default-memo-sharing`, which enumerates every configuration from scratch. Serving the deltas `default`'s liveness verdicts changes no file either: a build with `--no-verdict-sharing` writes the sharing build's tables and digests. Each build's cache stats show the schedule its flag asks for: `ss03` takes windows from `default`'s memo in the sharing build and the one serving no verdicts, and none in the build from scratch. Every build here runs at [`SMALL_MEMO_CEILINGS`] and [`SMALL_SNAPSHOT_CACHE`].
 #[test]
 fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files() {
     let root = scratch("cli-default-memo-sharing");
@@ -583,6 +588,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
             "--cache-stats",
         ];
         arguments.extend(SMALL_MEMO_CEILINGS);
+        arguments.push(SMALL_SNAPSHOT_CACHE);
         arguments.extend(extra);
         let output = run(&arguments);
         assert!(output.status.success(), "{}", stderr_of(&output));
@@ -607,7 +613,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
     }
 }
 
-/// Starting the heaviest delta from scratch beside `default` changes no table: a build with `--scratch-beside-default=1` writes the tables and digests of a build that runs it as a delta and of a `--no-default-memo-sharing` build. With `default`'s one delta started beside it, no delta reads `default`'s memo, so `default` keeps none, and the cache stats show it: `ss03` takes windows from `default`'s memo only in the build that runs it as a delta. A count of zero is a usage error, since leaving the flag out asks for none. Every build here runs at [`SMALL_MEMO_CEILINGS`].
+/// Starting the heaviest delta from scratch beside `default` changes no table: a build with `--scratch-beside-default=1` writes the tables and digests of a build that runs it as a delta and of a `--no-default-memo-sharing` build. With `default`'s one delta started beside it, no delta reads `default`'s memo, so `default` keeps none, and the cache stats show it: `ss03` takes windows from `default`'s memo only in the build that runs it as a delta. A count of zero is a usage error, since leaving the flag out asks for none. Every build here runs at [`SMALL_MEMO_CEILINGS`] and [`SMALL_SNAPSHOT_CACHE`].
 #[test]
 fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a_sharing_one_files()
 {
@@ -631,6 +637,7 @@ fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a
             "--cache-stats",
         ];
         arguments.extend(SMALL_MEMO_CEILINGS);
+        arguments.push(SMALL_SNAPSHOT_CACHE);
         arguments.extend(extra);
         let output = run(&arguments);
         assert!(output.status.success(), "{}", stderr_of(&output));
@@ -665,7 +672,7 @@ fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a
     assert_eq!(output.status.code(), Some(2), "{}", stderr_of(&output));
 }
 
-/// Clearing the prospect and candidate memos at a ceiling changes no file: a table build at [`SMALL_MEMO_CEILINGS`] writes the tables and digests of one at the default ceilings, which the fixture never reaches. Its cache stats count each configuration's clears on a `memo_clears` line, and its two memos' tables never pass seven entries, the most eight buckets hold. A ceiling that is not a power of two of at least eight, or is given twice, is a usage error, and so is either flag on `enumerate`.
+/// Clearing the prospect and candidate memos at a ceiling changes no file: a table build at [`SMALL_MEMO_CEILINGS`] writes the tables and digests of one at the default ceilings, which the fixture never reaches. Its cache stats count each configuration's clears on a `memo_clears` line, and its two memos' tables never pass seven entries, the most eight buckets hold. Both builds run at [`SMALL_SNAPSHOT_CACHE`]. A ceiling that is not a power of two of at least eight, or is given twice, is a usage error, and so is either flag on `enumerate`.
 #[test]
 fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_uncleared_one_files() {
     let root = scratch("cli-memo-ceilings");
@@ -682,6 +689,7 @@ fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_unclear
             "--inputs=cli-stamp",
             "--threads=2",
             "--cache-stats",
+            SMALL_SNAPSHOT_CACHE,
         ];
         arguments.extend(extra);
         let output = run(&arguments);
@@ -793,7 +801,7 @@ fn trace_evictions(stderr: &str, token: &str) -> u64 {
         .expect("as a count")
 }
 
-/// Holding the trace memo to a ceiling changes no file. Table builds at [`SMALL_TRACE_CEILING`], clearing a full shard, half-dropping it, or storing every window it settles, and at an entry count between two powers of two, five entries a shard under the default buckets, half-dropping a shard that reaches it, write the tables and digests of a build at the default ceiling, which the fixture never reaches, with `ss03` started from scratch beside `default`, where no engine reads another's memo and both are held to the ceiling, and with `ss03` as a delta, where `default` keeps every window for it to read. The cache stats count each configuration's evictions on its `memo_clears` line: none at the default ceiling and none for `default` while a delta reads its memo, some for every other engine at the small ceiling, whose `trace_cache` capacity never passes the 112 entries that ceiling holds, the room of eight buckets a shard, the smallest table that holds five. A trace ceiling that is not a power of two of at least 128, an entry count under one a shard or over what the buckets hold, a policy other than `clear` or `half`, a value flag given twice, and any of the four flags on `enumerate` are usage errors.
+/// Holding the trace memo to a ceiling changes no file. Table builds at [`SMALL_TRACE_CEILING`], clearing a full shard, half-dropping it, or storing every window it settles, and at an entry count between two powers of two, five entries a shard under the default buckets, half-dropping a shard that reaches it, write the tables and digests of a build at the default ceiling, which the fixture never reaches, with `ss03` started from scratch beside `default`, where no engine reads another's memo and both are held to the ceiling, and with `ss03` as a delta, where `default` keeps every window for it to read. The cache stats count each configuration's evictions on its `memo_clears` line: none at the default ceiling and none for `default` while a delta reads its memo, some for every other engine at the small ceiling, whose `trace_cache` capacity never passes the 112 entries that ceiling holds, the room of eight buckets a shard, the smallest table that holds five. Every build runs at [`SMALL_SNAPSHOT_CACHE`]. A trace ceiling that is not a power of two of at least 128, an entry count under one a shard or over what the buckets hold, a policy other than `clear` or `half`, a value flag given twice, and any of the four flags on `enumerate` are usage errors.
 #[test]
 fn a_table_build_holding_its_trace_memos_to_a_small_ceiling_files_the_bytes_an_unheld_one_files() {
     let root = scratch("cli-trace-ceiling");
@@ -834,6 +842,7 @@ fn a_table_build_holding_its_trace_memos_to_a_small_ceiling_files_the_bytes_an_u
             "--inputs=cli-stamp",
             "--threads=2",
             "--cache-stats",
+            SMALL_SNAPSHOT_CACHE,
         ];
         arguments.extend(extra);
         let output = run(&arguments);
@@ -917,6 +926,126 @@ fn a_table_build_holding_its_trace_memos_to_a_small_ceiling_files_the_bytes_an_u
         "--trace-memo-entries=80",
         "--trace-memo-policy=half",
         "--no-trace-memo-skip",
+    ] {
+        let output = run(&["enumerate", word(&spec), flag]);
+        assert_eq!(output.status.code(), Some(2), "{flag} on enumerate");
+    }
+}
+
+/// One field of a `[c] <token> <name> ` line in one `--cache-stats` run, as a count.
+fn stat_field(stderr: &str, token: &str, name: &str, field: &str) -> u64 {
+    let prefix = format!("[c] {token} {name} ");
+    stderr
+        .lines()
+        .find_map(|line| line.strip_prefix(prefix.as_str()))
+        .and_then(|rest| {
+            rest.split(' ')
+                .find_map(|pair| pair.strip_prefix(&format!("{field}=")))
+        })
+        .unwrap_or_else(|| panic!("{token} reports {name} {field}: {stderr}"))
+        .parse()
+        .expect("as a count")
+}
+
+/// How `default` packs its snapshot and how `ss03` caches it change no file: table builds with no cache, under which each get decodes its block in place, with no cache and a whole record every four inside a block, with no filter, and at a 455-block cache, the default, which holds every block, write the tables and digests of a build at [`SMALL_SNAPSHOT_CACHE`]. The cache stats show each packing: `default`'s `snapshot` line counts its windows in the blocks of 512 they fill and a filter only where one is built, and `ss03`'s `shared_memo_store` line answers no get from a cache it lacks, none from a filter it lacks, and decodes no block twice at a cache that holds them all. A restart count that does not divide 512, a cache size that is not a count, a value flag given twice, and any of the three flags on `enumerate` are usage errors.
+#[test]
+fn a_table_build_under_any_snapshot_packing_files_the_bytes_a_small_cache_files() {
+    let root = scratch("cli-snapshot-packing");
+    let spec = spec_at(&root);
+    let arms: [(&str, &[&str]); 5] = [
+        ("small-cache", &[SMALL_SNAPSHOT_CACHE]),
+        ("no-cache", &["--snapshot-cache-blocks=0"]),
+        (
+            "restarts",
+            &["--snapshot-cache-blocks=0", "--snapshot-restart-records=4"],
+        ),
+        ("no-filter", &[SMALL_SNAPSHOT_CACHE, "--no-snapshot-filter"]),
+        ("default-cache", &[]),
+    ];
+    let mut answers: Vec<String> = Vec::new();
+    for (arm, extra) in arms {
+        let outdir = root.join(arm);
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(&outdir),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            "--threads=2",
+            "--cache-stats",
+        ];
+        arguments.extend(extra);
+        let output = run(&arguments);
+        assert!(output.status.success(), "{arm}: {}", stderr_of(&output));
+        let stderr = stderr_of(&output);
+        let records = stat_field(&stderr, "default", "snapshot", "records");
+        let blocks = stat_field(&stderr, "default", "snapshot", "blocks");
+        assert!(
+            records > 0 && blocks == records.div_ceil(512),
+            "{arm}: {stderr}"
+        );
+        assert_eq!(
+            stat_field(&stderr, "default", "snapshot", "filter_bytes") > 0,
+            arm != "no-filter",
+            "{arm}"
+        );
+        let store = |field| stat_field(&stderr, "ss03", "shared_memo_store id=0", field);
+        assert!(store("gets") > 0, "{arm}: {stderr}");
+        assert_eq!(store("filtered") > 0, arm != "no-filter", "{arm}: {stderr}");
+        match arm {
+            "no-cache" | "restarts" => {
+                assert_eq!((store("cached"), store("cache_bytes")), (0, 0), "{arm}")
+            }
+            "default-cache" => assert!(store("decoded") <= blocks, "{arm}: {stderr}"),
+            _ => assert!(store("decoded") > 2, "{arm}: {stderr}"),
+        }
+        answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
+        if arm == "small-cache" {
+            continue;
+        }
+        for (token, _) in CONFIGS {
+            for family in ["settlement", "joins", "windows"] {
+                let name = format!("{family}-{token}.tsv");
+                assert_eq!(
+                    std::fs::read(root.join("small-cache").join(&name))
+                        .expect("the build at the small cache wrote it"),
+                    std::fs::read(outdir.join(&name)).expect("and so did this one"),
+                    "{arm} {name}"
+                );
+            }
+        }
+    }
+    assert!(
+        answers.iter().all(|answer| *answer == answers[0]),
+        "{answers:?}"
+    );
+    let misused = root.join("misuse");
+    let misuse = |flags: &[&str]| {
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(&misused),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+        ];
+        arguments.extend(flags);
+        run(&arguments).status.code()
+    };
+    for value in ["", "0", "3", "1024", "+4", "4.0"] {
+        let flag = format!("--snapshot-restart-records={value}");
+        assert_eq!(misuse(&[&flag]), Some(2), "{flag}");
+    }
+    for value in ["", "+2", "2.0", "-1"] {
+        let flag = format!("--snapshot-cache-blocks={value}");
+        assert_eq!(misuse(&[&flag]), Some(2), "{flag}");
+    }
+    for twice in [SMALL_SNAPSHOT_CACHE, "--snapshot-restart-records=4"] {
+        assert_eq!(misuse(&[twice, twice]), Some(2), "{twice} given twice");
+    }
+    for flag in [
+        SMALL_SNAPSHOT_CACHE,
+        "--snapshot-restart-records=4",
+        "--no-snapshot-filter",
     ] {
         let output = run(&["enumerate", word(&spec), flag]);
         assert_eq!(output.status.code(), Some(2), "{flag} on enumerate");

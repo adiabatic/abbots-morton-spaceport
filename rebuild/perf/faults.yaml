@@ -197,3 +197,15 @@ rows:
         exit: 1
         require: {output: ["the kernel exited 1 on build-tables:", none of them lies on a row chain from a start row, qsPea.full.ex-y0]}
         detail: {output: ["(qsRoe, qsPea.full.ex-y0, periodcentered, #NA, #NA, #NA)", none of them carries periodcentered at its second slot]}
+  - id: "14"
+    section10: 14
+    slug: delta-reads-defaults-snapshot-past-its-exclusion
+    patch: faults/14.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
+    effect: [rebuild/out/m1/settlement-ss03.tsv, rebuild/out/m1/settlement-ss05.tsv, rebuild/out/m1/settlement-ss03+ss05.tsv]
+    steps:
+      - argv: [env, AMS_KERNEL_THREADS=1, uv, run, python, -m, rebuild.pipeline.run_m1]
+        gate: enumeration
+        exit: 1
+        require: {output: ["the kernel exited 1 on build-tables:", deep-class member mismatch, qsTea]}
+        detail: {output: ["ss03+ss05: deep-class member mismatch at", "where the representative traced qsUtter.mono.en-y0 (junction none"]}

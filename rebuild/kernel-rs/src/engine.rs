@@ -17,7 +17,9 @@ use std::rc::Rc;
 use crate::error::SettleError;
 use crate::hash::{Eviction, HashMap, HashSet, ShardCeiling, ShardedMap};
 use crate::index::{Ordinal, Read, SpecIndex, StanceId};
-use crate::memo::{MemoSnapshot, SharedMemo, SnapshotVerdicts};
+use crate::memo::{
+    MemoSnapshot, SharedMemo, SnapshotEntries, SnapshotPacking, SnapshotVerdicts, StoreReader,
+};
 use crate::model::{
     Condition, PolicyRecord, Provenance, Rune, Stance, SurfaceRow, Sym, Table, When,
 };
@@ -973,8 +975,8 @@ pub(crate) struct TraceEntry {
     pub(crate) notes: TraceNotesId,
     pub(crate) delta: DeltaId,
     pub(crate) reads: ReadsId,
-    /// The prospect bit at the bottom (the term is a junction count of zero or one), the joint flag above it, and the stage's ordinal, at most six, from bit two up. [`TraceEntry::prospect`], [`TraceEntry::joint_tiebreak`] and [`TraceEntry::decided_stage`] read them back.
-    packed: u8,
+    /// The prospect bit at the bottom (the term is a junction count of zero or one), the joint flag above it, and the stage's ordinal, at most six, from bit two up. [`TraceEntry::prospect`], [`TraceEntry::joint_tiebreak`] and [`TraceEntry::decided_stage`] read them back, and a packed snapshot codes the byte as it is ([`crate::memo::SnapshotEntries`]).
+    pub(crate) packed: u8,
 }
 
 impl TraceEntry {
@@ -1148,6 +1150,8 @@ pub struct Engine<'i> {
     shared_memo_fired: Vec<Vec<bool>>,
     /// How many windows each shared memo supplied, in lookup order, for the cache stats.
     shared_memo_hits: Vec<u64>,
+    /// Per shared memo, this engine's cache of its decoded blocks and the counts of its gets ([`crate::memo::StoreReader`]), in lookup order.
+    shared_memo_stores: Vec<StoreReader>,
     /// The liveness verdicts this engine publishes, present only while it publishes them ([`Engine::publish_verdicts`]). Their delta ids index this engine's delta pool, so they leave with the trace memo's snapshot.
     publication: Option<Publication>,
     /// Where this engine is served published verdicts, when a shared memo carries them for its exclusion.
@@ -1206,6 +1210,7 @@ impl<'i> Engine<'i> {
             shared_memos: Vec::new(),
             shared_memo_fired: Vec::new(),
             shared_memo_hits: Vec::new(),
+            shared_memo_stores: Vec::new(),
             publication: None,
             verdict_source: None,
             shared_verdict_hits: 0,
@@ -1215,8 +1220,8 @@ impl<'i> Engine<'i> {
         }
     }
 
-    /// Give this engine the finished memos it may read windows from, in lookup order. Only a trace-memo engine reads them, because only it journals and so can replay a shared memo hit's delta. Attaching them to any other engine panics.
-    pub fn attach_shared_memos(&mut self, memos: Vec<SharedMemo>) {
+    /// Give this engine the finished memos it may read windows from, in lookup order, with a cache of `cache_blocks` decoded blocks for each ([`crate::memo::SNAPSHOT_CACHE_BLOCKS`] in a table build unless the caller sets another). Only a trace-memo engine reads them, because only it journals and so can replay a shared memo hit's delta. Attaching them to any other engine panics.
+    pub fn attach_shared_memos(&mut self, memos: Vec<SharedMemo>, cache_blocks: usize) {
         assert!(
             self.trace_cache.is_some(),
             "a shared memo can only answer an engine that journals, which is the trace-memo engine"
@@ -1226,6 +1231,10 @@ impl<'i> Engine<'i> {
             .map(|shared| vec![false; shared.memo.deltas.len()])
             .collect();
         self.shared_memo_hits = vec![0; memos.len()];
+        self.shared_memo_stores = memos
+            .iter()
+            .map(|shared| StoreReader::new(cache_blocks, shared.memo.entries.block_records()))
+            .collect();
         self.verdict_source = memos.iter().enumerate().find_map(|(memo, shared)| {
             if !shared.excluded.classes().is_empty() {
                 return None;
@@ -1255,35 +1264,44 @@ impl<'i> Engine<'i> {
         &self.shared_memo_hits
     }
 
-    /// Detach this engine's trace memo: the entries compacted into an immutable array, with the tables their ids index and every fired delta and read set the engine stored, and the liveness verdicts it published, compacted the same way. The candidate, closure and prospect memos are released before compaction, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is drained one shard at a time, each shard's table freed once its entries have moved, before the array is partitioned and sorted. The engine stops publishing verdicts here, since a verdict captured later could read windows the snapshot lacks. Returns `None` for an engine without a trace memo. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
-    pub fn take_memo(&mut self) -> Option<MemoSnapshot> {
-        let memo = self.trace_cache.take()?;
+    /// Each shared memo's store as this engine reads it, in lookup order, since they were attached: its cache's size and its gets' counts, which the cache stats' `shared_memo_store` lines report.
+    pub(crate) fn shared_memo_stores(&self) -> &[StoreReader] {
+        &self.shared_memo_stores
+    }
+
+    /// Detach this engine's trace memo: the entries packed under `packing` ([`crate::memo::SnapshotEntries`]), with the tables their ids index and every fired delta and read set the engine stored, and the liveness verdicts it published, compacted into their own tables. The candidate, closure and prospect memos are released before the packing, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is drained one shard at a time into an array, each shard's table freed once its entries have moved; the array is sorted in place and coded block by block, and dropped once the blocks are coded. The engine stops publishing verdicts here, since a verdict captured later could read windows the snapshot lacks. Returns `None` for an engine without a trace memo, and the packing's refusal for a key it cannot code. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
+    pub fn take_memo(&mut self, packing: SnapshotPacking) -> Result<Option<MemoSnapshot>, String> {
+        let Some(memo) = self.trace_cache.take() else {
+            return Ok(None);
+        };
         let deltas = std::mem::take(&mut self.deltas);
         let reads = std::mem::take(&mut self.reads);
         self.trace_cache = Some(TraceMemo::within(self.trace_ceiling));
         self.candidates_cache = CandidatesMemo::default();
         self.prospect_cache = HashMap::default();
         self.closure_cache = HashMap::default();
-        let verdicts =
-            self.publication
-                .take()
-                .map_or_else(SnapshotVerdicts::default, |publication| {
-                    let mut records = publication.records;
-                    records.shrink_to_fit();
-                    SnapshotVerdicts {
-                        groups: publication.groups,
-                        records,
-                        slots: publication.slots.into_boxed_slice(),
-                    }
-                });
-        Some(MemoSnapshot {
-            entries: memo.entries.into(),
+        let (verdicts, verdict_pooled) = self.publication.take().map_or_else(
+            || (SnapshotVerdicts::default(), 0),
+            |publication| {
+                let mut records = publication.records;
+                records.shrink_to_fit();
+                let verdicts = SnapshotVerdicts {
+                    groups: publication.groups,
+                    records,
+                    slots: publication.slots.into_boxed_slice(),
+                };
+                (verdicts, publication.pooled)
+            },
+        );
+        Ok(Some(MemoSnapshot {
+            entries: SnapshotEntries::release(memo.entries, packing)?,
             settled: memo.settled.into_table(),
             notes: memo.notes.into_table(),
             deltas: deltas.table,
             reads: reads.table,
             verdicts,
-        })
+            verdict_pooled,
+        }))
     }
 
     /// The indexed spec this engine settles against.
@@ -3598,7 +3616,9 @@ impl<'i> Engine<'i> {
             crate::index::journal_extend(self.reads.get(entry.reads));
             return Ok(trace);
         }
-        if let Some((id, shared, entry)) = shared_memo_entry(&self.shared_memos, &key) {
+        if let Some((id, shared, entry)) =
+            shared_memo_entry(&self.shared_memos, &mut self.shared_memo_stores, &key)
+        {
             let trace = shared.memo.trace(entry);
             replay_shared(
                 &mut self.fired,
@@ -3687,7 +3707,8 @@ impl<'i> Engine<'i> {
             crate::index::journal_extend(self.reads.get(entry.reads));
             return Some(answer);
         }
-        let (id, shared, entry) = shared_memo_entry(&self.shared_memos, &key)?;
+        let (id, shared, entry) =
+            shared_memo_entry(&self.shared_memos, &mut self.shared_memo_stores, &key)?;
         let answer = read(shared.memo.settled(entry));
         replay_shared(
             &mut self.fired,
@@ -3907,22 +3928,27 @@ fn record_elimination(
     }
 }
 
-/// The first shared memo that holds `key` and admits it, with its index among the shared memos and the entry. A shared memo whose exclusion covers the key's runes or the entry's reads is skipped, because that entry was settled under runes or classes this engine does not share. The key's runes are tested before the memo is read, since that test needs no entry and refuses most of the keys an exclusion refuses.
+/// The first shared memo that holds `key` and admits it, with its index among the shared memos and the entry. A shared memo whose exclusion covers the key's runes or the entry's reads is skipped, because that entry was settled under runes or classes this engine does not share. The key's runes are tested before the memo is read, since that test needs no entry and refuses most of the keys an exclusion refuses, so a memo's store counts only the gets that test leaves it. Each memo is read through this engine's store reader for it, `stores` holding one per shared memo in the same order.
 fn shared_memo_entry<'b>(
     shared_memos: &'b [SharedMemo],
+    stores: &mut [StoreReader],
     key: &TraceKey,
 ) -> Option<(usize, &'b SharedMemo, TraceEntry)> {
-    shared_memos.iter().enumerate().find_map(|(id, shared)| {
-        if shared.excluded.names(key) {
-            return None;
-        }
-        shared
-            .memo
-            .entries
-            .get(key)
-            .filter(|entry| shared.excluded.admits_reads(shared.memo.reads(**entry)))
-            .map(|&entry| (id, shared, entry))
-    })
+    shared_memos
+        .iter()
+        .zip(stores)
+        .enumerate()
+        .find_map(|(id, (shared, store))| {
+            if shared.excluded.names(key) {
+                return None;
+            }
+            shared
+                .memo
+                .entries
+                .get(key, store)
+                .filter(|entry| shared.excluded.admits_reads(shared.memo.reads(*entry)))
+                .map(|entry| (id, shared, entry))
+        })
 }
 
 /// Replay one own-memo entry's fired delta into the journal. It takes only the two fields it touches, not the whole engine, so a hit can replay the delta from the memo without copying it: the memo and the journal are disjoint fields. The fired set is not touched, because an own entry's pointers entered it when the entry was recorded (the journal inserts every pointer it logs). An open capture still needs the delta, because the enclosing window's delta must include what its evaluation would have fired. A configuration's windows hit their own memo tens of millions of times, and a hash insert per pointer per hit measured as most of a hit's cost.
@@ -6094,11 +6120,14 @@ mod tests {
                     .transition_trace(&left, token, slots)
                     .expect("the source window settles");
                 let key = Engine::trace_key(&left, token.letter_ordinal(), slots);
-                let mut memo = source.take_memo().expect("the source journals");
-                memo.entries = [(key, *memo.entries.get(&key).expect("the source window"))]
-                    .into_iter()
-                    .collect::<ShardedMap<_, _>>()
-                    .into();
+                let mut memo = source
+                    .take_memo(SnapshotPacking::default())
+                    .expect("the records pack")
+                    .expect("the source journals");
+                let entry = memo.entries.lookup(&key).expect("the source window");
+                memo.entries =
+                    SnapshotEntries::pack(vec![(key, entry)], SnapshotPacking::default())
+                        .expect("one record packs");
                 assert_eq!(memo.len(), 1);
                 SharedMemo {
                     memo: std::sync::Arc::new(memo),
@@ -6107,7 +6136,7 @@ mod tests {
             })
             .collect();
         let mut engine = Engine::with_modes(&index, [ss03], modes);
-        engine.attach_shared_memos(shared.clone());
+        engine.attach_shared_memos(shared.clone(), 2);
         assert_eq!(engine.shared_memo_hits_by_id(), &[0, 0]);
         for slots in windows {
             engine
@@ -6128,17 +6157,20 @@ mod tests {
             engine.shared_memo_hits(),
             engine.shared_memo_hits_by_id().iter().sum::<u64>()
         );
-        engine.take_memo().expect("the reader journals");
+        engine
+            .take_memo(SnapshotPacking::default())
+            .expect("the records pack")
+            .expect("the reader journals");
         engine.release_memos();
         assert_eq!(engine.shared_memo_hits_by_id(), &[2, 2]);
         engine
             .transition_trace(&left, token, windows[1])
             .expect("retained shared memos still answer after releasing own memos");
         assert_eq!(engine.shared_memo_hits_by_id(), &[2, 3]);
-        engine.attach_shared_memos(shared);
+        engine.attach_shared_memos(shared, 2);
         assert_eq!(engine.shared_memo_hits_by_id(), &[0, 0]);
         assert_eq!(engine.shared_memo_hits(), 0);
-        engine.attach_shared_memos(Vec::new());
+        engine.attach_shared_memos(Vec::new(), 2);
         assert!(engine.shared_memo_hits_by_id().is_empty());
         assert_eq!(engine.shared_memo_hits(), 0);
     }
@@ -8725,7 +8757,7 @@ mod tests {
         );
     }
 
-    /// The ranking asks each surviving candidate's prospect once: a shared memo that holds every follower window but not the ranked window itself supplies one window per ranked candidate.
+    /// The ranking asks each surviving candidate's prospect once: a shared memo that holds every follower window but not the ranked window itself supplies one window per ranked candidate. The memo is packed a record a block and read through a cache of two blocks, so its filter answers the ranked window absent and each follower's get searches the fences and decodes its block, the third evicting one.
     #[test]
     fn the_ranking_asks_each_candidates_prospect_once() {
         let modes = EngineModes {
@@ -8746,25 +8778,39 @@ mod tests {
             .transition_trace(&edge, token, slots)
             .expect("the fixture settles");
         let ranked_key = Engine::trace_key(&edge, token.letter_ordinal(), slots);
-        let mut memo = source.take_memo().expect("the source journals");
-        memo.entries = memo
+        let mut memo = source
+            .take_memo(SnapshotPacking::default())
+            .expect("the records pack")
+            .expect("the source journals");
+        let kept: Vec<_> = memo
             .entries
-            .iter()
-            .filter(|(key, _)| **key != ranked_key)
-            .map(|(key, entry)| (*key, *entry))
-            .collect::<ShardedMap<_, _>>()
-            .into();
+            .records()
+            .into_iter()
+            .filter(|(key, _)| *key != ranked_key)
+            .collect();
+        memo.entries = SnapshotEntries::pack(kept, SnapshotPacking::for_test(1, 1, true, 64))
+            .expect("the records pack");
         let mut engine = Engine::with_modes(&index, no_features(), modes);
-        engine.attach_shared_memos(vec![SharedMemo {
-            memo: std::sync::Arc::new(memo),
-            excluded: crate::memo::Exclusion::none(),
-        }]);
+        engine.attach_shared_memos(
+            vec![SharedMemo {
+                memo: std::sync::Arc::new(memo),
+                excluded: crate::memo::Exclusion::none(),
+            }],
+            2,
+        );
         let trace = engine
             .transition_trace(&edge, token, slots)
             .expect("the fixture settles");
         let ranked = trace.ranking().ranked.len();
         assert!(ranked > 1, "the fixture ranks several candidates");
         assert_eq!(engine.shared_memo_hits(), ranked as u64);
+        let [gets, filtered, _, decoded] = engine.shared_memo_stores()[0].counts();
+        assert_eq!(gets, ranked as u64 + 1);
+        assert_eq!(filtered, 1, "the filter answers the ranked window absent");
+        assert!(
+            decoded > 2,
+            "each follower's block is decoded, one evicted: {decoded}"
+        );
     }
 
     #[test]

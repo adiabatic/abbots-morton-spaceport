@@ -131,6 +131,16 @@ impl PackedKinds {
         );
         TokenKind::of_code((self.0 >> (slot as u32 * Self::WIDTH)) & Self::MASK)
     }
+
+    /// The word itself, as a packed snapshot codes it ([`crate::memo`]).
+    pub(crate) fn word(self) -> u16 {
+        self.0
+    }
+
+    /// The kinds a word holds, as [`PackedKinds::word`] gave it.
+    pub(crate) fn from_word(word: u16) -> Self {
+        Self(word)
+    }
 }
 
 /// One raw window slot: a boundary, an unknown, or a letter naming its rune. `settle.RightToken`, with the same equality: the kind is part of the value, so `UNKNOWN` and `EDGE` are different tokens, and two letter tokens are equal when their runes are.

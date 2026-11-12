@@ -20,7 +20,7 @@ use crate::fiber::DeepFiberDeriver;
 use crate::hash::{Eviction, HashMap, HashSet};
 use crate::index::{Ordinal, SpecIndex};
 use crate::liveness::ProspectLiveness;
-use crate::memo::{MemoSnapshot, SharedMemo};
+use crate::memo::{MemoSnapshot, SNAPSHOT_CACHE_BLOCKS, SharedMemo, SnapshotPacking};
 use crate::model::Sym;
 use crate::options::{FollowerMap, WindowOptions};
 use crate::sha256;
@@ -80,7 +80,7 @@ pub const TABLE_MEMO_CEILINGS: MemoCeilings =
 pub const TABLE_TRACE_CEILING: TraceCeiling = TraceCeiling::new(1 << 25, Eviction::Clear, true)
     .expect("a power of two of at least eight buckets a shard");
 
-/// What one enumeration may read before settling a window itself, whether it returns its own memo ([`crate::memo`]), and the ceilings on its engine's memos. The shared memos are consulted in the order given. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, at the cost of holding it through the drain and the sort. Without it, the enumeration releases its memo at the release point ([`enumerate_for_tables`]). `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot. `memo_ceilings` is [`TABLE_MEMO_CEILINGS`] and `trace_ceiling` [`TABLE_TRACE_CEILING`] unless the caller sets others, which changes no product. The trace ceiling holds the engine's trace memo only when `keep_memo` is not set, so the memo another enumeration reads keeps every window.
+/// What one enumeration may read before settling a window itself, whether it returns its own memo ([`crate::memo`]), and the ceilings on its engine's memos. The shared memos are consulted in the order given, each through a cache of `snapshot_cache_blocks` decoded blocks the engine keeps for it ([`crate::memo::StoreReader`]), [`SNAPSHOT_CACHE_BLOCKS`] unless the caller sets another. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, packed under `snapshot_packing` ([`crate::memo::SnapshotEntries`]), at the cost of holding it through the drain and the sort. Without it, the enumeration releases its memo at the release point ([`enumerate_for_tables`]). `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot. `memo_ceilings` is [`TABLE_MEMO_CEILINGS`] and `trace_ceiling` [`TABLE_TRACE_CEILING`] unless the caller sets others, which changes no product. The trace ceiling holds the engine's trace memo only when `keep_memo` is not set, so the memo another enumeration reads keeps every window.
 #[derive(Debug)]
 pub struct MemoAccess {
     pub shared_memos: Vec<SharedMemo>,
@@ -88,6 +88,8 @@ pub struct MemoAccess {
     pub publish_verdicts: Vec<HashSet<Sym>>,
     pub memo_ceilings: MemoCeilings,
     pub trace_ceiling: TraceCeiling,
+    pub snapshot_packing: SnapshotPacking,
+    pub snapshot_cache_blocks: usize,
 }
 
 impl Default for MemoAccess {
@@ -98,6 +100,8 @@ impl Default for MemoAccess {
             publish_verdicts: Vec::new(),
             memo_ceilings: TABLE_MEMO_CEILINGS,
             trace_ceiling: TABLE_TRACE_CEILING,
+            snapshot_packing: SnapshotPacking::default(),
+            snapshot_cache_blocks: SNAPSHOT_CACHE_BLOCKS,
         }
     }
 }
@@ -1019,7 +1023,7 @@ pub fn enumerate_for_tables<'i>(
     enumerate_from_seeds(index, features, modes, contract_seeds, cache_stats, access)
 }
 
-/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings and a trace memo shard made room at its own (`memo_clears`), the trace memo's capacity being its tables' level, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, and the process's resident size before the memo release, after it, and after the sort. The caller writes the lines to stderr. None of this is computed unless asked for.
+/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings and a trace memo shard made room at its own (`memo_clears`), the trace memo's capacity being its tables' level, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, each shared memo's store as the engine read it (`shared_memo_store id= gets= filtered= cached= decoded= cache_bytes=`: the gets that reached the store once the exclusion's key test let them, those the store's filter answered absent, those a cached block answered, the blocks decoded, and the bytes of the engine's cache for it at its full size), and the process's resident size before the memo release, after it, and after the sort, with the snapshot of an enumeration that keeps its memo beside the second (`snapshot records= blocks= packed_bytes= fence_bytes= filter_bytes= pool_bytes= sort_ms= encode_ms=`, [`MemoSnapshot::footprint_line`]). The caller writes the lines to stderr. None of this is computed unless asked for.
 ///
 /// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_with_cache_stats(
@@ -1062,7 +1066,7 @@ fn enumerate_from_seeds<'i>(
             ..EngineModes::default()
         },
     );
-    engine.attach_shared_memos(access.shared_memos);
+    engine.attach_shared_memos(access.shared_memos, access.snapshot_cache_blocks);
     if !access.publish_verdicts.is_empty() {
         engine.publish_verdicts(access.publish_verdicts);
     }
@@ -1686,6 +1690,13 @@ fn enumerate_from_seeds<'i>(
                 "[c] {config} shared_memo_hits id={id} count={count}"
             ));
         }
+        for (id, store) in engine.shared_memo_stores().iter().enumerate() {
+            let [gets, filtered, cached, decoded] = store.counts();
+            lines.push(format!(
+                "[c] {config} shared_memo_store id={id} gets={gets} filtered={filtered} cached={cached} decoded={decoded} cache_bytes={}",
+                store.cache_bytes()
+            ));
+        }
         if let Some(bytes) = engine.published_verdict_bytes() {
             lines.push(format!("[c] {config} published_verdicts bytes={bytes}"));
         }
@@ -1717,7 +1728,7 @@ fn enumerate_from_seeds<'i>(
         .collect();
     // The drain and the sort below are the run's other large working set, and they do not need the memos. Releasing the memos here keeps the two from coexisting, which would otherwise be the enumeration's peak memory. Only the configuration other enumerations will read keeps its trace memo, as the snapshot the engine returns after freeing its prospect, candidate and closure memos, and holds it through the drain and the sort.
     let memo = if access.keep_memo {
-        engine.take_memo().map(Arc::new)
+        engine.take_memo(access.snapshot_packing)?.map(Arc::new)
     } else {
         engine.release_memos();
         None
@@ -1727,6 +1738,9 @@ fn enumerate_from_seeds<'i>(
             "[c] {config} resident_after_release kb={}",
             resident_kb()
         ));
+        if let Some(memo) = memo.as_ref() {
+            lines.push(memo.footprint_line(&config));
+        }
     }
 
     // A row's outcome is its settled cell's label, so it is interned once per settled record here instead of once per row in the worklist. Every settled record is a cell some row settled into, so no unused label is interned.
@@ -3710,7 +3724,7 @@ mod tests {
         );
     }
 
-    /// An `ss03` enumeration that reads `default`'s finished memo for every window naming no unlocking rune of `ss03` produces the from-scratch product byte for byte (rows, classes, cells and fired provenance, which is what the stream contains) while answering windows from the shared memo, and liveness probes from the verdicts `default` published there for `ss03`'s unlocking runes. The exclusion is required: the same shared memo read without one gives `ss03` the wrong results for `qsMay`'s windows, which is what makes the equality assertion able to fail.
+    /// An `ss03` enumeration that reads `default`'s finished memo for every window naming no unlocking rune of `ss03` produces the from-scratch product byte for byte (rows, classes, cells and fired provenance, which is what the stream contains) while answering windows from the shared memo, and liveness probes from the verdicts `default` published there for `ss03`'s unlocking runes. The exclusion is required: the same shared memo read without one gives `ss03` the wrong results for `qsMay`'s windows, which is what makes the equality assertion able to fail. `ss03` reads the snapshot through a cache of two blocks, fewer than the snapshot holds, so its gets search the fences, its store's filter answers some of them absent, and its cache evicts.
     #[test]
     fn a_configuration_sharing_defaults_memo_reaches_its_from_scratch_product() {
         let index = fixtures::mini();
@@ -3759,6 +3773,7 @@ mod tests {
                     }],
                     keep_memo: false,
                     publish_verdicts: Vec::new(),
+                    snapshot_cache_blocks: 2,
                     ..MemoAccess::default()
                 },
             )
@@ -3771,6 +3786,21 @@ mod tests {
                 .parse::<u64>()
                 .expect("as a count");
             assert!(stats.contains(&format!("[c] ss03 shared_memo_hits id=0 count={hits}")));
+            let store = stats
+                .iter()
+                .find_map(|line| line.strip_prefix("[c] ss03 shared_memo_store id=0 "))
+                .expect("the cache stats report the store's gets");
+            let count = |name: &str| -> u64 {
+                store
+                    .split(' ')
+                    .find_map(|field| field.strip_prefix(&format!("{name}=")))
+                    .and_then(|count| count.parse().ok())
+                    .unwrap_or_else(|| panic!("the store's line counts {name}: {store}"))
+            };
+            assert!(
+                memo.entries.blocks() > 2 && count("filtered") > 0 && count("decoded") > 2,
+                "the store's filter answers some windows absent, and its blocks outnumber the cache, which evicts: {store}"
+            );
             let served = stats
                 .iter()
                 .find_map(|line| line.strip_prefix("[c] ss03 shared_verdicts hits="))

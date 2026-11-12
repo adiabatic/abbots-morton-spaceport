@@ -1,0 +1,17 @@
+--- a/rebuild/kernel-rs/src/engine.rs
++++ b/rebuild/kernel-rs/src/engine.rs
+@@ -3937,14 +3937,10 @@
+         .zip(stores)
+         .enumerate()
+         .find_map(|(id, (shared, store))| {
+-            if shared.excluded.names(key) {
+-                return None;
+-            }
+             shared
+                 .memo
+                 .entries
+                 .get(key, store)
+-                .filter(|entry| shared.excluded.admits_reads(shared.memo.reads(*entry)))
+                 .map(|entry| (id, shared, entry))
+         })
+ }
