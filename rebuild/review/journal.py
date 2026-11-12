@@ -1,10 +1,10 @@
 """Append-only log of changes to the review app's verdict store.
 
-After each write to verdicts-autosave.json, the review server's store (`rebuild.review.verdict_store`) and `rebuild.tools.merge_verdicts` append the change to verdicts-journal.ndjson: one event line (source, time, manifest stamp) followed by one line per changed unit. A set line holds the unit's new record, which removes any tombstone the store kept for it. Each writer dumps its set lines from the records it holds but two walks: the land's over the stores as streams, and a hand merge's over the store it replaced and the store it wrote (`rebuild.tools.held_store.Transition`), each of which splices a set line from the record's line in the store written, `"kind": "set"` and then that line's fields, the bytes the dump gives, and dumps only a seed's, from the store replaced; `record_transition` writes both from one set of decisions (`transition_shape`, over a `Transition`). A clear line names a unit the store holds no record for after the change, either because the record went or because the unit's tombstone changed, and its `at` is the tombstone the store keeps for the unit (the time of the clear, the store's `cleared` list), or null when it keeps none. A base event carries the full store instead of a diff: its set lines hold the records, and the event line's `cleared` list holds the tombstones. Every event line a writer appends also carries the store's `accepted` field, the accepted list the store pairs with (`rebuild.review.accepted`), whenever the store names one, so `replay_with_list` gives back the field with the store and a restore writes a store that names its list. The journal holds the store's own records and tombstones and its override section, the records and tombstones on listed ids, as one store, whichever part a set or clear line's unit is in (`accepted.joined`), since the list partitions the ids; a restore splits a replayed store by the list again (`accepted.split`). The close-out (`rebuild.tools.close_out`) replaces the journal with a new one that starts at one base event of the store it leaves, `source: close-out`. One seeds a new journal when the store it starts from is not empty, every writer but the land writes one at each corpus-stamp change, and a restore writes one at the same stamp too when the store it replaces holds a record `verdict_store.well_formed` refuses (`merge_verdicts._apply_restore`). The land (`rebuild.review.landing`) writes one only when the journal is due a new one (`base_due`) or a diff would be at least as long (`record_transition`), and otherwise journals a stamp change as the sets and clears against the store it replaces, because a unit's id is its content key and names the same unit on either stamp. So `replay_store(as_of=...)` can reconstruct the store, its records and its tombstones, at any recorded moment from the journal alone. Journal lines without those fields record the tombstones only in part, and their replay can differ from the store. A clear line with no `at` field takes its event's `at` as the tombstone, which is when the writer journaled the change, not when the unit was cleared: for a clear a closed tab's outbox sent when the app next opened, it can be days after the store's own tombstone, so its replay keeps out a record dated between the two that the store's own would let in, and for a line from a land or a restore that names a record the writer dropped without a clear (a unit a land that moved the stamp dropped off the new corpus, a skip its carry dropped, or a record a restore left out), its replay lays a tombstone the store never held. A base event with no `cleared` list holds no tombstones, so a replay from it on lacks the tombstones of the clears made before it, and while the journal's last base is one, the land is due a base (`base_due`). Lines in that form record a tombstone only where a record went, so their replay lacks one the store gained on a unit holding no record (as a merge's `clears` add them) and keeps one the store dropped (as a land drops those off its corpus). `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
+The review server's store (`rebuild.review.verdict_store`) appends each save's change to verdicts-journal.ndjson before it writes verdicts-autosave.json, which it does once a minute passes with no save, and `rebuild.tools.merge_verdicts` and the other writers append theirs after each write to the store: one event line (source, time, manifest stamp) followed by one line per changed unit. So the file can lag the journal by the saves the server has not written yet, and every other holder of the store's lock first writes into it the events at or after its `exported_at` (`tail`, `rebuild.review.landing.catch_up`). A set line holds the unit's new record, which removes any tombstone the store kept for it. Each writer dumps its set lines from the records it holds but two walks: the land's over the stores as streams, and a hand merge's over the store it replaced and the store it wrote (`rebuild.tools.held_store.Transition`), each of which splices a set line from the record's line in the store written, `"kind": "set"` and then that line's fields, the bytes the dump gives, and dumps only a seed's, from the store replaced; `record_transition` writes both from one set of decisions (`transition_shape`, over a `Transition`). A clear line names a unit the store holds no record for after the change, either because the record went or because the unit's tombstone changed, and its `at` is the tombstone the store keeps for the unit (the time of the clear, the store's `cleared` list), or null when it keeps none. A base event carries the full store instead of a diff: its set lines hold the records, and the event line's `cleared` list holds the tombstones. Every event line a writer appends also carries the store's `accepted` field, the accepted list the store pairs with (`rebuild.review.accepted`), whenever the store names one, so `replay_with_list` gives back the field with the store and a restore writes a store that names its list. The journal holds the store's own records and tombstones and its override section, the records and tombstones on listed ids, as one store, whichever part a set or clear line's unit is in (`accepted.joined`), since the list partitions the ids; a restore splits a replayed store by the list again (`accepted.split`). The close-out (`rebuild.tools.close_out`) replaces the journal with a new one that starts at one base event of the store it leaves, `source: close-out`. One seeds a new journal when the store it starts from is not empty, every writer but the land writes one at each corpus-stamp change, and a restore writes one at the same stamp too when the store it replaces holds a record `verdict_store.well_formed` refuses (`merge_verdicts._apply_restore`). The land (`rebuild.review.landing`) writes one only when the journal is due a new one (`base_due`) or a diff would be at least as long (`record_transition`), and otherwise journals a stamp change as the sets and clears against the store it replaces, because a unit's id is its content key and names the same unit on either stamp. So `replay_store(as_of=...)` can reconstruct the store, its records and its tombstones, at any recorded moment from the journal alone. Journal lines without those fields record the tombstones only in part, and their replay can differ from the store. A clear line with no `at` field takes its event's `at` as the tombstone, which is when the writer journaled the change, not when the unit was cleared: for a clear a closed tab's outbox sent when the app next opened, it can be days after the store's own tombstone, so its replay keeps out a record dated between the two that the store's own would let in, and for a line from a land or a restore that names a record the writer dropped without a clear (a unit a land that moved the stamp dropped off the new corpus, a skip its carry dropped, or a record a restore left out), its replay lays a tombstone the store never held. A base event with no `cleared` list holds no tombstones, so a replay from it on lacks the tombstones of the clears made before it, and while the journal's last base is one, the land is due a base (`base_due`). Lines in that form record a tombstone only where a record went, so their replay lacks one the store gained on a unit holding no record (as a merge's `clears` add them) and keeps one the store dropped (as a land drops those off its corpus). `rebuild.tools.merge_verdicts --restore-as-of` uses that replay to undo a bad merge, an overwritten store, or an accidental clear.
 
-Those sets and clears replay to the landed store only while the journal replays to the store the land replaces, so a marker beside the store (`unjournaled_marker_for`) says when the journal may lack a store write. The review server writes it before each save's store write and removes it once that save's append succeeds unless it was already there, so a save whose append fails, is cut short, or never runs leaves it, and `rebuild.tools.rekey_verdicts --undo` of a re-key that appended to a journal leaves one for the store the re-key journaled, its `--autosave`, whether it puts that store back or asks to have it put back by hand. While it exists `base_due` says a base is due, and the land removes it once it has journaled a base.
+Those sets and clears replay to the landed store only while the journal replays to the store the land replaces, so a marker beside the store (`unjournaled_marker_for`) says when the journal may lack a store write. The review server writes it, and then the whole store at once, when a save's append fails, and leaves it; before a store write it makes ahead of that write's append (a move onto the served corpus, the empty store at boot, and every save while the marker is there) it writes it too and removes it once that append succeeds, unless it was already there, so an append that fails, is cut short, or never runs leaves it; and `rebuild.tools.rekey_verdicts --undo` of a re-key that appended to a journal leaves one for the store the re-key journaled, its `--autosave`, whether it puts that store back or asks to have it put back by hand. While it exists `base_due` says a base is due, no lock holder catches the store up with the journal and every review server save writes the whole store (#618's decision 82), and the land removes it once it has journaled a base.
 
-An append that crashes can leave the file ending in a line with no newline. Each append holds an exclusive `flock` on the file and first ends the file on a newline: a final line that parses as an entry keeps its bytes and gets the newline, and any other final line is cut off, so the lines appended after it stay readable. A base event names how many set lines follow it, and one followed by fewer is torn. The store from a torn base until the next complete base is unknown: replay raises `JournalGap` for a moment in that span and is exact again from the next complete base on, and compaction never starts the journal at a torn base. A writer that records the journal's length and inode before it appends (the land, `rebuild.review.landing`) lets the recovery of a land that died mid-append cut the journal back to that length (`truncate_to`), the start of the land's event line, before it journals the landed store again as a base event.
+An append that crashes can leave the file ending in a line with no newline. Each append holds an exclusive `flock` on the file and first ends the file on a newline: a final line that parses as an entry keeps its bytes and gets the newline, and any other final line is cut off, so the lines appended after it stay readable. A base event names how many set lines follow it, and one followed by fewer is torn. The store from a torn base until the next complete base is unknown: replay raises `JournalGap` for a moment in that span and is exact again from the next complete base on, and compaction never starts the journal at a torn base. Every writer of a base event writes the store file before it begins the base, so a lock holder's catch-up applies to the file only the events after the torn base (`tail`'s `after_torn_base`). A writer that records the journal's length and inode before it appends (the land, `rebuild.review.landing`) lets the recovery of a land that died mid-append cut the journal back to that length (`truncate_to`), the start of the land's event line, before it journals the landed store again as a base event; the review server records them before a save's journal-first append, so a save whose append and store write both fail cuts the journal back to it.
 
 Every writer appends while it holds the verdict store's lock (`rebuild.review.store_lock`), so the long reads that retention makes run without it. `scan` reads the journal's events and the set lines after each once without the lock, and then only the tail appended since, under it. Compaction is two phases: `compact_prepare` resumes that scan to choose the floor and copies the kept lines to a temporary file without the lock, and `compact_finish` copies the tail appended since and replaces the journal under it, so an append made during the copy is kept. Retention saves the last scan's state (`save_scan_state`), rebased onto the compacted file when it compacted, and the next pass's scan resumes from it, so each pass parses only what was appended since the last one; the land resumes from the same saved state to decide whether a stamp change is due a base. A scan resumes only while the journal still holds the bytes just before where the state ends and every event line the state recorded (`_scan_handle`), and reads from the start otherwise.
 """
@@ -636,6 +636,129 @@ def replay_with_list(
 def _accepted_field(entry: dict) -> dict | None:
     field = entry.get("accepted")
     return dict(field) if isinstance(field, dict) else None
+
+
+@dataclass(frozen=True)
+class TailEvent:
+    """One event of a journal's tail (`tail`): the byte `offset` its line begins at, the offset its lines end at (`end`: the next event's line, or where parsing stops), the line as parsed (`entry`), and how many set lines follow it (`counted`). A base event whose `counted` falls short of the set lines it names is torn."""
+
+    offset: int
+    end: int
+    entry: dict
+    counted: int
+
+    @property
+    def base(self) -> bool:
+        return bool(self.entry.get("base"))
+
+
+@dataclass(frozen=True)
+class JournalTail:
+    """The events of the journal at `path` from a moment on, as `tail` read them, in order."""
+
+    path: Path
+    events: tuple[TailEvent, ...]
+
+    def entries(self, start: int) -> Iterator[dict]:
+        """Yield the journal's parseable entries from the byte offset `start` on, one line at a time, stopping where parsing stops (`_read_lines`), as `tail` stopped; `start` is an offset `tail` gave, an event's `offset` or `end`."""
+        with self.path.open("rb") as handle:
+            handle.seek(start)
+            for _, entry, stopped in _read_lines(handle):
+                if stopped:
+                    return
+                if entry is not None:
+                    yield entry
+
+
+_EVENT_PREFIX = b'{"kind": "event"'
+
+
+def _event_at(entry: dict) -> str:
+    at = entry.get("at")
+    return at if isinstance(at, str) else ""
+
+
+def _event_older(line: bytes, moment: str | None) -> bool | None:
+    """Return whether `line` is an event line whose `at` is lexicographically older than `moment`, or None when it is no event line. Every writer starts an event line with `_EVENT_PREFIX` (`_event_line`, dumped in its key order), so no other line is parsed; one that does not parse is no event line."""
+    if not line.startswith(_EVENT_PREFIX):
+        return None
+    try:
+        entry = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(entry, dict) or entry.get("kind") != "event":
+        return None
+    return moment is not None and _event_at(entry) < moment
+
+
+def _tail_start(handle, moment: str | None) -> int | None:
+    """Return the offset of the binary `handle`'s first event line after its last event line older than `moment` (`_event_older`), or of its first event line when none is older or `moment` is None, reading back from the file's end a block of `_TAIL_BLOCK` bytes at a time as `_end_on_a_newline` does; None when no event line follows."""
+    position = handle.seek(0, os.SEEK_END)
+    fragment = b""
+    earliest: int | None = None
+    while position > 0:
+        start = max(0, position - _TAIL_BLOCK)
+        handle.seek(start)
+        lines = (handle.read(position - start) + fragment).split(b"\n")
+        cursor = position + len(fragment)
+        whole = range(len(lines) - 1, -1, -1) if start == 0 else range(len(lines) - 1, 0, -1)
+        for index in whole:
+            line_start = cursor - len(lines[index])
+            cursor = line_start - 1
+            older = _event_older(lines[index], moment)
+            if older:
+                return earliest
+            if older is not None:
+                earliest = line_start
+        fragment = lines[0]
+        position = start
+    return earliest
+
+
+def tail(journal_path, moment: str | None, *, after_torn_base: bool = False) -> JournalTail:
+    """Return the journal's events whose `at` is lexicographically at or after `moment`, an event at the moment's own second among them, or every event when `moment` is None, with what follows each (`TailEvent`). It finds the first by reading back from the journal's end to the last event older than `moment` (`_tail_start`), so it reads only the tail, and then reads forward from there with `_read_lines`, so parsing stops at a line that does not decode or parse, a torn final line among them, where every reader's stops. Events are appended in time order, so the tail is every event after the last older one. A base event in the tail followed by fewer set lines than it names, with no complete base after it, raises `JournalGap`, as `replay_with_list` raises it for the journal's end; with `after_torn_base` the tail is instead the events after the last such base, for a reader whose file the base's writer wrote before it began the base, so the file holds the base and every event before it (`rebuild.review.landing.catch_up`). A missing journal has no tail."""
+    journal_path = Path(journal_path)
+    try:
+        handle = journal_path.open("rb")
+    except OSError:
+        return JournalTail(journal_path, ())
+    events: list[TailEvent] = []
+    with handle:
+        start = _tail_start(handle, moment)
+        if start is None:
+            return JournalTail(journal_path, ())
+        handle.seek(start)
+        offset = start
+        current: tuple[int, dict] | None = None
+        counted = 0
+        for line, entry, stopped in _read_lines(handle):
+            if stopped:
+                break
+            if entry is not None:
+                kind = entry.get("kind")
+                if kind == "event":
+                    if current is not None:
+                        events.append(TailEvent(current[0], offset, current[1], counted))
+                    current, counted = (offset, entry), 0
+                elif kind == "set" and current is not None:
+                    counted += 1
+            offset += len(line)
+        if current is not None:
+            events.append(TailEvent(current[0], offset, current[1], counted))
+    gap_from: int | None = None
+    torn: int | None = None
+    for index, event in enumerate(events):
+        if event.base:
+            if event.counted < _expected_sets(event.entry):
+                gap_from = gap_from if gap_from is not None else index
+                torn = index
+            else:
+                gap_from = torn = None
+    if gap_from is not None and torn is not None:
+        if not after_torn_base:
+            raise JournalGap(_event_at(events[gap_from].entry), None)
+        events = events[torn + 1 :]
+    return JournalTail(journal_path, tuple(events))
 
 
 @dataclass(frozen=True)

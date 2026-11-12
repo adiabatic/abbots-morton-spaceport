@@ -2,7 +2,7 @@
 
 The /autosave receiver: delta validation, atomic overwrite, and the journal event appended on every accepted save. A whole-store POST is refused without changing the store, journal, token, or tombstones, regardless of either stamp or whether the store exists. Export parsing and full-store GET payloads remain available. A delta on another stamp is carried onto a store on the served corpus by unit id, with the `base_at`, `at` and tombstone tests deciding each unit, and the orphans and conflicts it cannot apply are kept in the orphan document; a stale skip is dropped and clears the record it replaced; a delta stamped for the served corpus carries a store on another stamp onto it by unit id, keeping the old file as its stash, and one made on neither corpus gets a retryable 503 and writes nothing.
 
-The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the failed write that leaves memory as the file holds it, the marker that says the journal may lack a store write, which a save writes before its store write and removes once its append succeeds, the change token a sync GET returns, the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged, and the store file holding a record the carry refuses, which serves no verdict and refuses every save until it is replaced, as a request made while a dead land's recovery refuses gets that refusal.
+The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`rebuild.review.verdict_store`): the delta POST the app sends, journaled first and left pending, whose pending write writes the bytes a store with no journal writes after the same saves, the no-op delta that writes nothing, the idle write that runs once after a burst of saves, in a real server's POST handler too, and tries again shortly while another writer holds the lock and only after the whole delay when its write fails, the save whose append and write both fail, which is put back and cut off the journal, the marker that says the journal may lack a store write, which a save writes, with the store, only when its append fails, and a move writes before its store write and removes once its append succeeds, the server killed before its idle write, whose saves a lock holder and the next server's boot read from the journal, the change token a sync GET returns, the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged, and the store file holding a record the carry refuses, which serves no verdict and refuses every save until it is replaced, as a request made while a dead land's recovery refuses gets that refusal.
 
 The headers every static file is served with. `static_headers_for` is a pure function so it can be tested without a server.
 
@@ -14,9 +14,16 @@ The accepted list beside the store (`rebuild.review.accepted`): the full GET's `
 import asyncio
 import json
 import os
+import re
+import signal
 import socket
+import subprocess
+import sys
 import threading
 import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -27,6 +34,7 @@ from rebuild.review import accepted, app_index, journal, landing, verdict_store
 from rebuild.review.serve import (
     DELTA_FORMAT,
     EXPORT_FORMAT,
+    IdleWrite,
     missing_autosave_reply,
     orphaned_land_reply,
     parse_autosave_payload,
@@ -36,6 +44,7 @@ from rebuild.review.serve import (
     stash_path_for,
     static_headers_for,
     stream_full_store,
+    write_pending_store,
 )
 from rebuild.tools.review_server import force_reload
 from rebuild.review.store_lock import store_lock
@@ -353,6 +362,10 @@ def on_disk(path) -> dict:
     return parsed
 
 
+def blank_exported_at(raw: bytes) -> bytes:
+    return re.sub(rb'"exported_at": "[^"]*"', b'"exported_at": ""', raw)
+
+
 def changes(store, token) -> dict:
     found = store.changes_since(token)
     assert found is not None
@@ -360,17 +373,29 @@ def changes(store, token) -> dict:
 
 
 def test_a_delta_applies_sets_and_clears_in_place_and_journals_them(tmp_path):
+    """A save on a store with a journal applies its delta in memory and appends its set and clear lines, and leaves the file's bytes, inode and mtime as they were (the first save, which stamps the unstamped store, writes it at once). The pending write then writes the bytes a store with no journal writes after the same saves, its `exported_at` aside."""
     path = tmp_path / "verdicts-autosave.json"
     journal_path = tmp_path / "verdicts-journal.ndjson"
     stamp = "2026-07-03T23:31:04Z"
     store = VerdictStore(path, journal_path)
-    assert store.receive(delta(stamp, [verdict("u-1"), verdict("u-2")]))[0] == 200
-    status, body = store.receive(
-        delta(stamp, [verdict("u-2", "reject", at="2026-07-03T01:00:00Z"), verdict("u-3")], ["u-1"])
-    )
-    assert status == 200
+    (tmp_path / "today").mkdir()
+    today = VerdictStore(tmp_path / "today" / "verdicts-autosave.json")
+    saves = [
+        delta(stamp, [verdict("u-1"), verdict("u-2")]),
+        delta(stamp, [verdict("u-2", "reject", at="2026-07-03T01:00:00Z"), verdict("u-3")], ["u-1"]),
+    ]
+    assert store.receive(saves[0])[0] == 200 and today.receive(saves[0])[0] == 200
+    os.utime(path, ns=(1, 1))
+    before = path.read_bytes(), path.stat().st_ino
+    status, body = store.receive(saves[1])
+    assert status == 200 and today.receive(saves[1])[0] == 200
     assert body["ok"] and body["saved"] == 2
     assert body["token"] == store.token
+    assert store.pending and (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns) == (*before, 1)
+    assert [event["sets"] for event in journal.iter_events(journal_path)] == [2, 2]
+    store.write()
+    assert not store.pending
+    assert blank_exported_at(path.read_bytes()) == blank_exported_at(today.path.read_bytes())
     written = on_disk(path)
     assert written["manifest_generated_at"] == stamp
     assert [(record["unit"], record["verdict"]) for record in written["verdicts"]] == [
@@ -402,7 +427,7 @@ def test_a_post_while_another_writer_holds_the_store_lock_gets_a_retryable_503(t
     assert journal_path.read_bytes() == journal_before
     assert "u-2" not in store.records
     status, _ = receive_autosave_locked(store, delta(stamp, [verdict("u-2")]))
-    assert status == 200
+    assert status == 200 and write_pending_store(store)
     assert "u-2" in {record["unit"] for record in on_disk(path)["verdicts"]}
 
 
@@ -433,26 +458,273 @@ def test_a_delta_that_changes_nothing_leaves_the_file_untouched(tmp_path):
     assert not store.refresh_if_changed()
 
 
-def test_a_delta_whose_write_fails_is_written_and_journaled_when_it_is_resent(tmp_path, monkeypatch):
+class FakeTimers:
+    """A stand-in for the server's IOLoop timers that runs a callback only when the test moves its clock past it."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.pending: list[tuple[float, Callable[[], None], object]] = []
+
+    def call_later(self, delay, callback):
+        handle = object()
+        self.pending.append((self.now + delay, callback, handle))
+        return handle
+
+    def remove_timeout(self, timeout) -> None:
+        self.pending = [entry for entry in self.pending if entry[2] is not timeout]
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+        while due := sorted(
+            (entry for entry in self.pending if entry[0] <= self.now), key=lambda entry: entry[0]
+        ):
+            self.pending.remove(due[0])
+            due[0][1]()
+
+
+def test_the_idle_write_writes_once_after_a_burst_of_saves_and_tries_again_while_the_lock_is_held(
+    tmp_path, monkeypatch
+):
+    """The server's idle write, its minute cut short: each save that leaves the store pending puts the write off again, so none runs while saves keep coming and one runs once the delay passes with no save, writing every save of the burst; while another writer holds the store's lock it writes nothing and tries again after the retry delay, and a write that fails, which can have written most of a store first, is tried again only after the whole delay."""
+    path = tmp_path / "verdicts-autosave.json"
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    stamp = "2026-07-03T23:31:04Z"
+    store = VerdictStore(path, journal_path)
+    assert receive_autosave_locked(store, delta(stamp, [verdict("u-0")]))[0] == 200
+    writes: list[int] = []
+    real_write_bytes = store._write_bytes
+
+    def counted(chunks):
+        writes.append(1)
+        real_write_bytes(chunks)
+
+    monkeypatch.setattr(store, "_write_bytes", counted)
+    timers = FakeTimers()
+    idle = IdleWrite(store, lambda: timers, delay=60, retry=5)
+    for index in range(1, 6):
+        assert receive_autosave_locked(store, delta(stamp, [verdict(f"u-{index}")]))[0] == 200
+        assert store.pending
+        idle.saved()
+        timers.advance(59)
+    assert writes == [] and len(timers.pending) == 1
+    timers.advance(1)
+    assert writes == [1] and not store.pending and not timers.pending
+    assert {record["unit"] for record in on_disk(path)["verdicts"]} == {f"u-{index}" for index in range(6)}
+    assert receive_autosave_locked(store, delta(stamp, [verdict("u-6")]))[0] == 200
+    idle.saved()
+    with store_lock(path):
+        timers.advance(60)
+        timers.advance(5)
+        assert writes == [1] and store.pending and len(timers.pending) == 1
+    timers.advance(5)
+    assert writes == [1, 1] and not store.pending and not timers.pending
+    assert "u-6" in {record["unit"] for record in on_disk(path)["verdicts"]}
+
+    def disk_full(chunks):
+        writes.append(0)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(store, "_write_bytes", disk_full)
+    assert receive_autosave_locked(store, delta(stamp, [verdict("u-7")]))[0] == 200
+    idle.saved()
+    timers.advance(60)
+    assert writes == [1, 1, 0] and store.pending
+    timers.advance(59)
+    assert writes == [1, 1, 0] and len(timers.pending) == 1
+    monkeypatch.setattr(store, "_write_bytes", counted)
+    timers.advance(1)
+    assert writes == [1, 1, 0, 1] and not store.pending and not timers.pending
+    assert "u-7" in {record["unit"] for record in on_disk(path)["verdicts"]}
+
+
+REPO = Path(__file__).resolve().parent.parent
+SERVER_CHILD = """
+import sys
+from pathlib import Path
+from rebuild.review import accepted, journal, serve
+root = Path(sys.argv[1])
+serve.REPO_ROOT = root
+serve.REVIEW_DIR = root / "rebuild" / "out" / "review"
+serve.M1_OUT = root / "rebuild" / "out" / "m1"
+serve.CYCLE_SUMMARY_PATH = root / "rebuild" / "out" / "cycle_summary.json"
+serve.AUTOSAVE_PATH = root / "verdicts-autosave.json"
+serve.JOURNAL_PATH = root / journal.JOURNAL_NAME
+serve.ACCEPTED_PATH = accepted.path_for(serve.AUTOSAVE_PATH)
+serve.PORT = int(sys.argv[2])
+if len(sys.argv) > 3:
+    serve.IDLE_WRITE_SECONDS = float(sys.argv[3])
+serve.main()
+"""
+
+
+def free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+def http(port: int, path: str, body: bytes | None = None) -> tuple[int, bytes]:
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}{path}", data=body, method="POST" if body is not None else "GET"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as reply:
+            return reply.status, reply.read()
+    except urllib.error.HTTPError as error:
+        return error.code, error.read()
+
+
+def start_server(root: Path, idle: float | None = None) -> tuple[subprocess.Popen, int]:
+    """Run `serve.main` in a child process with its paths pointed at `root`, as the readings' harness does, its idle write after `idle` seconds when given (`serve.IDLE_WRITE_SECONDS`), and return it once it answers /capabilities."""
+    port = free_port()
+    child = subprocess.Popen(
+        [sys.executable, "-c", SERVER_CHILD, str(root), str(port), *([] if idle is None else [str(idle)])],
+        cwd=REPO,
+        env={**os.environ, "PYTHONPATH": str(REPO)},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    deadline = time.monotonic() + 60
+    while True:
+        try:
+            if http(port, "/capabilities")[0] == 200:
+                return child, port
+        except OSError:
+            pass
+        if child.poll() is not None or time.monotonic() > deadline:
+            child.kill()
+            raise AssertionError("the review server did not start")
+        time.sleep(0.1)
+
+
+def test_saves_a_killed_server_journaled_and_never_wrote_reach_every_lock_holder_and_the_next_server(
+    tmp_path,
+):
+    """A review server takes saves, journaling each and writing no store, and is killed with SIGKILL before its idle write. A lock holder on a copy of the store and its journal then reads the store the code that wrote every save at once leaves after the same saves, its `exported_at` aside, and a server booted on the lagging store itself catches it up at its boot, serving every save, writing the store a lock holder reads and leaving the journal's bytes as they were."""
+    stamp = "2026-07-03T23:31:04Z"
+    units = ["u-1", "u-2", "u-3", "u-4"]
+    corpus = tmp_path / "rebuild" / "out" / "review"
+    corpus.mkdir(parents=True)
+    (corpus / "manifest.json").write_text(json.dumps({"generated_at": stamp, "human_unit_ids": units}))
+    path = tmp_path / "verdicts-autosave.json"
+    path.write_bytes(payload(stamp, [verdict("u-1"), verdict("u-2")]))
+    (tmp_path / "today").mkdir()
+    today = VerdictStore(tmp_path / "today" / "verdicts-autosave.json")
+    today.path.write_bytes(path.read_bytes())
+    today.reload()
+    original = path.read_bytes()
+    saves = [
+        delta(stamp, [verdict("u-3", "reject", at="2026-07-04T00:00:00Z")]),
+        delta(
+            stamp,
+            [verdict("u-1", "either", at="2026-07-04T00:01:00Z")],
+            [{"unit": "u-2", "at": "2026-07-04T00:02:00Z"}],
+        ),
+        delta(stamp, [{**verdict("u-4", at="2026-07-04T00:03:00Z"), "note": "ñ"}]),
+    ]
+    server, port = start_server(tmp_path)
+    try:
+        for save in saves:
+            assert http(port, "/autosave", save)[0] == 200
+            assert today.receive(save)[0] == 200
+        assert path.read_bytes() == original
+    finally:
+        server.send_signal(signal.SIGKILL)
+        server.wait(timeout=30)
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    assert [event["source"] for event in journal.iter_events(journal_path)] == ["seed", *["autosave"] * 3]
+    journal_bytes = journal_path.read_bytes()
+    holder = tmp_path / "holder" / path.name
+    holder.parent.mkdir()
+    holder.write_bytes(path.read_bytes())
+    journal.journal_path_for(holder).write_bytes(journal_bytes)
+    with landing.locked_store(holder):
+        pass
+    assert blank_exported_at(holder.read_bytes()) == blank_exported_at(today.path.read_bytes())
+    assert path.read_bytes() == original
+    server, port = start_server(tmp_path)
+    try:
+        status, raw = http(port, "/autosave")
+    finally:
+        server.send_signal(signal.SIGTERM)
+        server.wait(timeout=30)
+    assert status == 200
+    assert json.loads(raw)["verdicts"] == [today.records[unit] for unit in sorted(today.records)]
+    assert json.loads(raw)["cleared"] == [{"unit": "u-2", "at": "2026-07-04T00:02:00Z"}]
+    assert blank_exported_at(path.read_bytes()) == blank_exported_at(today.path.read_bytes())
+    assert journal_path.read_bytes() == journal_bytes
+
+
+def test_a_real_server_writes_its_store_once_after_a_burst_of_saves(tmp_path):
+    """The server's POST handler schedules its idle write, here after a second and a half: a burst of saves leaves the file as it was, and once the delay passes with no save the server writes it, holding every save of the burst, the bytes the code that wrote every save at once leaves, its `exported_at` aside, and writes nothing more."""
+    stamp = "2026-07-03T23:31:04Z"
+    corpus = tmp_path / "rebuild" / "out" / "review"
+    corpus.mkdir(parents=True)
+    (corpus / "manifest.json").write_text(json.dumps({"generated_at": stamp, "human_unit_ids": ["u-1"]}))
+    path = tmp_path / "verdicts-autosave.json"
+    path.write_bytes(payload(stamp, [verdict("u-1")]))
+    (tmp_path / "today").mkdir()
+    today = VerdictStore(tmp_path / "today" / "verdicts-autosave.json")
+    today.path.write_bytes(path.read_bytes())
+    today.reload()
+    original = path.read_bytes()
+    saves = [delta(stamp, [verdict(f"u-{index}", at=f"2026-07-04T00:0{index}:00Z")]) for index in range(2, 6)]
+    server, port = start_server(tmp_path, idle=1.5)
+    try:
+        for save in saves:
+            assert http(port, "/autosave", save)[0] == 200
+            assert today.receive(save)[0] == 200
+        assert path.read_bytes() == original
+        deadline = time.monotonic() + 30
+        while path.read_bytes() == original and time.monotonic() < deadline:
+            time.sleep(0.1)
+        written = path.stat().st_ino, path.stat().st_mtime_ns
+        time.sleep(2)
+        assert (path.stat().st_ino, path.stat().st_mtime_ns) == written
+    finally:
+        server.send_signal(signal.SIGTERM)
+        server.wait(timeout=30)
+    assert blank_exported_at(path.read_bytes()) == blank_exported_at(today.path.read_bytes())
+
+
+def test_a_failed_idle_write_leaves_the_store_pending_and_a_save_whose_append_and_write_fail_is_put_back(
+    tmp_path, monkeypatch
+):
+    """An idle write that fails leaves the store pending, reloading nothing, since memory holds a save the file lacks, and the next attempt writes it. A save whose journal append fails is written at once, and when that write fails too the save is put back in memory, the pending saves the journal holds kept, the lines a short append wrote before it failed are cut off the journal, and the marker the failed write wrote is removed (#618's decision 82), since the file and the journal are then as they were, so a resend of the same delta is applied and journaled first again."""
     path = tmp_path / "verdicts-autosave.json"
     journal_path = tmp_path / "verdicts-journal.ndjson"
     stamp = "2026-07-03T23:31:04Z"
     store = VerdictStore(path, journal_path)
     store.receive(delta(stamp, [verdict("u-1")]))
+    store.receive(delta(stamp, [verdict("u-2")]))
     real_write_bytes = store._write_bytes
 
-    def disk_full(raw):
+    def disk_full(*_args, **_kwargs):
         raise OSError("disk full")
 
     monkeypatch.setattr(store, "_write_bytes", disk_full)
+    assert not write_pending_store(store)
+    assert store.pending and set(store.records) == {"u-1", "u-2"}
+    assert set(journal.latest_by_unit(on_disk(path)["verdicts"])) == {"u-1"}
+    real_write_lines = journal._write_lines
+
+    def short_write(journal_path, lines):
+        real_write_lines(journal_path, [next(iter(lines)), b'{"kind": "set", "unit": "u-3"'])
+        raise OSError("disk full")
+
+    journal_before = journal_path.read_bytes()
+    monkeypatch.setattr(journal, "_write_lines", short_write)
     with pytest.raises(OSError):
-        store.receive(delta(stamp, [verdict("u-2")], []))
-    assert "u-2" not in store.records
-    monkeypatch.setattr(store, "_write_bytes", real_write_bytes)
-    status, _ = store.receive(delta(stamp, [verdict("u-2")], []))
-    assert status == 200
-    assert set(journal.latest_by_unit(json.loads(path.read_bytes())["verdicts"])) == {"u-1", "u-2"}
-    assert set(journal.replay(journal_path)[1]) == {"u-1", "u-2"}
+        store.receive(delta(stamp, [verdict("u-3")], ["u-1"]))
+    assert set(store.records) == {"u-1", "u-2"} and store.pending
+    assert journal_path.read_bytes() == journal_before
+    monkeypatch.undo()
+    assert write_pending_store(store) and not store.pending
+    assert set(journal.latest_by_unit(on_disk(path)["verdicts"])) == {"u-1", "u-2"}
+    assert not journal.unjournaled_marker_for(path).exists()
+    status, _ = store.receive(delta(stamp, [verdict("u-3")], ["u-1"]))
+    assert status == 200 and set(store.records) == {"u-2", "u-3"} and store.pending
+    assert set(journal.replay(journal_path)[1]) == {"u-2", "u-3"}
 
 
 def test_a_delta_seeds_a_journal_that_does_not_exist_yet(tmp_path):
@@ -839,6 +1111,7 @@ def test_a_set_whose_record_the_carry_refuses_is_refused_before_any_write(tmp_pa
     assert (path.read_bytes(), journal_path.read_bytes(), sorted(tmp_path.rglob("*"))) == before
     assert set(store.records) == {"u-0"}
     assert store.receive(delta(NEW, [verdict("u-1", at="2026-07-10T00:00:00Z")]))[0] == 200
+    assert write_pending_store(store)
     assert on_disk(path)["verdicts"] == [verdict("u-0"), verdict("u-1", at="2026-07-10T00:00:00Z")]
     assert set(journal.replay(journal_path)[1]) == {"u-0", "u-1"}
 
@@ -987,6 +1260,7 @@ def test_a_stale_stamp_delta_on_a_served_unit_is_carried_and_journaled_as_carrie
     assert status == 200
     assert body["carried"] == ["u-2"] and body["orphaned"] == [] and body["conflicts"] == []
     assert body["corpus_stamp"] == NEW
+    assert write_pending_store(store)
     written = on_disk(path)
     assert written["manifest_generated_at"] == NEW
     assert {record["unit"] for record in written["verdicts"]} == {"u-1", "u-2"}
@@ -1075,6 +1349,7 @@ def test_a_stale_skip_clears_the_record_it_replaced_so_the_unit_is_asked_again(t
     assert body["dropped"] == ["u-1"] and body["carried"] == ["u-1"]
     assert body["conflicts"] == [{"unit": "u-2", "server": verdict("u-2", at="t5")}]
     assert "u-1" not in store.records and store.cleared == {"u-1": "t3"}
+    assert write_pending_store(store)
     assert "u-1" not in {record["unit"] for record in on_disk(path)["verdicts"]}
     assert "u-1" not in journal.replay(journal_path)[1]
     status, body = store.receive(
@@ -1136,7 +1411,7 @@ def test_a_stale_clear_follows_the_same_tests_and_a_bare_clear_is_orphaned(tmp_p
 
 
 def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_it(tmp_path):
-    """A first pass over a deleted corpus builds it in place and lands no store, and a restore under --yes can put back a store stamped for an earlier corpus, so the store can sit on another stamp than the served corpus. The first save from a tab on the served corpus carries the store onto it by unit id, keeping its verdicts and tombstones on the served corpus's human units, less its skips, each of which leaves a tombstone at its `at` so that a skipped accepted unit stays blank, keeps the old file as the stash, and then applies the save and journals the move, the kept tombstones included, so the tab keeps saving and no verdict is left behind in the stash."""
+    """A first pass over a deleted corpus builds it in place and lands no store, and a restore under --yes can put back a store stamped for an earlier corpus, so the store can sit on another stamp than the served corpus. The first save from a tab on the served corpus carries the store onto it by unit id, keeping its verdicts and tombstones on the served corpus's human units, less its skips, each of which leaves a tombstone at its `at` so that a skipped accepted unit stays blank, keeps the old file as the stash, and then applies the save and journals the move, the kept tombstones included, so the tab keeps saving and no verdict is left behind in the stash. A store with saves journaled and not yet written writes them first, so the stash holds them too."""
     journal_path = tmp_path / "verdicts-journal.ndjson"
     path = tmp_path / "verdicts-autosave.json"
     path.write_bytes(
@@ -1155,7 +1430,8 @@ def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_
         ).encode()
     )
     store = VerdictStore(path, journal_path)
-    old_bytes = path.read_bytes()
+    assert store.receive(delta(NEW, [verdict("u-2", "reject", at="t3")]))[0] == 200
+    assert store.pending and on_disk(path)["verdicts"][1] == verdict("u-2", at="t1")
     old_token = store.token
     newer = "2026-07-05T00:00:00Z"
     status, body = store.receive(
@@ -1163,7 +1439,7 @@ def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_
     )
     assert status == 200
     assert body["corpus_stamp"] == newer and body["token"] == store.token != old_token
-    assert stash_path_for(path, NEW).read_bytes() == old_bytes
+    assert on_disk(stash_path_for(path, NEW))["verdicts"][1] == verdict("u-2", "reject", at="t3")
     written = on_disk(path)
     assert written["manifest_generated_at"] == newer
     assert [record["unit"] for record in written["verdicts"]] == ["u-1", "u-9"]
@@ -1178,8 +1454,10 @@ def test_a_delta_on_the_served_stamp_carries_a_store_left_on_another_stamp_onto_
     assert status == 200 and body["carried"] == ["u-9"]
 
 
-def test_a_save_leaves_the_unjournaled_marker_until_its_journal_append_succeeds(tmp_path, monkeypatch):
-    """Before a save's store write the store writes the marker that says the journal may lack a store write, and it removes the marker once the save's journal append succeeds, both for a save that carries the store onto the served stamp and for one applied in place. A save whose append fails leaves the marker, and so does a later save whose append succeeds, because the marker was already there: only a land's base puts the failed save in the journal."""
+def test_a_save_writes_the_store_and_the_unjournaled_marker_only_when_its_journal_append_fails(
+    tmp_path, monkeypatch
+):
+    """A save that carries the store onto the served stamp writes the store at once, writing the marker that says the journal may lack a store write before it and removing it once the journal append succeeds. A save applied in place whose append succeeds writes no marker and no store, and is left pending. A save whose append fails is never refused: the store writes the marker and then the whole store at once, its pending saves with it, and leaves the marker, and a later save leaves it too, writing the store at once while it is there, because only a land's base puts the failed save in the journal (#618's decision 82)."""
     path = tmp_path / "verdicts-autosave.json"
     journal_path = tmp_path / "verdicts-journal.ndjson"
     path.write_bytes(payload(OLD, [verdict("u-1")]))
@@ -1196,8 +1474,11 @@ def test_a_save_leaves_the_unjournaled_marker_until_its_journal_append_succeeds(
     corpus = served("u-1", "u-2", "u-3", "u-4")
     assert store.receive(delta(NEW, [verdict("u-2")]), corpus)[0] == 200
     assert next(journal.iter_events(journal_path))["stashed"] == stash_path_for(path, OLD).name
+    assert marked_at_write == [True] and not marker.exists()
+    moved = path.read_bytes()
     assert store.receive(delta(NEW, [verdict("u-3")]), corpus)[0] == 200
-    assert marked_at_write == [True, True] and not marker.exists()
+    assert marked_at_write == [True] and not marker.exists()
+    assert store.pending and path.read_bytes() == moved
 
     def disk_full(journal_path, **kwargs):
         raise OSError("disk full")
@@ -1206,8 +1487,10 @@ def test_a_save_leaves_the_unjournaled_marker_until_its_journal_append_succeeds(
         patched.setattr(journal, "record_delta", disk_full)
         status, body = store.receive(delta(NEW, [verdict("u-4")]), corpus)
     assert status == 200 and body["journal_error"] == "disk full" and marker.exists()
+    assert marked_at_write == [True, True] and not store.pending
+    assert set(journal.latest_by_unit(on_disk(path)["verdicts"])) == {"u-1", "u-2", "u-3", "u-4"}
     assert store.receive(delta(NEW, [verdict("u-1", "reject", at="t9")]), corpus)[0] == 200
-    assert marker.exists()
+    assert marker.exists() and marked_at_write == [True, True, True] and not store.pending
     assert "u-4" in store.records and "u-4" not in journal.replay(journal_path)[1]
 
 
@@ -1291,6 +1574,7 @@ def test_a_set_clear_and_return_to_the_list_on_accepted_units_are_stored_journal
     assert store.overrides.records[ACCEPT_A]["verdict"] == "reject"
     store.receive(delta(NEW, clears=[{"unit": ACCEPT_B, "base_at": CLOSED_AT, "at": AFTER}]))
     assert store.overrides.cleared == {ACCEPT_B: AFTER} and ACCEPT_B not in store.view
+    assert write_pending_store(store)
     written = on_disk(path)
     assert (written["verdicts"], "cleared" in written) == ([], False)
     assert written["overrides"] == {
@@ -1301,6 +1585,7 @@ def test_a_set_clear_and_return_to_the_list_on_accepted_units_are_stored_journal
     assert (synced["sets"], synced["clears"]) == ([store.overrides.records[ACCEPT_A]], [ACCEPT_B])
     store.receive(delta(NEW, [verdict(ACCEPT_A, at=CLOSED_AT), verdict(ACCEPT_B, "either", at=CLOSED_AT)]))
     assert store.records == {} and store.cleared == {} and not store.overrides
+    assert write_pending_store(store)
     assert (
         on_disk(path)["verdicts"] == []
         and "cleared" not in on_disk(path)

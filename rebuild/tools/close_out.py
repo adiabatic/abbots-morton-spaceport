@@ -2,9 +2,9 @@
 
 The fold reads the store, the list beside it (`rebuild.review.accepted`, whose docstring gives the list's format and the one rule every reader of the store answers through) and the served corpus's human unit ids. It reads the store's own records and tombstones and its override section, the records and tombstones on listed ids (`accepted.Overrides`), as one store (`accepted.joined`), and consumes the section, the one writer that does. The new list holds each listed id that is a human unit of the served corpus and holds no override, and each human unit whose record, its own or its override, is approve, either or identical (`accepted.ACCEPTING_VERDICTS`), with that record's mark, so a reject, neither, skip or tombstone on a listed id takes it out. Its `closed_at` is the later of the current time, the largest `at` among the records it folds and the previous list's `closed_at`, cut to whole seconds, so it bounds the `at` of every record the list stands for. The new store, stamped for the served corpus even when it holds nothing, keeps the store's reject, neither and skip records and its tombstones on the corpus's human units, overrides among them, as its own records and tombstones, none of whose units the new list names, so it holds no override section, and its `accepted` field names the new list. The notes of the folded records go, kept only in the archive.
 
-Its checks run in this order, each refusing with nothing written. `make verdict-ready`'s blocking checks (corpus, freshness, gates and verdict store) must pass, so the human unit ids it reads belong to a corpus built from the tree the list is committed beside; they run before either lock is taken, since under the pass lock they would name the close-out itself as the pass to wait for, and not at all while a close-out's intent is left, since a close-out killed between its renames fails them on the pairing until it is finished. It takes the artifact cycle's pass lock (var/cycle/pass.lock beside the store) without waiting and holds it to the end, so no pass that snapshotted the store before the close-out lands after it. It refuses while a review server listens that may write the store (`serves`). It takes the store's lock through `landing.locked_store`, which first finishes a land whose holder died, and then finishes or drops a close-out whose holder died (`finish_interrupted`). The working tree's list must equal `HEAD`'s (`git status`, which runs without refreshing the index) and be well formed (`accepted.Malformed`), the store must be an ams-review-verdicts/1 document holding no record `verdict_store.well_formed` refuses, and the store's `accepted` field must name the list (`accepted.pair`), on the first close-out there being neither list nor field; and the served corpus's stamp must still be the one the readiness checks read. With nothing to fold, no accepting record in the store and no listed id off the corpus's human units, it says so and writes nothing, so two close-outs minutes apart make one list. It refuses nothing for rejects, blanks or orphan documents, which stay.
+Its checks run in this order, each refusing with nothing written. `make verdict-ready`'s blocking checks (corpus, freshness, gates and verdict store) must pass, so the human unit ids it reads belong to a corpus built from the tree the list is committed beside; they run before either lock is taken, since under the pass lock they would name the close-out itself as the pass to wait for, and not at all while a close-out's intent is left, since a close-out killed between its renames fails them on the pairing until it is finished. It takes the artifact cycle's pass lock (var/cycle/pass.lock beside the store) without waiting and holds it to the end, so no pass that snapshotted the store before the close-out lands after it. It refuses while a review server listens that may write the store (`serves`). It takes the store's lock through `landing.locked_store`, which first finishes a land whose holder died and then writes into the store the journal's events past the store's last write (`landing.catch_up`), so the saves a review server stopped before its idle write had journaled are folded or left in the store, and the new journal's base holds them, and then it finishes or drops a close-out whose holder died (`finish_interrupted`). The working tree's list must equal `HEAD`'s (`git status`, which runs without refreshing the index) and be well formed (`accepted.Malformed`), the store must be an ams-review-verdicts/1 document holding no record `verdict_store.well_formed` refuses, and the store's `accepted` field must name the list (`accepted.pair`), on the first close-out there being neither list nor field; and the served corpus's stamp must still be the one the readiness checks read. With nothing to fold, no accepting record in the store and no listed id off the corpus's human units, it says so and writes nothing, so two close-outs minutes apart make one list. It refuses nothing for rejects, blanks or orphan documents, which stay.
 
-The dry run makes the same checks without taking either lock, prints every refusal the apply would make, and prints the report; it writes nothing, and exits 1 when the apply would refuse. The report, which the apply prints too, counts the store's records and tombstones, the ids the fold adds to the list, keeps (re-marking those an accepting override changed), takes out for an override or a clear, and drops because they left the corpus's human units, what the store keeps and drops, the blank human units after the fold, the note bytes it discards and the orphan and conflict documents (`verdict_store.summarize_orphans`), names the journal it replaces, which no archive keeps, with its bytes and its first event's time, and the older close-out archives it deletes, and names the stashes it deletes, the other root verdicts files, which it leaves, and the `rebuild/M1-BATCH*-PROGRESS.md` files.
+The dry run makes the same checks without taking either lock, prints every refusal the apply would make, and prints the report; it writes nothing, and exits 1 when the apply would refuse. It reports on the store as the apply's lock leaves it once caught up with the journal (`landing.caught_up_bytes`, which applies the journal's events past the store's last write in memory), so a save a review server stopped before its idle write had journaled counts in the report as in the apply, and it says so in a note. The report, which the apply prints too, counts the store's records and tombstones, the ids the fold adds to the list, keeps (re-marking those an accepting override changed), takes out for an override or a clear, and drops because they left the corpus's human units, what the store keeps and drops, the blank human units after the fold, the note bytes it discards and the orphan and conflict documents (`verdict_store.summarize_orphans`), names the journal it replaces, which no archive keeps, with its bytes and its first event's time, and the older close-out archives it deletes, and names the stashes it deletes, the other root verdicts files, which it leaves, and the `rebuild/M1-BATCH*-PROGRESS.md` files.
 
 The apply writes the new list, the new store and the archive to the staging directory var/close-out/, outside var/cycle/, whose directories every pass deletes as it starts, the archive holding the store as found (`ARCHIVE_STORE`), the list before (`ARCHIVE_BEFORE`, absent when there was none) and after (`ARCHIVE_AFTER`), each gzipped, and the counts (`ARCHIVE_COUNTS`); then the intent var/cycle/close-out.json. Then (`_complete`) it moves the archive to var/keep/close-outs/<closed_at>/, renames the staged list over the list and the staged store over the store, refuses unless the store then names the new list, writes a new journal holding one base event of the store, source `close-out`, with its `cleared` list and its `accepted` field (`journal.record_transition`), to a temporary file renamed over the journal, removes the unjournaled marker (`journal.unjournaled_marker_for`) and the journal scan state, deletes the root's `verdicts-autosave-*.json` stashes, which no event in the new journal names, and every other close-out archive, so only the last close-out's is kept, and removes the staging directory and the intent. Every path is beside the store, so a run on a store in another directory leaves the checkout's files alone.
 
@@ -43,6 +43,7 @@ from rebuild.review import accepted, journal  # noqa: E402
 from rebuild.review.landing import (
     LandUnrecoverable,
     Store,
+    caught_up_bytes,
     document_bytes,
     locked_store,
     read_manifest,
@@ -261,9 +262,9 @@ class Found:
     list_raw: bytes | None
 
 
-def _read_store(store: Path) -> tuple[bytes | None, dict | None]:
+def _read_store(store: Path, raw: bytes | None = None) -> tuple[bytes | None, dict | None]:
     try:
-        raw = store.read_bytes()
+        raw = store.read_bytes() if raw is None else raw
     except FileNotFoundError:
         return None, None
     try:
@@ -281,8 +282,8 @@ def _read_store(store: Path) -> tuple[bytes | None, dict | None]:
     return raw, document
 
 
-def read_found(store: Path, corpus: Path) -> Found:
-    """Read the served corpus's manifest, the list and the store, raising `Refused` for a manifest that cannot be read, a malformed list or store, and a store and list that do not pair."""
+def read_found(store: Path, corpus: Path, raw: bytes | None = None) -> Found:
+    """Read the served corpus's manifest, the list and the store, or the store's bytes `raw` when given, raising `Refused` for a manifest that cannot be read, a malformed list or store, and a store and list that do not pair."""
     try:
         stamp, human = read_manifest(corpus)
     except (OSError, ValueError) as error:
@@ -302,7 +303,7 @@ def read_found(store: Path, corpus: Path) -> Found:
         )
     except accepted.Malformed as malformed:
         raise Refused(str(malformed)) from None
-    raw, document = _read_store(store)
+    raw, document = _read_store(store, raw)
     try:
         accepted.pair(document, listed, store=store)
     except accepted.Mismatch as mismatch:
@@ -518,8 +519,14 @@ def dry_run(
         for refusal in (_readiness_refusal(*readiness()), _head_refusal(accepted.path_for(store), root))
         if refusal is not None
     ]
+    caught = caught_up_bytes(store, journal.journal_path_for(store), accepted.path_for(store))
+    if caught is not None:
+        print(
+            f"note: {journal.JOURNAL_NAME} holds saves past the store's last write, which --apply writes into "
+            "the store first, under its lock; this report counts them"
+        )
     try:
-        found = read_found(store, corpus)
+        found = read_found(store, corpus, caught)
         folded = fold(found, now())
         print("\n".join(report(store, found, folded)))
         if not folded.folds:

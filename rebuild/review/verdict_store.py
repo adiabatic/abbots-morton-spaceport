@@ -1,6 +1,6 @@
 """The review server's in-memory copy of verdicts-autosave.json, its delta POST protocol, and its full-store and delta GET formats.
 
-The file is one ams-review-verdicts/1 document holding every verdict on the corpus. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST must be a delta (`sets` of whole records and `clears`, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines. A body `parse_delta_payload` refuses, a delta holding a set whose record the carry would refuse (`well_formed`) among them, gets a 400 and writes nothing, so no save adds a record the next pass cannot carry; the 400 for a delta holding a malformed set names the first such set (`MalformedSet`), and the 400 for one whose sets all pass but which holds a malformed clear names the first such clear (`MalformedClear`). A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart or a reload of the file onto another stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
+The file is one ams-review-verdicts/1 document holding every verdict on the corpus. Parsing and writing all of it for each saved verdict is too slow, so the server parses the file once, keeps the records in memory, and exchanges changes. A POST must be a delta (`sets` of whole records and `clears`, under ams-review-verdicts-delta/1), which is applied in place and appended to the journal as set and clear lines; a store with a journal writes its file later, once no save has come for a while (below). A body `parse_delta_payload` refuses, a delta holding a set whose record the carry would refuse (`well_formed`) among them, gets a 400 and writes nothing, so no save adds a record the next pass cannot carry; the 400 for a delta holding a malformed set names the first such set (`MalformedSet`), and the 400 for one whose sets all pass but which holds a malformed clear names the first such clear (`MalformedClear`). A GET with `since=<token>` returns the records changed after that token. A GET without a token, or with one `changes_since` cannot serve, returns the whole store with the current token. The token is a boot id and a change sequence. A token gets the whole store when it predates a server restart or a reload of the file onto another stamp, or when it is older than the retained changes (`CHANGE_LOG_CAP`).
 
 A set may carry `base_at`, the `at` of the record the tab last saw the server hold for that unit (null when it saw none). A clear is a unit id (the form older tabs send) or `{unit, base_at, at}`, where `at` is when the tab cleared it. The store keeps a tombstone for each cleared unit (unit → the clear's `at`), in memory and as a top-level `cleared` list in the file, which readers that use only `verdicts` ignore; a set removes its unit's tombstone.
 
@@ -17,9 +17,9 @@ The orphan documents live in `var/verdict-orphans/` beside the store (`orphans_d
 
 A full-store POST gets a 400 with `reason: whole-store-post-unsupported` and recovery instructions, regardless of its stamp or the file's state, and writes nothing. A 409 tells legacy readers to reload rather than download pending verdicts, and `corpus_stamp` can prompt newer clients to reload automatically, so the refusal uses neither. When the store writes the file itself, it writes an ams-review-verdicts/1 document with one record per line, a chunk of about 1 MiB at a time, never joined whole (`payload_chunks`), which `parse_autosave_payload`, the merge tool, the status check and the carry all read; GETs and export files use that format too, and the server streams the full GET from the same chunks.
 
-The file holds the verdicts between server runs, and another writer (a pass's land, `rebuild.review.landing`, or the merge tool or a journal restore under --yes) can replace it while the server runs; each holds the store's lock (`rebuild.review.store_lock`) for its write, as the server does for each POST. So every request first compares the file's mtime, size and inode, and the accepted list's, with what the store last read or wrote, and reloads on a mismatch. A reload onto the same stamp diffs the new records and overrides against the ones in memory, reduced to a digest a record before the parse, and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, onto a file that is missing or unreadable, or beside another accepted list, frees the records in memory before the parse and invalidates every token, so a reload never holds two generations. A file holding a verdict record `well_formed` refuses is read as an unreadable one is, so the store serves no verdict from it, but unlike an unreadable one it is never written over: while it stays, every delta `parse_delta_payload` accepts gets a 422 and a GET a 404 (`serve.missing_autosave_reply`), both with `reason: store-malformed` and an error naming the file and the first such record (`malformed_record`), which the app shows the reader, and nothing is written until another writer replaces the file. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were. A delta whose write fails reloads the file before the error propagates, so memory never holds a record the file lacks and a resend of the same delta is written. The orphan document is written before the store, so a delta whose orphan write fails changes nothing.
+The file and the journal together hold the verdicts between server runs. A save that changes a record on a store with a journal is applied in memory and appended to the journal, and the file is left as it was (`pending`); the server writes the whole store once a minute passes with no save (`serve.IdleWrite`), and every other holder of the store's lock first writes into the file the journal events at or after its `exported_at` (`landing.catch_up`, which `landing.locked_store` runs), so a server stopped before its idle write loses nothing and its next boot catches the file up. A save that stamps an unstamped store, a save made while the marker below is there, and a save on a store with no journal (`VerdictStore(path)`), which nothing could replay, write the file at once. Another writer (a pass's land, `rebuild.review.landing`, or the merge tool or a journal restore under --yes) can replace the file while the server runs; each holds the store's lock (`rebuild.review.store_lock`) for its write, as the server does for each POST and its idle write. So every request first compares the file's mtime, size and inode, and the accepted list's, with what the store last read or wrote, and reloads on a mismatch; a reload onto a file another writer replaced leaves the store not pending, since that writer caught the file up first, and a move of the list alone while the store is pending waits for a holder of the lock, which writes the pending store before it reloads (`refresh_if_changed`). A reload onto the same stamp diffs the new records and overrides against the ones in memory, reduced to a digest a record before the parse, and records the changed units, so outstanding tokens stay valid and a tab's next sync fetches only those units; a reload onto another stamp, onto a file that is missing or unreadable, or beside another accepted list, frees the records in memory before the parse and invalidates every token, so a reload never holds two generations. A file holding a verdict record `well_formed` refuses is read as an unreadable one is, so the store serves no verdict from it, but unlike an unreadable one it is never written over: while it stays, every delta `parse_delta_payload` accepts gets a 422 and a GET a 404 (`serve.missing_autosave_reply`), both with `reason: store-malformed` and an error naming the file and the first such record (`malformed_record`), which the app shows the reader, and nothing is written until another writer replaces the file. A delta that changes no record and no stamp writes nothing, so the file's bytes and mtime stay as they were, and neither does a pending save until the idle write. A delta whose store write fails puts back what it changed before the error propagates (`_put_back`), so memory never holds a record that the file and the journal both lack, and a resend of the same delta is applied again; an idle write that fails leaves the store pending and is tried again, and never reloads, since memory holds saves the file lacks. The orphan document is written before the store, so a delta whose orphan write fails changes nothing.
 
-Before a store write the journal will record, the store writes the marker that says the journal may lack a write (`journal.mark_unjournaled`), and it removes the marker once the journal append succeeds, unless the marker was already there. A marker that cannot be written fails the save as a failed store write does, so no store write goes unmarked. An append that fails (reported as `journal_error`), is cut short, or never runs because the server was killed leaves it, so the next land that moves the stamp journals a base (`journal.base_due`).
+A save journaled first writes no marker and no store; once its append returns, the reply goes out. A save whose append fails (reported as `journal_error`) is never refused and memory is never rolled back: the store writes the marker that says the journal may lack a write (`journal.mark_unjournaled`) and then the whole store at once, and leaves the marker, so a lock holder reads the store a save written at once would leave and the next land that moves the stamp journals a base (`journal.base_due`). Every other store write the journal records goes before its append (a move onto the served corpus under rule 3, the empty store at boot, and any save while the marker is there), so it writes the marker first and removes it once the append succeeds, unless the marker was already there. A marker that cannot be written fails the save as a failed store write does, so no store write goes unmarked, and a store write that fails removes the marker it wrote, since the file and the journal are then as they were: a save whose append failed first cuts the journal back to its length before the append (`_cut_back`), removing any line a short write left, and keeps the marker when it cannot. An append that fails, is cut short, or never runs because the server was killed leaves it. While the marker exists no lock holder catches the store up with the journal (`landing.catch_up`), and every save writes the store at once, so none waits in the journal (#618's decision 82).
 """
 
 from __future__ import annotations
@@ -411,6 +411,7 @@ class VerdictStore:
         self.overrides = Overrides()
         self.refusal: str | None = None
         self.refusal_reason: str | None = None
+        self.pending = False
         self._lines: dict[str, str] = {}
         self._order: list[str] = []
         self._override_order: list[str] = []
@@ -447,7 +448,7 @@ class VerdictStore:
             self._accepted_error = malformed
 
     def reload(self) -> None:
-        """Replace the store's content with the file's, and read the accepted list again when it moved. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it. A file holding a verdict record `well_formed` refuses leaves the store empty and unstamped too, but sets `refusal`, which names the file and the first such record (`read_store_document`, which refuses it before anything compares its records' `at` values), and `refusal_reason`, `store-malformed`, and `receive` refuses every delta with it until a reload of another file clears it, so no save writes over the file. A malformed list (`accepted-malformed`) and a store that does not pair with the list (`accepted-mismatch`, `accepted.pair`) are refused the same way, until the list or the store is replaced. When the file holds the stamp the store already has and the list is the one the store last paired with, the units whose answer can differ (`_diff_units`) are recorded as changes and every token stays valid; otherwise every token is invalidated, since a new list changes the answer for every unit it names.
+        """Replace the store's content with the file's, which leaves it not pending, and read the accepted list again when it moved. A missing file or one that is not a verdicts document leaves the store empty and unstamped, so the next save overwrites it. A file holding a verdict record `well_formed` refuses leaves the store empty and unstamped too, but sets `refusal`, which names the file and the first such record (`read_store_document`, which refuses it before anything compares its records' `at` values), and `refusal_reason`, `store-malformed`, and `receive` refuses every delta with it until a reload of another file clears it, so no save writes over the file. A malformed list (`accepted-malformed`) and a store that does not pair with the list (`accepted-mismatch`, `accepted.pair`) are refused the same way, until the list or the store is replaced. When the file holds the stamp the store already has and the list is the one the store last paired with, the units whose answer can differ (`_diff_units`) are recorded as changes and every token stays valid; otherwise every token is invalidated, since a new list changes the answer for every unit it names.
 
         A reload never holds two generations: before it parses the file it frees the one the store holds (`_release`). When the file's head names another stamp than the store's (`accepted.head_stamp` over its first `accepted.HEAD_BYTES`), the list moved, or the file cannot be read, it frees it whole, since every token then goes and no diff is needed. When the head names the store's stamp or does not settle one, it first reduces it to each own and override record's unit with an 8-byte digest of its `_signature`, and the override tombstones as they are (`_Reduced`), which `_diff_units` compares the new records against. A file whose head names another stamp than its whole parse does, which no repo writer makes (`accepted.head_stamp`), invalidates every token even when the parse lands on the store's stamp. A reload that raises leaves the store empty and unstamped with no signature, so the next request reads the file again.
 
@@ -463,6 +464,7 @@ class VerdictStore:
             self._signature = None
         self.refusal = None
         self.refusal_reason = None
+        self.pending = False
         self._read_accepted()
         held_stamp = self.stamp
         same_list = self._paired_sha == self.accepted.sha256
@@ -537,12 +539,29 @@ class VerdictStore:
         self._override_order = []
         return held
 
-    def refresh_if_changed(self) -> bool:
-        """Reload when the store's file or the accepted list's moved since the store last read it (`reload`), and return whether it reloaded."""
-        if file_signature(self.path) == self._signature and (
-            self.accepted_path is None or file_signature(self.accepted_path) == self._accepted_signature
-        ):
+    def _moved(self) -> tuple[bool, bool]:
+        """Return whether the store's file and the accepted list's moved since the store last read or wrote them."""
+        listed = (
+            self.accepted_path is not None and file_signature(self.accepted_path) != self._accepted_signature
+        )
+        return file_signature(self.path) != self._signature, listed
+
+    def reload_waits(self) -> bool:
+        """Return whether a reload waits for the store's pending saves to be written (`refresh_if_changed`): the store holds saves its file lacks, its file has not moved, and the accepted list's has."""
+        if not self.pending:
             return False
+        store_moved, list_moved = self._moved()
+        return list_moved and not store_moved
+
+    def refresh_if_changed(self, *, locked: bool = False) -> bool:
+        """Reload when the store's file or the accepted list's moved since the store last read or wrote it (`reload`), and return whether it reloaded. A file that moved holds every save the store journaled, since every other writer catches the file up with the journal before it replaces it (`landing.locked_store`), so the reload leaves the store not pending. While the store holds saves its file lacks (`pending`) and only the list moved, a reload would read a file without them, so it waits (`reload_waits`) for a caller that holds the store's lock (`locked`), which writes the pending store first and then reloads; a caller without the lock gets False and the store as it holds it."""
+        store_moved, list_moved = self._moved()
+        if not store_moved and not list_moved:
+            return False
+        if self.pending and not store_moved:
+            if not locked:
+                return False
+            self.write()
         self.reload()
         return True
 
@@ -770,11 +789,13 @@ class VerdictStore:
         self._signature = signature
 
     def write(self) -> None:
+        """Write the store over its file (`_write_bytes`, a chunk of `payload_chunks` at a time), which leaves it not pending. The review server writes its pending saves this way on idle (`serve.write_pending_store`)."""
         self._write_bytes(self.payload_chunks())
+        self.pending = False
 
     def receive(self, raw: bytes, served: ServedCorpus | None = None) -> tuple[int, dict]:
-        """Apply a delta POST body and return the HTTP status and response body. A body `parse_delta_payload` refuses gets a 400 and writes nothing: a delta holding a malformed set or clear is told which one (`MalformedSet`, `MalformedClear`), a full store gets recovery instructions, and any other body is told it is not an ams-review-verdicts-delta/1 document. `served` is the corpus the server serves, which decides what a delta on another stamp does; None means it is unknown. While the file holds a record `well_formed` refuses (`refusal`), a delta gets a 422 naming the file and the record, and nothing is written."""
-        self.refresh_if_changed()
+        """Apply a delta POST body and return the HTTP status and response body. A body `parse_delta_payload` refuses gets a 400 and writes nothing: a delta holding a malformed set or clear is told which one (`MalformedSet`, `MalformedClear`), a full store gets recovery instructions, and any other body is told it is not an ams-review-verdicts-delta/1 document. `served` is the corpus the server serves, which decides what a delta on another stamp does; None means it is unknown. While the file holds a record `well_formed` refuses (`refusal`), a delta gets a 422 naming the file and the record, and nothing is written. The caller holds the store's lock, as the server's POST does (`serve.receive_autosave_locked`), so a reload that waits on the pending store's write writes it first (`refresh_if_changed`)."""
+        self.refresh_if_changed(locked=True)
         try:
             delta = parse_delta_payload(raw)
         except (MalformedSet, MalformedClear) as malformed:
@@ -881,17 +902,21 @@ class VerdictStore:
         rejected = plan.orphans + plan.conflicts
         if rejected:
             append_orphans(self.orphans_dir, stamp, rejected)
+        held_stamp = self.stamp
+        held = self._hold(plan)
         if adopted is not None:
             self.stamp = adopted
         sets, clears, restores = self._apply(plan)
         changed = [record["unit"] for record in sets] + clears + restores
+        first = self._journals_first(adopted)
         marked = False
-        if changed or adopted is not None:
+        if not first and (changed or adopted is not None):
             try:
                 marked = bool(changed) and self._mark_unjournaled()
                 self.write()
             except BaseException:
-                self.reload()
+                self._unmark(marked)
+                self._put_back(held, held_stamp)
                 raise
         body = {
             "ok": True,
@@ -910,7 +935,8 @@ class VerdictStore:
             seed_records, seed_cleared = (
                 (None, None) if self.journal_path.exists() else self._store_before(sets, clears + restores)
             )
-            self._journal(
+            end = self._journal_end() if first else None
+            appended = self._journal(
                 body,
                 marked,
                 journal.record_delta,
@@ -922,7 +948,93 @@ class VerdictStore:
                 seed_cleared=seed_cleared,
                 accepted=self.accepted.field(),
             )
+            if first and appended:
+                self.pending = True
+            elif first:
+                marked = False
+                try:
+                    marked = self._mark_unjournaled()
+                    self.write()
+                except BaseException:
+                    if self._cut_back(end):
+                        self._unmark(marked)
+                    self._put_back(held, held_stamp)
+                    raise
         return 200, body
+
+    def _journal_end(self) -> tuple[int | None, int | None] | None:
+        """Return the journal's length and inode before a save's journal-first append, taken once the journal ends on a newline (`journal.repair_tail`), so the save's lines begin at that length; (None, None) when there is no journal yet, and None when they cannot be read, which `_cut_back` takes as a journal it cannot put back."""
+        assert self.journal_path is not None
+        try:
+            journal.repair_tail(self.journal_path)
+            found = self.journal_path.stat()
+        except FileNotFoundError:
+            return None, None
+        except OSError:
+            return None
+        return found.st_size, found.st_ino
+
+    def _cut_back(self, end: tuple[int | None, int | None] | None) -> bool:
+        """Cut the journal back to `end` (`_journal_end`), removing the lines a failed append wrote before it failed, as a short write leaves them (`journal.truncate_to`), and return whether the journal is as it was before the append, so a save put back leaves no line of itself in it; a length that was not taken or a cut that fails returns False."""
+        if end is None:
+            return False
+        assert self.journal_path is not None
+        try:
+            journal.truncate_to(self.journal_path, *end)
+        except OSError:
+            return False
+        return True
+
+    def _journals_first(self, adopted: str | None) -> bool:
+        """Return whether a save that changes a record is journaled first and left pending for the idle write, rather than written at once: the store has a journal, it already had a stamp (a save that stamps an unstamped store writes it at once, so the file it starts exists), and the marker that says the journal may lack a store write is not there (while it is, no lock holder catches the store up with the journal, `landing.catch_up`, so each save writes the store at once until a land journals a base and removes it, #618's decision 82)."""
+        return (
+            self.journal_path is not None
+            and adopted is None
+            and not journal.unjournaled_marker_for(self.path).exists()
+        )
+
+    def _hold(self, plan: _Plan) -> dict[str, tuple]:
+        """Return what the store holds for each unit the plan names, its own record and tombstone and its override record and tombstone, for `_put_back`."""
+        units = {record["unit"] for record in plan.sets} | set(plan.clears) | set(plan.restores)
+        return {
+            unit: (
+                self.records.get(unit),
+                self.cleared.get(unit),
+                self.overrides.records.get(unit),
+                self.overrides.cleared.get(unit),
+            )
+            for unit in units
+        }
+
+    def _put_back(self, held: dict[str, tuple], stamp: str | None) -> None:
+        """Undo a save whose store write failed: for a store with no journal, reload the file, which holds every save but this one; for one with a journal, whose memory holds pending saves the file lacks, put each unit the save named back as `_hold` found it, and the stamp, so memory holds no record the file and the journal both lack and a resend of the same delta is applied again."""
+        if self.journal_path is None:
+            self.reload()
+            return
+        for unit, (record, tombstone, override, override_tombstone) in held.items():
+            for records, order in (
+                (self.records, self._order),
+                (self.overrides.records, self._override_order),
+            ):
+                if records.pop(unit, None) is not None:
+                    del order[bisect_left(order, unit)]
+            self._lines.pop(unit, None)
+            self.cleared.pop(unit, None)
+            self.overrides.cleared.pop(unit, None)
+            for kept, records, order in (
+                (record, self.records, self._order),
+                (override, self.overrides.records, self._override_order),
+            ):
+                if kept is not None:
+                    records[unit] = kept
+                    insort(order, unit)
+                    self._lines[unit] = json.dumps(kept, ensure_ascii=False)
+            if tombstone is not None:
+                self.cleared[unit] = tombstone
+            if override_tombstone is not None:
+                self.overrides.cleared[unit] = override_tombstone
+        self.stamp = stamp
+        self._note_changes(held)
 
     def _apply(self, plan: _Plan) -> tuple[list[dict], list[str], list[str]]:
         """Apply the plan's sets, restores and clears to memory, record the changed units, and return the sets, clears and restores that changed something."""
@@ -933,8 +1045,10 @@ class VerdictStore:
         return sets, clears, restores
 
     def _receive_delta_onto_served_stamp(self, delta: dict, served: ServedCorpus) -> tuple[int, dict]:
-        """Apply a delta stamped for the served corpus to a store on another stamp (rule 3 in the module docstring): keep the file under its stash name, carry the store's own records and tombstones on the served corpus's human units onto the served stamp by unit id, less its skips, each of which leaves a tombstone at its `at`, keep its override section whole (`Overrides.moved`), apply the delta under rule 1, and journal the move as one transition that names the stash. The stash is a second name for the old file (a copy where the filesystem refuses a hard link), and the new store is renamed over it, so a failed write leaves the old store in place."""
+        """Apply a delta stamped for the served corpus to a store on another stamp (rule 3 in the module docstring): write the store first when it is pending, so the stash holds every save journaled on the old stamp, keep the file under its stash name, carry the store's own records and tombstones on the served corpus's human units onto the served stamp by unit id, less its skips, each of which leaves a tombstone at its `at`, keep its override section whole (`Overrides.moved`), apply the delta under rule 1, write the moved store at once and journal the move as one transition that names the stash. A move is rare, so it writes the store at once rather than journaling first. The stash is a second name for the old file (a copy where the filesystem refuses a hard link), and the new store is renamed over it, so a failed write leaves the old store in place."""
         stamp = delta["manifest_generated_at"]
+        if self.pending:
+            self.write()
         old_stamp = self.stamp
         old_verdicts, old_cleared = accepted.joined(self.records, self.cleared, self.overrides)
         stash = stash_path_for(self.path, old_stamp) if old_stamp is not None else None
@@ -954,10 +1068,12 @@ class VerdictStore:
         self._replace(stamp, kept, cleared, self.overrides.moved(journal.now_stamp()))
         self._invalidate_tokens()
         self._apply(self._plan(delta, tested=delta["replay"], members=None))
+        marked = False
         try:
             marked = self._mark_unjournaled()
             self.write()
         except BaseException:
+            self._unmark(marked)
             self.reload()
             raise
         new_verdicts, new_cleared = accepted.joined(self.records, self.cleared, self.overrides)
@@ -990,15 +1106,17 @@ class VerdictStore:
         return 200, body
 
     def stamp_empty_store(self, stamp: str) -> dict | None:
-        """With no store file beside an accepted list, write an empty store stamped `stamp`, the served corpus's, that names the list, and journal it as a base event, so the review app shows every accepted unit of a fresh clone, a worktree or a machine whose store was deleted instead of a 404 that restores nothing. Return the write's report, which holds `journal_error` when the append failed, or None when a store file exists, a refusal stands, or there is no list. The review server calls it at boot under the store's lock."""
+        """With no store file beside an accepted list, write an empty store stamped `stamp`, the served corpus's, that names the list, at once, and journal it as a base event, so the review app shows every accepted unit of a fresh clone, a worktree or a machine whose store was deleted instead of a 404 that restores nothing. Return the write's report, which holds `journal_error` when the append failed, or None when a store file exists, a refusal stands, or there is no list. The review server calls it at boot under the store's lock."""
         field = self.accepted.field()
         if self.path.exists() or self.refusal is not None or field is None or self.stamp is not None:
             return None
         self.stamp = stamp
+        marked = False
         try:
             marked = self._mark_unjournaled()
             self.write()
         except BaseException:
+            self._unmark(marked)
             self.reload()
             raise
         report: dict = {"stamp": stamp, "accepted": field}
@@ -1031,13 +1149,19 @@ class VerdictStore:
             return False
         return journal.mark_unjournaled(self.path, "review server")
 
-    def _journal(self, body: dict, marked: bool, append, **kwargs) -> None:
-        """Append the store write just made to the journal with `append` (`journal.record_delta` or `journal.record_transition`), reporting an OSError as `journal_error`, and once the append succeeds remove the marker when this write left it (`marked`). A failed append, or a server killed before or during it, leaves the marker for the next land that moves the stamp."""
+    def _unmark(self, marked: bool) -> None:
+        """Remove the marker a store write left (`marked`) when that write failed (#618's decision 82): the file and the journal are as they were, a journal-first save's failed append cut back first (`_cut_back`), so the journal replays to the store, and the catch-up, which a marker stops (`landing.catch_up`), can still write the saves the journal holds and the file lacks."""
+        if marked:
+            journal.unjournaled_marker_for(self.path).unlink(missing_ok=True)
+
+    def _journal(self, body: dict, marked: bool, append, **kwargs) -> bool:
+        """Append a change to the journal with `append` (`journal.record_delta` or `journal.record_transition`), reporting an OSError as `journal_error`, and return whether the append succeeded; once it has, remove the marker when the store write made before it left it (`marked`). A failed append, or a server killed before or during it, leaves the marker for the next land that moves the stamp."""
         assert self.journal_path is not None
         try:
             append(self.journal_path, **kwargs)
         except OSError as exc:
             body["journal_error"] = str(exc)
-            return
+            return False
         if marked:
             journal.unjournaled_marker_for(self.path).unlink(missing_ok=True)
+        return True

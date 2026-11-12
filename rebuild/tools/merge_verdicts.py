@@ -272,7 +272,7 @@ def merge(
     if dry_run or guarded or held is not None:
         return merged(guarded)
     try:
-        with locked_store(autosave):
+        with locked_store(autosave, journal_path=journal_path, accepted_path=listed.path):
             return merged(False)
     except LandUnrecoverable as refused:
         print(f"ERROR: {refused}. Nothing was merged.")
@@ -809,7 +809,7 @@ def run_restore(
         return 1
     payload = _restored(stamp, records, cleared, field, listed)
     try:
-        with locked_store(autosave):
+        with locked_store(autosave, journal_path=journal_path, accepted_path=listed.path):
             return _apply_restore(
                 as_of, stamp, records, payload, autosave=autosave, journal_path=journal_path
             )

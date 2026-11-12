@@ -7631,7 +7631,7 @@ def test_verdict_update_skip_fingerprint_sees_a_master_that_is_not_the_autosave(
 
 
 def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(tmp_path, monkeypatch):
-    """The review server rewrites the store with a new `exported_at` on every save, and it, the merge and the land lay the records out one per line, where a restore and older stores indent them. Neither moves the key, and a changed record does. A master that resolved to the store is named `autosave` in the key, so spelling its path another way changes nothing. The store's digest streams the records a file in unit order holds, as every writer lays them out, and both of its reads read the file it opened, so a writer that renames another over the path between them changes neither. A file out of that order is read whole and sorted in a short child handed the open file, for the value a stream of the same records gives, and a child that answers nothing raises `StoreReadFailed`."""
+    """Every write stamps the store with a new `exported_at`, and the review server, the merge and the land lay the records out one per line, where a restore and older stores indent them. Neither moves the key, and a changed record does. A master that resolved to the store is named `autosave` in the key, so spelling its path another way changes nothing. The store's digest streams the records a file in unit order holds, as every writer lays them out, and both of its reads read the file it opened, so a writer that renames another over the path between them changes neither. A file out of that order is read whole and sorted in a short child handed the open file, for the value a stream of the same records gives, and a child that answers nothing raises `StoreReadFailed`."""
     corpus = tmp_path / "review"
     corpus.mkdir()
     (corpus / "manifest.json").write_text(
@@ -9496,6 +9496,42 @@ def test_main_finishes_a_stopped_land_before_it_sweeps_the_run_directories(tmp_p
     assert {entry["unit"] for entry in landed["verdicts"]} == {"u-1", "u-landed"}
 
 
+def test_a_pass_catches_the_store_up_with_its_journal_before_its_plan_reads_the_store(
+    tmp_path, monkeypatch, capsys
+):
+    """The review server journals each save and writes the store on idle, so a pass can start with the store lagging its journal. Every pass but a dry run and a staging pass takes the store's lock once at its start, which writes into the store the saves the journal holds past its last write, in a short child under the lock the driver holds, and says how many journal events from the store's last write on it applied (here the base that seeds the journal and the save), before its plan resolves the carry source; a dry run and a staging pass, which write no store, leave it as it is, and a pass whose store already holds the journal's tail says nothing."""
+    from rebuild.review.verdict_store import DELTA_FORMAT, VerdictStore
+
+    _settled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
+    read: list[set[str]] = []
+    real_resolve = ac.resolve_carry_source
+
+    def resolve():
+        read.append({record["unit"] for record in json.loads(ac.AUTOSAVE.read_text())["verdicts"]})
+        return real_resolve()
+
+    monkeypatch.setattr(ac, "resolve_carry_source", resolve)
+    server = VerdictStore(ac.AUTOSAVE, journal.journal_path_for(ac.AUTOSAVE))
+    sent = {"unit": "u-saved", "verdict": "reject", "note": "", "at": "2026-07-18T00:00:00Z"}
+    body = {"format": DELTA_FORMAT, "manifest_generated_at": server.stamp, "sets": [sent]}
+    assert server.receive(json.dumps(body).encode())[0] == 200 and server.pending
+    before = ac.AUTOSAVE.read_bytes()
+    for argv in (["--dry-run"], ["--review-out", str(tmp_path / "staged")]):
+        assert ac.main(argv) == 0
+        assert "Caught the verdict store up" not in capsys.readouterr().out
+        assert ac.AUTOSAVE.read_bytes() == before
+    assert ac.main([]) == 0
+    assert (
+        "Caught the verdict store up with its journal, which held changes its file lacked: applied the 2 journal "
+        "events from its last write on." in capsys.readouterr().out
+    )
+    assert read[-1] == {"u-1", "u-saved"}
+    assert ac.main([]) == 0
+    assert "Caught the verdict store up" not in capsys.readouterr().out
+
+
 def test_main_stops_with_the_refusal_when_a_stopped_lands_recovery_refuses(tmp_path, monkeypatch, capsys):
     """A stopped land's result hand-edited to hold two records on one unit, one with an `at` that is not a string, stops the recovery `recover_land` runs (`landing.LandUnrecoverable`). The pass then prints the refusal and exits 1 before its first step instead of ending in a traceback, and the store, the result and the intent are left byte for byte as they were."""
     _settled_repo(tmp_path, monkeypatch)
@@ -9538,7 +9574,7 @@ def test_main_stops_with_the_refusal_when_a_stopped_lands_recovery_refuses(tmp_p
 def test_main_stops_with_the_refusal_when_the_store_does_not_pair_with_the_accepted_list(
     tmp_path, monkeypatch, capsys
 ):
-    """A store whose `accepted` field names a list the tree does not hold, as a checkout that separates the two leaves it, stops the carry source's resolution (`accepted.Mismatch`), which the short child that resolves it reports as the same refusal. The pass then prints the refusal with its remedy and exits 1 before its first step instead of ending in a traceback, and the store is left byte for byte as it was. A child that dies with no answer stops the pass the same way, naming what it said."""
+    """A store whose `accepted` field names a list the tree does not hold, as a checkout that separates the two leaves it, stops the carry source's resolution (`accepted.Mismatch`), which the short child that resolves it reports as the same refusal. The pass then prints the refusal with its remedy and exits 1 before its first step instead of ending in a traceback, and the store is left byte for byte as it was. A child that dies with no answer stops the pass the same way, naming what it said: in a dry run, which takes no catch-up, the carry source's child, and in a pass the catch-up's child at its start, the first store read it makes."""
     _settled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     cycles: list[object] = []
@@ -9558,10 +9594,11 @@ def test_main_stops_with_the_refusal_when_the_store_does_not_pair_with_the_accep
     assert refused.value.reason == accepted.MISMATCH and str(refused.value).startswith(f"{ac.AUTOSAVE} names")
 
     monkeypatch.setattr(ac, "_STORE_READ_CHILD", "import sys; sys.exit('the child died')")
-    assert ac.main([]) == 1
-    out = capsys.readouterr().out
-    assert out.startswith("ERROR: the child that reads the verdict store for the carry read exited 1")
-    assert "(the child died)" in out and "The pass stops before it starts." in out and cycles == []
+    for argv, read in ((["--dry-run"], "carry"), ([], "catch-up")):
+        assert ac.main(argv) == 1
+        out = capsys.readouterr().out
+        assert f"the child that reads the verdict store for the {read} read exited 1" in out
+        assert "(the child died)" in out and "The pass stops before it starts." in out and cycles == []
 
 
 def test_a_pass_stops_a_standing_daemon_before_its_first_step_and_a_dry_run_leaves_it(

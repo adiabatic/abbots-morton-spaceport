@@ -2,7 +2,7 @@
 
 A corpus-changing pass builds its corpus beside the served one, at rebuild/out/review.next (a copy-on-write clone of the served tree, `clone_tree`), or promotes a staged one, and runs the verdict update against the store's snapshot: `snapshot` links the live store's file into the pass's run directory as the snapshot S and the prepared store R, under the store's lock, and the verdict update carries, merges and fills into R. Every writer of the store, of S and of R replaces its file by rename, so a write to one never reaches the others, and the review server's signature of the store (`verdict_store.file_signature`) does not move. `land` then moves both into place in one short section under the store's lock (`rebuild.review.store_lock`), which every writer of the store and its journal holds, the review server included, so a save is never applied between the two moves. A pass whose corpus did not move but whose store did lands the store alone.
 
-The land holds no store whole. Without the lock it reads the new corpus's stamp and human unit ids, checks S and R a record at a time and holds each one's head, tombstones and override section (`_tail_of`, over `accepted.read_tail`), reads, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`), and walks S, R and S again in the live store C's place as streams merged by unit (`_plan`, over `accepted.iter_records`), working out the result, the offsets of its record lines, the journal's sets and clears, and the orphan guard's terms. Under the lock it compares C with S by bytes (`_is_snapshot`); when C is not S, as after a save made during the pass, or when the walk without the lock had to stamp a tombstone with the time of day, which the land takes under the lock, it checks C the same way and walks S, R and C again under the lock. It aborts, keeping the staged tree, when C is on another stamp than S; when C does not pair with the accepted list beside it (`rebuild.review.accepted`: `--accepted`, by default rebuild/accepted-units.txt beside the store) or the list cannot be read; when S or R does not pair with the list, since a close-out or a re-key then changed it during the pass; or, under the orphan guard the command line sets unless `--allow-orphans` is passed, when the stamp moves and more than `ORPHAN_SHARE_LIMIT` of C's verdicts other than skips, its override records on the live corpus's human units among them, and its accepted units name a unit outside the new corpus's triage index; an override on a unit the live corpus lacks counts in neither term, since the section keeps it until the next close-out and it would count as orphaned on every pass. Its accepted units are the listed units of the live corpus's human units that C holds no override for, which it counts in both terms, streaming the list, so a wholesale id move is refused on a store a close-out emptied and on a pass that carried nothing. The result names the list in its `accepted` field. It aborts the same way, before it writes anything, when S, R or C holds a verdict record `verdict_store.well_formed` refuses, naming the store and the first such record, as `read_store` names them, so it never lands one. Every unit whose record in C differs from S's, or that C cleared since S (a tombstone in C that S lacks or holds at another `at`), is the reviewer's act after the snapshot, so it is laid over R and beats any fill: a clear removes R's record for its unit, whether a fill, a carry or a merge put it there, and leaves C's tombstone. The store's override section, its records and tombstones on listed units (`accepted.Overrides`), is laid over R's the same way, on a stamp change too, whatever corpus its units are on: an override C set, changed or cleared since S replaces R's for its unit, a skip among them becoming a tombstone at its `at` on a stamp change, and an override C removed, a set back to the accepted record (`verdict_store`), removes R's and leaves none, so the unit reads as the list names it; R's other overrides, S's carried through the pass whole (`merge_verdicts`), stay, and an override C shares unchanged with S is kept for a unit R holds none for, a skip becoming a tombstone on a stamp change, so the empty store a pass with no prepared store starts from keeps the section whole. On a stamp change only the new corpus's human units are laid over among the store's own records and tombstones: a set or skip C made since S on any other unit goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), a clear on one is dropped, and a skip on one of the human units is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. A tombstone C shares unchanged with S is kept only for a unit the result holds neither a record nor a tombstone for (on a stamp change, only for the new corpus's human units), whatever its age. The result is written once, under the lock, to the run directory in the layout `document_bytes` gives, and only by a land that lands it: as R's records stream past (`_write_result`), or, when the walk runs under the lock on a land that can neither leave the store in place nor be refused by the orphan guard, as it walks (`_ResultWriter`). When the live store is the snapshot and R's file holds the result's bytes but for `exported_at`, as the verdict update writes it (`rebuild.tools.held_store`), which the land tells by reading R once more without the lock (`_as_result`), R itself is the result: the land writes none and renames R over the store, which keeps R's `exported_at`, the time the verdict update wrote it. The intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, each set line spliced from the result's record line for its unit, read in order on a base and at the walk's offsets on a diff (`_Spliced`), and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. A store whose records do not stream by unit, one listing a unit before the unit ahead of it or naming its `verdicts` list twice, makes the land read every store whole (`_land_whole`: `read_store`, `overlay`, `document_bytes` and `journal.record_transition` over the stores in memory), which gives the same bytes, and print one line naming the store and why. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
+The land holds no store whole. Without the lock it reads the new corpus's stamp and human unit ids, checks S and R a record at a time and holds each one's head, tombstones and override section (`_tail_of`, over `accepted.read_tail`), reads, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`), and walks S, R and S again in the live store C's place as streams merged by unit (`_plan`, over `accepted.iter_records`), working out the result, the offsets of its record lines, the journal's sets and clears, and the orphan guard's terms. Under the lock, which first writes into C the saves the review server journaled and has not written (`locked_store`, `catch_up`), it compares C with S by bytes (`_is_snapshot`); when C is not S, as after a save made during the pass, or when the walk without the lock had to stamp a tombstone with the time of day, which the land takes under the lock, it checks C the same way and walks S, R and C again under the lock. It aborts, keeping the staged tree, when C is on another stamp than S; when C does not pair with the accepted list beside it (`rebuild.review.accepted`: `--accepted`, by default rebuild/accepted-units.txt beside the store) or the list cannot be read; when S or R does not pair with the list, since a close-out or a re-key then changed it during the pass; or, under the orphan guard the command line sets unless `--allow-orphans` is passed, when the stamp moves and more than `ORPHAN_SHARE_LIMIT` of C's verdicts other than skips, its override records on the live corpus's human units among them, and its accepted units name a unit outside the new corpus's triage index; an override on a unit the live corpus lacks counts in neither term, since the section keeps it until the next close-out and it would count as orphaned on every pass. Its accepted units are the listed units of the live corpus's human units that C holds no override for, which it counts in both terms, streaming the list, so a wholesale id move is refused on a store a close-out emptied and on a pass that carried nothing. The result names the list in its `accepted` field. It aborts the same way, before it writes anything, when S, R or C holds a verdict record `verdict_store.well_formed` refuses, naming the store and the first such record, as `read_store` names them, so it never lands one. Every unit whose record in C differs from S's, or that C cleared since S (a tombstone in C that S lacks or holds at another `at`), is the reviewer's act after the snapshot, so it is laid over R and beats any fill: a clear removes R's record for its unit, whether a fill, a carry or a merge put it there, and leaves C's tombstone. The store's override section, its records and tombstones on listed units (`accepted.Overrides`), is laid over R's the same way, on a stamp change too, whatever corpus its units are on: an override C set, changed or cleared since S replaces R's for its unit, a skip among them becoming a tombstone at its `at` on a stamp change, and an override C removed, a set back to the accepted record (`verdict_store`), removes R's and leaves none, so the unit reads as the list names it; R's other overrides, S's carried through the pass whole (`merge_verdicts`), stay, and an override C shares unchanged with S is kept for a unit R holds none for, a skip becoming a tombstone on a stamp change, so the empty store a pass with no prepared store starts from keeps the section whole. On a stamp change only the new corpus's human units are laid over among the store's own records and tombstones: a set or skip C made since S on any other unit goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), a clear on one is dropped, and a skip on one of the human units is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. A tombstone C shares unchanged with S is kept only for a unit the result holds neither a record nor a tombstone for (on a stamp change, only for the new corpus's human units), whatever its age. The result is written once, under the lock, to the run directory in the layout `document_bytes` gives, and only by a land that lands it: as R's records stream past (`_write_result`), or, when the walk runs under the lock on a land that can neither leave the store in place nor be refused by the orphan guard, as it walks (`_ResultWriter`). When the live store is the snapshot and R's file holds the result's bytes but for `exported_at`, as the verdict update writes it (`rebuild.tools.held_store`), which the land tells by reading R once more without the lock (`_as_result`), R itself is the result: the land writes none and renames R over the store, which keeps R's `exported_at`, the time the verdict update wrote it. The intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, each set line spliced from the result's record line for its unit, read in order on a base and at the walk's offsets on a diff (`_Spliced`), and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. A store whose records do not stream by unit, one listing a unit before the unit ahead of it or naming its `verdicts` list twice, makes the land read every store whole (`_land_whole`: `read_store`, `overlay`, `document_bytes` and `journal.record_transition` over the stores in memory), which gives the same bytes, and print one line naming the store and why. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
 
 A pass whose verdict update changed nothing leaves the store in place. The update then records, beside the prepared store, that it left R as S's bytes (`record_unchanged`, `UNCHANGED_NAME`), and a land that finds that record for the R it is given (`prepared_unchanged`) still reads C, checks it against the accepted list and S, and swaps a staged corpus in, but when laying C over R, which is S, gives C itself (its records, tombstones, override section and `accepted` field) and the journal would gain no line, it writes no result, renames nothing over the store and appends nothing to the journal. It links the store as `LANDED_NAME`, as a land that writes links its result, so the store keeps its inode and modification time and the review server reloads nothing, and `LandResult.store_kept` says so. Any other land, an R that moved after the record among them, lands as above. A land that leaves the store in place writes an intent file only to swap a staged corpus, marked `store_kept`.
 
@@ -16,20 +16,23 @@ Usage: uv run python -m rebuild.review.landing --autosave FILE --journal FILE --
 from __future__ import annotations
 
 import argparse
+import codecs
 import contextlib
 import ctypes
 import errno
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
 import sys
 import time
 from array import array
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Container, Iterator, Mapping
 from dataclasses import asdict, dataclass, field
+from itertools import zip_longest
 from operator import itemgetter
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -225,11 +228,11 @@ def read_manifest(corpus: Path) -> tuple[str, frozenset[str]]:
     return stamp, frozenset(unit for unit in ids if isinstance(unit, str))
 
 
-def snapshot(autosave: Path, run_dir: Path) -> str | None:
-    """Link the live store's file into `run_dir` as the snapshot (`SNAPSHOT_NAME`) and the prepared store (`PREPARED_NAME`), under the store's lock, and return the snapshot's stamp. The three names share one file, copied only where a link fails, as across filesystems (`verdict_store.link_or_copy`), and every writer of the store, of the snapshot and of the prepared store replaces its file by rename, so a write to one never reaches the others and the review server's `file_signature` of the store does not move. A missing store makes neither name and returns None. A store holding a record `verdict_store.well_formed` refuses raises `verdict_store.MalformedStore` naming the live store, the first such record and the journal restore (`read_store`), so a pass stops at its snapshot, which the land would refuse, before the verdict update reads it."""
+def snapshot(autosave: Path, run_dir: Path, *, catch_up_with: CatchUpWith | None = None) -> str | None:
+    """Link the live store's file into `run_dir` as the snapshot (`SNAPSHOT_NAME`) and the prepared store (`PREPARED_NAME`), under the store's lock, and return the snapshot's stamp. The lock first writes into the store the saves the review server journaled and has not written (`locked_store`, with `catch_up_with` in place of `catch_up` when given), so the snapshot holds every save made before it. The three names share one file, copied only where a link fails, as across filesystems (`verdict_store.link_or_copy`), and every writer of the store, of the snapshot and of the prepared store replaces its file by rename, so a write to one never reaches the others and the review server's `file_signature` of the store does not move. A missing store makes neither name and returns None. A store holding a record `verdict_store.well_formed` refuses raises `verdict_store.MalformedStore` naming the live store, the first such record and the journal restore (`read_store`), so a pass stops at its snapshot, which the land would refuse, before the verdict update reads it."""
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
-    with locked_store(autosave, quiet=True):
+    with locked_store(autosave, quiet=True, catch_up_with=catch_up_with or catch_up):
         try:
             link_or_copy(autosave, run_dir / SNAPSHOT_NAME)
         except FileNotFoundError:
@@ -579,7 +582,10 @@ def _land_whole(
     )
 
     try:
-        with locked_store(autosave, quiet=True), _signals_blocked():
+        with (
+            locked_store(autosave, journal_path=journal_path, accepted_path=listed_path, quiet=True),
+            _signals_blocked(),
+        ):
             started = time.perf_counter()
             result = _land_locked(
                 autosave=autosave,
@@ -644,9 +650,9 @@ _SET_PREFIX = b'{"kind": "set", '
 _READ_BLOCK = 1 << 20
 
 
-def _tail_of(path: Path, name: str) -> accepted.Tail | None:
-    """Return the verdicts document at `path` as `accepted.read_tail` reads it, or None when it is missing or is not an ams-review-verdicts/1 document, as `read_store` answers. A document holding a record `verdict_store.well_formed` refuses raises `verdict_store.MalformedStore` naming the document `name` and the first such record, its own records before its override section's, as `read_store` does, and one naming its `verdicts` list more than once raises `_Unstreamable`."""
-    tail = accepted.read_tail(path)
+def _tail_of(path: Path, name: str, each: Callable[[object], None] | None = None) -> accepted.Tail | None:
+    """Return the verdicts document at `path` as `accepted.read_tail` reads it, calling `each` with every record it reads, or None when it is missing or is not an ams-review-verdicts/1 document, as `read_store` answers. A document holding a record `verdict_store.well_formed` refuses raises `verdict_store.MalformedStore` naming the document `name` and the first such record, its own records before its override section's, as `read_store` does, and one naming its `verdicts` list more than once raises `_Unstreamable`."""
+    tail = accepted.read_tail(path, each)
     if tail is None:
         return None
     if tail.malformed is not None:
@@ -1182,7 +1188,10 @@ def _land_streamed(
             as_result = _as_result(prepared, snapshot_path, r, ready, plan, new_stamp, listed_path)
 
     try:
-        with locked_store(autosave, quiet=True), _signals_blocked():
+        with (
+            locked_store(autosave, journal_path=journal_path, accepted_path=listed_path, quiet=True),
+            _signals_blocked(),
+        ):
             started = time.perf_counter()
             if plan is not None and (plan.stamped or not _is_snapshot(autosave, snapshot_path)):
                 plan = as_result = None
@@ -1850,27 +1859,675 @@ def _read_left(store: Path, landing: Path, run: str, intent_path: Path, journal_
         ) from None
 
 
+@dataclass(frozen=True)
+class CatchUp:
+    """What `catch_up` did to a store: `events`, how many journal events at or after its file's `exported_at` it read (those after a torn base event, when the tail holds one, `journal.tail`), `written`, whether they changed the store, which it then wrote, and `left`, why it left the store as it stands without applying them, None otherwise: the marker that says the journal may lack a store write, a store or a tail that does not pair with the accepted list or a list that cannot be read (`accepted.Refused`), a store holding a record `verdict_store.well_formed` refuses, or a file that is not a verdicts document. `marked` says the marker left it, the one reason no holder refuses on its own."""
+
+    events: int
+    written: bool = False
+    left: str | None = None
+    marked: bool = False
+
+    def line(self) -> str | None:
+        """Return the line a holder that reports its catch-up prints (the cycle at a pass's start, the review server at its boot): that the marker left the store as it stands, that it applied the tail when that changed the store, and None otherwise, as when the tail was empty, the store already held it, or the store or the list is refused, which the holder then reports itself."""
+        if self.marked:
+            return f"Left the verdict store as it stands, without the journal's events past its last write: {self.left}."
+        if not self.written:
+            return None
+        events = f"{self.events} journal event" + ("" if self.events == 1 else "s")
+        return f"Caught the verdict store up with its journal, which held changes its file lacked: applied the {events} from its last write on."
+
+
+@dataclass(frozen=True, slots=True)
+class _Change:
+    """A unit's state after a journal tail's lines: its record, or None with the tombstone the last clear line on it left, None when it left none."""
+
+    record: dict | None
+    tombstone: str | None
+
+
+def _state(record: dict | None, tombstone: str | None) -> tuple:
+    return (_signature(record), tombstone if record is None else None)
+
+
+def _state_digest(record: dict | None, tombstone: str | None) -> bytes:
+    """Return an 8-byte digest of `_state(record, tombstone)`, which a catch-up that only compares holds in place of the record, as the review server's same-stamp reload holds an 8-byte digest of a record's signature (`verdict_store`)."""
+    return hashlib.blake2b(repr(_state(record, tombstone)).encode(), digest_size=8).digest()
+
+
+_KEEP = object()
+_WHITESPACE = re.compile(r"[ \t\n\r]*")
+
+
+class _TailLines:
+    """A journal tail as `journal.replay_with_list` reads its lines, from its last base event (`base`), which starts the store over from its set lines, its `cleared` list and its field, or from the store, on its stamp, when it holds no base. `lines()` yields each set or clear line after that base, or after the tail's start, read while the stamp is set, as its unit with the record it gives it or None with the tombstone the line's `at` names (the event's own `at` for a line with no `at` field, none for a null one); each event it passes sets `stamp` and, when it carries one, `field`, which hold what the tail leaves once `lines()` is spent (`_KEEP` for a field no event in it set)."""
+
+    def __init__(self, tail: journal.JournalTail, stamp: object) -> None:
+        self.tail = tail
+        self.base = next((event for event in reversed(tail.events) if event.base), None)
+        self.stamp = stamp
+        self.field: object = _KEEP
+        self._start = tail.events[0].offset
+        if self.base is not None:
+            self.stamp = self.base.entry.get("stamp")
+            self.field = journal._accepted_field(self.base.entry)
+            self._start = self.base.end
+
+    def lines(self) -> Iterator[tuple[str, dict | None, str | None]]:
+        event_at: object = ""
+        for entry in self.tail.entries(self._start):
+            kind = entry.get("kind")
+            unit = entry.get("unit")
+            if kind == "event":
+                self.stamp = entry.get("stamp")
+                if "accepted" in entry:
+                    self.field = journal._accepted_field(entry)
+                event_at = entry.get("at") or ""
+            elif self.stamp is None or not isinstance(unit, str):
+                continue
+            elif kind == "set":
+                yield unit, _normalize(entry), None
+            elif kind == "clear":
+                tombstone = entry.get("at", event_at)
+                yield unit, None, tombstone if isinstance(tombstone, str) else None
+
+
+@dataclass
+class _Replayed:
+    """A journal tail as a catch-up applies it (`_replayed`): its last base event, None when it holds none, the stamp and `accepted` field the tail leaves (`_KEEP` for a field no event in it set), and each unit a line after that base, or after the tail's start, names, with the state the last such line leaves it in (`_TailLines`)."""
+
+    base: journal.TailEvent | None
+    stamp: object
+    field: object
+    changes: dict[str, _Change]
+
+
+def _replayed(tail: journal.JournalTail, stamp: object, only: Container[str] | None = None) -> _Replayed:
+    """Return `tail` as `_TailLines` reads it from the store's stamp `stamp`, each unit with the record or tombstone the last line on it leaves, or only the units in `only` when given."""
+    read = _TailLines(tail, stamp)
+    changes = {
+        unit: _Change(record, tombstone)
+        for unit, record, tombstone in read.lines()
+        if only is None or unit in only
+    }
+    return _Replayed(read.base, read.stamp, read.field, changes)
+
+
+def _head_members(store: Path) -> dict | None:
+    """Return the top-level members the store document at `store` holds before its `verdicts` list, read from its first `accepted.HEAD_BYTES` bytes member by member as `accepted.head_stamp` reads that head, an empty dict when that head does not settle them, and None when the file cannot be opened."""
+    try:
+        with store.open("rb") as handle:
+            head = handle.read(accepted.HEAD_BYTES)
+    except OSError:
+        return None
+    members: dict = {}
+    try:
+        text = codecs.getincrementaldecoder("utf-8")().decode(head)
+        decoder = json.JSONDecoder()
+        index = _skip(text, 0)
+        if not text.startswith("{", index):
+            return {}
+        index = _skip(text, index + 1)
+        while text.startswith('"', index):
+            key, index = decoder.raw_decode(text, index)
+            index = _skip(text, index)
+            if not text.startswith(":", index):
+                return {}
+            index = _skip(text, index + 1)
+            if key == "verdicts":
+                return members
+            if key in members:
+                return {}
+            members[key], index = decoder.raw_decode(text, index)
+            index = _skip(text, index)
+            if not text.startswith(",", index):
+                return {}
+            index = _skip(text, index + 1)
+    except ValueError:
+        return {}
+    return {}
+
+
+def _skip(text: str, index: int) -> int:
+    match = _WHITESPACE.match(text, index)
+    return match.end() if match else index
+
+
+def _listed_among(path: Path | None, units: Container[str]) -> set[str]:
+    """Return the units among `units` that the accepted list at `path` names, reading the list a line at a time (`accepted.iter_lines`); none with no list."""
+    if path is None:
+        return set()
+    return {unit for unit, _verdict in accepted.iter_lines(path) if unit in units}
+
+
+class _ListWalk:
+    """The accepted list at `path` read a line at a time, saying for units asked in unit order whether it names each (`listed`), so a stream in unit order is split by the list without holding it."""
+
+    def __init__(self, path: Path | None) -> None:
+        self._lines = accepted.iter_lines(path) if path is not None else iter(())
+        self._at = next(self._lines, None)
+
+    def listed(self, unit: str) -> bool:
+        while self._at is not None and self._at[0] < unit:
+            self._at = next(self._lines, None)
+        return self._at is not None and self._at[0] == unit
+
+
+def _laid_over(records: Iterator[dict], changes: Mapping[str, _Change], name: str) -> Iterator[dict]:
+    """Yield `records`, own records in unit order, with `changes` laid over them: a changed unit's record in place of the one it held, or none, and each changed unit that held none with its record, in unit order. A record on a unit at or before the one ahead of it raises `_Unstreamable`, naming `name`."""
+    pending = sorted(changes)
+    at = 0
+    last: str | None = None
+    for record in records:
+        unit = record["unit"]
+        if last is not None and unit <= last:
+            raise _Unstreamable(name, f"lists {unit} after {last}")
+        last = unit
+        while at < len(pending) and pending[at] <= unit:
+            if (changed := changes[pending[at]].record) is not None:
+                yield changed
+            at += 1
+        if at and pending[at - 1] == unit:
+            continue
+        yield record
+    for unit in pending[at:]:
+        if (changed := changes[unit].record) is not None:
+            yield changed
+
+
+class _Caught:
+    """The store a catch-up leaves, held but for its own records: `own()` streams them in unit order, the store's or the tail's base's with the tail's changes laid over them, and once it is spent `cleared` and `overrides` hold the store's own tombstones and its override section, the changes on units the list names (`listed`) applied to the section and the rest to the store's own, as the review server applies a save (`verdict_store`) and as a restore splits a replay (`accepted.split`). Each unit `own()` yields takes its tombstone out of `cleared`, as the server drops a tombstone on a unit holding a record."""
+
+    def __init__(
+        self,
+        stamp: str,
+        field_: object,
+        records: Iterator[dict],
+        cleared: dict[str, str],
+        overrides: Overrides,
+        changes: Mapping[str, _Change],
+        listed: Container[str],
+        name: str,
+    ) -> None:
+        self.stamp = stamp
+        self.field = field_
+        self.cleared = cleared
+        self.overrides = overrides
+        self._records = records
+        self._own = {unit: change for unit, change in changes.items() if unit not in listed}
+        self._listed = {unit: change for unit, change in changes.items() if unit in listed}
+        self._name = name
+
+    def own(self) -> Iterator[dict]:
+        for record in _laid_over(self._records, self._own, self._name):
+            self.cleared.pop(record["unit"], None)
+            yield record
+        for unit, change in self._own.items():
+            if change.record is None and change.tombstone is not None:
+                self.cleared[unit] = change.tombstone
+            else:
+                self.cleared.pop(unit, None)
+        for unit, change in self._listed.items():
+            if change.record is not None:
+                self.overrides.set(change.record)
+            elif change.tombstone is not None:
+                self.overrides.clear(unit, change.tombstone)
+            else:
+                self.overrides.drop(unit)
+
+
+def _base_own(
+    tail: journal.JournalTail,
+    base: journal.TailEvent,
+    walk: _ListWalk,
+    cleared: dict[str, str],
+    overrides: Overrides,
+    name: str,
+) -> Iterator[dict]:
+    """Yield the records of the base event's set lines on units the list does not name, in unit order, putting each record on a listed unit in `overrides` and taking each record's unit out of the tombstones, `cleared` or the section's, as a set line removes its unit's tombstone (`journal.replay_with_list`). A set line on a unit at or before the one ahead of it, or a clear line among the base's lines, raises `_Unstreamable`, naming the journal `name`."""
+    entries = tail.entries(base.offset)
+    next(entries, None)
+    last: str | None = None
+    for entry in entries:
+        kind = entry.get("kind")
+        if kind == "event":
+            return
+        if kind == "clear":
+            raise _Unstreamable(name, "holds a clear line among a base event's set lines")
+        unit = entry.get("unit")
+        if kind != "set" or not isinstance(unit, str):
+            continue
+        if last is not None and unit <= last:
+            raise _Unstreamable(name, f"sets {unit} after {last} in a base event")
+        last = unit
+        record = _normalize(entry)
+        if walk.listed(unit):
+            overrides.set(record)
+            continue
+        cleared.pop(unit, None)
+        yield record
+
+
+def _base_caught(
+    tail: journal.JournalTail,
+    replayed: _Replayed,
+    stamp: str,
+    field_: object,
+    accepted_path: Path | None,
+    listed: Container[str],
+    name: str,
+) -> _Caught:
+    """Return the store the tail's base event starts over, with the changes after it, its records streamed from the journal (`_base_own`) and split by the list as they pass (`_ListWalk`), its tombstones by `listed`."""
+    assert replayed.base is not None
+    cleared: dict[str, str] = {}
+    overrides = Overrides()
+    for unit, at in journal.parse_cleared(replayed.base.entry).items():
+        (overrides.cleared if unit in listed else cleared)[unit] = at
+    records = _base_own(tail, replayed.base, _ListWalk(accepted_path), cleared, overrides, name)
+    return _Caught(stamp, field_, records, cleared, overrides, replayed.changes, listed, name)
+
+
+def _same_overrides(ours: Overrides, theirs: Overrides) -> bool:
+    return ours.cleared == theirs.cleared and {
+        unit: _signature(record) for unit, record in ours.records.items()
+    } == {unit: _signature(record) for unit, record in theirs.records.items()}
+
+
+def _write_caught_up(store: Path, caught: _Caught) -> None:
+    """Write the store `caught` leaves over the file at `store`, through a temporary file and a rename, in the layout the review server writes (`head_bytes`, `record_line`, `tail_parts`), its `exported_at` the time of the write, streaming its own records one at a time. A write that fails removes the temporary file."""
+    tmp = store.with_name(store.name + ".tmp")
+    try:
+        with tmp.open("wb") as handle:
+            handle.write(head_bytes(caught.stamp, journal.now_stamp(), caught.field))
+            first = True
+            for record in caught.own():
+                if not first:
+                    handle.write(b",\n")
+                first = False
+                handle.write(record_line(record))
+            for part, _unit in tail_parts(caught.cleared, caught.overrides):
+                handle.write(part)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, store)
+
+
+class _Walked:
+    """What a catch-up's read of the store notes a record at a time (`each`, which `accepted.read_tail` calls): whether its own records come in unit order, those on one unit next to each other (`in_order`), and, while they do, each unit in `states` the list does not name (`listed`) whose record `journal.latest_by_unit` settles on, the latest `at` winning and the first of equal ones kept, differs from the state the tail leaves the unit in (`differ`). It compares them by `_state_digest` as each unit's records pass and takes the unit out of `states`, so it holds no record, and once the read ends (`finish`) `states` holds only the units the list names and those the store's own records do not hold."""
+
+    def __init__(self, states: dict[str, bytes], listed: Container[str]) -> None:
+        self.states = states
+        self.listed = listed
+        self.in_order = True
+        self.differ: set[str] = set()
+        self._last: str | None = None
+        self._run: tuple[str, str, bytes] | None = None
+
+    def each(self, record: object) -> None:
+        if not isinstance(record, dict) or not isinstance(unit := record.get("unit"), str):
+            return
+        if self._last is not None and unit < self._last:
+            self.in_order = False
+        self._last = unit
+        if self._run is not None and self._run[0] != unit:
+            self.finish()
+        if unit not in self.states or unit in self.listed:
+            return
+        at = record.get("at")
+        at = at if isinstance(at, str) else ""
+        if self._run is None or at > self._run[1]:
+            self._run = (unit, at, _state_digest(record, None))
+
+    def finish(self) -> None:
+        if self._run is None:
+            return
+        unit, _at, state = self._run
+        self._run = None
+        if self.states.pop(unit) != state:
+            self.differ.add(unit)
+
+
+def _section_of(tail: accepted.Tail) -> Overrides:
+    """Return the override section of the store `tail` describes, its records normalized as `read_store` normalizes them."""
+    section = tail.overrides()
+    return Overrides({unit: _normalize(record) for unit, record in section.records.items()}, section.cleared)
+
+
+def _caught_up_own(
+    store: Path,
+    current: accepted.Tail,
+    walked: _Walked,
+    tail: journal.JournalTail,
+    head_stamp: object,
+    stamp: str,
+    field_: object,
+    listed: Container[str],
+    name: str,
+) -> CatchUp:
+    """Apply a tail that holds no base event to the store `current` describes: the walk compared each unit the tail changes that the store's own records hold (`_Walked`), and the units left in `walked.states` are compared here with the store's tombstone on them, or with its override on a listed unit, each by `_state_digest`. Only when a unit differs, or the stamp or the field does, does it read the tail's records again (`_replayed`), keeping only the units that differ, since laying a unit's state over the same state changes no byte, and write the store with them laid over its own records as they stream from the file (`_own_records`). So it holds the tail's other units only as digests: the last land's own event, which the store already holds, never as records."""
+    events = len(tail.events)
+    overrides = _section_of(current)
+    cleared = current.cleared
+    differ = walked.differ
+    for unit, state in walked.states.items():
+        if unit in listed:
+            held = _state_digest(overrides.records.get(unit), overrides.cleared.get(unit))
+        else:
+            held = _state_digest(None, cleared.get(unit))
+        if held != state:
+            differ.add(unit)
+    walked.states.clear()
+    if not differ and (stamp, field_) == (current.stamp, current.accepted):
+        return CatchUp(events)
+    changes = _replayed(tail, head_stamp, differ).changes
+    records = _own_records(store, name)
+    _write_caught_up(store, _Caught(stamp, field_, records, cleared, overrides, changes, listed, name))
+    return CatchUp(events, True)
+
+
+def _caught_up_base(
+    store: Path,
+    current: accepted.Tail,
+    tail: journal.JournalTail,
+    replayed: _Replayed,
+    stamp: str,
+    field_: object,
+    accepted_path: Path | None,
+    listed: Container[str],
+    name: str,
+) -> CatchUp:
+    """Apply a tail whose last base event starts the store over: walk the store that base and the changes after it give (`_base_caught`) beside the store's own records, both in unit order, and only when a record, a tombstone, the override section, the stamp or the field differs, walk the base again to write it."""
+    events = len(tail.events)
+    journal_name = f"the journal {tail.path}"
+    ours = _base_caught(tail, replayed, stamp, field_, accepted_path, listed, journal_name)
+    cleared = current.cleared
+    same = (stamp, field_) == (current.stamp, current.accepted)
+    if same:
+        for mine, theirs in zip_longest(ours.own(), _own_records(store, name)):
+            if mine is None or theirs is None or mine != theirs:
+                same = False
+                break
+            cleared.pop(theirs["unit"], None)
+    if same and ours.cleared == cleared and _same_overrides(ours.overrides, _section_of(current)):
+        return CatchUp(events)
+    _write_caught_up(store, _base_caught(tail, replayed, stamp, field_, accepted_path, listed, journal_name))
+    return CatchUp(events, True)
+
+
+def _base_records_whole(
+    tail: journal.JournalTail, base: journal.TailEvent
+) -> tuple[dict[str, dict], dict[str, str]]:
+    """Return the records and tombstones the tail's base event starts the store over from, held whole, as `journal.replay_with_list` reads the base's lines."""
+    records: dict[str, dict] = {}
+    cleared = journal.parse_cleared(base.entry)
+    event_at = base.entry.get("at") or ""
+    entries = tail.entries(base.offset)
+    next(entries, None)
+    for line in entries:
+        kind = line.get("kind")
+        unit = line.get("unit")
+        if kind == "event":
+            break
+        if not isinstance(unit, str):
+            continue
+        if kind == "set":
+            records[unit] = _normalize(line)
+            cleared.pop(unit, None)
+        elif kind == "clear":
+            records.pop(unit, None)
+            tombstone = line.get("at", event_at)
+            if isinstance(tombstone, str):
+                cleared[unit] = tombstone
+            else:
+                cleared.pop(unit, None)
+    return records, cleared
+
+
+def _whole_result(
+    current: Store,
+    tail: journal.JournalTail,
+    replayed: _Replayed,
+    stamp: str,
+    field_: object,
+    accepted_path: Path | None,
+    name: str,
+) -> Store | None:
+    """Return the store the tail leaves when applied to the store `current`, read whole, as `catch_up` streams it, a base's lines held whole, or None when that changes no record, tombstone, override, stamp or field."""
+    if replayed.base is None:
+        own, cleared, overrides = dict(current.records), dict(current.cleared), current.overrides.copy()
+        listed = _listed_among(accepted_path, replayed.changes)
+    else:
+        records, tombstones = _base_records_whole(tail, replayed.base)
+        listed = _listed_among(accepted_path, {*records, *tombstones, *replayed.changes})
+        own, cleared, overrides = accepted.split(records, tombstones, listed)
+    ordered = iter(sorted(own.values(), key=itemgetter("unit")))
+    caught = _Caught(stamp, field_, ordered, cleared, overrides, replayed.changes, listed, name)
+    own = {record["unit"]: record for record in caught.own()}
+    result = Store(stamp, own, caught.cleared, field_, caught.overrides)
+    if (
+        (result.stamp, result.accepted) == (current.stamp, current.accepted)
+        and {unit: _signature(record) for unit, record in own.items()}
+        == {unit: _signature(record) for unit, record in current.records.items()}
+        and result.cleared == current.cleared
+        and _same_overrides(result.overrides, current.overrides)
+    ):
+        return None
+    return result
+
+
+def _caught_up_whole(
+    store: Path,
+    tail: journal.JournalTail,
+    head: dict,
+    accepted_path: Path | None,
+    listed_stamp: accepted.ListStamp,
+    name: str,
+) -> CatchUp:
+    """Apply the tail to the store as `catch_up` streams it, with the store read whole (`read_store`) and a base's lines held whole (`_whole_result`), and write the result when it changes the store (`document_bytes`): the catch-up's path for a store or a base whose records do not stream by unit (`_Unstreamable`), which gives the bytes the stream gives."""
+    events = len(tail.events)
+    replayed = _replayed(tail, head.get("manifest_generated_at"))
+    settled = _settled(replayed.stamp, replayed.field, head, listed_stamp, name)
+    if isinstance(settled, str):
+        return CatchUp(events, left=settled)
+    current = read_store(store, name)
+    if current is None:
+        return CatchUp(events, left=f"{store} is not an {EXPORT_FORMAT} document")
+    accepted.pair(current.document(), listed_stamp, store=name)
+    result = _whole_result(current, tail, replayed, *settled, accepted_path, name)
+    if result is None:
+        return CatchUp(events)
+    _write_file(store, document_bytes(result))
+    return CatchUp(events, True)
+
+
+def _pending_tail(
+    store: Path, journal_path: Path | None
+) -> tuple[dict, journal.JournalTail] | CatchUp | None:
+    """Return the head of the store at `store` (`_head_members`) and the journal's events at or after its `exported_at`, those after a torn base event when the tail holds one (`journal.tail`), a store with no readable `exported_at` taking the whole journal; or what `catch_up` returns without reading further: None with no journal or no store file, `CatchUp(0)` for an empty tail, and the marker's `CatchUp.left` while the marker that says the journal may lack a store write exists."""
+    if journal_path is None:
+        return None
+    head = _head_members(store)
+    if head is None:
+        return None
+    marker = journal.unjournaled_marker_for(store)
+    if marker.exists():
+        return CatchUp(
+            0,
+            left=f"{marker} says the journal may lack a store write, so {store} stands as written",
+            marked=True,
+        )
+    moment = head.get("exported_at")
+    tail = journal.tail(journal_path, moment if isinstance(moment, str) else None, after_torn_base=True)
+    if not tail.events:
+        return CatchUp(0)
+    return head, tail
+
+
+def _list_stamp(store: Path, accepted_path: Path | None) -> accepted.ListStamp:
+    return (
+        accepted.read_stamp(accepted_path)
+        if accepted_path is not None
+        else accepted.ListStamp(store, None, None)
+    )
+
+
+def _settled(
+    stamp: object, field_: object, head: dict, listed_stamp: accepted.ListStamp, name: str
+) -> tuple[str, object] | str:
+    """Return the stamp and `accepted` field the tail leaves the store with, the field the store's head holds (`head`) when no event in the tail sets one, or why the catch-up leaves the store as it stands: a field that does not name the list at `listed_stamp`, or no stamp."""
+    if field_ is _KEEP:
+        field_ = head.get("accepted")
+    if field_ != listed_stamp.field():
+        return f"the journal's tail leaves {name} naming another accepted list than {listed_stamp.path}"
+    if not isinstance(stamp, str):
+        return f"the journal's tail leaves {name} with no stamp"
+    return stamp, field_
+
+
+def catch_up(store: Path, journal_path: Path | None, accepted_path: Path | None) -> CatchUp | None:
+    """Write into the store at `store` the journal events its file lacks, journaling nothing, and return what it did (`CatchUp`), or None when there is no journal or no store file. The review server appends each save to the journal first and writes its store once a minute passes with no save (`verdict_store`), so the file can lag the journal; every holder of the store's lock but a server save runs this first (`locked_store`), so the store each reads holds every save the journal holds, whether or not a server runs.
+
+    The tail is every event at or after the file's `exported_at`, the time its writer wrote it (`journal.tail`), read from the file's head (`_head_members`): its writer wrote every event before it into the file, and an event the file already holds changes nothing again, since each set or clear line states its unit's whole state, a base event starts the store over, and events are appended in time order. A writer that journals a base event writes the file first, so a base cut short of its set lines, with no complete base after it, is in the file with every event before it, and the tail is the events after it (`journal.tail`'s `after_torn_base`); a review server that kept journaling saves after such a base loses none of them. A file with no readable `exported_at` takes the whole journal. With an empty tail it reads only the file's head and the journal's end. Every writer but the review server's idle write and the catch-up itself journals its own event after it writes the file, so the tail holds at least that event until the store is next written, and each holder reads it again and writes nothing for it.
+
+    A tail with no base event is compared with the store before anything is applied: each unit a line in it names is held as an 8-byte digest of its last state (`_state_digest`), and the store's own records stream past a record at a time (`accepted.read_tail`), each unit settled and compared as it passes (`_Walked`), so the comparison holds no record. Only when a unit, the stamp or the `accepted` field differs does it read the tail's records again, keeping those of the units that differ (`_replayed`), and apply them onto the file's own records, tombstones and override section as they stream (`_caught_up_own`), so the units the file already holds, the last land's own event among them, are held only as digests. A tail whose last base event starts the store over is applied from that base, its records streamed from the journal's lines (`_caught_up_base`). Either way the changes on units the accepted list at `accepted_path` names go to the override section and the rest to the store's own (`_Caught`), and only when that changes a record, a tombstone, the override section, the stamp or the field does it write the result, in the review server's layout (`_write_caught_up`). A file or a base whose records do not come in unit order is read whole instead (`_caught_up_whole`), which gives the same bytes; the cycle runs its catch-ups in a short child (`locked_store`'s `catch_up_with`), so that read never stays in its own process.
+
+    It leaves the store as it stands, saying why (`CatchUp.left`), while the marker that says the journal may lack a store write exists (`journal.unjournaled_marker_for`, #618's decision 82): the journal may then not replay to the file, as for a store a re-key's `--undo` puts back or asks to have copied back by hand with the `exported_at` it had before the re-key, whose tail would replay the undone re-key over it, and the review server writes every save at once while the marker exists, so no save waits in the journal; for a store, or a tail, that does not pair with the list (`accepted.pair`), or a list that cannot be read; and for a store holding a record `verdict_store.well_formed` refuses or a file that is no verdicts document, which every holder refuses on its own. A store copied in from a backup outside the tools leaves no marker, so it takes the journal's events at or after its `exported_at`; `merge_verdicts --restore-as-of` is the supported restore. A write that fails raises, so no holder reads a store that lacks a journaled save.
+    """
+    store = Path(store)
+    pending = _pending_tail(store, journal_path)
+    if not isinstance(pending, tuple):
+        return pending
+    head, tail = pending
+    head_stamp = head.get("manifest_generated_at")
+    events = len(tail.events)
+    name = f"the store {store}"
+    try:
+        listed_stamp = _list_stamp(store, accepted_path)
+        read = _TailLines(tail, head_stamp)
+        replayed: _Replayed | None = None
+        states: dict[str, bytes] = {}
+        if read.base is None:
+            states = {unit: _state_digest(record, tombstone) for unit, record, tombstone in read.lines()}
+            settled = _settled(read.stamp, read.field, head, listed_stamp, name)
+        else:
+            replayed = _replayed(tail, head_stamp)
+            settled = _settled(replayed.stamp, replayed.field, head, listed_stamp, name)
+        if isinstance(settled, str):
+            return CatchUp(events, left=settled)
+        stamp, field_ = settled
+        if replayed is None:
+            listed = _listed_among(accepted_path, states)
+        else:
+            base_cleared = journal.parse_cleared(replayed.base.entry) if replayed.base is not None else {}
+            listed = _listed_among(accepted_path, {*replayed.changes, *base_cleared})
+        walked = _Walked(states, listed)
+        try:
+            current = _tail_of(store, name, walked.each)
+            if current is None:
+                return CatchUp(events, left=f"{store} is not an {EXPORT_FORMAT} document")
+            walked.finish()
+            accepted.pair(_paired(current), listed_stamp, store=name)
+            if walked.in_order and replayed is None:
+                return _caught_up_own(store, current, walked, tail, head_stamp, stamp, field_, listed, name)
+            if walked.in_order and replayed is not None:
+                return _caught_up_base(
+                    store, current, tail, replayed, stamp, field_, accepted_path, listed, name
+                )
+        except _Unstreamable:
+            pass
+        walked.states.clear()
+        return _caught_up_whole(store, tail, head, accepted_path, listed_stamp, name)
+    except (accepted.Refused, MalformedStore) as refused:
+        return CatchUp(events, left=str(refused))
+
+
+def caught_up_bytes(store: Path, journal_path: Path | None, accepted_path: Path | None) -> bytes | None:
+    """Return the bytes the store at `store` holds once caught up with its journal, as `catch_up` writes them but for its `exported_at`, or None when the catch-up would write nothing or leave the store as it stands (`CatchUp.left`). It writes nothing and reads the store whole (`read_store`), for a short process that reads the store whole anyway and must leave it as it is: the close-out's dry run, whose report then counts the saves the apply's lock writes first."""
+    store = Path(store)
+    pending = _pending_tail(store, journal_path)
+    if not isinstance(pending, tuple):
+        return None
+    head, tail = pending
+    name = f"the store {store}"
+    try:
+        listed_stamp = _list_stamp(store, accepted_path)
+        replayed = _replayed(tail, head.get("manifest_generated_at"))
+        settled = _settled(replayed.stamp, replayed.field, head, listed_stamp, name)
+        current = read_store(store, name)
+        if isinstance(settled, str) or current is None:
+            return None
+        accepted.pair(current.document(), listed_stamp, store=name)
+        result = _whole_result(current, tail, replayed, *settled, accepted_path, name)
+    except accepted.Refused, MalformedStore:
+        return None
+    return None if result is None else document_bytes(result)
+
+
+def _beside(store: Path, path_for: Callable[[Path], Path]) -> Path | None:
+    try:
+        return path_for(store)
+    except ValueError:
+        return None
+
+
+CatchUpWith = Callable[[Path, Path | None, Path | None], CatchUp | None]
+
+
 @contextlib.contextmanager
-def _recovered_lock(store: Path, **lock_options) -> Iterator[tuple[int, Recovery | None]]:
+def _recovered_lock(
+    store: Path,
+    *,
+    journal_path: Path | None = None,
+    accepted_path: Path | None = None,
+    catch_up_with: CatchUpWith = catch_up,
+    **lock_options,
+) -> Iterator[tuple[int, Recovery | None, CatchUp | None]]:
     recovery = None
     with store_lock(store, **lock_options) as fd:
         recovery = recover_interrupted_land(store)
-        yield fd, recovery
+        caught = catch_up_with(
+            store,
+            journal_path if journal_path is not None else _beside(store, journal.journal_path_for),
+            accepted_path if accepted_path is not None else _beside(store, accepted.path_for),
+        )
+        yield fd, recovery, caught
     if recovery is not None and recovery.discard is not None:
         shutil.rmtree(recovery.discard, ignore_errors=True)
 
 
 @contextlib.contextmanager
-def locked_store(store: Path, **lock_options) -> Iterator[int]:
-    """Hold the verdict store's lock (`store_lock.store_lock`, with its options), after finishing any land a dead holder left (`recover_interrupted_land`). Every writer of the store and its journal takes the lock this way, so none writes over a land that is half done. The swapped-out tree a recovery leaves is deleted after the lock is released. A recovery that refuses raises `LandUnrecoverable` before the caller's section runs, and each caller reports it as its own refusal: the merge (the verdict update's among them) and the re-key print it and exit 1, the land aborts with it as its reason, the cycle fails its step or stops the pass, and the review server answers with it (`serve.orphaned_land_reply`)."""
-    with _recovered_lock(store, **lock_options) as (fd, _recovery):
+def locked_store(
+    store: Path,
+    *,
+    journal_path: Path | None = None,
+    accepted_path: Path | None = None,
+    catch_up_with: CatchUpWith = catch_up,
+    **lock_options,
+) -> Iterator[int]:
+    """Hold the verdict store's lock (`store_lock.store_lock`, with its options), after finishing any land a dead holder left (`recover_interrupted_land`) and then writing into the store the journal events its file lacks (`catch_up`), from the journal at `journal_path` by the accepted list at `accepted_path`, by default the verdicts-journal.ndjson and rebuild/accepted-units.txt beside a store named verdicts-autosave.json (`journal.journal_path_for`, `accepted.path_for`) and none beside a store under another name, which is never caught up, as the cycle's prepared store is not. `catch_up_with` runs the catch-up with the store, the journal and the list, `catch_up` itself by default; the cycle's driver, which lives for a whole pass, passes one that runs it in a short child under the lock the driver holds (`artifact_cycle._catch_up_in_child`), and the review server's boot one that reports it. Every writer of the store and its journal but a review server save takes the lock this way, so none writes over a land that is half done, and every holder reads a store that holds every save the review server journaled, whether the server still runs or was stopped before its idle write. The swapped-out tree a recovery leaves is deleted after the lock is released. A recovery that refuses raises `LandUnrecoverable` before the caller's section runs, and each caller reports it as its own refusal: the merge (the verdict update's among them) and the re-key print it and exit 1, the land aborts with it as its reason, the cycle fails its step or stops the pass, and the review server answers with it (`serve.orphaned_land_reply`). A catch-up that cannot write raises its `OSError` before the caller's section runs."""
+    with _recovered_lock(
+        store,
+        journal_path=journal_path,
+        accepted_path=accepted_path,
+        catch_up_with=catch_up_with,
+        **lock_options,
+    ) as (fd, _recovery, _caught):
         yield fd
 
 
-def finish_interrupted_land(store: Path, **lock_options) -> Recovery | None:
-    """Take the verdict store's lock as `locked_store` does, finish or drop any land a dead holder left, release the lock, delete the swapped-out tree the recovery left, and return what was done (`Recovery`), or None when no land was left."""
-    with _recovered_lock(store, **lock_options) as (_fd, recovery):
+def finish_interrupted_land(
+    store: Path, *, catch_up_with: CatchUpWith = catch_up, **lock_options
+) -> Recovery | None:
+    """Take the verdict store's lock as `locked_store` does, finish or drop any land a dead holder left, catch the store up with its journal (`catch_up_with`, as `locked_store` takes it), release the lock, delete the swapped-out tree the recovery left, and return what was done (`Recovery`), or None when no land was left."""
+    with _recovered_lock(store, catch_up_with=catch_up_with, **lock_options) as (_fd, recovery, _caught):
         return recovery
+
+
+def catch_up_store(store: Path, *, catch_up_with: CatchUpWith = catch_up, **lock_options) -> CatchUp | None:
+    """Take the verdict store's lock as `locked_store` does, so it finishes any land a dead holder left and catches the store up with its journal (`catch_up_with`, as `locked_store` takes it), release it, and return what the catch-up did (`catch_up`). The artifact cycle takes it once at a pass's start, before its plan first reads the store."""
+    with _recovered_lock(store, catch_up_with=catch_up_with, **lock_options) as (_fd, _recovery, caught):
+        return caught
 
 
 def recover_if_orphaned(store: Path) -> bool:

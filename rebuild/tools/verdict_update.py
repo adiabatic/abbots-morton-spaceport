@@ -183,7 +183,9 @@ class _Store:
     def write(self) -> None:
         """Write the held store over --autosave once, under its lock, when a merge changed it."""
         if self.changed and self.held is not None:
-            with landing.locked_store(self.autosave):
+            with landing.locked_store(
+                self.autosave, journal_path=self.journal, accepted_path=self.listed.path
+            ):
                 self.held.write(self.autosave)
 
 

@@ -29,6 +29,7 @@ import pytest
 import yaml
 
 from rebuild.review import accepted, export, journal, landing, unit_cache, unit_index, verdict_store
+from rebuild.review.serve import write_pending_store
 from rebuild.review.verdict_store import DELTA_FORMAT, ServedCorpus, VerdictStore
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import (
@@ -1103,6 +1104,17 @@ def _state_of(records: Mapping[str, dict], cleared: Mapping[str, str]) -> dict[s
     return state
 
 
+def _caught_up_copy(store: Path, journal_path: Path, list_path: Path, shadow: Path) -> Path:
+    """Copy the store, its journal and its list into `shadow`, a new directory, and catch the copy up with the journal (`landing.catch_up`), and return the copy: the store the next holder of the store's lock reads, the review server's saves it has journaled and not written among it, while the store itself and the server keep them pending."""
+    copy = shadow / store.name
+    (shadow / list_path.relative_to(store.parent)).parent.mkdir(parents=True)
+    for path in (store, journal_path, list_path):
+        if path.exists():
+            shutil.copyfile(path, shadow / path.relative_to(store.parent))
+    landing.catch_up(copy, journal.journal_path_for(copy), accepted.path_for(copy))
+    return copy
+
+
 def _stored(document: dict) -> dict[str, tuple]:
     """A store document's own records and tombstones and its override section's, as `_Model.state` holds them."""
     records = journal.latest_by_unit(document["verdicts"])
@@ -1124,7 +1136,7 @@ class _Moment:
 
 @pytest.mark.parametrize("seed", range(12))
 def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(seed, tmp_path, monkeypatch):
-    """Random sequences over a store beside a list, each step driving a real writer in process. The review server boots on no store and stamps an empty one (`stamp_empty_store`), and takes saves, clears and undos on its stamp, from a stale tab on another corpus (rule 2) and replayed from an outbox; a page of the review app (`_Page`, in node) boots from its full GET, records, clears, undoes, edits a note and approves a duplicate group, and sends its delta, or has its save fail and the reader Import its unsaved files, and sometimes Exports and Imports that. A merge takes an Import or a carried file the cycle left at the root; a duplicate fill is merged in; the complaint list's defer file for a group is Imported. Cycle passes run the steps `artifact_cycle.build_plan` gives them: a carried pass (the verdict update's carry of the store and sometimes an Export onto a new corpus, its merges, both duplicate fills and the standing fill, and the land that swaps the corpus in), a store-only pass that merges a master and lands on the served corpus, and a --no-merge or --no-carry pass that moves the corpus and lands no prepared store; a land is sometimes killed at one of its writes and finished by `landing.finish_interrupted_land`. The server moves the store onto a new corpus (rule 3). A close-out, sometimes killed at one of its writes and finished or dropped by the next one, and its undo; a restore, previewed and applied, of a moment the journal holds under the current list, re-keyed through the kept id map for a moment from before the re-key, followed, when it puts the store on an older corpus, by a store-only pass that carries that store onto the served corpus or by a save that moves it there; retention's stash prune and a journal compaction at a moment's `at`; the store deleted, with or without its journal, and stamped empty at boot or merged into; the store left unreadable and then written over by a save, a merge or a --no-carry pass's land. One re-key, whose map comes from every old id or from the served corpus and whose new corpus holds every unit or some of them under --allow-unmatched, sometimes undone and applied again, followed by its carried pass; after it, an Import still on old ids and a second re-key, which refuses when an old id lands beside a listed id or a record on its new id (`listed_collisions`). Every new corpus holds all eight units or a random subset, so units leave the corpus and come back. After every step each unit, listed or not, under either generation of ids, answers through `accepted.view_of` and through the server's view as `_Model` says: a listed unit its last override, a record or a blank for a tombstone, or its accepted mark when it has none, and an unlisted unit its last record or blank, as each writer's stated rule leaves them; the list is the one the close-outs, their undos and the re-keys leave; the store's own records and tombstones name no listed unit; and the store, a restore's preview and the journal's replay hold exactly the records and tombstones `_Model` holds, the journal except after a save written over an unreadable store, whose journal keeps what that store held until the two agree again. The seed fixes the whole sequence, so a failure names its seed, its step and the steps before it."""
+    """Random sequences over a store beside a list, each step driving a real writer in process. The review server boots on no store and stamps an empty one (`stamp_empty_store`), and takes saves, clears and undos on its stamp, from a stale tab on another corpus (rule 2) and replayed from an outbox; a page of the review app (`_Page`, in node) boots from its full GET, records, clears, undoes, edits a note and approves a duplicate group, and sends its delta, or has its save fail and the reader Import its unsaved files, and sometimes Exports and Imports that. A merge takes an Import or a carried file the cycle left at the root; a duplicate fill is merged in; the complaint list's defer file for a group is Imported. Cycle passes run the steps `artifact_cycle.build_plan` gives them: a carried pass (the verdict update's carry of the store and sometimes an Export onto a new corpus, its merges, both duplicate fills and the standing fill, and the land that swaps the corpus in), a store-only pass that merges a master and lands on the served corpus, and a --no-merge or --no-carry pass that moves the corpus and lands no prepared store; a land is sometimes killed at one of its writes and finished by `landing.finish_interrupted_land`. The server moves the store onto a new corpus (rule 3). A close-out, sometimes killed at one of its writes and finished or dropped by the next one, and its undo; a restore, previewed and applied, of a moment the journal holds under the current list, re-keyed through the kept id map for a moment from before the re-key, followed, when it puts the store on an older corpus, by a store-only pass that carries that store onto the served corpus or by a save that moves it there; retention's stash prune and a journal compaction at a moment's `at`; the store deleted, with or without its journal, and stamped empty at boot or merged into; the store left unreadable and then written over by a save, a merge or a --no-carry pass's land. One re-key, whose map comes from every old id or from the served corpus and whose new corpus holds every unit or some of them under --allow-unmatched, sometimes undone and applied again, followed by its carried pass; after it, an Import still on old ids and a second re-key, which refuses when an old id lands beside a listed id or a record on its new id (`listed_collisions`). Every new corpus holds all eight units or a random subset, so units leave the corpus and come back. The server journals each save first and writes the store on idle, so the store file lags its saves until a writer that takes the store's lock catches it up or a tool that reads it without the lock waits for the idle write. After every step each unit, listed or not, under either generation of ids, answers through `accepted.view_of` over the store as the next holder of its lock reads it (`_caught_up_copy`) and through the server's view as `_Model` says: a listed unit its last override, a record or a blank for a tombstone, or its accepted mark when it has none, and an unlisted unit its last record or blank, as each writer's stated rule leaves them; the list is the one the close-outs, their undos and the re-keys leave; the store's own records and tombstones name no listed unit; and the store, a restore's preview and the journal's replay hold exactly the records and tombstones `_Model` holds, the journal except after a save written over an unreadable store, whose journal keeps what that store held until the two agree again. The seed fixes the whole sequence, so a failure names its seed, its step and the steps before it."""
     rng = random.Random(seed)
     clock = itertools.count(1)
     issued: list[str] = []
@@ -1411,9 +1423,14 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
             run.model.merge(record)
         return f"merge {path.name} {held}"
 
+    def written() -> None:
+        """The review server's idle write of the saves it journaled first, which a tool that reads the store without its lock, run by hand, waits for to read them."""
+        assert write_pending_store(run.server), (seed, trail[-8:])
+
     def fill() -> str:
         out = inputs / f"fill-{next(serials)}.json"
         corpus = corpora[run.current][0]
+        written()
         ran(lambda: duplicate_verdicts.main([str(store), "--corpus", str(corpus), "--out", str(out)]))
         ran(lambda: run_merge(out))
         run.model.fill(groups(run.current))
@@ -1424,6 +1441,7 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
         corpus = corpora[run.current][0]
         out = inputs / f"complaints-{next(serials)}.json"
         argv = [str(store), "--corpus", str(corpus), "--data-out", str(out)]
+        written()
         ran(lambda: complaint_list.main(argv))
         deferrable = [
             group
@@ -1658,8 +1676,9 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
         return f"{done}, then a save that moves it: {act(moving=True)}"
 
     def retention() -> str:
-        """Retention's stash prune, and a compaction of the journal at a moment's `at`, after which a restore reaches no moment before the base it keeps; neither writes the store."""
-        held = store.read_bytes()
+        """Retention's stash prune, and a compaction of the journal at a moment's `at`, after which a restore reaches no moment before the base it keeps; neither writes the store once a lock holder has caught it up with the journal."""
+        with landing.locked_store(store):
+            held = store.read_bytes()
         ac.prune_stashes(root, journal_path, lock=landing.locked_store(store))
         done = "retention"
         if run.moments:
@@ -1798,7 +1817,8 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
                 reasons.add("listed")
         if any(collided(units) for units in (recorded(model), recorded(run.archive), *stashed)):
             reasons.add("collided")
-        files = (store.read_bytes(), list_path.read_bytes())
+        with landing.locked_store(store):
+            files = (store.read_bytes(), list_path.read_bytes())
         if reasons:
             printed = refused(lambda: rekey_verdicts.main(argv))
             reason = "listed" if "lands on one unit with the store's" in printed else "collided"
@@ -1818,7 +1838,9 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
         model, where = run.model, (seed, step, trail[-8:])
         held = accepted.read(list_path)
         assert (dict(held.verdicts), held.closed_at) == (model.listed, model.closed_at), where
-        document = json.loads(store.read_text())
+        document = json.loads(
+            _caught_up_copy(store, journal_path, list_path, tmp_path / "shadow" / str(step)).read_text()
+        )
         assert document["manifest_generated_at"] == run.current, where
         run.server.refresh_if_changed()
         for view in (accepted.view_of(document, held, store=store), run.server.view):

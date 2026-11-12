@@ -1,4 +1,4 @@
-"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`, which a marker that the journal may lack a store write and a last base with no `cleared` list also make due), the diff would be no shorter than a base, or there is no previous store or journal, the seed event that opens a journal over an existing store, its tombstones included, the clear lines that record a change to the tombstones alone, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, the cut back to the length a dead land recorded, made only while the journal is the same file, and the store's `accepted` field, which every event line carries and replay gives back. The cases for a diff, a seed base, a stamp change's base and the flip to a base when a diff reaches the new store's record count are journaled both from two stores held in memory and through a hand merge's walk over the store it replaced, read back through its file, in step with the store it wrote, held as record lines (`held_store.Transition`), which appends the same lines."""
+"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`, which a marker that the journal may lack a store write and a last base with no `cleared` list also make due), the diff would be no shorter than a base, or there is no previous store or journal, the seed event that opens a journal over an existing store, its tombstones included, the clear lines that record a change to the tombstones alone, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, the cut back to the length a dead land recorded, made only while the journal is the same file, and the store's `accepted` field, which every event line carries and replay gives back. The tail, the events at or after a moment read back from the journal's end, stops at a torn line and raises `JournalGap` for a torn base in it, or gives the catch-up the events after that base, which it applies to the store file the base's writer wrote; the catch-up that applies it to a store file (`landing.catch_up`) writes nothing for a tail the store holds, starts the store over at a base, splits the lines by the accepted list into the override section, and reads a store out of unit order whole to the same result. The cases for a diff, a seed base, a stamp change's base and the flip to a base when a diff reaches the new store's record count are journaled both from two stores held in memory and through a hand merge's walk over the store it replaced, read back through its file, in step with the store it wrote, held as record lines (`held_store.Transition`), which appends the same lines."""
 
 import json
 import os
@@ -1340,3 +1340,256 @@ def test_every_event_line_carries_the_stores_accepted_field_and_replay_gives_it_
     assert journal.replay_with_list(path)[3] is None
     assert journal.payload_for("S1", {}, accepted=second)["accepted"] == second
     assert "accepted" not in journal.payload_for("S1", {})
+
+
+def _events_at(path, moment):
+    return [event.entry["at"] for event in journal.tail(path, moment).events]
+
+
+def test_the_tail_holds_exactly_the_events_at_or_after_a_moment(tmp_path):
+    """The tail reader reads back from the journal's end to the last event older than the moment, across as many blocks as a long base takes, and returns every event after it, those in the moment's own second included, each with the set lines that follow it; no moment gives every event, and a moment after the last event gives none."""
+    path = tmp_path / "journal.ndjson"
+    journal.record_delta(
+        path, source="autosave", stamp="S1", sets=[v("u-1")], clears={}, at="2026-07-10T01:00:00Z"
+    )
+    many = [v(f"u-{index:05d}", note="x" * 60) for index in range(2000)]
+    _append_base(path, "S2", "S1", ["u-1"], [record["unit"] for record in many], "2026-07-10T02:00:00Z")
+    journal.record_delta(
+        path, source="autosave", stamp="S2", sets=[v("u-2")], clears={}, at="2026-07-10T03:00:00Z"
+    )
+    journal.record_delta(
+        path,
+        source="autosave",
+        stamp="S2",
+        sets=[],
+        clears={"u-2": "2026-07-10T03:00:00Z"},
+        at="2026-07-10T03:00:00Z",
+    )
+    journal.record_delta(
+        path, source="autosave", stamp="S2", sets=[v("u-3")], clears={}, at="2026-07-10T04:00:00Z"
+    )
+    assert path.stat().st_size > 2 * journal._TAIL_BLOCK
+    assert _events_at(path, "2026-07-10T03:00:00Z") == [
+        "2026-07-10T03:00:00Z",
+        "2026-07-10T03:00:00Z",
+        "2026-07-10T04:00:00Z",
+    ]
+    tail = journal.tail(path, "2026-07-10T01:30:00Z")
+    assert [(event.entry["at"], event.base, event.counted) for event in tail.events] == [
+        ("2026-07-10T02:00:00Z", True, 2000),
+        ("2026-07-10T03:00:00Z", False, 1),
+        ("2026-07-10T03:00:00Z", False, 0),
+        ("2026-07-10T04:00:00Z", False, 1),
+    ]
+    assert [entry["kind"] for entry in tail.entries(tail.events[2].offset)] == [
+        "event",
+        "clear",
+        "event",
+        "set",
+    ]
+    assert (
+        _events_at(path, None)
+        == _events_at(path, "2026-07-10T00:00:00Z")
+        == [
+            "2026-07-10T01:00:00Z",
+            *_events_at(path, "2026-07-10T01:30:00Z"),
+        ]
+    )
+    assert _events_at(path, "2026-07-10T05:00:00Z") == []
+    assert journal.tail(tmp_path / "missing.ndjson", None).events == ()
+
+
+def test_the_tail_stops_at_a_torn_final_line(tmp_path):
+    """A final line a crashed append left half written is no line of the tail: the reader stops parsing there, as every reader does, so neither the set line nor the event line it began is counted."""
+    path = tmp_path / "journal.ndjson"
+    journal.record_delta(
+        path, source="autosave", stamp="S1", sets=[v("u-1")], clears={}, at="2026-07-10T01:00:00Z"
+    )
+    with path.open("ab") as handle:
+        handle.write(b'{"kind": "set", "unit": "u-2", "verd')
+    [event] = journal.tail(path, "2026-07-10T01:00:00Z").events
+    assert event.counted == 1 and [entry["kind"] for entry in journal.tail(path, None).entries(0)] == [
+        "event",
+        "set",
+    ]
+    path.write_bytes(
+        path.read_bytes().rsplit(b"\n", 1)[0]
+        + b'\n{"kind": "event", "source": "autosave", "at": "2026-07-10T0'
+    )
+    assert [event.entry["at"] for event in journal.tail(path, None).events] == ["2026-07-10T01:00:00Z"]
+
+
+def test_a_torn_base_in_the_tail_raises_a_journal_gap_and_the_catch_up_applies_the_events_after_it(tmp_path):
+    """A base event in the tail cut short of its set lines, with no complete base after it, leaves the store from it on unknown, so the tail reader raises `JournalGap` as replay does; a tail that starts after the torn base holds no gap. Its writer wrote the store file before it began the base, so a catch-up, which asks the reader for the events after the torn base, applies those to the file: here the save a review server journaled after a merge that died mid-base."""
+    from rebuild.review import landing
+
+    store = tmp_path / "verdicts-autosave.json"
+    path = journal.journal_path_for(store)
+    _torn_base_journal(path)
+    with pytest.raises(journal.JournalGap) as gap:
+        journal.tail(path, "2026-07-10T02:00:00Z")
+    assert gap.value.torn_at == "2026-07-10T03:00:00Z"
+    assert _events_at(path, "2026-07-10T03:30:00Z") == ["2026-07-10T04:00:00Z"]
+    after = journal.tail(path, "2026-07-10T02:00:00Z", after_torn_base=True)
+    assert [event.entry["at"] for event in after.events] == ["2026-07-10T04:00:00Z"]
+    _store_file(store, "S2", [v("u-7"), v("u-8")], exported_at="2026-07-10T02:59:59Z")
+    assert _caught_up(store, path, None) == landing.CatchUp(1, True)
+    assert _read(store) == (
+        "S2",
+        {"u-7": v("u-7"), "u-8": v("u-8"), "u-9": v("u-9")},
+        {},
+        None,
+        accepted.Overrides(),
+    )
+    _append_base(path, "S3", "S2", ["u-7"], ["u-5"], "2026-07-10T05:00:00Z")
+    assert len(journal.tail(path, "2026-07-10T02:00:00Z").events) == 3
+
+
+def _store_file(path, stamp, records, cleared=None, exported_at="2026-07-10T00:00:00Z", **fields):
+    document = journal.payload_for(
+        stamp, {record["unit"]: record for record in records}, cleared, exported_at, **fields
+    )
+    path.write_text(json.dumps(document))
+
+
+def _caught_up(store, path, listed):
+    from rebuild.review import landing
+
+    caught = landing.catch_up(store, path, listed)
+    assert caught is not None
+    return caught
+
+
+def _read(path):
+    from rebuild.review import landing
+
+    store = landing.read_store(path)
+    assert store is not None
+    return store.stamp, store.records, store.cleared, store.accepted, store.overrides
+
+
+def test_a_catch_up_over_a_tail_the_store_holds_writes_nothing_and_one_with_a_base_starts_the_store_over(
+    tmp_path,
+):
+    """The catch-up applies the journal's events at or after the store file's `exported_at`. A tail the file already holds, every set and clear line stating its unit's whole state, changes no record, so it writes nothing and the file keeps its bytes and inode; one past the file's last write gives the store the journal replays to. A tail holding a base event starts the store over from that base and the lines after it, whatever the file held."""
+    from rebuild.review import landing
+
+    store = tmp_path / "verdicts-autosave.json"
+    path = journal.journal_path_for(store)
+    _store_file(store, "S1", [v("u-1"), v("u-2", "reject")], {"u-3": "2026-07-09T00:00:00Z"})
+    journal.record_delta(
+        path,
+        source="autosave",
+        stamp="S1",
+        sets=[v("u-2", "reject")],
+        clears={"u-3": "2026-07-09T00:00:00Z"},
+        at="2026-07-10T00:00:00Z",
+    )
+    before = store.read_bytes(), store.stat().st_ino
+    assert landing.catch_up(store, path, None) == landing.CatchUp(1)
+    assert (store.read_bytes(), store.stat().st_ino) == before
+    journal.record_delta(
+        path,
+        source="autosave",
+        stamp="S1",
+        sets=[v("u-4", note="ñ")],
+        clears={"u-1": "2026-07-11T00:00:00Z"},
+        at="2026-07-11T00:00:00Z",
+    )
+    assert landing.catch_up(store, path, None) == landing.CatchUp(2, True)
+    assert _read(store) == (
+        "S1",
+        {"u-2": v("u-2", "reject"), "u-4": v("u-4", note="ñ")},
+        {"u-1": "2026-07-11T00:00:00Z", "u-3": "2026-07-09T00:00:00Z"},
+        None,
+        accepted.Overrides(),
+    )
+    _store_file(store, "S1", [v("u-1"), v("u-2")])
+    _append_base(path, "S2", "S1", ["u-1"], ["u-5", "u-6"], "2026-07-12T00:00:00Z")
+    journal.record_delta(
+        path, source="autosave", stamp="S2", sets=[v("u-7")], clears={"u-5": None}, at="2026-07-12T00:00:01Z"
+    )
+    assert _caught_up(store, path, None).written
+    stamp, records, cleared = journal.replay_store(path)
+    assert _read(store) == (stamp, records, cleared, None, accepted.Overrides())
+    assert set(records) == {"u-6", "u-7"} and stamp == "S2"
+
+
+def test_a_catch_up_puts_the_lines_on_listed_units_into_the_override_section(tmp_path):
+    """The journal holds the store's own records and its override section as one store, so the catch-up splits the tail's lines by the accepted list beside the store, as a restore splits a replay: a set or a clear on a listed unit goes to the override section, a set back to its accepted record removes its override, and every other line goes to the store's own records and tombstones. A base event's records and tombstones are split the same way."""
+    from rebuild.review import landing
+
+    A, B, C = "u-1AAAAAAAAAA", "u-1BBBBBBBBBB", "u-1CCCCCCCCCC"
+    store = tmp_path / "verdicts-autosave.json"
+    path = journal.journal_path_for(store)
+    listed = accepted.path_for(store)
+    listed.parent.mkdir()
+    listed.write_bytes(accepted.render("2026-07-01T00:00:00Z", {A: "approve", B: "either", C: "approve"}))
+    field = accepted.read(listed).field()
+    section = accepted.Overrides({C: v(C, "reject")})
+    _store_file(store, "S1", [v("u-1")], accepted=field, overrides=section.field())
+    journal.record_delta(
+        path,
+        source="autosave",
+        stamp="S1",
+        sets=[v(A, "reject"), v("u-2")],
+        clears={B: "2026-07-11T00:00:00Z", C: None, "u-1": "2026-07-11T00:00:00Z"},
+        at="2026-07-11T00:00:00Z",
+        accepted=field,
+    )
+    assert _caught_up(store, path, listed).written
+    assert _read(store) == (
+        "S1",
+        {"u-2": v("u-2")},
+        {"u-1": "2026-07-11T00:00:00Z"},
+        field,
+        accepted.Overrides({A: v(A, "reject")}, {B: "2026-07-11T00:00:00Z"}),
+    )
+    _store_file(store, "S1", [v("u-1")], accepted=field, overrides=section.field())
+    journal.record_transition(
+        path,
+        source="land",
+        stamp="S2",
+        old_stamp=None,
+        new_verdicts=[v(A, "reject"), v("u-3")],
+        new_cleared={B: "2026-07-11T00:00:00Z", "u-4": "2026-07-12T00:00:00Z"},
+        at="2026-07-12T00:00:00Z",
+        accepted=field,
+    )
+    assert _caught_up(store, path, listed).written
+    assert _read(store) == (
+        "S2",
+        {"u-3": v("u-3")},
+        {"u-4": "2026-07-12T00:00:00Z"},
+        field,
+        accepted.Overrides({A: v(A, "reject")}, {B: "2026-07-11T00:00:00Z"}),
+    )
+
+
+def test_a_catch_up_reads_a_store_whose_records_are_out_of_unit_order_whole_to_the_same_store(tmp_path):
+    """A store whose own records do not come in unit order cannot be streamed beside the tail, so the catch-up reads it whole, which leaves the store the stream leaves for the same records in order."""
+    from rebuild.review import landing
+
+    stores = []
+    for order in ("sorted", "unsorted"):
+        root = tmp_path / order
+        root.mkdir()
+        store = root / "verdicts-autosave.json"
+        records = [v("u-1"), v("u-2"), v("u-3")]
+        document = journal.payload_for(
+            "S1", {record["unit"]: record for record in records}, None, "2026-07-10T00:00:00Z"
+        )
+        if order == "unsorted":
+            document["verdicts"].reverse()
+        store.write_text(json.dumps(document))
+        journal.record_delta(
+            journal.journal_path_for(store),
+            source="autosave",
+            stamp="S1",
+            sets=[v("u-4")],
+            clears={"u-2": "t9"},
+            at="2026-07-11T00:00:00Z",
+        )
+        assert _caught_up(store, journal.journal_path_for(store), None).written
+        stores.append(json.loads(store.read_bytes()) | {"exported_at": ""})
+    assert stores[0] == stores[1]

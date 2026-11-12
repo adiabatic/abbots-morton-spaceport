@@ -1,4 +1,4 @@
-"""Tests for the close-out (`rebuild.tools.close_out`): the fold of each shared fold sample, the archive and what the close-out deletes, the dry run, each refusal, the close-out time, a close-out killed at each rename, with its staging directory kept, past a pass's sweep of var/cycle/ or lost, and the undo. Every checkout is a git repository under `tmp_path` whose corpus is the review fixtures' manifest, with `make verdict-ready` and the server check stubbed."""
+"""Tests for the close-out (`rebuild.tools.close_out`): the fold of each shared fold sample, the archive and what the close-out deletes, the dry run, each refusal, the close-out time, a close-out killed at each rename, with its staging directory kept, past a pass's sweep of var/cycle/ or lost, the undo, and a store lagging the saves its journal holds, which the close-out's lock and the undo's write into it first. Every checkout is a git repository under `tmp_path` whose corpus is the review fixtures' manifest, with `make verdict-ready` and the server check stubbed."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import pytest
 
 from rebuild.review import accepted, journal
 from rebuild.review.store_lock import hold_flock
+from rebuild.review.verdict_store import DELTA_FORMAT, VerdictStore
 from rebuild.test_review_accepted import fold_state
 from rebuild.tools import close_out
 
@@ -106,6 +107,18 @@ def _files(root: Path) -> dict[str, bytes]:
 
 def _document(store: Path) -> dict:
     return json.loads(store.read_text(encoding="utf-8"))
+
+
+def _save(store: Path, sets=(), clears=()) -> None:
+    """Save a delta through the review server's store, which journals it and leaves the store file as it was until its idle write."""
+    server = VerdictStore(store, store.parent / journal.JOURNAL_NAME)
+    body = {
+        "format": DELTA_FORMAT,
+        "manifest_generated_at": STAMP,
+        "sets": list(sets),
+        "clears": list(clears),
+    }
+    assert server.receive(json.dumps(body).encode())[0] == 200 and server.pending
 
 
 def _kinds(store: Path) -> dict[str, str | None]:
@@ -353,7 +366,7 @@ def test_a_close_out_killed_at_a_rename_is_dropped_before_the_list_moves_and_fin
 def test_the_undo_puts_back_the_list_and_lays_the_verdicts_made_since_over_the_archived_store(
     tmp_path, capsys, index
 ):
-    """After a close-out and three verdicts (a reject override on a listed id, an override tombstone on another, an approve on a blank unit), the undo puts back the list from before (none for a first close-out) and a store whose field names it and whose records and tombstones on that list's ids are its override section, so every human unit reads as before the close-out but for the three, which keep the verdicts made since; the folded notes come back; the journal replays to that store, as one, from the undo's base event; and a second undo finds nothing to undo."""
+    """After a close-out and three verdicts saved through the review server (a reject override on a listed id, an override tombstone on another, an approve on a blank unit), which journals them and writes no store, so the undo's lock writes them into the store first, the undo puts back the list from before (none for a first close-out) and a store whose field names it and whose records and tombstones on that list's ids are its override section, so every human unit reads as before the close-out but for the three, which keep the verdicts made since; the folded notes come back; the journal replays to that store, as one, from the undo's base event; and a second undo finds nothing to undo."""
     fold = _folds()[index]
     store = _checkout(tmp_path, fold["before"])
     list_path = accepted.path_for(store)
@@ -361,15 +374,14 @@ def test_the_undo_puts_back_the_list_and_lays_the_verdicts_made_since_over_the_a
     assert _run(store, apply=True) == 0
     rejected, cleared = sorted(fold["after"]["list"]["verdicts"])[:2]
     blank = next(unit for unit in HUMAN if fold["kinds"].get(unit) is None)
-    document = _document(store)
-    document["verdicts"] += [
-        {"unit": blank, "verdict": "approve", "note": "", "at": "2026-11-06T09:02:00.000Z"},
-    ]
-    document["overrides"] = {
-        "verdicts": [{"unit": rejected, "verdict": "reject", "note": "", "at": "2026-11-06T09:00:00.000Z"}],
-        "cleared": [{"unit": cleared, "at": "2026-11-06T09:01:00.000Z"}],
-    }
-    store.write_text(json.dumps(document))
+    _save(
+        store,
+        sets=[
+            {"unit": rejected, "verdict": "reject", "note": "", "at": "2026-11-06T09:00:00.000Z"},
+            {"unit": blank, "verdict": "approve", "note": "", "at": "2026-11-06T09:02:00.000Z"},
+        ],
+        clears=[{"unit": cleared, "at": "2026-11-06T09:01:00.000Z"}],
+    )
 
     assert _run(store, undo=True) == 0
     capsys.readouterr()
@@ -400,3 +412,39 @@ def test_the_undo_puts_back_the_list_and_lays_the_verdicts_made_since_over_the_a
     assert _run(store, undo=True) == 0
     assert "nothing to undo" in capsys.readouterr().out
     assert _files(store.parent) == undone
+
+
+def test_a_save_the_journal_holds_past_the_stores_last_write_is_folded_or_left_and_the_new_journal_holds_it(
+    tmp_path, capsys
+):
+    """The review server journals a save and writes the store on idle, so a close-out after a server stopped before its idle write finds the store lagging its journal. Its lock writes the journal's events past the store's last write into the store before it folds, so an accepting save folds into the list and a reject stays in the store, and the new journal's one base event holds the store it leaves, the reject among it. The dry run, which writes nothing, reports on the store as that lock leaves it, so its report is the apply's, with a note that the apply writes the saves first."""
+    fold = _folds()[0]
+    store = _checkout(tmp_path, fold["before"])
+    blanks = [unit for unit in HUMAN if fold["kinds"].get(unit) is None]
+    approved, rejected = blanks[:2]
+    _save(
+        store,
+        sets=[
+            {"unit": approved, "verdict": "approve", "note": "", "at": "2026-11-06T09:00:00.000Z"},
+            {"unit": rejected, "verdict": "reject", "note": "", "at": "2026-11-06T09:01:00.000Z"},
+        ],
+    )
+    assert approved not in json.dumps(_document(store))
+    before = _files(store.parent)
+    assert _run(store) == 0
+    dry = capsys.readouterr().out
+    assert _files(store.parent) == before
+    assert "note: verdicts-journal.ndjson holds saves past the store's last write" in dry
+    assert _run(store, apply=True) == 0
+    applied = capsys.readouterr().out
+    report = [line for line in applied.splitlines() if line.startswith("  ")]
+    assert report and all(line in dry.splitlines() for line in report)
+    assert accepted.read(accepted.path_for(store)).verdicts[approved] == "approve"
+    assert {record["unit"]: record["verdict"] for record in _document(store)["verdicts"]}[
+        rejected
+    ] == "reject"
+    stamp, records, _cleared = journal.replay_store(store.parent / journal.JOURNAL_NAME)
+    assert stamp == STAMP and records[rejected]["verdict"] == "reject" and approved not in records
+    assert [event["source"] for event in journal.iter_events(store.parent / journal.JOURNAL_NAME)] == [
+        close_out.SOURCE
+    ]

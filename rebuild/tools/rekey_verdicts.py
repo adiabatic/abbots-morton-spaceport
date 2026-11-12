@@ -735,13 +735,17 @@ def run(
         dry_run=dry_run,
         allow_unmatched=allow_unmatched,
     )
+
+    def write_lock() -> contextlib.AbstractContextManager[int]:
+        return locked_store(autosave, journal_path=journal_path, accepted_path=accepted_path)
+
     if dry_run:
-        return rekey(refuse_live_store=False, write_lock=lambda: locked_store(autosave))
+        return rekey(refuse_live_store=False, write_lock=write_lock)
     try:
         with close_out.pass_lock(autosave):
             if guarded:
-                return rekey(refuse_live_store=True, write_lock=lambda: locked_store(autosave))
-            with locked_store(autosave):
+                return rekey(refuse_live_store=True, write_lock=write_lock)
+            with write_lock():
                 return rekey(refuse_live_store=False, write_lock=contextlib.nullcontext)
     except LockBusy:
         print(f"ERROR: {close_out.pass_refusal(autosave)}. Nothing was written.")
