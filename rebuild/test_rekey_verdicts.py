@@ -599,8 +599,7 @@ def test_a_store_whose_only_moved_id_is_a_tombstone_is_rewritten_so_the_carry_ke
     assert (
         carry_verdicts.main(
             [*carry_argv, "--out", str(onto_new)],
-            current_units=[{"id": unit} for unit in sorted(ids)],
-            current_ids=ids,
+            human=carry_verdicts._Human.of(sorted(ids)),
         )
         == 0
     )
@@ -679,8 +678,7 @@ def test_a_clear_the_map_moves_onto_an_older_record_clears_its_unit_through_the_
     assert (
         carry_verdicts.main(
             [*carry_argv, "--out", str(onto_new)],
-            current_units=[{"id": unit} for unit in sorted(ids)],
-            current_ids=ids,
+            human=carry_verdicts._Human.of(sorted(ids)),
         )
         == 0
     )

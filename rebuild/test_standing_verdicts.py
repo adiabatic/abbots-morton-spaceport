@@ -10,6 +10,7 @@ import pathlib
 import re
 import sys
 from collections.abc import Iterable
+from concurrent.futures import Future
 
 import pytest
 
@@ -7813,20 +7814,54 @@ def test_the_memo_code_roster_is_this_modules_import_closure():
     assert all(path.is_file() for path in sv.memo_code_paths())
 
 
+def _memo_lines(path) -> tuple[bytes, list[bytes]]:
+    """A memo file's header line and its entry lines, as the bytes the gzip stream holds."""
+    with gzip.GzipFile(path, "rb") as stream:
+        header = next(stream)
+        return header, list(stream)
+
+
+def _write_memo(path, decisions, roster=None, environment="env"):
+    """Write a memo holding `decisions`, `(unit, decision)` pairs, under `roster`, through `Memo.write`, and return how many entries it holds."""
+    memo = sv.Memo(path, environment, {})
+    if roster is not None:
+        memo.bind(roster)
+    for unit, decision in decisions:
+        key = memo.key_for(unit)
+        assert key is not None
+        memo.add(key, decision)
+    return memo.write()
+
+
+def _identity(path):
+    """What a rewrite moves and a skipped one keeps: the file's bytes, inode and modification time."""
+    found = path.stat()
+    return path.read_bytes(), found.st_ino, found.st_mtime_ns
+
+
 def test_a_memo_stamped_for_another_environment_is_empty(tmp_path):
+    """A memo opens empty, serving nothing, when it is stamped for another environment, when the run asks for a fresh one, when the file is not a memo, and when its header names `ams-standing-fill-memo/2`, a format this module does not read. One stamped for the run's environment in the `/3` format opens with its entry and its roster."""
     path = tmp_path / "memo.ndjson.gz"
     unit = _keyed_unit()
-    memo = sv.Memo(path, "env-1", {})
     decision = sv.Decision(None, frozenset({RULE["id"]}), frozenset())
-    memo.fresh[memo.key_for(unit) or ""] = decision
     roster = sv.rules_roster([RULE], False)
-    assert memo.write([unit], roster) == 1
-    assert sv.Memo.open(path, "env-2", {}).entries == {}
-    assert sv.Memo.open(path, "env-1", {}, fresh=True).entries == {}
+    assert _write_memo(path, [(unit, decision)], roster, "env-1") == 1
+    assert len(sv.Memo.open(path, "env-2", {})) == 0
+    assert len(sv.Memo.open(path, "env-1", {}, fresh=True)) == 0
     reopened = sv.Memo.open(path, "env-1", {})
-    assert reopened.entries == {memo.key_for(unit): decision} and reopened.stored == roster
+    _key, index = reopened.locate(unit)
+    assert len(reopened) == 1 and reopened.decision(index) == decision and reopened.stored == roster
+    reopened.close()
+    header, entries = _memo_lines(path)
+    assert json.loads(header)["format"] == sv.MEMO_FORMAT == "ams-standing-fill-memo/3"
+    with gzip.GzipFile(path, "wb") as stream:
+        stream.write(
+            json.dumps({**json.loads(header), "format": "ams-standing-fill-memo/2"}).encode() + b"\n"
+        )
+        stream.writelines(entries)
+    assert len(sv.Memo.open(path, "env-1", {})) == 0
     path.write_bytes(b"not a memo")
-    assert sv.Memo.open(path, "env-1", {}).entries == {}
+    assert len(sv.Memo.open(path, "env-1", {})) == 0
 
 
 def test_a_header_with_no_readable_roster_reads_as_every_rule_moved(tmp_path):
@@ -7834,11 +7869,11 @@ def test_a_header_with_no_readable_roster_reads_as_every_rule_moved(tmp_path):
     path = tmp_path / "memo.ndjson.gz"
     unit = _keyed_unit()
     memo = sv.Memo(path, "env", {})
-    memo.fresh[memo.key_for(unit) or ""] = sv.Decision(None, frozenset({"stored"}), frozenset())
-    assert memo.write([unit]) == 1
+    assert _write_memo(path, [(unit, sv.Decision(None, frozenset({"stored"}), frozenset()))]) == 1
     reopened = sv.Memo.open(path, "env", {})
-    assert reopened.stored is None and len(reopened.entries) == 1
+    assert reopened.stored is None and len(reopened) == 1
     assert sv.Decider([RULE], None, reopened).decide(unit).matched == {RULE["id"]}
+    reopened.close()
     for header in (
         {"format": sv.MEMO_FORMAT, "environment": "env", "rules": [], "always": [], "combined_gate": False},
         {
@@ -7855,12 +7890,13 @@ def test_a_header_with_no_readable_roster_reads_as_every_rule_moved(tmp_path):
             stream.write(json.dumps(header) + "\n")
             stream.write(json.dumps([memo.key_for(unit), [None, ["stored"], [], []]]) + "\n")
         reopened = sv.Memo.open(path, "env", {})
-        assert reopened.stored is None and len(reopened.entries) == 1
+        assert reopened.stored is None and len(reopened) == 1
         assert sv.Decider([RULE], None, reopened).decide(unit).matched == {RULE["id"]}
+        reopened.close()
 
 
 def test_a_decision_survives_the_memo_round_trip(tmp_path):
-    """Every field of a decision reads back from the file as written: the combined part's counted ids, blocked flag, verdict, and weakening rule; the matched and blocked ids; and the entry's relevant ids. The header's roster reads back too."""
+    """Every field of a decision reads back from the file as written: the combined part's counted ids, blocked flag, verdict, and weakening rule; the matched and blocked ids; and the entry's relevant ids. The header's roster reads back too. The entries are written in key order, each line the bytes `json.dumps([key, _decision_record(decision)])` gives, two entries sharing one vocabulary record among them."""
     combined = sv.CombinedMatch(("a", "b"), False, "either", "w")
     decisions = {
         "1" * 64: sv.Decision(combined, frozenset(), frozenset(), ("a", "b", "d")),
@@ -7872,43 +7908,71 @@ def test_a_decision_survives_the_memo_round_trip(tmp_path):
         "4" * 64: sv.Decision(None, frozenset({"a", "b"}), frozenset({"c"}), ("b",)),
         "5" * 64: sv.Decision(None, frozenset(), frozenset()),
     }
+    decisions["6" * 64] = decisions["5" * 64]
     units = [_keyed_unit(f"k-{index}", content_key=stamp) for index, stamp in enumerate(decisions)]
-    memo = sv.Memo(tmp_path / "memo.ndjson.gz", "env", {})
-    for unit, decision in zip(units, decisions.values()):
-        memo.fresh[memo.key_for(unit) or ""] = decision
+    path = tmp_path / "memo.ndjson.gz"
     roster = sv.rules_roster([SLIDE_RULE, COMBINED_EXT_RULE, RULE], True)
-    assert memo.write(units, roster) == 5
-    reopened = sv.Memo.open(tmp_path / "memo.ndjson.gz", "env", {})
-    assert [reopened.entries[memo.key_for(unit) or ""] for unit in units] == list(decisions.values())
+    assert _write_memo(path, list(zip(units, decisions.values())), roster) == 6
+    reopened = sv.Memo.open(path, "env", {})
+    assert [reopened.decision(reopened.locate(unit)[1]) for unit in units] == list(decisions.values())
     assert reopened.stored is not None and reopened.stored == roster
     assert list(reopened.stored.rules) == [SLIDE_RULE["id"], COMBINED_EXT_RULE["id"], RULE["id"]]
+    reopened.close()
+    keys = [sv.unit_key(unit, {}) for unit in units]
+    expected = sorted(
+        (key, json.dumps([key, sv._decision_record(decision)]).encode() + b"\n")
+        for key, decision in zip(keys, decisions.values())
+    )
+    assert _memo_lines(path)[1] == [line for _key, line in expected]
 
 
 def test_the_memo_written_back_is_bounded_to_the_corpus_and_keeps_what_it_did_not_read(tmp_path):
-    """The memo written back holds one entry per keyed unit on the corpus the run was given. An entry for a unit no longer on the corpus is dropped. An entry for a unit still on it that the run did not read is kept, because an `--open-only` run decides only the open units."""
+    """The memo written back holds one entry per keyed unit on the corpus the run was given. An entry for a unit no longer on the corpus is dropped. An entry for a unit still on it that the run did not read is kept, because an `--open-only` run decides only the open units, and its line is copied from the previous file byte for byte. A new entry is merged in key order. A run that drops or adds an entry rewrites the file through a sibling temporary name it renames over the file, so the file is a new one with the `/3` header and no temporary file is left beside it."""
     path = tmp_path / "memo.ndjson.gz"
-    stays, leaves = _keyed_unit("s-1", content_key="s" * 64), _keyed_unit("l-1", content_key="l" * 64)
-    memo = sv.Memo(path, "env", {})
-    for unit in (stays, leaves):
-        memo.fresh[memo.key_for(unit) or ""] = sv.Decision(None, frozenset(), frozenset())
-    assert memo.write([stays, leaves]) == 2
-    assert sv.Memo.open(path, "env", {}).write([stays]) == 1
-    assert set(sv.Memo.open(path, "env", {}).entries) == {memo.key_for(stays)}
+    roster = sv.rules_roster([RULE], False)
+    stays, leaves, joins = (
+        _keyed_unit(f"{name}-1", content_key=name[0] * 64) for name in ("stays", "leaves", "joins")
+    )
+    empty = sv.Decision(None, frozenset(), frozenset())
+    assert _write_memo(path, [(stays, empty), (leaves, empty)], roster) == 2
+    _header, previous = _memo_lines(path)
+    before = _identity(path)
+    memo = sv.Memo.open(path, "env", {})
+    decider = sv.Decider([RULE], None, memo)
+    assert memo.key_for(stays) is not None
+    decider.decide(joins)
+    assert memo.write() == 2
+    assert _identity(path)[1] != before[1]
+    assert [entry.name for entry in tmp_path.iterdir()] == [path.name]
+    header, entries = _memo_lines(path)
+    assert json.loads(header)["format"] == "ams-standing-fill-memo/3"
+    kept = [line for line in previous if json.loads(line)[0] == sv.unit_key(stays, {})]
+    joined = [line for line in entries if json.loads(line)[0] == sv.unit_key(joins, {})]
+    assert len(kept) == 1 and len(joined) == 1
+    assert entries == sorted([*kept, *joined])
 
 
 def test_a_served_unit_is_never_evaluated_and_an_unstamped_one_always_is(tmp_path):
-    memo = sv.Memo(tmp_path / "memo.ndjson.gz", "env", {}, stored=sv.rules_roster([RULE], False))
+    """A unit the memo holds is served, once however often it is asked about, and a unit the build never stamped is evaluated and never stored. With nothing computed the memo keeps its file as it was; a unit with a new key is computed and becomes the one new entry."""
+    path = tmp_path / "memo.ndjson.gz"
     served, unstamped = _keyed_unit("k-1"), canonical("u-1")
-    memo.entries[memo.key_for(served) or ""] = sv.Decision(None, frozenset({"served"}), frozenset())
+    stored = sv.Decision(None, frozenset({"served"}), frozenset())
+    _write_memo(path, [(served, stored)], sv.rules_roster([RULE], False))
+    before = _identity(path)
+    memo = sv.Memo.open(path, "env", {})
     decider = sv.Decider([RULE], None, memo)
     assert decider.decide(served).matched == {"served"}
     assert decider.decide(served).matched == {"served"}
     assert decider.decide(unstamped).matched == {RULE["id"]}
     assert (decider.served, decider.computed, decider.unkeyed) == (1, 0, 1)
-    assert memo.fresh == {}
+    assert memo.write() == 1 and _identity(path) == before
+    memo = sv.Memo.open(path, "env", {})
+    decider = sv.Decider([RULE], None, memo)
     fresh = _keyed_unit("k-2", content_key="f" * 64)
     assert decider.decide(fresh).matched == {RULE["id"]}
-    assert decider.computed == 1 and memo.fresh == {memo.key_for(fresh): decider.decide(fresh)}
+    assert decider.computed == 1 and memo.write() == 1
+    [line] = _memo_lines(path)[1]
+    assert json.loads(line) == [sv.unit_key(fresh, {}), sv._decision_record(decider.decide(fresh))]
 
 
 def test_fresh_memo_needs_a_memo(tmp_path, monkeypatch):
@@ -7917,13 +7981,16 @@ def test_fresh_memo_needs_a_memo(tmp_path, monkeypatch):
 
 
 def test_main_serves_the_second_run_from_the_memo_and_reports_it(tmp_path, monkeypatch, capsys):
-    """Runs the bare tool with `--memo` twice. The first run computes and stores, the second run over the same corpus and rules serves every stamped unit, and both write the same fills and the same report apart from the `memo:` line."""
+    """Runs the bare tool with `--memo` twice. The first run computes and stores, the second run over the same corpus and rules serves every stamped unit, and both write the same fills and the same report apart from the `memo:` line. The second run hits every entry and computes none, so it leaves the file as it was, its bytes, inode and modification time, and neither run leaves a temporary file beside it."""
     units = [_keyed_unit("k-1"), _keyed_unit("k-2", content_key="e" * 64), canonical("u-3")]
     memo = tmp_path / "memo.ndjson.gz"
     cold = _run_main(tmp_path / "cold", monkeypatch, units, [], extra=("--memo", str(memo)))
     cold_lines = capsys.readouterr().out.splitlines()
+    written = _identity(memo)
     warm = _run_main(tmp_path / "warm", monkeypatch, units, [], extra=("--memo", str(memo)))
     warm_lines = capsys.readouterr().out.splitlines()
+    assert _identity(memo) == written
+    assert not list(tmp_path.glob("*.tmp"))
     assert cold == warm and [record["unit"] for record in cold["verdicts"]] == ["k-1", "k-2", "u-3"]
     assert "  memo: served 0, computed 2, unkeyed 1; memo.ndjson.gz holds 2 entries" in cold_lines
     assert "  memo: served 2, computed 0, unkeyed 1; memo.ndjson.gz holds 2 entries" in warm_lines
@@ -8087,6 +8154,28 @@ def test_a_vanished_rule_is_taken_off_the_entries_it_was_matched_on(
         next(stream)
         records = [json.loads(line)[1] for line in stream]
     assert all(record[1] == [] and record[2] == [] for record in records)
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_a_reordered_rules_file_serves_every_entry_and_rewrites_the_header_in_its_order(
+    tmp_path, monkeypatch, capsys
+):
+    """Swapping two rules that no combined match reads moves no match digest, no verdict and no always-read rule, so the stored roster equals the live one and every entry is served. The header names the rules in file order, though, so the run still rewrites the file, the header with the rules in their new order and every entry's line as it was."""
+    first = dict(RULE, id="first-plain", match=guarding(RULE, []))
+    second = dict(RULE, id="second-plain", note="the second", match=guarding(RULE, []))
+    memo = tmp_path / "memo.ndjson.gz"
+    units = [_keyed_unit("k-1"), _keyed_unit("k-2", content_key="e" * 64)]
+    seed = _warm_runs(tmp_path, monkeypatch, capsys, None, units, {"seed": [first, second]}, memo)
+    header, entries = _memo_lines(memo)
+    written = _identity(memo)
+    swapped = _warm_runs(tmp_path, monkeypatch, capsys, None, units, {"swapped": [second, first]}, memo)
+    assert seed["seed"][1] == "  memo: served 0, computed 2, unkeyed 0; memo.ndjson.gz holds 2 entries"
+    assert swapped["swapped"][1] == "  memo: served 2, computed 0, unkeyed 0; memo.ndjson.gz holds 2 entries"
+    assert _identity(memo)[1] != written[1]
+    rewritten, kept = _memo_lines(memo)
+    assert kept == entries
+    assert list(json.loads(header)["rules"]) == ["first-plain", "second-plain"]
+    assert list(json.loads(rewritten)["rules"]) == ["second-plain", "first-plain"]
 
 
 def test_the_combined_gate_turning_on_drops_every_entry(tmp_path, monkeypatch, capsys, slide_fonts):
@@ -8195,18 +8284,20 @@ def test_a_run_under_moved_rules_carries_no_entry_it_never_read(tmp_path):
     seeder = sv.Decider([RULE], None, seed)
     for unit in (asked, unasked):
         seeder.decide(unit)
-    assert seed.write([asked, unasked], seeder.roster) == 2
+    assert seed.write() == 2
     memo = sv.Memo.open(path, "env", {})
     unmoved = sv.Decider([dict(RULE, note="reworded")], None, memo)
     unmoved.decide(asked)
+    memo.key_for(unasked)
     assert (unmoved.served, unmoved.computed) == (1, 0)
-    assert memo.write([asked, unasked], unmoved.roster) == 2
+    assert memo.write() == 2
     memo = sv.Memo.open(path, "env", {})
     moved = sv.Decider([dict(RULE, verdict="either")], None, memo)
     moved.decide(asked)
+    memo.key_for(unasked)
     assert (moved.served, moved.computed) == (1, 0)
-    assert memo.write([asked, unasked], moved.roster) == 1
-    assert set(sv.Memo.open(path, "env", {}).entries) == {memo.key_for(asked)}
+    assert memo.write() == 1
+    assert [json.loads(line)[0] for line in _memo_lines(path)[1]] == [sv.unit_key(asked, {})]
 
 
 def _human_units(corpus):
@@ -8390,38 +8481,54 @@ def test_a_pooled_refill_is_the_serial_pass_byte_for_byte(tmp_path, monkeypatch,
     )
 
 
-class _InlinePool:
-    """Runs the `multiprocessing` pool protocol in this process. The initializer runs here, the real worker function runs over the real chunks, and the results come back in reverse order, a completion order the parent's bookkeeping must not depend on."""
+class _InlineFuture(Future):
+    """A future the inline executor hands out already answered, holding its chunk until the parent takes the answer, as a pool holds a chunk's units until its worker answers, so a parent that never waited on the pool would keep every chunk it submitted."""
 
-    def __init__(self, width, initializer, initargs):
-        self.width = width
-        self.chunks: list[list] = []
+    def __init__(self, executor, chunk):
+        super().__init__()
+        self.executor = executor
+        self.chunk = chunk
+
+    def result(self, timeout=None):
+        self.chunk = None
+        self.executor.taken += 1
+        return super().result(timeout)
+
+
+class _InlineExecutor:
+    """Runs the `concurrent.futures` executor protocol in this process. The initializer runs here, the real worker function runs over the real chunk as it is submitted, and the future answers with the chunk's results reversed, an order the parent's bookkeeping must not depend on. It records its width, each chunk's size and whether it was shut down, and checks at every submission that the parent has no more than a wave, its width's chunks, submitted and not yet taken."""
+
+    def __init__(self, max_workers, mp_context, initializer, initargs):
+        self.width = max_workers
+        self.sizes: list[int] = []
+        self.submitted = self.taken = 0
+        self.shut = False
         initializer(*initargs)
 
-    def __enter__(self):
-        return self
+    def submit(self, func, chunk):
+        assert self.submitted - self.taken < self.width
+        self.sizes.append(len(chunk))
+        self.submitted += 1
+        future = _InlineFuture(self, chunk)
+        try:
+            future.set_result(list(reversed(func(chunk))))
+        except Exception as error:
+            future.set_exception(error)
+        return future
 
-    def __exit__(self, *_exc):
-        return False
-
-    def imap_unordered(self, func, chunks) -> Iterable[list[tuple[str, list]]]:
-        wave = [list(chunk) for chunk in chunks]
-        assert len(wave) <= self.width
-        self.chunks.extend(wave)
-        return [func(chunk) for chunk in reversed(wave)]
+    def shutdown(self, wait=True, cancel_futures=False):
+        self.shut = True
 
 
-def _inline_pools(monkeypatch):
-    pools: list[_InlinePool] = []
+def _inline_executors(monkeypatch):
+    executors: list[_InlineExecutor] = []
 
-    class _Context:
-        @staticmethod
-        def Pool(width, initializer, initargs):
-            pools.append(_InlinePool(width, initializer, initargs))
-            return pools[-1]
+    def start(**options):
+        executors.append(_InlineExecutor(**options))
+        return executors[-1]
 
-    monkeypatch.setattr(sv.multiprocessing, "get_context", lambda method: _Context)
-    return pools
+    monkeypatch.setattr(sv, "ProcessPoolExecutor", start)
+    return executors
 
 
 def _keyed_units(count: int) -> list[dict]:
@@ -8432,32 +8539,45 @@ def _keyed_units(count: int) -> list[dict]:
 
 
 def test_the_prefill_counts_what_the_serial_pass_counts(tmp_path, monkeypatch):
-    """The parent's bookkeeping over pooled results matches the serial pass. With a memo already holding some of the units, a pooled run (the pool run in-process, its chunks returned in reverse) leaves the Decider with the same decisions, the same served, computed, and unkeyed totals, and the same fresh memo entries as a serial run. This catches an accounting regression without the cost of spawning workers."""
+    """The parent's bookkeeping over pooled results matches the serial pass. With a memo already holding some of the units, a pooled run (the pool run in-process, each chunk's answers reversed) hands each unit's decision over once with its ordinal and id, reaches the same served, computed, and unkeyed totals, and leaves the same memo bytes as a serial run. The pool takes the misses in chunks as the walk finds them, at the width the run asks for, and is shut down at the end. This catches an accounting regression without the cost of spawning workers."""
     units = _keyed_units(9)
-    memo_path = tmp_path / "memo.ndjson.gz"
-    served = sv.Memo(memo_path, "env", {})
+    seed_path = tmp_path / "seed.ndjson.gz"
+    served = sv.Memo(seed_path, "env", {})
     seed = sv.Decider([RULE], None, served)
     for unit in units[:3]:
         seed.decide(unit)
-    served.write(units, seed.roster)
+    served.write()
+    monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
+    monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 2)
     outcomes = []
     for jobs in (1, 3):
+        memo_path = tmp_path / f"jobs-{jobs}" / "memo.ndjson.gz"
+        memo_path.parent.mkdir()
+        memo_path.write_bytes(seed_path.read_bytes())
         memo = sv.Memo.open(memo_path, "env", {})
         decider = sv.Decider([RULE], None, memo)
-        monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
-        monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 2)
-        pools = _inline_pools(monkeypatch)
-        sv._prefill(decider, units, jobs)
-        assert len(pools) == (0 if jobs == 1 else 1)
-        if pools:
-            assert [len(chunk) for chunk in pools[0].chunks] == [2, 2, 2, 1]
-            assert pools[0].width == 3
-        for unit in units:
-            decider.decide(unit)
-        outcomes.append((decider._decided, decider.served, decider.computed, decider.unkeyed, memo.fresh))
+        executors = _inline_executors(monkeypatch)
+        taken = {}
+
+        def take(ordinal, unit_id, decision):
+            assert ordinal not in taken
+            taken[ordinal] = (unit_id, decision)
+
+        sv._prefill(decider, units, jobs, take)
+        assert len(executors) == (0 if jobs == 1 else 1)
+        if executors:
+            assert executors[0].sizes == [2, 2, 2, 1]
+            assert executors[0].width == 3 and executors[0].shut
+        memo.write()
+        outcomes.append((taken, decider.served, decider.computed, decider.unkeyed, memo_path.read_bytes()))
     assert outcomes[0] == outcomes[1]
     assert outcomes[0][1:4] == (3, 6, 1)
-    assert set(outcomes[0][4]) == {served.key_for(unit) for unit in units[3:-1]}
+    assert {ordinal: unit_id for ordinal, (unit_id, _decision) in outcomes[0][0].items()} == {
+        ordinal: unit["id"] for ordinal, unit in enumerate(units)
+    }
+    assert [json.loads(line)[0] for line in _memo_lines(memo_path)[1]] == sorted(
+        filter(None, (sv.unit_key(unit, {}) for unit in units[:-1]))
+    )
 
 
 def test_the_prefill_asks_only_what_the_run_asks(tmp_path, monkeypatch):
@@ -8465,10 +8585,10 @@ def test_the_prefill_asks_only_what_the_run_asks(tmp_path, monkeypatch):
     asked = []
     prefill = sv._prefill
 
-    def observe(decider, units, jobs):
+    def observe(decider, units, jobs, take):
         units = list(units)
         asked.append(([unit["id"] for unit in units], jobs))
-        prefill(decider, units, jobs)
+        prefill(decider, units, jobs, take)
 
     monkeypatch.setattr(sv, "_prefill", observe)
     units = [canonical("u-1"), canonical("u-2"), canonical("u-3")]
@@ -8494,16 +8614,18 @@ def test_the_prefill_asks_only_what_the_run_asks(tmp_path, monkeypatch):
 
 
 def test_a_few_misses_and_a_width_of_one_never_start_a_pool(monkeypatch):
-    """A warm pass's few misses stay below `_STANDING_POOL_THRESHOLD`, and a width of one always decides serially, so neither starts a pool. The test makes the pool's entry point fail."""
+    """A warm pass's few misses stay below `_STANDING_POOL_THRESHOLD`, and a width of one always decides serially, so neither starts a pool, and each decides every unit in the parent. The test makes the pool's entry point fail."""
     monkeypatch.setattr(sv.multiprocessing, "get_context", lambda method: pytest.fail("a pool was started"))
     units = _keyed_units(5)
-    monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", len(units) + 1)
-    decider = sv.Decider([RULE], None, sv.Memo(pathlib.Path("unused"), "env", {}))
-    sv._prefill(decider, units, 8)
-    monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
-    sv._prefill(decider, units, 1)
-    assert set(decider._decided) == {unit["id"] for unit in units}
-    assert (decider.computed, decider.unkeyed) == (5, 1)
+    for threshold, jobs in ((len(units) + 1, 8), (1, 1)):
+        monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", threshold)
+        decider = sv.Decider([RULE], None, sv.Memo(pathlib.Path("unused"), "env", {}))
+        taken = {}
+        sv._prefill(
+            decider, units, jobs, lambda _ordinal, unit_id, decision: taken.setdefault(unit_id, decision)
+        )
+        assert set(taken) == {unit["id"] for unit in units}
+        assert (decider.computed, decider.unkeyed) == (5, 1)
 
 
 def test_the_decider_holds_the_combinable_digest_for_the_run(slide_context):
@@ -8536,14 +8658,14 @@ def test_the_decider_empties_the_context_memos_behind_every_unit(slide_context):
     assert decider.decide(founding_window()).combined is None
 
 
-def test_the_decider_empties_the_context_memos_behind_every_memo_entry_it_serves(slide_context):
-    """`_serving` is called outside `decide`, by the prefill's spool pass, so it empties the context's shape and walk memos after the `_serve` it runs. It does so both for an entry it repairs and for one it refuses (the spool pass's hit and its miss); here the memos hold another window's shapes when it is called. The repaired decision equals what a fresh context computes through `evaluate` under the live rules. `decide` records it without calling `evaluate`, evaluates the refused window, and counts both as computed."""
+def test_the_decider_empties_the_context_memos_behind_every_memo_entry_it_serves(tmp_path, slide_context):
+    """`_serving` runs on every unit the prefill walks with a memo entry, before it knows whether the unit is a miss, so it empties the context's shape and walk memos after the `_serve` it runs. It does so both for an entry it repairs and for one it refuses (the walk's hit and its miss); here the memos hold another window's shapes when it is called. The repaired decision equals what a fresh context computes through `evaluate` under the live rules. `decide` records it without calling `evaluate`, evaluates the refused window, and counts both as computed."""
     keyed = _keyed_unit("k-1")
     combined_unit = dict(combined_window("w-both"), content_key="b" * 64)
     seed = sv.Decider(COMBINABLE_RULES, slide_context())
-    memo = sv.Memo(pathlib.Path("unused"), "env", {}, stored=seed.roster)
-    for unit in (keyed, combined_unit):
-        memo.entries[memo.key_for(unit) or ""] = seed.evaluate(unit)
+    path = tmp_path / "memo.ndjson.gz"
+    _write_memo(path, [(unit, seed.evaluate(unit)) for unit in (keyed, combined_unit)], seed.roster)
+    memo = sv.Memo.open(path, "env", {})
     live = [*COMBINABLE_RULES, RULE]
     context = slide_context()
     decider = sv.Decider(live, context, memo)
@@ -8561,12 +8683,13 @@ def test_the_decider_empties_the_context_memos_behind_every_memo_entry_it_serves
     assert (decider.served, decider.computed) == (0, 2)
 
 
-def test_the_decider_empties_the_alignment_cache_behind_every_unit_and_memo_entry(slide_context):
+def test_the_decider_empties_the_alignment_cache_behind_every_unit_and_memo_entry(tmp_path, slide_context):
     """`_release` empties the alignment cache beside the context memos, so neither a unit `decide` computes nor a memo entry `_serving` checks leaves a unit record in the cache after it, whatever an earlier `evaluate` left there."""
     combined_unit = dict(combined_window("w-both"), content_key="b" * 64)
     seed = sv.Decider(COMBINABLE_RULES, slide_context())
-    memo = sv.Memo(pathlib.Path("unused"), "env", {}, stored=seed.roster)
-    memo.entries[memo.key_for(combined_unit) or ""] = seed.evaluate(combined_unit)
+    path = tmp_path / "memo.ndjson.gz"
+    _write_memo(path, [(combined_unit, seed.evaluate(combined_unit))], seed.roster)
+    memo = sv.Memo.open(path, "env", {})
     decider = sv.Decider([*COMBINABLE_RULES, RULE], slide_context(), memo)
     for check in (lambda: decider._serving(combined_unit), lambda: decider.decide(founding_window())):
         decider.evaluate(combined_window())
@@ -8871,6 +8994,7 @@ def test_one_shot_source_preserves_reports_fills_and_cold_warm_memos(tmp_path, m
 
 @pytest.mark.parametrize("jobs", [1, 3])
 def test_prefill_releases_streamed_records_and_bounds_pool_waves(tmp_path, monkeypatch, jobs):
+    """The walk keeps none of the records it reads: while it walks, only the record it is on and the one before it are alive, and none once it ends, whether it decides them itself or hands its misses to a pool. A pool gets copies, never the walked records, in chunks of `_STANDING_POOL_CHUNK`, and at most a wave of them out at a time, which the executor stand-in checks at every submission."""
     import weakref
 
     class Record(dict):
@@ -8887,14 +9011,25 @@ def test_prefill_releases_streamed_records_and_bounds_pool_waves(tmp_path, monke
 
     monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
     monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 2)
-    pools = _inline_pools(monkeypatch)
+    executors = _inline_executors(monkeypatch)
+    worker = sv._standing_pool_chunk
+    pooled = []
+
+    def watched(units):
+        pooled.extend(type(unit) for _ordinal, _key, unit in units)
+        return worker(units)
+
+    monkeypatch.setattr(sv, "_standing_pool_chunk", watched)
     memo = sv.Memo(tmp_path / "memo.gz", "fixture", {})
     decider = sv.Decider([RULE], None, memo)
-    sv._prefill(decider, source(), jobs)
-    assert len(decider._decided) == 31
+    taken = []
+    sv._prefill(decider, source(), jobs, lambda ordinal, _unit_id, _decision: taken.append(ordinal))
+    assert sorted(taken) == list(range(31))
     assert decider.computed == 31
     assert not alive
-    assert len(pools) == (jobs > 1)
+    assert len(executors) == (jobs > 1)
+    assert pooled == ([dict] * 31 if jobs > 1 else [])
+    assert [executor.sizes for executor in executors] == ([[2] * 15 + [1]] if jobs > 1 else [])
 
 
 def test_missing_delta_stream_writes_neither_fills_nor_memo(tmp_path, monkeypatch):
@@ -8924,7 +9059,8 @@ def test_missing_delta_stream_writes_neither_fills_nor_memo(tmp_path, monkeypatc
     assert not memo.exists()
 
 
-def test_pool_releases_previous_wave_before_decoding_the_next(monkeypatch):
+def test_the_pool_holds_one_wave_of_copies_beside_the_chunk_it_fills(monkeypatch):
+    """A miss's copy lives until the parent takes its chunk's answer, and the parent takes a wave's answers before it submits past the pool's width, so at most a wave of chunks and the chunk being filled are alive at once, and no copy outlives the prefill."""
     import weakref
 
     class Record(dict):
@@ -8935,53 +9071,137 @@ def test_pool_releases_previous_wave_before_decoding_the_next(monkeypatch):
     peak = 0
     width, chunk_size = 3, 2
 
-    def decode(line):
+    def copy(text):
         nonlocal peak
-        unit = Record(loads(line))
+        unit = Record(loads(text))
         alive[unit["id"]] = unit
         peak = max(peak, len(alive))
-        assert len(alive) <= width * chunk_size
+        assert len(alive) <= (width + 1) * chunk_size
         return unit
 
-    class Pool(_InlinePool):
-        def imap_unordered(self, func, chunks):
-            for chunk in chunks:
-                yield func(chunk)
-
-    class Context:
-        @staticmethod
-        def Pool(width, initializer, initargs):
-            return Pool(width, initializer, initargs)
-
-    monkeypatch.setattr(sv.json, "loads", decode)
-    monkeypatch.setattr(sv.multiprocessing, "get_context", lambda method: Context)
+    monkeypatch.setattr(sv.json, "loads", copy)
+    _inline_executors(monkeypatch)
     monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
     monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", chunk_size)
-    decider = sv.Decider([RULE], None)
-    sv._prefill(decider, _keyed_units(30), width)
-    assert peak == width * chunk_size
+    taken = []
+    sv._prefill(
+        sv.Decider([RULE], None), _keyed_units(30), width, lambda ordinal, *_answer: taken.append(ordinal)
+    )
+    assert peak == (width + 1) * chunk_size
     assert not alive
-    assert len(decider._decided) == 31
+    assert sorted(taken) == list(range(31))
 
 
-def test_pool_worker_failure_closes_the_spool(monkeypatch):
-    temporary_file = sv.tempfile.TemporaryFile
-    handles = []
-
-    def tracked_file():
-        handle = temporary_file()
-        handles.append(handle)
-        return handle
+def test_a_pool_worker_failure_fails_the_fill_and_leaves_nothing_behind(tmp_path, monkeypatch):
+    """A worker's failure reaches the parent through its chunk's answer, so the run fails with it, the pool is shut down, and the run leaves no fill file, no memo and no temporary file."""
 
     def fail_worker(units):
         raise RuntimeError("worker failed")
 
-    _inline_pools(monkeypatch)
-    monkeypatch.setattr(sv.tempfile, "TemporaryFile", tracked_file)
+    executors = _inline_executors(monkeypatch)
     monkeypatch.setattr(sv, "_standing_pool_chunk", fail_worker)
     monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
     monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 2)
+    monkeypatch.setattr(sv, "memo_environment", lambda corpus: ("fixture", {}))
+    memo = tmp_path / "memo.ndjson.gz"
     with pytest.raises(RuntimeError, match="worker failed"):
-        sv._prefill(sv.Decider([RULE], None), _keyed_units(4), 2)
-    assert len(handles) == 1
-    assert handles[0].closed
+        _invoke_main(tmp_path, monkeypatch, _keyed_units(4), [], extra=("--memo", str(memo), "--jobs", "2"))
+    assert len(executors) == 1 and executors[0].shut
+    assert sorted(entry.name for entry in tmp_path.iterdir()) == [
+        "review",
+        "rules.yaml",
+        "verdicts-autosave.json",
+    ]
+
+
+@pytest.mark.parametrize("answer", ["twice", "unasked", "dropped"])
+def test_an_answer_the_pool_owes_no_unit_raises_and_so_does_a_missing_one(monkeypatch, answer):
+    """The parent marks each unit it hands the pool, a bit an ordinal, and clears the mark at the unit's answer. A second answer for a unit, or an answer for an ordinal it never handed over, raises instead of counting a decision twice or folding one for a unit the walk never asked about, and a pool that leaves a unit unanswered fails the prefill's last check."""
+    worker = sv._standing_pool_chunk
+
+    def answering(units):
+        answers = worker(units)
+        if answer == "twice":
+            return [*answers, answers[0]]
+        if answer == "unasked":
+            ordinal, key, unit_id, record = answers[0]
+            return [*answers, (ordinal + 1_000, key, unit_id, record)]
+        return answers[1:]
+
+    _inline_executors(monkeypatch)
+    monkeypatch.setattr(sv, "_standing_pool_chunk", answering)
+    monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
+    monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 5)
+    failure = (
+        pytest.raises(AssertionError, match="the pool never answered for 1 units")
+        if answer == "dropped"
+        else pytest.raises(RuntimeError, match="which it was not given or had answered already")
+    )
+    with failure:
+        sv._prefill(sv.Decider([RULE], None), _keyed_units(4), 2, lambda *_answer: None)
+
+
+def test_the_disputed_match_warning_lists_its_units_in_corpus_order_when_pooled_answers_arrive_out_of_order(
+    tmp_path, monkeypatch, capsys
+):
+    """Pooled answers arrive in any order, each chunk's reversed here, and the fold places each one by its ordinal, so the disputed-match warning names its units in corpus order, which is not their id order, and reads as the serial run's."""
+    order = ["u-5", "u-2", "u-4", "u-1", "u-3"]
+    units = [canonical(uid) for uid in order]
+    verdicts = [{"unit": uid, "verdict": "reject", "note": "", "at": STAMP} for uid in order]
+    warnings = []
+    for label, jobs in (("serial", "1"), ("pooled", "3")):
+        if label == "pooled":
+            _inline_executors(monkeypatch)
+            monkeypatch.setattr(sv, "_STANDING_POOL_THRESHOLD", 1)
+            monkeypatch.setattr(sv, "_STANDING_POOL_CHUNK", 2)
+        _invoke_main(tmp_path / label, monkeypatch, units, verdicts, extra=("--jobs", jobs))
+        warnings.append([line for line in capsys.readouterr().out.splitlines() if "WARNING" in line])
+    assert warnings[0] == warnings[1]
+    [warning] = warnings[1]
+    assert re.findall(r"(u-\d) under", warning) == order
+
+
+def test_a_unit_two_rules_match_gets_its_fills_in_rules_file_order_whatever_the_hash_seed(tmp_path):
+    """A blank unit two rules' own matchers accept gets a fill from each, in rules-file order, which the merge relies on, keeping the first of two records with one `at`. The decision holds the matched ids as a frozenset, whose iteration order follows the string hash seed, so two runs under seeds that iterate the two ids in opposite orders write the same fill file, the rule listed first filling first."""
+    import os
+    import subprocess
+
+    second = dict(RULE, id="a-second-rule-matching-the-same-window", note="second")
+    ids = [RULE["id"], second["id"]]
+    seeds = {}
+    for seed in range(32):
+        listed = subprocess.run(
+            [sys.executable, "-c", f"print(list(frozenset({ids!r})))"],
+            env={**os.environ, "PYTHONHASHSEED": str(seed)},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        seeds.setdefault(listed, seed)
+        if len(seeds) == 2:
+            break
+    assert len(seeds) == 2
+    corpus = _corpus(tmp_path, [canonical("u-1"), canonical("u-2", left="qsOut.ex-ext-1")])
+    rules = _write_rules(tmp_path / "rules.yaml", [RULE, second])
+    verdicts = tmp_path / "verdicts-autosave.json"
+    verdicts.write_text(
+        json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": STAMP, "verdicts": []})
+    )
+    written = []
+    for seed in seeds.values():
+        out = tmp_path / f"out-{seed}.json"
+        argv = [str(verdicts), "--corpus", str(corpus), "--rules", str(rules), "--out", str(out)]
+        subprocess.run(
+            [sys.executable, "-m", "rebuild.tools.standing_verdicts", *argv, "--daemon", "never"],
+            env={**os.environ, "PYTHONHASHSEED": str(seed)},
+            cwd=sv.ROOT,
+            capture_output=True,
+            check=True,
+        )
+        written.append(out.read_bytes())
+    assert written[0] == written[1]
+    fills = json.loads(written[0])["verdicts"]
+    assert [(record["unit"], record["note"].split("]")[0]) for record in fills] == [
+        ("u-1", f"[standing: {RULE['id']}"),
+        ("u-1", f"[standing: {second['id']}"),
+    ]

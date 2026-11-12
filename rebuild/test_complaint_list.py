@@ -343,9 +343,15 @@ def test_exempt_units_never_complain_and_are_never_deferred(repo):
     assert payload["groups"][0]["defer_candidates"]["unit_ids"] == []
 
 
-def test_the_absent_unit_warning_counts_against_every_id_on_the_corpus(repo, capsys):
-    """A verdict on a unit that is not a human unit names a unit that is on the corpus, so it is not absent; only an id missing from the whole corpus is. The fixture corpus has shards but no index, so the tool goes through the loader's shard fallback."""
+def test_the_absent_unit_warning_counts_against_every_id_on_the_corpus(repo, monkeypatch, capsys):
+    """A verdict on a unit that is not a human unit names a unit that is on the corpus, so it is not absent; only an id missing from the whole corpus is. The fixture corpus has shards but no index, so the tool goes through the loader's shard fallback, and so does the walk of the corpus's ids that settles the records the human ids do not hold, which a store whose records all name human units never takes."""
     write_corpus(repo, [unit("u-0001", [P_EXTEND_1]), unit("u-0002", [P_EXTEND_1], batch=None)])
+    write_verdicts(repo, [v("u-0001", "reject")])
+    holds = cl.corpus_holds
+    monkeypatch.setattr(cl, "corpus_holds", lambda *_args: pytest.fail("walked the corpus's ids"))
+    assert run(repo) == 0
+    assert "absent from this corpus" not in capsys.readouterr().err
+    monkeypatch.setattr(cl, "corpus_holds", holds)
     write_verdicts(repo, [v("u-0001", "reject"), v("u-0002", "reject")])
     assert run(repo) == 0
     assert "absent from this corpus" not in capsys.readouterr().err
@@ -354,14 +360,14 @@ def test_the_absent_unit_warning_counts_against_every_id_on_the_corpus(repo, cap
     assert "warning: 1 verdict records name units absent from this corpus" in capsys.readouterr().err
 
 
-def test_the_human_records_without_the_id_set_are_refused(repo):
-    """`main` exits when passed `units` without `unit_ids`, or the reverse. The absent-unit warning needs every corpus id, and the human records alone would count every verdict on a machine unit as absent."""
+def test_the_human_records_without_the_human_ids_are_refused(repo):
+    """`main` exits when passed `units` without `human`, or the reverse. A handed-over stream may be empty or never read, so the absent-unit warning takes the human ids from the caller beside it, and the human ids alone give no records to group."""
     write_corpus(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [v("u-0001", "reject")])
     with pytest.raises(SystemExit):
         run(repo, units=[unit("u-0001", [P_EXTEND_1])])
     with pytest.raises(SystemExit):
-        run(repo, unit_ids={"u-0001"})
+        run(repo, human={"u-0001"})
 
 
 def test_streamed_records_preserve_complaint_list_and_defer_file_bytes_without_retaining_records(
@@ -390,10 +396,11 @@ def test_streamed_records_preserve_complaint_list_and_defer_file_bytes_without_r
             v("u-0009", "reject"),
         ],
     )
-    units, unit_ids = load_human_units(repo["corpus"])
-    assert run(repo, units=units, unit_ids=unit_ids) == 0
+    units, _unit_ids = load_human_units(repo["corpus"])
+    human = frozenset(unit["id"] for unit in units)
+    assert run(repo, units=units, human=human) == 0
     group = data(repo)["groups"][0]
-    assert run(repo, "--defer", group["id"], units=units, unit_ids=unit_ids) == 0
+    assert run(repo, "--defer", group["id"], units=units, human=human) == 0
     expected = repo["data_out"].read_bytes()
     defer_path = repo["root"] / group["defer_file"]
     expected_defer = defer_path.read_bytes()
@@ -412,7 +419,7 @@ def test_streamed_records_preserve_complaint_list_and_defer_file_bytes_without_r
             yield streamed
             del streamed
 
-    assert run(repo, "--defer", group["id"], units=stream(), unit_ids=unit_ids) == 0
+    assert run(repo, "--defer", group["id"], units=stream(), human=human) == 0
     assert repo["data_out"].read_bytes() == expected
     assert defer_path.read_bytes() == expected_defer
     assert all(reference() is None for reference in references)
@@ -445,8 +452,8 @@ def test_complaints_with_no_provenance_go_in_a_terminal_unattributed_group(repo)
     assert unattributed["defer_candidates"]["count"] == 0
 
 
-def test_no_open_complaints_still_writes_a_valid_empty_feed(repo, capsys):
-    """With no complaint open, the list is empty and says so. When the caller hands over the human records and the corpus ids, as the verdict update does, the records are never read, and the data file, the printed lines, the warning about records on units off the corpus and an unknown `--defer` group's refusal are a standalone run's, which walks the corpus. One override reject on an accepted unit sends the handed run through the records, and it writes what a standalone run writes."""
+def test_no_open_complaints_still_writes_a_valid_empty_feed(repo, monkeypatch, capsys):
+    """With no complaint open, the list is empty and says so. When the caller hands over the human records and the human ids, as the verdict update does, the records are never read, and the data file, the printed lines, the warning about records on units off the corpus and an unknown `--defer` group's refusal are a standalone run's, which walks the corpus. One override reject on an accepted unit sends the handed run through the records, and it writes what a standalone run writes. Every run, handed or standalone, asks the walk of the corpus's ids about the records on units the human ids do not hold, a machine unit and a unit off the corpus, and about no other."""
     write_corpus(repo, [unit("u-0001", [P_EXTEND_1])])
     write_verdicts(repo, [])
     assert run(repo) == 0
@@ -471,7 +478,8 @@ def test_no_open_complaints_still_writes_a_valid_empty_feed(repo, capsys):
     path = repo["root"] / "rebuild" / "accepted-units.txt"
     path.parent.mkdir()
     path.write_bytes(accepted.render("2026-07-05T00:00:00Z", {listed_unit: "approve", overridden: "either"}))
-    units, unit_ids = load_human_units(repo["corpus"])
+    units, _unit_ids = load_human_units(repo["corpus"])
+    human = frozenset(unit["id"] for unit in units)
 
     def write_store(override):
         repo["verdicts"].write_text(
@@ -493,6 +501,15 @@ def test_no_open_complaints_still_writes_a_valid_empty_feed(repo, capsys):
             )
         )
 
+    holds = cl.corpus_holds
+    asked = []
+
+    def asking(corpus, wanted):
+        asked.append(set(wanted))
+        return holds(corpus, wanted)
+
+    monkeypatch.setattr(cl, "corpus_holds", asking)
+
     def outcome(code, *args, **held):
         assert run(repo, *args, **held) == code
         return repo["data_out"].read_bytes(), *capsys.readouterr()
@@ -509,7 +526,7 @@ def test_no_open_complaints_still_writes_a_valid_empty_feed(repo, capsys):
     write_store("approve")
     for args, code in (((), 0), (("--defer", "g-00000000"), 1)):
         walked = outcome(code, *args)
-        assert outcome(code, *args, units=unread(), unit_ids=set(unit_ids)) == walked
+        assert outcome(code, *args, units=unread(), human=human) == walked
         assert walked[1] == "no open complaints\n"
     assert walked[2] == (
         "warning: 1 verdict records name units absent from this corpus\nunknown group id g-00000000 (known: none)\n"
@@ -518,6 +535,7 @@ def test_no_open_complaints_still_writes_a_valid_empty_feed(repo, capsys):
     write_store("reject")
     walked = outcome(0)
     log = []
-    assert outcome(0, units=read(log), unit_ids=set(unit_ids)) == walked
+    assert outcome(0, units=read(log), human=human) == walked
     assert log == [record["id"] for record in units]
     assert data(repo)["totals"]["rejects"] == 1
+    assert asked == [{"u-0007", "u-0009"}] * 6

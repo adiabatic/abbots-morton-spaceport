@@ -2709,12 +2709,12 @@ class TestTheConformSweepWidth:
 
         def corpus(skip_make_test):
             return ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(
-                skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=MACHINE_48_GIB
+                skip_gates=False, skip_make_test=skip_make_test, ncores=16, total_bytes=MACHINE_48_GIB
             )
 
         def verdict_update(skip_make_test):
             return ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(
-                skip_gates=False, skip_make_test=skip_make_test, ncores=9, total_bytes=MACHINE_48_GIB
+                skip_gates=False, skip_make_test=skip_make_test, ncores=16, total_bytes=MACHINE_48_GIB
             )
 
         def flags(skip_make_test, skip_corpus, pool_policy) -> dict[str, Any]:
@@ -2723,7 +2723,7 @@ class TestTheConformSweepWidth:
                 skip_make_test=skip_make_test,
                 skip_corpus=skip_corpus,
                 pool_policy=pool_policy,
-                ncores=9,
+                ncores=16,
                 total_bytes=MACHINE_48_GIB,
             )
 
@@ -2738,7 +2738,7 @@ class TestTheConformSweepWidth:
         per_unit = ac.CONFORM_SWEEP_UNIT_BYTES
         assert terms() == (per_unit, corpus(False), cap())
         assert terms(skip_corpus=True) == (per_unit, 0, cap(skip_corpus=True))
-        make_test = ac._make_test_pool_bytes(skip_make_test=False, ncores=9)
+        make_test = ac._make_test_pool_bytes(skip_make_test=False, ncores=16)
         assert make_test > 0
         assert terms(pool_policy="overlap") == (
             per_unit,
@@ -2903,8 +2903,8 @@ class TestTheConformSweepWidth:
         assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
 
     def test_the_plan_prints_the_conform_sweep_width_with_its_derivation(self):
-        """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep. On a ten-core machine the refill pool takes every core while the corpus build takes the build lane's share, so a gated pass that runs both steps subtracts the verdict-update step, and only a pass that runs the build alone shows the build's term."""
-        machine: dict[str, Any] = dict(ncores=10, total_bytes=MACHINE_32_GIB)
+        """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the larger build-lane step, plus gate:make-test's pool under the overlap policy: the corpus build when it runs and holds more than the verdict-update step, the verdict-update step when the build does not run or the step holds more. For a pass that runs neither, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep. On a sixteen-core machine the refill pool takes every core while the corpus build takes the build lane's share, so a gated pass that runs both steps subtracts the verdict-update step, and only a pass that runs the build alone shows the build's term."""
+        machine: dict[str, Any] = dict(ncores=16, total_bytes=MACHINE_32_GIB)
         cases = {
             "queued": _plan(pool_policy="queue", **machine),
             "make-test skipped": _plan(
@@ -2938,7 +2938,7 @@ class TestTheConformSweepWidth:
             skip_corpus=False,
             verdict_update_runs=True,
             pool_policy="overlap",
-            ncores=10,
+            ncores=16,
             total_bytes=MACHINE_32_GIB,
         )
         assert coresident > ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * overlap.corpus_jobs

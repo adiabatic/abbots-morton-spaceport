@@ -2,7 +2,7 @@
 
 A unit's id is derived from its content key (`rebuild.review.unit_cache.unit_id_for`; `rebuild/REVIEW-PLAN.md` §2.1 gives the shape), so a verdict names the same unit on every corpus where that unit's content is unchanged. The carry is a join on that id. A unit takes its newest verdict across the `--verdicts` files unless the store among them cleared it at or after that verdict (`resolve_prior` gives the rule and how it tells the store), so a verdict the reader cleared in the store after another file recorded it is not carried back while the store keeps that tombstone, which it does until the unit is set again, a stamp change leaves the unit off the new corpus's human units, or the store file is replaced whole by a store that lacks it (`merge_verdicts --restore-as-of --apply` to a moment before the clear, or to a later one whose replay starts from a base event written after the clear with no `cleared` list, since a restore puts back the tombstones the journal replays to (`journal.replay_store`), or `rekey_verdicts --undo`, which puts back the store from before the re-key); another file's tombstones are passed over, as a merge passes over an input's. A verdict whose unit is a human unit on the new corpus is carried, and one whose unit is not on the corpus at all is orphaned. Skip verdicts and clears are neither carried nor counted as orphaned. A carried record keeps the prior record's verdict, note and `at`, except that the note loses the `[carried …]` markers in its leading marker run (`verdict_notes.drop_carried_markers`), which older notes hold and tabs and imports can bring back. No prior corpus is opened, and a verdicts file's stamp is only printed, so a file recorded against any older corpus carries the same way the autosave does. `artifact_cycle.carry_counts` parses the `carry counts:` line, and the cycle records those counts on its run line in the timings journal.
 
-The carry is a stream. Each `--verdicts` file is read once for its tail, its head and its tombstones and override section after its records, a record held at a time (`accepted.read_tail`), which also finds the first record `verdict_store.well_formed` refuses, counts the units its records name and checks that they come in unit order, as every repo writer writes them. Then the files' records stream in step by unit (`accepted.iter_records`), joined with the corpus's human unit ids, sorted once and kept with each id's place in the index's order (`_Human`), and with the accepted list's ids, which the list holds in order, so the carry holds a record at a time and no file whole. A file whose records do not come in unit order or name their `verdicts` list twice, another file than the store whose override section holds a record, and a file the stream reader cannot read as an ams-review-verdicts/1 document is read whole instead, as `read_verdicts_file` reads it, which gives the same records and the same refusals. The counts and the refusals come from one walk before anything is written, and the `kinds:` line lists each verdict in the order the index's walk first meets it, from the places the sorted ids keep. With `--out` the carry streams the files again and writes the carried file there, the records sorted by unit, in the layout `json.dumps` gives with an indent of two; the verdict update instead fuses the carry into its first merge (`Carried`, through `main`'s `fused`), which streams the files a third time and takes the carried records as they come, so no carried file is written, and its line reads `carried <N> onto manifest <stamp>` with no file name.
+The carry is a stream. Each `--verdicts` file is read once for its tail, its head and its tombstones and override section after its records, a record held at a time (`accepted.read_tail`), which also finds the first record `verdict_store.well_formed` refuses, counts the units its records name and checks that they come in unit order, as every repo writer writes them. Then the files' records stream in step by unit (`accepted.iter_records`), joined with the corpus's human unit ids, sorted once as their 64-bit words and kept with each id's place in the index's order (`_Human`), and with the accepted list's ids, which the list holds in order, so the carry holds a record at a time and no file whole. Only a prior verdict on a unit those ids do not hold can be orphaned, so the walk collects those units and, when there are any, walks the corpus's ids once more to take out the ones it holds as machine units (`corpus_holds`); the carry holds no set of every corpus id. A file whose records do not come in unit order or name their `verdicts` list twice, another file than the store whose override section holds a record, and a file the stream reader cannot read as an ams-review-verdicts/1 document is read whole instead, as `read_verdicts_file` reads it, which gives the same records and the same refusals. The counts and the refusals come from one walk before anything is written, and the `kinds:` line lists each verdict in the order the index's walk first meets it, from the places the sorted ids keep. With `--out` the carry streams the files again and writes the carried file there, the records sorted by unit, in the layout `json.dumps` gives with an indent of two; the verdict update instead fuses the carry into its first merge (`Carried`, through `main`'s `fused`), which streams the files a third time and takes the carried records as they come, so no carried file is written, and its line reads `carried <N> onto manifest <stamp>` with no file name.
 
 The accepted list (`rebuild.review.accepted`, `--accepted`, by default rebuild/accepted-units.txt beside the store among the `--verdicts` files, and none when no file is the store) holds the units a close-out folded out of the store, which read as their accepted record wherever the store holds no override for them. Those need no carry: a listed id names its unit on every corpus where the unit's content is unchanged, and the readers look it up on the corpus they read. Nor does the store's override section, its records and tombstones on listed units (`accepted.Overrides`), which the carry passes over as it passes over the store's `accepted` field: the merge that takes the carried records keeps the section of the store the carry read, whole, whatever corpus its units are on (`merge_verdicts`). The carry refuses a store that does not pair with the list (`accepted.pair`), as every reader does. Another file's record on a listed unit, from its own records or its override section, is carried as any record is, unless the store holds no override for its unit and it equals the accepted record by value or is dated at or before the close-out (`Accepted.keeps_out`), so an export made before the close-out brings back no folded verdict while a note typed on an accepted unit since survives; the merge meets a carried record on a listed unit with the store's override by the newer `at`. In the orphan guard the store's override records other than skips on the served corpus's human units (`--served-corpus`, the live review corpus by default) count among the prior verdicts, as its own records do, and so do the listed units of those human units that no file's record and no override names, each counting among the orphaned when the new corpus lacks it; an override on a unit the served corpus lacks counts on neither side, since the section keeps it until the next close-out and it would otherwise count as orphaned on every pass; `accepted` counts the human units of the new corpus that read as accepted, a human unit holding an override record counts as matched and one holding an override tombstone as unmatched.
 
@@ -10,13 +10,16 @@ Unless `--allow-orphans` is passed, the carry refuses when more than `landing.OR
 """
 
 import argparse
+import bisect
+import collections
+import gzip
 import heapq
 import itertools
 import json
 import pathlib
 import sys
 from array import array
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Set
 from dataclasses import dataclass, field
 from operator import itemgetter
 from typing import Any
@@ -25,6 +28,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.review import accepted, unit_index  # noqa: E402
+from rebuild.review.unit_cache import base58_64, id_word  # noqa: E402
 from rebuild.review.accepted import Accepted, Overrides  # noqa: E402
 from rebuild.review.landing import (
     ORPHAN_SHARE_LIMIT,
@@ -243,31 +247,60 @@ def _overrides_of(priors: list[_Prior]) -> Overrides:
 
 
 class _Human:
-    """The corpus's human unit ids sorted, as one buffer of 13-byte ids with the ids of another width beside it, split by width at `held_store.ID_BYTES`, the table's id width, each with its place in the index's order."""
+    """The corpus's human unit ids in id order, each with its place in the index's order: the ids `unit_cache.id_word` encodes, as their 64-bit words sorted beside their places, 12 bytes an id, since the words sort as the ids do (`unit_cache.base58_64`), and any other id as a string with its place, sorted by string. It is built from the words of the ids in the index's order and the other ids by place, as the verdict update's `duplicate_verdicts.Projection` holds them, or from the ids themselves (`of`). It answers whether an id is a human unit's, and yields every id in id order with its place, the words decoded as it goes and the other ids merged in by string."""
 
-    def __init__(self, ids: list[str]) -> None:
-        order = sorted(range(len(ids)), key=ids.__getitem__)
-        self.count = len(ids)
-        self._ids = bytearray()
-        self._places = array("I")
-        self._other: list[tuple[str, int]] = []
-        for place in order:
-            unit = ids[place]
-            key = unit.encode("utf-8", "surrogatepass")
-            if len(key) == held_store.ID_BYTES:
-                self._ids += key
-                self._places.append(place)
-            else:
-                self._other.append((unit, place))
+    def __init__(self, words: array, others: Mapping[int, str]) -> None:
+        places = (
+            (place for place in range(len(words)) if place not in others) if others else range(len(words))
+        )
+        packed = sorted(words[place] << 32 | place for place in places)
+        self.count = len(words)
+        self._words = array("Q", (value >> 32 for value in packed))
+        self._places = array("I", (value & 0xFFFF_FFFF for value in packed))
+        self._other = sorted((unit, place) for place, unit in others.items())
+        self._other_ids = frozenset(others.values())
+
+    @classmethod
+    def of(cls, ids: Iterable[str]) -> "_Human":
+        words = array("Q")
+        others: dict[int, str] = {}
+        for place, unit in enumerate(ids):
+            word = id_word(unit)
+            if word is None:
+                others[place] = unit
+            words.append(word or 0)
+        return cls(words, others)
+
+    def __contains__(self, unit: object) -> bool:
+        if not isinstance(unit, str):
+            return False
+        word = id_word(unit)
+        if word is None:
+            return unit in self._other_ids
+        at = bisect.bisect_left(self._words, word)
+        return at < len(self._words) and self._words[at] == word
 
     def __iter__(self) -> Iterator[tuple[str, int]]:
-        width = held_store.ID_BYTES
-        ids = self._ids
-        sized = (
-            (ids[at : at + width].decode("utf-8", "surrogatepass"), place)
-            for at, place in zip(range(0, len(ids), width), self._places, strict=True)
-        )
+        sized = (("u-" + base58_64(f"{word:016x}"), place) for word, place in zip(self._words, self._places))
         return heapq.merge(sized, self._other) if self._other else sized
+
+
+def corpus_holds(corpus: pathlib.Path, wanted: Set[str]) -> set[str]:
+    """Return the ids among `wanted` that name a unit on `corpus`, human or machine, from one read-only walk of every unit's id: each index line's head, read without parsing the line, or the shards when the index is not current, as `unit_index.iter_human_units` falls back. The carry's orphan count and the complaint list's absent-unit count take it for the few ids the human ids do not hold, so neither holds every corpus id."""
+    held: set[str] = set()
+    if unit_index.index_is_current(corpus):
+        with gzip.open(unit_index.index_path(corpus), "rb") as stream:
+            next(stream)
+            for line in stream:
+                head = line[: line.index(unit_index.CLASS_SEAM)]
+                unit = head[len(unit_index.ID_OPEN) : head.index(unit_index.ORDER_SEAM)].decode()
+                if unit in wanted:
+                    held.add(unit)
+        return held
+    for fragment in unit_index.iter_shard_fragments(corpus):
+        if fragment["id"] in wanted:
+            held.add(fragment["id"])
+    return held
 
 
 @dataclass
@@ -330,14 +363,13 @@ def _read_listed(path: pathlib.Path | None, verdict_files: list[pathlib.Path]) -
 def main(
     argv=None,
     *,
-    current_units: Iterable[Mapping[str, Any]] | None = None,
-    current_ids: set[str] | None = None,
+    human: _Human | None = None,
     listed: Accepted | None = None,
     fused: list[Carried] | None = None,
 ):
     """Write the carried verdicts file for the current corpus, or hand the carry to the verdict update's first merge.
 
-    `current_units` and `current_ids` are passed together or not at all. `current_units` is a single-pass stream of human unit records that need only an `id`, and `current_ids` holds every corpus id, machine units included, for the orphaned count. The verdict update passes its duplicate records; a standalone run streams the human index and collects the ids in the same pass. `listed` is the accepted list the verdict update read once for every step, in place of `--accepted`. With `fused`, the verdict update's list, the carry writes no file: it appends the carry to `fused` for the first merge to stream (`Carried`), and its line names no file.
+    `human` is the current corpus's human unit ids (`_Human`), which the verdict update builds from its projection's words; a standalone run streams the human index for them. The orphaned count asks of a prior verdict's unit whether the corpus holds it at all, machine units included, and only a unit the human ids do not hold can be absent: the walk collects those, with how many times each counts, and when there are any, one more walk of the corpus's ids takes out the ones it holds (`corpus_holds`). `listed` is the accepted list the verdict update read once for every step, in place of `--accepted`. With `fused`, the verdict update's list, the carry writes no file: it appends the carry to `fused` for the first merge to stream (`Carried`), and its line names no file.
     """
     parser = argparse.ArgumentParser(
         description="Carry prior verdicts onto the live corpus, landing each on the unit of the id it names."
@@ -375,8 +407,6 @@ def main(
         help="the corpus the review server serves, whose human units' accepted ids count among the prior verdicts (default: %(default)s)",
     )
     args = parser.parse_args(argv)
-    if (current_units is None) != (current_ids is None):
-        parser.error("current_units and current_ids are handed over together or not at all")
 
     if listed is None:
         listed = _read_listed(args.accepted, args.verdicts)
@@ -385,22 +415,22 @@ def main(
     listed_ids = listed.verdicts if listed is not None else {}
 
     manifest = json.loads((args.current_corpus / "manifest.json").read_text())
-    if current_units is None or current_ids is None:
-        current_ids = set()
-        current_units = unit_index.iter_human_units(args.current_corpus, unit_ids=current_ids)
-    human = _Human([unit["id"] for unit in current_units])
+    if human is None:
+        human = _Human.of(unit["id"] for unit in unit_index.iter_human_units(args.current_corpus))
     served = served_human_ids(args.served_corpus) if listed_ids else frozenset()
 
     carried = 0
     first: dict[str, int] = {}
     kinds: dict[str, int] = {}
     unmatched = accepted_count = overridden = 0
-    effective = orphaned = listed_prior = 0
+    effective = listed_prior = 0
+    absent: collections.Counter[str] = collections.Counter()
     overridden_in_prior: set[str] = set()
     for unit in listed_ids if served else ():
         if unit in served and unit not in overrides:
             listed_prior += 1
-            orphaned += unit not in current_ids
+            if unit not in human:
+                absent[unit] += 1
     skips: dict[str, str] = {}
     for unit, record, place in _joined(_resolved(priors, listed, skips), human):
         if record is not None:
@@ -408,10 +438,12 @@ def main(
                 overridden_in_prior.add(unit)
             if record["verdict"] != "skip":
                 effective += 1
-                orphaned += unit not in current_ids
+                if place is None:
+                    absent[unit] += 1
             if unit in served and unit in listed_ids and unit not in overrides:
                 listed_prior -= 1
-                orphaned -= unit not in current_ids
+                if place is None:
+                    absent[unit] -= 1
         if place is None:
             continue
         if record is None:
@@ -432,7 +464,11 @@ def main(
     for unit, record in overrides.records.items():
         if unit in served and unit not in overridden_in_prior and record["verdict"] != "skip":
             effective += 1
-            orphaned += unit not in current_ids
+            if unit not in human:
+                absent[unit] += 1
+    wanted = {unit for unit, count in absent.items() if count}
+    held = corpus_holds(args.current_corpus, wanted) if wanted else set()
+    orphaned = sum(count for unit, count in absent.items() if unit not in held)
     human_count = human.count
     print(
         f"carry counts: human={human_count} matched={human_count - unmatched - accepted_count} unmatched={unmatched} orphaned={orphaned} accepted={accepted_count}"

@@ -1,6 +1,6 @@
 """Run the cycle's verdict update in one process: carry, merge, duplicate fill and merge, standing fill and merge, a final duplicate fill and merge, and the complaint list.
 
-The first index walk keeps every corpus id and, for human units, only the `duplicate_record` projection (id, duplicate group, notation). The carry reads that projection, and both duplicate fills reuse it. The standing fill and the complaint list each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids without being parsed.
+The first index walk counts every corpus id and keeps none, and keeps of each human unit only its `duplicate_verdicts.Projection` entry, 12 bytes in `array`s: its duplicate group's ordinal and its id's 64-bit word, with the few ids `unit_cache.id_word` refuses in a side table. Both duplicate fills read that projection, and the carry, `skip_clears` and the complaint list read the human ids it holds, sorted once as words (`carry_verdicts._Human`). Only a record on a unit those ids do not hold can name a unit absent from the corpus, so the carry's orphan count and the complaint list's absent-unit warning each collect those as a small set and, when it is not empty, walk the corpus's ids once more to take out the ones it holds (`carry_verdicts.corpus_holds`). The standing fill and the complaint list each get a fresh stream of human index records, so full records stay in memory only for the step that reads them. Machine units' index lines contribute their ids to the count without being parsed.
 
 On a pass that lands, the only kind that takes a snapshot of the store, the cycle hands that snapshot over with `--store-snapshot` beside a carry's master that is another file, and on every direct merge (`--merge-master`, the form for a pass whose corpus did not move, which always lands). The store can be replaced or removed between the plan and the snapshot, so what becomes of the snapshot is decided here, from the file the snapshot step left. A carry carries it beside the master when it exists. A direct merge merges the master straight in unless the merge would set the store aside because the snapshot is stamped for an older corpus or is not an ams-review-verdicts/1 document (`merge_sets_store_aside`, which reads it a record at a time). Such a snapshot is then carried onto the corpus by unit id, its skips handed to the merge as tombstones (`skip_clears`), and the master, unless it is that snapshot, merged into the result. The carry refuses a snapshot it cannot read, naming it, and the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update. A missing snapshot, which the snapshot step leaves when there is no store, is not carried: a carry takes the master alone, a direct merge merges a master that is another file straight in, and the merge refuses a master that is the missing snapshot, naming it. With neither --verdicts nor --merge-master there is nothing to carry or merge, and the fills run over the store at --autosave. When there is no store there, the merge runs with no input: under the store's lock, which first finishes any land a dead holder left (`landing.locked_store`), it merges nothing into the store that land leaves, or, when there is still no store, leaves an empty store stamped for the corpus (`merge_verdicts`), so the fills start from an empty store, as they do on a pass with no store whose master holds no verdict. Against the live store while a review server listens, that merge, like any of the update's merges that would write the store, refuses and the run fails at it, since the update has no --yes (`merge_verdicts`). With nothing to merge, when the store at --autosave is one the carry cannot read, or is not an ams-review-verdicts/1 document, which the merges after the fills would set aside, keeping none of its verdicts, the update refuses before the first fill, naming the store and why, and writes nothing (`refuse_unreadable_store`).
 
@@ -24,7 +24,7 @@ import json
 import pathlib
 import sys
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Container, Iterable, Mapping
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -62,8 +62,8 @@ def merge_sets_store_aside(snapshot: pathlib.Path, stamp: str) -> bool:
     return tail is None or tail.stamp < stamp
 
 
-def skip_clears(snapshot: pathlib.Path, human_ids: set[str]) -> dict[str, str]:
-    """Return a tombstone at the skip's `at` for each of `human_ids` whose newest record among the snapshot's own is a skip, as the land leaves for a skip made on another corpus (`landing.overlay`). Every carry of the store hands them to the merge, because the carry drops every skip and the merge keeps none of the records of a store it sets aside, so without them a master record no newer than the reviewer's deferral would land. A skip in the snapshot's override section needs none, since the merge keeps that section and turns its skips into tombstones itself (`accepted.Overrides.moved`). It reads the snapshot after the carry has read it, so the file is a readable verdicts list: a record at a time when its records come in unit order, and whole otherwise."""
+def skip_clears(snapshot: pathlib.Path, human_ids: Container[str]) -> dict[str, str]:
+    """Return a tombstone at the skip's `at`, as the land leaves for a skip made on another corpus (`landing.overlay`), for each unit `human_ids` holds whose newest record among the snapshot's own is a skip. Only the snapshot's skip units are asked about `human_ids`, which the verdict update holds as id words (`carry_verdicts._Human`), so no set of every human id is built. Every carry of the store hands them to the merge, because the carry drops every skip and the merge keeps none of the records of a store it sets aside, so without them a master record no newer than the reviewer's deferral would land. A skip in the snapshot's override section needs none, since the merge keeps that section and turns its skips into tombstones itself (`accepted.Overrides.moved`). It reads the snapshot after the carry has read it, so the file is a readable verdicts list: a record at a time when its records come in unit order, and whole otherwise."""
     clears: dict[str, str] = {}
     walk: dict = {"held": None, "in_order": True}
 
@@ -188,17 +188,31 @@ class _Store:
 
 
 def _store_clears(
-    stores: list[pathlib.Path], fused: list[carry_verdicts.Carried], units: list[dict]
+    stores: list[pathlib.Path], fused: list[carry_verdicts.Carried], human: Container[str]
 ) -> dict[str, str]:
-    """Return the tombstones the first merge takes for the skips of `stores`, the carried files that are the store (`skip_clears`), the later `at` where two hold one: a fused carry's own walk collected them for every file it read as the store, one named `SNAPSHOT_NAME` (`carry_verdicts.Carried.skips`), and every other one is read for them here, as each is when the carried file is written."""
+    """Return the tombstones the first merge takes for the skips of `stores`, the carried files that are the store (`skip_clears`), on the units `human` holds, the later `at` where two hold one: a fused carry's own walk collected them for every file it read as the store, one named `SNAPSHOT_NAME` (`carry_verdicts.Carried.skips`), and every other one is read for them here, as each is when the carried file is written. Each skip unit is asked about the human ids on its own, so no set of every human id is built."""
     skips = fused[0].skips if fused else {}
     walked = [store for store in stores if not fused or store.name != SNAPSHOT_NAME]
-    human_ids = {unit["id"] for unit in units} if skips or walked else set()
-    clears = {unit: at for unit, at in skips.items() if unit in human_ids}
+    clears = {unit: at for unit, at in skips.items() if unit in human}
     for store in walked:
-        for unit, at in skip_clears(store, human_ids).items():
+        for unit, at in skip_clears(store, human).items():
             clears[unit] = max(at, clears.get(unit, at))
     return clears
+
+
+class _Counted(set[str]):
+    """Every corpus id `unit_index.iter_human_units` adds, counted and not held."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.count = 0
+
+    def add(self, element: str, /) -> None:
+        self.count += 1
+
+    def update(self, *others: Iterable[str]) -> None:
+        for other in others:
+            self.count += sum(1 for _element in other)
 
 
 def _fills(name: pathlib.Path, records: list[dict]) -> list[merge_verdicts.Input]:
@@ -331,13 +345,11 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"verdict update refused: {malformed}, and nothing was written.") from None
     corpus = args.corpus
     started = time.perf_counter()
-    unit_ids: set[str] = set()
-    units = [
-        duplicate_verdicts.duplicate_record(unit)
-        for unit in unit_index.iter_human_units(corpus, unit_ids=unit_ids)
-    ]
+    counted = _Counted()
+    projection = duplicate_verdicts.Projection.of(unit_index.iter_human_units(corpus, unit_ids=counted))
+    human = carry_verdicts._Human(projection.words, projection.ids)
     print(
-        f"[t] index {time.perf_counter() - started:.1f}s\t({len(units)} human of {len(unit_ids)} units)",
+        f"[t] index {time.perf_counter() - started:.1f}s\t({len(projection)} human of {counted.count} units)",
         flush=True,
     )
     stamp = json.loads((corpus / "manifest.json").read_text())["generated_at"]
@@ -367,11 +379,7 @@ def main(argv: list[str] | None = None) -> int:
             if store_carried:
                 print(STORE_CARRIED_NOTE, flush=True)
             return carry_verdicts.main(
-                carry_argv,
-                current_units=units,
-                current_ids=unit_ids,
-                listed=listed,
-                fused=fused if args.carry_out is None else None,
+                carry_argv, human=human, listed=listed, fused=fused if args.carry_out is None else None
             )
 
         code = _run("carry", carry)
@@ -387,7 +395,7 @@ def main(argv: list[str] | None = None) -> int:
         assert snapshot is not None
         stores.append(snapshot)
     if stores:
-        clears = _store_clears(stores, fused, units)
+        clears = _store_clears(stores, fused, human)
     if store_carried:
         assert snapshot is not None
         if master is not None and master.resolve() == snapshot.resolve():
@@ -422,7 +430,9 @@ def main(argv: list[str] | None = None) -> int:
     first: list[dict] = []
     code = _run(
         "duplicate-fill",
-        lambda: duplicate_verdicts.main(duplicate_argv, units=units, held=store.held, proposed=first),
+        lambda: duplicate_verdicts.main(
+            duplicate_argv, projection=projection, held=store.held, proposed=first
+        ),
     )
     if code:
         return code
@@ -469,7 +479,7 @@ def main(argv: list[str] | None = None) -> int:
     code = _run(
         "duplicate-fill-2",
         lambda: duplicate_verdicts.main(
-            duplicate_argv, units=units, held=store.held, proposed=second, write=False
+            duplicate_argv, projection=projection, held=store.held, proposed=second, write=False
         ),
     )
     if code:
@@ -500,7 +510,7 @@ def main(argv: list[str] | None = None) -> int:
                     *listed_argv,
                 ],
                 units=unit_index.iter_human_units(corpus),
-                unit_ids=unit_ids,
+                human=human,
                 held=store.held,
             ),
         )

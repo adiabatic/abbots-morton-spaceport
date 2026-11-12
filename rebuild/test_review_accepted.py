@@ -458,13 +458,14 @@ def _standing_fill(store: Path, flags: tuple[str, ...] = (), *, held: bool = Fal
 
 def _complaint_list(store: Path, flags: tuple[str, ...] = (), *, held: bool = False) -> object:
     """The complaint list over the fixture's human units, each handed over carrying the first provenance pointers a unit carries: the fixture's units share none with a complaint, and sharing them puts every unit in each complaint group's reach, its blanks among the defer candidates and its accepting verdicts among the approved units at risk. With `held`, the list reads the store held in memory (`_held`)."""
-    units, ids = unit_index.load_human_units(FIXTURES)
+    units, _ids = unit_index.load_human_units(FIXTURES)
     pointers = next(unit["provenance"] for unit in units if unit.get("provenance"))
     shared = [{**unit, "provenance": pointers} for unit in units]
+    human = frozenset(unit["id"] for unit in units)
     out = store.parent / "complaints-data.json"
     argv = [str(store), "--corpus", str(FIXTURES), "--data-out", str(out), *flags]
     printed = _printed(
-        lambda: complaint_list.main(argv, units=shared, unit_ids=ids, held=_held(store) if held else None),
+        lambda: complaint_list.main(argv, units=shared, human=human, held=_held(store) if held else None),
         store.parent,
     )
     payload = json.loads(out.read_text(encoding="utf-8"))

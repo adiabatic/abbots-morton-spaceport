@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import accepted, unit_cache
+from rebuild.review import accepted, unit_cache, unit_index
 from rebuild.review.unit_cache import CARRY_PRESENTATION_KEYS as PRESENTATION_KEYS
 from rebuild.review.unit_cache import carry_content_hash as content_hash
 from rebuild.review.unit_cache import carry_projection as content_key
@@ -293,36 +293,55 @@ def test_the_carry_prints_its_five_counts_whatever_it_matched(tmp_path, capsys):
     )
 
 
-def test_a_prior_verdict_on_a_machine_unit_is_not_orphaned(tmp_path, capsys):
-    """`orphaned` counts prior verdicts whose unit is not on the corpus at all, so it is checked against every corpus id, machine units included. The test covers both ways the tool gets its units: loading the corpus itself, and being passed the human records with the full id set."""
+def test_a_prior_verdict_on_a_machine_unit_is_not_orphaned(tmp_path, monkeypatch, capsys):
+    """`orphaned` counts prior verdicts whose unit is not on the corpus at all, so a verdict on a unit the human ids do not hold is checked against every corpus id, machine units included. The test covers both ways the tool gets its human ids: loading the corpus itself, and being handed them, as the verdict update hands over the ids its projection holds. Either way the walk of every corpus id is asked about those units alone, as a set, and a carry whose prior verdicts all name human units takes no such walk."""
     kept, machine = _content_unit("E650:E652"), _content_unit("E652:E653")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve"), _record(machine, "reject")])
+    holds = carry_verdicts.corpus_holds
+    asked = []
+
+    def asking(corpus, wanted):
+        asked.append(wanted)
+        return holds(corpus, wanted)
+
+    monkeypatch.setattr(carry_verdicts, "corpus_holds", asking)
     _carry(tmp_path, [kept], verdicts, machine=[machine])
     assert (
         "carry counts: human=1 matched=1 unmatched=0 orphaned=0 accepted=0"
         in capsys.readouterr().out.splitlines()
     )
 
-    held = [{"id": kept["id"], "batch": 0}]
     _carry(
-        tmp_path / "held", [kept], verdicts, current_units=iter(held), current_ids={kept["id"], machine["id"]}
+        tmp_path / "held", [kept], verdicts, machine=[machine], human=carry_verdicts._Human.of([kept["id"]])
     )
     assert (
         "carry counts: human=1 matched=1 unmatched=0 orphaned=0 accepted=0"
         in capsys.readouterr().out.splitlines()
     )
+    assert asked == [{machine["id"]}] * 2
 
-
-def test_the_human_records_without_the_id_set_are_refused(tmp_path):
-    """`main` exits when passed `current_units` without `current_ids`, or the reverse. The `orphaned` count needs the id of every unit on the corpus, which the human records alone do not give."""
-    kept = _content_unit("E650:E652")
-    verdicts = tmp_path / "verdicts.json"
     _write_verdicts(verdicts, "S0", [_record(kept, "approve")])
-    with pytest.raises(SystemExit):
-        _carry(tmp_path / "records", [kept], verdicts, current_units=[{"id": kept["id"], "batch": 0}])
-    with pytest.raises(SystemExit):
-        _carry(tmp_path / "ids", [kept], verdicts, current_ids={kept["id"]})
+    _carry(tmp_path / "human", [kept], verdicts, machine=[machine])
+    assert len(asked) == 2
+
+
+def test_the_orphan_walk_reads_every_unit_id_from_the_index_or_the_shards(tmp_path, monkeypatch):
+    """The walk that settles the orphan count's few candidates answers for machine units as well as human ones, reading each index line's head when the index is current and the shards when it is not, as `unit_index.iter_human_units` collects the corpus's ids."""
+    kept, machine, gone = _content_unit("E650:E652"), _content_unit("E652:E653"), _content_unit("E653:E654")
+    corpus = tmp_path / "current"
+    _write_corpus(corpus, "2026-07-02T00:00:00Z", [kept], [machine])
+    wanted = {kept["id"], machine["id"], gone["id"]}
+    collected: set[str] = set()
+    for _unit in unit_index.iter_human_units(corpus, unit_ids=collected):
+        pass
+    assert carry_verdicts.corpus_holds(corpus, wanted) == wanted & collected == {kept["id"], machine["id"]}
+    unit_index.write_index(corpus, [("units", [kept, machine])])
+    assert unit_index.index_is_current(corpus)
+    monkeypatch.setattr(
+        carry_verdicts.unit_index, "iter_shard_fragments", lambda _corpus: pytest.fail("read the shards")
+    )
+    assert carry_verdicts.corpus_holds(corpus, wanted) == {kept["id"], machine["id"]}
 
 
 def test_a_carry_that_orphans_more_than_the_limit_refuses_unless_allowed(tmp_path, capsys):

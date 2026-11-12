@@ -6,7 +6,7 @@ Deferring uses skip verdicts. A defer file holds one skip verdict per defer cand
 
 The verdicts file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is never a defer candidate and counts among a group's approved units at risk under its mark, while the warning about records on units absent from the corpus counts the file's records, its overrides among them, and no accepted unit.
 
-The file's stamp is read from its head when the head settles it (`review_queue.verdicts_stamp`), so a file stamped for another corpus is refused without a whole parse, and a file stamped for this one is parsed once, inside `latest_verdicts`; a document with a second top-level `manifest_generated_at` after its `verdicts` array is judged by the first, which no repo writer makes. The verdict update hands over the store it holds in memory (`review_queue.HeldStore`), whose stamp and records are read in place of the file's. When the caller hands over the human records and the corpus ids, as the verdict update does, and no record the file holds, its overrides among them, is a reject or a neither (`_may_complain`), the human records are never read: the walk would find no complaint, and its projections of the blank and at-risk units serve only the groups. A standalone run walks the corpus whatever the file holds, because that walk collects the corpus ids the absent-unit warning counts against.
+The file's stamp is read from its head when the head settles it (`review_queue.verdicts_stamp`), so a file stamped for another corpus is refused without a whole parse, and a file stamped for this one is parsed once, inside `latest_verdicts`; a document with a second top-level `manifest_generated_at` after its `verdicts` array is judged by the first, which no repo writer makes. The verdict update hands over the store it holds in memory (`review_queue.HeldStore`), whose stamp and records are read in place of the file's. When the caller hands over the human records and the human ids, as the verdict update does, and no record the file holds, its overrides among them, is a reject or a neither (`_may_complain`), the human records are never read: the walk would find no complaint, and its projections of the blank and at-risk units serve only the groups. A standalone run walks the corpus whatever the file holds, because that walk gives it the human ids. Only a record on a unit the human ids do not hold can name a unit absent from the corpus, so the absent-unit warning collects those, and when there are any, one more walk of the corpus's ids, machine units included, takes out the ones it holds (`carry_verdicts.corpus_holds`).
 
 Writes tmp/complaints-data.json. `--defer g-XXXXXXXX` also writes a verdicts-deferred-*.json for that group.
 """
@@ -18,7 +18,7 @@ import json
 import pathlib
 import re
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Container, Iterable, Iterator, Mapping
 from typing import Any
 
 import yaml
@@ -38,6 +38,7 @@ from rebuild.tools.review_queue import (  # noqa: E402
 )
 from rebuild.review.unit_index import iter_human_units  # noqa: E402
 from rebuild.review.verdict_store import note_of  # noqa: E402
+from rebuild.tools.carry_verdicts import corpus_holds  # noqa: E402
 from rebuild.tools.verdict_notes import strip_markers  # noqa: E402
 
 CORPUS = ROOT / "rebuild/out/review"
@@ -261,6 +262,12 @@ def _may_complain(records: View) -> bool:
     )
 
 
+def _noted(units: Iterable[Mapping[str, Any]], ids: set[str]) -> Iterator[Mapping[str, Any]]:
+    for unit in units:
+        ids.add(unit["id"])
+        yield unit
+
+
 def emit_defer(group, marker_target, *, stamp, defer_dir, note_text):
     marker = f"[deferred: {marker_target} — complaint list {stamp}]"
     note = f"{marker} {note_text}" if note_text else marker
@@ -282,13 +289,13 @@ def main(
     argv=None,
     *,
     units: Iterable[Mapping[str, Any]] | None = None,
-    unit_ids: set[str] | None = None,
+    human: Container[str] | None = None,
     listed: Accepted | None = None,
     held: HeldStore | None = None,
 ):
     """Write the complaint list data, and defer files for any `--defer` groups.
 
-    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and at-risk units are kept from the stream, and the stream is never read when no record the file holds can be an open complaint (`_may_complain`). `listed` is the accepted list when the caller already holds the one `--accepted` names, as the verdict update does; without it the list is read here (`review_queue.accepted_list`). `held` is the store the verdict update holds in memory (`review_queue.HeldStore`), read in place of the verdicts file, which it names.
+    `units` and `human` are passed together or not at all: a single-pass stream of human unit records, and the human unit ids, which the verdict update holds as id words (`carry_verdicts._Human`), for the absent-unit warning, which walks the corpus's ids once more only for records on units the human ids do not hold. Only the complaint fields and small projections of the blank and at-risk units are kept from the stream, and the stream is never read when no record the file holds can be an open complaint (`_may_complain`). `listed` is the accepted list when the caller already holds the one `--accepted` names, as the verdict update does; without it the list is read here (`review_queue.accepted_list`). `held` is the store the verdict update holds in memory (`review_queue.HeldStore`), read in place of the verdicts file, which it names.
     """
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
@@ -317,8 +324,8 @@ def main(
     )
     add_accepted_argument(parser)
     args = parser.parse_args(argv)
-    if (units is None) != (unit_ids is None):
-        parser.error("units and unit_ids are handed over together or not at all")
+    if (units is None) != (human is None):
+        parser.error("units and human are handed over together or not at all")
     if listed is None:
         listed = accepted_list(parser, args.accepted, args.verdicts)
 
@@ -340,13 +347,14 @@ def main(
         return 1
     records = held.view(listed) if held is not None else latest_verdicts(verdicts_path, listed, document=data)
 
-    if units is None or unit_ids is None:
-        unit_ids = set()
-        units = iter_human_units(corpus, unit_ids=unit_ids)
+    if units is None or human is None:
+        walked: set[str] = set()
+        units = _noted(iter_human_units(corpus), walked)
+        human = walked
     elif not _may_complain(records):
         units = ()
     complaints = []
-    human = []
+    projected = []
     for unit in units:
         record = records.get(unit["id"])
         if record and record["verdict"] in COMPLAINT_KINDS:
@@ -360,7 +368,7 @@ def main(
         elif unit.get("provenance") and (
             not record or record["verdict"] == "skip" or record["verdict"] in AT_RISK_KINDS
         ):
-            human.append(
+            projected.append(
                 {
                     "id": unit["id"],
                     "class": unit["class"],
@@ -369,18 +377,20 @@ def main(
                     "provenance": frozenset(unit.get("provenance") or []),
                 }
             )
-    unknown = sum(
-        1
+    outside = collections.Counter(
+        unit_id
         for held in (records.records, records.overrides.records)
         for unit_id in held
-        if unit_id not in unit_ids
+        if unit_id not in human
     )
+    present = corpus_holds(corpus, outside.keys()) if outside else set()
+    unknown = sum(count for unit_id, count in outside.items() if unit_id not in present)
     if unknown:
         print(f"warning: {unknown} verdict records name units absent from this corpus", file=sys.stderr)
     complaints.sort(key=lambda item: (_triage_position(item[0]), item[0]["id"]))
     threshold = args.since or stamp
     groups, naming = finalize_groups(
-        build_groups(complaints), threshold=threshold, human=human, records=records, ruled_ids=ruled_ids
+        build_groups(complaints), threshold=threshold, human=projected, records=records, ruled_ids=ruled_ids
     )
 
     new = sum(len(group["rejects"]["new"]) + len(group["neithers"]["new"]) for group in groups)

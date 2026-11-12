@@ -66,26 +66,29 @@ Standing fills complement duplicate_verdicts.py. The duplicate fill copies the u
 
 Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A deferred unit carries a skip verdict, so it is not blank and is never filled. The verdicts file's stamp is read from its head when the head settles it (`review_queue.verdicts_stamp`), so a file stamped for another corpus is refused without a whole parse and a document with a second top-level `manifest_generated_at` after its `verdicts` array, which no repo writer makes, is judged by the first. The file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is verdicted under its mark: never filled, counted in the already-verdicted column and in `--explain`'s lists, and outside `--open-only`'s domain, while an override on it that is a reject stays open and the disputed-match warning reports it. The verdict update (rebuild/tools/verdict_update.py) runs this after the duplicate fill over the store it holds in memory, read through its table (`held`, `review_queue.HeldStore`), and merges the fills it is handed back (`proposed`) with merge_verdicts, so the fill file it writes is not read back. The report also gives each rule's total reach, its own line plus its combined-match count; the totals do not sum across rules, because a window two rules explain counts toward both.
 
-Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider.decide` computes the decision and `_decision_reach` aggregates a run from the decisions. The memo (`Memo`, the `--memo` flag, which the verdict update passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. When the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` decides them across a spawn pool at the width `--jobs` gives. The tool derives no width of its own; the verdict update forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, so its pass over the whole domain costs no second evaluation.
+Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider` serves or computes each decision, and a run folds the decisions as they arrive (`_Fold`, `_decision_reach`). The memo (`Memo`, the `--memo` flag, which the verdict update passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. A run holds the previous memo by address, a 16-byte key and a 4-byte ordinal into a vocabulary of its distinct decision records an entry, and rewrites the file only when it computes, repairs, trims or drops an entry or its header changes, so a pass that serves every entry leaves the file as it was. Once the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` sends them to a spawn pool as the walk finds them, at the width `--jobs` gives. The tool derives no width of its own; the verdict update forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, counted a distinct decision over the whole domain, so its pass costs no second evaluation.
 
 A `--targeted` run is the form for authoring a rule. It takes the rule from `--explain` and extra units from `--unit`, evaluates only the rule's name-grain candidates (`_reachable`) plus the listed units, prints that rule's lines byte-identical to the whole-domain run's plus one line per listed unit (`targeted_report`), and writes neither a fill file nor the memo. The whole-domain run is the final pass and the cycle's form.
 
-With `--daemon auto|always|never` and `--socket PATH`, either form can be served by the standing daemon (rebuild/tools/standing_daemon.py, the authority on what it holds and when it declines), which runs this same `main` over the corpus it holds and returns the streams and exit code byte-identical to an in-process run; rebuild/test_standing_daemon.py checks this over the mini bundle. The verdict update calls `main` in process with a `unit_source` and is never served. A fill reads its unit source once, keeps only unit ids and decisions for the report, and spools pool misses to a temporary gzipped NDJSON file.
+With `--daemon auto|always|never` and `--socket PATH`, either form can be served by the standing daemon (rebuild/tools/standing_daemon.py, the authority on what it holds and when it declines), which runs this same `main` over the corpus it holds and returns the streams and exit code byte-identical to an in-process run; rebuild/test_standing_daemon.py checks this over the mini bundle. The verdict update calls `main` in process with a `unit_source` and is never served. A fill reads its unit source once and keeps no unit record, decision or memo key a unit: it folds each decision as it arrives into the fills, the combined counts and the per-rule lists of the units the run can still change, the whole domain's on a run without `--open-only`, and the `--require-reach` reach into a count a distinct decision, and it hands a pool miss to the pool as a copy in a chunk, with at most one wave of chunks out.
 """
 
 import argparse
+import bisect
 import collections
 import gzip
 import hashlib
 import json
 import multiprocessing
+import os
 import pathlib
 import re
 import sys
-import tempfile
-from collections.abc import Callable, Iterable, Mapping
-from itertools import batched
-from typing import Any, NamedTuple, NoReturn
+import zlib
+from array import array
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
+from typing import Any, BinaryIO, NamedTuple, NoReturn
 
 import yaml
 
@@ -112,7 +115,7 @@ CORPUS = ROOT / "rebuild/out/review"
 RULES = ROOT / "rebuild/standing-approvals.yaml"
 OUT = ROOT / "verdicts-standing-fill.json"
 FORMAT = "ams-standing-approvals/1"
-MEMO_FORMAT = "ams-standing-fill-memo/2"
+MEMO_FORMAT = "ams-standing-fill-memo/3"
 MEMO_NAME = "standing-fill-memo.ndjson.gz"
 # The repo code a fill decision depends on, hashed into the memo stamp: this module's import closure without rebuild/pipeline/, whose modules change the unit keys or the stamp itself rather than a decision. test_the_memo_code_roster_is_this_modules_import_closure checks the list.
 MEMO_CODE_MODULES = (
@@ -2717,6 +2720,14 @@ class Reach(NamedTuple):
     combined_lines: int
 
 
+class Tally(NamedTuple):
+    """One rule's reach as the rollup and the `--require-reach` refusal read it: the units its own line counts (filled, already verdicted and blocked by except_left), the units combined matches counted it in, and the number of those combined-match lines."""
+
+    own: int
+    combined_units: int
+    combined_lines: int
+
+
 class Run(NamedTuple):
     """One pass of the standing approvals over a corpus: the fill records to write, the combined pass's [filled, already verdicted, blocked] counts per counted-id tuple in rules-file order, and each rule's Reach by id."""
 
@@ -2851,88 +2862,263 @@ def _decision_from_record(record: list) -> Decision:
     )
 
 
+# A memo line is `json.dumps([key, record])`, so the key's 32 hex digits sit at fixed offsets and the record's text runs from after them to the closing bracket.
+_MEMO_LINE_OPEN = b'["'
+_MEMO_KEY_END = len(_MEMO_LINE_OPEN) + 32
+_MEMO_LINE_SEAM = b'", '
+_MEMO_RECORD_START = _MEMO_KEY_END + len(_MEMO_LINE_SEAM)
+_MEMO_LINE_CLOSE = b"]\n"
+_MEMO_KEY = re.compile(rb"[0-9a-f]{32}")
+_WORD = (1 << 64) - 1
+_ORDINAL = (1 << 32) - 1
+
+
 class Memo:
-    """The persisted decisions: a header holding the stamp from `memo_environment` and the `Roster` of the rules file the decisions were made under, then one line per unit key.
+    """The persisted decisions: a gzip stream holding a header line, the stamp from `memo_environment` and the `Roster` of the rules file the decisions were made under, then one `[key, record]` line an entry in key order, each record a `_decision_record`.
 
     A memo with another stamp, or one that cannot be read, opens empty; a miss only costs the evaluation the memo would have saved. A header without a readable roster means every rule has changed, and `Decider` serves nothing from it.
 
-    `write` keeps only the entries whose key belongs to a unit on the corpus it was given, whether served, freshly computed, or carried unread from the file, so the file stays bounded by the human domain. It writes the roster the run used into the header. An unread entry is carried only when that roster equals the stored one. A narrowed run never checks a closed unit's entry against changed rules, and writing that entry under the live roster would let the next pass serve it as if it had been checked, so a run under a changed roster keeps only what it computed or served. The gzip mtime is pinned and the level is 1, as in the unit store, because the file is written once and read once per pass.
+    `open` reads the previous file once and holds its entries by address: their keys in key order as two `array`s of 64-bit halves, each with a 4-byte ordinal into a vocabulary of the distinct decision records, deduplicated by the record's text so a record that thousands of entries share is parsed once, and a hit bit an entry, clear at open. A unit's lookup (`locate`) bisects the keys. An entry the next file keeps is hit: under the stored roster as soon as a unit of the run's domain locates it, and under a changed roster only when `_serve` serves it (`bind`, which the `Decider` calls with the roster the run writes, says which). A narrowed run never checks a closed unit's entry against changed rules, and writing that entry under the live roster would let the next pass serve it as if it had been checked. A fresh, repaired or trimmed decision is a new entry (`add`): its key and its vocabulary ordinal, the vocabulary taking any record it has not seen.
+
+    `write` writes the next file from the previous one's stream, through the descriptor `open` kept, rewound: each line whose entry is hit and whose key no new entry replaces is copied as it is, its key checked against its address, merged in key order with the new entries' lines, sorted in memory, so the file stays bounded by the human domain. It writes under a sibling temporary name renamed over the file, because the verdict update reads and writes one path, and it writes nothing, leaving the file's bytes, inode and modification time, when every entry is hit, nothing is new, and the header it would write is the previous file's byte for byte. The gzip mtime is pinned and the level is 1, as in the unit store, because the file is written once and read once per pass.
     """
 
-    def __init__(self, path, environment, family_digests, entries=None, stored: Roster | None = None) -> None:
+    def __init__(self, path, environment, family_digests, stored: Roster | None = None) -> None:
         self.path = pathlib.Path(path)
         self.environment = environment
         self.family_digests = family_digests
-        self.entries: dict[str, Decision] = entries or {}
         self.stored = stored
-        self.fresh: dict[str, Decision] = {}
-        self.served: set[str] = set()
-        self._keys: dict[str, str | None] = {}
+        self.roster: Roster | None = None
+        self._carry = stored is None
+        self._high = array("Q")
+        self._low = array("Q")
+        self._ordinals = array("I")
+        self._hits = bytearray()
+        self._texts: list[str] = []
+        self._decisions: list[Decision] = []
+        self._vocabulary: dict[str, int] = {}
+        self._new_high = array("Q")
+        self._new_low = array("Q")
+        self._new_ordinals = array("I")
+        self._header: bytes | None = None
+        self._source: BinaryIO | None = None
 
     @classmethod
     def open(cls, path, environment, family_digests, *, fresh=False) -> "Memo":
-        """The memo on disk, empty when there is nothing usable there or the caller asked to recompute everything (`--fresh-memo`, which still rewrites the file afterward)."""
-        entries: dict[str, Decision] = {}
-        stored = None
-        path = pathlib.Path(path)
-        if not fresh and path.is_file():
-            try:
-                with gzip.open(path, "rt", encoding="utf-8") as stream:
-                    header = json.loads(next(stream))
-                    if header.get("format") == MEMO_FORMAT and header.get("environment") == environment:
-                        stored = _roster_from_header(header)
-                        for line in stream:
-                            key, record = json.loads(line)
-                            entries[key] = _decision_from_record(record)
-            except OSError, EOFError, ValueError, TypeError, StopIteration:
-                entries, stored = {}, None
-        return cls(path, environment, family_digests, entries, stored)
+        """The memo on disk, empty when there is nothing usable there or the caller asked to recompute everything (`--fresh-memo`, which still rewrites the file afterward). A memo whose entries it reads keeps the file's descriptor open until `write` or `close`."""
+        memo = cls(path, environment, family_digests)
+        if fresh:
+            return memo
+        try:
+            source = open(memo.path, "rb")
+        except OSError:
+            return memo
+        try:
+            memo._read(source)
+        except OSError, EOFError, ValueError, TypeError, StopIteration, zlib.error:
+            source.close()
+            return cls(path, environment, family_digests)
+        if memo._header is None:
+            source.close()
+        else:
+            memo._source = source
+        return memo
+
+    def _read(self, source: BinaryIO) -> None:
+        with gzip.GzipFile(fileobj=source, mode="rb") as stream:
+            header_line = next(stream)
+            header = json.loads(header_line)
+            if not (
+                isinstance(header, dict)
+                and header.get("format") == MEMO_FORMAT
+                and header.get("environment") == self.environment
+            ):
+                return
+            stored = _roster_from_header(header)
+            previous = -1
+            for line in stream:
+                if not (
+                    line.startswith(_MEMO_LINE_OPEN)
+                    and line[_MEMO_KEY_END:_MEMO_RECORD_START] == _MEMO_LINE_SEAM
+                    and line.endswith(_MEMO_LINE_CLOSE)
+                    and _MEMO_KEY.fullmatch(line, len(_MEMO_LINE_OPEN), _MEMO_KEY_END)
+                ):
+                    raise ValueError(f"a memo line is not a [key, record] pair: {line[:80]!r}")
+                key = int(line[len(_MEMO_LINE_OPEN) : _MEMO_KEY_END], 16)
+                if key <= previous:
+                    raise ValueError("the memo's keys are not in strictly ascending order")
+                previous = key
+                text = line[_MEMO_RECORD_START : -len(_MEMO_LINE_CLOSE)].decode()
+                ordinal = self._vocabulary.get(text)
+                if ordinal is None:
+                    ordinal = self._intern(text, _decision_from_record(json.loads(text)))
+                self._high.append(key >> 64)
+                self._low.append(key & _WORD)
+                self._ordinals.append(ordinal)
+        self.stored = stored
+        self._carry = stored is None
+        self._header = header_line.removesuffix(b"\n")
+        self._hits = bytearray((len(self._high) + 7) // 8)
+
+    def _intern(self, text: str, decision: Decision) -> int:
+        ordinal = len(self._texts)
+        self._texts.append(text)
+        self._decisions.append(decision)
+        self._vocabulary[text] = ordinal
+        return ordinal
+
+    def __len__(self) -> int:
+        """How many entries the previous file holds."""
+        return len(self._high)
+
+    def bind(self, roster: Roster) -> None:
+        """Name the roster the run writes under. When it is the stored one, every entry a unit of the run's domain locates is hit; otherwise only a served entry is."""
+        self.roster = roster
+        self._carry = roster == self.stored
+
+    def locate(self, unit) -> tuple[str | None, int]:
+        """The unit's memo key (`unit_key`) and the address of the previous file's entry under it, or -1 when it holds none. Under the stored roster the entry is hit."""
+        key = unit_key(unit, self.family_digests)
+        if key is None:
+            return None, -1
+        index = self._find(int(key, 16))
+        if index >= 0 and self._carry:
+            self.hit(index)
+        return key, index
 
     def key_for(self, unit) -> str | None:
-        unit_id = unit["id"]
-        if unit_id not in self._keys:
-            self._keys[unit_id] = unit_key(unit, self.family_digests)
-        return self._keys[unit_id]
+        return self.locate(unit)[0]
 
-    def write(self, units, roster: Roster | None = None) -> int:
-        """Write the memo back, bounded to `units` and headed by `roster`, and return how many entries it holds. An entry the run neither computed nor served is carried only when `roster` is the one it was stored under."""
-        return self._write_keys((self.key_for(unit) for unit in units), roster)
+    def _find(self, key: int) -> int:
+        high, low = key >> 64, key & _WORD
+        at = bisect.bisect_left(self._high, high)
+        while at < len(self._high) and self._high[at] == high:
+            if self._low[at] == low:
+                return at
+            at += 1
+        return -1
 
-    def write_primed(self, roster: Roster | None = None) -> int:
-        """Write back the entries for every unit whose key `key_for` has computed; the CLI computes a key for every unit in the domain as it streams them."""
-        return self._write_keys(self._keys.values(), roster)
+    def decision(self, index: int) -> Decision:
+        """The decision of the previous file's entry at `index`."""
+        return self._decisions[self._ordinals[index]]
 
-    def _write_keys(self, keys, roster: Roster | None) -> int:
-        carry = roster == self.stored
-        kept: dict[str, Decision] = {}
-        for key in keys:
-            if key is None:
-                continue
-            decision = self.fresh.get(key)
-            if decision is None and (carry or key in self.served):
-                decision = self.entries.get(key)
-            if decision is not None:
-                kept[key] = decision
-        header = {
-            "format": MEMO_FORMAT,
-            "environment": self.environment,
-            "rules": (
-                None if roster is None else {rule_id: list(entry) for rule_id, entry in roster.rules.items()}
-            ),
-            "always": None if roster is None else list(roster.always),
-            "combined_gate": None if roster is None else roster.combined_gate,
-        }
+    def hit(self, index: int) -> None:
+        self._hits[index >> 3] |= 1 << (index & 7)
+
+    def add(self, key: str, decision: Decision) -> None:
+        """Record a new entry under `key`, which replaces the previous file's entry there; of two new entries under one key the later is kept."""
+        text = json.dumps(_decision_record(decision))
+        ordinal = self._vocabulary.get(text)
+        if ordinal is None:
+            ordinal = self._intern(text, decision)
+        value = int(key, 16)
+        self._new_high.append(value >> 64)
+        self._new_low.append(value & _WORD)
+        self._new_ordinals.append(ordinal)
+
+    def write(self) -> int:
+        """Write the next memo under the bound roster, or keep the file as it is when nothing in it changed, close the previous file's descriptor, and return how many entries the memo holds."""
+        roster = self.roster
+        header = json.dumps(
+            {
+                "format": MEMO_FORMAT,
+                "environment": self.environment,
+                "rules": (
+                    None
+                    if roster is None
+                    else {rule_id: list(entry) for rule_id, entry in roster.rules.items()}
+                ),
+                "always": None if roster is None else list(roster.always),
+                "combined_gate": None if roster is None else roster.combined_gate,
+            }
+        ).encode()
+        held = len(self._high)
+        hits = int.from_bytes(self._hits).bit_count()
+        try:
+            if not self._new_ordinals and hits == held and header == self._header:
+                return held
+            return self._rewrite(header, hits)
+        finally:
+            self.close()
+
+    def _rewrite(self, header: bytes, hits: int) -> int:
+        fresh = sorted(
+            (high << 64 | low) << 32 | index
+            for index, (high, low) in enumerate(zip(self._new_high, self._new_low, strict=True))
+        )
+
+        def new_lines() -> Iterator[tuple[int, bytes]]:
+            for at, packed in enumerate(fresh):
+                key = packed >> 32
+                if at + 1 < len(fresh) and fresh[at + 1] >> 32 == key:
+                    continue
+                text = self._texts[self._new_ordinals[packed & _ORDINAL]]
+                yield key, f'["{key:032x}", {text}]\n'.encode()
+
+        staging = self.path.with_name(self.path.name + ".tmp")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "wb") as handle:
-            with gzip.GzipFile(fileobj=handle, mode="wb", mtime=0, compresslevel=1) as stream:
-                stream.write((json.dumps(header) + "\n").encode())
-                for key in sorted(kept):
-                    stream.write((json.dumps([key, _decision_record(kept[key])]) + "\n").encode())
-        return len(kept)
+        written = 0
+        try:
+            with (
+                open(staging, "wb") as handle,
+                gzip.GzipFile(
+                    filename=str(self.path), mode="wb", fileobj=handle, compresslevel=1, mtime=0
+                ) as stream,
+            ):
+                stream.write(header + b"\n")
+                pending = new_lines()
+                upcoming = next(pending, None)
+                for index, line in self._kept(hits):
+                    key = self._high[index] << 64 | self._low[index]
+                    while upcoming is not None and upcoming[0] < key:
+                        stream.write(upcoming[1])
+                        written += 1
+                        upcoming = next(pending, None)
+                    if upcoming is not None and upcoming[0] == key:
+                        continue
+                    stream.write(line)
+                    written += 1
+                while upcoming is not None:
+                    stream.write(upcoming[1])
+                    written += 1
+                    upcoming = next(pending, None)
+            os.replace(staging, self.path)
+        finally:
+            staging.unlink(missing_ok=True)
+        return written
+
+    def _kept(self, hits: int) -> Iterator[tuple[int, bytes]]:
+        """Yield the address and the line of each hit entry of the previous file, read again through the descriptor `open` kept, checking each line's key against the key its address holds and the line count against the entries read, so a file changed in place under the run fails the write instead of being copied."""
+        if not hits:
+            return
+        if self._source is None:
+            raise ValueError(f"{self.path}'s entries were read, but its descriptor is closed")
+        self._source.seek(0)
+        count = -1
+        with gzip.GzipFile(fileobj=self._source, mode="rb") as stream:
+            next(stream)
+            for count, line in enumerate(stream):
+                key = int(line[len(_MEMO_LINE_OPEN) : _MEMO_KEY_END], 16)
+                if count >= len(self._high) or key != self._high[count] << 64 | self._low[count]:
+                    raise ValueError(
+                        f"{self.path} changed while it was open: its entry {count} is not the one read there"
+                    )
+                if self._hits[count >> 3] >> (count & 7) & 1:
+                    yield count, line
+        if count + 1 != len(self._high):
+            raise ValueError(
+                f"{self.path} changed while it was open: it holds {count + 1} entries, not {len(self._high)}"
+            )
+
+    def close(self) -> None:
+        """Close the previous file's descriptor, which `write` does too."""
+        if self._source is not None:
+            self._source.close()
+            self._source = None
 
 
 class Decider:
-    """The per-unit decision function behind a run. Each unit is decided once per run however many times it is asked about, so the narrowed pass and the `--require-reach` pass over the whole domain share results. A decision is served from the memo when the memo holds an entry under the unit's key that the live rules still support (`_serve`). `served`, `computed` and `unkeyed` count how each decision was reached.
+    """The per-unit decision function behind a run. A decision is served from the memo when the memo holds an entry under the unit's key that the live rules still support (`_serve`), and computed otherwise. The walk asks about each unit once (`settle`), so it remembers no decision; `decide` remembers each unit's for a caller that asks again, as `rule_reach` and a targeted run do. `served`, `computed` and `unkeyed` count how each decision was reached.
 
     The comparison of the live rules with the memo's stored `Roster` is computed once here, so a rules commit re-checks only the rules that changed instead of the whole domain. `_stale` holds every stored id whose match digest or verdict changed or that the live file no longer has. `_dropped` is the subset that vanished or whose match changed, since a verdict-only change leaves the rule's matcher results valid. `_probe` holds the live rules that are new or whose match changed, the only rules any per-unit candidate or reach check runs this pass. `_always_moved` says whether the rules the combined match consults for every window changed at all, and `_gate_moved` whether the combined match was switched on or off. A memo with no stored roster counts every rule as changed.
     """
@@ -2972,8 +3158,9 @@ class Decider:
                 for rule in rules
                 if rule["id"] not in stored.rules or stored.rules[rule["id"]][0] != live[rule["id"]][0]
             ]
+        if memo is not None:
+            memo.bind(self.roster)
         self._decided: dict[str, Decision] = {}
-        self._servings: dict[str, tuple[Decision, bool] | None] = {}
         self.served = 0
         self.computed = 0
         self.unkeyed = 0
@@ -3054,67 +3241,78 @@ class Decider:
         return Decision(None, frozenset(matched), frozenset(blocked), entry.relevant), bool(repairs)
 
     def _release(self) -> None:
-        """Empty the context's shape and walk memos. Every key in them is for one unit, and `_decided` and `_servings` answer repeat requests, so emptying them after each unit loses nothing. It also empties the alignment cache (`release_alignment_cache`), whose entries each hold one unit record, so the parent keeps no unit it has decided or served. `decide` calls this after every unit it serves or computes, `_serving` after every memo entry it checks (which `_prefill` does outside `decide`), and a pooled worker after every chunk (`_standing_pool_chunk`)."""
+        """Empty the context's shape and walk memos. Every key in them is for one unit, and each unit is decided once a walk, so emptying them after each unit loses nothing. It also empties the alignment cache (`release_alignment_cache`), whose entries each hold one unit record, so the parent keeps no unit it has decided or served. `_serving` calls this after every memo entry it checks, `compute` after every unit it evaluates, and a pooled worker after every chunk (`_standing_pool_chunk`)."""
         if self.context is not None:
             self.context.memo.clear()
             self.context.combined.clear()
         release_alignment_cache()
 
-    def _serving(self, unit) -> tuple[Decision, bool] | None:
-        """Run `_serve` on the unit's memo entry once per unit, however often `_prefill` and `decide` ask. A served key is added to `Memo.served`, so `Memo.write` keeps it under a changed roster, and a repaired or trimmed decision replaces the stored entry, so the file never keeps a rule the live file dropped. The context's memos are released after `_serve` (`_release`), so a check made outside `decide` leaves no window in them."""
-        unit_id = unit["id"]
-        if unit_id not in self._servings:
-            serving = None
-            key = self.memo.key_for(unit) if self.memo is not None else None
-            if self.memo is not None and key is not None:
-                entry = self.memo.entries.get(key)
-                if entry is not None:
-                    try:
-                        serving = self._serve(unit, entry)
-                    finally:
-                        self._release()
-                    if serving is not None:
-                        self.memo.served.add(key)
-                        if serving[0] != entry:
-                            self.memo.entries[key] = serving[0]
-            self._servings[unit_id] = serving
-        return self._servings[unit_id]
+    def _serving(self, unit, slot: tuple[str | None, int] | None = None) -> tuple[Decision, bool] | None:
+        """Run `_serve` on the entry the memo holds under the unit's key, `slot` being the unit's `Memo.locate` when the caller has it, and mark a served entry hit, so `Memo.write` keeps it under a changed roster; None when the memo holds no entry there or only `evaluate` can decide. The context's memos are released after `_serve` (`_release`), so a check leaves no window in them, whether `serve` makes it during the walk or a test makes it alone."""
+        if self.memo is None:
+            return None
+        _key, index = self.memo.locate(unit) if slot is None else slot
+        if index < 0:
+            return None
+        entry = self.memo.decision(index)
+        try:
+            serving = self._serve(unit, entry)
+        finally:
+            self._release()
+        if serving is not None:
+            self.memo.hit(index)
+        return serving
 
-    def take(self, unit, decision: Decision) -> Decision:
-        """Record a decision `decide` computed this run, by `evaluate` or by `_serve` repairing an entry: compute the unit's memo key, then record the decision as `take_id` does."""
-        if self.memo is not None:
-            self.memo.key_for(unit)
-        return self.take_id(unit["id"], decision)
+    def serve(self, unit, slot: tuple[str | None, int] | None = None) -> Decision | None:
+        """The unit's decision when the memo serves it (`_serving`), or None for a miss. A repaired decision counts as computed and becomes a new memo entry (`take`); a trimmed one, which only lost rules the live file dropped, counts as served and replaces the stored entry, so the file never keeps a rule the live file dropped."""
+        if self.memo is None:
+            return None
+        key, index = self.memo.locate(unit) if slot is None else slot
+        serving = self._serving(unit, (key, index))
+        if serving is None:
+            return None
+        assert key is not None
+        decision, repaired = serving
+        if repaired:
+            return self.take(key, decision)
+        if decision != self.memo.decision(index):
+            self.memo.add(key, decision)
+        self.served += 1
+        return decision
 
-    def take_id(self, unit_id: str, decision: Decision) -> Decision:
-        """Record a decision for a unit whose memo key is already computed: a keyed unit's goes into the memo's fresh entries and `computed`, an unkeyed unit's into `unkeyed`, and both into `_decided`. `_prefill` calls this for pooled results."""
-        key = self.memo._keys[unit_id] if self.memo is not None else None
+    def compute(self, unit, key: str | None) -> Decision:
+        """Evaluate the unit, release the context's memos, and record the decision under the unit's memo key (`take`)."""
+        try:
+            decision = self.evaluate(unit)
+        finally:
+            self._release()
+        return self.take(key, decision)
+
+    def take(self, key: str | None, decision: Decision) -> Decision:
+        """Record a decision computed this run, by `evaluate`, by `_serve` repairing an entry or by a pooled worker, under the unit's memo key: a keyed unit's becomes a new memo entry and counts toward `computed`, an unkeyed unit's toward `unkeyed`."""
         if key is None:
             self.unkeyed += 1
         else:
-            self.computed += 1
             assert self.memo is not None
-            self.memo.fresh[key] = decision
-        self._decided[unit_id] = decision
+            self.computed += 1
+            self.memo.add(key, decision)
+        return decision
+
+    def settle(self, unit, slot: tuple[str | None, int] | None = None) -> Decision:
+        """The unit's decision, served or computed, remembered nowhere: the walk's form, which asks about each unit once. `slot` is the unit's `Memo.locate` when the caller has it."""
+        if slot is None and self.memo is not None:
+            slot = self.memo.locate(unit)
+        decision = self.serve(unit, slot)
+        if decision is None:
+            return self.compute(unit, None if slot is None else slot[0])
         return decision
 
     def decide(self, unit) -> Decision:
-        """Return the unit's decision: from `_decided` on a repeat request, else served or computed. The context's memos are released after every unit (`_release`), so the context holds one unit's windows at a time."""
+        """The unit's decision (`settle`), remembered by unit id, so a repeat request returns the first answer and counts nothing again. The context's memos are released after every unit, so the context holds one unit's windows at a time."""
         decision = self._decided.get(unit["id"])
-        if decision is not None:
-            return decision
-        try:
-            serving = self._serving(unit)
-            if serving is None:
-                return self.take(unit, self.evaluate(unit))
-            decision, repaired = serving
-            if repaired:
-                return self.take(unit, decision)
-            self.served += 1
-            self._decided[unit["id"]] = decision
-            return decision
-        finally:
-            self._release()
+        if decision is None:
+            decision = self._decided[unit["id"]] = self.settle(unit)
+        return decision
 
 
 # Below this many misses, starting a pool costs more than it saves. Startup (spawn, the module import, the rules, and two font loads) takes about 0.1 s for one worker, and four workers start side by side, all ready in about 0.24 s. A miss costs about 0.67 ms serially, and a pickle round trip about 4 us for its unit record and under 1 us for its decision record, which puts the break-even near five hundred misses at width four. A warm pass over unchanged rules computes tens of units and stays far below this; a pass that commits a rule reaching thousands of units goes above it. These rates were measured on the M5 Pro in doc/fleet.md, from a whole-domain `--fresh-memo --daemon never` fill at `--jobs 1` and a spawn pool built with `_standing_pool_init`.
@@ -3131,48 +3329,117 @@ def _standing_pool_init(rules, fonts) -> None:
     _standing_pool_state["decider"] = Decider(rules, context)
 
 
-def _standing_pool_chunk(units) -> list[tuple[str, list]]:
-    """Decide one pooled chunk and return each unit's id with its `_decision_record`, the format the memo stores, so `_decision_from_record` reads both. The worker's memos are emptied after every chunk, so its peak holds one chunk's windows."""
+def _standing_pool_chunk(units) -> list[tuple[int, str | None, str, list]]:
+    """Decide one pooled chunk of `(ordinal, memo key, unit)` and answer each unit with its ordinal, its key, its id and its `_decision_record`, the format the memo stores, never the unit. The worker's memos are emptied after every chunk, so its peak holds one chunk's windows."""
     decider = _standing_pool_state["decider"]
     try:
-        return [(unit["id"], _decision_record(decider.evaluate(unit))) for unit in units]
+        return [
+            (ordinal, key, unit["id"], _decision_record(decider.evaluate(unit)))
+            for ordinal, key, unit in units
+        ]
     finally:
         decider._release()
 
 
-def _prefill(decider: Decider, asked, jobs: int) -> None:
-    """Decide every unit in `asked` in one pass over it. With `jobs` at 1 each unit is decided serially. Otherwise a unit that is already decided or that the memo can serve is decided immediately (an entry `_serve` repairs counts as servable, since the repair runs only a matcher or two), and each miss is written to a temporary gzipped spool. Fewer than `_STANDING_POOL_THRESHOLD` misses are decided serially from the spool. More go to a spawn pool, which is given at most one wave of `width` chunks at a time, and only ids and decisions are kept from its results. `_serving` and `decide` release the context's memos after each unit (`Decider._release`), so the spool pass holds no unit's windows after it."""
+class _Refill:
+    """The pool behind `_prefill`: the misses it holds until `_STANDING_POOL_THRESHOLD`, the chunk it fills, the executor once that many are found, the chunks submitted and not yet answered, and a bit an ordinal for the units the pool holds."""
+
+    def __init__(self, decider: Decider, jobs: int, take: Callable[[int, str, Decision], object]) -> None:
+        self.decider = decider
+        self.jobs = jobs
+        self.take = take
+        self.held: list[tuple[int, str | None, dict]] = []
+        self.chunk: list[tuple[int, str | None, dict]] = []
+        self.executor: ProcessPoolExecutor | None = None
+        self.out: set[Future] = set()
+        self.outstanding = bytearray()
+
+    def add(self, ordinal: int, key: str | None, unit: dict) -> None:
+        if self.executor is None:
+            self.held.append((ordinal, key, unit))
+            if len(self.held) >= _STANDING_POOL_THRESHOLD:
+                self._start()
+            return
+        self.chunk.append((ordinal, key, unit))
+        if len(self.chunk) >= _STANDING_POOL_CHUNK:
+            self._submit()
+
+    def _start(self) -> None:
+        fonts = None if self.decider.context is None else self.decider.context.fonts
+        self.executor = ProcessPoolExecutor(
+            max_workers=self.jobs,
+            mp_context=multiprocessing.get_context("spawn"),
+            initializer=_standing_pool_init,
+            initargs=(self.decider.rules, fonts),
+        )
+        held, self.held = self.held, []
+        for miss in held:
+            self.chunk.append(miss)
+            if len(self.chunk) >= _STANDING_POOL_CHUNK:
+                self._submit()
+
+    def _submit(self) -> None:
+        while len(self.out) >= self.jobs:
+            self._answer()
+        chunk, self.chunk = self.chunk, []
+        for ordinal, _key, _unit in chunk:
+            byte = ordinal >> 3
+            if byte >= len(self.outstanding):
+                self.outstanding.extend(bytes(byte + 1 - len(self.outstanding)))
+            self.outstanding[byte] |= 1 << (ordinal & 7)
+        assert self.executor is not None
+        self.out.add(self.executor.submit(_standing_pool_chunk, chunk))
+
+    def _answer(self) -> None:
+        done, self.out = wait(self.out, return_when=FIRST_COMPLETED)
+        for future in done:
+            for ordinal, key, unit_id, record in future.result():
+                byte, bit = ordinal >> 3, 1 << (ordinal & 7)
+                if byte >= len(self.outstanding) or not self.outstanding[byte] & bit:
+                    raise RuntimeError(
+                        f"the pool answered for unit {unit_id} at {ordinal}, which it was not given or had answered already"
+                    )
+                self.outstanding[byte] ^= bit
+                self.take(ordinal, unit_id, self.decider.take(key, _decision_from_record(record)))
+
+    def finish(self) -> None:
+        """Decide what is left: the held misses in the parent when the pool never started, and otherwise the last chunk and every answer still out."""
+        if self.executor is None:
+            held, self.held = self.held, []
+            for ordinal, key, unit in held:
+                self.take(ordinal, unit["id"], self.decider.compute(unit, key))
+            return
+        if self.chunk:
+            self._submit()
+        while self.out:
+            self._answer()
+        left = int.from_bytes(self.outstanding).bit_count()
+        assert not left, f"the pool never answered for {left} units"
+
+    def close(self) -> None:
+        if self.executor is not None:
+            self.executor.shutdown(wait=True, cancel_futures=True)
+
+
+def _prefill(decider: Decider, asked, jobs: int, take: Callable[[int, str, Decision], object]) -> None:
+    """Decide every unit in `asked` in one pass over it, handing each decision to `take` with the unit's ordinal in `asked` and its id as the decision arrives. With `jobs` at 1 each unit is decided as the walk reaches it. Otherwise a unit the memo can serve is decided as the walk reaches it (an entry `_serve` repairs counts as servable, since the repair runs only a matcher or two), and a miss is kept as a copy (`json.loads(json.dumps(dict(unit)))`, since `unit_index`'s reader shares nested containers across the records it yields) with its ordinal and its memo key, so the walk keeps none of the records it reads. Until `_STANDING_POOL_THRESHOLD` misses are found the parent holds them and starts no pool, and a walk that ends under it decides them in the parent. Past it, the misses go to a spawn-context executor in chunks of `_STANDING_POOL_CHUNK` as the walk finds them; the executor starts a worker only when a chunk finds none idle, so it opens no more workers than the misses need, and the parent keeps at most one wave, the width's chunks, submitted and unanswered, waiting on the pool before it submits another. Every answer is taken in the main thread, since a `Decider` is not safe across threads, and they arrive in any order, so `take`'s callers order what they print by the ordinal. A worker answers each unit with its ordinal, its key, its id and its decision record, and a bit an ordinal records the units the pool holds, so an answer for a unit it was not given, or a second answer for one, raises, and so does a pool that leaves one unanswered. `_serving` and `compute` release the context's memos after each unit (`Decider._release`), so the walk holds no unit's windows after it."""
     if jobs <= 1:
-        for unit in asked:
-            decider.decide(unit)
+        for ordinal, unit in enumerate(asked):
+            take(ordinal, unit["id"], decider.settle(unit))
         return
-    with tempfile.TemporaryFile() as handle:
-        missed: set[str] = set()
-        with gzip.GzipFile(fileobj=handle, mode="wb", compresslevel=1, mtime=0) as stream:
-            for unit in asked:
-                if unit["id"] in decider._decided or decider._serving(unit) is not None:
-                    decider.decide(unit)
-                else:
-                    missed.add(unit["id"])
-                    stream.write((json.dumps(dict(unit)) + "\n").encode())
-        handle.seek(0)
-        with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
-            units = (json.loads(line) for line in stream)
-            if len(missed) < _STANDING_POOL_THRESHOLD:
-                for unit in units:
-                    decider.decide(unit)
-                return
-            fonts = None if decider.context is None else decider.context.fonts
-            width = min(jobs, (len(missed) + _STANDING_POOL_CHUNK - 1) // _STANDING_POOL_CHUNK)
-            spawn = multiprocessing.get_context("spawn")
-            with spawn.Pool(width, initializer=_standing_pool_init, initargs=(decider.rules, fonts)) as pool:
-                for wave in batched(batched(units, _STANDING_POOL_CHUNK), width):
-                    for records in pool.imap_unordered(_standing_pool_chunk, wave):
-                        for unit_id, record in records:
-                            missed.remove(unit_id)
-                            decider.take_id(unit_id, _decision_from_record(record))
-                    del wave
-        assert not missed, f"the pool never answered for {len(missed)} units"
+    memo = decider.memo
+    refill = _Refill(decider, jobs, take)
+    try:
+        for ordinal, unit in enumerate(asked):
+            slot = memo.locate(unit) if memo is not None else (None, -1)
+            decision = decider.serve(unit, slot)
+            if decision is None:
+                refill.add(ordinal, slot[0], json.loads(json.dumps(dict(unit))))
+            else:
+                take(ordinal, unit["id"], decision)
+        refill.finish()
+    finally:
+        refill.close()
 
 
 def rule_reach(rules, units, records, stamp, context=None, decide=None) -> Run:
@@ -3182,59 +3449,105 @@ def rule_reach(rules, units, records, stamp, context=None, decide=None) -> Run:
     return _decision_reach(rules, ((unit["id"], decide(unit)) for unit in units), records, stamp)
 
 
-def _decision_reach(rules, decisions, records, stamp) -> Run:
-    """Aggregate `(unit id, decision)` pairs, in corpus order, into a `Run` without keeping unit records. The fills and the per-rule tallies come from the same decisions, so the records a run writes and the report it prints agree."""
-    order = {rule["id"]: index for index, rule in enumerate(rules)}
-    by_id = {rule["id"]: rule for rule in rules}
-    fills = []
-    counted_units: dict[str, list[str]] = {}
-    combined_counts: dict[tuple[str, ...], list[int]] = {}
-    matched_by: dict[str, list[str]] = {rule["id"]: [] for rule in rules}
-    blocked_by: dict[str, list[str]] = {rule["id"]: [] for rule in rules}
-    for unit_id, decision in decisions:
+class _Fold:
+    """A run folded from its decisions as they arrive, in any order, each with the ordinal that places its unit in corpus order: the fill records, the combined counts, and for each rule its combined count and the units it filled, found verdicted and found blocked, each with its ordinal. A unit two rules match gets its fills in rules-file order, never in the order of `Decision.matched`, a frozenset that iterates in an order the string hash seed sets, because the merge keeps the first of two records with one `at`. `run` sorts the fills by unit, stably, and each rule's lists by ordinal, so a run folded from pooled results reads as one folded in corpus order."""
+
+    def __init__(self, rules, records, stamp) -> None:
+        self.records = records
+        self.stamp = stamp
+        self.rules = rules
+        self._order = {rule["id"]: index for index, rule in enumerate(rules)}
+        self._by_id = {rule["id"]: rule for rule in rules}
+        self._notes = {rule["id"]: f"[standing: {rule['id']}] {rule['note']}" for rule in rules}
+        self._combined_notes: dict[CombinedMatch, str] = {}
+        self.fills: list[dict] = []
+        self.combined_counts: dict[tuple[str, ...], list[int]] = {}
+        self._counted = collections.Counter()
+        self._filled: dict[str, list[tuple[int, str]]] = {rule["id"]: [] for rule in rules}
+        self._verdicted: dict[str, list[tuple[int, str]]] = {rule["id"]: [] for rule in rules}
+        self._blocked: dict[str, list[tuple[int, str]]] = {rule["id"]: [] for rule in rules}
+
+    def add(self, ordinal: int, unit_id: str, decision: Decision) -> None:
         combined = decision.combined
         if combined is None:
-            for rule_id in decision.matched:
-                matched_by[rule_id].append(unit_id)
+            if decision.matched:
+                blank = unit_id not in self.records
+                for rule_id in sorted(decision.matched, key=self._order.__getitem__):
+                    if blank:
+                        self._filled[rule_id].append((ordinal, unit_id))
+                        self.fills.append(
+                            {
+                                "unit": unit_id,
+                                "verdict": self._by_id[rule_id]["verdict"],
+                                "note": self._notes[rule_id],
+                                "at": self.stamp,
+                            }
+                        )
+                    else:
+                        self._verdicted[rule_id].append((ordinal, unit_id))
             for rule_id in decision.blocked_by_except:
-                blocked_by[rule_id].append(unit_id)
-            continue
-        for rule_id in combined.counted:
-            counted_units.setdefault(rule_id, []).append(unit_id)
-        counts = combined_counts.setdefault(combined.counted, [0, 0, 0])
+                self._blocked[rule_id].append((ordinal, unit_id))
+            return
+        self._counted.update(combined.counted)
+        counts = self.combined_counts.setdefault(combined.counted, [0, 0, 0])
         if combined.blocked_by_except:
             counts[2] += 1
-        elif unit_id in records:
+        elif unit_id in self.records:
             counts[1] += 1
         else:
             counts[0] += 1
-            fills.append(
-                {
-                    "unit": unit_id,
-                    "verdict": combined.verdict,
-                    "note": _combined_note(by_id, combined),
-                    "at": stamp,
-                }
+            note = self._combined_notes.get(combined)
+            if note is None:
+                note = self._combined_notes[combined] = _combined_note(self._by_id, combined)
+            self.fills.append({"unit": unit_id, "verdict": combined.verdict, "note": note, "at": self.stamp})
+
+    def run(self) -> Run:
+        reaches: dict[str, Reach] = {}
+        for rule in self.rules:
+            rule_id = rule["id"]
+            reaches[rule_id] = Reach(
+                filled=_in_corpus_order(self._filled[rule_id]),
+                verdicted=_in_corpus_order(self._verdicted[rule_id]),
+                blocked_by_except=_in_corpus_order(self._blocked[rule_id]),
+                combined_units=self._counted[rule_id],
+                combined_lines=sum(1 for counted in self.combined_counts if rule_id in counted),
             )
+        self.fills.sort(key=lambda record: record["unit"])
+        ordered = sorted(self.combined_counts, key=lambda ids: [self._order[rule_id] for rule_id in ids])
+        return Run(self.fills, {counted: self.combined_counts[counted] for counted in ordered}, reaches)
 
-    reaches: dict[str, Reach] = {}
-    for rule in rules:
-        matched = matched_by[rule["id"]]
-        blanks = [unit_id for unit_id in matched if unit_id not in records]
-        note = f"[standing: {rule['id']}] {rule['note']}"
-        for unit_id in blanks:
-            fills.append({"unit": unit_id, "verdict": rule["verdict"], "note": note, "at": stamp})
-        reaches[rule["id"]] = Reach(
-            filled=blanks,
-            verdicted=[unit_id for unit_id in matched if unit_id in records],
-            blocked_by_except=blocked_by[rule["id"]],
-            combined_units=len(counted_units.get(rule["id"], ())),
-            combined_lines=sum(1 for ids in combined_counts if rule["id"] in ids),
-        )
 
-    fills.sort(key=lambda record: record["unit"])
-    ordered = sorted(combined_counts, key=lambda ids: [order[rule_id] for rule_id in ids])
-    return Run(fills, {counted: combined_counts[counted] for counted in ordered}, reaches)
+def _in_corpus_order(placed: list[tuple[int, str]]) -> list[str]:
+    placed.sort()
+    return [unit_id for _ordinal, unit_id in placed]
+
+
+def _decision_reach(rules, decisions, records, stamp) -> Run:
+    """Aggregate `(unit id, decision)` pairs, in corpus order, into a `Run` without keeping unit records (`_Fold`). The fills and the per-rule tallies come from the same decisions, so the records a run writes and the report it prints agree."""
+    fold = _Fold(rules, records, stamp)
+    for ordinal, (unit_id, decision) in enumerate(decisions):
+        fold.add(ordinal, unit_id, decision)
+    return fold.run()
+
+
+def _tallies(rules, decisions: collections.Counter) -> dict[str, "Tally"]:
+    """Each rule's `Tally` over the whole domain with a blank store, from how many units took each distinct decision: the `--require-reach` reach, which reads only counts, so the walk keeps a count a decision and no unit."""
+    own: collections.Counter[str] = collections.Counter()
+    counted: collections.Counter[str] = collections.Counter()
+    lines: set[tuple[str, ...]] = set()
+    for decision, units in decisions.items():
+        combined = decision.combined
+        if combined is None:
+            for rule_id in (*decision.matched, *decision.blocked_by_except):
+                own[rule_id] += units
+            continue
+        lines.add(combined.counted)
+        for rule_id in combined.counted:
+            counted[rule_id] += units
+    return {
+        rule["id"]: Tally(own[rule["id"]], counted[rule["id"]], sum(1 for ids in lines if rule["id"] in ids))
+        for rule in rules
+    }
 
 
 def open_units(units, records):
@@ -3254,6 +3567,10 @@ def _count(number, noun):
 def _own_line_total(reach):
     """The units one rule's own report line counts: filled, already verdicted, and blocked by except_left."""
     return len(reach.filled) + len(reach.verdicted) + len(reach.blocked_by_except)
+
+
+def _tally(reach: Reach) -> Tally:
+    return Tally(_own_line_total(reach), reach.combined_units, reach.combined_lines)
 
 
 def _tally_line(name, filled, verdicted, blocked, open_only):
@@ -3277,22 +3594,21 @@ def _tally_lines(rules, run, open_only):
     return lines
 
 
-def _rollup_lines(rules, reaches):
-    """Each rule's total reach: the units its own line counts, the units combined matches counted it in, their sum, and how many combined-match lines name it. Then a REACHED NOTHING line for each rule that reached nothing, since a row of zeros is easy to miss."""
+def _rollup_lines(rules, tallies: Mapping[str, Tally]):
+    """Each rule's total reach from its `Tally`: the units its own line counts, the units combined matches counted it in, their sum, and how many combined-match lines name it. Then a REACHED NOTHING line for each rule that reached nothing, since a row of zeros is easy to miss."""
     lines = [
         "  per-rule reach (a window a combined match explains counts toward every rule it counts, "
         "so these totals deliberately do not sum to the run):"
     ]
     for rule in rules:
-        reach = reaches[rule["id"]]
-        own = _own_line_total(reach)
+        tally = tallies[rule["id"]]
         lines.append(
-            f"    {rule['id']}: {own} on its own line, {reach.combined_units} counted in "
-            f"{_count(reach.combined_lines, 'combined-match line')}, {own + reach.combined_units} in all"
+            f"    {rule['id']}: {tally.own} on its own line, {tally.combined_units} counted in "
+            f"{_count(tally.combined_lines, 'combined-match line')}, {tally.own + tally.combined_units} in all"
         )
     for rule in rules:
-        reach = reaches[rule["id"]]
-        if _own_line_total(reach) or reach.combined_units:
+        tally = tallies[rule["id"]]
+        if tally.own or tally.combined_units:
             continue
         lines.append(
             f"  REACHED NOTHING: {rule['id']} matched no window on its own and was counted in no "
@@ -3410,7 +3726,7 @@ def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
     ]
     counting = {ids: counts for ids, counts in run.combined_counts.items() if rule_id in ids}
     lines += _tally_lines([rule], Run(run.fills, counting, run.reaches), False)
-    lines += _rollup_lines([rule], run.reaches)
+    lines += _rollup_lines([rule], {rule_id: _tally(run.reaches[rule_id])})
     lines += _disputed_match_lines({rule_id: run.reaches[rule_id]}, records)
     lines += _joining_vocabulary_lines([rule], joining)
     lines += _explain_lines(rule_id, run.reaches[rule_id], records)
@@ -3549,78 +3865,94 @@ def main(
     if args.memo is not None:
         environment, family_digests = memo_environment(corpus)
         memo = Memo.open(args.memo, environment, family_digests, fresh=args.fresh_memo)
-    decider = Decider(rules, context, memo)
+    try:
+        return _fill(
+            args,
+            rules,
+            records,
+            manifest["generated_at"],
+            eligible,
+            context,
+            context_error,
+            wants_deltas,
+            memo,
+            proposed,
+        )
+    finally:
+        if memo is not None:
+            memo.close()
 
-    domain_ids = []
-    candidate_ids = []
+
+def _fill(
+    args, rules, records, stamp, eligible, context, context_error, wants_deltas, memo: Memo | None, proposed
+) -> int:
+    """The walk and the report of `main` once its inputs are read: decide the units the run asks about, fold each decision as it arrives into the candidates' run and, under `--require-reach`, into a count a distinct decision over the whole domain, write the fill file and the memo, and print the report. A walk that finds the corpus predates the ink deltas, or a font-backed rule on a corpus without fonts, writes neither file."""
+    decider = Decider(rules, context, memo)
     joining = set()
     has_deltas = False
+    candidates = bytearray()
 
     def asked_units():
         nonlocal has_deltas
         for unit in eligible:
             unit_id = unit["id"]
-            domain_ids.append(unit_id)
             has_deltas |= unit.get("ink_deltas") is not None
             joining.update(_joining_family(name) for name in (unit.get("before") or {}).get("glyphs") or ())
-            if memo is not None:
-                memo.key_for(unit)
             candidate = (
                 not args.open_only
                 or unit_id not in records
                 or records[unit_id]["verdict"] not in ACCEPTING_VERDICTS
             )
-            if candidate:
-                candidate_ids.append(unit_id)
             if context_error is None and (candidate or args.require_reach or args.targeted):
+                candidates.append(candidate)
                 yield unit
+            elif memo is not None:
+                memo.key_for(unit)
 
-    target_lines = []
+    def refused() -> None:
+        if wants_deltas and not has_deltas:
+            raise SystemExit(
+                "the corpus carries no ink_deltas fields, so it predates the "
+                f"{_shape_names(lambda shape: shape.needs_ink_deltas, 'and')} shapes; such a rule cannot "
+                "match anything on it — rebuild the corpus (make review-cycle) first"
+            )
+        if context_error is not None:
+            raise SystemExit(context_error)
+
     if args.targeted:
         rule = next(rule for rule in rules if rule["id"] == args.explain)
-        target_lines = targeted_report(
-            rules, rule, asked_units(), args.unit, records, manifest["generated_at"], decider.decide
-        )
-    else:
-        _prefill(decider, asked_units(), args.jobs)
-    if wants_deltas and not has_deltas:
-        raise SystemExit(
-            "the corpus carries no ink_deltas fields, so it predates the "
-            f"{_shape_names(lambda shape: shape.needs_ink_deltas, 'and')} shapes; such a rule cannot "
-            "match anything on it — rebuild the corpus (make review-cycle) first"
-        )
-    if context_error is not None:
-        raise SystemExit(context_error)
-    if args.targeted:
+        target_lines = targeted_report(rules, rule, asked_units(), args.unit, records, stamp, decider.decide)
+        refused()
         for line in target_lines:
             print(line)
         return 0
 
-    run = _decision_reach(
-        rules,
-        ((unit_id, decider._decided[unit_id]) for unit_id in candidate_ids),
-        records,
-        manifest["generated_at"],
-    )
-    reaches = run.reaches
-    if args.require_reach:
-        reaches = _decision_reach(
-            rules,
-            ((unit_id, decider._decided[unit_id]) for unit_id in domain_ids),
-            {},
-            manifest["generated_at"],
-        ).reaches
+    fold = _Fold(rules, records, stamp)
+    reach: collections.Counter[Decision] | None = collections.Counter() if args.require_reach else None
+
+    def take(ordinal: int, unit_id: str, decision: Decision) -> None:
+        if reach is not None:
+            reach[decision] += 1
+        if candidates[ordinal]:
+            fold.add(ordinal, unit_id, decision)
+
+    _prefill(decider, asked_units(), args.jobs, take)
+    refused()
+    run = fold.run()
+    tallies = {rule_id: _tally(reaching) for rule_id, reaching in run.reaches.items()}
+    if reach is not None:
+        tallies = _tallies(rules, reach)
 
     lines = []
     if memo is not None:
-        entries = memo.write_primed(decider.roster)
+        entries = memo.write()
         lines.append(
             f"  memo: served {decider.served}, computed {decider.computed}, unkeyed {decider.unkeyed}; "
             f"{memo.path.name} holds {entries} {'entry' if entries == 1 else 'entries'}"
         )
     lines += _tally_lines(rules, run, args.open_only)
     if args.require_reach or not args.open_only:
-        lines += _rollup_lines(rules, reaches)
+        lines += _rollup_lines(rules, tallies)
     lines += _disputed_match_lines(run.reaches, records)
     lines += _joining_vocabulary_lines(rules, joining)
     if args.explain is not None:
@@ -3628,25 +3960,20 @@ def main(
 
     payload = {
         "format": "ams-review-verdicts/1",
-        "manifest_generated_at": manifest["generated_at"],
-        "exported_at": manifest["generated_at"],
+        "manifest_generated_at": stamp,
+        "exported_at": stamp,
         "verdicts": run.fills,
     }
     out = pathlib.Path(args.out) if args.out else OUT
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     if proposed is not None:
         proposed.extend(run.fills)
-    print(
-        f"wrote {out.name}: {len(run.fills)} standing-approval verdicts onto manifest "
-        f"{manifest['generated_at']}"
-    )
+    print(f"wrote {out.name}: {len(run.fills)} standing-approval verdicts onto manifest {stamp}")
     for line in lines:
         print(line)
     if args.require_reach:
         unreached = [
-            rule["id"]
-            for rule in rules
-            if not (_own_line_total(reaches[rule["id"]]) + reaches[rule["id"]].combined_units)
+            rule["id"] for rule in rules if not (tallies[rule["id"]].own + tallies[rule["id"]].combined_units)
         ]
         if unreached:
             print(

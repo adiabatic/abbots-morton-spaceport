@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from rebuild.review import accepted
+from rebuild.review import accepted, unit_cache, unit_index
 from rebuild.tools import duplicate_verdicts as dv
 from rebuild.tools import merge_verdicts as mv
 from rebuild.tools import review_queue as rq
@@ -238,6 +238,7 @@ def test_a_real_split_still_reports_and_fills_nothing(tmp_path, monkeypatch, cap
 
 
 def test_duplicate_projection_matches_streamed_fill_and_reports(tmp_path, monkeypatch, capsys):
+    """A fill handed the verdict update's projection, a group ordinal and an id word a unit in arrays of 4 and 8 bytes, writes the fill file and prints the report the fill that streams the corpus does, as often as it is handed it, and with no group in disagreement reads the corpus no more."""
     units = [unit("u-0001", "e-0001"), unit("u-0002", "e-0001")]
     corpus = corpus_with(tmp_path, units)
     verdicts = verdicts_file(tmp_path, [v("u-0001", "approve")])
@@ -245,17 +246,59 @@ def test_duplicate_projection_matches_streamed_fill_and_reports(tmp_path, monkey
     argv = [str(verdicts), "--corpus", str(corpus), "--out", str(out)]
     dv.main(argv)
     expected_bytes, expected_report = out.read_bytes(), capsys.readouterr().out
-    projection = [dv.duplicate_record(record) for record in units]
-    assert all(set(record) == {"id", "duplicate_group", "notation"} for record in projection)
+    projection = dv.Projection.of(units)
+    columns = (projection.group_of, projection.words)
+    assert [column.itemsize for column in columns] == [4, 8]
 
     def refuse_read(_corpus):
         raise AssertionError("a supplied duplicate projection must not reread the index")
 
     monkeypatch.setattr(dv.unit_index, "iter_human_units", refuse_read)
     for _round in range(2):
-        dv.main(argv, units=projection)
+        dv.main(argv, projection=projection)
         assert out.read_bytes() == expected_bytes
         assert capsys.readouterr().out == expected_report
+
+
+def test_the_conflict_report_rebuilds_ids_and_reads_the_index_notations(tmp_path, monkeypatch, capsys):
+    """The projection keeps an id as its 64-bit word, and the conflict report rebuilds each member's id from it through `unit_cache.base58_64`, which `id_word` inverts, so it reads as the index's own; an id `id_word` refuses keeps its string. Each member's caption is the notation the index holds, whatever its code points, from one more walk of the human units, the same whether the fill streams the corpus or is handed the projection."""
+    rebuilt = [unit_cache.unit_id_for(f"{index:02x}" * 32) for index in range(3)]
+    members = [
+        {**unit(rebuilt[0], "e-0009"), "codepoints": "E659:E658:E652:E653", "notation": "·Vie·Fee·Tea·Day"},
+        {**unit("u-0002", "e-0009"), "codepoints": "E650:E652", "notation": "·Pea·Tea"},
+        {**unit(rebuilt[1], "e-0009"), "codepoints": "E650:E651:E652:E653:E654", "notation": "kept-five"},
+        {**unit(rebuilt[2], "e-0009"), "codepoints": "0000:E650", "notation": "kept-leading-zero"},
+    ]
+    corpus = corpus_with(tmp_path, members)
+    records = [v(rebuilt[0], "approve", note="reads as one stroke"), v("u-0002", "reject")]
+    out = tmp_path / "fill.json"
+    argv = [str(verdicts_file(tmp_path, records)), "--corpus", str(corpus), "--out", str(out)]
+    dv.main(argv)
+    report = capsys.readouterr().out.splitlines()
+    projection = dv.Projection.of(unit_index.iter_human_units(corpus))
+    assert set(projection.ids) == {1}
+    walk = unit_index.iter_human_units
+    walks = []
+
+    def counted(*args, **options):
+        walks.append(options)
+        return walk(*args, **options)
+
+    monkeypatch.setattr(dv.unit_index, "iter_human_units", counted)
+    dv.main(argv, projection=projection)
+    assert capsys.readouterr().out.splitlines() == report
+    assert walks == [{"fields": ("id", "notation")}]
+    verdicts = {record["unit"]: record for record in records}
+    expected = [f"  e-0009  #units={','.join(member['id'] for member in members)}"]
+    for member in members:
+        if member["id"] in verdicts:
+            record = verdicts[member["id"]]
+            expected.append(
+                f"    {member['id']:9s} {member['notation']:30s} {record['verdict']:9s} {record['note']}"
+            )
+    expected += [f"    {member['id']:9s} {member['notation']:30s} (blank)" for member in members[2:]]
+    start = report.index(expected[0])
+    assert report[start : start + len(expected)] == expected
 
 
 @pytest.mark.parametrize("reader", ["duplicate-fill", "queue"])

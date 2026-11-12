@@ -62,8 +62,8 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
     monkeypatch.setattr(vu.unit_index, "iter_human_units", stream)
     monkeypatch.setattr(vu.merge_verdicts, "merge", lambda _inputs, **_options: vu.merge_verdicts.Merged(0))
 
-    def duplicate_fill(argv, units=None, **_held):
-        duplicate_calls.append(units)
+    def duplicate_fill(argv, projection=None, **_held):
+        duplicate_calls.append(projection)
         return _write_out(argv)
 
     monkeypatch.setattr(vu.duplicate_verdicts, "main", duplicate_fill)
@@ -78,9 +78,9 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
 
     monkeypatch.setattr(vu.standing_verdicts, "main", standing)
 
-    def fake_complaint_list(argv, units=None, unit_ids=None, **_held):
+    def fake_complaint_list(argv, units=None, human=None, **_held):
         assert units is not None
-        complaint_list_calls.append((argv, list(units), unit_ids))
+        complaint_list_calls.append((argv, list(units), human))
         return 0
 
     monkeypatch.setattr(vu.complaint_list, "main", fake_complaint_list)
@@ -126,21 +126,28 @@ def test_the_verdict_update_runs_the_standing_fill_in_its_open_only_form(tmp_pat
     assert list(units()) == index
 
 
-def test_the_duplicate_fill_takes_the_human_records_and_the_complaint_list_takes_the_id_set_beside_them(
-    tmp_path, monkeypatch
+def test_both_duplicate_fills_read_one_projection_and_the_complaint_list_takes_the_human_ids_beside_the_records(
+    tmp_path, monkeypatch, capsys
 ):
-    """Both duplicate fills get the same list of human duplicate records, because the duplicate fill reads nothing from machine records. The complaint list gets the human records and the set of every corpus id, because its absent-unit warning checks verdicts against machine units too."""
+    """Both duplicate fills get the one projection of the human units the first walk made, because the duplicate fill reads nothing from machine records. The complaint list gets the human records and the human ids that projection holds, and no machine id: its absent-unit warning asks the corpus itself about a record on a unit the human ids do not hold. The first walk counts every corpus id and holds none."""
     code, index, _calls, _out, complaint_list_calls, duplicate_calls = _run_verdict_update(
         tmp_path, monkeypatch, complaints=True
     )
     assert code == 0
+    assert any(
+        line.endswith(f"\t({len(index)} human of {len(IDS)} units)")
+        for line in capsys.readouterr().out.splitlines()
+    )
     assert len(duplicate_calls) == 2
-    assert all(units is duplicate_calls[0] for units in duplicate_calls)
-    assert duplicate_calls[0] == [vu.duplicate_verdicts.duplicate_record(unit) for unit in index]
-    [(argv, units, unit_ids)] = complaint_list_calls
+    assert all(projection is duplicate_calls[0] for projection in duplicate_calls)
+    projection = duplicate_calls[0]
+    assert [projection.unit_id(ordinal) for ordinal in range(len(projection))] == [
+        unit["id"] for unit in index
+    ]
+    [(argv, units, human)] = complaint_list_calls
     assert argv[argv.index("--corpus") + 1] == str(tmp_path / "review")
     assert units == index
-    assert unit_ids == IDS
+    assert {unit_id: unit_id in human for unit_id in IDS} == {"u-1": True, "u-2": True, "u-machine": False}
 
 
 def test_the_verdict_update_forwards_the_cycles_standing_fill_width(tmp_path, monkeypatch):
@@ -185,10 +192,7 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
     monkeypatch.setattr(
         vu.carry_verdicts,
         "main",
-        lambda argv, current_units=None, current_ids=None, listed=None, fused=None: carries.append(
-            (argv, current_units, current_ids)
-        )
-        or 0,
+        lambda argv, human=None, listed=None, fused=None: carries.append((argv, human)) or 0,
     )
     monkeypatch.setattr(
         vu.merge_verdicts,
@@ -196,7 +200,9 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
         lambda inputs, **_options: merges.append([item.path for item in inputs])
         or vu.merge_verdicts.Merged(0),
     )
-    monkeypatch.setattr(vu.duplicate_verdicts, "main", lambda argv, units=None, **_held: _write_out(argv))
+    monkeypatch.setattr(
+        vu.duplicate_verdicts, "main", lambda argv, projection=None, **_held: _write_out(argv)
+    )
     monkeypatch.setattr(
         vu.standing_verdicts, "main", lambda argv, unit_source=None, **_held: _write_out(argv)
     )
@@ -226,15 +232,15 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
 
 
 def test_the_carry_step_hands_the_verdicts_file_and_the_loaded_index_to_the_carry(tmp_path, monkeypatch):
-    """The verdict update passes the carry the verdicts file, the human duplicate records, and every corpus id, because the orphaned count also checks machine ids. It names only the live corpus as `--current-corpus`, then merges the carried file."""
+    """The verdict update passes the carry the verdicts file and the human ids the first walk's projection holds, each with its place in the index, and no machine id: the orphaned count asks `--current-corpus` itself about a verdict on a unit the human ids do not hold. It names only the live corpus there, then merges the carried file."""
     code, index, carries, merges = _carrying_verdict_update(tmp_path, monkeypatch)
     assert code == 0
-    [(argv, units, unit_ids)] = carries
+    [(argv, human)] = carries
     assert argv[: argv.index("--out")] == ["--verdicts", str(tmp_path / "verdicts.json")]
     assert argv[argv.index("--out") + 1] == str(tmp_path / "carried.json")
     assert argv[argv.index("--current-corpus") + 1] == str(tmp_path / "review")
-    assert units == [vu.duplicate_verdicts.duplicate_record(unit) for unit in index]
-    assert unit_ids == IDS
+    assert list(human) == [(unit["id"], place) for place, unit in enumerate(index)]
+    assert not any(unit_id in human for unit_id in IDS)
     assert merges[0][0] == tmp_path / "carried.json"
 
 
@@ -245,7 +251,7 @@ def test_allow_orphans_is_handed_to_the_carry(tmp_path, monkeypatch, allowed):
         tmp_path, monkeypatch, ("--allow-orphans",) if allowed else ()
     )
     assert code == 0
-    [(argv, _units, _unit_ids)] = carries
+    [(argv, _human)] = carries
     assert ("--allow-orphans" in argv) is allowed
 
 
@@ -461,12 +467,7 @@ def _standing_argv(paths):
 
 
 def _reference_update(paths, carrying=False):
-    """The bounded-loop reference uses the real fill and merge operations, keeps the first proposal per unit, and stops when a later duplicate pass proposes no previously unseen unit. It includes the extra empty confirmation pass without depending on git history or the updater's schedule."""
-    ids = set()
-    units = [
-        vu.duplicate_verdicts.duplicate_record(unit)
-        for unit in vu.unit_index.iter_human_units(paths["corpus"], unit_ids=ids)
-    ]
+    """The bounded-loop reference uses the real fill and merge operations, each run on its own, so the carry, the duplicate fill and the complaint list read the corpus themselves rather than taking what the update's first walk hands them, keeps the first proposal per unit, and stops when a later duplicate pass proposes no previously unseen unit. It includes the extra empty confirmation pass without depending on git history or the updater's schedule."""
 
     def merge(path):
         assert (
@@ -494,9 +495,7 @@ def _reference_update(paths, carrying=False):
                     str(paths["carry"]),
                     "--current-corpus",
                     str(paths["corpus"]),
-                ],
-                current_units=units,
-                current_ids=ids,
+                ]
             )
             == 0
         )
@@ -512,8 +511,7 @@ def _reference_update(paths, carrying=False):
                     str(paths["corpus"]),
                     "--out",
                     str(paths["duplicate"]),
-                ],
-                units=units,
+                ]
             )
             == 0
         )
@@ -541,9 +539,7 @@ def _reference_update(paths, carrying=False):
                 str(paths["corpus"]),
                 "--data-out",
                 str(paths["complaints"]),
-            ],
-            units=vu.unit_index.iter_human_units(paths["corpus"]),
-            unit_ids=ids,
+            ]
         )
         == 0
     )
@@ -897,7 +893,7 @@ def test_the_real_no_complaints_form_completes_the_fills(tmp_path, monkeypatch, 
 def test_a_pass_that_moves_the_stamp_neither_carries_back_nor_duplicate_fills_a_unit_cleared_after_a_root_files_verdict(
     tmp_path, monkeypatch
 ):
-    """A carried file stamped for the served corpus sits at the repository root, holding verdicts for `u-open` and for `u-cleared-newer`, a member of an agreeing duplicate group, which the reader then clears in the store. The file holds more effective verdicts than the store, so the next pass carries it as the master, beside the store's snapshot. The snapshot's tombstones are newer than the file's verdicts, so the carry passes both units over; the merge onto the moved corpus keeps the store's tombstones, so it refuses the duplicate fill's older proposal for the group member; and the land keeps both tombstones."""
+    """A carried file stamped for the served corpus sits at the repository root, holding verdicts for `u-open` and for `u-cleared-newer`, a member of an agreeing duplicate group, which the reader then clears in the store. The file holds more effective verdicts than the store, so the next pass carries it as the master, beside the store's snapshot. The snapshot's tombstones are newer than the file's verdicts, so the carry passes both units over; the merge onto the moved corpus keeps the store's tombstones, so it refuses the duplicate fill's older proposal for the group member; and the land keeps both tombstones. The store's own skip on a human unit, which the carry drops, reaches the land as a tombstone at the skip's `at` (`skip_clears`, which asks the human ids about the snapshot's skip units alone)."""
     paths = _integration_fixture(tmp_path / "current", monkeypatch)
     store = json.loads(paths["autosave"].read_text())
     store["manifest_generated_at"] = OLDER
@@ -931,7 +927,7 @@ def test_a_pass_that_moves_the_stamp_neither_carries_back_nor_duplicate_fills_a_
     assert "u-cleared-newer" in _records(paths["duplicate"])
     assert not {"u-open", "u-cleared-newer"} & set(_records(paths["autosave"]))
     cleared = parse_cleared(json.loads(paths["autosave"].read_text()))
-    assert (cleared["u-open"], cleared["u-cleared-newer"]) == (NEWER, NEWER)
+    assert (cleared["u-open"], cleared["u-cleared-newer"], cleared["u-skip"]) == (NEWER, NEWER, NEWER)
 
 
 def test_a_pass_with_no_store_whose_master_holds_only_skips_completes_and_lands_the_store_its_fills_leave(
@@ -1145,10 +1141,11 @@ def test_the_fill_files_go_beside_the_autosave(tmp_path, monkeypatch, store):
 def test_a_carried_pass_keeps_the_stores_overrides_and_skips_on_accepted_units_through_a_stamp_move(
     tmp_path, monkeypatch
 ):
-    """The store, stamped for an older corpus, holds in its override section a reject on an accepted unit dated before the close-out, as a save queued while the server was stopped for it leaves, and a skip on another accepted unit. The pass carries the store onto the new stamp, the carry fused into the first merge as the cycle runs it, with no carried file and no journal: the merge keeps the section whole, so the override stays and the skip becomes a tombstone at its `at`, so that unit reads blank rather than accepted again. An override and a tombstone on accepted units the new corpus lacks stay too, so when a later pass brings their windows back before the next close-out, the first reads as its override and the second blank, not accepted. Every fill is named the list."""
+    """The store, stamped for an older corpus, holds in its override section a reject on an accepted unit dated before the close-out, as a save queued while the server was stopped for it leaves, and a skip on another accepted unit. The pass carries the store onto the new stamp, the carry fused into the first merge as the cycle runs it, with no carried file and no journal: the merge keeps the section whole, so the override stays and the skip becomes a tombstone at its `at`, so that unit reads blank rather than accepted again. An override and a tombstone on accepted units the new corpus lacks stay too, so when a later pass brings their windows back before the next close-out, the first reads as its override and the second blank, not accepted. A skip among the store's own records, which the carry drops, becomes a tombstone at its `at` on a human unit of the new corpus, which the fused carry's walk collects and the human ids admit, and leaves none for a unit the new corpus lacks. Every fill is named the list."""
     corpus = tmp_path / "review"
     override, skipped, untouched = "u-1AAAAAAAAAA", "u-1BBBBBBBBBB", "u-1CCCCCCCCCC"
     gone_override, gone_cleared = "u-1DDDDDDDDDD", "u-1EEEEEEEEEE"
+    own_skipped, off_corpus = "u-1FFFFFFFFFF", "u-1GGGGGGGGGG"
     (corpus / "units").mkdir(parents=True)
 
     def write_corpus(stamp, ids):
@@ -1172,7 +1169,9 @@ def test_a_carried_pass_keeps_the_stores_overrides_and_skips_on_accepted_units_t
             dict.fromkeys((override, skipped, untouched, gone_override, gone_cleared), "approve"),
         )
     )
-    snapshot = _fixture_payload([], stamp=OLDER)
+    snapshot = _fixture_payload(
+        [_record(own_skipped, "skip", at=OLDER), _record(off_corpus, "skip", at=OLDER)], stamp=OLDER
+    )
     snapshot["overrides"] = {
         "verdicts": [
             _record(override, "reject"),
@@ -1207,9 +1206,9 @@ def test_a_carried_pass_keeps_the_stores_overrides_and_skips_on_accepted_units_t
         assert not (run_dir / "journal.ndjson").exists() and not any(run_dir.glob("verdicts-carried-*"))
         return json.loads(prepared.read_text())
 
-    write_corpus(CORPUS_STAMP, (override, skipped, untouched))
+    write_corpus(CORPUS_STAMP, (override, skipped, untouched, own_skipped))
     result = run_pass("pass")
-    assert (result["verdicts"], parse_cleared(result)) == ([], {})
+    assert (result["verdicts"], parse_cleared(result)) == ([], {own_skipped: OLDER})
     section = accepted.Overrides.of(result)
     assert {unit: record["verdict"] for unit, record in section.records.items()} == {
         override: "reject",
