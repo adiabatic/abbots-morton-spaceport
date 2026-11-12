@@ -17,7 +17,7 @@ Each configuration's windows artifact is held in two files and the segment forma
 - The head file, `windows-<config>.head.json.gz` (`windows_head_file`): the payload's head line exactly as the crate writes it, the marker, a tab, the JSON head and a newline, gzipped as a base is, so `read_windows` reads it with `windows=False` as it reads a whole payload.
 - The rows, the output `windows-<config>.tsv.gz` (`windows_output`): a head, `windows-<config>.tsv.gz.head` (`windows_head_path`), which merges its parts by key (`row_delta.MERGE_KEY`), lists a base, a whole payload as the crate wrote it once, its inline head line included, and the segments of the rows that differ that later builds wrote over it. Its stamps are the build's `inputs`, the crate's `table_digest` over the table's own rows and the head file's name, size and sha256, so the head is the single commit point for both files.
 
-`read_windows_head` is the one reader of a configuration's head: it checks the head file against the head's stamps before it parses it, so a head file a build left without committing its head reads as a missing build, never as a current stamp over old rows. Every reader of the head (`run_m1.serialized_tables` and through it the conformance sweep, `--gates-only`, the artifact cycle's stamp checks and the deep tools, `artifact_cycle.tables_imports_digest` and `deep_sweep.targeted_lines`) goes through it, and `rebuild/test_windows.py`'s contract test fails on any other. The materialized form of the rows (`materialized_windows`) is the head file's line, the column line and the base and segments merged by key: the whole payload the crate would write for the same table, byte for byte (#618's decision 48), which `read_materialized_windows` and `perf_fingerprint` read. A tree from before the segment format holds the whole payload gzipped in the single file `windows-<config>.tsv.gz` (`windows_path`), which the next build adopts as its output's first base.
+`read_windows_head` is the one reader of a configuration's head: it checks the head file against the head's stamps before it parses it, so a head file a build left without committing its head reads as a missing build, never as a current stamp over old rows. Every reader of the head (`run_m1.serialized_tables` and through it the conformance sweep, `--gates-only`, the artifact cycle's stamp checks and the deep tools, `artifact_cycle.tables_imports_digest` and `deep_sweep.targeted_lines`) goes through it, and `rebuild/test_windows.py`'s contract test fails on any other. The materialized form of the rows (`materialized_windows`) is the head file's line, the column line and the base and segments merged by key: the whole payload the crate would write for the same table, byte for byte (#618's decision 48), which `read_materialized_windows` reads, and `materialized_table_digest` hashes as it streams for `perf_fingerprint` without building the rows. A tree from before the segment format holds the whole payload gzipped in the single file `windows-<config>.tsv.gz` (`windows_path`), which the next build adopts as its output's first base.
 """
 
 from __future__ import annotations
@@ -26,10 +26,11 @@ import errno
 import gzip
 import hashlib
 import io
+import itertools
 import json
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import IO, Iterable, Iterator, Mapping, Protocol
+from typing import IO, Generator, Iterable, Iterator, Mapping, Protocol
 
 from rebuild.pipeline import row_delta
 from rebuild.pipeline.model import RIGHT_WINDOW_SLOTS, CellId, Settled
@@ -339,14 +340,14 @@ def _tombstone_key(payload: bytes) -> list[bytes]:
     return payload.rstrip(b"\n").split(b"\t")
 
 
-def materialized_windows(out_dir: Path, config: str, *, sha256: bool = False) -> Iterator[bytes]:
+def materialized_windows(out_dir: Path, config: str, *, sha256: bool = False) -> Generator[bytes, None, None]:
     """Return one configuration's windows output's materialized form as its lines: the head file's line, the column line, and the base's rows merged by key with its segments' (`row_delta.merge_keyed`), which is the whole payload the crate writes for the same table, byte for byte. A head with no segment streams the base's rows after the head file's line. The head is read and every part it lists opened before this returns (`row_delta.open_parts`, which checks each part's size, and with `sha256` its digest too), so a later build's deletes cannot reach the parts; the returned generator closes them when it ends or is closed. Raises what `windows_head` and `read_windows_head` raise, and `row_delta.HeadError` for a part that is missing or differs from its head."""
     head = windows_head(out_dir, config)
     head_line = gzip.decompress(_head_file_bytes(out_dir, config, head))
     opened = row_delta.open_parts(Path(out_dir), head, sha256=sha256)
     output = windows_output(config)
 
-    def lines() -> Iterator[bytes]:
+    def lines() -> Generator[bytes, None, None]:
         try:
             yield head_line
             yield WINDOWS_COLUMN_LINE
@@ -481,10 +482,50 @@ def windows_digest(decision: DecisionTable) -> str:
 
 def table_digest(decision: DecisionTable, joins: JoinTable) -> str:
     """Return a hash of everything one configuration's build produces: the ordered rules with their provenance and joint flags, every stored window row, the join rows, the reachable cells, the cited provenance, and the identity-guard count. Two builds that should agree, such as before and after a port or a refactor, are compared with this digest. `windows_digest` is narrower: it leaves out the join rows, the cells, the cited provenance, and the guard count, so it answers only whether the settlement rows changed. The deep-class map is not hashed separately, because class ids are content-addressed, so a changed member set changes the ids in the rows that cite it."""
+    rows = (
+        "\t".join(
+            (row.input_glyph, row.left, row.right1, row.right2, row.right3, row.right4, row.outcome)
+        ).encode()
+        + b"\n"
+        for row in decision.transitions
+    )
     h = hashlib.sha256()
-    h.update(f"config\t{decision.config}\n".encode())
+    for part in _table_digest_parts(decision, joins, rows):
+        h.update(part)
+    return h.hexdigest()
+
+
+def materialized_table_digest(out_dir: Path, config: str, joins: JoinTable) -> str:
+    """Return `table_digest` of one configuration's table as its windows output's materialized form holds it (`materialized_windows`, every part's size and sha256 checked against its head), without building its `Window` rows: the rules, cells, cited provenance and guard count from the head line, as `read_windows` reads them, and each row line hashed as it streams, checked to hold the seven fields `_windows_of` splits, since a row's digest line is those fields joined by tabs. Raises what `materialized_windows` raises, and `ValueError` for a head line or column line `_windows_of` refuses and for a row of another width."""
+    name = str(windows_head_path(out_dir, config))
+    lines = materialized_windows(out_dir, config, sha256=True)
+    try:
+        _, decision = _windows_of(_Lines(itertools.islice(lines, 1)), False, name)
+        if tuple(next(lines, b"").decode("utf-8").rstrip("\n").split("\t")) != WINDOWS_COLUMNS:
+            raise ValueError(f"{name}: window columns are not {WINDOWS_COLUMNS}")
+        h = hashlib.sha256()
+        for part in _table_digest_parts(decision, joins, _row_digest_lines(lines, name)):
+            h.update(part)
+        return h.hexdigest()
+    finally:
+        lines.close()
+
+
+def _row_digest_lines(lines: Iterable[bytes], name: str) -> Iterator[bytes]:
+    """Yield each window row line of a materialized payload as `table_digest` hashes the row `_windows_of` makes of it: its seven tab-separated fields, decoded as `_windows_of` decodes them, joined by tabs and ended with a newline."""
+    width = len(WINDOWS_COLUMNS)
+    for line in lines:
+        fields = line.decode("utf-8").rstrip("\n").split("\t")
+        if len(fields) != width:
+            raise ValueError(f"{name}: a window row has {len(fields)} fields, expected {width}")
+        yield "\t".join(fields).encode() + b"\n"
+
+
+def _table_digest_parts(decision: DecisionTable, joins: JoinTable, rows: Iterable[bytes]) -> Iterator[bytes]:
+    """Yield what `table_digest` hashes, in order, with `rows` as the window rows' lines."""
+    yield f"config\t{decision.config}\n".encode()
     for rule in decision.rules:
-        h.update(
+        yield (
             "\t".join(
                 (
                     rule.input_glyph,
@@ -500,17 +541,11 @@ def table_digest(decision: DecisionTable, joins: JoinTable) -> str:
             ).encode()
             + b"\n"
         )
-    h.update(b"--windows--\n")
-    for row in decision.transitions:
-        h.update(
-            "\t".join(
-                (row.input_glyph, row.left, row.right1, row.right2, row.right3, row.right4, row.outcome)
-            ).encode()
-            + b"\n"
-        )
-    h.update(b"--joins--\n")
+    yield b"--windows--\n"
+    yield from rows
+    yield b"--joins--\n"
     for join_row in joins.rows:
-        h.update(
+        yield (
             "\t".join(
                 (
                     join_row.left,
@@ -522,14 +557,13 @@ def table_digest(decision: DecisionTable, joins: JoinTable) -> str:
             ).encode()
             + b"\n"
         )
-    h.update(b"--cells--\n")
+    yield b"--cells--\n"
     for cell in sorted(decision.reachable_cells(), key=_cell_key):
-        h.update(f"{cell.rune}\t{cell.stance}\t{cell.entry}\t{cell.exit}\t{cell.adjustments}\n".encode())
-    h.update(b"--provenance--\n")
+        yield f"{cell.rune}\t{cell.stance}\t{cell.entry}\t{cell.exit}\t{cell.adjustments}\n".encode()
+    yield b"--provenance--\n"
     for pointer in sorted(decision.cited_provenance):
-        h.update(pointer.encode() + b"\n")
-    h.update(f"--guards--\t{decision.identity_guard_rules}\n".encode())
-    return h.hexdigest()
+        yield pointer.encode() + b"\n"
+    yield f"--guards--\t{decision.identity_guard_rules}\n".encode()
 
 
 @dataclass(frozen=True)

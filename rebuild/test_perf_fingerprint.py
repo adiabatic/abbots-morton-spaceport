@@ -1,6 +1,7 @@
 import gzip
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -144,6 +145,76 @@ def test_the_corpus_store_and_complaint_digests_ignore_every_stamp_and_see_a_cha
     )
 
 
+def _store_with_overrides(path: Path, *, own: list[dict], cleared: list, overrides: dict | None) -> Path:
+    document = {
+        "format": "ams-review-verdicts/1",
+        "manifest_generated_at": "t1",
+        "exported_at": "t1",
+        "accepted": {"sha256": "0" * 64, "closed_at": "2026-11-05T18:00:00Z"},
+        "verdicts": own,
+        "cleared": cleared,
+    }
+    if overrides is not None:
+        document["overrides"] = overrides
+    path.write_text(json.dumps(document))
+    return path
+
+
+def test_the_store_digest_streams_to_the_value_a_whole_parse_gives(tmp_path, monkeypatch):
+    """`store_digest` hashes the projection as the store streams, through the tree's own `accepted` readers, and gives the value a whole parse gives (`_parsed_store_digest`): on a store with an override section, with `cleared` as dicts and as bare ids with a duplicate, and with two records on one unit. A store whose own records are out of order is parsed whole, for the same value. Both of the stream's reads read the file it opened, so a writer that renames another store over the path between them changes neither."""
+    at = "2026-11-06T09:00:00Z"
+    own = [
+        {"unit": "u-1", "verdict": "approve", "note": "", "at": at},
+        {"unit": "u-2", "verdict": "reject", "note": "too close", "at": at},
+        {"unit": "u-2", "verdict": "reject", "note": "touching é", "at": at},
+        {"unit": "u-4", "verdict": "either", "at": at},
+    ]
+    overrides = {
+        "verdicts": [
+            {"unit": "u-3", "verdict": "neither", "note": None, "at": at},
+            {"unit": "u-0", "verdict": "reject", "note": "", "at": at},
+        ],
+        "cleared": [{"unit": "u-5", "at": at}, "u-6"],
+    }
+    stores = {
+        "sorted": _store_with_overrides(
+            tmp_path / "sorted.json",
+            own=own,
+            cleared=[{"unit": "u-7", "at": at}, "u-8", "u-8"],
+            overrides=overrides,
+        ),
+        "no-section": _store_with_overrides(
+            tmp_path / "plain.json", own=own, cleared=["u-8"], overrides=None
+        ),
+        "unsorted": _store_with_overrides(
+            tmp_path / "unsorted.json", own=list(reversed(own)), cleared=[], overrides=overrides
+        ),
+    }
+    parsed = pf._parsed_store_digest
+    whole: list[Path] = []
+    monkeypatch.setattr(pf, "_parsed_store_digest", lambda path: whole.append(path) or parsed(path))
+    for name, path in stores.items():
+        assert pf.store_digest(path) == parsed(path), name
+    assert whole == [stores["unsorted"]]
+    assert pf.store_digest(stores["unsorted"]) == pf.store_digest(
+        _store_with_overrides(tmp_path / "resorted.json", own=own, cleared=[], overrides=overrides)
+    )
+
+    tree = pf.tree_accepted()
+    assert tree is not None
+    read_tail = tree.read_tail
+
+    def renamed_over(path, each=None):
+        tail = read_tail(path, each)
+        os.replace(stores["no-section"], stores["sorted"])
+        return tail
+
+    expected, wholes = parsed(stores["sorted"]), len(whole)
+    monkeypatch.setattr(tree, "read_tail", renamed_over)
+    assert pf.store_digest(stores["sorted"]) == expected != parsed(stores["sorted"])
+    assert len(whole) == wholes
+
+
 def test_the_tables_are_digested_with_the_trees_own_code(tmp_path):
     root = tmp_path / "tree"
     pipeline = root / "rebuild" / "pipeline"
@@ -181,7 +252,7 @@ def test_the_tables_are_digested_with_the_trees_own_code(tmp_path):
 def test_windows_rows_held_as_a_base_and_segments_fingerprint_as_their_folded_form(
     tmp_path, monkeypatch, capsys
 ):
-    """A tree whose windows rows are a base and segments fingerprints as the tree a from-scratch build of the same tables leaves, and as the single file per configuration a tree from before the segment format holds, so the bar's `tables` block reads the same across the landing pass and across any later segment or fold. A head whose recorded digest is not the one its materialized rows give stops the fingerprint naming the configuration, and the script exits 1 without writing its document."""
+    """A tree whose windows rows are a base and segments fingerprints as the tree a from-scratch build of the same tables leaves, and as the single file per configuration a tree from before the segment format holds, so the bar's `tables` block reads the same across the landing pass and across any later segment or fold. A configuration with a head is hashed as its materialized rows stream (`table.materialized_table_digest`), with no `Window` row built, to the `table_digest` of the table those rows read into. A head whose recorded digest is not the one its materialized rows give stops the fingerprint naming the configuration, and the script exits 1 without writing its document."""
     import io
     import shutil
 
@@ -204,8 +275,14 @@ def test_windows_rows_held_as_a_base_and_segments_fingerprint_as_their_folded_fo
         head = payload.readline()
         part = run_m1._pack_windows(payload, single, table_module.windows_output(config), head)
         assert part.name == table_module.windows_path(single, config).name
-    digests = pf.table_digests(held, table_module)
+    with monkeypatch.context() as streaming:
+        streaming.setattr(table_module, "read_materialized_windows", None)
+        digests = pf.table_digests(held, table_module)
     assert sorted(digests) == sorted(conform.SETTLEMENT_CONFIGS)
+    for config in conform.SETTLEMENT_CONFIGS:
+        _, decision = table_module.read_materialized_windows(held, config, sha256=True)
+        joins = table_module.read_join_tsv(held / f"joins-{config}.tsv")
+        assert digests[config] == table_module.table_digest(decision, joins), config
     assert digests == pf.table_digests(scratch, table_module) == pf.table_digests(single, table_module)
     path = table_module.windows_head_path(held, "ss04")
     document = json.loads(path.read_text())

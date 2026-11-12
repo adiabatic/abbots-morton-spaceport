@@ -11,6 +11,7 @@ The reloads: the server's one livereload watch never fires, and `force_reload` s
 The accepted list beside the store (`rebuild.review.accepted`): the full GET's `accepted` field, which the shared samples pin, and the store file's, which names the list; a set on an accepted unit stored as an override, a clear of one kept as a tombstone, and a set equal to its accepted record returning it to the list, journaled as a removal and reported back flagged; a stale save that differs from the mark answered with the accepted record; a stale skip on one leaving a tombstone; a move onto the served corpus leaving a tombstone on each accepted unit it lacks that the store held a record or tombstone for; a new list invalidating every token; a malformed or unpaired list refusing every save and GET; and the empty store the server writes at boot beside a list.
 """
 
+import asyncio
 import json
 import os
 import socket
@@ -22,7 +23,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from rebuild.review import accepted, app_index, journal, landing
+from rebuild.review import accepted, app_index, journal, landing, verdict_store
 from rebuild.review.serve import (
     DELTA_FORMAT,
     EXPORT_FORMAT,
@@ -34,6 +35,7 @@ from rebuild.review.serve import (
     register_dormant_watch,
     stash_path_for,
     static_headers_for,
+    stream_full_store,
 )
 from rebuild.tools.review_server import force_reload
 from rebuild.review.store_lock import store_lock
@@ -502,7 +504,34 @@ def test_changes_since_hands_back_only_what_moved_after_the_token(tmp_path):
         assert store.changes_since(bad) is None
 
 
-def test_an_external_rewrite_onto_another_stamp_is_picked_up_and_invalidates_tokens(tmp_path):
+def held_at_parse(monkeypatch, store) -> list[tuple]:
+    """Record, at each parse a reload makes, the records, lines, tombstones and override section the store holds then and how many signatures it has digested since this was called."""
+    seen: list[tuple] = []
+    digested: list[object] = []
+    real_parse, real_digest = verdict_store.read_store_document, verdict_store._signature_digest
+    monkeypatch.setattr(
+        verdict_store, "_signature_digest", lambda record: digested.append(record) or real_digest(record)
+    )
+
+    def parse(raw, name):
+        seen.append(
+            (
+                store.records,
+                store._lines,
+                store.cleared,
+                store.overrides.records,
+                store.overrides.cleared,
+                len(digested),
+            )
+        )
+        return real_parse(raw, name)
+
+    monkeypatch.setattr(verdict_store, "read_store_document", parse)
+    return seen
+
+
+def test_an_external_rewrite_onto_another_stamp_is_picked_up_and_invalidates_tokens(tmp_path, monkeypatch):
+    """A reload onto another stamp frees the records it holds before it parses the file, with no diff, since it invalidates every token."""
     path = tmp_path / "verdicts-autosave.json"
     store = VerdictStore(path)
     store.receive(delta("2026-07-03T06:13:47Z", [verdict("u-1")]))
@@ -510,14 +539,17 @@ def test_an_external_rewrite_onto_another_stamp_is_picked_up_and_invalidates_tok
     os.utime(path, ns=(1, 1))
     path.write_bytes(payload("2026-07-03T23:31:04Z", [verdict("u-1"), verdict("u-2")]))
     os.utime(path, ns=(2, 2))
+    seen = held_at_parse(monkeypatch, store)
     assert store.refresh_if_changed()
+    assert seen == [({}, {}, {}, {}, {}, 0)]
     assert store.stamp == "2026-07-03T23:31:04Z"
     assert set(store.records) == {"u-1", "u-2"}
     assert store.changes_since(token) is None
     assert not store.refresh_if_changed()
 
 
-def test_a_same_stamp_external_rewrite_keeps_the_token_and_hands_back_only_what_moved(tmp_path):
+def test_a_same_stamp_external_rewrite_keeps_the_token_and_hands_back_only_what_moved(tmp_path, monkeypatch):
+    """A reload onto the same stamp beside the same list reduces the generation it holds to a digest a record, own and override apart, frees the rest before it parses the file, and reports each unit whose own record or override record or tombstone changed, came or went."""
     path = tmp_path / "verdicts-autosave.json"
     stamp = "2026-07-03T23:31:04Z"
     path.write_bytes(payload(stamp, [verdict("u-1"), verdict("u-2"), verdict("u-3")]))
@@ -528,9 +560,36 @@ def test_a_same_stamp_external_rewrite_keeps_the_token_and_hands_back_only_what_
         payload(stamp, [verdict("u-1"), verdict("u-2", "reject", at="2026-07-03T01:00:00Z"), verdict("u-4")])
     )
     os.utime(path, ns=(2, 2))
+    seen = held_at_parse(monkeypatch, store)
     assert store.refresh_if_changed()
+    assert seen == [({}, {}, {}, {}, {}, 3)]
     moved = changes(store, token)
     assert [record["unit"] for record in moved["sets"]] == ["u-2", "u-4"]
+    assert moved["clears"] == ["u-3"]
+    assert moved["token"] == store.token
+
+    path, store = listed_store(tmp_path / "listed")
+    document = on_disk(path)
+    document["verdicts"] = [verdict("u-1"), verdict("u-2"), verdict("u-3")]
+    document["overrides"] = {
+        "verdicts": [verdict(ACCEPT_A, "reject", at=AFTER), verdict(ACCEPT_C, "neither", at=AFTER)],
+        "cleared": [{"unit": ACCEPT_B, "at": AFTER}],
+    }
+    path.write_text(json.dumps(document))
+    assert store.refresh_if_changed()
+    token = store.token
+    document["verdicts"] = [verdict("u-1"), verdict("u-2", "reject", at=AFTER), verdict("u-4")]
+    document["overrides"] = {
+        "verdicts": [verdict(ACCEPT_A, "reject", at=AFTER), verdict(ACCEPT_B, "approve", at=AFTER)],
+        "cleared": [],
+    }
+    path.write_text(json.dumps(document))
+    seen = held_at_parse(monkeypatch, store)
+    assert store.refresh_if_changed()
+    assert seen == [({}, {}, {}, {}, {}, 5)]
+    moved = changes(store, token)
+    assert [record["unit"] for record in moved["sets"]] == [ACCEPT_B, ACCEPT_C, "u-2", "u-4"]
+    assert moved["sets"][1] == flagged(ACCEPT_C, "identical")
     assert moved["clears"] == ["u-3"]
     assert moved["token"] == store.token
 
@@ -628,6 +687,62 @@ def test_the_full_document_carries_the_token_only_when_asked(tmp_path):
     with_token = json.loads(store.payload_bytes(token=True))
     assert with_token["token"] == store.token
     assert parse_autosave_payload(store.payload_bytes(token=True)) is not None
+
+
+class StreamedReply:
+    """A request handler's `write` and `flush` as `stream_full_store` uses them: it keeps each chunk written and calls `between` with how many it holds at each flush."""
+
+    def __init__(self, between=None) -> None:
+        self.chunks: list[bytes] = []
+        self.between = between
+
+    def write(self, chunk: bytes) -> None:
+        self.chunks.append(chunk)
+
+    async def flush(self) -> None:
+        if self.between is not None:
+            self.between(len(self.chunks))
+
+
+def test_the_full_get_streams_the_bytes_payload_bytes_gives_and_a_save_writes_them_too(tmp_path, monkeypatch):
+    """The full GET is written a chunk at a time, the head with its token first, and the chunks are `payload_bytes(token=True, within=...)` byte for byte, the override section listed with the store's own; the store file a save writes is `payload_bytes()` byte for byte, written the same way."""
+    monkeypatch.setattr(journal, "now_stamp", lambda: "2026-11-06T10:00:00Z")
+    monkeypatch.setattr(verdict_store, "_CHUNK_CHARS", 64)
+    path, store = listed_store(tmp_path)
+    sets = [verdict(f"u-{index}", at=AFTER) for index in range(2, 9)] + [
+        verdict(ACCEPT_A, "reject", at=AFTER)
+    ]
+    assert store.receive(delta(NEW, sets, [ACCEPT_B, "u-9"]))[0] == 200
+    assert path.read_bytes() == store.payload_bytes()
+    within = frozenset({ACCEPT_A, ACCEPT_B, ACCEPT_C, "u-2"})
+    reply = StreamedReply()
+    asyncio.run(stream_full_store(reply, store, within))
+    assert len(reply.chunks) > 2 and json.loads(reply.chunks[0] + b"]}")["token"] == store.token
+    assert b"".join(reply.chunks) == store.payload_bytes(token=True, within=within)
+
+
+def test_a_save_between_two_chunks_of_the_full_get_leaves_a_body_that_parses_and_a_token_that_syncs(tmp_path):
+    """A save can land while the full GET waits on a flush. The body still parses, the record a clear removed is left out, and the token the head carried hands the tab the save on its next sync."""
+    path = tmp_path / "verdicts-autosave.json"
+    store = VerdictStore(path)
+    store.receive(delta(NEW, [verdict(f"u-{index}") for index in range(1, 6)]))
+
+    def save(written: int) -> None:
+        if written == 1:
+            assert (
+                store.receive(delta(NEW, [verdict("u-0"), verdict("u-3", "reject", at=AFTER)], ["u-2"]))[0]
+                == 200
+            )
+
+    reply = StreamedReply(save)
+    asyncio.run(stream_full_store(reply, store, None))
+    body = json.loads(b"".join(reply.chunks))
+    assert [record["unit"] for record in body["verdicts"]] == ["u-1", "u-3", "u-4", "u-5"]
+    assert body["verdicts"][1]["verdict"] == "reject" and [entry["unit"] for entry in body["cleared"]] == [
+        "u-2"
+    ]
+    synced = changes(store, body["token"])
+    assert [record["unit"] for record in synced["sets"]] == ["u-0", "u-3"] and synced["clears"] == ["u-2"]
 
 
 def test_malformed_deltas_are_rejected(tmp_path):

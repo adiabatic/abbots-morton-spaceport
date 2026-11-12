@@ -6,7 +6,9 @@ Only one daemon should run, because a second would hold a second copy of the cor
 
 Before anything else, `serve` takes an exclusive, non-blocking `flock` on a lock file beside the socket (`lock_path`: `var/standing-daemon.lock` for the default socket), writes its pid there, and holds the lock for its lifetime. A second `serve` that cannot take the lock exits 1 naming that pid, so two `serve` runs started in the same instant cannot both reach the socket. Only a lock holder deletes a leftover socket file, and while it holds the lock only a dead daemon can have left one. The socket is bound before the load. A client that connects during the load waits for the reply. The daemon records the socket file's device and inode right after binding. On exit it removes the socket file only when it is still that file, and while idle it exits when the file at the socket path is gone or is another file, because no client can reach it any more. SIGTERM, SIGINT and the `stop` subcommand all remove the socket on exit.
 
-`main` has three subcommands: `serve`, `status` and `stop`. `make standing-daemon` runs `serve` detached under `nohup` with its log at `var/standing-daemon.log`, and `make standing-daemon-stop` runs `stop`.
+`main` has three subcommands: `serve`, `status` and `stop`. `make standing-daemon` runs `serve` detached under `nohup` with its log at `var/standing-daemon.log`, and `make standing-daemon-stop` runs `stop`, which sends the `stop` request and waits for the socket to go (`standing_client.stop`).
+
+Every artifact-cycle pass but a dry run stops a daemon that answers at the default socket the same way before its first step (`artifact_cycle.stop_standing_daemon`), because no width the pass computes leaves room for the corpus it holds and no step of a pass asks it: the verdict update hands the standing fill its own units. A daemon serving a request answers the stop once that request ends, so the pass waits for it.
 """
 
 from __future__ import annotations
@@ -35,7 +37,6 @@ from rebuild.tools.review_queue import CORPUS  # noqa: E402
 
 IDLE_CHECK_SECONDS = 30
 REQUEST_READ_SECONDS = 30
-STOP_WAIT_SECONDS = 15
 EXCLUDED_TREES = (".venv", ".uv-cache")
 FONT_NAMES = ("before.otf", "after.otf")
 UNIT_FIELDS = frozenset(
@@ -316,12 +317,6 @@ def _serve_locked(corpus: pathlib.Path, socket_path: pathlib.Path, lock: int) ->
     return 0
 
 
-def _wait_for_socket_removal(socket_path: str) -> None:
-    deadline = time.monotonic() + STOP_WAIT_SECONDS
-    while os.path.lexists(socket_path) and time.monotonic() < deadline:
-        time.sleep(0.1)
-
-
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     verbs = parser.add_subparsers(dest="verb", required=True)
@@ -339,22 +334,21 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.verb == "serve":
         return serve(args.corpus, args.socket)
+    if args.verb == "stop":
+        stopped = standing_client.stop(args.socket)
+        if stopped is None:
+            print(f"no standing daemon answers at {args.socket}; nothing to stop")
+            return 0
+        print(f"stopped the standing daemon (pid {stopped['pid']}) at {args.socket}")
+        return 0
     reply = standing_client.exchange(args.socket, {"tool": args.verb})
-    answered = reply is not None and bool(reply.get("ok"))
-    if args.verb == "status":
-        if not answered or reply is None:
-            print(f"no standing daemon answers at {args.socket}")
-            return 1
-        print(
-            f"standing daemon pid {reply['pid']} holds {reply['corpus']} (generated {reply['generated_at']}, "
-            f"{reply['units']} human units); {reply['served']} requests served since {reply['since']}"
-        )
-        return 0
-    if not answered or reply is None:
-        print(f"no standing daemon answers at {args.socket}; nothing to stop")
-        return 0
-    _wait_for_socket_removal(args.socket)
-    print(f"stopped the standing daemon (pid {reply['pid']}) at {args.socket}")
+    if reply is None or not reply.get("ok"):
+        print(f"no standing daemon answers at {args.socket}")
+        return 1
+    print(
+        f"standing daemon pid {reply['pid']} holds {reply['corpus']} (generated {reply['generated_at']}, "
+        f"{reply['units']} human units); {reply['served']} requests served since {reply['since']}"
+    )
     return 0
 
 

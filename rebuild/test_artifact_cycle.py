@@ -22,14 +22,14 @@ from typing import Any
 import pytest
 
 from rebuild.conftest import is_live_artifact_path
-from rebuild.review import journal, landing
+from rebuild.review import accepted, journal, landing, status
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
 from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
 from rebuild.tools import make_test_gate as mtg
-from rebuild.tools import verdict_update, write_meter
+from rebuild.tools import standing_client, verdict_update, write_meter
 from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings, PassWrites
 from rebuild.test_verdict_update import (
@@ -3804,10 +3804,19 @@ def _seed_auto_repo(tmp_path, monkeypatch, *, stamp="2026-07-17T20:24:44Z"):
 
 
 def test_dry_run_auto_resolves_the_carry_source(tmp_path, monkeypatch, capsys):
+    """The carry source is resolved in a short child, handed this process's `ROOT`, `AUTOSAVE` and the served manifest's stamp, so it gives `status.resolve_carry_source`'s answer for the tree those name while no parse of the store happens in this process."""
     _seed_auto_repo(tmp_path, monkeypatch)
     (tmp_path / "verdicts-autosave.json").write_text(
         json.dumps(_verdicts_doc("2026-07-17T20:24:44Z", ["u-1", "u-2"]))
     )
+    answer = status.resolve_carry_source(tmp_path, "2026-07-17T20:24:44Z", ac.AUTOSAVE)
+    assert answer is not None and answer["count"] == 2
+
+    def parsed_here(*args, **kwargs):
+        raise AssertionError("the carry source is resolved in this process")
+
+    monkeypatch.setattr(status, "resolve_carry_source", parsed_here)
+    assert ac.resolve_carry_source() == answer
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "Auto-resolved carry source: verdicts-autosave.json (2 effective verdicts" in out
@@ -7621,8 +7630,8 @@ def test_verdict_update_skip_fingerprint_sees_a_master_that_is_not_the_autosave(
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, export) != before
 
 
-def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(tmp_path):
-    """The review server rewrites the store with a new `exported_at` on every save, and it, the merge and the land lay the records out one per line, where a restore and older stores indent them. Neither moves the key, and a changed record does. A master that resolved to the store is named `autosave` in the key, so spelling its path another way changes nothing."""
+def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(tmp_path, monkeypatch):
+    """The review server rewrites the store with a new `exported_at` on every save, and it, the merge and the land lay the records out one per line, where a restore and older stores indent them. Neither moves the key, and a changed record does. A master that resolved to the store is named `autosave` in the key, so spelling its path another way changes nothing. The store's digest streams the records a file in unit order holds, as every writer lays them out, and both of its reads read the file it opened, so a writer that renames another over the path between them changes neither. A file out of that order is read whole and sorted in a short child handed the open file, for the value a stream of the same records gives, and a child that answers nothing raises `StoreReadFailed`."""
     corpus = tmp_path / "review"
     corpus.mkdir()
     (corpus / "manifest.json").write_text(
@@ -7656,6 +7665,36 @@ def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, corpus / ".." / autosave.name) == base
     store("2026-07-17T22:30:00Z", [records[0], {**records[1], "verdict": "either"}])
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) != base
+
+    store_read = ac._store_read
+    read_whole: list[str] = []
+    monkeypatch.setattr(
+        ac,
+        "_store_read",
+        lambda request, **kwargs: read_whole.append(request["read"]) or store_read(request, **kwargs),
+    )
+    store("2026-07-17T22:30:00Z", list(reversed(records)))
+    streamed = ac.verdicts_records_digest(autosave)
+    assert read_whole == []
+    store("2026-07-17T22:30:00Z", records)
+    assert ac.verdicts_records_digest(autosave) == streamed and read_whole == ["digest"]
+    store("2026-07-17T22:30:00Z", list(reversed(records)))
+    renamed = tmp_path / "renamed.json"
+    renamed.write_text(json.dumps({**json.loads(autosave.read_text()), "verdicts": records[:1]}))
+    read_tail = ac.accepted.read_tail
+
+    def renamed_over(path, each=None):
+        tail = read_tail(path, each)
+        os.replace(renamed, autosave)
+        return tail
+
+    monkeypatch.setattr(ac.accepted, "read_tail", renamed_over)
+    assert ac.verdicts_records_digest(autosave) == streamed and read_whole == ["digest"]
+    monkeypatch.setattr(ac.accepted, "read_tail", read_tail)
+    store("2026-07-17T22:30:00Z", records)
+    monkeypatch.setattr(ac, "_STORE_READ_CHILD", "import sys; sys.exit('the child died')")
+    with pytest.raises(ac.StoreReadFailed, match="for the digest read exited 1"):
+        ac.verdicts_records_digest(autosave)
 
 
 def test_the_key_a_pass_records_over_its_landed_store_is_the_next_plans_key(tmp_path):
@@ -9499,7 +9538,7 @@ def test_main_stops_with_the_refusal_when_a_stopped_lands_recovery_refuses(tmp_p
 def test_main_stops_with_the_refusal_when_the_store_does_not_pair_with_the_accepted_list(
     tmp_path, monkeypatch, capsys
 ):
-    """A store whose `accepted` field names a list the tree does not hold, as a checkout that separates the two leaves it, stops the carry source's resolution (`accepted.Mismatch`). The pass then prints the refusal with its remedy and exits 1 before its first step instead of ending in a traceback, and the store is left byte for byte as it was."""
+    """A store whose `accepted` field names a list the tree does not hold, as a checkout that separates the two leaves it, stops the carry source's resolution (`accepted.Mismatch`), which the short child that resolves it reports as the same refusal. The pass then prints the refusal with its remedy and exits 1 before its first step instead of ending in a traceback, and the store is left byte for byte as it was. A child that dies with no answer stops the pass the same way, naming what it said."""
     _settled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     cycles: list[object] = []
@@ -9514,6 +9553,52 @@ def test_main_stops_with_the_refusal_when_the_store_does_not_pair_with_the_accep
         assert out.startswith(f"ERROR: {ac.AUTOSAVE} names the accepted list {'0' * 64}")
         assert "make close-out ARGS=--undo" in out and "The pass stops before it starts." in out
     assert cycles == [] and ac.AUTOSAVE.read_bytes() == before
+    with pytest.raises(accepted.Mismatch) as refused:
+        ac.resolve_carry_source()
+    assert refused.value.reason == accepted.MISMATCH and str(refused.value).startswith(f"{ac.AUTOSAVE} names")
+
+    monkeypatch.setattr(ac, "_STORE_READ_CHILD", "import sys; sys.exit('the child died')")
+    assert ac.main([]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("ERROR: the child that reads the verdict store for the carry read exited 1")
+    assert "(the child died)" in out and "The pass stops before it starts." in out and cycles == []
+
+
+def test_a_pass_stops_a_standing_daemon_before_its_first_step_and_a_dry_run_leaves_it(
+    tmp_path, monkeypatch, capsys
+):
+    """A pass that is not a dry run sends a standing daemon that answers at the default socket the `stop` request before its first step, waits for its socket to go, and prints one line naming it; a dry run sends it nothing, and with no daemon answering a pass prints nothing about one. A listener at the scratch socket stands in for the daemon."""
+    _settled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
+    requests: list[dict] = []
+    cycles: list[list[dict]] = []
+    monkeypatch.setattr(ac, "_run_cycle", lambda plan, *_, **__: cycles.append(list(requests)) or 0)
+    socket_path = standing_client.SOCKET
+    listener = standing_client.bind(socket_path)
+
+    def serve() -> None:
+        connection, _address = listener.accept()
+        with connection, connection.makefile("rb") as reader:
+            requests.append(json.loads(reader.readline()))
+            os.unlink(socket_path)
+            connection.sendall(json.dumps({"ok": True, "pid": 4242}).encode() + b"\n")
+
+    daemon = threading.Thread(target=serve, daemon=True)
+    daemon.start()
+    try:
+        assert ac.main(["--dry-run"]) == 0
+        assert requests == [] and "standing daemon" not in capsys.readouterr().out
+        assert ac.main([]) == 0
+        daemon.join(10)
+    finally:
+        listener.close()
+    assert cycles == [[{"tool": "stop"}]] and not os.path.lexists(socket_path)
+    stopped = [line for line in capsys.readouterr().out.splitlines() if "standing daemon" in line]
+    assert stopped == [
+        f"Stopped the standing daemon (pid 4242) at {socket_path} before the pass's first step; make standing-daemon starts it again."
+    ]
+    assert ac.main([]) == 0
+    assert "standing daemon" not in capsys.readouterr().out and len(cycles) == 2
 
 
 def test_a_dry_run_skips_the_recovery_while_a_pass_holds_the_lock(tmp_path, monkeypatch, capsys):

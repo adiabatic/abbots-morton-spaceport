@@ -56,6 +56,8 @@ The review server keeps running through every pass. Two things a cycle writes be
 
 The cycle keeps a listening server only when its /capabilities says it serves this checkout with the working tree's land-protocol and freshness code (`probe_server`, `landing.code_digest`); a server from this checkout running other code is restarted first (`restart_review_server`), and one serving another checkout is left alone and sent no reload. A server from before the land protocol answers no /capabilities, and it takes the old rule: a pass that writes neither the corpus nor the store keeps it running (`server_can_keep_running`), and any other pass stops it once with --stop-server (which `make review-cycle` passes), runs beside it with --yes, or refuses.
 
+The standing daemon does not run beside a pass. Once the preflight has settled the review server, a pass that is not a dry run stops a daemon that answers at the default socket before its first step and prints one line saying so (`stop_standing_daemon`, #618's decision 8); with none answering it prints nothing. No width the pass computes leaves room for the corpus a daemon holds, and no step asks it.
+
 A pass whose corpus did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass lands the store alone. The direct merge needs a master that is an ams-review-verdicts/1 document stamped for the served corpus, as the merge requires of every input. A master that is not such a document, or that is stamped for another corpus (which a pass stopped between the corpus build and the carry leaves behind), takes the full carry instead. The carry source's resolution says whether an auto-resolved master is an ams-review-verdicts/1 document stamped for the served corpus, and `master_stamped_for_corpus` says it for a --verdicts one. When the master resolved to the live store, the verdict update carries or merges the snapshot in its place. The store can be created, replaced or removed between the plan and the snapshot, so the plan never reads it to decide what becomes of the snapshot: it hands the verdict update the snapshot's path (`--store-snapshot`), and the verdict update decides from the file the snapshot step left. A full carry on a pass that lands carries any other master beside the snapshot when the snapshot step found a store, so the store's own verdicts are carried too, and the master alone when it found none; a staging pass, and a --no-merge pass that skips the corpus build, take no snapshot and carry the master alone. A direct merge merges the master into the prepared store, and the merge keeps a store's verdicts only when the store is stamped for the served corpus. When the snapshot is stamped for an older corpus (one `merge_verdicts --restore-as-of` put back from before the served stamp, or one copied from a checkout on an older corpus) or is not an ams-review-verdicts/1 document as the merge reads it (`verdict_store.parse_autosave_payload`), so that the merge would set its store aside (`verdict_update.merge_sets_store_aside`), the verdict update carries the snapshot alone onto the served corpus by unit id and then merges any other master into the result as a direct merge does: a strictly newer `at` wins a unit, so the store's record keeps a tie, the master's skips land, and the store's skips, which that merge keeps as tombstones at the skip's `at` (`verdict_update.skip_clears`), keep out a master record no newer than the skip. The merge also keeps the clears of an ams-review-verdicts/1 snapshot stamped for an older corpus, which keep out a master record no newer than the clear, and keeps none of the clears of a snapshot that is not such a document. Like every carry, that carry drops the store's skips and its verdicts on units the corpus does not have, and it refuses a snapshot that is not a readable verdicts file, naming it (`carry_verdicts.resolve_prior`). An ams-review-verdicts/1 snapshot stamped for the served corpus takes the master straight in, and so does a missing one when the master is another file; when the master is the store and its snapshot is missing, the merge refuses the missing master, naming it. An ams-review-verdicts/1 store stamped for a newer corpus is not carried: the direct merge refuses it, and the verdict update fails. A snapshot that is not such a document is carried whatever stamp it names.
 
 An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`), each file renamed into place. Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes. Once the files are in place the pass sends `ams:assets/<static hash>`, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`rebuild.review.serve.register_dormant_watch`).
@@ -79,6 +81,7 @@ import contextlib
 import fnmatch
 import functools
 import hashlib
+import io
 import json
 import os
 import posixpath
@@ -102,7 +105,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from rebuild.review import accepted, app_index, facts, journal, landing, store_lock, unit_index  # noqa: E402
 from rebuild.review.audit import load_ledger  # noqa: E402
-from rebuild.tools import console, cycle_paths  # noqa: E402
+from rebuild.tools import console, cycle_paths, standing_client  # noqa: E402
 from rebuild.tools import contracts_closure as contracts  # noqa: E402
 from rebuild.tools.green_record import (  # noqa: E402
     _digest_lines,
@@ -1046,33 +1049,101 @@ def verdict_update_code_paths(root: Path = ROOT) -> list[Path]:
 
 
 def verdicts_records_digest(path: Path) -> str:
-    """Return a digest of a verdicts document's content: every top-level field but `exported_at`, and the records sorted by their canonical JSON, the override section's records and tombstones (`accepted.Overrides`) each sorted the same way apart from the store's own. The review server rewrites the store with a new `exported_at` on every save, and the merge and the server lay records out differently, so neither a save that changes no record nor a rewrite in another layout moves it. A file that is not a JSON object with a `verdicts` list is hashed by its bytes, and one that cannot be read is "absent", as `_sha256_path` reports it. The parse holds the whole store in memory once, in the cycle's own process. `verdict_update_skip_fingerprint` parses the store once per call, and the cycle calls it at plan time, before any gate or pool starts, and after the verdict update exits, inside the memory the build lane reserved for that step (`_conform_build_lane`)."""
+    """Return a digest of a verdicts document's content: every top-level field but `exported_at`, then its own records in (unit, canonical JSON) order, a line each, then the override section's records and tombstones (`accepted.Overrides`), each sorted by its canonical JSON apart from the store's own. The review server rewrites the store with a new `exported_at` on every save, and the merge and the server lay records out differently, so neither a save that changes no record nor a rewrite in another layout moves it. A file that is not a JSON object with a `verdicts` list is hashed by its bytes, and one that cannot be read is "absent", as `_sha256_path` reports it.
+
+    The store is read as `accepted.read_tail` and `accepted.iter_records` read it, a block of about 1 MiB and one record at a time, never parsed whole in this process (`_streamed_records_digest`). A file the stream does not take is read whole and its records sorted (`_sorted_records_digest`), which hashes the same value, so the digest is a function of the records alone; that read runs in a short child handed the open file (`_whole_records_digest`), so no parse of the store stays in this process, and a child that answers nothing raises `StoreReadFailed`. `verdict_update_skip_fingerprint` reads the store once per call, and the cycle calls it at plan time, before any gate or pool starts, and after the verdict update exits.
+    """
     try:
-        with open(path, "rb") as handle:
-            document = json.load(handle)
+        handle = open(path, "rb")
+    except OSError:
+        return "absent"
+    with handle:
+        try:
+            streamed = _streamed_records_digest(handle)
+        except OSError:
+            return "absent"
+        return streamed if streamed is not None else _whole_records_digest(handle)
+
+
+def _streamed_records_digest(handle: io.BufferedReader) -> str | None:
+    """Return `verdicts_records_digest` of the open file `handle` hashed as it streams, or None for a file the stream does not take: one `accepted.read_tail` does not read as an ams-review-verdicts/1 store, one with a second `verdicts` list, and one whose records are not in (unit, line) order, which holds for every file the server, the merge and the land write, since each writes its records sorted by unit, one a unit. The members but the records are read first, then the records, hashed as they stream, both from the file `handle` opened: `read_tail` reads it through its descriptor's `/dev/fd` name, so a writer that renames another file over the path meanwhile changes neither read."""
+    tail = accepted.read_tail(f"/dev/fd/{handle.fileno()}")
+    if tail is None or tail.lists != 1:
+        return None
+    digest = hashlib.sha256(_records_digest_head(dict(tail.members)))
+    last: tuple[str, str] | None = None
+    try:
+        for record in accepted.iter_records(handle):
+            key = _record_order_key(record)
+            if last is not None and key < last:
+                return None
+            digest.update(key[1].encode() + b"\n")
+            last = key
+    except ValueError:
+        return None
+    for line in _records_digest_overrides(tail.members.get(accepted.OVERRIDES)):
+        digest.update(line)
+    return digest.hexdigest()
+
+
+def _whole_records_digest(handle: io.BufferedReader) -> str:
+    """Return `_sorted_records_digest` of the open file `handle`, computed in a short child (`_store_read`) that inherits its descriptor, so it reads the file this process opened and the whole parse stays out of this process."""
+    descriptor = handle.fileno()
+    answer = _store_read({"read": "digest", "fd": descriptor}, pass_fds=(descriptor,))
+    assert isinstance(answer, str)
+    return answer
+
+
+def _record_order_key(record: object) -> tuple[str, str]:
+    """Return the key `verdicts_records_digest` orders a store's records by: the record's unit, "" for one that names no string unit, and its canonical JSON line."""
+    unit = record.get("unit") if isinstance(record, dict) else None
+    return (unit if isinstance(unit, str) else "", json.dumps(record, sort_keys=True, ensure_ascii=False))
+
+
+def _records_digest_head(document: dict) -> bytes:
+    """Return the line `verdicts_records_digest` starts with: a document's members but its records, `exported_at` and its override section, as canonical JSON."""
+    document.pop("exported_at", None)
+    document.pop(accepted.OVERRIDES, None)
+    return json.dumps(document, sort_keys=True, ensure_ascii=False).encode() + b"\n"
+
+
+def _records_digest_overrides(section: object) -> Iterator[bytes]:
+    """Yield the lines `verdicts_records_digest` ends with: a document's override section, its records and then its tombstones each sorted by canonical JSON, and nothing for a document with no section."""
+    if section is None:
+        return
+    yield b"overrides\n"
+    held = section if isinstance(section, dict) else {}
+    for name in ("verdicts", "cleared"):
+        entries = held.get(name)
+        for line in sorted(
+            json.dumps(entry, sort_keys=True, ensure_ascii=False)
+            for entry in (entries if isinstance(entries, list) else [])
+        ):
+            yield f"{name}\t{line}\n".encode()
+
+
+def _sorted_records_digest(handle: io.BufferedReader) -> str:
+    """Return `verdicts_records_digest` of the open file `handle` read whole from its start, its records sorted by their (unit, line) key, for a file the streamed read does not take: one out of that order, one `accepted.read_tail` does not read as an ams-review-verdicts/1 store, or one with a second `verdicts` list, whose last list this reads as `json.load` does. A file that is not a JSON object with a `verdicts` list is hashed by its bytes. It runs in the child `_whole_records_digest` starts."""
+    try:
+        handle.seek(0)
+        document = json.load(handle)
     except OSError:
         return "absent"
     except ValueError:
-        return _sha256_path(path)
+        document = None
     if not isinstance(document, dict) or not isinstance(document.get("verdicts"), list):
-        return _sha256_path(path)
+        try:
+            handle.seek(0)
+            return hashlib.file_digest(handle, "sha256").hexdigest()
+        except OSError:
+            return "absent"
     records = document.pop("verdicts")
-    document.pop("exported_at", None)
-    section = document.pop(accepted.OVERRIDES, None)
-    digest = hashlib.sha256()
-    digest.update(json.dumps(document, sort_keys=True, ensure_ascii=False).encode() + b"\n")
-    for line in sorted(json.dumps(record, sort_keys=True, ensure_ascii=False) for record in records):
+    section = document.get(accepted.OVERRIDES)
+    digest = hashlib.sha256(_records_digest_head(document))
+    for _unit, line in sorted(_record_order_key(record) for record in records):
         digest.update(line.encode() + b"\n")
-    if section is not None:
-        digest.update(b"overrides\n")
-        held = section if isinstance(section, dict) else {}
-        for name in ("verdicts", "cleared"):
-            entries = held.get(name)
-            for line in sorted(
-                json.dumps(entry, sort_keys=True, ensure_ascii=False)
-                for entry in (entries if isinstance(entries, list) else [])
-            ):
-                digest.update(f"{name}\t{line}\n".encode())
+    for line in _records_digest_overrides(section):
+        digest.update(line)
     return digest.hexdigest()
 
 
@@ -1086,7 +1157,7 @@ def _master_key_line(root: Path, master: Path, autosave_digest: str) -> str:
 def verdict_update_skip_fingerprint(
     root: Path = ROOT, corpus: Path | None = None, master: Path | None = None, store: Path | None = None
 ) -> str | None:
-    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The live store is hashed by its records (`verdicts_records_digest`), not its bytes, because the review server rewrites the file with a new `exported_at` on every save, and when the master resolved to the store, the master line names it `autosave` instead of by its path (`_master_key_line`). The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, status.py and journal.py, which the merge and the readiness check run, store_lock.py, which the merge holds around its write, landing.py, which puts the store the verdict update prepared in place, and accepted.py, through which every step reads the accepted list. The list itself, `rebuild/accepted-units.txt` beside the live store, is hashed by its bytes, since every step reads the units it names as accepted and a close-out rewrites it. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. `store` is the store whose records stand for the live store, the live store when None: after a pass the cycle keys the record on the store its land wrote or left in place (`landing.LANDED_NAME`), so the next plan, which reads the live store, finds the same key only when no save has changed the store since. None when the corpus has no fingerprinted manifest or no master was resolved."""
+    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The live store is hashed by its records (`verdicts_records_digest`), read a record at a time and never parsed whole in this process, not by its bytes, because the review server rewrites the file with a new `exported_at` on every save, and when the master resolved to the store, the master line names it `autosave` instead of by its path (`_master_key_line`). The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, status.py and journal.py, which the merge and the readiness check run, store_lock.py, which the merge holds around its write, landing.py, which puts the store the verdict update prepared in place, and accepted.py, through which every step reads the accepted list. The list itself, `rebuild/accepted-units.txt` beside the live store, is hashed by its bytes, since every step reads the units it names as accepted and a close-out rewrites it. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. `store` is the store whose records stand for the live store, the live store when None: after a pass the cycle keys the record on the store its land wrote or left in place (`landing.LANDED_NAME`), so the next plan, which reads the live store, finds the same key only when no save has changed the store since. None when the corpus has no fingerprinted manifest or no master was resolved, and `StoreReadFailed` when the child that reads a store the digest does not stream answers nothing."""
     if master is None:
         return None
     corpus_dir = corpus if corpus is not None else REVIEW_OUT
@@ -2633,14 +2704,105 @@ def build_plan(
     return plan
 
 
-def resolve_carry_source() -> dict | None:
-    from rebuild.review import status
+class StoreReadFailed(RuntimeError):
+    """Raised when the child a store read runs in (`_store_read`) dies or answers nothing, which the pass reports and stops on."""
 
+
+# `-P` keeps the caller's working directory off the child's path, so the child puts this module's checkout first itself, whatever tree the caller's `ROOT` names.
+_STORE_READ_CHILD = "import sys; sys.path.insert(0, sys.argv[1]); from rebuild.tools.artifact_cycle import _answer_store_read; _answer_store_read(sys.argv[2])"
+_REFUSALS = {
+    refusal.__name__: refusal for refusal in (accepted.Refused, accepted.Malformed, accepted.Mismatch)
+}
+
+
+def _store_read(request: dict, pass_fds: tuple[int, ...] = ()) -> object:
+    """Run one read of the verdict store in a short spawned child, a fresh interpreter and never a fork of this process, and return its answer, which comes back on a pipe as a few bytes of JSON. The cycle's own process lives for the whole pass, and macOS's allocator keeps the large blocks a whole parse frees in its footprint, so a parse made here would stay beside every later pool. `request` names every path the read takes, or the descriptor `pass_fds` hands the child, and the manifest's stamp, so the child reads nothing from its own module globals. An `accepted.Refused` in the child is raised here as the same class with its reason and message (`_refusal`), and a child that dies or answers nothing raises `StoreReadFailed`, naming the last line it wrote to stderr."""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-P",
+            "-c",
+            _STORE_READ_CHILD,
+            str(Path(__file__).resolve().parents[2]),
+            json.dumps(request),
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        check=False,
+        pass_fds=pass_fds,
+    )
+    lines = completed.stdout.splitlines()
+    try:
+        reply = json.loads(lines[-1]) if completed.returncode == 0 and lines else None
+    except ValueError:
+        reply = None
+    if not isinstance(reply, dict) or not ("answer" in reply or "refused" in reply):
+        said = completed.stderr.strip().splitlines()
+        raise StoreReadFailed(
+            f"the child that reads the verdict store for the {request['read']} read exited {completed.returncode} with no answer"
+            + (f" ({said[-1]})" if said else "")
+        )
+    if "refused" in reply:
+        raise _refusal(reply["refused"])
+    return reply["answer"]
+
+
+def _refusal(held: dict) -> accepted.Refused:
+    """Return the `accepted.Refused` a store read's child reported, as the class it raised, with its message and, for `accepted.Malformed`, the path and line it names."""
+    refusal = _REFUSALS.get(held.get("class", ""), accepted.Refused)
+    error = refusal.__new__(refusal)
+    ValueError.__init__(error, held["message"])
+    if isinstance(error, accepted.Malformed):
+        error.path = Path(held["path"])
+        error.line = held["line"]
+    return error
+
+
+def _answer_store_read(request_text: str) -> None:
+    """Answer one `_store_read` request in its child, as one line of JSON on stdout: `{"answer": ...}`, or `{"refused": {...}}` for an `accepted.Refused`, naming its class, message and, for `accepted.Malformed`, its path and line. Any other failure ends the child with a traceback and no answer."""
+    request = json.loads(request_text)
+    try:
+        if request["read"] == "carry":
+            from rebuild.review import status
+
+            resolved = status.resolve_carry_source(
+                Path(request["root"]), request["stamp"], Path(request["autosave"])
+            )
+            answer = None if resolved is None else {**resolved, "path": str(resolved["path"])}
+        elif request["read"] == "digest":
+            with open(request["fd"], "rb") as handle:
+                answer = _sorted_records_digest(handle)
+        else:
+            from rebuild.review.verdict_store import parse_autosave_payload
+
+            try:
+                payload = parse_autosave_payload(Path(request["master"]).read_bytes())
+            except OSError:
+                payload = None
+            answer = payload is not None and payload["manifest_generated_at"] == request["stamp"]
+        reply: dict = {"answer": answer}
+    except accepted.Refused as refused:
+        held: dict = {"class": type(refused).__name__, "message": str(refused)}
+        if isinstance(refused, accepted.Malformed):
+            held.update(path=str(refused.path), line=refused.line)
+        reply = {"refused": held}
+    sys.stdout.write(json.dumps(reply) + "\n")
+    sys.stdout.flush()
+
+
+def resolve_carry_source() -> dict | None:
+    """Return `status.resolve_carry_source`'s answer for this tree, `{path, stamp, count, aligned}` or None, computed in a short child (`_store_read`), since it parses the store and every verdicts-*.json at the root whole. This process reads `ROOT`, `REVIEW_OUT` and `AUTOSAVE` when it is called and hands the child the root, the store's path and the served manifest's `generated_at`, so the child answers for the paths this process holds. A store that does not pair with its accepted list, or a malformed list, raises `accepted.Refused` here as in the child, and a child that answers nothing raises `StoreReadFailed`."""
     try:
         stamp = json.loads((REVIEW_OUT / "manifest.json").read_text()).get("generated_at")
     except OSError, ValueError:
         stamp = None
-    return status.resolve_carry_source(ROOT, stamp, AUTOSAVE)
+    resolved = _store_read({"read": "carry", "root": str(ROOT), "stamp": stamp, "autosave": str(AUTOSAVE)})
+    if resolved is None:
+        return None
+    assert isinstance(resolved, dict)
+    return {**resolved, "path": Path(resolved["path"])}
 
 
 def describe_carry_source(resolved: dict, root: Path, *, promoting: bool = False) -> str:
@@ -2664,15 +2826,20 @@ def describe_carry_source(resolved: dict, root: Path, *, promoting: bool = False
 
 
 def master_stamped_for_corpus(master: Path, corpus: Path) -> bool:
-    """Return whether the verdicts master carries the corpus's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the direct merge's precondition, because the direct merge passes the master to the merge unchanged and the merge refuses any input stamped for another corpus. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the corpus build writes a new corpus and before the verdict update carries the store onto it, the store stays stamped for the previous corpus and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it. Whether a direct merge carries the store's snapshot first, the verdict update decides when it runs, from the snapshot it reads (`verdict_update.merge_sets_store_aside`)."""
-    from rebuild.review.serve import parse_autosave_payload
-
+    """Return whether the verdicts master carries the corpus's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the direct merge's precondition, because the direct merge passes the master to the merge unchanged and the merge refuses any input stamped for another corpus. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the corpus build writes a new corpus and before the verdict update carries the store onto it, the store stays stamped for the previous corpus and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it. Whether a direct merge carries the store's snapshot first, the verdict update decides when it runs, from the snapshot it reads (`verdict_update.merge_sets_store_aside`). The master is parsed whole in a short child (`_store_read`), handed its path and the manifest's stamp, so no parse of it stays in this process, and a child that answers nothing raises `StoreReadFailed`."""
     stamp = _manifest_stamp_at(corpus)
-    try:
-        payload = parse_autosave_payload(Path(master).read_bytes())
-    except OSError:
+    if stamp is None:
         return False
-    return stamp is not None and payload is not None and payload["manifest_generated_at"] == stamp
+    return _store_read({"read": "master", "master": str(master), "stamp": stamp}) is True
+
+
+def stop_standing_daemon() -> str | None:
+    """Stop a standing daemon that answers at the default socket (`standing_client.SOCKET`, read when called), sending it the `stop` request and waiting a bounded time for its socket to go (`standing_client.stop`), and return the line the pass prints, or None when none answers. A pass but a dry run calls it once its preflight has settled the review server, before its first step: no width the pass computes leaves room for the corpus the daemon holds (decision 8 of #618), and no step asks it. A daemon serving a request answers once that request ends, so the pass waits for it."""
+    socket_path = standing_client.SOCKET
+    stopped = standing_client.stop(socket_path)
+    if stopped is None:
+        return None
+    return f"Stopped the standing daemon (pid {stopped.get('pid')}) at {socket_path} before the pass's first step; make standing-daemon starts it again."
 
 
 def resolve_short_id() -> str:
@@ -4542,9 +4709,12 @@ def _run_cycle(
             and not landed.get("overlaid")
             and plan.scratch_dir is not None
         ):
-            verdict_update_key = verdict_update_skip_fingerprint(
-                ROOT, REVIEW_OUT, plan.verdicts, store=plan.scratch_dir / landing.LANDED_NAME
-            )
+            try:
+                verdict_update_key = verdict_update_skip_fingerprint(
+                    ROOT, REVIEW_OUT, plan.verdicts, store=plan.scratch_dir / landing.LANDED_NAME
+                )
+            except StoreReadFailed as failed:
+                failures.append(f"the verdict update's key: {failed}")
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         if plan.review_out is not None:
@@ -5505,7 +5675,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
-    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory and whose refusal stops the pass with exit 1, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories and counts files (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`). A store that does not pair with the accepted list, or a malformed list, stops the pass with exit 1 at the carry source's resolution (`accepted.Refused`), before any step runs."""
+    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory and whose refusal stops the pass with exit 1, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories and counts files (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`). A store that does not pair with the accepted list, or a malformed list, stops the pass with exit 1 at the carry source's resolution (`accepted.Refused`), before any step runs, and so does a store read's child that answers nothing at plan time (`StoreReadFailed`), for the carry source, the verdict update's key or the master's stamp. Once the plan is made, a pass that is not a dry run stops a standing daemon that answers at the default socket before its first step (`stop_standing_daemon`)."""
     try:
         landed = recover_land(dry_run=args.dry_run) if recover else None
     except landing.LandUnrecoverable as refused:
@@ -5607,7 +5777,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
     if not args.no_carry and args.verdicts is None and not first_run:
         try:
             resolved = resolve_carry_source()
-        except accepted.Refused as refused:
+        except (accepted.Refused, StoreReadFailed) as refused:
             print(f"ERROR: {refused}. The pass stops before it starts.")
             return 1
         if resolved is None:
@@ -5633,7 +5803,11 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         and not args.no_merge
         and args.carry_out is None
     ):
-        verdict_update_key = verdict_update_skip_fingerprint(ROOT, REVIEW_OUT, args.verdicts)
+        try:
+            verdict_update_key = verdict_update_skip_fingerprint(ROOT, REVIEW_OUT, args.verdicts)
+        except StoreReadFailed as failed:
+            print(f"ERROR: {failed}. The pass stops before it starts.")
+            return 1
         record = read_green_record(cycle_paths.VERDICT_UPDATE_GREEN)
         if (
             verdict_update_key is not None
@@ -5644,7 +5818,11 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
             verdict_update_note = VERDICT_UPDATE_SKIP_NOTE
         elif verdict_update_key is not None and args.verdicts is not None:
             if master_aligned is None:
-                master_aligned = master_stamped_for_corpus(args.verdicts, REVIEW_OUT)
+                try:
+                    master_aligned = master_stamped_for_corpus(args.verdicts, REVIEW_OUT)
+                except StoreReadFailed as failed:
+                    print(f"ERROR: {failed}. The pass stops before it starts.")
+                    return 1
                 if not master_aligned:
                     announce(DIRECT_MERGE_DECLINED_NOTE)
             # A master that is an ams-review-verdicts/1 document stamped for the served corpus needs no carry: every unit id maps to itself, and the carry keeps each record's `at`, so the merge (which takes only a strictly newer `at`) would drop any note the carry changes. Merging the master directly into the store gives the same result. A store the merge would set aside is the exception: the verdict update carries its snapshot first (`verdict_update.merge_sets_store_aside`), so its verdicts are kept, and the carry refuses a snapshot it cannot read, naming it, so the verdict update fails.
@@ -5720,6 +5898,10 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
             probe=probe,
         ):
             return 2
+
+        stopped = stop_standing_daemon()
+        if stopped is not None:
+            print(stopped)
 
         if first_run:
             print("First-run mode: no existing corpus at rebuild/out/review — skipping the carry.")

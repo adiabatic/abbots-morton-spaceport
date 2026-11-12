@@ -259,6 +259,36 @@ class TestTheReadbackRecord:
         assert ct.parse_inner_timings(run_m1._build_phase_lines[-1])[0]["commit"] == "95521363"
 
 
+class TestTheGlyphChainCollect:
+    def test_one_collect_follows_the_glyph_chain_and_records_the_level_it_leaves(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """`run` collects the glyph chain's cyclic garbage once, on the calling thread, after the chain has returned and before `run` returns, and its `[t] glyph_chain_collect` line carries the resident set the collect leaves, the level the oracle's pool starts beside."""
+        events: list = []
+        _stub_chain(monkeypatch, events)
+        _stub_gates(monkeypatch, events)
+        caller = threading.current_thread()
+        monkeypatch.setattr(
+            run_m1.gc,
+            "collect",
+            lambda *_: events.append(("collect", threading.current_thread() is caller)) or 0,
+        )
+        monkeypatch.setattr(run_m1, "current_rss_bytes", lambda: 451_000_000)
+        _summary, gates = _run(tmp_path)
+        collected = [event for event in events if isinstance(event, tuple)]
+        try:
+            gates.join()
+        finally:
+            gates.close()
+        assert collected == [("collect", True)] and events.index("compile") < events.index(collected[0])
+        (line,) = [
+            phase
+            for phase in ct.parse_inner_timings(capsys.readouterr().out)
+            if phase["label"] == "glyph_chain_collect"
+        ]
+        assert line["rss_now_gb"] == 0.45
+
+
 class TestTheReplayScope:
     @pytest.mark.parametrize(
         ("families", "scope"), [(None, "full"), (["qsTea"], "narrowed"), ([], "narrowed")]

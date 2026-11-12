@@ -80,10 +80,12 @@ from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.memory_budget import usable_cores
 from rebuild.tools.peak_rss import (
     ReapedPeaks,
+    current_rss_bytes,
     footprint_token,
     peak_footprint_self_bytes,
     peak_rss_self_bytes,
     process_peak_rss_bytes,
+    rss_now_token,
     rss_token,
 )
 
@@ -1040,7 +1042,7 @@ def run(
     replay_threads: int | None = None,
     scratch_beside_default: int | None = None,
 ) -> tuple[dict, TableGates]:
-    """Build the tables, then run two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage (in a spawned process of its own) and the shipped-order walks. The glyph chain (minting, the defect gates, the emission, the compile and read-back) runs on the calling thread, writes `pipeline_summary.json`, and returns its summary with the branch's `TableGates` handle without joining the branch. The caller joins it: `full_run` calls `wait_for_replay` before the oracle, passes `wait_for_memo` for the oracle to call before its memo writes, calls `join` after the oracle so the gate covers both branches, and calls `close` in a `finally`. When the glyph chain raises, the branch's first failure is raised in its place if there is one, so a failed replay is reported as incomplete tables and not as whatever the glyph chain made of them.
+    """Build the tables, then run two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage (in a spawned process of its own) and the shipped-order walks. The glyph chain (minting, the defect gates, the emission, the compile and read-back) runs on the calling thread and writes `pipeline_summary.json`. Once it has returned, `run` collects its cyclic garbage once (`_collect_glyph_chain`), since `cli` runs the whole batch with the collector frozen and off and feaLib's and fontTools' cycles would otherwise stay beside the oracle's pool, and returns the chain's summary with the branch's `TableGates` handle without joining the branch. The caller joins it: `full_run` calls `wait_for_replay` before the oracle, passes `wait_for_memo` for the oracle to call before its memo writes, calls `join` after the oracle so the gate covers both branches, and calls `close` in a `finally`. When the glyph chain raises, the branch's first failure is raised in its place if there is one, so a failed replay is reported as incomplete tables and not as whatever the glyph chain made of them.
 
     `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memos the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from, and so does `scratch_beside_default` (`build_tables`). `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
     """
@@ -1096,7 +1098,18 @@ def run(
         if red is not None:
             raise red
         raise
+    _collect_glyph_chain()
     return summary, gates
+
+
+def _collect_glyph_chain() -> None:
+    """Collect the glyph chain's cyclic garbage once, on the calling thread, after `_run_glyph_chain` has returned and freed its locals, and print the `[t] glyph_chain_collect` line with the resident set left after it (`peak_rss.rss_now_token`), the level this process carries beside the oracle's pool. `cli` freezes and disables the collector for the whole run, and this is the one collect it makes."""
+    console.phase("glyph_chain_collect")
+    start = time.perf_counter()
+    gc.collect()
+    seconds = time.perf_counter() - start
+    now = current_rss_bytes()
+    console.timing("glyph_chain_collect", seconds, rss_now_token(now) if now is not None else None)
 
 
 def _run_glyph_chain(
@@ -2100,7 +2113,7 @@ def cli() -> None:
     refusal = spec_load.small_alphabet_refusal("run_m1")
     if refusal is not None:
         raise SystemExit(refusal)
-    # This batch is short-lived, and its large live heap contains almost no cyclic garbage worth scanning.
+    # The batch's large live heap is mostly acyclic, so the collector stays frozen and off; the glyph chain's feaLib and fontTools cycles are the exception, which `run` frees with one collect (`_collect_glyph_chain`).
     gc.freeze()
     gc.disable()
     run_m1_gates._run_cli()

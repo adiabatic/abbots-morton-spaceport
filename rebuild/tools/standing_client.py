@@ -1,6 +1,6 @@
 """The client side of the standing daemon: how the standing probe and the standing dry run ask a running `rebuild/tools/standing_daemon.py` to run them over the corpus it already holds, and what they do when no daemon replies. Both tools import this module at the top, so it is in the fill memo's code list (`standing_verdicts.MEMO_CODE_MODULES`) and in the verdict update's code closure (`artifact_cycle.VERDICT_UPDATE_TOOL_MODULES`). It therefore imports only the standard library. The server side, which imports the tools and `peak_rss`, is a separate module so that neither list includes those.
 
-The protocol is one request per connection over a Unix-domain stream socket, with newline-delimited JSON both ways. A `probe` or `fill` request carries the tool's argv as typed; the client's working directory, so every relative path in the argv (the verdicts file, `--out`, `--memo`, `--rules`) resolves in the daemon as it would in this process; and the absolute corpus path, so the daemon can decline a corpus it does not hold. The reply is either `{"ok": true, "code", "stdout", "stderr"}`, the tool's exit code and captured streams, or `{"ok": false, "reason"}` when the daemon declines. `relay` writes the streams to this process's streams unchanged, so a served run prints the same bytes as an in-process run. A `status` request returns what the daemon holds, and a `stop` request makes it exit; both are subcommands of `standing_daemon.main`.
+The protocol is one request per connection over a Unix-domain stream socket, with newline-delimited JSON both ways. A `probe` or `fill` request carries the tool's argv as typed; the client's working directory, so every relative path in the argv (the verdicts file, `--out`, `--memo`, `--rules`) resolves in the daemon as it would in this process; and the absolute corpus path, so the daemon can decline a corpus it does not hold. The reply is either `{"ok": true, "code", "stdout", "stderr"}`, the tool's exit code and captured streams, or `{"ok": false, "reason"}` when the daemon declines. `relay` writes the streams to this process's streams unchanged, so a served run prints the same bytes as an in-process run. A `status` request returns what the daemon holds, and a `stop` request makes it exit; both are subcommands of `standing_daemon.main`, and `stop` here sends the second and waits for the socket to go, for that subcommand and for the artifact cycle, which stops a daemon as each pass but a dry run starts (`artifact_cycle.stop_standing_daemon`).
 
 `--daemon auto`, the default, asks the daemon and falls back to loading the corpus in this process when no daemon replies or the daemon declines. It says so on stderr only when there was a socket to ask. `always` exits with the reason instead of loading the corpus in this process. `never` does not ask. A call that passes a tool's `main` its own `units` or `context` is not a command-line run and is never routed here; the verdict update and the daemon itself make such calls.
 
@@ -15,6 +15,7 @@ import json
 import os
 import socket
 import sys
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -23,6 +24,7 @@ SOCKET = ROOT / "var" / "standing-daemon.sock"
 MODES = ("auto", "always", "never")
 TOOLS = ("probe", "fill")
 CONNECT_TIMEOUT_SECONDS = 5
+STOP_WAIT_SECONDS = 15
 LISTEN_BACKLOG = 128
 START_HINT = "start one with make standing-daemon"
 
@@ -97,6 +99,17 @@ def exchange(socket_path: str | os.PathLike[str], request: dict) -> dict | None:
     except ValueError:
         return None
     return reply if isinstance(reply, dict) else None
+
+
+def stop(socket_path: str | os.PathLike[str]) -> dict | None:
+    """Ask the daemon at `socket_path` to stop, wait up to `STOP_WAIT_SECONDS` for its socket file to go, and return its reply, which names its pid, or None when no daemon answers the request. A daemon serving a request reads the stop only once that request ends, and the reply waits for it. `standing_daemon stop` and the artifact cycle's pass both stop the daemon through this."""
+    reply = exchange(socket_path, {"tool": "stop"})
+    if reply is None or not reply.get("ok"):
+        return None
+    deadline = time.monotonic() + STOP_WAIT_SECONDS
+    while os.path.lexists(socket_path) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return reply
 
 
 def ask(
