@@ -578,7 +578,7 @@ def test_a_disagreeing_unit_stops_the_units_not_yet_started(bench, monkeypatch, 
 
 
 def test_the_shipped_walk_cost_walks_more_units_than_configurations_on_both_fleet_machines(monkeypatch):
-    """Each fleet machine (`doc/fleet.md`), 48 GiB with 18 or 12 cores, walks as many units at once as its memory holds at the checked-in `DEEP_REPLAY_PEAK_BYTES`, capped at its cores, and that is more than one walk per settlement configuration. No cycle runs this walk, so the deep-replay-walk row of `make job-costs` watches the constant only when someone runs it. This test fails at 7.26 GB or more, where the 48 GiB machines would walk no more units at once than there are configurations."""
+    """Each fleet machine (`doc/fleet.md`), 48 GiB with 18 or 12 cores, walks as many units at once as its memory holds at the checked-in `DEEP_REPLAY_PEAK_BYTES`, capped at its cores, and that is more than one walk per settlement configuration. No cycle runs this walk, so the deep-replay-walk row of `make job-costs` watches the constant only when someone runs it. This test fails at 6.22 GB or more, where the 48 GiB machines would walk no more units at once than there are configurations."""
     monkeypatch.delenv("AMS_DEEP_REPLAY_THREADS", raising=False)
     for cores in (18, 12):
         width = deep_replay.replay_threads(total_bytes=MACHINE_48_GIB, ncores=cores)
