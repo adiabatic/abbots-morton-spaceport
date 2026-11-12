@@ -19,7 +19,7 @@ The API:
 - `parse(raw, path) -> Accepted`: the list whose bytes are `raw`, as `read` gives it for a file at `path`, which names it in a refusal; for a list held in memory, such as a close-out archive's.
 - `read_stamp(path) -> ListStamp`: the list's sha256 and `closed_at` alone, for a reader that pairs before it streams the ids; it checks the header but no id line.
 - `iter_lines(path)`: each `(id, verdict)` in the list's order, holding one line at a time, for a streaming reader; `Malformed` when it reaches a malformed line; nothing when the file does not exist.
-- `read_tail(path) -> Tail | None`: a verdicts store document read once a block of about 1 MiB at a time, holding one record of its `verdicts` list at a time: every top-level member but that list, with its stamp (`.stamp`), `accepted` field (`.accepted`), tombstones (`.cleared`, as `journal.parse_cleared` reads them) and override section (`.overrides()`), how many records the list holds, the first record `verdict_store.well_formed` refuses with its index (`.malformed`), and how many `verdicts` members it names; None for a file that is missing, unreadable, not JSON anywhere in it or not an ams-review-verdicts/1 document, as `verdict_store.parse_autosave_payload` reads one. It decodes the file as `json.loads` decodes bytes, UTF-16 and a byte order mark among them, so a reader that checks a store with it gives the answer the readers that parse it whole give. The land reads its stores through it and `iter_records` (`rebuild.review.landing`).
+- `read_tail(path, each=None) -> Tail | None`: a verdicts store document read once a block of about 1 MiB at a time, holding one record of its `verdicts` list at a time: every top-level member but that list, with its stamp (`.stamp`), `accepted` field (`.accepted`), tombstones (`.cleared`, as `journal.parse_cleared` reads them) and override section (`.overrides()`), how many records the list holds, the first record `verdict_store.well_formed` refuses with its index (`.malformed`), and how many `verdicts` members it names; None for a file that is missing, unreadable, not JSON anywhere in it or not an ams-review-verdicts/1 document, as `verdict_store.parse_autosave_payload` reads one. It decodes the file as `json.loads` decodes bytes, UTF-16 and a byte order mark among them, so a reader that checks a store with it gives the answer the readers that parse it whole give. `each` is called with every record it reads. The land, the merge and the carry read their stores through it and `iter_records` (`rebuild.review.landing`, `rebuild.tools.merge_verdicts`, `rebuild.tools.carry_verdicts`).
 - `iter_records(source)`: the records of a document's first `verdicts` list, from a path or a binary file read from its start, in file order and one at a time, for a reader that checked the document with `read_tail`; `ValueError` for text that is not a JSON object.
 - `head_stamp(head) -> str | None`: a verdicts document's top-level `manifest_generated_at` read from its first bytes, member by member up to its `verdicts` key, without parsing a record; None when those bytes do not settle it, and the caller parses the whole file. It answers as `json.loads` does except on a document with a second top-level `manifest_generated_at` after its `verdicts` array, which it judges by the first and `json.loads` by the second; no repo writer makes one.
 - `read_head_stamp(path) -> str | None`: `head_stamp` of the first `HEAD_BYTES` (4096) bytes a read of the regular file at `path` starts with, read at the opened descriptor's offset without moving it, so a later read of the path sees every byte, and None for a path that is not a regular file, such as a pipe, whose bytes a read consumes; for a reader that checks a verdicts file's stamp before it parses the file: the duplicate and standing fills, the complaint list and the queue snapshot, through `review_queue.verdicts_stamp`. `rebuild.review.status` reads the same head and hands it to `head_stamp` itself, since it parses a file the head holds whole from those bytes.
@@ -601,7 +601,7 @@ class Tail:
         return Overrides.of(self.members)
 
 
-def _tail(text: _Text) -> Tail | None:
+def _tail(text: _Text, each: Callable[[object], None] | None) -> Tail | None:
     members: dict = {}
     lists = records = 0
     malformed: tuple[int, object] | None = None
@@ -619,6 +619,8 @@ def _tail(text: _Text) -> Tail | None:
             records += 1
             if malformed is None and not _well_formed(record):
                 malformed = (index, record)
+            if each is not None:
+                each(record)
     text.finish()
     if (
         not listed
@@ -629,15 +631,15 @@ def _tail(text: _Text) -> Tail | None:
     return Tail(members, records, malformed, lists)
 
 
-def read_tail(path: str | Path) -> Tail | None:
-    """Return the verdicts document at `path` as `Tail`, reading it once a block at a time and holding one record of its `verdicts` list at a time, or None when the file is missing or unreadable or is not an ams-review-verdicts/1 document as `verdict_store.parse_autosave_payload` reads one: not JSON anywhere in it, not an object, another `format`, a `manifest_generated_at` that is not a string, or no `verdicts` list."""
+def read_tail(path: str | Path, each: Callable[[object], None] | None = None) -> Tail | None:
+    """Return the verdicts document at `path` as `Tail`, reading it once a block at a time and holding one record of its `verdicts` list at a time, or None when the file is missing or unreadable or is not an ams-review-verdicts/1 document as `verdict_store.parse_autosave_payload` reads one: not JSON anywhere in it, not an object, another `format`, a `manifest_generated_at` that is not a string, or no `verdicts` list. `each`, when given, is called with every record of every `verdicts` list it reads, in file order, for a reader that counts or orders them in the same read, as the carry does."""
     try:
         handle = Path(path).open("rb")
     except OSError:
         return None
     with handle:
         try:
-            return _tail(_Text(handle))
+            return _tail(_Text(handle), each)
         except _NotJSON, OSError, ValueError:
             return None
 

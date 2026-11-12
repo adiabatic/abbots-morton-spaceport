@@ -1,6 +1,6 @@
 """Write a machine-readable snapshot of the review queue for the live corpus: cluster the blank human units by the build's `cluster` signature (the duplicate-group key without the judged pair; see `_cluster_id` in rebuild/review/build.py), collect evidence from judged units with the same signature, list the classes outside Open questions (the manifest's `section`, which `rebuild.review.audit.class_section` decides) that still have blank units, and list the duplicate groups whose recorded verdicts disagree (`verdicts_agree` decides, and counts an approve/identical mix as agreement). The review app's `#view=queue` computes the same clustering live from the in-memory verdict store. This tool writes tmp/queue-data.json instead of a page: a fixed snapshot for writing bulk proposals, which need the blank membership fixed against one verdicts file.
 
-This module is also the read path's loader of a verdicts file: `latest_verdicts` reads it through the accepted list it pairs with (`rebuild.review.accepted`), so a unit a close-out accepted reads as its mark and not as a blank in this tool, the duplicate and standing fills, the complaint list, the novelty order and the standing probe, and each of them takes the list's `--accepted` flag from `add_accepted_argument` and reads it through `accepted_list`. This tool, the duplicate and standing fills and the complaint list read the file's stamp first through `verdicts_stamp`, from the file's head when the head settles it, so a file stamped for another corpus is refused without a whole parse, and a file stamped for the corpus is parsed once, inside `latest_verdicts`. A document with a second top-level `manifest_generated_at` after its `verdicts` array is judged by the first; no repo writer makes one.
+This module is also the read path's loader of a verdicts file: `latest_verdicts` reads it through the accepted list it pairs with (`rebuild.review.accepted`), so a unit a close-out accepted reads as its mark and not as a blank in this tool, the duplicate and standing fills, the complaint list, the novelty order and the standing probe, and each of them takes the list's `--accepted` flag from `add_accepted_argument` and reads it through `accepted_list`. The duplicate and standing fills and the complaint list also take the store the verdict update holds in memory (`HeldStore`) in place of its file, and read its stamp and its view from it. This tool, the duplicate and standing fills and the complaint list read the file's stamp first through `verdicts_stamp`, from the file's head when the head settles it, so a file stamped for another corpus is refused without a whole parse, and a file stamped for the corpus is parsed once, inside `latest_verdicts`. A document with a second top-level `manifest_generated_at` after its `verdicts` array is judged by the first; no repo writer makes one.
 """
 
 import argparse
@@ -9,7 +9,7 @@ import json
 import pathlib
 import sys
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, Protocol
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -63,6 +63,14 @@ def add_accepted_argument(parser: argparse.ArgumentParser) -> None:
         metavar="PATH",
         help=f"the accepted list the verdicts file pairs with (default: the {accepted.RELATIVE_PATH} beside a verdicts file named {accepted.AUTOSAVE_NAME}; any other verdicts file needs this flag)",
     )
+
+
+class HeldStore(Protocol):
+    """A verdict store a caller holds in memory and hands to a reader in place of its file: its stamp, and its records read through an accepted list as `latest_verdicts` reads the file (`view`). The verdict update holds its prepared store this way between its merges (`rebuild.tools.held_store.Held`), so the duplicate and standing fills and the complaint list read it without parsing a file."""
+
+    stamp: str
+
+    def view(self, listed: accepted.Accepted) -> accepted.View: ...
 
 
 _HELD: dict[tuple, accepted.Accepted] = {}

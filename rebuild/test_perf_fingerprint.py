@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from rebuild.review import landing
 from rebuild.tools import perf_fingerprint as pf
 
 SCRIPT = Path(pf.__file__)
@@ -115,6 +116,14 @@ def test_the_corpus_store_and_complaint_digests_ignore_every_stamp_and_see_a_cha
 
     store = pf.store_digest(_store(tmp_path / "s1.json", stamp="t1", at="2026-10-28T01:00:00Z"))
     assert pf.store_digest(_store(tmp_path / "s2.json", stamp="t2", at="2026-10-29T02:00:00Z")) == store
+    held = landing.read_store(tmp_path / "s1.json")
+    assert held is not None
+    for name, data in (
+        ("one-a-line.json", landing.document_bytes(held)),
+        ("indented.json", json.dumps(json.loads((tmp_path / "s1.json").read_text()), indent=2).encode()),
+    ):
+        (tmp_path / name).write_bytes(data)
+        assert pf.store_digest(tmp_path / name) == store, name
     assert (
         pf.store_digest(
             _store(tmp_path / "s3.json", stamp="t1", at="2026-10-28T01:00:00Z", verdict="neither")

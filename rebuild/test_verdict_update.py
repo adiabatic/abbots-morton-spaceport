@@ -1,13 +1,15 @@
-"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped. A direct merge into a store stamped for the corpus that holds a record the carry refuses fails the update at its merge, naming the store, with the store and the journal as they were. With no `--journal`, every merge appends to the journal beside the store, and with no `--duplicate-out` or `--standing-out` the fill files are written beside it, so a run on a copy writes nothing at the repo root. On a pass that carries the store onto a new stamp beside an accepted list, the store's override dated before the close-out survives, its skip on an accepted unit leaves a tombstone, an override or tombstone on an accepted unit the new corpus lacks leaves a tombstone that keeps it blank when a later pass brings it back, and every fill and the complaint list are named the list. On a pass that lands, the update says on its completion line whether it left the prepared store as the snapshot it was linked from, and records it for the land only when it did."""
+"""Tests for `rebuild/tools/verdict_update.py`: the sufficient duplicate, standing, duplicate schedule agrees with a bounded-loop reference over real fill, merge, carry, and complaint operations. The update reuses duplicate projections, streams full human records to their readers, preserves first proposals when clears refuse them, and announces completion only after every requested phase succeeds. On a pass that moves the stamp, a unit the store cleared after a root file's verdict for it is not carried back, the merge refuses a duplicate fill's proposal for it that is not newer than the clear, and the land keeps its tombstone. A pass with no store whose master holds only skips, which the carry drops, completes, and the land puts in place the store its fills leave, stamped for the corpus. A hand run with nothing to merge and no store starts from an empty store stamped for the corpus and completes. A hand run with nothing to merge whose store is not JSON, or is not an ams-review-verdicts/1 document, refuses before the first fill, naming the store, and leaves it as it was, and one whose store is an ams-review-verdicts/1 document stamped for the corpus that every fill can read runs its fills over it and completes. A hand run whose merge refuses because a review server is listening is told to stop the server, not to pass a --yes it does not have, and completes once the server is stopped. A direct merge into a store stamped for the corpus that holds a record the carry refuses fails the update at its merge, naming the store, with the store and the journal as they were. With no `--journal`, every merge appends to the journal beside the store, and with no `--duplicate-out` or `--standing-out` the fill files are written beside it, so a run on a copy writes nothing at the repo root. On a pass that carries the store onto a new stamp beside an accepted list, the store's override dated before the close-out survives, its skip on an accepted unit leaves a tombstone, an override or tombstone on an accepted unit the new corpus lacks leaves a tombstone that keeps it blank when a later pass brings it back, and every fill and the complaint list are named the list. On a pass that lands, the update holds the prepared store in memory, writes it once in the layout the land writes and journals nothing, refuses a `--journal` beside `--prepared-from`, hands each fill's records to its merge without reading a fill file back, says on its completion line whether it left the prepared store as the snapshot it was linked from, and records it for the land only when it did. A merging run with no `--carry-out` fuses the carry into its first merge, writes no carried file and leaves the store a run that writes the carried file leaves, its lines differing only in the carry's line and the merge's line for the carry."""
 
+import gc
 import json
+import os
 import pathlib
 
 import pytest
 
 from rebuild.review import accepted, journal, landing, status
 from rebuild.review.verdict_store import parse_cleared
-from rebuild.tools import console, verdict_update as vu
+from rebuild.tools import console, held_store, verdict_update as vu
 
 STAMP = "S1"
 
@@ -58,15 +60,15 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
         yield from (dict(unit) for unit in index)
 
     monkeypatch.setattr(vu.unit_index, "iter_human_units", stream)
-    monkeypatch.setattr(vu.merge_verdicts, "run_merge", lambda _files, **_options: 0)
+    monkeypatch.setattr(vu.merge_verdicts, "merge", lambda _inputs, **_options: vu.merge_verdicts.Merged(0))
 
-    def duplicate_fill(argv, units=None):
+    def duplicate_fill(argv, units=None, **_held):
         duplicate_calls.append(units)
         return _write_out(argv)
 
     monkeypatch.setattr(vu.duplicate_verdicts, "main", duplicate_fill)
 
-    def standing(argv, unit_source=None):
+    def standing(argv, unit_source=None, **_held):
         assert unit_source is not None
         first, second = unit_source(), unit_source()
         assert first is not second
@@ -76,7 +78,7 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
 
     monkeypatch.setattr(vu.standing_verdicts, "main", standing)
 
-    def fake_complaint_list(argv, units=None, unit_ids=None):
+    def fake_complaint_list(argv, units=None, unit_ids=None, **_held):
         assert units is not None
         complaint_list_calls.append((argv, list(units), unit_ids))
         return 0
@@ -183,14 +185,21 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
     monkeypatch.setattr(
         vu.carry_verdicts,
         "main",
-        lambda argv, current_units=None, current_ids=None, listed=None: carries.append(
+        lambda argv, current_units=None, current_ids=None, listed=None, fused=None: carries.append(
             (argv, current_units, current_ids)
         )
         or 0,
     )
-    monkeypatch.setattr(vu.merge_verdicts, "run_merge", lambda files, **_options: merges.append(files) or 0)
-    monkeypatch.setattr(vu.duplicate_verdicts, "main", lambda argv, units=None: _write_out(argv))
-    monkeypatch.setattr(vu.standing_verdicts, "main", lambda argv, unit_source=None: _write_out(argv))
+    monkeypatch.setattr(
+        vu.merge_verdicts,
+        "merge",
+        lambda inputs, **_options: merges.append([item.path for item in inputs])
+        or vu.merge_verdicts.Merged(0),
+    )
+    monkeypatch.setattr(vu.duplicate_verdicts, "main", lambda argv, units=None, **_held: _write_out(argv))
+    monkeypatch.setattr(
+        vu.standing_verdicts, "main", lambda argv, unit_source=None, **_held: _write_out(argv)
+    )
     code = vu.main(
         [
             "--corpus",
@@ -541,15 +550,16 @@ def _reference_update(paths, carrying=False):
     return duplicate_passes
 
 
-def _actual_update(paths, carrying=False, extra=()):
+def _actual_update(paths, carrying=False, extra=(), fused=False):
+    """Run the verdict update over the fixture, journaling to the fixture's journal unless `extra` names the prepared store's snapshot, and carrying through the carried file unless `fused`."""
+    prepared = "--prepared-from" in extra
     return vu.main(
         [
             "--corpus",
             str(paths["corpus"]),
             "--autosave",
             str(paths["autosave"]),
-            "--journal",
-            str(paths["journal"]),
+            *([] if prepared else ["--journal", str(paths["journal"])]),
             "--duplicate-out",
             str(paths["duplicate"]),
             "--standing-out",
@@ -561,7 +571,7 @@ def _actual_update(paths, carrying=False, extra=()):
             "--complaints-out",
             str(paths["complaints"]),
             *(
-                ["--verdicts", str(paths["master"]), "--carry-out", str(paths["carry"])]
+                ["--verdicts", str(paths["master"]), *([] if fused else ["--carry-out", str(paths["carry"])])]
                 if carrying
                 else ["--merge-master", str(paths["master"])]
             ),
@@ -666,20 +676,170 @@ def test_the_schedule_matches_the_bounded_reference_with_real_operations(
     assert (
         capsys.readouterr().out.splitlines()[-1] == console.COMPLETE_LINE + "duplicate, standing, duplicate"
     )
+    if not carrying:
+        return
+
+    carried = current["carry"].read_text()
+    assert carried == json.dumps(json.loads(carried), ensure_ascii=False, indent=2) + "\n"
+    fused = _integration_fixture(tmp_path / "fused", monkeypatch)
+    written = _integration_fixture(tmp_path / "written", monkeypatch)
+    for paths in (fused, written):
+        payload = json.loads(paths["master"].read_text())
+        payload["manifest_generated_at"] = OLDER
+        paths["master"].write_text(json.dumps(payload))
+    assert _actual_update(written, carrying) == 0
+    by_file = capsys.readouterr().out.splitlines()
+    held_carries = []
+    duplicate_fill = vu.duplicate_verdicts.main
+
+    def counting_carries(*args, **kwargs):
+        held_carries.append(sum(isinstance(item, vu.carry_verdicts.Carried) for item in gc.get_objects()))
+        return duplicate_fill(*args, **kwargs)
+
+    monkeypatch.setattr(vu.duplicate_verdicts, "main", counting_carries)
+    assert _actual_update(fused, carrying, fused=True) == 0
+    monkeypatch.setattr(vu.duplicate_verdicts, "main", duplicate_fill)
+    assert held_carries == [0, 0]
+    by_stream = [
+        line.replace(str(tmp_path / "fused"), str(tmp_path / "written"))
+        for line in capsys.readouterr().out.splitlines()
+    ]
+    assert not fused["carry"].exists()
+    assert _records(fused["autosave"]) == _records(written["autosave"])
+    assert parse_cleared(json.loads(fused["autosave"].read_text())) == parse_cleared(
+        json.loads(written["autosave"].read_text())
+    )
+    changed = [
+        (ours, theirs)
+        for ours, theirs in zip(by_stream, by_file, strict=True)
+        if ours != theirs and not ours.startswith("[t] ")
+    ]
+    count = json.loads(written["carry"].read_text())["verdicts"]
+    assert changed == [
+        (
+            f"carried {len(count)} onto manifest {CORPUS_STAMP}",
+            f"wrote carried.json: {len(count)} carried onto manifest {CORPUS_STAMP}",
+        ),
+        (
+            next(line for line in by_stream if line.startswith("carry: ")),
+            next(
+                line for line in by_file if line.startswith(f"{vu.merge_verdicts._rel(written['carry'])}: ")
+            ),
+        ),
+    ]
+
+    renamed = {}
+    for name in ("renamed-fused", "renamed-written"):
+        paths = _integration_fixture(tmp_path / name, monkeypatch)
+        snapshot = tmp_path / name / "snap" / "S.json"
+        snapshot.parent.mkdir()
+        payload = json.loads(paths["autosave"].read_text())
+        payload["manifest_generated_at"] = OLDER
+        payload["verdicts"].append(_record("u-open", "skip", at=NEWER, note="deferred by human"))
+        for path in (snapshot, paths["autosave"]):
+            path.write_text(json.dumps(payload))
+        paths["master"].write_text(json.dumps(_fixture_payload([_record("u-open")])))
+        extra = ["--store-snapshot", str(snapshot)]
+        if name == "renamed-written":
+            extra += ["--carry-out", str(paths["carry"])]
+        assert _actual_update(paths, extra=extra) == 0
+        renamed[name] = json.loads(paths["autosave"].read_text())
+    assert "u-open" not in {record["unit"] for record in renamed["renamed-written"]["verdicts"]}
+    assert parse_cleared(renamed["renamed-written"])["u-open"] == NEWER
+    assert renamed["renamed-fused"]["verdicts"] == renamed["renamed-written"]["verdicts"]
+    assert parse_cleared(renamed["renamed-fused"]) == parse_cleared(renamed["renamed-written"])
 
 
 def test_the_update_records_for_the_land_whether_it_left_the_prepared_store_as_its_snapshot(
     tmp_path, monkeypatch, capsys
 ):
-    """On a pass that lands, the cycle names the snapshot whose file it linked the prepared store to (`--prepared-from`). A run whose fills change the store ends its completion line `r_unchanged=false` and records nothing for the land. A run over a store those fills already settled, where every merge changes nothing and so writes nothing, leaves the store's inode and modification time as they were, ends it `r_unchanged=true`, and records the store for the land (`landing.prepared_unchanged`), which any later write to the store cancels."""
+    """On a pass that lands, the cycle names the snapshot whose file it linked the prepared store to (`--prepared-from`), and gives no `--journal`, which beside it is a usage error. The update holds the prepared store in memory from its first merge and writes it once, after its last merge and before the complaint list, in the layout the land writes (`landing.document_bytes`), with the records and tombstones a hand run that journals each merge leaves, and journals nothing, so a run whose complaint list fails, which the cycle reports and lands anyway, has still written it; each fill hands its records to its merge, so neither fill file is read back, and both hold the bytes the hand run's do. A run whose fills change the store ends its completion line `r_unchanged=false` and records nothing for the land. A run over a store those fills already settled, where every merge changes nothing and so writes nothing, leaves the store's inode and modification time as they were, ends it `r_unchanged=true`, and records the store for the land (`landing.prepared_unchanged`), which any later write to the store cancels."""
+    monkeypatch.setattr(journal, "now_stamp", lambda: "2026-07-12T00:00:00Z")
     paths = _integration_fixture(tmp_path / "current", monkeypatch)
+    hand = _integration_fixture(tmp_path / "hand", monkeypatch)
     snapshot = tmp_path / "run" / landing.SNAPSHOT_NAME
     snapshot.parent.mkdir()
     complete = console.COMPLETE_LINE + "duplicate, standing, duplicate"
     snapshot.write_bytes(paths["autosave"].read_bytes())
-    assert _actual_update(paths, extra=["--prepared-from", str(snapshot)]) == 0
+    prepared = ["--prepared-from", str(snapshot)]
+    with pytest.raises(SystemExit) as refused:
+        vu.main(
+            [
+                "--corpus",
+                str(paths["corpus"]),
+                "--autosave",
+                str(paths["autosave"]),
+                *prepared,
+                "--journal",
+                str(paths["journal"]),
+            ]
+        )
+    assert refused.value.code == 2
+    capsys.readouterr()
+
+    hidden = tmp_path / "hidden"
+    hidden.mkdir()
+
+    def hiding(call):
+        def hidden_after(*args, **kwargs):
+            code = call(*args, **kwargs)
+            for name in ("duplicate", "standing"):
+                if paths[name].exists():
+                    os.replace(paths[name], hidden / paths[name].name)
+            return code
+
+        return hidden_after
+
+    written = []
+    write = held_store.Held.write
+
+    def counted(held, path, exported_at=None):
+        written.append((path, path.stat().st_ino))
+        return write(held, path, exported_at)
+
+    inode = paths["autosave"].stat().st_ino
+    with monkeypatch.context() as patched:
+        patched.setattr(held_store.Held, "write", counted)
+        for owner, name in (
+            (vu.duplicate_verdicts, "main"),
+            (vu.standing_verdicts, "main"),
+            (vu, "_write_fills"),
+        ):
+            patched.setattr(owner, name, hiding(getattr(owner, name)))
+        assert _actual_update(paths, extra=prepared) == 0
     assert capsys.readouterr().out.splitlines()[-1] == complete + " r_unchanged=false"
     assert not landing.prepared_unchanged(paths["autosave"])
+    assert written == [(paths["autosave"], inode)] and paths["autosave"].stat().st_ino != inode
+    assert not paths["journal"].exists() and not paths["autosave"].with_name(journal.JOURNAL_NAME).exists()
+    prepared_store = landing.read_store(paths["autosave"])
+    assert prepared_store is not None
+    assert paths["autosave"].read_bytes() == landing.document_bytes(prepared_store)
+    assert _actual_update(hand) == 0
+    capsys.readouterr()
+    assert _records(paths["autosave"]) == _records(hand["autosave"])
+    assert parse_cleared(json.loads(paths["autosave"].read_text())) == parse_cleared(
+        json.loads(hand["autosave"].read_text())
+    )
+    for name in ("duplicate", "standing"):
+        assert (hidden / paths[name].name).read_bytes() == hand[name].read_bytes()
+
+    failed = _integration_fixture(tmp_path / "failed", monkeypatch)
+    failed_snapshot = tmp_path / "failed-run" / landing.SNAPSHOT_NAME
+    failed_snapshot.parent.mkdir()
+    failed_snapshot.write_bytes(failed["autosave"].read_bytes())
+    written.clear()
+
+    def refusing(*args, **kwargs):
+        raise SystemExit("complaint list refused")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(held_store.Held, "write", counted)
+        patched.setattr(vu.complaint_list, "main", refusing)
+        assert _actual_update(failed, extra=["--prepared-from", str(failed_snapshot)]) == 1
+    assert capsys.readouterr().out.splitlines()[-1] == console.FAILED_LINE + "complaints (exit 1)"
+    assert [path for path, _ in written] == [failed["autosave"]]
+    assert _records(failed["autosave"]) == _records(hand["autosave"])
+    assert not landing.prepared_unchanged(failed["autosave"])
     snapshot.write_bytes(paths["autosave"].read_bytes())
     before = paths["autosave"].stat()
     assert _actual_update(paths, extra=["--prepared-from", str(snapshot)]) == 0
@@ -985,7 +1145,7 @@ def test_the_fill_files_go_beside_the_autosave(tmp_path, monkeypatch, store):
 def test_a_carried_pass_keeps_the_stores_overrides_and_skips_on_accepted_units_through_a_stamp_move(
     tmp_path, monkeypatch
 ):
-    """The store, stamped for an older corpus, holds in its override section a reject on an accepted unit dated before the close-out, as a save queued while the server was stopped for it leaves, and a skip on another accepted unit. The pass carries the store onto the new stamp: the merge keeps the section whole, so the override stays and the skip becomes a tombstone at its `at`, so that unit reads blank rather than accepted again. An override and a tombstone on accepted units the new corpus lacks stay too, so when a later pass brings their windows back before the next close-out, the first reads as its override and the second blank, not accepted. Every fill is named the list."""
+    """The store, stamped for an older corpus, holds in its override section a reject on an accepted unit dated before the close-out, as a save queued while the server was stopped for it leaves, and a skip on another accepted unit. The pass carries the store onto the new stamp, the carry fused into the first merge as the cycle runs it, with no carried file and no journal: the merge keeps the section whole, so the override stays and the skip becomes a tombstone at its `at`, so that unit reads blank rather than accepted again. An override and a tombstone on accepted units the new corpus lacks stay too, so when a later pass brings their windows back before the next close-out, the first reads as its override and the second blank, not accepted. Every fill is named the list."""
     corpus = tmp_path / "review"
     override, skipped, untouched = "u-1AAAAAAAAAA", "u-1BBBBBBBBBB", "u-1CCCCCCCCCC"
     gone_override, gone_cleared = "u-1DDDDDDDDDD", "u-1EEEEEEEEEE"
@@ -1039,11 +1199,12 @@ def test_a_carried_pass_keeps_the_stores_overrides_and_skips_on_accepted_units_t
         landing.snapshot(store, run_dir)
         prepared = run_dir / landing.PREPARED_NAME
         argv = ["--corpus", str(corpus), "--verdicts", str(run_dir / landing.SNAPSHOT_NAME)]
-        argv += ["--carry-out", str(run_dir / "carried.json"), "--served-corpus", str(corpus)]
-        argv += ["--autosave", str(prepared), "--journal", str(run_dir / "journal.ndjson")]
+        argv += ["--served-corpus", str(corpus)]
+        argv += ["--autosave", str(prepared), "--prepared-from", str(run_dir / landing.SNAPSHOT_NAME)]
         argv += ["--accepted", str(listed), "--duplicate-out", str(run_dir / "duplicate.json")]
         argv += ["--standing-out", str(run_dir / "standing.json"), "--no-complaints", "--allow-orphans"]
         assert vu.main(argv) == 0
+        assert not (run_dir / "journal.ndjson").exists() and not any(run_dir.glob("verdicts-carried-*"))
         return json.loads(prepared.read_text())
 
     write_corpus(CORPUS_STAMP, (override, skipped, untouched))

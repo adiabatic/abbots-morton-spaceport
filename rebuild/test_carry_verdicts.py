@@ -15,6 +15,7 @@ from rebuild.review import accepted, unit_cache
 from rebuild.review.unit_cache import CARRY_PRESENTATION_KEYS as PRESENTATION_KEYS
 from rebuild.review.unit_cache import carry_content_hash as content_hash
 from rebuild.review.unit_cache import carry_projection as content_key
+from rebuild.tools import carry_verdicts
 from rebuild.tools.carry_verdicts import main
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -118,7 +119,10 @@ def _write_corpus(root, stamp, units, machine=()):
     (root / "units" / "units.json").write_text(json.dumps([*units, *machine]))
 
 
-def _write_verdicts(path, stamp, verdicts, cleared=()):
+def _write_verdicts(path, stamp, verdicts, cleared=(), ordered=False):
+    """Write a verdicts file, its records in the order given, or with `ordered` in unit order, as every repo writer writes them, which the carry reads as a stream rather than whole."""
+    if ordered:
+        verdicts = sorted(verdicts, key=lambda record: record["unit"] if isinstance(record, dict) else "")
     payload = {"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": verdicts}
     if cleared:
         payload["cleared"] = [{"unit": unit["id"], "at": at} for unit, at in cleared]
@@ -151,11 +155,13 @@ def _carry(
     if served_corpus is not None:
         argv += ["--served-corpus", str(served_corpus)]
     main([*argv, "--out", str(out), "--current-corpus", str(current)], **held)
-    return json.loads(out.read_text())
+    payload = json.loads(out.read_text())
+    assert out.read_text() == json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    return payload
 
 
 def test_a_verdict_goes_to_the_unit_of_its_id_and_a_stale_stamp_is_no_bar(tmp_path):
-    """The carry matches verdicts to units by id alone, so a verdicts file stamped for an older corpus still carries. The unit still on the corpus gets its verdict, note and `at` as recorded, under the new manifest stamp, and the verdict whose unit is gone is orphaned."""
+    """The carry matches verdicts to units by id alone, so a verdicts file stamped for an older corpus still carries. The unit still on the corpus gets its verdict, note and `at` as recorded, under the new manifest stamp, and the verdict whose unit is gone is orphaned. The carried file, written a record at a time, holds the bytes `json.dumps` with an indent of two writes for its content (`_carry` checks every one), an empty one among them."""
     kept, gone = _content_unit("E650:E652"), _content_unit("E652:E653")
     verdicts = tmp_path / "verdicts.json"
     _write_verdicts(
@@ -170,6 +176,10 @@ def test_a_verdict_goes_to_the_unit_of_its_id_and_a_stale_stamp_is_no_bar(tmp_pa
         "2026-07-01T01:00:00Z",
     )
     assert record["note"] == "fine"
+    assert (
+        _carry(tmp_path / "none", [_content_unit("E653:E654")], verdicts, allow_orphans=True)["verdicts"]
+        == []
+    )
 
 
 def test_the_carry_drops_carried_markers_from_the_head_of_a_note(tmp_path):
@@ -230,8 +240,15 @@ def test_the_newest_verdict_per_unit_wins_across_files_and_skips_never_carry(tmp
     ]
 
 
-def test_only_the_stores_clear_at_or_after_the_newest_verdict_keeps_a_unit_from_carrying(tmp_path, capsys):
-    """The store is the `--verdicts` file named verdicts-autosave.json. Its tombstone keeps a unit from carrying when the newest verdict across the files is not after the clear, a tie included, and yields to a newer verdict. Its tombstone on a unit it holds a record for is passed over, and so is another file's tombstone. A tombstone adds no verdict, so one on a unit no file holds and the corpus lacks is no orphan."""
+@pytest.mark.parametrize("ordered", [False, True])
+def test_only_the_stores_clear_at_or_after_the_newest_verdict_keeps_a_unit_from_carrying(
+    tmp_path, capsys, monkeypatch, ordered
+):
+    """The store is the `--verdicts` file named verdicts-autosave.json. Its tombstone keeps a unit from carrying when the newest verdict across the files is not after the clear, a tie included, and yields to a newer verdict. Its tombstone on a unit it holds a record for is passed over, and so is another file's tombstone. A tombstone adds no verdict, so one on a unit no file holds and the corpus lacks is no orphan. The carry gives the same whether it streams files whose records come in unit order or reads files whose records do not whole."""
+    if ordered:
+        monkeypatch.setattr(
+            carry_verdicts, "read_verdicts_file", lambda path: pytest.fail(f"{path} read whole")
+        )
     tied, newer, own, foreign, gone = (
         _content_unit(codepoints)
         for codepoints in ("E650:E652", "E652:E653", "E653:E654", "E654:E655", "E655:E656")
@@ -243,12 +260,14 @@ def test_only_the_stores_clear_at_or_after_the_newest_verdict_keeps_a_unit_from_
         "S0",
         [_record(own, "approve"), _record(foreign, "approve")],
         cleared=[(tied, clear), (newer, clear), (own, later), (gone, clear)],
+        ordered=ordered,
     )
     _write_verdicts(
         master,
         "S0",
         [_record(tied, "reject", at=clear), _record(newer, "reject", at=later)],
         cleared=[(foreign, later)],
+        ordered=ordered,
     )
     payload = _carry(tmp_path, [tied, newer, own, foreign], master, store)
     assert {record["unit"]: record["verdict"] for record in payload["verdicts"]} == {
@@ -331,7 +350,8 @@ def test_a_carry_that_orphans_more_than_the_limit_refuses_unless_allowed(tmp_pat
     assert len(_carry(tmp_path / "allowed", units[:89], verdicts, allow_orphans=True)["verdicts"]) == 89
 
 
-def test_the_carry_reads_the_accepted_list_beside_the_store(tmp_path, capsys):
+@pytest.mark.parametrize("ordered", [False, True])
+def test_the_carry_reads_the_accepted_list_beside_the_store(tmp_path, capsys, ordered):
     """The list names units a close-out folded out of the store. Another file's record on one that the store holds no override for is passed over when it equals the accepted record by value or is dated at or before the close-out, and carried when it holds a note typed since; the store's override section, an override dated before the close-out among them, is not carried, since the merge keeps it whole, but an override record counts as matched; an override tombstone blanks a listed unit and keeps out an older record of another file's. The line counts the units that read as accepted apart from the matched and unmatched ones, and the orphaned count takes the listed units of the served corpus the new corpus lacks and the override records on the served corpus with the store's own, while an override on a unit the served corpus lacks, whose window an earlier pass redrew, counts on neither side of the share, since the override section keeps it until the next close-out. Past the limit, the refusal offers no `--no-carry` while the list names a unit of the served corpus, and a store that names another list is refused."""
     closed_at = "2026-07-05T00:00:00Z"
     override, folded, typed, cleared, plain, dated, gone, redrawn = (
@@ -377,6 +397,7 @@ def test_the_carry_reads_the_accepted_list_beside_the_store(tmp_path, capsys):
             _record(plain, "reject"),
             _record(dated, "approve", at="2026-07-04T00:00:00Z", note="an older note"),
         ],
+        ordered=ordered,
     )
     served = tmp_path / "served"
     _write_corpus(served, "S0", [override, folded, typed, cleared, dated, gone])

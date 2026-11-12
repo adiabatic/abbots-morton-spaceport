@@ -2,7 +2,7 @@
 
 A corpus-changing pass builds its corpus beside the served one, at rebuild/out/review.next (a copy-on-write clone of the served tree, `clone_tree`), or promotes a staged one, and runs the verdict update against the store's snapshot: `snapshot` links the live store's file into the pass's run directory as the snapshot S and the prepared store R, under the store's lock, and the verdict update carries, merges and fills into R. Every writer of the store, of S and of R replaces its file by rename, so a write to one never reaches the others, and the review server's signature of the store (`verdict_store.file_signature`) does not move. `land` then moves both into place in one short section under the store's lock (`rebuild.review.store_lock`), which every writer of the store and its journal holds, the review server included, so a save is never applied between the two moves. A pass whose corpus did not move but whose store did lands the store alone.
 
-The land holds no store whole. Without the lock it reads the new corpus's stamp and human unit ids, checks S and R a record at a time and holds each one's head, tombstones and override section (`_tail_of`, over `accepted.read_tail`), reads, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`), and walks S, R and S again in the live store C's place as streams merged by unit (`_plan`, over `accepted.iter_records`), working out the result, the offsets of its record lines, the journal's sets and clears, and the orphan guard's terms. Under the lock it compares C with S by bytes (`_is_snapshot`); when C is not S, as after a save made during the pass, or when the walk without the lock had to stamp a tombstone with the time of day, which the land takes under the lock, it checks C the same way and walks S, R and C again under the lock. It aborts, keeping the staged tree, when C is on another stamp than S; when C does not pair with the accepted list beside it (`rebuild.review.accepted`: `--accepted`, by default rebuild/accepted-units.txt beside the store) or the list cannot be read; when S or R does not pair with the list, since a close-out or a re-key then changed it during the pass; or, under the orphan guard the command line sets unless `--allow-orphans` is passed, when the stamp moves and more than `ORPHAN_SHARE_LIMIT` of C's verdicts other than skips, its override records on the live corpus's human units among them, and its accepted units name a unit outside the new corpus's triage index; an override on a unit the live corpus lacks counts in neither term, since the section keeps it until the next close-out and it would count as orphaned on every pass. Its accepted units are the listed units of the live corpus's human units that C holds no override for, which it counts in both terms, streaming the list, so a wholesale id move is refused on a store a close-out emptied and on a pass that carried nothing. The result names the list in its `accepted` field. It aborts the same way, before it writes anything, when S, R or C holds a verdict record `verdict_store.well_formed` refuses, naming the store and the first such record, as `read_store` names them, so it never lands one. Every unit whose record in C differs from S's, or that C cleared since S (a tombstone in C that S lacks or holds at another `at`), is the reviewer's act after the snapshot, so it is laid over R and beats any fill: a clear removes R's record for its unit, whether a fill, a carry or a merge put it there, and leaves C's tombstone. The store's override section, its records and tombstones on listed units (`accepted.Overrides`), is laid over R's the same way, on a stamp change too, whatever corpus its units are on: an override C set, changed or cleared since S replaces R's for its unit, a skip among them becoming a tombstone at its `at` on a stamp change, and an override C removed, a set back to the accepted record (`verdict_store`), removes R's and leaves none, so the unit reads as the list names it; R's other overrides, S's carried through the pass whole (`merge_verdicts`), stay, and an override C shares unchanged with S is kept for a unit R holds none for, a skip becoming a tombstone on a stamp change, so the empty store a pass with no prepared store starts from keeps the section whole. On a stamp change only the new corpus's human units are laid over among the store's own records and tombstones: a set or skip C made since S on any other unit goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), a clear on one is dropped, and a skip on one of the human units is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. A tombstone C shares unchanged with S is kept only for a unit the result holds neither a record nor a tombstone for (on a stamp change, only for the new corpus's human units), whatever its age. The result is written once, under the lock, to the run directory in the layout `document_bytes` gives, and only by a land that lands it: as R's records stream past (`_write_result`), or, when the walk runs under the lock on a land that can neither leave the store in place nor be refused by the orphan guard, as it walks (`_ResultWriter`); and the intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, each set line spliced from the result's record line for its unit, read in order on a base and at the walk's offsets on a diff (`_Spliced`), and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. A store whose records do not stream by unit, one listing a unit before the unit ahead of it or naming its `verdicts` list twice, makes the land read every store whole (`_land_whole`: `read_store`, `overlay`, `document_bytes` and `journal.record_transition` over the stores in memory), which gives the same bytes, and print one line naming the store and why. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
+The land holds no store whole. Without the lock it reads the new corpus's stamp and human unit ids, checks S and R a record at a time and holds each one's head, tombstones and override section (`_tail_of`, over `accepted.read_tail`), reads, when the stamp moves, the journal's events, resuming from the scan state retention saved (`--scan-state`), and walks S, R and S again in the live store C's place as streams merged by unit (`_plan`, over `accepted.iter_records`), working out the result, the offsets of its record lines, the journal's sets and clears, and the orphan guard's terms. Under the lock it compares C with S by bytes (`_is_snapshot`); when C is not S, as after a save made during the pass, or when the walk without the lock had to stamp a tombstone with the time of day, which the land takes under the lock, it checks C the same way and walks S, R and C again under the lock. It aborts, keeping the staged tree, when C is on another stamp than S; when C does not pair with the accepted list beside it (`rebuild.review.accepted`: `--accepted`, by default rebuild/accepted-units.txt beside the store) or the list cannot be read; when S or R does not pair with the list, since a close-out or a re-key then changed it during the pass; or, under the orphan guard the command line sets unless `--allow-orphans` is passed, when the stamp moves and more than `ORPHAN_SHARE_LIMIT` of C's verdicts other than skips, its override records on the live corpus's human units among them, and its accepted units name a unit outside the new corpus's triage index; an override on a unit the live corpus lacks counts in neither term, since the section keeps it until the next close-out and it would count as orphaned on every pass. Its accepted units are the listed units of the live corpus's human units that C holds no override for, which it counts in both terms, streaming the list, so a wholesale id move is refused on a store a close-out emptied and on a pass that carried nothing. The result names the list in its `accepted` field. It aborts the same way, before it writes anything, when S, R or C holds a verdict record `verdict_store.well_formed` refuses, naming the store and the first such record, as `read_store` names them, so it never lands one. Every unit whose record in C differs from S's, or that C cleared since S (a tombstone in C that S lacks or holds at another `at`), is the reviewer's act after the snapshot, so it is laid over R and beats any fill: a clear removes R's record for its unit, whether a fill, a carry or a merge put it there, and leaves C's tombstone. The store's override section, its records and tombstones on listed units (`accepted.Overrides`), is laid over R's the same way, on a stamp change too, whatever corpus its units are on: an override C set, changed or cleared since S replaces R's for its unit, a skip among them becoming a tombstone at its `at` on a stamp change, and an override C removed, a set back to the accepted record (`verdict_store`), removes R's and leaves none, so the unit reads as the list names it; R's other overrides, S's carried through the pass whole (`merge_verdicts`), stay, and an override C shares unchanged with S is kept for a unit R holds none for, a skip becoming a tombstone on a stamp change, so the empty store a pass with no prepared store starts from keeps the section whole. On a stamp change only the new corpus's human units are laid over among the store's own records and tombstones: a set or skip C made since S on any other unit goes to the orphan document of the stamp it was made on (`verdict_store.append_orphans`), a clear on one is dropped, and a skip on one of the human units is dropped, as the carry drops every skip, so the unit is asked again: the result keeps no record for its unit, only a tombstone at the skip's `at`, so neither the verdict the skip replaced nor an older save sent later comes back. A tombstone C shares unchanged with S is kept only for a unit the result holds neither a record nor a tombstone for (on a stamp change, only for the new corpus's human units), whatever its age. The result is written once, under the lock, to the run directory in the layout `document_bytes` gives, and only by a land that lands it: as R's records stream past (`_write_result`), or, when the walk runs under the lock on a land that can neither leave the store in place nor be refused by the orphan guard, as it walks (`_ResultWriter`). When the live store is the snapshot and R's file holds the result's bytes but for `exported_at`, as the verdict update writes it (`rebuild.tools.held_store`), which the land tells by reading R once more without the lock (`_as_result`), R itself is the result: the land writes none and renames R over the store, which keeps R's `exported_at`, the time the verdict update wrote it. The intent file (`intent_path_for`, var/cycle/land.json beside the store) records what the rest of the section will do. Then the corpus is swapped in with one `renamex_np(RENAME_SWAP)` call (`exchange_dirs`, with a three-rename fallback through `<live>.superseded`), the live store is linked to its stash name on a stamp change (`link_stash`), the result is renamed over the store, the change is appended to the journal, each set line spliced from the result's record line for its unit, read in order on a base and at the walk's offsets on a diff (`_Spliced`), and the intent file is deleted. A stamp change is journaled as an event naming the stash: a base event holding the result when the journal is due one (`journal.base_due`, read from the journal's events, re-read under the lock from where the first read stopped, and due while the marker that says the journal may lack a store write exists, `journal.unjournaled_marker_for`) or when the sets and clears would reach the result's record count (`journal.record_transition`), and otherwise the sets and clears from the store it replaced to the result. A land that keeps the stamp journals the sets and clears. A land that journaled a base removes the marker before it deletes the intent file, and `LandResult` says which the land journaled. A store whose records do not stream by unit, one listing a unit before the unit ahead of it or naming its `verdicts` list twice, makes the land read every store whole (`_land_whole`: `read_store`, `overlay`, `document_bytes` and `journal.record_transition` over the stores in memory), which gives the same bytes, and print one line naming the store and why. Stop signals are blocked for the section. After the lock is released the swapped-out tree is renamed to a discard name beside the served corpus (`move_to_discard`) and deleted, or with `--keep-discard` left for the caller, which tells the open tabs to move before it deletes the tree; under the lock a tree is only ever renamed, never deleted.
 
 A pass whose verdict update changed nothing leaves the store in place. The update then records, beside the prepared store, that it left R as S's bytes (`record_unchanged`, `UNCHANGED_NAME`), and a land that finds that record for the R it is given (`prepared_unchanged`) still reads C, checks it against the accepted list and S, and swaps a staged corpus in, but when laying C over R, which is S, gives C itself (its records, tombstones, override section and `accepted` field) and the journal would gain no line, it writes no result, renames nothing over the store and appends nothing to the journal. It links the store as `LANDED_NAME`, as a land that writes links its result, so the store keeps its inode and modification time and the review server reloads nothing, and `LandResult.store_kept` says so. Any other land, an R that moved after the record among them, lands as above. A land that leaves the store in place writes an intent file only to swap a staged corpus, marked `store_kept`.
 
@@ -170,23 +170,43 @@ def read_store(path: Path, name: str | None = None) -> Store | None:
 
 
 def document_bytes(store: Store) -> bytes:
-    """Return `store` as the review server writes a store: one ams-review-verdicts/1 document with one record per line, its `accepted` field in the head when it names a list, the tombstones after the records when there are any, and the override section after them when the store holds one."""
-    head = {"format": EXPORT_FORMAT, "manifest_generated_at": store.stamp, "exported_at": journal.now_stamp()}
-    if store.accepted is not None:
-        head["accepted"] = store.accepted
-    prefix = json.dumps(head, ensure_ascii=False)[:-1]
-    body = ",\n".join(json.dumps(store.records[unit], ensure_ascii=False) for unit in sorted(store.records))
-    tail = ""
-    if store.cleared:
-        cleared = [{"unit": unit, "at": at} for unit, at in sorted(store.cleared.items())]
-        tail = f', "cleared": {json.dumps(cleared, ensure_ascii=False)}'
-    if (section := store.overrides.field()) is not None:
-        overridden = ",\n".join(json.dumps(record, ensure_ascii=False) for record in section["verdicts"])
-        tail += (
-            f', "{accepted.OVERRIDES}": {{"verdicts": [\n{overridden}\n], '
-            f'"cleared": {json.dumps(section["cleared"], ensure_ascii=False)}}}'
-        )
-    return f'{prefix}, "verdicts": [\n{body}\n]{tail}}}\n'.encode()
+    """Return `store` as the review server writes a store: one ams-review-verdicts/1 document with one record per line, its `accepted` field in the head when it names a list, the tombstones after the records when there are any, and the override section after them when the store holds one. `head_bytes`, `record_line` and `tail_parts` give its parts, which the land's result and the verdict update's prepared store (`rebuild.tools.held_store`) are written from, so the three agree byte for byte."""
+    body = b",\n".join(record_line(store.records[unit]) for unit in sorted(store.records))
+    tail = b"".join(part for part, _unit in tail_parts(store.cleared, store.overrides))
+    return head_bytes(store.stamp, journal.now_stamp(), store.accepted) + body + tail
+
+
+def head_bytes(stamp: str | None, exported_at: object, field_: object) -> bytes:
+    """Return a store document's bytes up to its first record line: the head with its stamp, `exported_at` and, when it names a list, its `accepted` field `field_`, then the opening of its `verdicts` list."""
+    head: dict[str, object] = {
+        "format": EXPORT_FORMAT,
+        "manifest_generated_at": stamp,
+        "exported_at": exported_at,
+    }
+    if field_ is not None:
+        head["accepted"] = field_
+    return (json.dumps(head, ensure_ascii=False)[:-1] + ', "verdicts": [\n').encode()
+
+
+def record_line(record: Mapping) -> bytes:
+    """Return a record's line in a store document, `json.dumps` of the record as the store holds it, without the comma that joins it to the next."""
+    return _LINE(record).encode()
+
+
+def tail_parts(cleared: Mapping[str, str], overrides: Overrides) -> Iterator[tuple[bytes, str | None]]:
+    """Yield a store document's bytes after its last own record line: the end of its `verdicts` list, its tombstones `cleared` when there are any, and its override section `overrides` when it holds one, each override record line with its unit and every other part with None."""
+    tail = "\n]"
+    if cleared:
+        listed = [{"unit": unit, "at": at} for unit, at in sorted(cleared.items())]
+        tail += f', "cleared": {json.dumps(listed, ensure_ascii=False)}'
+    if (section := overrides.field()) is not None:
+        yield (tail + f', "{accepted.OVERRIDES}": {{"verdicts": [\n').encode(), None
+        for index, record in enumerate(section["verdicts"]):
+            if index:
+                yield b",\n", None
+            yield record_line(record), record["unit"]
+        tail = f'\n], "cleared": {json.dumps(section["cleared"], ensure_ascii=False)}}}'
+    yield (tail + "}\n").encode(), None
 
 
 def _write_file(path: Path, data: bytes) -> None:
@@ -899,14 +919,7 @@ class _ResultWriter:
         self._path = path
         self._tmp = path.with_name(path.name + ".tmp")
         self._out = self._tmp.open("wb", buffering=_READ_BLOCK)
-        head: dict[str, object] = {
-            "format": EXPORT_FORMAT,
-            "manifest_generated_at": stamp,
-            "exported_at": journal.now_stamp(),
-        }
-        if field_ is not None:
-            head["accepted"] = field_
-        prefix = (json.dumps(head, ensure_ascii=False)[:-1] + ', "verdicts": [\n').encode()
+        prefix = head_bytes(stamp, journal.now_stamp(), field_)
         self._out.write(prefix)
         self.head = len(prefix)
         self._lines = 0
@@ -928,25 +941,12 @@ class _ResultWriter:
                     f"the land wrote {self._body} bytes of record lines where its walk counted {plan.body}"
                 )
             position = self.head + self._body
-            tail = "\n]"
-            if plan.cleared:
-                cleared = [{"unit": unit, "at": at} for unit, at in sorted(plan.cleared.items())]
-                tail += f', "cleared": {json.dumps(cleared, ensure_ascii=False)}'
             spans: dict[str, tuple[int, int]] = {}
-            if (section := plan.overrides.field()) is not None:
-                opening = (tail + f', "{accepted.OVERRIDES}": {{"verdicts": [\n').encode()
-                self._out.write(opening)
-                position += len(opening)
-                for index, record in enumerate(section["verdicts"]):
-                    line = _LINE(record).encode()
-                    if index:
-                        self._out.write(b",\n")
-                        position += 2
-                    spans[record["unit"]] = (position, len(line))
-                    self._out.write(line)
-                    position += len(line)
-                tail = f'\n], "cleared": {json.dumps(section["cleared"], ensure_ascii=False)}}}'
-            self._out.write((tail + "}\n").encode())
+            for part, unit in tail_parts(plan.cleared, plan.overrides):
+                if unit is not None:
+                    spans[unit] = (position, len(part))
+                self._out.write(part)
+                position += len(part)
             self._out.close()
             os.replace(self._tmp, self._path)
         except BaseException:
@@ -1175,14 +1175,17 @@ def _land_streamed(
         new_ids=new_ids,
     )
     plan = None
+    as_result = None
     if before is not None:
         plan = _plan(s, r, s, moved=before.stamp != new_stamp, new_ids=new_ids, live_ids=live_ids)
+        if ready is not None and prepared is not None and not plan.stamped and not kept:
+            as_result = _as_result(prepared, snapshot_path, r, ready, plan, new_stamp, listed_path)
 
     try:
         with locked_store(autosave, quiet=True), _signals_blocked():
             started = time.perf_counter()
             if plan is not None and (plan.stamped or not _is_snapshot(autosave, snapshot_path)):
-                plan = None
+                plan = as_result = None
             result = _land_streamed_locked(
                 autosave=autosave,
                 journal_path=journal_path,
@@ -1192,6 +1195,7 @@ def _land_streamed(
                 ready=ready,
                 r=r,
                 plan=plan,
+                as_result=as_result,
                 new_stamp=new_stamp,
                 new_ids=new_ids,
                 staged=staged,
@@ -1209,6 +1213,85 @@ def _land_streamed(
     return result
 
 
+@dataclass
+class _AsResult:
+    """The prepared store as the land's result (`_as_result`): its path, the list's field the result names, the length of its head and each override record line's offset and length by unit, for the splice."""
+
+    path: Path
+    field: dict | None
+    head: int
+    spans: dict[str, tuple[int, int]]
+
+
+class _Expected:
+    """A file read a block at a time against the bytes it is expected to hold, in order."""
+
+    def __init__(self, handle: BinaryIO) -> None:
+        self._handle = handle
+        self._buffer = b""
+        self._at = 0
+
+    def take(self, expected: bytes) -> bool:
+        """Return whether the file's next bytes are `expected`, reading past them when they are."""
+        while len(self._buffer) - self._at < len(expected):
+            block = self._handle.read(max(_READ_BLOCK, len(expected)))
+            if not block:
+                return False
+            self._buffer = self._buffer[self._at :] + block
+            self._at = 0
+        end = self._at + len(expected)
+        if memoryview(self._buffer)[self._at : end] != expected:
+            return False
+        self._at = end
+        return True
+
+    def ended(self) -> bool:
+        return self._at == len(self._buffer) and not self._handle.read(1)
+
+
+def _as_result(
+    prepared: Path,
+    snapshot_path: Path,
+    r: _Side,
+    ready: accepted.Tail,
+    plan: _Plan,
+    stamp: str,
+    listed_path: Path,
+) -> _AsResult | None:
+    """Return the prepared store as the land's result when the walk without the lock, over the live store as the snapshot, lays nothing over it and its file holds the bytes the land would write but for `exported_at`, which it keeps: its own record lines, tombstones and override section as `document_bytes` lays them out, under the list beside the store as it stands. None for a prepared store that is the snapshot's own file, which the verdict update leaves when it changes nothing, or any other. The verdict update writes its prepared store in this layout (`rebuild.tools.held_store`), so on a pass whose live store held no save the land renames it into place instead of writing its result (`_land_streamed_locked`)."""
+    if plan.changes:
+        return None
+    try:
+        ours, theirs = prepared.stat(), snapshot_path.stat()
+    except FileNotFoundError:
+        return None
+    if (ours.st_dev, ours.st_ino) == (theirs.st_dev, theirs.st_ino):
+        return None
+    try:
+        field_ = accepted.read_stamp(listed_path).field()
+    except accepted.Refused:
+        return None
+    head = head_bytes(stamp, ready.members.get("exported_at"), field_)
+    spans: dict[str, tuple[int, int]] = {}
+    with prepared.open("rb") as handle:
+        expected = _Expected(handle)
+        if not expected.take(head):
+            return None
+        for index, record in enumerate(_own_records(r.source, r.name)):
+            if (index and not expected.take(b",\n")) or not expected.take(record_line(record)):
+                return None
+        position = len(head) + plan.body
+        for part, unit in tail_parts(plan.cleared, plan.overrides):
+            if unit is not None:
+                spans[unit] = (position, len(part))
+            if not expected.take(part):
+                return None
+            position += len(part)
+        if not expected.ended():
+            return None
+    return _AsResult(prepared, field_, len(head), spans)
+
+
 def _land_streamed_locked(
     *,
     autosave: Path,
@@ -1219,6 +1302,7 @@ def _land_streamed_locked(
     ready: accepted.Tail | None,
     r: _Side,
     plan: _Plan | None,
+    as_result: _AsResult | None,
     new_stamp: str,
     new_ids: frozenset[str],
     staged: Path | None,
@@ -1230,7 +1314,7 @@ def _land_streamed_locked(
     live_ids: frozenset[str] | None,
     kept: bool,
 ) -> LandResult:
-    """The land's section under the store's lock, as `_land_locked` runs it over stores read whole: `plan` is the plan made without the lock when it stands, the live store C being the snapshot's bytes and that walk having taken no time of day (`_land_streamed`), and the result is written once as R's records stream past (`_write_result`); with no `plan`, C is read and checked and the walk runs again over S, R and C, writing the result as it goes (`_ResultWriter`), unless the land may leave the store in place or the orphan guard may refuse it, when it writes the result after the walk (`_write_result`) only when it lands one. The result is journaled by splice (`_Spliced`)."""
+    """The land's section under the store's lock, as `_land_locked` runs it over stores read whole: `plan` is the plan made without the lock when it stands, the live store C being the snapshot's bytes and that walk having taken no time of day (`_land_streamed`), and then R itself is the result, renamed into place, when `as_result` found it holds the result's bytes under the list as it stands, and otherwise the result is written once as R's records stream past (`_write_result`); with no `plan`, C is read and checked and the walk runs again over S, R and C, writing the result as it goes (`_ResultWriter`), unless the land may leave the store in place or the orphan guard may refuse it, when it writes the result after the walk (`_write_result`) only when it lands one. The result is journaled by splice (`_Spliced`)."""
     if plan is not None:
         now, c = before, s
     else:
@@ -1312,6 +1396,8 @@ def _land_streamed_locked(
         )
     if writer is not None:
         head, spans = writer.head, writer.finish(plan)
+    elif as_result is not None and as_result.field == field_:
+        landing, head, spans = as_result.path, as_result.head, as_result.spans
     else:
         head, spans = _write_result(landing, r, plan, new_stamp, field_)
     if old_stamp is not None:

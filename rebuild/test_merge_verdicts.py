@@ -1,11 +1,11 @@
-"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, of a store stamped for the corpus, or of a restore's replay holding a record the carry refuses, the base event a restore applied over a store holding one journals, the set-aside of a stale store holding one, whose tombstones the merge keeps on the corpus's human units except those its records name, and the refusal of one holding such a record in its override section, which the merge keeps, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, and the restore preview beside it when no `--out` does, the refusal of a store under any other name without them, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back. Last, the accepted list beside the store: an input's record on an accepted unit is met as a store record dated the close-out would meet it, except in the carried file the verdict update names as the store's own; a store that does not pair with the list is refused; the auto-pick counts the store's accepted units; and a restore writes the field its events recorded, moved through a re-key's backup, refuses to apply a store that does not pair, and names the close-out's archive for a moment before the journal a close-out started."""
+"""Tests for `rebuild/tools/merge_verdicts.py`, which merges verdict files into the autosave outside the browser: the review app's union in which the newer `at` wins, the store's tombstones kept through a merge (onto a new stamp too, on the corpus's human units), the stamp checks (only inputs stamped for the current corpus, a stale autosave stashed, no merge onto an outdated corpus), the refusal of an input, of a store stamped for the corpus, or of a restore's replay holding a record the carry refuses, the base event a restore applied over a store holding one journals, the set-aside of a stale store holding one, whose tombstones the merge keeps on the corpus's human units except those its records name, and the refusal of one holding such a record in its override section, which the merge keeps, the store lock a merge waits on and the land a dead holder left, which it finishes first, the refusal while the review server is listening, which takes no lock, idempotence, the journal beside a store named verdicts-autosave.json that a merge, a restore and a list use when no `--journal` names another, and the restore preview beside it when no `--out` does, the refusal of a store under any other name without them, and the restore from the journal, which gives the same store at every moment whether a land that moved the stamp was journaled as a base or as sets and clears, and puts back the store's tombstones, from a clear line or a base event and from a journal whose clear lines carry no `at`, so a carry or a merge after it brings no cleared verdict back. Last, the accepted list beside the store: an input's record on an accepted unit is met as a store record dated the close-out would meet it, except in the carried file the verdict update names as the store's own; a store that does not pair with the list is refused; the auto-pick counts the store's accepted units; and a restore writes the field its events recorded, moved through a re-key's backup, refuses to apply a store that does not pair, and names the close-out's archive for a moment before the journal a close-out started. The merge that walks the store and its inputs in step leaves the store, the counts and the journal lines the merge that parsed every file whole left, over repeats, an input out of order, tombstones, override sections, a stamp move and inputs that change nothing."""
 
 import json
 import threading
 
 import pytest
 
-from rebuild.review import accepted, journal
+from rebuild.review import accepted, journal, landing
 from rebuild.review import store_lock as store_lock_module
 from rebuild.review.store_lock import store_lock
 from rebuild.review.verdict_store import DELTA_FORMAT, VerdictStore
@@ -1046,3 +1046,206 @@ def test_a_restore_names_its_list_and_applies_only_beside_it(repo, capsys):
     restored = json.loads(repo["autosave"].read_text())
     assert restored["accepted"] == after and restored["verdicts"] == []
     assert [record["unit"] for record in restored["overrides"]["verdicts"]] == [new_id]
+
+
+TODAY = "2026-07-11T00:00:00Z"
+LISTED_A, LISTED_B, LISTED_C = "u-1AAAAAAAAAA", "u-1BBBBBBBBBB", "u-1CCCCCCCCCC"
+WIDE_D, WIDE_E = "u-2DDDDDDDDDD", "u-2EEEEEEEEEE"
+
+
+def _todays_merge(store, inputs, *, listed, human_ids, journal_path):
+    """Merge `inputs`, documents, into the store document `store` (None for none) as the merge did when it parsed every file whole, and journal it to `journal_path` from the two stores held in memory; return the store document it writes and the counts of each input."""
+    stamp = "S2"
+    aligned = store if store is not None and store["manifest_generated_at"] == stamp else None
+    base = journal.latest_by_unit(aligned["verdicts"]) if aligned is not None else {}
+    result = dict(base)
+    cleared = {unit: at for unit, at in journal.parse_cleared(aligned).items() if unit not in base}
+    overrides = accepted.Overrides.of(aligned)
+    if aligned is None and store is not None:
+        overrides = accepted.Overrides.of(store).moved(TODAY)
+        named = {record.get("unit") for record in store["verdicts"] if isinstance(record, dict)}
+        cleared = {
+            unit: at
+            for unit, at in journal.parse_cleared(store).items()
+            if unit in human_ids and unit not in named
+        }
+    counts = [mv.merge_into(result, accepted.records_of(data), cleared, listed, overrides) for data in inputs]
+    old_records, old_cleared = accepted.joined(
+        base, journal.parse_cleared(aligned), accepted.Overrides.of(aligned)
+    )
+    new_records, new_cleared = accepted.joined(result, cleared, overrides)
+    changed = (
+        aligned is None
+        or result != base
+        or cleared != {unit: at for unit, at in journal.parse_cleared(aligned).items() if unit not in base}
+        or overrides != accepted.Overrides.of(aligned)
+    )
+    if changed:
+        journal.record_transition(
+            journal_path,
+            source="merge",
+            stamp=stamp,
+            old_stamp=aligned["manifest_generated_at"] if aligned is not None else None,
+            old_verdicts=list(old_records.values()),
+            new_verdicts=list(new_records.values()),
+            old_cleared=old_cleared,
+            new_cleared=new_cleared,
+            stashed="verdicts-autosave-S1.json" if store is not None and aligned is None else None,
+            accepted=listed.field(),
+        )
+    written = journal.payload_for(
+        stamp, result, cleared, accepted=listed.field(), overrides=overrides.field()
+    )
+    return written, counts, changed
+
+
+def _projection(document):
+    overrides = accepted.Overrides.of(document)
+    return (
+        {
+            unit: {**record, "note": record.get("note") or ""}
+            for unit, record in journal.latest_by_unit(document["verdicts"]).items()
+        },
+        journal.parse_cleared(document),
+        {unit: {**record, "note": record.get("note") or ""} for unit, record in overrides.records.items()},
+        overrides.cleared,
+        document.get("accepted"),
+    )
+
+
+def _unstamped_lines(path):
+    if not path.exists():
+        return []
+    return [
+        {**line, "at": None} if line.get("kind") == "event" else line
+        for line in (json.loads(raw) for raw in path.read_text().splitlines())
+    ]
+
+
+MERGE_CASES = {
+    "repeats": (
+        doc("S2", [v("u-1"), v(WIDE_D, at=BEFORE)]),
+        [
+            [
+                v("u-1", "reject", at=AFTER),
+                v("u-1", "neither", at="2026-07-10T06:00:00Z"),
+                v("u-2", "reject", at=AFTER),
+                v("u-2", "either", at=AFTER),
+                v(WIDE_D, "either", at=AFTER),
+                v(WIDE_E, at=AFTER),
+            ]
+        ],
+    ),
+    "unsorted": (
+        doc("S2", [v(WIDE_D, at=BEFORE), v("u-1")]),
+        [[v(WIDE_E, at=AFTER), v("u-1", "reject", at=AFTER), v(WIDE_D, "neither", at=AFTER), v("u-0")]],
+    ),
+    "tombstones": (
+        {
+            **doc("S2", [v("u-1"), v(WIDE_D, at=BEFORE)]),
+            "cleared": [
+                {"unit": "u-1", "at": AFTER},
+                {"unit": "u-3", "at": AFTER},
+                {"unit": "u-4", "at": AFTER},
+                {"unit": WIDE_E, "at": BEFORE},
+            ],
+        },
+        [[v("u-3", at=BEFORE), v("u-4", at="2026-07-11T00:00:00Z"), v(WIDE_E, "reject", at=AFTER)]],
+    ),
+    "overrides": (
+        {
+            **doc("S2", [v("u-1")]),
+            "overrides": {
+                "verdicts": [v(LISTED_A, "reject", at=BEFORE)],
+                "cleared": [{"unit": LISTED_B, "at": AFTER}],
+            },
+        },
+        [
+            [v(LISTED_A, "neither", at=AFTER), v(LISTED_B, "reject", at=BEFORE), v(LISTED_C, at=AFTER)],
+            [v(LISTED_C, "reject", at="2026-07-10T06:00:00Z"), v("u-1", "either", at=AFTER)],
+        ],
+    ),
+    "stamp-move": (
+        {
+            **doc("S1", [v("u-1"), v("u-gone")]),
+            "cleared": [
+                {"unit": "u-2", "at": AFTER},
+                {"unit": "u-1", "at": AFTER},
+                {"unit": "u-gone-too", "at": AFTER},
+            ],
+            "overrides": {"verdicts": [v(LISTED_A, "skip", at=BEFORE)], "cleared": []},
+        },
+        [[v("u-1", at=BEFORE), v("u-2", at=BEFORE), v(WIDE_D, at=AFTER)]],
+    ),
+    "nothing": (
+        doc("S2", [v("u-1", at=AFTER), v(WIDE_D, at=AFTER)]),
+        [[v("u-1", "reject", at=BEFORE), v(WIDE_D, at=AFTER)]],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(MERGE_CASES))
+def test_the_streamed_merge_leaves_the_store_and_the_journal_the_whole_merge_left(
+    repo, tmp_path, monkeypatch, capsys, case
+):
+    """The merge walks the store and its inputs in step by unit, each read for its tail first, and builds the store a record line at a time; a hand merge journals by walking the store it replaced, through the descriptor it held, in step with the one it wrote. Over inputs that name a unit twice at different and at equal `at`s, an input out of unit order, tombstones in the store's tail that act on an input's record at its unit's place, a tombstone on a unit the store holds a record for, an override section and inputs on listed units, a stamp move that sets the store aside, and inputs that change nothing, it writes the records, tombstones, override section and `accepted` field, prints the counts and journals the lines the merge that parsed every file whole did, event times aside, one record a line in the layout the land writes (`landing.document_bytes`); a merge that changes nothing writes neither the store nor the journal."""
+    monkeypatch.setattr(journal, "now_stamp", lambda: TODAY)
+    human_ids = ["u-0", "u-1", "u-2", "u-3", "u-4", WIDE_D, WIDE_E, LISTED_A, LISTED_B, LISTED_C]
+    (repo["corpus"] / "manifest.json").write_text(
+        json.dumps({"generated_at": "S2", "human_unit_ids": human_ids})
+    )
+    field = write_list(repo, {LISTED_A: "approve", LISTED_B: "approve", LISTED_C: "approve"})
+    store, inputs = MERGE_CASES[case]
+    store = {**store, "accepted": field}
+    repo["autosave"].write_text(json.dumps(store))
+    reference_journal = tmp_path / "reference.ndjson"
+    if store["manifest_generated_at"] == "S2":
+        for path in (repo["journal"], reference_journal):
+            journal.record_transition(
+                path,
+                source="merge",
+                stamp="S2",
+                old_stamp=None,
+                new_verdicts=accepted.joined(
+                    journal.latest_by_unit(store["verdicts"]),
+                    journal.parse_cleared(store),
+                    accepted.Overrides.of(store),
+                )[0].values(),
+                new_cleared=accepted.joined({}, journal.parse_cleared(store), accepted.Overrides.of(store))[
+                    1
+                ],
+                accepted=field,
+            )
+    paths = [
+        write_doc(tmp_path / f"input-{index}.json", "S2", records) for index, records in enumerate(inputs)
+    ]
+    listed = accepted.read(accepted.path_for(repo["autosave"]))
+    expected, counts, changed = _todays_merge(
+        json.loads(repo["autosave"].read_text()),
+        [json.loads(path.read_text()) for path in paths],
+        listed=listed,
+        human_ids=set(human_ids),
+        journal_path=reference_journal,
+    )
+    before = repo["autosave"].stat()
+    capsys.readouterr()
+    assert run(repo, *map(str, paths)) == 0
+    out = capsys.readouterr().out.splitlines()
+    for path, count in zip(paths, counts, strict=True):
+        assert any(
+            line.startswith(
+                f"{mv._rel(path)}: {count['added']} added, {count['replaced']} replaced, {count['kept_newer']} kept newer"
+            )
+            for line in out
+        )
+    written = json.loads(repo["autosave"].read_text())
+    assert _projection(written) == _projection(expected)
+    assert _unstamped_lines(repo["journal"]) == _unstamped_lines(reference_journal)
+    if changed:
+        landed = landing.read_store(repo["autosave"])
+        assert landed is not None
+        assert repo["autosave"].read_bytes() == landing.document_bytes(landed)
+    else:
+        after = repo["autosave"].stat()
+        assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+        assert any(line.startswith("nothing changed") for line in out)

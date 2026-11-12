@@ -1,4 +1,4 @@
-"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. Unless it is a dry run or refused, a merge writes the store when its records or tombstones differ from the aligned autosave's, and always when no autosave is aligned with the corpus, so a merge into a missing store leaves one stamped for the corpus even when it holds no verdicts, for the verdict update's fills to read. An autosave that is an ams-review-verdicts/1 document stamped for an older corpus (a `manifest_generated_at` that sorts before the corpus's `generated_at`) is moved aside first (`stash_path_for`), and one stamped for a newer corpus is refused, since the merge would move the store back onto an outdated corpus. An autosave that is not an ams-review-verdicts/1 document (`parse_autosave_payload`) is moved aside as verdicts-autosave-corrupt-<time>.json whatever stamp it names, keeping none of its verdicts or tombstones. An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. An input file holding a verdict record the carry refuses (`verdict_store.well_formed`) is refused too, naming the file and the first such record's unit, or its index when it names no unit, because the merge writes the `at` and `note` of the record that wins each unit as they are unless false-valued, and compares `at`s to pick that record, so a record whose `at` or `note` is neither a string nor false-valued can leave a store that no later pass can carry, or, for such an `at`, stop the merge with a traceback where it compares two `at`s. A store stamped for the corpus that holds such a record is refused the same way, naming the store and the record, before anything is written, because the merge keeps that store's records; a store the merge sets aside is set aside whatever its own records hold, since the merge keeps none of its verdicts and reads of them only which units they name, on which it keeps none of that store's tombstones, but one whose override section holds such a record is refused the same way, since the merge keeps that section. A merge keeps the store's tombstones (the units the app cleared, each with the time of the clear), and a tombstone wins over an incoming record whose `at` is not after the clear. A merge onto an ams-review-verdicts/1 store stamped for an older corpus keeps none of that store's verdicts but keeps its tombstones on the corpus's human units, as the review server's move of a store onto the served corpus (rule 3 in `rebuild.review.verdict_store`) and the land (`landing.overlay`) keep them, so the fills a pass that moves the stamp merges after the carry meet the same tombstones as on a pass that keeps it. A caller in the same process can add tombstones with `run_merge`'s `clears`, which the merge keeps as the store's own on units the kept store holds no record for: the verdict update passes the skips of a store it carries onto the corpus before a direct merge (`verdict_update.skip_clears`). A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`, taken through `landing.locked_store`, which first finishes a land whose holder died, and while that recovery refuses, `landing.LandUnrecoverable`, the merge and `--restore-as-of --apply` print its refusal and write nothing), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app retries the save a closing tab sends only when it is next opened, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed on this command line (for a server that serves another checkout); the verdict update, which calls `run_merge` in process, has no --yes, so a hand-run verdict update's merges into the live store refuse the same way with no override, and the server must be stopped first; a dry run and a merge refused because the server is listening take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to the journal (`rebuild.review.journal`) that --journal names, or else to the verdicts-journal.ndjson beside the store, which only a store named verdicts-autosave.json takes by default (`journal.journal_path_for`), so a store under any other name needs --journal, and `--restore-as-of` replays that journal to recover the store as of any recorded time, its records and its tombstones (`journal.replay_store`), so a unit cleared by then stays cleared through a later merge of a file that still holds its older verdict, unless the replay starts from a base event written after the clear with no `cleared` list (the `rebuild.review.journal` docstring says where a replay of lines without the tombstone fields differs from the store). A restore, with --apply or without, refuses a moment whose replay holds a verdict record the carry refuses (`verdict_store.well_formed`), naming the journal, the moment and the first such record by the unit the journal holds it on, before any `--rekey-map` re-key and before it writes anything, as the merge refuses a store holding one. `--apply` over a store holding such a record, which the review server and the land refuse and send the reader here to replace, stashes it as it stashes any store and journals the restored store as a base event, which reads none of the old store's records, since a diff against them compares their `at` values (`journal.latest_by_unit`). Without --apply, the restore writes the store it recovers to --out, or else to verdicts-restored-<time>.json beside the store, which again only a store named verdicts-autosave.json has by default (`journal.beside_store`), so a restore whose --autosave is a copy in another directory writes nothing at the repo root, where `status` counts every verdicts-*.json but the live store as a carry candidate. `--rekey-map` moves a replayed store's unit ids, its tombstones' among them, through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
+"""Merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json without a browser, as the review app's Import dialog does: per unit, the record with the strictly newer `at` wins. The artifact cycle uses it to merge carried verdicts, and the app reads the result on boot or focus. The existing aligned autosave is always part of the union, so a merge never drops a verdict. Unless it is a dry run or refused, a merge writes the store when its records or tombstones differ from the aligned autosave's, and always when no autosave is aligned with the corpus, so a merge into a missing store leaves one stamped for the corpus even when it holds no verdicts, for the verdict update's fills to read. An autosave that is an ams-review-verdicts/1 document stamped for an older corpus (a `manifest_generated_at` that sorts before the corpus's `generated_at`) is moved aside first (`stash_path_for`), and one stamped for a newer corpus is refused, since the merge would move the store back onto an outdated corpus. An autosave that is not an ams-review-verdicts/1 document (`parse_autosave_payload`) is moved aside as verdicts-autosave-corrupt-<time>.json whatever stamp it names, keeping none of its verdicts or tombstones. An input stamped for another corpus is refused; `carry_verdicts.py` moves verdicts between corpora, and there is no override. An input file holding a verdict record the carry refuses (`verdict_store.well_formed`) is refused too, naming the file and the first such record's unit, or its index when it names no unit, because the merge writes the `at` and `note` of the record that wins each unit as they are unless false-valued, and compares `at`s to pick that record, so a record whose `at` or `note` is neither a string nor false-valued can leave a store that no later pass can carry, or, for such an `at`, stop the merge with a traceback where it compares two `at`s. A store stamped for the corpus that holds such a record is refused the same way, naming the store and the record, before anything is written, because the merge keeps that store's records; a store the merge sets aside is set aside whatever its own records hold, since the merge keeps none of its verdicts and reads of them only which units they name, on which it keeps none of that store's tombstones, but one whose override section holds such a record is refused the same way, since the merge keeps that section. A merge reads the store and each input file once for its tail, a record held at a time (`accepted.read_tail`), so each refusal here comes before it writes anything, and then walks the store's records and its inputs' in step by unit, a record of each held at a time, building the store it leaves as sorted record lines with a table over them (`held_store.Held`); a store or an input whose records do not come in unit order is read whole, which gives the same result. It writes that store one record a line, its records normalized as the land normalizes them, in the layout the review server and the land write (`landing.document_bytes`), through a temporary file renamed over the store. A merge keeps the store's tombstones (the units the app cleared, each with the time of the clear), and a tombstone wins over an incoming record whose `at` is not after the clear. A merge onto an ams-review-verdicts/1 store stamped for an older corpus keeps none of that store's verdicts but keeps its tombstones on the corpus's human units, as the review server's move of a store onto the served corpus (rule 3 in `rebuild.review.verdict_store`) and the land (`landing.overlay`) keep them, so the fills a pass that moves the stamp merges after the carry meet the same tombstones as on a pass that keeps it. A caller in the same process can add tombstones with `run_merge`'s `clears`, which the merge keeps as the store's own on units the kept store holds no record for: the verdict update passes the skips of a store it carries onto the corpus before a direct merge (`verdict_update.skip_clears`). A merge that writes reads, writes and journals the store under the store's lock (`rebuild.review.store_lock`, taken through `landing.locked_store`, which first finishes a land whose holder died, and while that recovery refuses, `landing.LandUnrecoverable`, the merge and `--restore-as-of --apply` print its refusal and write nothing), which the review server holds for each save, so a merge waits for a save in flight, and the server answers a save made during the merge with a retryable 503 and picks the merged file up by itself afterward. The app retries the save a closing tab sends only when it is next opened, so a merge that would write the live store refuses while the review server is listening, unless --yes is passed on this command line (for a server that serves another checkout); the verdict update, which calls `merge` in process, has no --yes, so a hand-run verdict update's merges into the live store refuse the same way with no override, and the server must be stopped first; a dry run and a merge refused because the server is listening take no lock. `--restore-as-of --apply` has the same refusal and takes the lock too. Every write is appended to the journal (`rebuild.review.journal`) that --journal names, or else to the verdicts-journal.ndjson beside the store, which only a store named verdicts-autosave.json takes by default (`journal.journal_path_for`), so a store under any other name needs --journal: the merge holds the store it replaces open across the rename and walks it in step with the store it wrote (`held_store.Transition`), appending set lines spliced from the written record lines and the clear lines as it goes. The verdict update's merges into the store it prepares on a pass that lands (`merge` with no journal) write and journal nothing: each hands the store it leaves to the next held in memory, a later one merging into it by address (`held_store.patched`), and the verdict update writes it once, which the land journals. `--restore-as-of` replays that journal to recover the store as of any recorded time, its records and its tombstones (`journal.replay_store`), so a unit cleared by then stays cleared through a later merge of a file that still holds its older verdict, unless the replay starts from a base event written after the clear with no `cleared` list (the `rebuild.review.journal` docstring says where a replay of lines without the tombstone fields differs from the store). A restore, with --apply or without, refuses a moment whose replay holds a verdict record the carry refuses (`verdict_store.well_formed`), naming the journal, the moment and the first such record by the unit the journal holds it on, before any `--rekey-map` re-key and before it writes anything, as the merge refuses a store holding one. `--apply` over a store holding such a record, which the review server and the land refuse and send the reader here to replace, stashes it as it stashes any store and journals the restored store as a base event, which reads none of the old store's records, since a diff against them compares their `at` values (`journal.latest_by_unit`). A restore writes the store it recovers whole, indented two spaces (`_write_store`). Without --apply, the restore writes it to --out, or else to verdicts-restored-<time>.json beside the store, which again only a store named verdicts-autosave.json has by default (`journal.beside_store`), so a restore whose --autosave is a copy in another directory writes nothing at the repo root, where `status` counts every verdicts-*.json but the live store as a carry candidate. `--rekey-map` moves a replayed store's unit ids, its tombstones' among them, through the id map `rebuild.tools.rekey_verdicts` writes, for a time before that re-key.
 
 The accepted list beside the store (`rebuild.review.accepted`; `--accepted`, by default rebuild/accepted-units.txt beside --autosave) holds the units a close-out folded out of the store, each read as its accepted record, dated the close-out, wherever the store holds no override for it, and the store keeps its records and tombstones on listed units in its override section (`accepted.Overrides`). A merge refuses a store, kept or set aside, that does not pair with the list (`accepted.pair`), merges an input's record on a listed unit, from the input's own records or its override section, into the store's override section, where it meets the unit's override as a record meets a record and its accepted record as a store record dated the close-out would meet it (`merge_into`), counts the store's accepted units among its effective verdicts in the auto-pick, and writes a store whose `accepted` field names the list. A merge keeps the store's override section whole, a store it sets aside on another stamp included, whose skips there become tombstones at their `at` (`Overrides.moved`), so an override or a clear on an accepted unit outlasts a stamp move whatever corpus its unit is on. A restore writes the field the journal's events recorded (`journal.replay_with_list`), moved through each re-key since when `--rekey-map` is given (`rekeyed_field`), and the records and tombstones on listed units as the override section of the list that field names (`accepted.split`), `--apply` refuses a restored store that does not pair with the list, and a moment before a journal that a close-out started is refused naming the close-out's archive.
 
@@ -13,11 +13,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import heapq
+import itertools
 import json
 import os
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass
+from operator import itemgetter
 from pathlib import Path
+from typing import Any, BinaryIO
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -28,12 +34,14 @@ from rebuild.review.accepted import Accepted, Overrides, View  # noqa: E402
 from rebuild.review.landing import LandUnrecoverable, locked_store, read_manifest  # noqa: E402
 from rebuild.review.serve import parse_autosave_payload, stash_path_for  # noqa: E402
 from rebuild.review.verdict_store import (  # noqa: E402
+    malformed_clause,
     malformed_in,
     malformed_override,
     malformed_record,
-    note_of,
     parse_cleared,
 )
+from rebuild.tools import held_store  # noqa: E402
+from rebuild.tools.held_store import Held  # noqa: E402
 from rebuild.tools.review_server import server_listening as _server_listening  # noqa: E402
 
 AUTOSAVE = ROOT / "verdicts-autosave.json"
@@ -87,6 +95,71 @@ COUNT_KEYS: tuple[str, ...] = (
 )
 
 
+@dataclass
+class Input:
+    """One input to a merge, named `name` in its line and its refusals: a verdicts file at `path`, read once for its tail (`accepted.read_tail`) and then as a stream of its records, or records handed over in memory by `records`, which gives them each time it is called. Records `in_order` come in unit order, one a unit, as the fused carry streams them; any others are settled by unit here, the newest `at` winning and the first of equal ones kept (`journal.latest_by_unit`)."""
+
+    name: str
+    path: Path | None = None
+    records: Callable[[], Iterable[Mapping]] | None = None
+    in_order: bool = False
+
+    @classmethod
+    def file(cls, path: Path) -> Input:
+        return cls(_rel(path), path=path)
+
+
+@dataclass
+class Merged:
+    """What a merge did: its exit code, and unless it was refused, the store it leaves held as record lines (`held_store.Held`) and whether it changed the store it read."""
+
+    code: int
+    held: Held | None = None
+    changed: bool = False
+
+
+def _merge_one(
+    unit: str,
+    record: Mapping,
+    own: dict | None,
+    cleared: dict[str, str] | None,
+    listed: Accepted | None,
+    overrides: Overrides | None,
+    counts: dict[str, int],
+) -> dict | None:
+    """Merge one incoming `record`, the latest an input holds for `unit`, by `merge_into`'s rule: into `own`, the store's own record for the unit, and the store's tombstones `cleared`, or for a listed unit into `overrides`. Count what it did in `counts`, and return the unit's new own record when it replaced or added it, else None."""
+    if record.get("verdict") not in VERDICT_KINDS:
+        counts["invalid"] += 1
+        return None
+    if listed is not None and unit in listed.verdicts:
+        if overrides is None:
+            raise ValueError(
+                f"{unit} is listed, and merge_into was given no override section to merge it into"
+            )
+        current, tombstones, rule = overrides.records.get(unit), overrides.cleared, listed
+    else:
+        current, tombstones, rule = own, cleared, None
+    at = record.get("at") or ""
+    if current is not None and (current.get("at") or "") >= at:
+        counts["kept_newer"] += 1
+        return None
+    if current is None and tombstones is not None and unit in tombstones:
+        if tombstones[unit] >= at:
+            counts["refused_by_tombstone"] += 1
+            return None
+        del tombstones[unit]
+    elif current is None and rule is not None and rule.keeps_out(record):
+        counts["accepted" if rule.matches(record) else "kept_newer"] += 1
+        return None
+    written = {"unit": unit, "verdict": record["verdict"], "note": record.get("note") or "", "at": at}
+    counts["replaced" if current is not None else "added"] += 1
+    if rule is not None:
+        assert overrides is not None
+        overrides.records[unit] = written
+        return None
+    return written
+
+
 def merge_into(
     result: dict[str, dict],
     verdicts,
@@ -94,40 +167,12 @@ def merge_into(
     listed: Accepted | None = None,
     overrides: Overrides | None = None,
 ) -> dict:
-    """Merge `verdicts` into `result` in place, the strictly newer `at` winning per unit, and return the counts. `cleared` holds the store's tombstones (unit → the clear's `at`), which count as a newer state than any record whose `at` is not after the clear; a record that wins over a tombstone removes it from `cleared`. A record a tombstone keeps out counts under `refused_by_tombstone`, and one a record in `result` keeps out under `kept_newer`. `listed` is the accepted list, and a record on a listed unit is merged into `overrides`, the store's override section, by the same rule, with the unit's accepted record, dated the close-out, standing in for an override it lacks (`rebuild.review.accepted`): an incoming record that equals the accepted record by value adds nothing and counts under `accepted`, one dated at or before the close-out is kept out as a store record dated then would keep it and counts under `kept_newer`, and any other is added as an override (`Accepted.keeps_out`). A record on a listed unit with no `overrides` to merge it into raises `ValueError`."""
+    """Merge `verdicts` into `result` in place, the strictly newer `at` winning per unit, and return the counts. `cleared` holds the store's tombstones (unit → the clear's `at`), which count as a newer state than any record whose `at` is not after the clear; a record that wins over a tombstone removes it from `cleared`. A record a tombstone keeps out counts under `refused_by_tombstone`, and one a record in `result` keeps out under `kept_newer`. `listed` is the accepted list, and a record on a listed unit is merged into `overrides`, the store's override section, by the same rule, with the unit's accepted record, dated the close-out, standing in for an override it lacks (`rebuild.review.accepted`): an incoming record that equals the accepted record by value adds nothing and counts under `accepted`, one dated at or before the close-out is kept out as a store record dated then would keep it and counts under `kept_newer`, and any other is added as an override (`Accepted.keeps_out`). A record on a listed unit with no `overrides` to merge it into raises `ValueError`. The merge of a store applies the same rule a unit at a time (`_merge_one`) as it walks the store and its inputs in step."""
     counts = dict.fromkeys(COUNT_KEYS, 0)
     for unit, record in sorted(journal.latest_by_unit(verdicts).items()):
-        if record.get("verdict") not in VERDICT_KINDS:
-            counts["invalid"] += 1
-            continue
-        if listed is not None and unit in listed.verdicts:
-            if overrides is None:
-                raise ValueError(
-                    f"{unit} is listed, and merge_into was given no override section to merge it into"
-                )
-            records, tombstones, list_rule = overrides.records, overrides.cleared, listed
-        else:
-            records, tombstones, list_rule = result, cleared, None
-        current = records.get(unit)
-        at = record.get("at") or ""
-        if current is not None and (current.get("at") or "") >= at:
-            counts["kept_newer"] += 1
-            continue
-        if current is None and tombstones is not None and unit in tombstones:
-            if tombstones[unit] >= at:
-                counts["refused_by_tombstone"] += 1
-                continue
-            del tombstones[unit]
-        elif current is None and list_rule is not None and list_rule.keeps_out(record):
-            counts["accepted" if list_rule.matches(record) else "kept_newer"] += 1
-            continue
-        records[unit] = {
-            "unit": unit,
-            "verdict": record["verdict"],
-            "note": note_of(record),
-            "at": record.get("at") or "",
-        }
-        counts["replaced" if current is not None else "added"] += 1
+        written = _merge_one(unit, record, result.get(unit), cleared, listed, overrides, counts)
+        if written is not None:
+            result[unit] = written
     return counts
 
 
@@ -143,6 +188,7 @@ def _aligned_effective(aligned: dict, listed: Accepted, corpus: Path) -> int:
 
 
 def _write_store(autosave: Path, payload: dict) -> None:
+    """Write a restore's store, `payload`, whole, through a temporary file renamed over `autosave`."""
     tmp = autosave.with_name(autosave.name + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     os.replace(tmp, autosave)
@@ -168,124 +214,277 @@ def run_merge(
     clears: Mapping[str, str] | None = None,
     listed: Accepted | None = None,
 ) -> int:
-    """Merge `files` into the store at `autosave` (`_merge_into_store`), under the store's lock unless it is a dry run or refused because a server listens. `listed` is the accepted list the store pairs with, read here from beside `autosave` (`accepted.path_for`) when None; a list that cannot be read or a store that does not pair with it is refused before anything is written."""
+    """Merge `files` into the store at `autosave` and write it, journaled to `journal_path` (`merge`), and return the exit code; None auto-picks as the command line does with no FILES."""
+    return merge(
+        None if files is None else [Input.file(path) for path in files],
+        autosave=autosave,
+        corpus=corpus,
+        journal_path=journal_path,
+        dry_run=dry_run,
+        yes=yes,
+        offers_yes=offers_yes,
+        clears=clears,
+        listed=listed,
+    ).code
+
+
+def merge(
+    inputs: list[Input] | None,
+    *,
+    autosave: Path,
+    corpus: Path,
+    journal_path: Path | None,
+    dry_run: bool = False,
+    yes: bool = False,
+    offers_yes: bool = False,
+    clears: Mapping[str, str] | None = None,
+    listed: Accepted | None = None,
+    held: Held | None = None,
+) -> Merged:
+    """Merge `inputs` into the store at `autosave` (`_merge_into_store`), under the store's lock unless it is a dry run, refused because a server listens, or merging into `held`, the store the verdict update holds in memory, which reads no file. With `journal_path` the merge writes the store it leaves and journals it; with None, the verdict update's form on its prepared store, it writes and journals nothing, and the store it leaves is handed back held (`Merged.held`) for the verdict update to merge into again and write once. `listed` is the accepted list the store pairs with, read here from beside `autosave` (`accepted.path_for`) when None; a list that cannot be read or a store that does not pair with it is refused before anything is written."""
     stamp = _corpus_stamp(corpus)
     if stamp is None:
         print(f"ERROR: {corpus} has no readable manifest.json; build the corpus first (make artifact-cycle).")
-        return 1
+        return Merged(1)
     if listed is None:
         try:
             listed = accepted.read(accepted.path_for(autosave))
         except ValueError as error:
             print(f"ERROR: {error}. Nothing was merged.")
-            return 1
+            return Merged(1)
     guarded = autosave.resolve() == AUTOSAVE.resolve() and not yes and _server_listening()
-    if dry_run or guarded:
+
+    def merged(refuse_a_write: bool) -> Merged:
         return _merge_into_store(
-            files,
+            inputs,
             stamp=stamp,
             autosave=autosave,
             corpus=corpus,
             journal_path=journal_path,
             dry_run=dry_run,
-            refuse_a_write=guarded,
+            refuse_a_write=refuse_a_write,
             offers_yes=offers_yes,
             clears=clears,
             listed=listed,
+            held=held,
         )
+
+    if dry_run or guarded or held is not None:
+        return merged(guarded)
     try:
         with locked_store(autosave):
-            return _merge_into_store(
-                files,
-                stamp=stamp,
-                autosave=autosave,
-                corpus=corpus,
-                journal_path=journal_path,
-                dry_run=False,
-                refuse_a_write=False,
-                clears=clears,
-                listed=listed,
-            )
+            return merged(False)
     except LandUnrecoverable as refused:
         print(f"ERROR: {refused}. Nothing was merged.")
-        return 1
+        return Merged(1)
+
+
+class _Order:
+    """Whether a document's records, as `accepted.read_tail` passes them to `each`, come in unit order, records on one unit next to each other."""
+
+    def __init__(self) -> None:
+        self.last: str | None = None
+        self.in_order = True
+
+    def each(self, record: object) -> None:
+        unit = record.get("unit") if isinstance(record, dict) else None
+        if not isinstance(unit, str):
+            return
+        if self.last is not None and unit < self.last:
+            self.in_order = False
+        self.last = unit
+
+    def streams(self, tail: accepted.Tail) -> bool:
+        return self.in_order and tail.lists == 1
+
+
+def _whole(path: Path) -> dict:
+    return json.loads(path.read_bytes())
+
+
+def _store_records(
+    autosave: Path, tail: accepted.Tail, order: _Order, name: str
+) -> Callable[[], Iterator[dict]]:
+    """Return what gives the store's own records in unit order, normalized, settled by unit: a stream of the file each time it is called when its records come in unit order, or the records read whole and sorted."""
+    if order.streams(tail):
+        return lambda: held_store.own_records(autosave, name)
+    settled = journal.latest_by_unit(_whole(autosave)["verdicts"])
+    whole = [held_store.normalized(settled[unit]) for unit in sorted(settled)]
+    return lambda: iter(whole)
+
+
+def _input_records(
+    item: Input, tail: accepted.Tail | None, order: _Order | None
+) -> Callable[[], Iterator[Mapping]]:
+    """Return what gives an input's records in unit order, one a unit, its own and its override section's as one list (`accepted.records_of`), settled as `journal.latest_by_unit` settles them: own records first and the first of equal `at`s kept."""
+    if item.path is not None:
+        assert tail is not None and order is not None
+        path = item.path
+        if order.streams(tail):
+            section = tail.overrides().records
+            return lambda: _with_section(held_store.own_records(path, item.name), section)
+        settled = journal.latest_by_unit(accepted.records_of(_whole(path)))
+        whole = [settled[unit] for unit in sorted(settled)]
+        return lambda: iter(whole)
+    given = item.records
+    assert given is not None
+    if item.in_order:
+        return lambda: iter(given())
+    settled = journal.latest_by_unit(given())
+    whole = [settled[unit] for unit in sorted(settled)]
+    return lambda: iter(whole)
+
+
+def _with_section(own: Iterator[dict], section: Mapping[str, dict]) -> Iterator[Mapping]:
+    """Yield `own` with the override records `section` holds by unit among them, in unit order, a section record taking its unit only when strictly newer than the own record there."""
+    pending = sorted(section.items())
+    at = 0
+    for record in own:
+        unit = record["unit"]
+        while at < len(pending) and pending[at][0] < unit:
+            yield pending[at][1]
+            at += 1
+        if at < len(pending) and pending[at][0] == unit:
+            other = pending[at][1]
+            at += 1
+            if (other.get("at") or "") > (record.get("at") or ""):
+                yield other
+                continue
+        yield record
+    for _unit, record in pending[at:]:
+        yield record
+
+
+def _named_units(autosave: Path, tail: accepted.Tail, wanted: Iterable[str]) -> set[str]:
+    """Return which of `wanted` a record in the store's `verdicts` list names, as `json.loads` keeps that list, whatever the records hold."""
+    wanted = set(wanted)
+    records = accepted.iter_records(autosave) if tail.lists == 1 else _whole(autosave)["verdicts"]
+    named = (record.get("unit") for record in records if isinstance(record, dict))
+    return {unit for unit in named if isinstance(unit, str) and unit in wanted}
+
+
+def _normalized(overrides: Overrides) -> Overrides:
+    return Overrides(
+        {unit: held_store.normalized(record) for unit, record in overrides.records.items()},
+        dict(overrides.cleared),
+    )
+
+
+def _tagged(records: Iterable[Mapping], tag: int) -> Iterator[tuple[str, int, Any]]:
+    for record in records:
+        yield record["unit"], tag, record
+
+
+@contextlib.contextmanager
+def _open_old(path: Path | None) -> Iterator[BinaryIO | None]:
+    """Hold the store at `path` open for reading, so the journal's walk reads it after a rename replaces it; None for no store."""
+    if path is None:
+        yield None
+        return
+    with path.open("rb") as handle:
+        yield handle
 
 
 def _merge_into_store(
-    files: list[Path] | None,
+    inputs: list[Input] | None,
     *,
     stamp: str,
     autosave: Path,
     corpus: Path,
-    journal_path: Path,
+    journal_path: Path | None,
     dry_run: bool,
     refuse_a_write: bool,
     listed: Accepted,
     offers_yes: bool = False,
     clears: Mapping[str, str] | None = None,
-) -> int:
-    """Merge `files` into the store at `autosave`. None auto-picks as the command line does with no FILES: it merges the fullest stamp-aligned verdicts file at the repo root (`status.pick_fullest_verdicts`) when no autosave is aligned with the corpus or that file holds more effective verdicts than the aligned autosave, and otherwise merges nothing, succeeding when an autosave is aligned and failing when none is. An empty list merges no file. Whatever `files` names, an aligned autosave holding a record `verdict_store.well_formed` refuses, or an autosave it sets aside holding one in its override section, is refused first. `run_merge` calls it under the store's lock for a merge that writes, and without it for a dry run and for a merge into the live store while a server listens, which `refuse_a_write` then stops before it writes anything. The refusal names --yes only when `offers_yes` says the caller has one: the command line does, and the verdict update, which runs its merges in process, has none, so its refusal says only to stop the server. `clears` (unit → the clear's `at`) joins the kept store's tombstones before the files are merged, on the units the kept store holds no record for. An ams-review-verdicts/1 store, kept or set aside, that does not pair with `listed` (`accepted.pair`) is refused before anything is written; every file's records on listed units, its override records among them (`accepted.records_of`), go to the store's override section by `listed`'s rule (`merge_into`), the store written names `listed` in its `accepted` field, the set-aside store's field once it pairs, and the kept store's override section is kept whole, the set-aside store's as a stamp move keeps it (`Overrides.moved`). The auto-pick counts the aligned store's accepted units on the corpus's human units among its effective verdicts, as `status` does."""
-    inputs = list(files or ())
-    existing = _read_payload(autosave)
-    existing_exists = autosave.exists()
-    aligned = existing if existing is not None and existing["manifest_generated_at"] == stamp else None
+    held: Held | None = None,
+) -> Merged:
+    """Merge `inputs` into the store at `autosave`, or into `held`, the store the verdict update holds, which needs no check. None auto-picks as the command line does with no FILES: it merges the fullest stamp-aligned verdicts file at the repo root (`status.pick_fullest_verdicts`) when no autosave is aligned with the corpus or that file holds more effective verdicts than the aligned autosave, and otherwise merges nothing, succeeding when an autosave is aligned and failing when none is. An empty list merges no input. Whatever `inputs` names, an aligned autosave holding a record `verdict_store.well_formed` refuses, or an autosave it sets aside holding one in its override section, is refused first. `run_merge` calls it under the store's lock for a merge that writes, and without it for a dry run and for a merge into the live store while a server listens, which `refuse_a_write` then stops before it writes anything. The refusal names --yes only when `offers_yes` says the caller has one: the command line does, and the verdict update, which runs its merges in process, has none, so its refusal says only to stop the server. `clears` (unit → the clear's `at`) joins the kept store's tombstones before the inputs are merged, on the units the kept store holds no record for. An ams-review-verdicts/1 store, kept or set aside, that does not pair with `listed` (`accepted.pair`) is refused before anything is written; every input's records on listed units, its override records among them (`accepted.records_of`), go to the store's override section by `listed`'s rule (`merge_into`), the store written names `listed` in its `accepted` field, the set-aside store's field once it pairs, and the kept store's override section is kept whole, the set-aside store's as a stamp move keeps it (`Overrides.moved`). The auto-pick counts the aligned store's accepted units on the corpus's human units among its effective verdicts, as `status` does.
+
+    The store and every input file are read first for their tails, a record held at a time (`accepted.read_tail`), so each refusal comes before the merge walks anything; then the store's records and the inputs' walk in step by unit (`heapq.merge`), each unit merged by `merge_into`'s rule (`_merge_one`), and the store the merge leaves is built a record line at a time (`held_store.Builder`). Merging into `held` reads only the units its inputs name, through its table, and copies its record lines between the ones it changes (`held_store.patched`). A store or input whose records do not come in unit order is read whole, which gives the same result.
+    """
     name = f"the store {_rel(autosave)}"
-    if aligned is not None:
-        malformed = malformed_in(aligned, name)
-    else:
-        malformed = malformed_override(existing, name) if existing is not None else None
-    if malformed is not None:
-        print(
-            f"ERROR: {malformed}. Refusing to merge into it, and the merge wrote neither the store nor the "
-            "journal: the merge keeps the records of a store stamped for the corpus, and the override section of "
-            "one it sets aside, so it refuses one holding a record the carry refuses there "
-            "(`verdict_store.well_formed`), as it refuses such an input file. If it is "
-            "the verdict store or the cycle's prepared copy of it, restore a readable store from the journal with "
-            "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`."
-        )
-        return 1
-    if existing is not None:
-        try:
-            accepted.pair(existing, listed, store=_rel(autosave))
-        except accepted.Mismatch as mismatch:
-            print(
-                f"ERROR: {mismatch}. Refusing to merge into it, and the merge wrote neither the store nor the journal."
-            )
-            return 1
-    if files is None:
+    tail: accepted.Tail | None = None
+    order = _Order()
+    aligned = held is not None
+    existing_exists = held is not None
+    if held is None:
+        tail = accepted.read_tail(autosave, order.each)
+        existing_exists = autosave.exists()
+        aligned = tail is not None and tail.stamp == stamp
+        if tail is not None:
+            if aligned and tail.malformed is not None:
+                malformed = malformed_clause(*tail.malformed, name)
+            else:
+                malformed = malformed_override(tail.members, name)
+            if malformed is not None:
+                print(
+                    f"ERROR: {malformed}. Refusing to merge into it, and the merge wrote neither the store nor the "
+                    "journal: the merge keeps the records of a store stamped for the corpus, and the override section of "
+                    "one it sets aside, so it refuses one holding a record the carry refuses there "
+                    "(`verdict_store.well_formed`), as it refuses such an input file. If it is "
+                    "the verdict store or the cycle's prepared copy of it, restore a readable store from the journal with "
+                    "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`."
+                )
+                return Merged(1)
+            try:
+                accepted.pair(
+                    {**tail.members, "verdicts": [None] if tail.records else []}, listed, store=_rel(autosave)
+                )
+            except accepted.Mismatch as mismatch:
+                print(
+                    f"ERROR: {mismatch}. Refusing to merge into it, and the merge wrote neither the store nor the journal."
+                )
+                return Merged(1)
+    if inputs is None:
+        aligned_document = _read_payload(autosave) if aligned else None
         hit = status.pick_fullest_verdicts(ROOT, stamp)
-        base_effective = _aligned_effective(aligned, listed, corpus) if aligned is not None else None
+        base_effective = (
+            _aligned_effective(aligned_document, listed, corpus) if aligned_document is not None else None
+        )
         if hit is not None and (base_effective is None or hit[1] > base_effective):
-            inputs = [hit[0]]
+            inputs = [Input.file(hit[0])]
             print(f"auto-picked the fullest verdicts file: {_rel(hit[0])} ({hit[1]} effective verdicts)")
         elif base_effective is not None:
             print(
                 f"nothing to merge: no stamp-aligned verdicts file at the repo root holds more effective verdicts "
                 f"than the autosave, which holds {base_effective} for this corpus"
             )
-            return 0
+            return Merged(0)
         else:
             print(
                 "ERROR: nothing to merge — no stamp-aligned verdicts file at the repo root, and the autosave is "
                 "not aligned with this corpus. Run make artifact-cycle, which carries the store onto this corpus, "
                 "or restore a missing store from the journal with --restore-as-of."
             )
-            return 1
+            return Merged(1)
 
-    payloads: list[tuple[Path, dict]] = []
-    for path in inputs:
-        data = _read_payload(path)
-        if data is None:
-            print(f"ERROR: {_rel(path)} is not a readable ams-review-verdicts/1 document.")
-            return 1
-        if data["manifest_generated_at"] != stamp:
-            print(
-                f"ERROR: {_rel(path)} is stamped {data['manifest_generated_at']}, not the served corpus "
-                f"({stamp}). Refusing to merge a file stamped for another corpus — carry it onto this one with "
-                "rebuild/tools/carry_verdicts.py first."
-            )
-            return 1
-        if (malformed := malformed_in(data, _rel(path))) is not None:
+    sources: list[Callable[[], Iterator[Mapping]]] = []
+    for item in inputs:
+        input_tail = input_order = None
+        if item.path is not None:
+            input_order = _Order()
+            input_tail = accepted.read_tail(item.path, input_order.each)
+            if input_tail is None:
+                print(f"ERROR: {item.name} is not a readable ams-review-verdicts/1 document.")
+                return Merged(1)
+            if input_tail.stamp != stamp:
+                print(
+                    f"ERROR: {item.name} is stamped {input_tail.stamp}, not the served corpus "
+                    f"({stamp}). Refusing to merge a file stamped for another corpus — carry it onto this one with "
+                    "rebuild/tools/carry_verdicts.py first."
+                )
+                return Merged(1)
+            if input_tail.malformed is not None:
+                malformed = malformed_clause(*input_tail.malformed, item.name)
+            else:
+                malformed = malformed_override(input_tail.members, item.name)
+        elif item.in_order:
+            malformed = None
+        else:
+            assert item.records is not None
+            malformed = malformed_record(list(item.records()), item.name)
+        if malformed is not None:
             print(
                 f"ERROR: {malformed}. Refusing to merge it, and the merge wrote neither the store nor the journal: "
                 "the merge refuses any input file holding a record the carry refuses (`verdict_store.well_formed`), "
@@ -294,55 +493,104 @@ def _merge_into_store(
                 "string nor false-valued can leave a store that no later pass can carry, or, for such an `at`, stop "
                 "the merge with a traceback where it compares two `at`s."
             )
-            return 1
-        payloads.append((path, data))
+            return Merged(1)
+        sources.append(_input_records(item, input_tail, input_order))
 
-    if existing is not None and aligned is None and existing["manifest_generated_at"] > stamp:
+    if tail is not None and not aligned and tail.stamp > stamp:
         print(
-            f"ERROR: the autosave is stamped {existing['manifest_generated_at']}, newer than the corpus at "
+            f"ERROR: the autosave is stamped {tail.stamp}, newer than the corpus at "
             f"{_rel(corpus)} ({stamp}). Refusing to merge onto an outdated corpus."
         )
-        return 1
+        return Merged(1)
 
-    base = journal.latest_by_unit(aligned["verdicts"]) if aligned is not None else {}
-    result = dict(base)
-    cleared = {unit: at for unit, at in parse_cleared(aligned).items() if unit not in base}
-    overrides = Overrides.of(aligned)
-    if aligned is None and existing is not None:
-        overrides = Overrides.of(existing).moved(journal.now_stamp())
-        if stale := parse_cleared(existing):
-            named = {record.get("unit") for record in existing["verdicts"] if isinstance(record, dict)}
+    store_records: Callable[[], Iterator[dict]] | None = None
+    if held is not None:
+        cleared, overrides = dict(held.cleared), held.overrides.copy()
+    elif tail is not None and aligned:
+        cleared, overrides = dict(tail.cleared), _normalized(tail.overrides())
+        store_records = _store_records(autosave, tail, order, name)
+    elif tail is not None:
+        overrides = _normalized(tail.overrides().moved(journal.now_stamp()))
+        cleared = {}
+        if stale := tail.cleared:
+            named = _named_units(autosave, tail, stale)
             _, human_ids = read_manifest(corpus)
             cleared = {unit: at for unit, at in stale.items() if unit in human_ids and unit not in named}
+    else:
+        cleared, overrides = {}, Overrides()
     kept_cleared, kept_overrides = dict(cleared), overrides.copy()
-    for unit, at in (clears or {}).items():
-        if unit not in result:
-            cleared[unit] = max(at, cleared.get(unit, at))
+    counts = [dict.fromkeys(COUNT_KEYS, 0) for _ in sources]
+    streams = [_tagged(source(), 2 + index) for index, source in enumerate(sources)]
+    if store_records is not None:
+        streams.append(_tagged(store_records(), 0))
+    if clears and held is None:
+        streams.append(_tagged(({"unit": unit, "at": at} for unit, at in sorted(clears.items())), 1))
+    walk = heapq.merge(*streams, key=itemgetter(0, 1))
+    own_changed = False
+    if held is not None:
+        records = held.records()
+        for unit, at in sorted((clears or {}).items()):
+            if unit not in records:
+                cleared[unit] = max(at, cleared.get(unit, at))
+        changes: list[dict] = []
+        for unit, group in itertools.groupby(walk, key=itemgetter(0)):
+            own = written = None
+            for index, (_unit, tag, record) in enumerate(group):
+                if not index:
+                    own = records.get(unit)
+                merged = _merge_one(unit, record, own, cleared, listed, overrides, counts[tag - 2])
+                if merged is not None:
+                    own = written = merged
+            if written is not None:
+                changes.append(written)
+        own_changed = bool(changes)
+        result = (
+            held_store.patched(held, changes, cleared, overrides)
+            if changes
+            else Held(held.stamp, held.named, held.lines, held.table, held.escaped, cleared, overrides)
+        )
+    else:
+        builder = held_store.Builder()
+        for unit, group in itertools.groupby(walk, key=itemgetter(0)):
+            own: dict | None = None
+            for _unit, tag, value in group:
+                if tag == 0:
+                    own = value
+                    if cleared.pop(unit, None) is not None:
+                        kept_cleared.pop(unit, None)
+                elif tag == 1:
+                    if own is None:
+                        at = value["at"]
+                        cleared[unit] = max(at, cleared.get(unit, at))
+                else:
+                    merged = _merge_one(unit, value, own, cleared, listed, overrides, counts[tag - 2])
+                    if merged is not None:
+                        own = merged
+                        own_changed = True
+            if own is not None:
+                builder.add(own)
+        result = builder.held(stamp, listed.field(), cleared, overrides)
     totals = dict.fromkeys(COUNT_KEYS, 0)
-    for path, data in payloads:
-        counts = merge_into(result, accepted.records_of(data), cleared, listed, overrides)
+    for item, count in zip(inputs, counts, strict=True):
         for key in totals:
-            totals[key] += counts[key]
-        invalid = f", {counts['invalid']} invalid" if counts["invalid"] else ""
+            totals[key] += count[key]
+        invalid = f", {count['invalid']} invalid" if count["invalid"] else ""
         print(
-            f"{_rel(path)}: {counts['added']} added, {counts['replaced']} replaced, "
-            f"{counts['kept_newer']} kept newer{_refused_by_tombstone(counts)}{_already_accepted(counts)}{invalid}"
+            f"{item.name}: {count['added']} added, {count['replaced']} replaced, "
+            f"{count['kept_newer']} kept newer{_refused_by_tombstone(count)}{_already_accepted(count)}{invalid}"
         )
 
-    changed = aligned is None or result != base or cleared != kept_cleared or overrides != kept_overrides
-    held = {**result, **overrides.records}
+    changed = not aligned or own_changed or cleared != kept_cleared or overrides != kept_overrides
+    holds, effective = held_store.counts(result)
     if dry_run:
         print(
-            f"dry run: nothing written. Store would hold {len(held)} verdicts ({_effective(held)} "
+            f"dry run: nothing written. Store would hold {holds} verdicts ({effective} "
             f"effective); {'no ' if not changed else ''}change from the current autosave."
         )
-        return 0
+        return Merged(0, result, changed)
     if not changed:
-        print(
-            f"nothing changed: the autosave already holds all {len(held)} verdicts "
-            f"({_effective(held)} effective)."
-        )
-        return 0
+        print(f"nothing changed: the autosave already holds all {holds} verdicts ({effective} effective).")
+        return Merged(0, result, False)
 
     if refuse_a_write:
         override = ", or pass --yes when the listening server serves another checkout" if offers_yes else ""
@@ -352,45 +600,53 @@ def _merge_into_store(
             "next opened, so a verdict recorded just before a tab closes would wait in that browser until then. "
             f"Stop the server first{override}."
         )
-        return 1
+        return Merged(1)
 
     stashed = None
-    if existing_exists and aligned is None:
-        if existing is None:
+    if held is None and existing_exists and not aligned:
+        if tail is None:
             stash = autosave.with_name(f"verdicts-autosave-corrupt-{_sanitize(journal.now_stamp())}.json")
         else:
-            stash = stash_path_for(autosave, existing["manifest_generated_at"])
+            stash = stash_path_for(autosave, tail.stamp)
         os.replace(autosave, stash)
         stashed = stash.name
         print(f"stashed the previous autosave as {stashed}")
 
-    payload = journal.payload_for(
-        stamp, result, cleared, accepted=listed.field(), overrides=overrides.field()
-    )
-    _write_store(autosave, payload)
-    old_records, old_cleared = accepted.joined(base, parse_cleared(aligned), Overrides.of(aligned))
-    new_records, new_cleared = accepted.joined(result, cleared, overrides)
-    journal.record_transition(
-        journal_path,
-        source="merge",
-        stamp=stamp,
-        old_stamp=aligned["manifest_generated_at"] if aligned is not None else None,
-        old_verdicts=list(old_records.values()),
-        new_verdicts=list(new_records.values()),
-        old_cleared=old_cleared,
-        new_cleared=new_cleared,
-        stashed=stashed,
-        accepted=listed.field(),
-    )
+    if journal_path is not None:
+        old_tail = tail if aligned else None
+        with _open_old(autosave if old_tail is not None else None) as old:
+            result.write(autosave)
+
+            def old_records() -> Iterator[dict]:
+                if old is None or old_tail is None or store_records is None:
+                    return iter(())
+                if order.streams(old_tail):
+                    return held_store.own_records(old, name)
+                return store_records()
+
+            journal.record_transition(
+                journal_path,
+                source="merge",
+                stamp=stamp,
+                old_stamp=stamp if old_tail is not None else None,
+                stashed=stashed,
+                accepted=listed.field(),
+                transition=held_store.Transition(
+                    result,
+                    old_records,
+                    old_tail.cleared if old_tail is not None else {},
+                    old_tail.overrides() if old_tail is not None else Overrides(),
+                ),
+            )
     print(
-        f"merged {len(payloads)} file(s) into {autosave.name}: {totals['added']} added, "
+        f"merged {len(inputs)} file(s) into {autosave.name}: {totals['added']} added, "
         f"{totals['replaced']} replaced, {totals['kept_newer']} kept newer{_refused_by_tombstone(totals)}"
-        f"{_already_accepted(totals)}; store holds {len(held)} verdicts ({_effective(held)} effective) on "
+        f"{_already_accepted(totals)}; store holds {holds} verdicts ({effective} effective) on "
         f"manifest {stamp}"
     )
     if _server_listening():
         print("note: the review server is up — an open app tab picks this up on its next focus (or reload).")
-    return 0
+    return Merged(0, result, True)
 
 
 class UntimedRecord(ValueError):

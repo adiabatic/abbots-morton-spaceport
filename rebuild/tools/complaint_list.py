@@ -6,7 +6,7 @@ Deferring uses skip verdicts. A defer file holds one skip verdict per defer cand
 
 The verdicts file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is never a defer candidate and counts among a group's approved units at risk under its mark, while the warning about records on units absent from the corpus counts the file's records, its overrides among them, and no accepted unit.
 
-The file's stamp is read from its head when the head settles it (`review_queue.verdicts_stamp`), so a file stamped for another corpus is refused without a whole parse, and a file stamped for this one is parsed once, inside `latest_verdicts`; a document with a second top-level `manifest_generated_at` after its `verdicts` array is judged by the first, which no repo writer makes. When the caller hands over the human records and the corpus ids, as the verdict update does, and no record the file holds, its overrides among them, is a reject or a neither (`_may_complain`), the human records are never read: the walk would find no complaint, and its projections of the blank and at-risk units serve only the groups. A standalone run walks the corpus whatever the file holds, because that walk collects the corpus ids the absent-unit warning counts against.
+The file's stamp is read from its head when the head settles it (`review_queue.verdicts_stamp`), so a file stamped for another corpus is refused without a whole parse, and a file stamped for this one is parsed once, inside `latest_verdicts`; a document with a second top-level `manifest_generated_at` after its `verdicts` array is judged by the first, which no repo writer makes. The verdict update hands over the store it holds in memory (`review_queue.HeldStore`), whose stamp and records are read in place of the file's. When the caller hands over the human records and the corpus ids, as the verdict update does, and no record the file holds, its overrides among them, is a reject or a neither (`_may_complain`), the human records are never read: the walk would find no complaint, and its projections of the blank and at-risk units serve only the groups. A standalone run walks the corpus whatever the file holds, because that walk collects the corpus ids the absent-unit warning counts against.
 
 Writes tmp/complaints-data.json. `--defer g-XXXXXXXX` also writes a verdicts-deferred-*.json for that group.
 """
@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT))
 from rebuild.review.accepted import Accepted, View  # noqa: E402
 from rebuild.tools.review_queue import (  # noqa: E402
     ACCEPTING_VERDICTS,
+    HeldStore,
     accepted_list,
     add_accepted_argument,
     latest_verdicts,
@@ -283,10 +284,11 @@ def main(
     units: Iterable[Mapping[str, Any]] | None = None,
     unit_ids: set[str] | None = None,
     listed: Accepted | None = None,
+    held: HeldStore | None = None,
 ):
     """Write the complaint list data, and defer files for any `--defer` groups.
 
-    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and at-risk units are kept from the stream, and the stream is never read when no record the file holds can be an open complaint (`_may_complain`). `listed` is the accepted list when the caller already holds the one `--accepted` names, as the verdict update does; without it the list is read here (`review_queue.accepted_list`).
+    `units` and `unit_ids` are passed together or not at all: a single-pass stream of human unit records, and every corpus id, machine units included, for the absent-unit warning. Only the complaint fields and small projections of the blank and at-risk units are kept from the stream, and the stream is never read when no record the file holds can be an open complaint (`_may_complain`). `listed` is the accepted list when the caller already holds the one `--accepted` names, as the verdict update does; without it the list is read here (`review_queue.accepted_list`). `held` is the store the verdict update holds in memory (`review_queue.HeldStore`), read in place of the verdicts file, which it names.
     """
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
@@ -325,7 +327,7 @@ def main(
     ruled_ids = ruled_class_ids(manifest)
     stamp = manifest["generated_at"]
     verdicts_path = pathlib.Path(args.verdicts)
-    file_stamp, data = verdicts_stamp(verdicts_path)
+    file_stamp, data = (held.stamp, None) if held is not None else verdicts_stamp(verdicts_path)
     if file_stamp != stamp:
         print(
             f"{args.verdicts} is stamped {file_stamp} but the corpus is "
@@ -336,7 +338,7 @@ def main(
             file=sys.stderr,
         )
         return 1
-    records = latest_verdicts(verdicts_path, listed, document=data)
+    records = held.view(listed) if held is not None else latest_verdicts(verdicts_path, listed, document=data)
 
     if units is None or unit_ids is None:
         unit_ids = set()

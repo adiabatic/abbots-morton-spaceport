@@ -317,7 +317,7 @@ def test_dry_run_plan_default():
         total_bytes=MACHINE_44_GB,
     )
     assert plan.scratch_dir is not None
-    assert plan.carry_out == plan.scratch_dir / "verdicts-carried-abc1234.json"
+    assert plan.carry_out is None
 
     by_name = {step.name: step for step in plan.steps}
     assert by_name["run_m1"].argv == [
@@ -465,7 +465,7 @@ def test_dry_run_plan_skip_conform():
 
 
 def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
-    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and is handed the snapshot of the store, which it carries beside another master when the snapshot step found a store, and merges and fills into the prepared store in the pass's scratch directory, a link to the store's file that its first write replaces by rename, journaling there, so it never writes the live store. It is told which snapshot the prepared store was linked from, so it can record for the land whether it left the prepared store as the snapshot's bytes. The carried file and both fill files go in the scratch directory too, so the pass leaves none of them at the repository root. The prepared store has no accepted list beside it, so the pass names the one beside the live store."""
+    """The verdict update is one step between the store snapshot and the land. It reads the corpus built beside the served one, carries the named master and is handed the snapshot of the store, which it carries beside another master when the snapshot step found a store, fusing the carry into its first merge, so it is given no carried file, and merges and fills into the prepared store in the pass's scratch directory, a link to the store's file that its one write replaces by rename, so it never writes the live store. It is told which snapshot the prepared store was linked from, so it holds the prepared store in memory, journals nothing and records for the land whether it left the prepared store as the snapshot's bytes; it is given no journal. Both fill files go in the scratch directory too, so the pass leaves none of them at the repository root. The prepared store has no accepted list beside it, so the pass names the one beside the live store."""
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
     assert names.index("store-snapshot") == names.index("corpus-build") + 1
@@ -476,7 +476,7 @@ def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
     assert argv is not None
     assert plan.scratch_dir is not None
     snapshot = plan.scratch_dir / ac.landing.SNAPSHOT_NAME
-    assert argv[:14] == [
+    assert argv[:12] == [
         "uv",
         "run",
         "python",
@@ -488,19 +488,17 @@ def test_dry_run_plan_runs_the_whole_verdict_update_as_one_step():
         "v.json",
         "--store-snapshot",
         str(snapshot),
-        "--carry-out",
-        str(plan.scratch_dir / "verdicts-carried-abc1234.json"),
         "--autosave",
     ]
-    assert argv[14] == str(plan.scratch_dir / ac.landing.PREPARED_NAME)
-    assert argv[15:17] == ["--prepared-from", str(snapshot)]
-    assert argv[17:19] == ["--journal", str(plan.scratch_dir / "journal.ndjson")]
-    assert argv[19:23] == [
+    assert argv[12] == str(plan.scratch_dir / ac.landing.PREPARED_NAME)
+    assert argv[13:15] == ["--prepared-from", str(snapshot)]
+    assert argv[15:19] == [
         "--duplicate-out",
         str(plan.scratch_dir / ac.DUPLICATE_FILL_NAME),
         "--standing-out",
         str(plan.scratch_dir / ac.STANDING_FILL_NAME),
     ]
+    assert "--journal" not in argv and "--carry-out" not in argv
     assert argv[argv.index("--accepted") + 1] == str(ac.AUTOSAVE.parent / "rebuild" / "accepted-units.txt")
     assert "--no-merge" not in argv
     assert plan.do_merge is True
@@ -519,7 +517,7 @@ def test_with_no_live_store_the_plan_still_hands_over_the_snapshot():
 
 
 def test_a_master_that_is_the_live_store_is_carried_from_its_snapshot():
-    """When the master resolved to the live store, the carry reads the snapshot in its place and not the store beside it, and a direct merge merges the snapshot and is handed it as the store's snapshot too, with a carried file in the scratch directory, so the verdict update can carry it instead when it finds it stamped for an older corpus or not an ams-review-verdicts/1 document (`verdict_update.merge_sets_store_aside`); the live store is never read or written by the verdict update."""
+    """When the master resolved to the live store, the carry reads the snapshot in its place and not the store beside it, and a direct merge merges the snapshot and is handed it as the store's snapshot too, with no carried file, so the verdict update can carry it into its first merge instead when it finds it stamped for an older corpus or not an ams-review-verdicts/1 document (`verdict_update.merge_sets_store_aside`); the live store is never read or written by the verdict update."""
     plan = _plan(verdicts=ac.AUTOSAVE)
     assert plan.scratch_dir is not None
     snapshot = str(plan.scratch_dir / ac.landing.SNAPSHOT_NAME)
@@ -532,7 +530,7 @@ def test_a_master_that_is_the_live_store_is_carried_from_its_snapshot():
     argv = _argv({step.name: step for step in direct.steps}["verdict-update"])
     assert argv[argv.index("--merge-master") + 1] == str(direct.scratch_dir / ac.landing.SNAPSHOT_NAME)
     assert argv[argv.index("--store-snapshot") + 1] == str(direct.scratch_dir / ac.landing.SNAPSHOT_NAME)
-    assert argv[argv.index("--carry-out") + 1] == str(direct.scratch_dir / "verdicts-carried-testid.json")
+    assert "--carry-out" not in argv and direct.carry_out is None
     assert argv[argv.index("--corpus") + 1] == str(ac.REVIEW_OUT)
 
 
@@ -558,7 +556,7 @@ def test_dry_run_plan_staging_pass_never_touches_the_autosave(tmp_path):
 
 
 def test_a_carry_the_pass_does_not_merge_is_written_where_it_outlives_the_pass(tmp_path):
-    """A --no-merge or staging pass carries but merges nothing, so the carried file is what it produces, and it goes to the repository root, past the pass's end; such a pass runs no fill. A --carry-out path is used as given."""
+    """A --no-merge or staging pass carries but merges nothing, so the carried file is what it produces, and it goes to the repository root, past the pass's end; such a pass runs no fill. A --carry-out path is used as given, a merging pass's among them, whose verdict update writes the carried file there and merges it, where without one it fuses the carry into its first merge and writes none."""
     for plan in (_plan(no_merge=True), _plan(review_out=tmp_path / "staged")):
         argv = _argv({step.name: step for step in plan.steps}["verdict-update"])
         assert plan.carry_out == ac.ROOT / "verdicts-carried-testid.json"
@@ -628,8 +626,13 @@ def test_the_complaint_list_headline_is_scraped_and_never_fails_the_cycle():
 
 
 def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the_fills_wrote():
-    """The verdict update runs as one child, so its steps reach this process only through the lines they print. The carry count and the human queue before and after become the row's detail. The other lines are quoted in the summary under the line they belong to, instead of appearing only in `cycle_summary.json` and the step's log."""
+    """The verdict update runs as one child, so its steps reach this process only through the lines they print. The carry count and the human queue before and after become the row's detail, the count read from the line of a carry fused into the first merge, which names no file, as from the line of one that wrote its carried file. The other lines are quoted in the summary under the line they belong to, instead of appearing only in `cycle_summary.json` and the step's log, and a merging pass names no carried file."""
     plan = _plan()
+    assert ac.carry_detail(["carried 15903 onto manifest S"]) == "15,903 carried"
+    assert (
+        ac.carry_detail(["wrote verdicts-carried-testid.json: 15903 carried onto manifest S"])
+        == "15,903 carried"
+    )
 
     report, failures = _run_verdict_update(
         plan,
@@ -637,7 +640,7 @@ def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the
             (
                 "carry",
                 [
-                    "wrote verdicts-carried-testid.json: 15903 carried onto manifest 2026-09-04T12:00:00Z",
+                    "carried 15903 onto manifest 2026-09-04T12:00:00Z",
                     "kinds: {'ok': 15903}",
                     "human queue: 81 -> 12 still needing fresh verdicts",
                 ],
@@ -661,9 +664,8 @@ def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the
     assert "      wrote tmp/standing.json: 7 standing-approval verdicts" in block
     assert "      wrote tmp/duplicate-fill.json: 4 duplicate-fill verdicts" in block
     assert "      merged 15903 verdicts into verdicts-autosave.json" in block
-    carry = block.index(
-        f"  carry output     : {report.carry_out} (in the pass's scratch directory, which the pass deletes when it ends)"
-    )
+    assert report.carry_out is None
+    carry = block.index("  carry output     : —")
     verdict_update = next(index for index, line in enumerate(block) if line.startswith("  verdict update"))
     assert carry < block.index("      human queue: 81 -> 12 still needing fresh verdicts") < verdict_update
 
@@ -693,7 +695,7 @@ def test_the_verdict_update_row_adds_what_the_store_holds_after_the_merge_when_t
         "carry",
         [
             "carry counts: human=21 matched=1 unmatched=18 orphaned=0 accepted=2",
-            "wrote verdicts-carried-testid.json: 1 carried onto manifest S1",
+            "carried 1 onto manifest S1",
             "human queue: 19 -> 18 still needing fresh verdicts",
         ],
     )
@@ -3520,9 +3522,24 @@ def test_contracts_summary_tracks_the_runtime_decision(planned_skip, runtime):
     assert row.outcome == {"green": "ok", "red": "FAILED", "skipped": "skipped"}[runtime]
 
 
-def test_the_summary_names_only_a_carried_file_that_outlives_the_pass():
-    """A merging pass carries into its scratch directory, which it deletes when it ends, so cycle_summary.json names no carried file for it and the summary line says where the file was; the carried file a --no-merge pass leaves at the root is named as written."""
-    for plan, kept in ((_plan(), False), (_plan(no_merge=True), True)):
+def test_the_summary_names_only_a_carried_file_that_outlives_the_pass(tmp_path):
+    """A merging pass fuses its carry into the verdict update's first merge, so it writes no carried file, and its plan, cycle_summary.json and the summary line name none; a --carry-out in the pass's scratch directory, which the pass deletes when it ends, is named on the summary line with where it was and not in cycle_summary.json; the carried file a --no-merge pass leaves at the root is named as written."""
+    merging = _plan()
+    assert merging.carry_out is None
+    assert (
+        "  carry output : (none written: the verdict update fuses its carry into its first merge)"
+        in ac.render_plan(merging)
+    )
+    assert "  carry output : (no carry)" in ac.render_plan(_plan(no_carry=True))
+    line = next(
+        line
+        for line in ac.summary_cycle_lines(_green_report(), merging, [])
+        if line.startswith("  carry output")
+    )
+    assert line == "  carry output     : —"
+    assert ac.cycle_summary_payload(_green_report(), [], merging, "ok")["carry_out"] is None
+    scratch = _plan(scratch_dir=tmp_path / "scratch", carry_out=tmp_path / "scratch" / "carried.json")
+    for plan, kept in ((scratch, False), (_plan(no_merge=True), True)):
         report = _green_report()
         report.carry_out = plan.carry_out
         assert ac.cycle_summary_payload(report, [], plan, "ok")["carry_out"] == (
@@ -3539,7 +3556,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
     payload = ac.cycle_summary_payload(_green_report(), [], plan, "ok")
     assert payload["plan"] == {
         "verdicts": "v.json",
-        "carry_out": str(plan.carry_out),
+        "carry_out": None,
         "do_merge": True,
         "conform_max_length": ac.CONFORM_MAX_LENGTH_DEFAULT,
         "kernel_threads": plan.kernel_threads,
@@ -7605,7 +7622,7 @@ def test_verdict_update_skip_fingerprint_sees_a_master_that_is_not_the_autosave(
 
 
 def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(tmp_path):
-    """The review server rewrites the store with a new `exported_at` on every save, and it lays the records out one per line where the merge indents them. Neither moves the key, and a changed record does. A master that resolved to the store is named `autosave` in the key, so spelling its path another way changes nothing."""
+    """The review server rewrites the store with a new `exported_at` on every save, and it, the merge and the land lay the records out one per line, where a restore and older stores indent them. Neither moves the key, and a changed record does. A master that resolved to the store is named `autosave` in the key, so spelling its path another way changes nothing."""
     corpus = tmp_path / "review"
     corpus.mkdir()
     (corpus / "manifest.json").write_text(
@@ -7631,6 +7648,10 @@ def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(
     store("2026-07-17T21:00:00Z", records, indent=2)
     base = ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave)
     store("2026-07-17T22:30:00Z", list(reversed(records)))
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) == base
+    held = landing.read_store(autosave)
+    assert held is not None
+    autosave.write_bytes(landing.document_bytes(held))
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) == base
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, corpus / ".." / autosave.name) == base
     store("2026-07-17T22:30:00Z", [records[0], {**records[1], "verdict": "either"}])
@@ -7678,16 +7699,20 @@ def test_dry_run_plan_skip_verdict_update_replaces_the_whole_step():
 
 
 def test_dry_run_plan_direct_merge_merges_the_master():
-    """When the corpus did not move, the carry would map every unit onto itself and keep each record's `at`, which is all the merge ranks by. So the verdict update skips the carry and merges the master directly: it is the one input the store's own hash cannot see. The plan also hands it the store's snapshot and a carried file in the scratch directory, for the carry it runs when that snapshot is one the merge would set aside, which only the verdict update can tell; the step's note and the plan's carry output say so."""
+    """When the corpus did not move, the carry would map every unit onto itself and keep each record's `at`, which is all the merge ranks by. So the verdict update skips the carry and merges the master directly: it is the one input the store's own hash cannot see. The plan also hands it the store's snapshot, for the carry it fuses into its first merge when that snapshot is one the merge would set aside, which only the verdict update can tell, and names no carried file; the step's note says so. A --carry-out given to the pass is passed on, and the plan's carry output says it is written only if that carry runs."""
     plan = _plan(direct_merge=True)
     by_name = {step.name: step for step in plan.steps}
     assert plan.scratch_dir is not None
-    assert plan.carry_out == plan.scratch_dir / "verdicts-carried-testid.json"
+    assert plan.carry_out is None
     argv = _argv(by_name["verdict-update"])
     assert "--verdicts" not in argv
     assert argv[argv.index("--merge-master") + 1] == "v.json"
     assert argv[argv.index("--store-snapshot") + 1] == str(plan.scratch_dir / ac.landing.SNAPSHOT_NAME)
-    assert argv[argv.index("--carry-out") + 1] == str(plan.carry_out)
+    assert "--carry-out" not in argv
+    assert (
+        "  carry output : (none written: the verdict update fuses its carry into its first merge)"
+        in ac.render_plan(plan)
+    )
     assert "--no-merge" not in argv
     assert plan.do_merge
     note = by_name["verdict-update"].note
@@ -7700,9 +7725,11 @@ def test_dry_run_plan_direct_merge_merges_the_master():
         "the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the "
         "verdict update" in note
     )
+    named = _plan(direct_merge=True, carry_out=Path("mine.json"))
+    assert _argv({step.name: step for step in named.steps}["verdict-update"]).count("--carry-out") == 1
     assert (
-        f"  carry output : {plan.carry_out} (written only if the verdict update carries the store's snapshot)"
-        in ac.render_plan(plan)
+        "  carry output : mine.json (written only if the verdict update carries the store's snapshot)"
+        in ac.render_plan(named)
     )
 
 
@@ -8008,7 +8035,7 @@ def test_main_carries_a_master_stamped_for_another_corpus_instead_of_merging_it(
         assert ac.main(argv) == 0
         out = capsys.readouterr().out
         row = _step_lines(out, "verdict-update")
-        assert "--verdicts" in row and "--carry-out" in row
+        assert "--verdicts" in row and "--carry-out" not in row
         assert "--merge-master" not in row
         outs.append(out)
     resolved, named = outs
@@ -8059,14 +8086,14 @@ def _land_the_planned_verdict_update(plan: ac.Plan, rules: Path, complaints: Pat
 
 
 def _assert_plans_a_direct_merge_beside_the_snapshot(plan: ac.Plan, master: Path) -> None:
-    """Assert that the plan's verdict update merges `master` directly and is handed the store's snapshot, with a carried file in the pass's scratch directory for the carry it may run, and carries nothing by `--verdicts`."""
+    """Assert that the plan's verdict update merges `master` directly and is handed the store's snapshot for the carry it may fuse into its first merge, with no carried file and no journal, and carries nothing by `--verdicts`."""
     assert plan.scratch_dir is not None
     update = plan.argv("verdict-update")
     assert "--verdicts" not in update
     assert update[update.index("--merge-master") + 1] == str(master)
     assert update[update.index("--store-snapshot") + 1] == str(plan.scratch_dir / landing.SNAPSHOT_NAME)
-    assert update[update.index("--carry-out") + 1] == str(plan.carry_out)
-    assert plan.carry_out is not None and plan.in_scratch(plan.carry_out)
+    assert "--carry-out" not in update and "--journal" not in update
+    assert plan.carry_out is None
 
 
 def _store_carried(plan: ac.Plan, out: str) -> bool:
@@ -8602,7 +8629,7 @@ def test_main_keeps_a_current_server_running_through_a_rebuild(tmp_path, monkeyp
     assert build[build.index("--out") + 1] == str(ac.next_corpus_dir())
     update = plan.argv("verdict-update")
     assert update[update.index("--autosave") + 1] == str(plan.scratch_dir / ac.landing.PREPARED_NAME)
-    assert update[update.index("--journal") + 1] == str(plan.scratch_dir / "journal.ndjson")
+    assert "--journal" not in update and "--carry-out" not in update
     land = plan.argv("land")
     assert land[land.index("--staged") + 1] == str(ac.next_corpus_dir())
     assert land[land.index("--live") + 1] == str(ac.REVIEW_OUT)
@@ -8740,7 +8767,7 @@ def test_a_promoting_pass_runs_the_whole_verdict_update(tmp_path, monkeypatch, c
     out = capsys.readouterr().out
     row = _step_lines(out, "verdict-update")
     assert "uv run python -m rebuild.tools.verdict_update" in row
-    assert "--verdicts" in row and "--carry-out" in row
+    assert "--verdicts" in row and "--carry-out" not in row
     assert "--merge-master" not in row
     assert "SKIPPED" not in row
     assert "stamped for the corpus this pass replaces; its verdicts land by unit id" in out
@@ -9356,7 +9383,7 @@ def test_main_runs_a_live_pass_under_the_pass_lock_with_its_own_scratch_director
 
 
 def test_a_merging_pass_leaves_only_the_store_at_the_root_for_the_next_pass_to_carry(tmp_path, monkeypatch):
-    """A merging pass writes its carried file and both fill files in its scratch directory, which it deletes when it ends, so the repository root holds only the store afterwards. The carry source then resolves to the store, and the next pass carries only the store's snapshot, so a unit the reader clears between the passes has no leftover file to bring it back. The test runs from tmp_path because the suite's audit hook resolves the bare names `shutil.rmtree` unlinks against the working directory, where a `verdicts-*` name reads as a live root file."""
+    """A merging pass writes no carried file, since its verdict update fuses the carry into its first merge, and writes both fill files in its scratch directory, which it deletes when it ends, so the repository root holds only the store afterwards. The carry source then resolves to the store, and the next pass carries only the store's snapshot, so a unit the reader clears between the passes has no leftover file to bring it back. The test runs from tmp_path because the suite's audit hook resolves the bare names `shutil.rmtree` unlinks against the working directory, where a `verdicts-*` name reads as a live root file."""
     stamp = "2026-07-17T20:24:44Z"
     _unsettled_repo(tmp_path, monkeypatch, stamp=stamp)
     monkeypatch.chdir(tmp_path)
@@ -9366,7 +9393,8 @@ def test_a_merging_pass_leaves_only_the_store_at_the_root_for_the_next_pass_to_c
     def run_cycle(plan, report, emit, registry, **_):
         plans.append(plan)
         argv = _argv({step.name: step for step in plan.steps}["verdict-update"])
-        for flag in ("--carry-out", "--duplicate-out", "--standing-out"):
+        assert "--carry-out" not in argv
+        for flag in ("--duplicate-out", "--standing-out"):
             Path(argv[argv.index(flag) + 1]).write_text(json.dumps(_verdicts_doc(stamp, ["u-1", "u-2"])))
         ac.AUTOSAVE.write_text(json.dumps(_verdicts_doc(stamp, ["u-1", "u-2"])))
         return 0

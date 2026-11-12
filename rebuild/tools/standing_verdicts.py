@@ -64,7 +64,7 @@ A rule's except_left guard refuses the whole unit, never one position, so a guar
 
 Standing fills complement duplicate_verdicts.py. The duplicate fill copies the user's verdicts to units whose change is pixel-identical, while a standing rule applies a recorded decision to units the user has never seen, such as windows with new left letters created by later migrations, so those units never wait for human review.
 
-Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A deferred unit carries a skip verdict, so it is not blank and is never filled. The verdicts file's stamp is read from its head when the head settles it (`review_queue.verdicts_stamp`), so a file stamped for another corpus is refused without a whole parse and a document with a second top-level `manifest_generated_at` after its `verdicts` array, which no repo writer makes, is judged by the first. The file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is verdicted under its mark: never filled, counted in the already-verdicted column and in `--explain`'s lists, and outside `--open-only`'s domain, while an override on it that is a reject stays open and the disputed-match warning reports it. The verdict update (rebuild/tools/verdict_update.py) runs this after the duplicate fill and merges its file with merge_verdicts. The report also gives each rule's total reach, its own line plus its combined-match count; the totals do not sum across rules, because a window two rules explain counts toward both.
+Each fill record's `at` is the manifest's generated_at, so a human verdict recorded on this corpus is newer and wins on merge. A deferred unit carries a skip verdict, so it is not blank and is never filled. The verdicts file's stamp is read from its head when the head settles it (`review_queue.verdicts_stamp`), so a file stamped for another corpus is refused without a whole parse and a document with a second top-level `manifest_generated_at` after its `verdicts` array, which no repo writer makes, is judged by the first. The file is read through its accepted list (`review_queue.latest_verdicts`), so a unit a close-out accepted is verdicted under its mark: never filled, counted in the already-verdicted column and in `--explain`'s lists, and outside `--open-only`'s domain, while an override on it that is a reject stays open and the disputed-match warning reports it. The verdict update (rebuild/tools/verdict_update.py) runs this after the duplicate fill over the store it holds in memory, read through its table (`held`, `review_queue.HeldStore`), and merges the fills it is handed back (`proposed`) with merge_verdicts, so the fill file it writes is not read back. The report also gives each rule's total reach, its own line plus its combined-match count; the totals do not sum across rules, because a window two rules explain counts toward both.
 
 Every decision depends only on the unit's index record, the two fonts' rendering of its window, and the rules file; the verdict store only decides which decisions become fills. `Decider.decide` computes the decision and `_decision_reach` aggregates a run from the decisions. The memo (`Memo`, the `--memo` flag, which the verdict update passes) keeps decisions across passes, so a pass evaluates only the units whose key is new and the units a changed rule can reach. `unit_key`, `memo_environment`, `rules_roster`, and `Decider._serve` define the unit keys, the memo stamp, and when a stored decision is served. A stored decision holds rule ids and no note text, so a reworded note re-evaluates nothing and every fill quotes the new wording. When the misses reach `_STANDING_POOL_THRESHOLD`, `_prefill` decides them across a spawn pool at the width `--jobs` gives. The tool derives no width of its own; the verdict update forwards the artifact cycle's. The fills and the report are byte-identical served or computed, pooled or serial, and rebuild/test_standing_verdicts.py checks this over the frozen mini bundle. The `--require-reach` rollup reads the same decisions, so its pass over the whole domain costs no second evaluation.
 
@@ -100,6 +100,7 @@ from rebuild.tools import standing_client  # noqa: E402
 from rebuild.review.accepted import Accepted  # noqa: E402
 from rebuild.tools.review_queue import (  # noqa: E402
     ACCEPTING_VERDICTS,
+    HeldStore,
     accepted_list,
     add_accepted_argument,
     latest_verdicts,
@@ -3423,8 +3424,10 @@ def main(
     context=None,
     unit_source: Callable[[], Iterable[Mapping[str, Any]]] | None = None,
     listed: Accepted | None = None,
+    held: HeldStore | None = None,
+    proposed: list[dict] | None = None,
 ):
-    """Run the standing fill. `units`, `context` and `unit_source` hand over the corpus's human records and the font pair's shaping context when the caller holds them (the verdict update, the daemon and the tests), and `listed` the accepted list `--accepted` names, as the verdict update does; a caller that passes none of the first three may be served by the standing daemon."""
+    """Run the standing fill. `units`, `context` and `unit_source` hand over the corpus's human records and the font pair's shaping context when the caller holds them (the verdict update, the daemon and the tests), and `listed` the accepted list `--accepted` names, as the verdict update does; a caller that passes none of the first three may be served by the standing daemon. `held` is the store the verdict update holds in memory (`review_queue.HeldStore`), read in place of the verdicts file, which it names, and `proposed`, when given, receives the fills the file holds, for the caller's merge."""
     argv = sys.argv[1:] if argv is None else list(argv)
     parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
@@ -3501,7 +3504,7 @@ def main(
 
     corpus = pathlib.Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text())
-    file_stamp, data = verdicts_stamp(args.verdicts)
+    file_stamp, data = (held.stamp, None) if held is not None else verdicts_stamp(args.verdicts)
     if file_stamp != manifest["generated_at"]:
         raise SystemExit(
             f"{args.verdicts} is stamped {file_stamp} but the corpus is "
@@ -3515,7 +3518,7 @@ def main(
         raise SystemExit(f"--explain names {args.explain!r}, which is not a rule id in {args.rules}")
     if listed is None:
         listed = accepted_list(parser, args.accepted, args.verdicts)
-    records = latest_verdicts(args.verdicts, listed, document=data)
+    records = held.view(listed) if held is not None else latest_verdicts(args.verdicts, listed, document=data)
     source = (
         unit_source() if unit_source is not None else (iter_human_units(corpus) if units is None else units)
     )
@@ -3610,10 +3613,10 @@ def main(
 
     lines = []
     if memo is not None:
-        held = memo.write_primed(decider.roster)
+        entries = memo.write_primed(decider.roster)
         lines.append(
             f"  memo: served {decider.served}, computed {decider.computed}, unkeyed {decider.unkeyed}; "
-            f"{memo.path.name} holds {held} {'entry' if held == 1 else 'entries'}"
+            f"{memo.path.name} holds {entries} {'entry' if entries == 1 else 'entries'}"
         )
     lines += _tally_lines(rules, run, args.open_only)
     if args.require_reach or not args.open_only:
@@ -3631,6 +3634,8 @@ def main(
     }
     out = pathlib.Path(args.out) if args.out else OUT
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    if proposed is not None:
+        proposed.extend(run.fills)
     print(
         f"wrote {out.name}: {len(run.fills)} standing-approval verdicts onto manifest "
         f"{manifest['generated_at']}"

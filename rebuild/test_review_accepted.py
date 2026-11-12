@@ -35,6 +35,7 @@ from rebuild.tools import (
     close_out,
     complaint_list,
     duplicate_verdicts,
+    held_store,
     merge_verdicts,
     novelty_order,
     rekey_verdicts,
@@ -87,9 +88,14 @@ def fold_state(directory: Path, state: dict, stamp: str) -> tuple[accepted.Accep
     return held, document
 
 
-def _view(tmp_path: Path) -> tuple[dict, accepted.View]:
+def _view(tmp_path: Path, form: str = "parsed") -> tuple[dict, accepted.View]:
+    """The view sample's store read through its list: parsed (`accepted.view_of`), or held as record lines with a table over them, as the verdict update hands its prepared store to its readers (`held_store.Held.view`)."""
     scenario = _samples()["view"]
     held = accepted.read(_list_at(tmp_path, scenario["list"]))
+    if form == "held":
+        store = tmp_path / "store.json"
+        store.write_text(json.dumps(scenario["store"]), encoding="utf-8")
+        return scenario, _held(store).view(held)
     return scenario, accepted.view_of(scenario["store"], held, store="the store")
 
 
@@ -164,8 +170,9 @@ def test_pair_gives_each_pairing_sample_its_recorded_answer_and_names_both_lists
                 assert sha256 is None or sha256 in str(refusal.value), sample["why"]
 
 
-def test_every_reader_answers_a_unit_by_its_record_then_its_tombstone_then_the_list(tmp_path):
-    scenario, view = _view(tmp_path)
+@pytest.mark.parametrize("form", ["parsed", "held"])
+def test_every_reader_answers_a_unit_by_its_record_then_its_tombstone_then_the_list(tmp_path, form):
+    scenario, view = _view(tmp_path, form)
     for unit, answer in scenario["answers"].items():
         assert view.verdict_of(unit) == answer, unit
         assert accepted.verdict_of(unit, view.records, view.overrides, view.accepted) == answer, unit
@@ -177,8 +184,9 @@ def test_every_reader_answers_a_unit_by_its_record_then_its_tombstone_then_the_l
             assert view[unit] == answer
 
 
-def test_a_view_walks_the_stores_units_then_the_listed_ids_it_answers_from_the_list(tmp_path):
-    scenario, view = _view(tmp_path)
+@pytest.mark.parametrize("form", ["parsed", "held"])
+def test_a_view_walks_the_stores_units_then_the_listed_ids_it_answers_from_the_list(tmp_path, form):
+    scenario, view = _view(tmp_path, form)
     answered = {unit: answer for unit, answer in scenario["answers"].items() if answer is not None}
     from_list = [unit for unit in answered if unit not in view.records and unit not in view.overrides]
     assert [unit for unit in answered if view.is_accepted(unit)] == from_list
@@ -186,6 +194,68 @@ def test_a_view_walks_the_stores_units_then_the_listed_ids_it_answers_from_the_l
     assert list(view) == [*view.records, *view.overrides.records, *from_list]
     assert len(view) == len(answered)
     assert dict(view.items()) == answered
+
+
+def test_a_held_store_answers_through_its_table_as_its_records_do(monkeypatch):
+    """The verdict update holds its prepared store as sorted record lines with a table over them (`held_store.Held`) and patches it by address after each merge (`held_store.patched`). Over random stores and random changes, unit ids of the table's 13 bytes and of other widths, 13-byte ids under prefixes other than `u-` that sort before and after it, verdicts of the six kinds and others among them, which the table cannot hold and keeps beside it, its records answer `in`, `[]`, `get`, iteration, `len`, `items` and `values` as a dict of the same records does, its counts are the merge's, and its document is the layout the land writes (`landing.document_bytes`)."""
+    monkeypatch.setattr(journal, "now_stamp", lambda: "2026-07-30T00:00:00Z")
+    rng = random.Random(18)
+    alphabet = accepted.ID_ALPHABET
+    for _round in range(60):
+        units = sorted(
+            {
+                rng.choice(
+                    (
+                        "u-" + "".join(rng.choice(alphabet) for _ in range(11)),
+                        "u-" + "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 14))),
+                        "u-é" + "".join(rng.choice(alphabet) for _ in range(9)),
+                        rng.choice(("a-", "e-", "x-", "u_"))
+                        + "".join(rng.choice(alphabet) for _ in range(11)),
+                    )
+                )
+                for _ in range(rng.randint(0, 40))
+            }
+        )
+        kinds = ("approve", "reject", "either", "identical", "neither", "skip", "bogus")
+
+        def record(unit: str) -> dict:
+            return {
+                "unit": unit,
+                "verdict": rng.choice(kinds),
+                "note": rng.choice(("", "a note")),
+                "at": f"2026-07-{rng.randint(10, 28)}",
+            }
+
+        records = {unit: record(unit) for unit in units if rng.random() < 0.7}
+        builder = held_store.Builder()
+        for unit in sorted(records):
+            builder.add(records[unit])
+        held = builder.held("S", None, {}, accepted.Overrides())
+        changes = {unit: record(unit) for unit in rng.sample(units, min(len(units), rng.randint(0, 6)))}
+        if rng.random() < 0.7:
+            held = held_store.patched(
+                held, [changes[unit] for unit in sorted(changes)], {}, accepted.Overrides()
+            )
+            records.update(changes)
+        table = held.records()
+        for unit in [*units, "u-absent", "u-1AAAAAAAAAA", "x-1AAAAAAAAAA"]:
+            assert (unit in table, table.get(unit)) == (unit in records, records.get(unit)), unit
+            if unit in records:
+                assert table[unit] == records[unit]
+            else:
+                with pytest.raises(KeyError):
+                    table[unit]
+        assert list(table) == sorted(records) and len(table) == len(records)
+        assert dict(table.items()) == records and list(table.values()) == [
+            records[unit] for unit in sorted(records)
+        ]
+        assert held_store.counts(held) == (
+            len(records),
+            sum(r["verdict"] != "skip" for r in records.values()),
+        )
+        assert b"".join(held.chunks("2026-07-30T00:00:00Z")) == landing.document_bytes(
+            landing.Store("S", records)
+        )
 
 
 def test_the_app_field_lists_the_accepted_units_on_the_served_corpus(tmp_path):
@@ -344,37 +414,59 @@ def _queue(store: Path, flags: tuple[str, ...] = ()) -> object:
     return snapshot, printed
 
 
-def _duplicate_fill(store: Path, flags: tuple[str, ...] = ()) -> object:
-    """Each fill's unit and verdict, and the disagreement report without the members' notes: a fill copied from an accepted member carries the close-out's time and its marker alone (decisions 24 and 29)."""
+def _held(store: Path) -> held_store.Held:
+    """The store at `store` held as record lines with a table over them, as the verdict update holds its prepared store after a merge (`held_store.Held`): its own records settled by unit and normalized, its tombstones on units holding none, and its override section."""
+    document = json.loads(store.read_text(encoding="utf-8"))
+    records = journal.latest_by_unit(document["verdicts"])
+    builder = held_store.Builder()
+    for unit in sorted(records):
+        builder.add(records[unit])
+    section = accepted.Overrides.of(document)
+    overrides = accepted.Overrides(
+        {unit: held_store.normalized(record) for unit, record in section.records.items()}, section.cleared
+    )
+    cleared = {unit: at for unit, at in journal.parse_cleared(document).items() if unit not in records}
+    return builder.held(document["manifest_generated_at"], document.get("accepted"), cleared, overrides)
+
+
+def _duplicate_fill(store: Path, flags: tuple[str, ...] = (), *, held: bool = False) -> object:
+    """Each fill's unit and verdict, and the disagreement report without the members' notes: a fill copied from an accepted member carries the close-out's time and its marker alone (decisions 24 and 29). With `held`, the fill reads the store held in memory (`_held`), as the verdict update hands it over."""
     out = store.parent / "duplicate-fill.json"
     argv = [str(store), "--corpus", str(FIXTURES), "--out", str(out), *flags]
-    printed = _printed(lambda: duplicate_verdicts.main(argv), store.parent)
+    printed = _printed(
+        lambda: duplicate_verdicts.main(argv, held=_held(store) if held else None), store.parent
+    )
     fills = [(record["unit"], record["verdict"]) for record in json.loads(out.read_text())["verdicts"]]
     report = [line.split()[:3] if line.startswith("    u-") else line for line in printed.splitlines()]
     return fills, report
 
 
-def _standing_fill(store: Path, flags: tuple[str, ...] = ()) -> object:
-    """The fills and the report of the whole-domain dry run and of the cycle's form."""
+def _standing_fill(store: Path, flags: tuple[str, ...] = (), *, held: bool = False) -> object:
+    """The fills and the report of the whole-domain dry run and of the cycle's form, reading the store held in memory with `held` (`_held`)."""
     rules = _ink_rules(store.parent)
     out = store.parent / "standing-fill.json"
     runs = []
     for form in ((), ("--open-only", "--require-reach")):
         argv = [str(store), "--corpus", str(FIXTURES), "--rules", str(rules), "--out", str(out)]
         argv += ["--daemon", "never", *form, *flags]
-        printed = _printed(lambda: standing_verdicts.main(argv), store.parent)
+        printed = _printed(
+            lambda: standing_verdicts.main(argv, held=_held(store) if held else None), store.parent
+        )
         runs.append((json.loads(out.read_text(encoding="utf-8"))["verdicts"], printed))
     return runs
 
 
-def _complaint_list(store: Path, flags: tuple[str, ...] = ()) -> object:
-    """The complaint list over the fixture's human units, each handed over carrying the first provenance pointers a unit carries: the fixture's units share none with a complaint, and sharing them puts every unit in each complaint group's reach, its blanks among the defer candidates and its accepting verdicts among the approved units at risk."""
+def _complaint_list(store: Path, flags: tuple[str, ...] = (), *, held: bool = False) -> object:
+    """The complaint list over the fixture's human units, each handed over carrying the first provenance pointers a unit carries: the fixture's units share none with a complaint, and sharing them puts every unit in each complaint group's reach, its blanks among the defer candidates and its accepting verdicts among the approved units at risk. With `held`, the list reads the store held in memory (`_held`)."""
     units, ids = unit_index.load_human_units(FIXTURES)
     pointers = next(unit["provenance"] for unit in units if unit.get("provenance"))
     shared = [{**unit, "provenance": pointers} for unit in units]
     out = store.parent / "complaints-data.json"
     argv = [str(store), "--corpus", str(FIXTURES), "--data-out", str(out), *flags]
-    printed = _printed(lambda: complaint_list.main(argv, units=shared, unit_ids=ids), store.parent)
+    printed = _printed(
+        lambda: complaint_list.main(argv, units=shared, unit_ids=ids, held=_held(store) if held else None),
+        store.parent,
+    )
     payload = json.loads(out.read_text(encoding="utf-8"))
     del payload["verdicts_file"]
     return payload, printed
@@ -432,7 +524,16 @@ CLI_READERS: dict[str, Callable[..., object]] = {
     "standing probe": _standing_probe,
     "triage export": _triage_export,
 }
-READERS: dict[str, Callable[..., object]] = {**CLI_READERS, "verdict ready": _verdict_ready}
+HELD_READERS: dict[str, Callable[..., object]] = {
+    "duplicate fill, held": lambda store: _duplicate_fill(store, held=True),
+    "standing fill, held": lambda store: _standing_fill(store, held=True),
+    "complaint list, held": lambda store: _complaint_list(store, held=True),
+}
+READERS: dict[str, Callable[..., object]] = {
+    **CLI_READERS,
+    **HELD_READERS,
+    "verdict ready": _verdict_ready,
+}
 
 
 @pytest.mark.parametrize("reader", sorted(READERS))
@@ -444,6 +545,16 @@ def test_every_reader_gives_a_folded_store_the_verdicts_the_unfolded_store_gave(
             for side in ("before", "after")
         ]
         assert answers[0] == answers[1], fold["why"]
+
+
+@pytest.mark.parametrize("reader", sorted(HELD_READERS))
+def test_a_reader_handed_the_store_held_in_memory_answers_as_it_reads_the_file(reader, tmp_path):
+    """The verdict update hands the duplicate and standing fills and the complaint list its prepared store held as record lines with a table over them (`held_store.Held`) in place of the file, which they read through the table. Over each fold sample's store before and after the fold, each gives the fills, conflicts, reports and complaint list it gives reading the store's file."""
+    name = reader.removesuffix(", held")
+    for index, fold in enumerate(_samples()["folds"]):
+        for side in ("before", "after"):
+            store = _fold_side(tmp_path / str(index) / side, fold[side])
+            assert HELD_READERS[reader](store) == CLI_READERS[name](store), (fold["why"], side)
 
 
 def test_the_duplicate_fill_and_its_merge_leave_a_member_cleared_before_the_close_out_blank(tmp_path):
