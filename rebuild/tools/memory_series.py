@@ -874,7 +874,7 @@ def corpus_code(checkout: Path) -> dict[str, str]:
 
 
 def null_routes(manifest: Mapping, class_ids: Iterable[str]) -> list[str]:
-    """The paths under a cut line's out dir to link to the null device: a staging name for every output the build has, so a cut line writes none of them for real. Each class the live manifest lists gets a shard part's staging name for its live part count plus one, counted from the part names the manifest lists (`unit_index.class_shards`), since a cut's class holds a subset of the live class's units, and every other id in `class_ids` (the ledger's and `audit.RESERVED_CLASS_IDS`) gets one; each class also gets its first overflow part's staging name. Then the units index, the three app sidecars and the signature store, each under its writer's `.partial` name, and the unit store's head, its generation-0 base and that base's first segment (`row_delta`). A cut line's build finds no previous corpus, so it writes only the base parts, the head and the generation-0 base of these; the overflow part and the segment are routed all the same."""
+    """The paths under a cut line's out dir to link to the null device: a staging name for every output the build has, so a cut line writes none of them for real. Each class the live manifest lists gets a shard part's staging name for its live part count plus one, counted from the part names the manifest lists (`unit_index.class_shards`), since a cut's class holds a subset of the live class's units, and every other id in `class_ids` (the ledger's and `audit.RESERVED_CLASS_IDS`) gets one; each class also gets its first overflow part's staging name. Then the three app sidecars and the signature store, each under its writer's `.partial` name, and the units index's and the unit store's heads, their generation-0 bases and each base's first segment (`row_delta`), whose staging names the index's writer leaves where it finds them as links (`row_delta.remove_staging`). A cut line's build finds no previous corpus, so it writes only the base parts and each output's head and generation-0 base of these; the overflow part and the segments are routed all the same."""
     from rebuild.pipeline import row_delta
     from rebuild.review import app_index, unit_cache, unit_index
 
@@ -887,14 +887,19 @@ def null_routes(manifest: Mapping, class_ids: Iterable[str]) -> list[str]:
         for index in range(count + 1)
     ] + [f"{unit_index.overflow_part_name(class_id, 0)}.partial" for class_id in sorted(parts)]
     sidecars = (
-        unit_index.INDEX_NAME,
         app_index.APP_INDEX_NAME,
         app_index.LOCATOR_NAME,
         app_index.LOCATOR_ROWS_NAME,
         unit_cache.SIGNATURE_STORE_NAME,
-        row_delta.head_name(unit_cache.STORE_NAME),
-        row_delta.base_name(unit_cache.STORE_NAME, 0),
-        row_delta.segment_name(unit_cache.STORE_NAME, 0, 1),
+        *(
+            name
+            for output in (unit_index.INDEX_NAME, unit_cache.STORE_NAME)
+            for name in (
+                row_delta.head_name(output),
+                row_delta.base_name(output, 0),
+                row_delta.segment_name(output, 0, 1),
+            )
+        ),
     )
     return routes + [f"{name}.partial" for name in sidecars]
 

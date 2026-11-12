@@ -43,7 +43,7 @@ from itertools import batched, chain, combinations
 from pathlib import Path
 from typing import BinaryIO, NoReturn, cast
 
-from rebuild.pipeline import fingerprint, output_sink, spec_load
+from rebuild.pipeline import fingerprint, output_sink, row_delta, spec_load
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
 from rebuild.review import app_index, audit, audit_stream, facts, tablediff, unit_cache, unit_index
 from rebuild.review.audit import (
@@ -1970,9 +1970,9 @@ class _SidecarRun:
 
 
 class _SidecarLines:
-    """Hold one run's sidecar lines in memory, compressed, while its shards are written. Each sidecar's header carries the manifest's identity, and the manifest can only be written once every class's part list is known, so the lines wait for it. The index's lines and the app index's go into a gzip stream each, at level 1, which `_write_sidecars` inflates once the manifest is on disk and writes through `unit_index.write_index_lines` and `app_index.write_app_artifacts_lines`, the writers `write_index` and `write_app_artifacts` use. The locator's lines are cut into blocks as they come (`app_index.LocatorBlocks`), each compressed into the gzip member the rows file holds, and `_write_sidecars` copies those byte for byte: a run is whole classes and a block never spans two, so the run's blocks are the ones a cutter over every line would make. So the files match a build that held every fragment, byte for byte. `close` ends the run and returns its counts and block entries with its compressed lines, by the name of the file each becomes, and `release` closes the cursors of a run that failed.
+    """Hold one run's sidecar lines in memory, compressed, while its shards are written. Each sidecar's header carries the manifest's identity, and the manifest can only be written once every class's part list is known, so the lines wait for it. The index's lines and the app index's go into a gzip stream each, at level 1, which `_write_sidecars` inflates once the manifest is on disk and writes through `unit_index.write_index_lines` and `app_index.write_app_artifacts_lines`, the writers `write_index` and `write_app_artifacts` use. The locator's lines are cut into blocks as they come (`app_index.LocatorBlocks`), each compressed into the gzip member the rows file holds, and `_write_sidecars` copies those byte for byte: a run is whole classes and a block never spans two, so the run's blocks are the ones a cutter over every line would make. So the app sidecars match a build that held every fragment, byte for byte, and the index takes the route and leaves the head, parts and materialized bytes that build's would. `close` ends the run and returns its counts and block entries with its compressed lines, by the name of the file each becomes, and `release` closes the cursors of a run that failed.
 
-    Each row carries the address of the span the shard writer returned, and the trailing `"deflated": true` exactly when that span is a deflated fragment's (#618's decision 77), whatever the previous row held. A byte-copied unit is projected without parsing it. Its line in the previous corpus's index, and its row in the previous app index if it is a human unit, are read in step through `unit_index.LineCursor` (both files are in shard order, and a cached unit keeps its place in it). They are copied forward with this build's queue position and shard address substituted, the marker with the address (`unit_index.copy_forward_index_line`, `app_index.copy_forward_app_line`); every other field is the fragment's own and unchanged. Its locator row needs only its id, class and address. The write opens the cursors only when the previous sidecars are stamped for the manifest beside them (`copy_forward`), and each run opens its own, which read past the lines of the classes before the run's first; a unit a cursor cannot reach is parsed instead, which gives the same bytes at a higher cost.
+    Each row carries the address of the span the shard writer returned, and the trailing `"deflated": true` exactly when that span is a deflated fragment's (#618's decision 77), whatever the previous row held. A byte-copied unit is projected without parsing it. Its line in the previous corpus's index, and its row in the previous app index if it is a human unit, are read in step through `unit_index.LineCursor` (both are in shard order, and a cached unit keeps its place in it): the index's through `LineCursor.over_index`, its base and segments merged by key, a buffer a part, with no places, and the app index's file. They are copied forward with this build's queue position and shard address substituted, the marker with the address (`unit_index.copy_forward_index_line`, `app_index.copy_forward_app_line`); every other field is the fragment's own and unchanged. Its locator row needs only its id, class and address. The write opens the cursors only when the previous sidecars are stamped for the manifest beside them (`copy_forward`), and each run opens its own, which read past the lines of the classes before the run's first; a unit a cursor cannot reach is parsed instead, which gives the same bytes at a higher cost.
     """
 
     def __init__(self, out_dir: Path, *, copy_forward: bool = False) -> None:
@@ -1991,7 +1991,7 @@ class _SidecarLines:
         self._index_cursor: unit_index.LineCursor | None = None
         self._app_cursor: unit_index.LineCursor | None = None
         if copy_forward:
-            self._index_cursor = unit_index.LineCursor(unit_index.index_path(out_dir))
+            self._index_cursor = unit_index.LineCursor.over_index(out_dir)
             self._app_cursor = unit_index.LineCursor(
                 app_index.artifact_path(out_dir, app_index.APP_INDEX_NAME)
             )
@@ -2074,8 +2074,10 @@ def _inflated(compressed: bytes) -> Iterator[bytes]:
         yield from stream
 
 
-def _write_sidecars(out_dir: Path, runs: Sequence[_SidecarRun], pull: Callable[[int, str], bytes]) -> None:
-    """Write the three stamped sidecars from the runs' compressed lines, run after run. `pull` returns one run's lines for one sidecar, by the run's index and the name of the file they become, and gives them up, so this process holds one run's lines for one sidecar at a time: each is dropped before the next is pulled. The runs are in shard order, so the lines are too. The index's and the app index's lines are inflated and compressed again by their writers, as from lines held raw, and the locator's blocks are copied as they are, so the files are byte for byte what one pass over the whole corpus would give. Run once the manifest is on disk, since each header carries its identity."""
+def _write_sidecars(
+    out_dir: Path, runs: Sequence[_SidecarRun], pull: Callable[[int, str], bytes]
+) -> unit_index.IndexWrite:
+    """Write the three stamped sidecars from the runs' compressed lines, run after run, and return what the index's write did. `pull` returns one run's lines for one sidecar, by the run's index and the name of the file they become, and gives them up, so this process holds one run's lines for one sidecar at a time: each is dropped before the next is pulled. The runs are in shard order, so the lines are too. The app index's lines are inflated and compressed again by its writer, as from lines held raw, and the locator's blocks are copied as they are, so those files are byte for byte what one pass over the whole corpus would give. The index's lines are inflated and walked beside the previous index's parts, a buffer a part, by `unit_index.write_index_lines`, which writes the records that differ as a segment, or the head alone, or a new base by the route it decides before it writes (#618's change 32), so its head, parts and materialized bytes are what one pass over the whole corpus would give. Run once the manifest is on disk, since each header carries its identity."""
 
     def lines(name: str) -> Iterator[bytes]:
         for index in range(len(runs)):
@@ -2085,7 +2087,7 @@ def _write_sidecars(out_dir: Path, runs: Sequence[_SidecarRun], pull: Callable[[
         for index, run in enumerate(runs):
             yield pull(index, app_index.LOCATOR_ROWS_NAME), run.blocks
 
-    unit_index.write_index_lines(out_dir, lines(unit_index.INDEX_NAME))
+    index = unit_index.write_index_lines(out_dir, lines(unit_index.INDEX_NAME))
     app_index.write_app_artifacts_lines(
         out_dir,
         lines(app_index.APP_INDEX_NAME),
@@ -2093,6 +2095,7 @@ def _write_sidecars(out_dir: Path, runs: Sequence[_SidecarRun], pull: Callable[[
         human=sum(run.human for run in runs),
         machine=sum(run.machine for run in runs),
     )
+    return index
 
 
 @dataclass(frozen=True)
@@ -2108,9 +2111,10 @@ class _ClassLayout:
 
 
 class MaterializedCorpus:
-    """The corpus's materialized form (#618's decision 48): the files a from-scratch build of the same units writes, from which a corpus the build appended to, folded or wrote directly differs only in its layout and in the form its fragments are held in. Each class's live fragments (`unit_index.LiveCorpus`) are laid into base parts in id order by the from-scratch writer's rule (`unit_index.PartLayout`), each at its plain length, a deflated fragment's inflated length as the unit store records it (decision 76), so nothing is inflated to lay it out. The parts hold every fragment plain, a deflated one inflated as it is read (change 35), the manifest lists those parts, the app sidecars' rows and the unit store's records give each fragment its plain address there with no deflated fragment's marker, the locator's blocks are cut again over the moved rows, and every stamp names the manifest that lists those parts. `materialize_corpus` writes the whole tree, for the tests, and `rebuild/tools/perf_fingerprint.py` digests it without writing anything. `identical` says the corpus already is its materialized form: every class's parts, their sizes and every live fragment's address as a from-scratch build gives them, and no fragment deflated, as on a corpus no build has appended to, folded or left a dead slot in."""
+    """The corpus's materialized form (#618's decision 48): the files a from-scratch build of the same units writes, from which a corpus the build appended to, folded or wrote directly differs only in its layout and in the form its fragments are held in, and one whose units index is a head, a base and segments differs in that too. Each class's live fragments (`unit_index.LiveCorpus`) are laid into base parts in id order by the from-scratch writer's rule (`unit_index.PartLayout`), each at its plain length, a deflated fragment's inflated length as the unit store records it (decision 76), so nothing is inflated to lay it out. The parts hold every fragment plain, a deflated one inflated as it is read (change 35), the manifest lists those parts, the app sidecars' rows and the unit store's records give each fragment its plain address there with no deflated fragment's marker, the locator's blocks are cut again over the moved rows, the units index is its base and segments merged by key with each record's place from the manifest (`unit_index.materialized_index`, change 32), every part checked against its head's sha256, and every stamp names the manifest that lists those parts. `materialize_corpus` writes the whole tree, for the tests, and `rebuild/tools/perf_fingerprint.py` digests it without writing anything. `identical` says the corpus already is its materialized form: every class's parts, their sizes and every live fragment's address as a from-scratch build gives them, and no fragment deflated, as on a corpus no build has appended to, folded or left a dead slot in."""
 
     STORE_FILES = re.compile(rf"{re.escape(unit_cache.STORE_NAME)}(?:\.head|\.\d+\.base|\.\d+\.\d+\.delta)?")
+    INDEX_FILES = re.compile(rf"{re.escape(unit_index.INDEX_NAME)}(?:\.head|\.\d+\.base|\.\d+\.\d+\.delta)?")
     SIDECARS = (
         unit_index.INDEX_NAME,
         app_index.APP_INDEX_NAME,
@@ -2220,12 +2224,19 @@ class MaterializedCorpus:
             yield from stream
 
     def sidecar_header(self, name: str) -> dict:
-        """Return a sidecar's header as the materialized form has it: the file's own, its manifest stamp the materialized manifest's."""
-        header = app_index.artifact_header(self.out_dir, name) or {}
+        """Return a sidecar's header as the materialized form has it: the file's own, the units index's its head's stamps (`unit_index.index_header`), its manifest stamp the materialized manifest's."""
+        if name == unit_index.INDEX_NAME:
+            header = unit_index.index_header(self.out_dir) or {}
+        else:
+            header = app_index.artifact_header(self.out_dir, name) or {}
         return {**header, "manifest_sha256": self.manifest_sha256}
 
     def index_lines(self) -> Iterator[bytes]:
-        return self._sidecar_lines(unit_index.INDEX_NAME)
+        """Return the units index's materialized record lines (`unit_index.materialized_index`), every part checked against its head's size and sha256."""
+        materialized = unit_index.materialized_index(self.out_dir, sha256=True)
+        if materialized is None:
+            raise FileNotFoundError(unit_index.index_path(self.out_dir))
+        return materialized[1]
 
     def app_lines(self) -> Iterator[bytes]:
         return (self._remap_row(line) for line in self._sidecar_lines(app_index.APP_INDEX_NAME))
@@ -2269,17 +2280,18 @@ class MaterializedCorpus:
         )
 
     def is_layout_file(self, relative: str) -> bool:
-        """Whether a corpus file is one the materialized form replaces: a shard part, the manifest, a sidecar, or one of the unit store's files."""
+        """Whether a corpus file is one the materialized form replaces: a shard part, the manifest, a sidecar, one of the units index's files or one of the unit store's."""
         return (
             relative.startswith("units/")
             or relative == "manifest.json"
             or relative in self.SIDECARS
+            or self.INDEX_FILES.fullmatch(relative) is not None
             or self.STORE_FILES.fullmatch(relative) is not None
         )
 
 
 def materialize_corpus(out_dir: Path, target: Path) -> None:
-    """Write the corpus at `out_dir` in its materialized form (`MaterializedCorpus`) into `target`, which must not exist, with the files a from-scratch build writes: every other file copied, the parts, the manifest, the sidecars through their own writers, and the unit store as the single file `unit-cache.ndjson.gz`. A corpus built from scratch and one appended to over the same units materialize to the same bytes."""
+    """Write the corpus at `out_dir` in its materialized form (`MaterializedCorpus`) into `target`, which must not exist, with the files a from-scratch build writes: every other file copied, the parts, the manifest, the app sidecars through their own writers, the units index as the single file `units-index.ndjson.gz` and the unit store as the single file `unit-cache.ndjson.gz`. A corpus built from scratch and one appended to over the same units materialize to the same bytes."""
     out_dir, target = Path(out_dir), Path(target)
     target.mkdir(parents=True)
     with MaterializedCorpus(out_dir) as corpus:
@@ -2294,7 +2306,9 @@ def materialize_corpus(out_dir: Path, target: Path) -> None:
                 for chunk in chunks:
                     handle.write(chunk)
         _write_json(target / "manifest.json", corpus.manifest)
-        unit_index.write_index_lines(target, corpus.index_lines())
+        unit_index.write_materialized_index(
+            target, corpus.sidecar_header(unit_index.INDEX_NAME), corpus.index_lines()
+        )
         rows, blocks, machine = corpus.locator()
         human = int(corpus.sidecar_header(app_index.APP_INDEX_NAME).get("units") or 0)
         app_index.write_app_artifacts_lines(
@@ -2308,13 +2322,14 @@ def materialize_corpus(out_dir: Path, target: Path) -> None:
 
 @dataclass(frozen=True)
 class _WrittenCorpus:
-    """What `_write_corpus` returns besides the manifest: the width its write ran at, how many units were written without parsing, how many sidecar rows were copied forward from the previous sidecars, and each run's compressed sidecar lines in bytes, in shard order (`_SidecarRun.held`). Then what the shard write did: the bytes it appended to overflow parts and the plain bytes those inflate to, the fragments that kept their prior address because their new bytes equal their prior's (`kept`, beside the cached fragments copied as they are among `byte_copied`), the classes it folded and those it wrote directly, by the share rule or as a first base, the fragments it wrote deflated by any route (#618's change 35), and the dead bytes the appended classes' parts hold once written. The per-unit values the build reads after the fragments are gone are written into the unit store's columns during the write instead: each unit's `config_note`, which the review facts histogram, and its shard address and policy-draft file, which the unit-cache store records so the next build's plan can reuse the fragment without walking the shard and check it without parsing it."""
+    """What `_write_corpus` returns besides the manifest: the width its write ran at, how many units were written without parsing, how many sidecar rows were copied forward from the previous sidecars, each run's compressed sidecar lines in bytes, in shard order (`_SidecarRun.held`), and what the units index's write did (`unit_index.IndexWrite`). Then what the shard write did: the bytes it appended to overflow parts and the plain bytes those inflate to, the fragments that kept their prior address because their new bytes equal their prior's (`kept`, beside the cached fragments copied as they are among `byte_copied`), the classes it folded and those it wrote directly, by the share rule or as a first base, the fragments it wrote deflated by any route (#618's change 35), and the dead bytes the appended classes' parts hold once written. The per-unit values the build reads after the fragments are gone are written into the unit store's columns during the write instead: each unit's `config_note`, which the review facts histogram, and its shard address and policy-draft file, which the unit-cache store records so the next build's plan can reuse the fragment without walking the shard and check it without parsing it."""
 
     manifest: dict
     jobs: int
     byte_copied: int
     copied_forward: int
     sidecar_bytes: list[int]
+    index: unit_index.IndexWrite
     appended: int = 0
     kept: int = 0
     folded: int = 0
@@ -3139,7 +3154,7 @@ def _write_corpus(
         if pruned:
             print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
         copy_static(out_dir, static_dir)
-        _write_sidecars(
+        index_write = _write_sidecars(
             out_dir,
             [written[index].sidecars for index in range(len(runs))],
             pool.lines if pool is not None else held_lines,
@@ -3168,6 +3183,7 @@ def _write_corpus(
         byte_copied,
         sum(written[index].sidecars.copied_forward for index in range(len(runs))),
         [written[index].sidecars.held for index in range(len(runs))],
+        index_write,
         appended,
         kept,
         sum(entry.route == FOLD for entry in to_write),
@@ -3970,7 +3986,8 @@ def _build_m1(
         f"{', '.join(f'{size / 1e6:.1f}' for size in written.sidecar_bytes)} MB by run; "
         f"appended {written.appended / 1e6:.1f} MB ({written.appended_inflated / 1e6:.1f} MB inflated), "
         f"kept {written.kept:,} by compare, folded {written.folded:,} classes, wrote {written.direct:,} directly, "
-        f"deflated {written.deflated:,} fragments, dead {written.dead / 1e6:.1f} MB)",
+        f"deflated {written.deflated:,} fragments, dead {written.dead / 1e6:.1f} MB) "
+        f"(index: {written.index.note()})",
     )
 
     console.phase("review.build review-facts", file=sys.stderr)
@@ -5323,7 +5340,10 @@ def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = 
                 errors.append(f"fonts.{side}: the copy is not {record['source']} as it stands on disk")
     if not (Path(out_dir) / "index.html").exists():
         errors.append("index.html is missing")
-    if not unit_index.index_path(out_dir).is_file():
+    if not (
+        row_delta.head_path(out_dir, unit_index.INDEX_NAME).is_file()
+        or unit_index.index_path(out_dir).is_file()
+    ):
         errors.append(f"{unit_index.INDEX_NAME} is missing")
     elif not unit_index.index_is_current(out_dir):
         errors.append(f"{unit_index.INDEX_NAME} is unreadable or stamped for another manifest")

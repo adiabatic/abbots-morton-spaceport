@@ -1136,17 +1136,17 @@ def test_the_listing_names_every_file_the_build_left_and_strays_what_it_was_not_
     (out_dir / "units").mkdir(parents=True)
     (out_dir / "manifest.json").write_text("{}")
     (out_dir / "units" / "join-dropped.json").symlink_to(os.devnull)
-    (out_dir / "units-index.ndjson.gz").write_bytes(b"stray")
+    (out_dir / "units-index.ndjson.gz.0.base").write_bytes(b"stray")
     (tmp_path / ms.POOLS_NAME).write_text("{}\n")
     (tmp_path / ms.PACK_DIR).mkdir()
     os.mkfifo(tmp_path / ms.PACK_DIR / "baseline-default.subset.tsv.gz")
     assert ms.step_files(tmp_path, ms.expected_files(False)) == {
         "kept": {"out/manifest.json": 2, ms.POOLS_NAME: 3},
-        "stray": {"out/units-index.ndjson.gz": 5},
+        "stray": {"out/units-index.ndjson.gz.0.base": 5},
     }
     assert ms.step_files(tmp_path, ms.expected_files(True))["stray"] == {
         "out/manifest.json": 2,
-        "out/units-index.ndjson.gz": 5,
+        "out/units-index.ndjson.gz.0.base": 5,
     }
 
 
@@ -1182,7 +1182,7 @@ def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_str
         settled.append(cut.name)
         environments.append(rest["env"])
         audits.append((cut.name, audit_file.path, audit_file.kind, audit_file.path.is_file()))
-        stray = {"out/units-index.ndjson.gz": 5} if len(measured_names) == 3 else {}
+        stray = {"out/units-index.ndjson.gz.0.base": 5} if len(measured_names) == 3 else {}
         return {
             "written": {"end": None, "after": None},
             "signatures_shaped": 0,
@@ -1204,7 +1204,7 @@ def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_str
     monkeypatch.setattr(ms.time, "sleep", lambda seconds: settled.append(("sleep", seconds)))
     monkeypatch.setattr(ms, "measure_corpus_line", measure_corpus_line)
     out = tmp_path / "series.txt"
-    with pytest.raises(SystemExit, match=r"r4 left files .*out/units-index\.ndjson\.gz \(5 B\)"):
+    with pytest.raises(SystemExit, match=r"r4 left files .*out/units-index\.ndjson\.gz\.0\.base \(5 B\)"):
         ms.main(
             [
                 "--holder",
@@ -1236,7 +1236,7 @@ def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_str
         ("corpus", 3),
         ("corpus", 4),
     ]
-    assert recorded[2]["files"]["stray"] == {"out/units-index.ndjson.gz": 5}
+    assert recorded[2]["files"]["stray"] == {"out/units-index.ndjson.gz.0.base": 5}
     assert (recorded[0]["code"]["corpus_code"], recorded[0]["code_after"]["corpus_code"]) == (
         "first",
         "moved",

@@ -1,16 +1,19 @@
-"""Writes and reads the corpus's per-unit index, `units-index.ndjson.gz`: one record per unit with the fields the verdict update reads, written beside the manifest.
+"""Writes and reads the corpus's per-unit index, `units-index.ndjson.gz`: one record per unit with the fields the verdict update reads, written beside the manifest and held in the segment format (`rebuild/pipeline/row_delta.py`, #618's change 32): a head, `units-index.ndjson.gz.head`, over a base that is the whole file a write of every record gives, and the segments later builds wrote over it, keyed by class and id.
 
-The shards are the authority, and this file is a projection of them. It exists because the verdict-update tools (carry, duplicate fill, standing fill, the complaint list) and the review-session preparation tools (the review queue snapshot, the novelty order) each read a few fields per unit. Reading those from the shards would mean parsing gigabytes of JSON once per tool per cycle, much of it `explain` and `drafts`, of which the index keeps only the policy draft's file, key path, and suggested record. `index_record` defines the projection. rebuild/test_unit_index.py checks it against the fixture shards field for field and pins the field set. A field a tool needs must be added here: `UnitRecord.get` returns the default for a name outside `INDEX_FIELDS`, so a missing field would silently read as absent.
+The shards are the authority, and the index is a projection of them. It exists because the verdict-update tools (carry, duplicate fill, standing fill, the complaint list) and the review-session preparation tools (the review queue snapshot, the novelty order) each read a few fields per unit. Reading those from the shards would mean parsing gigabytes of JSON once per tool per cycle, much of it `explain` and `drafts`, of which the index keeps only the policy draft's file, key path, and suggested record. `index_record` defines the projection. rebuild/test_unit_index.py checks it against the fixture shards field for field and pins the field set. A field a tool needs must be added here: `UnitRecord.get` returns the default for a name outside `INDEX_FIELDS`, so a missing field would silently read as absent.
 
-Two fields are counts, because counting is all any reader does with them: `render_groups` is the number of render groups (standing fill requires exactly one) and `secondary_junctions` the number of secondary junctions (standing fill requires none). Two fields come from the manifest instead of the shard: `order` is the unit's position in the manifest's triage index (`human_unit_ids`), and `batch` is the `batch_size` slice that position falls in. Both are null for a unit outside the index. A fragment carries neither, because a unit's place in the queue is not a property of the unit, and every reader derives them through `human_positions`. Every other field is the shard's own value.
+Two fields are counts, because counting is all any reader does with them: `render_groups` is the number of render groups (standing fill requires exactly one) and `secondary_junctions` the number of secondary junctions (standing fill requires none). Two fields come from the manifest instead of the shard: `order` is the unit's position in the manifest's triage index (`human_unit_ids`), and `batch` is the `batch_size` slice that position falls in. Both are null for a unit outside the index. A fragment carries neither, because a unit's place in the queue is not a property of the unit, and an inserted or removed human unit moves the place of every one after it. So every reader takes them from the manifest beside the index (`Places`, built once a walk in the process that reads), never from a record (#618's decision 55): a base's records keep the pair a whole write gives them, which every reader cuts out and replaces, and a segment's records hold none. An id the triage index lacks reads null for both, whatever its record holds. Every other field is the shard's own value.
 
-The file is stamped with the manifest's identity digest (`manifest_sha256`), as the unit store is, so an index a crashed build did not rewrite is not read as describing the shards beside it. A reader that finds no index, or one stamped for another manifest, falls back to reading the shards through the same projection.
+The index is stamped with the manifest's identity digest (`manifest_sha256`), as the unit store is, beside its format, in its head's stamps, which override a base's inline header, so an index a crashed build did not rewrite is not read as describing the shards beside it; `index_is_current` also checks that every part the head lists is on disk at the size it records. A reader that finds no index, or one stamped for another manifest, falls back to reading the shards through the same projection. A corpus from before the segment format holds the single file with no head, which every reader reads as a base by its inline header and the next write adopts by link as generation 0's base.
+
+The materialized index (`materialized_index`) is the header line, the head's stamps, then the base's and the segments' records merged by key, `(class_shard_key(class), id)`, the order the build writes them in, each with its place put back from the manifest: byte for byte the file `write_index` writes whole over the same fragments (#618's decision 48), which `write_materialized_index` writes as the single file. A write (`write_index_lines`) takes one route, decided from the prior head before it writes anything of the index: a whole base when there is no prior (`first`) or one that does not read (`unusable`, counted as rewritten whole, `output_sink.note_rewritten`); the materialized form at this pass's content as the next generation's base when the head's fold is due and the index holds the pass's one fold or has waited `row_delta.FOLD_OVERRUN` segments past its cap (`fold`); and otherwise a segment of the records that differ from the prior's, compared with their places cut, or the head alone when none differs. No stamp says every record is re-derived and no size test switches to a base (#618's decisions 72 to 75): a segment of any size is written, and one whose bytes reach its base's makes the next write fold.
 
 This module also holds the one reader of fragments out of shard parts, the live-fragment iterator (`LiveCorpus`), the rule a from-scratch build cuts a class's parts by (`PartLayout`), and the codec a fragment is held deflated in (`deflate_fragment`, `inflate_fragment`). A class's parts are its base parts, which a from-scratch build, a fold or a direct write lays out in id order, and after them its overflow parts (`units/<class>.x<NNN>.json`), to which a build appends each fragment that changed, leaving its old slot dead (`build._ShardWriter`). So a part can hold a fragment no unit owns any more, and a unit's fragment can sit in a later part than its id order puts it in. A fragment is plain, its shard bytes as ASCII JSON, or deflated (#618's change 35): a fragment a build appends, folds or writes directly by the share rule into a class it already has parts for is held as its shard bytes deflated alone, a raw deflate stream that is not ASCII, between the same `[`, commas and closing bytes, while a first base, a from-scratch build's included, stays plain. A deflated fragment's unit store address records its inflated length as a fourth element (decision 76), and its app-index and locator rows carry a trailing `"deflated": true` (decision 77); a plain fragment's record and rows carry neither. The iterator reads only live fragments, each class's in id order, and always hands its readers plain bytes, inflating each deflated slot as it reads it (`LiveCorpus.read`). The first of these that describes the shards decides which fragments are live: where the corpus has a store head, the unit store's records, the fragment at the address each unit's record gives, with its inflated length when it is deflated (`_store_slots`, which reads the store's lines itself, with the slicers `unit_cache` reads them with too, so this module imports nothing of the corpus build); then the index, where it is current and reads to its end, each id it lists taken from its last occurrence in manifest order, since overflow parts follow the base parts and an append follows every older copy; and only for a corpus with no store head, no such index and no overflow part, the parts themselves, walked part by part with every fragment taken as live, as a from-scratch build lays them out (a build puts a store under a head before it appends, `unit_cache.adopt_single_file`, so only a head deleted by hand leaves an appended corpus without one). The index and the parts are walked as JSON, so neither can read a deflated fragment, and a part that is not ASCII is refused there (`LayoutError`): a corpus holding a deflated fragment is readable only through the store. A corpus with a head or an overflow part that neither the store nor the index describes is refused (`LayoutError`). `rebuild/test_unit_index.py`'s contract test fails on any read of shard parts, through `class_shards`, `shard_paths` or `_walk_elements`, outside the iterator and the readers of part names it allows, each named there with its reason.
 """
 
 from __future__ import annotations
 
+import functools
 import gzip
 import hashlib
 import json
@@ -19,12 +22,12 @@ import re
 import sys
 import zlib
 from array import array
-from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from rebuild.pipeline import row_delta
+from rebuild.pipeline import output_sink, row_delta
 
 INDEX_NAME = "units-index.ndjson.gz"
 STORE_NAME = "unit-cache.ndjson.gz"
@@ -42,9 +45,10 @@ MANIFEST_ORDER = "manifest"
 INDEX_FORMAT = "ams-review-unit-index/1"
 ASSET_COMPONENTS: tuple[str, ...] = ("static",)
 ID_OPEN = b'{"id": "'
-ORDER_SEAM = b'", "order": '
 CLASS_SEAM = b', "class": '
-MACHINE_TAIL = b'"batch": null'
+_ID_AT = len(ID_OPEN)
+_CLUSTER_SEAM = b', "cluster": '
+_NO_PLACE = b', "order": null, "batch": null'
 
 
 def index_path(corpus: Path) -> Path:
@@ -113,7 +117,7 @@ def human_unit_slot(
 
 
 def index_record(fragment: dict, *, order: int | None = None, batch: int | None = None) -> dict:
-    """Project one shard fragment onto the fields the verdict update reads, with the unit's place in the manifest's triage index passed in. The key order is fixed so that two builds of the same corpus write the same bytes, and so that every line starts with `id`, `order`, and `batch` at the delimiters `ID_OPEN`, `ORDER_SEAM`, and `CLASS_SEAM`. `copy_forward_index_line` joins a new head onto a line there, and `load_human_units` reads the id and the unit's place in the queue from the head without parsing the line. rebuild/test_unit_index.py checks this opening."""
+    """Project one shard fragment onto the fields the verdict update reads, with the unit's place in the manifest's triage index passed in. The key order is fixed so that two builds of the same corpus write the same bytes, and so that every line starts with `id`, `order`, and `batch`, with `class` after them at `CLASS_SEAM`. A line is read by its head without being parsed: its id is sliced after `ID_OPEN`, its place is everything between the id and `CLASS_SEAM`, which a segment's record leaves out and a reader replaces with the manifest's (`Places.placed`), and its key is its class and id (`index_key`). `copy_forward_index_line` joins a new head onto a line there too, and `load_human_units` classifies a line by its id without parsing it. rebuild/test_unit_index.py checks this opening."""
     before = fragment.get("before") or {}
     after = fragment.get("after") or {}
     policy = (fragment.get("drafts") or {}).get("policy")
@@ -226,12 +230,17 @@ class _RecordReader:
 
 def manifest_sha256(corpus: Path) -> str:
     """Return the manifest's identity: the sha256 of its parsed content with `ASSET_COMPONENTS` removed from `inputs_fingerprint`. Those components fingerprint the copied review UI assets, which no shard, sidecar, unit, or step of the verdict update reads, so they are outside the corpus's identity and every hard freshness check. Every place that treats a component as soft reads `ASSET_COMPONENTS`. Removing them lets an assets refresh rewrite that one field in place and leave every sidecar, and the unit-cache store, stamped for the manifest they describe. A manifest that does not parse is hashed by its raw bytes, as `fingerprint._projected_digest` does, so a broken file mismatches instead of matching anything."""
+    return _manifest_and_identity(corpus)[1]
+
+
+def _manifest_and_identity(corpus: Path) -> tuple[dict, str]:
+    """Return the manifest parsed, or empty when it does not parse as an object, beside its identity (`manifest_sha256`), from one read and one parse. A missing manifest raises OSError."""
     raw = (Path(corpus) / "manifest.json").read_bytes()
     try:
         document = json.loads(raw)
     except ValueError:
-        return hashlib.sha256(raw).hexdigest()
-    return manifest_identity(document)
+        return {}, hashlib.sha256(raw).hexdigest()
+    return (document if isinstance(document, dict) else {}), manifest_identity(document)
 
 
 def manifest_identity(document: Any) -> str:
@@ -261,7 +270,7 @@ def shard_paths(corpus: Path) -> list[Path]:
 
 
 def index_line(fragment: dict, *, order: int | None = None, batch: int | None = None) -> bytes:
-    """Return one index record as its line in the file. The build compresses these lines in memory as the fragments pass (`build._SidecarLines`), so it holds the compressed lines, not the fragments `write_index` holds."""
+    """Return one index record as its line in a whole file or a base, with its place. The build compresses these lines in memory as the fragments pass (`build._SidecarLines`), so it holds the compressed lines, not the fragments `write_index` holds."""
     return (json.dumps(index_record(fragment, order=order, batch=batch), ensure_ascii=False) + "\n").encode()
 
 
@@ -271,36 +280,128 @@ def line_head(unit_id: str, order: int | None, batch: int | None) -> bytes:
 
 
 def copy_forward_index_line(line: bytes, *, unit_id: str, order: int | None, batch: int | None) -> bytes:
-    """Return a previous corpus's index line for a cached unit, with this corpus's `order` and `batch`. Every field after those two is the fragment's own, and a byte-copied unit has an unchanged fragment, so the result is the id and the new place joined to the old tail, byte for byte what `index_line` writes for the same fragment."""
+    """Return a previous corpus's index line for a cached unit, as a base holds it with its old place or as a segment holds it with none, with this corpus's `order` and `batch`. Every field after those two is the fragment's own, and a byte-copied unit has an unchanged fragment, so the result is the id and the new place joined to the old tail, byte for byte what `index_line` writes for the same fragment."""
     return line_head(unit_id, order, batch) + line[line.index(CLASS_SEAM) :]
 
 
+def _id_end(line: bytes) -> int:
+    """Return where the id of an index line ends, a base's, a segment's or a tombstone's: at the quote that closes it after `ID_OPEN`."""
+    return line.index(b'"', _ID_AT)
+
+
+def line_id(line: bytes) -> str:
+    """Return an index line's unit id, sliced after `ID_OPEN` without parsing the line."""
+    return line[_ID_AT : _id_end(line)].decode()
+
+
+@functools.lru_cache(maxsize=4096)
+def _class_key(raw: bytes) -> bytes:
+    value = json.loads(raw)
+    return class_shard_key(value if isinstance(value, str) else "").encode()
+
+
+def index_key(line: bytes) -> list[bytes]:
+    """Return the key the index's records are in order by and its parts merge by (`row_delta.merge_keyed`): the record's class as `class_shard_key` gives it, then its id, each as bytes, which sort as the strings do. A base's line, a segment's upsert and a tombstone read alike: the id is sliced after `ID_OPEN` and the class after `CLASS_SEAM`, up to `"cluster"`, or in a tombstone the closing brace, and only the class is parsed, once a distinct class."""
+    end = _id_end(line)
+    start = line.index(CLASS_SEAM, end) + len(CLASS_SEAM)
+    stop = line.find(_CLUSTER_SEAM, start)
+    return [_class_key(line[start : stop if stop >= 0 else line.rindex(b"}")]), line[_ID_AT:end]]
+
+
+def _cut(line: bytes) -> bytes:
+    """Return an index line with its place cut out, as a segment holds the record."""
+    end = _id_end(line)
+    at = line.index(CLASS_SEAM, end)
+    return line if at == end + 1 else line[: end + 1] + line[at:]
+
+
+def _tombstone(cut: bytes) -> bytes:
+    """Return the payload of the tombstone that removes the record whose line, its place cut, is `cut`: its id and class, which `index_key` reads as the record's key."""
+    start = _id_end(cut) + 1 + len(CLASS_SEAM)
+    stop = cut.find(_CLUSTER_SEAM, start)
+    return cut[: stop if stop >= 0 else cut.rindex(b"}")] + b"}\n"
+
+
+def _header_line(header: Mapping[str, Any]) -> bytes:
+    return (json.dumps(dict(header)) + "\n").encode()
+
+
+class Places:
+    """Each human unit's place in the queue as the manifest beside the index gives it, the only source of an index record's `order` and `batch` (#618's decision 55): its position in the triage index (`human_positions`) and that position's slice of `batch_size`, the manifest's, or 1 where it names none. A reader builds it once a walk, in the process that reads, from the manifest it parsed to check the index's stamp, and never hands it across a process. `slot_reader` reads a fragment's place through it, and `placed` puts a record's place into its line."""
+
+    __slots__ = ("batch_size", "positions")
+
+    def __init__(self, manifest: Mapping[str, Any]) -> None:
+        self.positions = human_positions(manifest)
+        batch_size = manifest.get("batch_size")
+        self.batch_size = batch_size if isinstance(batch_size, int) and batch_size > 0 else 1
+
+    def placed(self, line: bytes) -> bytes:
+        """Return an index line, a base's with whatever place it holds or a segment's with none, with this manifest's place for its unit in that place: `line_head`'s bytes for the id and the place, joined to the line from `CLASS_SEAM`, the place null for an id the triage index lacks."""
+        end = _id_end(line)
+        return self.placed_at(line, end, self.positions.get(line[_ID_AT:end].decode()))
+
+    def placed_at(self, line: bytes, end: int, order: int | None) -> bytes:
+        """`placed` for a line whose id ends at `end`, its unit's position `order` already looked up."""
+        place = (
+            _NO_PLACE if order is None else b', "order": %d, "batch": %d' % (order, order // self.batch_size)
+        )
+        return line[: end + 1] + place + line[line.index(CLASS_SEAM, end) :]
+
+
 class LineCursor:
-    """A forward-only reader over one of a corpus's gzipped NDJSON sidecars that returns the line whose leading `field` has a requested value, skipping every line before it. Each sidecar is written in shard order, whose terms are all content-derived, so a cached unit keeps its relative place from one corpus to the next, and the build reads the previous file once, in step with what it writes, without holding it. A skipped line belongs to a unit this build projects again. Once a requested value is not found, as with a file from another build or no file at all, the cursor returns None for every later request, and the caller projects the unit itself."""
+    """A forward-only reader over one of a corpus's sidecars, the app index's gzipped NDJSON file (`LineCursor(path)`) or the units index's record lines (`LineCursor.over_index`), that returns the line whose leading `field` has a requested value, skipping every line before it. Each sidecar is written in shard order, whose terms are all content-derived, so a cached unit keeps its relative place from one corpus to the next, and the build reads the previous sidecar once, in step with what it writes, without holding it. The units index's lines are its base's and segments' merged by key, a buffer a part (`OpenIndex.lines`), each with the place its part holds or none, since `copy_forward_index_line` writes this pass's own, so a write worker that reads them holds no places. A skipped line belongs to a unit this build projects again. Once a requested value is not found, as with a file from another build or no file at all, the cursor returns None for every later request, and the caller projects the unit itself."""
 
     def __init__(self, path: Path, field: str = "id") -> None:
+        self._open(field, lambda: _sidecar_lines(Path(path)))
+
+    @classmethod
+    def over_index(cls, corpus: Path) -> LineCursor:
+        """Return a cursor by id over the units index of `corpus`."""
+        cursor = cls.__new__(cls)
+        cursor._open("id", lambda: _index_lines(Path(corpus)))
+        return cursor
+
+    def _open(self, field: str, opener: Callable[[], tuple[Iterator[bytes], Callable[[], None]]]) -> None:
         self._field = field
-        self._stream = None
+        self._lines: Iterator[bytes] | None = None
+        self._closer: Callable[[], None] | None = None
         try:
-            self._stream = gzip.open(path, "rb")
-            next(self._stream)
-        except OSError, EOFError, StopIteration:
+            self._lines, self._closer = opener()
+        except OSError, EOFError, ValueError, StopIteration:
             self.close()
 
     def take(self, value: str) -> bytes | None:
-        if self._stream is None:
+        if self._lines is None:
             return None
         prefix = f"{{{json.dumps(self._field)}: {json.dumps(value)}, ".encode()
-        for line in self._stream:
+        for line in self._lines:
             if line.startswith(prefix):
                 return line
         self.close()
         return None
 
     def close(self) -> None:
-        if self._stream is not None:
-            self._stream.close()
-            self._stream = None
+        closer, self._closer, self._lines = self._closer, None, None
+        if closer is not None:
+            closer()
+
+
+def _sidecar_lines(path: Path) -> tuple[Iterator[bytes], Callable[[], None]]:
+    stream = gzip.open(path, "rb")
+    try:
+        next(stream)
+    except BaseException:
+        stream.close()
+        raise
+    return iter(stream), stream.close
+
+
+def _index_lines(corpus: Path) -> tuple[Iterator[bytes], Callable[[], None]]:
+    opened = open_index(corpus)
+    if opened is None:
+        raise FileNotFoundError(index_path(corpus))
+    return opened.lines(), opened.close
 
 
 def _manifest(corpus: Path) -> dict:
@@ -312,40 +413,417 @@ def _manifest(corpus: Path) -> dict:
 
 
 def slot_reader(corpus: Path):
-    """Return a function that maps a fragment to its `order` and `batch` on this corpus, reading the triage index once from the manifest beside it."""
-    manifest = _manifest(corpus)
-    positions = human_positions(manifest)
-    batch_size = manifest.get("batch_size")
-    if not isinstance(batch_size, int) or batch_size <= 0:
-        batch_size = 1
+    """Return a function that maps a fragment to its `order` and `batch` on this corpus, reading the triage index once from the manifest beside it (`Places`)."""
+    places = Places(_manifest(corpus))
 
     def slot(fragment: Mapping[str, Any]) -> dict[str, int | None]:
-        return human_unit_slot(positions, batch_size, fragment)
+        return human_unit_slot(places.positions, places.batch_size, fragment)
 
     return slot
 
 
-def write_index_lines(corpus: Path, lines: Iterable[bytes]) -> Path:
-    """Write the index from already-projected lines in the order given, stamped with the manifest beside it, so this must run after the manifest is written. It uses gzip level 1 and a fixed mtime, like the unit store: the file is written once per cycle, and level 9's extra seconds cost more than the megabytes it saves. The file is written under a sibling `.partial` name and renamed at the end, so a write that raises or is killed partway leaves the previous index whole. A write that raises also removes the staging file; a killed build leaves it behind, and the next write reopens the staging name and overwrites it. A truncated gzip still yields its header line, so `index_is_current` would accept a truncated index at the final path and every reader past the cut would raise `EOFError`. The gzip header records the final file name, since `GzipFile` would otherwise write the staging handle's name into the bytes."""
-    header = {"format": INDEX_FORMAT, "manifest_sha256": manifest_sha256(corpus)}
-    path = index_path(corpus)
-    staging = path.with_name(path.name + ".partial")
+class IndexUnreadable(ValueError):
+    """Raised when an index that exists cannot be opened: a head that does not read (`row_delta.HeadError`), a part missing or not the size, or, when checked, the sha256 its head records, or a single file whose header line does not read as an object."""
+
+
+@dataclass
+class OpenIndex:
+    """The units index open for reading: its header, the head's stamps or the inline header of the single file a corpus from before the segment format holds, its head (None for that single file), and its parts, each opened as the head was read (`row_delta.open_parts`), so a later write's deletes cannot reach a reader mid-walk, since an open descriptor survives the unlink. Close it when done."""
+
+    header: dict
+    head: row_delta.Head | None
+    handles: list[BinaryIO]
+
+    def lines(self) -> Iterator[bytes]:
+        """Return the materialized index's record lines in key order, each with the place its part holds, a base's, or none, a segment's, which a reader replaces with the manifest's (`Places.placed`): the base's read straight through for an index with no segment, and otherwise the base and the segments merged by key as streams (`row_delta.merge_keyed` over `index_key`), a buffer a part, the latest part's row winning at each key and a tombstone removing it. A segment out of key order, or a base out of key order before its last change, raises `ValueError` naming the key (`row_delta.merge_keyed`); a base's rows past its last change, and every row of a base with no segment, are read unchecked, so a base's key order is its writer's to keep (`write_index_lines`). A segment whose header is not the head's raises `row_delta.HeadError`."""
+        base = _base_lines(self.handles[0])
+        head = self.head
+        if head is None or not head.segments:
+            return base
+        segments = [
+            row_delta.keyed_segment_rows(handle, INDEX_NAME, head.generation, number)
+            for number, handle in enumerate(self.handles[1:], start=1)
+        ]
+        return row_delta.merge_keyed(base, segments, index_key, index_key)
+
+    def close(self) -> None:
+        handles, self.handles = self.handles, []
+        for handle in handles:
+            handle.close()
+
+    def __enter__(self) -> OpenIndex:
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
+
+def _base_lines(handle: BinaryIO) -> Iterator[bytes]:
+    handle.seek(0)
+    with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
+        if stream.readline():
+            yield from stream
+
+
+def _single_header(handle: BinaryIO) -> dict:
+    """Return the inline header of an index file open as `handle`, its first line, leaving the handle at its start. A header that does not read as a JSON object raises `IndexUnreadable`."""
     try:
+        with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
+            header = json.loads(stream.readline())
+    except (OSError, EOFError, ValueError, zlib.error) as error:
+        raise IndexUnreadable(f"{INDEX_NAME}'s header does not read: {error!r}") from None
+    finally:
+        handle.seek(0)
+    if not isinstance(header, dict):
+        raise IndexUnreadable(f"{INDEX_NAME}'s header is not an object")
+    return header
+
+
+def open_index(corpus: Path, *, sha256: bool = False) -> OpenIndex | None:
+    """Open the units index of `corpus` for reading, or return None when it has none: its head and every part the head lists, each checked against the head's size, and with `sha256` its digest too, as a reader that reads every byte for the acceptance bar does (`materialized_index`); or, with no head, the single file a corpus from before the segment format holds, read as a base by its inline header. An index that exists and does not open raises `IndexUnreadable`."""
+    corpus = Path(corpus)
+    try:
+        head = row_delta.read_head(corpus, INDEX_NAME)
+    except row_delta.HeadError as error:
+        raise IndexUnreadable(str(error)) from None
+    if head is not None:
+        try:
+            opened = row_delta.open_parts(corpus, head, sha256=sha256)
+        except row_delta.HeadError as error:
+            raise IndexUnreadable(str(error)) from None
+        return OpenIndex(dict(head.stamps), head, opened.handles)
+    try:
+        handle = open(index_path(corpus), "rb")
+    except FileNotFoundError:
+        return None
+    try:
+        header = _single_header(handle)
+    except BaseException:
+        handle.close()
+        raise
+    return OpenIndex(header, None, [handle])
+
+
+def _current(corpus: Path) -> tuple[OpenIndex, dict] | None:
+    """Open the index when it describes the manifest beside it (`index_is_current`), beside that manifest parsed, from the one parse its stamp is checked against; None when it does not."""
+    try:
+        opened = open_index(corpus)
+    except OSError, IndexUnreadable:
+        return None
+    if opened is None:
+        return None
+    try:
+        manifest, identity = _manifest_and_identity(corpus)
+    except OSError:
+        opened.close()
+        return None
+    if opened.header.get("format") != INDEX_FORMAT or opened.header.get("manifest_sha256") != identity:
+        opened.close()
+        return None
+    return opened, manifest
+
+
+def _open_placed(corpus: Path) -> tuple[OpenIndex, Places] | None:
+    """`_current` with the manifest's places (`Places`) in place of the manifest, which goes once they are built."""
+    found = _current(corpus)
+    return None if found is None else (found[0], Places(found[1]))
+
+
+def _open_unplaced(corpus: Path) -> OpenIndex | None:
+    """`_current` without the manifest, for a reader that takes no places."""
+    found = _current(corpus)
+    return None if found is None else found[0]
+
+
+def index_header(corpus: Path) -> dict | None:
+    """Return the index's header, or None when there is none to read: the head's stamps, which override a base's inline header, or with no head the single file's inline header. It is separate from the readers so a check can confirm the index is stamped for the manifest beside it without opening any part."""
+    corpus = Path(corpus)
+    try:
+        head = row_delta.read_head(corpus, INDEX_NAME)
+    except row_delta.HeadError:
+        return None
+    if head is not None:
+        return dict(head.stamps)
+    try:
+        with open(index_path(corpus), "rb") as handle:
+            return _single_header(handle)
+    except OSError, IndexUnreadable:
+        return None
+
+
+def index_is_current(corpus: Path) -> bool:
+    """Whether the index beside this manifest describes it: present, in a format this reader knows, stamped, by its head or by a single file's inline header, with the manifest's own identity, and with every part its head lists on disk at the size the head records. `app_index.outputs_not_current`, and through it the cycle's skip and `status`'s freshness check, read it, and so do the build's copy-forward condition and its output check."""
+    opened = _open_unplaced(corpus)
+    if opened is None:
+        return False
+    opened.close()
+    return True
+
+
+def materialized_index(corpus: Path, *, sha256: bool = False) -> tuple[dict, Iterator[bytes]] | None:
+    """Return the index's materialized form, the file a whole write of the same records gives (#618's decision 48): its header, the head's stamps or a single file's inline header, and its record lines in key order, each with its place put back from the manifest beside it (`Places`). `perf_fingerprint` and `build.MaterializedCorpus` read it with `sha256`, every part checked against the digest its head records. None when there is no index; an index that does not open raises `IndexUnreadable`."""
+    opened = open_index(corpus, sha256=sha256)
+    if opened is None:
+        return None
+    places = Places(_manifest(corpus))
+
+    def lines() -> Iterator[bytes]:
+        with opened:
+            for line in opened.lines():
+                yield places.placed(line)
+
+    return opened.header, lines()
+
+
+def _write_lines(
+    stream: row_delta.Sink, header: Mapping[str, Any], lines: Iterable[bytes]
+) -> tuple[int, int]:
+    """Write the index's header line and its record lines as a whole file and a base hold them, and return the records and their bytes."""
+    stream.write(_header_line(header))
+    count = total = 0
+    for line in lines:
+        stream.write(line)
+        count += 1
+        total += len(line)
+    return count, total
+
+
+def write_materialized_index(directory: Path, header: Mapping[str, Any], lines: Iterable[bytes]) -> Path:
+    """Write a materialized index (`materialized_index`) as the single file `units-index.ndjson.gz` under `directory`, byte for byte as a base holds the same records (`_write_lines`, at gzip level 1 with a fixed mtime and the gzip header naming the file), through `output_sink.replace_output`."""
+    path = index_path(directory)
+
+    def fill(staging: Path) -> None:
         with open(staging, "wb") as handle:
             with gzip.GzipFile(
-                filename=path.name, fileobj=handle, mode="wb", mtime=0, compresslevel=1
+                filename=INDEX_NAME, fileobj=handle, mode="wb", mtime=0, compresslevel=1
             ) as stream:
-                stream.write((json.dumps(header) + "\n").encode())
-                for line in lines:
-                    stream.write(line)
-        staging.replace(path)
-    finally:
-        staging.unlink(missing_ok=True)
+                _write_lines(stream, header, lines)
+
+    output_sink.replace_output(path, writer=fill)
     return path
 
 
-def write_index(corpus: Path, shards: Iterable[tuple[str, list[dict]]]) -> Path:
-    """Write the index from fragments the caller holds in memory. `shards` is (class id, fragments) pairs in any order. The file is written in shard-path order, with each unit's place in the queue read from the manifest beside it, so this is `write_index_lines` over the same projection the build makes one fragment at a time, and both write the same bytes."""
+@dataclass(frozen=True)
+class IndexWrite:
+    """What one write of the index did (`write_index_lines`): wrote the `head` alone, a `segment`, or a new `base`, with the base's reason (`first`, `unusable` or `fold`), and the segment's rows and their bytes or the base's records and theirs. `note` is what the corpus build's `[t] review.build manifest+check` line says of it, as `unit_cache.StoreWrite.note` says of the store."""
+
+    outcome: str
+    reason: str = ""
+    rows: int = 0
+    rows_bytes: int = 0
+
+    def note(self) -> str:
+        if self.outcome == "head":
+            return "head only"
+        if self.outcome == "segment":
+            return f"a segment of {self.rows:,} rows, {self.rows_bytes / 1e6:.1f} MB"
+        return f"a new base ({self.reason}), {self.rows:,} records"
+
+
+@dataclass
+class _IndexRoute:
+    """A write's route, decided before anything of the index is written (`_plan_write`): `reason` names a new base's (`first`, `unusable` or `fold`) and is empty for a segment or the head alone, `prior` is the head the write follows, and `opened` its parts, checked, which the segment route's compare and a fold's walk read."""
+
+    reason: str
+    prior: row_delta.Head | None = None
+    opened: OpenIndex | None = None
+
+
+def _adopt_single_file(corpus: Path) -> row_delta.Head | None:
+    """Put the single file a corpus from before the segment format holds under a head, as generation 0's base, and return the head, or None when the file does not read: its header line an object in this format, and every byte through to its gzip trailer, read once to count its records and their bytes, which the fold compares the segments with. The base is a hard link to the file, which writes no data, and the head over it, whose stamps are the file's inline header, is committed at once, as `unit_cache.adopt_single_file` commits the store's. The single file stays under its own name until the write commits a later head over the link, and every reader reads the head first."""
+    single = index_path(corpus)
+    rows = rows_bytes = 0
+    try:
+        with gzip.open(single, "rb") as stream:
+            header = json.loads(stream.readline())
+            if not isinstance(header, dict) or header.get("format") != INDEX_FORMAT:
+                return None
+            while chunk := stream.read(1 << 20):
+                rows += chunk.count(b"\n")
+                rows_bytes += len(chunk)
+    except OSError, EOFError, ValueError, zlib.error:
+        return None
+    name = row_delta.base_name(INDEX_NAME, 0)
+    path = corpus / name
+    os.link(single, path)
+    base = row_delta.Part(name, path.stat().st_size, row_delta.file_sha256(path), rows, rows_bytes)
+    head = row_delta.Head(INDEX_NAME, 0, 0, header, base, (), row_delta.MERGE_KEY)
+    row_delta.commit(corpus, head)
+    return head
+
+
+def _checked(corpus: Path, head: row_delta.Head, *, sha256: bool) -> OpenIndex | None:
+    """Open `head`'s parts for the compare, each checked against the head, its sha256 too with `sha256`, and each segment's header line against the head's output, generation, number and merge, or return None when one fails."""
+    try:
+        opened = row_delta.open_parts(corpus, head, sha256=sha256)
+    except row_delta.HeadError:
+        return None
+    try:
+        for number, handle in enumerate(opened.handles[1:], start=1):
+            handle.seek(0)
+            with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
+                row_delta.check_segment_header(
+                    row_delta.gzipped_header(stream, INDEX_NAME, number),
+                    INDEX_NAME,
+                    head.generation,
+                    number,
+                    row_delta.MERGE_KEY,
+                )
+            handle.seek(0)
+    except OSError, EOFError, ValueError, zlib.error:
+        opened.close()
+        return None
+    return OpenIndex(dict(head.stamps), head, opened.handles)
+
+
+def _plan_write(corpus: Path) -> _IndexRoute:
+    """Decide a write's route from the prior head (the module docstring), before anything of the index is written. It deletes the staging files a killed write left, leaving a link the memory series put at a staging name (`row_delta.remove_staging` with `links` false, `memory_series.null_routes`), and the parts no head lists (`row_delta.remove_unlisted`), adopts the single file a corpus from before the segment format holds (`_adopt_single_file`), opens the prior's parts and checks each, every byte against its sha256 since the compare reads them all, and claims the pass's one fold where the head's fold is due (`row_delta.claim_fold`, the claim the windows rows, the settle memos, the audit, the oracle stores and the unit store share). A head that does not read, merges another way or names another format, a part that fails its check, and a single file whose header does not read in this format take the `unusable` route."""
+    row_delta.remove_staging(corpus, INDEX_NAME, links=False)
+    try:
+        head = row_delta.read_head(corpus, INDEX_NAME)
+    except row_delta.HeadError:
+        row_delta.remove_unlisted(corpus, INDEX_NAME, None)
+        return _IndexRoute("unusable")
+    row_delta.remove_unlisted(corpus, INDEX_NAME, head)
+    if head is None:
+        if not index_path(corpus).exists():
+            return _IndexRoute("first")
+        head = _adopt_single_file(corpus)
+        if head is None:
+            return _IndexRoute("unusable")
+        opened = _checked(corpus, head, sha256=False)
+        return _IndexRoute("unusable", head) if opened is None else _IndexRoute("", head, opened)
+    if head.merge != row_delta.MERGE_KEY or head.stamps.get("format") != INDEX_FORMAT:
+        return _IndexRoute("unusable", head)
+    opened = _checked(corpus, head, sha256=True)
+    if opened is None:
+        return _IndexRoute("unusable", head)
+    route = _IndexRoute("", head, opened)
+    if row_delta.fold_due(head) and (row_delta.claim_fold(INDEX_NAME) or row_delta.fold_forced(head)):
+        route.reason = "fold"
+    return route
+
+
+def _compare(new_lines: Iterable[bytes], old_lines: Iterable[bytes], emit: Callable[[bytes], object]) -> int:
+    """Walk this pass's index lines beside the prior materialized index's, both in key order, emit a segment row for each record that differs, with places cut on both sides (`_cut`), and return how many: an upsert of this pass's line for a record new or changed, a tombstone (`_tombstone`) for a prior record this pass lacks, and nothing for an equal one, a line equal to its prior byte for byte, place included, passed without cutting either. The rows come out in key order, and one whose key does not ascend past the last one's raises `ValueError` naming it, so no row out of key order reaches a segment, which no merge would take; a line out of key order that equals its prior emits no row and is not checked."""
+    new, old = iter(new_lines), iter(old_lines)
+    ours, theirs = next(new, None), next(old, None)
+    rows = 0
+    last: list[bytes] | None = None
+
+    def row(op: bytes, payload: bytes, key: list[bytes]) -> None:
+        nonlocal rows, last
+        if last is not None and key <= last:
+            raise ValueError(f"the index's records are out of key order at {key!r}")
+        last = key
+        emit(op + b"\t" + payload)
+        rows += 1
+
+    while ours is not None or theirs is not None:
+        if ours is not None and ours == theirs:
+            ours, theirs = next(new, None), next(old, None)
+            continue
+        cut_ours = None if ours is None else _cut(ours)
+        cut_theirs = None if theirs is None else _cut(theirs)
+        if cut_ours is not None and cut_ours == cut_theirs:
+            ours, theirs = next(new, None), next(old, None)
+            continue
+        key_ours = None if cut_ours is None else index_key(cut_ours)
+        key_theirs = None if cut_theirs is None else index_key(cut_theirs)
+        if cut_ours is not None and key_ours is not None and (key_theirs is None or key_ours <= key_theirs):
+            row(row_delta.UPSERT, cut_ours, key_ours)
+            if key_ours == key_theirs:
+                theirs = next(old, None)
+            ours = next(new, None)
+        else:
+            assert cut_theirs is not None and key_theirs is not None
+            row(row_delta.TOMBSTONE, _tombstone(cut_theirs), key_theirs)
+            theirs = next(old, None)
+    return rows
+
+
+def _write_base(corpus: Path, route: _IndexRoute, stamps: dict, lines: Iterable[bytes]) -> IndexWrite:
+    """Write this pass's lines whole as the next generation's base (`_write_lines`) and commit a head that lists it alone. A fold walks the prior's records beside the lines as the segment route does (`_compare`), writing no row, so its head's content generation moves only when a record did (`row_delta.Head.identity`)."""
+    prior = route.prior
+    if route.reason == "unusable":
+        output_sink.note_rewritten(INDEX_NAME)
+    generation = 0 if prior is None else prior.generation + 1
+    differs = 0
+
+    def fill(stream: row_delta.Sink) -> tuple[int, int]:
+        nonlocal differs
+        if route.opened is None:
+            return _write_lines(stream, stamps, lines)
+        written = [0, 0]
+
+        def through() -> Iterator[bytes]:
+            for line in lines:
+                stream.write(line)
+                written[0] += 1
+                written[1] += len(line)
+                yield line
+
+        stream.write(_header_line(stamps))
+        differs = _compare(through(), route.opened.lines(), lambda _row: None)
+        return written[0], written[1]
+
+    base = row_delta.write_part(
+        corpus, row_delta.base_name(INDEX_NAME, generation), fill, gzip_name=INDEX_NAME
+    )
+    if route.opened is not None:
+        route.opened.close()
+    content = 0 if prior is None else prior.content + (1 if route.reason != "fold" or differs else 0)
+    row_delta.commit(
+        corpus, row_delta.Head(INDEX_NAME, generation, content, stamps, base, (), row_delta.MERGE_KEY)
+    )
+    index_path(corpus).unlink(missing_ok=True)
+    return IndexWrite("base", route.reason, base.rows, base.rows_bytes)
+
+
+def _write_segment(corpus: Path, route: _IndexRoute, stamps: dict, lines: Iterable[bytes]) -> IndexWrite:
+    """Write the records that differ from the prior's as the prior generation's next segment (`_compare` into a `row_delta.StreamedPart`, gzipped at level 1 with a fixed mtime, which makes no part when no row reaches it) and commit a head that lists it, or, when none differs, the prior head under this pass's stamps alone, which `row_delta.commit` leaves in place when it comes out the same."""
+    prior, opened = route.prior, route.opened
+    assert prior is not None and opened is not None
+    number = len(prior.segments) + 1
+    part = row_delta.StreamedPart(
+        corpus,
+        row_delta.segment_name(INDEX_NAME, prior.generation, number),
+        row_delta.segment_header(INDEX_NAME, prior.generation, number, row_delta.MERGE_KEY),
+        gzipped=True,
+    )
+    try:
+        _compare(lines, opened.lines(), part.write)
+        written = part.close()
+    except BaseException:
+        part.abandon()
+        raise
+    opened.close()
+    if written is None:
+        head, outcome = replace(prior, stamps=stamps), IndexWrite("head")
+    else:
+        head = row_delta.with_segment(prior, written, stamps)
+        outcome = IndexWrite("segment", "", written.rows, written.rows_bytes)
+    row_delta.commit(corpus, head)
+    index_path(corpus).unlink(missing_ok=True)
+    return outcome
+
+
+def write_index_lines(corpus: Path, lines: Iterable[bytes]) -> IndexWrite:
+    """Write the index from already-projected lines, `index_line`'s, each with its place, in key order (`index_key`), stamped with the manifest beside it, so this must run after the manifest is written. It takes one route, decided from the prior head before anything is written (`_plan_write`, the module docstring), and commits by renaming the head into place last (`row_delta.commit`), after which the parts no head lists and the single file a corpus from before the segment format held are deleted. A base is the file a whole write gives: gzip level 1, since it is written once and read a few times a cycle and level 9's extra seconds cost more than the megabytes it saves, with a fixed mtime and the gzip header naming `units-index.ndjson.gz`, never a part's or a staging file's name. A segment holds the records whose line, its place cut, differs from the prior materialized index's (`_compare`): an upsert, `+`, a tab and the record's line without its place, for a record new or changed, and a tombstone, `-`, a tab and its id and class, for a prior record this pass lacks, so a unit that changes class is a tombstone at its old key and an upsert at its new one. The compare walks this pass's lines beside the prior's parts, a buffer a part, and holds no record. A write that raises or is killed leaves the previous head and every part it lists as they were: what it staged is removed, and a part it wrote that no head lists is deleted by the next write."""
+    corpus = Path(corpus)
+    stamps = {"format": INDEX_FORMAT, "manifest_sha256": manifest_sha256(corpus)}
+    route = _plan_write(corpus)
+    try:
+        if route.reason:
+            return _write_base(corpus, route, stamps, lines)
+        return _write_segment(corpus, route, stamps, lines)
+    finally:
+        if route.opened is not None:
+            route.opened.close()
+
+
+def write_index(corpus: Path, shards: Iterable[tuple[str, list[dict]]]) -> IndexWrite:
+    """Write the index from fragments the caller holds in memory. `shards` is (class id, fragments) pairs in any order, each class's fragments in id order, which nothing checks before a base is written (`OpenIndex.lines`). The lines are written in shard-path order, with each unit's place in the queue read from the manifest beside it, so this is `write_index_lines` over the same projection the build makes one fragment at a time: both take the same route and leave the same head, parts and materialized bytes."""
     ordered = sorted(shards, key=lambda item: class_shard_key(item[0]))
     slot = slot_reader(corpus)
     return write_index_lines(
@@ -358,40 +836,17 @@ def write_index(corpus: Path, shards: Iterable[tuple[str, list[dict]]]) -> Path:
     )
 
 
-def index_header(corpus: Path) -> dict | None:
-    """Return the index's header line, or None when there is none to read. It is separate from `load_index` so the build's output check can confirm the file exists and is stamped for the manifest beside it without parsing every record."""
-    path = index_path(corpus)
-    if not path.is_file():
-        return None
-    try:
-        with gzip.open(path, "rt", encoding="utf-8") as stream:
-            header = json.loads(next(stream))
-    except OSError, EOFError, ValueError, StopIteration:
-        return None
-    return header if isinstance(header, dict) else None
-
-
-def index_is_current(corpus: Path) -> bool:
-    """Whether the index beside this manifest describes it: present, in a format this reader knows, and stamped with the manifest's own identity."""
-    header = index_header(corpus)
-    if header is None or header.get("format") != INDEX_FORMAT:
-        return False
-    try:
-        return header.get("manifest_sha256") == manifest_sha256(corpus)
-    except OSError:
-        return False
-
-
 def load_index(corpus: Path, *, fields: Iterable[str] | None = None) -> list[UnitRecord] | None:
-    """Return the index's records, or None when there is no usable index: absent, unreadable, a different format, or stamped for a manifest other than the one on disk. A None costs the caller one pass over the shards, so over-invalidation is the safe direction here too."""
+    """Return the index's records, each with its place from the manifest, or None when there is no usable index: absent, unreadable, a different format, or stamped for a manifest other than the one on disk. A None costs the caller one pass over the shards, so over-invalidation is the safe direction here too."""
     reader = _RecordReader(fields)
-    if not index_is_current(corpus):
+    found = _open_placed(corpus)
+    if found is None:
         return None
+    opened, places = found
     try:
-        with gzip.open(index_path(corpus), "rt", encoding="utf-8") as stream:
-            next(stream)
-            return [reader.record(json.loads(line)) for line in stream]
-    except OSError, EOFError, ValueError, StopIteration:
+        with opened:
+            return [reader.record(json.loads(places.placed(line))) for line in opened.lines()]
+    except OSError, EOFError, ValueError, StopIteration, zlib.error:
         return None
 
 
@@ -415,19 +870,20 @@ def _stream_shards(corpus: Path, reader: _RecordReader) -> Iterator[UnitRecord]:
 
 
 def iter_units(corpus: Path, *, fields: Iterable[str] | None = None) -> Iterator[UnitRecord]:
-    """Yield every unit on a corpus, projected, one at a time: from the index when it is present and stamped for this manifest, from the shards otherwise. A caller that keeps only part of the corpus should read it this way instead of through `load_units`, so the records it drops are never in memory with the ones it keeps. `load_human_units` does this for the verdict update's human units, and classifies each index line with a byte test on its head instead of parsing every record."""
+    """Yield every unit on a corpus, projected, one at a time: from the index when it is present and stamped for this manifest, each record's place from the manifest (`Places`), from the shards otherwise. A caller that keeps only part of the corpus should read it this way instead of through `load_units`, so the records it drops are never in memory with the ones it keeps. `load_human_units` does this for the verdict update's human units, and classifies each index line by its id, against the manifest's triage index, instead of parsing every record."""
     reader = _RecordReader(fields)
     return _iter_units(corpus, reader)
 
 
 def _iter_units(corpus: Path, reader: _RecordReader) -> Iterator[UnitRecord]:
-    if index_is_current(corpus):
-        with gzip.open(index_path(corpus), "rt", encoding="utf-8") as stream:
-            next(stream)
-            for line in stream:
-                yield reader.record(json.loads(line))
+    found = _open_placed(corpus)
+    if found is None:
+        yield from _stream_shards(corpus, reader)
         return
-    yield from _stream_shards(corpus, reader)
+    opened, places = found
+    with opened:
+        for line in opened.lines():
+            yield reader.record(json.loads(places.placed(line)))
 
 
 def load_units(corpus: Path, *, fields: Iterable[str] | None = None) -> list[UnitRecord]:
@@ -442,29 +898,33 @@ def load_units(corpus: Path, *, fields: Iterable[str] | None = None) -> list[Uni
 def iter_human_units(
     corpus: Path, *, unit_ids: set[str] | None = None, fields: Iterable[str] | None = None
 ) -> Iterator[UnitRecord]:
-    """Yield the human units' index records in shard order. When `unit_ids` is given, every unit id on the corpus is added to it during the same walk; the set is complete only once the iterator is exhausted. Machine units' lines contribute only their heads and are not parsed as JSON. An absent or stale index falls back to the projected shards, which classify each unit through `human_unit_slot`. A corrupt current index raises, because restarting a partly consumed stream from the shards would yield units twice."""
+    """Yield the human units' index records in shard order. When `unit_ids` is given, every unit id on the corpus is added to it during the same walk; the set is complete only once the iterator is exhausted. A line is human when the manifest's triage index holds its id, sliced from its head (`Places`), and a machine unit's line contributes only its id and is not parsed as JSON. An absent or stale index falls back to the projected shards, which classify each unit through `human_unit_slot`. A corrupt current index raises, because restarting a partly consumed stream from the shards would yield units twice."""
     reader = _RecordReader(fields)
     return _iter_human_units(corpus, reader, unit_ids)
 
 
 def _iter_human_units(corpus: Path, reader: _RecordReader, unit_ids: set[str] | None) -> Iterator[UnitRecord]:
-    if index_is_current(corpus):
-        yield from _stream_human_index(corpus, reader, unit_ids)
+    found = _open_placed(corpus)
+    if found is not None:
+        yield from _stream_human_index(*found, reader, unit_ids)
         return
     yield from _stream_human_shards(corpus, reader, unit_ids)
 
 
 def _stream_human_index(
-    corpus: Path, reader: _RecordReader, unit_ids: set[str] | None
+    opened: OpenIndex, places: Places, reader: _RecordReader, unit_ids: set[str] | None
 ) -> Iterator[UnitRecord]:
-    with gzip.open(index_path(corpus), "rb") as stream:
-        next(stream)
-        for line in stream:
-            head = line[: line.index(CLASS_SEAM)]
+    positions = places.positions
+    with opened:
+        for line in opened.lines():
+            end = _id_end(line)
+            line.index(CLASS_SEAM, end)
+            unit_id = line[_ID_AT:end].decode()
             if unit_ids is not None:
-                unit_ids.add(head[len(ID_OPEN) : head.index(ORDER_SEAM)].decode())
-            if not head.endswith(MACHINE_TAIL):
-                yield reader.record(json.loads(line))
+                unit_ids.add(unit_id)
+            order = positions.get(unit_id)
+            if order is not None:
+                yield reader.record(json.loads(places.placed_at(line, end, order)))
 
 
 def _stream_human_shards(
@@ -482,16 +942,33 @@ def _stream_human_shards(
 def load_human_units(
     corpus: Path, *, fields: Iterable[str] | None = None
 ) -> tuple[list[UnitRecord], set[str]]:
-    """Return the human units' records on a corpus (the units the manifest's triage index holds, with `batch` not None) and the id of every unit on it, machine units included. The verdict update's consumers read the human records and only the id of a machine record: carry's orphaned count and the complaint list's absent-unit warning check prior verdicts against every id on the corpus, which is why the id set is returned. Over a current index the classification is a byte test: `index_record` starts every record with `id`, `order`, and `batch` in that order (rebuild/test_unit_index.py checks the order), so a line's head up to `CLASS_SEAM` ends with `MACHINE_TAIL` exactly when the unit is outside the index, and only the human lines are parsed. An index that fails partway through is discarded and the shards are read instead, as `load_index` does. That fallback parses every shard part, so a corrupt index costs a full parse of the corpus."""
+    """Return the human units' records on a corpus (the units the manifest's triage index holds, with `batch` not None) and the id of every unit on it, machine units included. The verdict update's consumers read the human records and only the id of a machine record: carry's orphaned count and the complaint list's absent-unit warning check prior verdicts against every id on the corpus, which is why the id set is returned. Over a current index the classification is by id: each line's id is sliced from its head, which must reach `CLASS_SEAM`, and looked up in the manifest's triage index (`Places`), and only the human lines are parsed, each with its place from the manifest, whatever place a base's record holds. An index that fails partway through is discarded and the shards are read instead, as `load_index` does. That fallback parses every shard part, so a corrupt index costs a full parse of the corpus."""
     reader = _RecordReader(fields)
     ids: set[str] = set()
-    if index_is_current(corpus):
+    found = _open_placed(corpus)
+    if found is not None:
         try:
-            return list(_stream_human_index(corpus, reader, ids)), ids
-        except OSError, EOFError, ValueError, StopIteration:
+            return list(_stream_human_index(*found, reader, ids)), ids
+        except OSError, EOFError, ValueError, StopIteration, zlib.error:
             ids = set()
             reader = _RecordReader(reader.schema)
     return list(_stream_human_shards(corpus, reader, ids)), ids
+
+
+def iter_index_ids(corpus: Path) -> Iterator[str] | None:
+    """Return every unit id the current index holds, in key order, each sliced from its line without parsing it and none a tombstone removed, or None when the index is not current, so the caller falls back to the shards. It holds no places. A line with no `CLASS_SEAM` after its id, as a torn record is, raises `ValueError`."""
+    opened = _open_unplaced(corpus)
+    if opened is None:
+        return None
+    return _ids(opened)
+
+
+def _ids(opened: OpenIndex) -> Iterator[str]:
+    with opened:
+        for line in opened.lines():
+            end = _id_end(line)
+            line.index(CLASS_SEAM, end)
+            yield line[_ID_AT:end].decode()
 
 
 def base_part_names(class_id: str, count: int) -> list[str]:
@@ -649,16 +1126,19 @@ def _walk_part(path: Path) -> Iterator[tuple[int, int, dict]]:
 
 
 def _index_classes(corpus: Path) -> dict[str, set[str]]:
-    """Return each class's live ids as the current index lists them: each line's id and class, read from its head (`index_record` writes `id`, `order`, `batch` and `class` first) without parsing the rest. An index that does not read to its end raises `LayoutError`."""
+    """Return each class's live ids as the current index lists them: each record's id and class, read from its line's head (`index_record` writes `id`, its place, which a segment's record leaves out, and `class` first) without parsing the rest, and with no places taken from the manifest. An index that is not current or does not read to its end raises `LayoutError`."""
     classes: dict[str, set[str]] = {}
     try:
-        with gzip.open(index_path(corpus), "rb") as stream:
-            next(stream)
-            for line in stream:
-                head = line[: line.index(b', "cluster": ')]
-                record = json.loads(head + b"}")
+        opened = _open_unplaced(corpus)
+        if opened is None:
+            raise LayoutError("the index does not describe the manifest beside it")
+        with opened:
+            for line in opened.lines():
+                record = json.loads(line[: line.index(_CLUSTER_SEAM)] + b"}")
                 classes.setdefault(record["class"], set()).add(record["id"])
-    except (OSError, EOFError, ValueError, KeyError, TypeError, StopIteration) as error:
+    except LayoutError:
+        raise
+    except (OSError, EOFError, ValueError, KeyError, TypeError, StopIteration, zlib.error) as error:
         raise LayoutError(f"the index does not give the live fragments: {error!r}") from error
     return classes
 

@@ -261,7 +261,7 @@ def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
     """The per-unit index, both app sidecars and the unit store are written after the manifest and are not part of it, the store last. A build killed between the two, or a manifest rewritten without them, leaves a corpus whose fingerprint reads fresh while the app loads files that describe another corpus. A build killed after its sidecars and before its store leaves deflated fragments (#618's change 35) that only a store written for the manifest can place, so the check names the store's head too, as the cycle's `corpus_complete` does through the same `app_index.outputs_not_current`."""
     setup_green(tmp_path)
     review_dir = tmp_path / "rebuild" / "out" / "review"
-    unit_index.index_path(review_dir).unlink()
+    row_delta.head_path(review_dir, unit_index.INDEX_NAME).unlink()
     result = call(tmp_path)
     freshness = result["checks"]["freshness"]
     assert freshness["level"] == "fail"

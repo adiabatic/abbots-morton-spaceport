@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from rebuild.pipeline import fingerprint, fixtures, kernel_exec, row_delta, spec_load
+from rebuild.pipeline import fingerprint, fixtures, kernel_exec, output_sink, row_delta, spec_load
 from rebuild.review import app_index, audit_stream, landing, unit_cache, unit_index
 from rebuild.review import build as review_build
 from rebuild.review import enrich as review_enrich
@@ -88,6 +88,12 @@ def _cached(capfd) -> tuple[int, int]:
 
 def _part_mtimes(corpus: Path) -> dict[str, int]:
     return {path.name: path.stat().st_mtime_ns for path in _shard_paths(corpus)}
+
+
+def _head_stats(corpus: Path) -> dict[str, tuple[int, int]]:
+    """The units index's head and the store's head by name, each as its inode and mtime, which a write that keeps a head in place leaves as they were."""
+    paths = (row_delta.head_path(corpus, name) for name in (unit_index.INDEX_NAME, unit_cache.STORE_NAME))
+    return {path.name: (path.stat().st_ino, path.stat().st_mtime_ns) for path in paths}
 
 
 def _copy(base: Path, tmp_path: Path) -> Path:
@@ -233,7 +239,7 @@ def deflated_corpus(build_once, mini_corpus, mini_bundle) -> tuple[Path, Path, P
 def test_no_change_rebuild_reuses_every_unit_and_is_byte_stable(
     mini_corpus, deflated_corpus, mini_bundle, tmp_path, capfd, held
 ):
-    """A rebuild over unchanged inputs reuses every unit, keeps every fragment at its address without rewriting any shard part (the parts' mtimes do not change) or appending any, projects every sidecar row from the previous sidecars without parsing a fragment, and writes the store's head alone, since no record changed. The corpus it leaves is byte for byte the one it found. That holds over the mini corpus, all plain, and over one that holds folded classes and an append deflated (`deflated_corpus`, #618's change 35), whose deflated fragments keep their bytes and whose records and copied-forward rows keep their marker."""
+    """A rebuild over unchanged inputs reuses every unit, keeps every fragment at its address without rewriting any shard part (the parts' mtimes do not change) or appending any, projects every sidecar row from the previous sidecars without parsing a fragment, and writes the units index's head alone and the store's head alone, since no record changed, each left in place, the same file with its inode and mtime, since it comes out the same. The corpus it leaves is byte for byte the one it found. That holds over the mini corpus, all plain, and over one that holds folded classes and an append deflated (`deflated_corpus`, #618's change 35), whose deflated fragments keep their bytes and whose records and copied-forward rows keep their marker."""
     if held == "plain":
         corpus, audit = _copy(mini_corpus, tmp_path), MINI_AUDIT
     else:
@@ -241,6 +247,7 @@ def test_no_change_rebuild_reuses_every_unit_and_is_byte_stable(
         assert _held_deflated(corpus)
     before = _tree(corpus)
     mtimes = _part_mtimes(corpus)
+    heads = _head_stats(corpus)
     capfd.readouterr()
     _build(corpus, mini_bundle, audit_path=audit, jobs=1)
     report = capfd.readouterr().err
@@ -249,12 +256,13 @@ def test_no_change_rebuild_reuses_every_unit_and_is_byte_stable(
     assert MISS_NOTE.search(report) is None, report
     byte_copied, written, copied_forward = _counts(report, BYTE_COPIED)
     assert (byte_copied, written, copied_forward) == (total, total, total)
-    assert "(store: head only)" in report
+    assert "(store: head only)" in report and "(index: head only)" in report
     assert (
         "appended 0.0 MB (0.0 MB inflated), kept 0 by compare, folded 0 classes, wrote 0 directly, "
         "deflated 0 fragments, dead 0.0 MB"
     ) in report
     assert _part_mtimes(corpus) == mtimes
+    assert _head_stats(corpus) == heads
     assert _tree(corpus) == before
 
 
@@ -356,7 +364,7 @@ def _overflow_parts(corpus: Path) -> list[str]:
 def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
     mini_corpus, mini_bundle, edited_scratch, tmp_path, capfd, monkeypatch, seed, cloning
 ):
-    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves every shard part it found in place, appends the retagged unit's fragment to its new class's first overflow part, deflated (#618's change 35), with its store record's fourth address element and its row's marker (`_held_deflated`), leaves its old slot dead, and writes the store as a segment. The files on disk differ from a from-scratch build's (decision 48), but read through the live-fragment iterator, which inflates, its fragments are that build's by id, and materialized (`build.materialize_corpus`) the two corpora are byte for byte the same files, store included. A second edit that retags one more window into the same class appends to that overflow part, beside the deflated fragment it holds, which the shard writer clones to its staging name (`build._clone`), or copies where the volume cannot clone, and cuts before its closing bytes, to the same bytes. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was. Every case compares against the from-scratch builds `edited_scratch` makes."""
+    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves every shard part it found in place, appends the retagged unit's fragment to its new class's first overflow part, deflated (#618's change 35), with its store record's fourth address element and its row's marker (`_held_deflated`), leaves its old slot dead, and writes the store as a segment and the units index as one segment of the records the edit changed. The files on disk differ from a from-scratch build's (decision 48), but read through the live-fragment iterator, which inflates, its fragments are that build's by id, and materialized (`build.materialize_corpus`) the two corpora are byte for byte the same files, store included. A second edit that retags one more window into the same class appends to that overflow part, beside the deflated fragment it holds, which the shard writer clones to its staging name (`build._clone`), or copies where the volume cannot clone, and cuts before its closing bytes, to the same bytes. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was. Every case compares against the from-scratch builds `edited_scratch` makes."""
     audits, scratches = edited_scratch
     clones: list[bool] = []
     clone = review_build._clone
@@ -384,7 +392,11 @@ def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
     assert 0 < byte_copied <= cached
     assert {name: stamp for name, stamp in _part_mtimes(incremental).items() if name in mtimes} == mtimes
     assert _overflow_parts(incremental) == [f"{RETAG_CLASS}.x000.json"] and clones == []
-    assert "(store: a segment of " in report
+    assert "(store: a segment of " in report and "(index: a segment of " in report
+    index_head = row_delta.read_head(incremental, unit_index.INDEX_NAME)
+    assert index_head is not None and len(index_head.segments) == 1
+    assert 0 < index_head.segments[0].rows < index_head.base.rows
+    assert not unit_index.index_path(incremental).exists()
     appended = _held_deflated(incremental)
     with unit_index.LiveCorpus(incremental) as live:
         overflow = [
@@ -813,7 +825,7 @@ def test_a_load_that_raises_is_not_swallowed_by_the_store_parse(
 def test_recompute_all_units_reuses_no_record_and_keeps_every_fragment_in_place(
     mini_corpus, deflated_corpus, mini_bundle, tmp_path, capfd, held
 ):
-    """`recompute_all_units` reuses no record and recomputes every unit, but the prior store still gives each fragment's address, so the shards compare every recomputed fragment with its prior, and a corpus whose units all come out the same is left byte for byte as it was, its ink-signature store, which the pass reshapes, read without the two stamps that record which audit and family keys it was written over (`_signature_lines`). Over a corpus that holds fragments deflated (`deflated_corpus`, #618's change 35), the compare reads each deflated prior's recorded inflated length (decision 76) and inflates it, so a deflated prior whose inflated bytes equal the new fragment's is kept where it is, deflated, with its record's fourth address element and its row's marker."""
+    """`recompute_all_units` reuses no record and recomputes every unit, but the prior store still gives each fragment's address, so the shards compare every recomputed fragment with its prior, the units index compares every recomputed record with its prior and writes its head alone, and a corpus whose units all come out the same is left byte for byte as it was, its ink-signature store, which the pass reshapes, read without the two stamps that record which audit and family keys it was written over (`_signature_lines`). Over a corpus that holds fragments deflated (`deflated_corpus`, #618's change 35), the compare reads each deflated prior's recorded inflated length (decision 76) and inflates it, so a deflated prior whose inflated bytes equal the new fragment's is kept where it is, deflated, with its record's fourth address element and its row's marker."""
     if held == "plain":
         corpus, audit = _copy(mini_corpus, tmp_path), MINI_AUDIT
     else:
@@ -825,6 +837,7 @@ def test_recompute_all_units_reuses_no_record_and_keeps_every_fragment_in_place(
     cached, total = _counts(report, CACHED)
     assert cached == 0
     assert f"appended 0.0 MB (0.0 MB inflated), kept {total:,} by compare" in report
+    assert "(index: head only)" in report
     after = _tree(corpus)
     for tree in (before, after):
         tree[unit_cache.SIGNATURE_STORE_NAME] = _signature_lines(tree[unit_cache.SIGNATURE_STORE_NAME])
@@ -832,21 +845,24 @@ def test_recompute_all_units_reuses_no_record_and_keeps_every_fragment_in_place(
 
 
 def test_serial_and_parallel_builds_are_byte_identical(mini_corpus, mini_bundle, tmp_path):
-    """A pooled build drafts the recomputed units in configuration order (`_configuration_order`) across two workers, and the serial `mini_corpus` drafts the same units in load order in one process. Both produce the same bytes because every order-sensitive whole-corpus pass runs in the parent over all the projections, so this comparison would show any effect of a worker's hand-out order on the output."""
+    """A pooled build drafts the recomputed units in configuration order (`_configuration_order`) across two workers, and the serial `mini_corpus` drafts the same units in load order in one process. Both produce the same bytes because every order-sensitive whole-corpus pass runs in the parent over all the projections, so this comparison would show any effect of a worker's hand-out order on the output. A first build writes the units index as a head over generation 0's base and no single file (#618's change 32)."""
     parallel = tmp_path / "parallel"
     _build(parallel, mini_bundle, jobs=2)
     assert _tree(parallel) == _tree(mini_corpus)
+    assert sorted(path.name for path in parallel.glob(f"{unit_index.INDEX_NAME}*")) == [
+        row_delta.base_name(unit_index.INDEX_NAME, 0),
+        row_delta.head_name(unit_index.INDEX_NAME),
+    ]
 
 
 def _sidecars(corpus: Path) -> dict[str, bytes]:
+    """Return the sidecars' files by name: the units index's head and every part beside it, and the three app sidecars."""
     return {
-        name: (corpus / name).read_bytes()
-        for name in (
-            unit_index.INDEX_NAME,
-            app_index.APP_INDEX_NAME,
-            app_index.LOCATOR_NAME,
-            app_index.LOCATOR_ROWS_NAME,
-        )
+        **{path.name: path.read_bytes() for path in sorted(corpus.glob(f"{unit_index.INDEX_NAME}*"))},
+        **{
+            name: (corpus / name).read_bytes()
+            for name in (app_index.APP_INDEX_NAME, app_index.LOCATOR_NAME, app_index.LOCATOR_ROWS_NAME)
+        },
     }
 
 
@@ -872,7 +888,7 @@ def _sidecars_held_whole(corpus: Path, scratch: Path) -> dict[str, bytes]:
 
 
 def test_a_pooled_write_is_byte_identical_to_the_serial_one(mini_bundle, tmp_path, capfd, monkeypatch):
-    """The write cuts the classes into runs of shard order (`_write_runs`) and, wider than one, writes the runs in worker processes, each fed its run a chunk at a time from the parent's columns (`_write_chunks`), with its own shard writer, compressed sidecar lines and copy-forward cursors, while the parent writes each chunk's results into the store and folds its checker's facts as they arrive. Once the manifest is written the parent pulls each run's lines from the worker that wrote it and writes the sidecars. So a cold build and a cached rebuild whose write runs three wide match a serial build byte for byte, and the sidecars of all three are the bytes the writers that hold every fragment at once write over the same shards (`_sidecars_held_whole`). A rebuild over an edited audit that appends changed fragments to a class's overflow parts lays them out the same at either width, overflow parts and store segment included, since a class's appends go in its id order in the one process that writes it, and deflates each in that process (#618's change 35). So does a later rebuild that folds two classes (`_fold_due`), copying the deflated fragments one holds as they were stored and deflating every plain one. The chunk width is lowered so the larger classes span many chunks, some ending on a chunk's last unit. The cold build reads, patches and serializes every fragment in the workers. The cached rebuild copies every fragment and every sidecar row forward, each run's cursors reading past the lines of the runs before it. Each pooled pass files one `corpus-write` pool record in the journal the autouse fixture redirects. The width is set because the mini bundle's largest class would bound it below three (`_write_width`).
+    """The write cuts the classes into runs of shard order (`_write_runs`) and, wider than one, writes the runs in worker processes, each fed its run a chunk at a time from the parent's columns (`_write_chunks`), with its own shard writer, compressed sidecar lines and copy-forward cursors, while the parent writes each chunk's results into the store and folds its checker's facts as they arrive. Once the manifest is written the parent pulls each run's lines from the worker that wrote it and writes the sidecars. So a cold build and a cached rebuild whose write runs three wide match a serial build byte for byte, and the sidecars of all three are the bytes the writers that hold every fragment at once write over the same shards (`_sidecars_held_whole`), the units index's head and parts among them, since every writer of the index takes the same route (#618's change 32). A rebuild over an edited audit that appends changed fragments to a class's overflow parts lays them out the same at either width, overflow parts and store segment included, since a class's appends go in its id order in the one process that writes it, and deflates each in that process (#618's change 35). So does a later rebuild that folds two classes (`_fold_due`), copying the deflated fragments one holds as they were stored and deflating every plain one. The chunk width is lowered so the larger classes span many chunks, some ending on a chunk's last unit. The cold build reads, patches and serializes every fragment in the workers. The cached rebuild copies every fragment and every sidecar row forward, each run's cursors reading past the lines of the runs before it. Each pooled pass files one `corpus-write` pool record in the journal the autouse fixture redirects. The width is set because the mini bundle's largest class would bound it below three (`_write_width`).
 
     The one value the write reads at another unit is the id of a secondary junction's primary unit, which a chunk carries as an id word (`ChunkStore.primary_units`). The mini bundle's junctions find no primary unit under the real matcher, since their two-letter windows are not units, so every build here accepts any containing window (`enrich._junction_outcomes_match`). That names a visible primary unit for some junctions and an ink-identical one, suppressing the junction, for others, and the corpus checks still pass. A missing word then changes the cold build's bytes, and keeps the cached rebuild from copying those units as they are.
     """
@@ -2766,6 +2782,117 @@ def test_a_store_write_that_fails_before_its_head_leaves_the_previous_store_read
     assert _update(tmp_path, stamp, second).outcome == "segment"
     assert removed[0] == orphan.name
     assert _store_lines(tmp_path)[1] == [unit_cache.record_line(record) for record in second]
+
+
+def _rewritten(counts: Path) -> list[str]:
+    return [line for line in counts.read_text().splitlines() if line.startswith(output_sink.REWRITTEN)]
+
+
+def test_the_units_index_takes_each_route_from_its_head_and_materializes_to_the_file_a_whole_write_gives(
+    tmp_path, monkeypatch
+):
+    """The units index takes the segment format's routes, each decided from its prior head before anything of it is written (#618's change 32, decisions 72 to 75), and every write leaves a materialized index that is the file a whole write of the same records gives, byte for byte. The single file a corpus from before the segment format holds is linked as generation 0's base, and unlinked once the write's head over the link is in place. A write that changes some records writes one segment of them, and one that changes none writes the head alone. With the cap lowered to two segments, a write whose fold is due and that holds the pass's one fold writes this pass's records whole as the next generation's base, moving the head's content generation only when a record moved; a write whose fold another output holds this pass writes its segment and waits, until it has waited `row_delta.FOLD_OVERRUN` segments past its cap, where it folds anyway; and with the cap at 16, a segment as large as its base makes the next write fold. A head that does not read, or a part whose sha256 is not the one its head records, is an `unusable` base, counted as rewritten whole."""
+    from rebuild.tools import cycle_paths
+
+    directory = tmp_path / "index"
+    directory.mkdir()
+    counts = tmp_path / "counts.tsv"
+    counts.write_text("")
+    monkeypatch.setenv(output_sink.OUTPUT_COUNTS_ENV, str(counts))
+    monkeypatch.setattr(row_delta, "SEGMENT_CAP", 2)
+    units = {
+        f"u-{index:02d}": {"id": f"u-{index:02d}", "class": "c-a" if index % 3 else "c-b"}
+        for index in range(12)
+    }
+    passes: list[unit_index.IndexWrite] = []
+
+    def write(
+        changed: Iterable[str] = (), *, notation: str = "", held_by: str | None = None
+    ) -> row_delta.Head:
+        number = len(passes) + 1
+        monkeypatch.setattr(cycle_paths, "CYCLE_VAR", tmp_path / f"pass-{number}")
+        if held_by is not None:
+            assert row_delta.claim_fold(held_by)
+        for unit_id in changed:
+            units[unit_id] = {**units[unit_id], "notation": f"{notation or 'pass'} {number}"}
+        shards: dict[str, list[dict]] = {}
+        for unit in units.values():
+            shards.setdefault(unit["class"], []).append(unit)
+        manifest = {"batch_size": 4, "human_unit_ids": [unit_id for unit_id in units if int(unit_id[2:]) % 2]}
+        for target in (directory, tmp_path / f"whole-{number}"):
+            target.mkdir(exist_ok=True)
+            (target / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        passes.append(unit_index.write_index(directory, shards.items()))
+        unit_index.write_index(tmp_path / f"whole-{number}", shards.items())
+        materialized = unit_index.materialized_index(directory, sha256=True)
+        assert materialized is not None
+        form = tmp_path / f"form-{number}"
+        form.mkdir()
+        assert (
+            unit_index.write_materialized_index(form, *materialized).read_bytes()
+            == (tmp_path / f"whole-{number}" / row_delta.base_name(unit_index.INDEX_NAME, 0)).read_bytes()
+        )
+        head = row_delta.read_head(directory, unit_index.INDEX_NAME)
+        assert head is not None
+        return head
+
+    write()
+    single = unit_index.index_path(directory)
+    materialized = unit_index.materialized_index(directory)
+    assert materialized is not None
+    unit_index.write_materialized_index(directory, materialized[0], list(materialized[1]))
+    row_delta.head_path(directory, unit_index.INDEX_NAME).unlink()
+    row_delta.remove_unlisted(directory, unit_index.INDEX_NAME, None)
+    inode = single.stat().st_ino
+    head = write()
+    assert passes[-1] == unit_index.IndexWrite("head") and not single.exists()
+    assert (head.generation, head.content, head.segments) == (0, 0, ())
+    assert (directory / head.base.name).stat().st_ino == inode
+    head = write(["u-03"])
+    assert (passes[-1].outcome, passes[-1].rows) == ("segment", 1) and (head.content, len(head.segments)) == (
+        1,
+        1,
+    )
+    head = write()
+    assert passes[-1] == unit_index.IndexWrite("head") and head.content == 1
+    head = write(["u-05", "u-06"])
+    assert (passes[-1].rows, len(head.segments)) == (2, 2) and row_delta.fold_due(head)
+    while not row_delta.fold_forced(head):
+        head = write(["u-07"], held_by="windows-default.tsv.gz")
+        assert passes[-1].outcome == "segment"
+    assert len(head.segments) == row_delta.SEGMENT_CAP + row_delta.FOLD_OVERRUN
+    content = head.content
+    head = write(["u-08"], held_by="windows-default.tsv.gz")
+    assert (passes[-1].outcome, passes[-1].reason, passes[-1].rows) == ("base", "fold", len(units))
+    assert (head.generation, head.content, head.segments) == (1, content + 1, ())
+    head = write(["u-09"])
+    head = write(["u-10"])
+    content = head.content
+    head = write()
+    assert (passes[-1].outcome, passes[-1].reason) == ("base", "fold")
+    assert (head.generation, head.content, head.segments) == (2, content, ())
+    monkeypatch.setattr(row_delta, "SEGMENT_CAP", 16)
+    head = write(
+        list(units), notation="a notation long enough to make every record outweigh its line in the base"
+    )
+    assert passes[-1].rows == len(units) and row_delta.fold_due(head) and len(head.segments) == 1
+    head = write()
+    assert (passes[-1].outcome, passes[-1].reason, head.generation) == ("base", "fold", 3)
+    assert not _rewritten(counts)
+    base = directory / head.base.name
+    damaged = bytearray(base.read_bytes())
+    damaged[-9] ^= 1
+    base.write_bytes(bytes(damaged))
+    head = write()
+    assert (passes[-1].outcome, passes[-1].reason, head.generation) == ("base", "unusable", 4)
+    row_delta.head_path(directory, unit_index.INDEX_NAME).write_text("{ not a head")
+    head = write()
+    assert (passes[-1].outcome, passes[-1].reason, head.generation) == ("base", "unusable", 0)
+    assert _rewritten(counts) == [f"{output_sink.REWRITTEN}\t{unit_index.INDEX_NAME}"] * 2
+    assert sorted(path.name for path in directory.glob(f"{unit_index.INDEX_NAME}*")) == [
+        row_delta.base_name(unit_index.INDEX_NAME, 0),
+        row_delta.head_name(unit_index.INDEX_NAME),
+    ]
 
 
 def test_a_build_puts_a_single_file_store_under_a_head_before_it_appends(

@@ -5467,8 +5467,8 @@ def test_contracts_fingerprint_is_none_outside_git(tmp_path):
 
 
 def test_corpus_build_skippable_matches_manifest(tmp_path):
-    """A skip means a rebuild would reproduce this corpus byte for byte, so the test checks each thing that must match: the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, the per-unit index, both app sidecars and the unit store, and the after font. The index, the sidecars and the store are written after the manifest and outside it, so each must be stamped for the current manifest, not merely present; a build stopped after its sidecars and before its store leaves only the store stamped for the manifest before. No fingerprint component covers M1.otf, so only the manifest's recorded after-font sha compared with M1.otf on disk shows whether run_m1 has rebuilt it since."""
-    from rebuild.pipeline import fingerprint
+    """A skip means a rebuild would reproduce this corpus byte for byte, so the test checks each thing that must match: the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, the per-unit index, both app sidecars and the unit store, and the after font. The index, the sidecars and the store are written after the manifest and outside it, so each must be stamped for the current manifest, not merely present; a build stopped after its sidecars and before its store leaves only the store stamped for the manifest before. No fingerprint component covers M1.otf, so only the manifest's recorded after-font sha compared with M1.otf on disk shows whether run_m1 has rebuilt it since. The index is current only with its head and with every part its head lists at the size it records (#618's change 32)."""
+    from rebuild.pipeline import fingerprint, row_delta
     from rebuild.review import app_index, unit_cache, unit_index
 
     m1 = tmp_path / "rebuild" / "out" / "m1"
@@ -5537,7 +5537,14 @@ def test_corpus_build_skippable_matches_manifest(tmp_path):
         assert not ac.corpus_build_skippable(tmp_path, corpus)
         kept.write_bytes(raw)
     assert ac.corpus_build_skippable(tmp_path, corpus)
-    unit_index.index_path(corpus).unlink()
+    index_head = row_delta.head_path(corpus, unit_index.INDEX_NAME)
+    raw = index_head.read_bytes()
+    index_head.unlink()
+    assert not ac.corpus_build_skippable(tmp_path, corpus)
+    index_head.write_bytes(raw)
+    assert ac.corpus_build_skippable(tmp_path, corpus)
+    base = corpus / row_delta.base_name(unit_index.INDEX_NAME, 0)
+    base.write_bytes(base.read_bytes() + b"\0")
     assert not ac.corpus_build_skippable(tmp_path, corpus)
 
     # Rewrite the manifest without rewriting the index, the sidecars and the store. Every shard is present and the fingerprint matches, so only the stale stamps on the files beside it show the mismatch.

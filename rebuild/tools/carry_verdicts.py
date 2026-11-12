@@ -12,7 +12,6 @@ Unless `--allow-orphans` is passed, the carry refuses when more than `landing.OR
 import argparse
 import bisect
 import collections
-import gzip
 import heapq
 import itertools
 import json
@@ -286,16 +285,13 @@ class _Human:
 
 
 def corpus_holds(corpus: pathlib.Path, wanted: Set[str]) -> set[str]:
-    """Return the ids among `wanted` that name a unit on `corpus`, human or machine, from one read-only walk of every unit's id: each index line's head, read without parsing the line, or the shards when the index is not current, as `unit_index.iter_human_units` falls back. The carry's orphan count and the complaint list's absent-unit count take it for the few ids the human ids do not hold, so neither holds every corpus id."""
+    """Return the ids among `wanted` that name a unit on `corpus`, human or machine, from one read-only walk of every unit's id: each id the index holds, its base and segments merged by key so a tombstoned id is not held, sliced from its line without parsing it and with no places (`unit_index.iter_index_ids`), or the shards when the index is not current, as `unit_index.iter_human_units` falls back. The carry's orphan count and the complaint list's absent-unit count take it for the few ids the human ids do not hold, so neither holds every corpus id."""
     held: set[str] = set()
-    if unit_index.index_is_current(corpus):
-        with gzip.open(unit_index.index_path(corpus), "rb") as stream:
-            next(stream)
-            for line in stream:
-                head = line[: line.index(unit_index.CLASS_SEAM)]
-                unit = head[len(unit_index.ID_OPEN) : head.index(unit_index.ORDER_SEAM)].decode()
-                if unit in wanted:
-                    held.add(unit)
+    ids = unit_index.iter_index_ids(corpus)
+    if ids is not None:
+        for unit in ids:
+            if unit in wanted:
+                held.add(unit)
         return held
     for fragment in unit_index.iter_shard_fragments(corpus):
         if fragment["id"] in wanted:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import itertools
 import json
+import os
 import operator
 from dataclasses import replace
 from pathlib import Path
@@ -129,7 +130,7 @@ def test_a_reader_refuses_a_part_that_is_not_the_one_its_head_records(tmp_path):
 
 
 def test_a_part_no_head_lists_is_ignored_and_the_next_writer_deletes_it(tmp_path):
-    """A failed pass can leave a written part that no head lists: a segment or a base of the next generation. A reader opens only the parts its head lists, and the next commit deletes every part of the output the new head does not list, the older generation's among them, and leaves a staging file, which is its writer's."""
+    """A failed pass can leave a written part that no head lists: a segment or a base of the next generation. A reader opens only the parts its head lists, and the next commit deletes every part of the output the new head does not list, the older generation's among them, and leaves a staging file, which is its writer's to delete before it writes (`remove_staging`). A link at a staging name is no writer's leftover, since a writer opens its staging name to fill it, but a route the memory series puts there to the null device, so the units index's writer, which asks for that, leaves it, and every other writer deletes it as before."""
     base = _base(tmp_path, [b"a1\n"])
     head = row_delta.Head(OUTPUT, 0, 0, {}, base)
     row_delta.commit(tmp_path, head)
@@ -146,6 +147,14 @@ def test_a_part_no_head_lists_is_ignored_and_the_next_writer_deletes_it(tmp_path
         [row_delta.head_name(OUTPUT), following.name, f"{row_delta.segment_name(OUTPUT, 0, 2)}.partial"]
     )
     assert _materialized(tmp_path) == [((0, ""), b"b1\n")]
+    route = tmp_path / f"{row_delta.base_name(OUTPUT, 2)}.partial"
+    route.symlink_to(os.devnull)
+    assert row_delta.remove_staging(tmp_path, OUTPUT, links=False) == [
+        f"{row_delta.segment_name(OUTPUT, 0, 2)}.partial"
+    ]
+    assert route.is_symlink()
+    assert row_delta.remove_staging(tmp_path, OUTPUT) == [route.name]
+    assert not route.is_symlink()
 
 
 def test_a_segment_whose_header_names_another_generation_is_refused(tmp_path):

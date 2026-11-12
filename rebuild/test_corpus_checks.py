@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from rebuild.pipeline import row_delta
 from rebuild.review import app_index, drafts, facts, subset_pack, unit_index
 from rebuild.review import build as review_build
 from rebuild.review.audit import (
@@ -458,6 +459,9 @@ def test_a_missing_unit_index_fails_the_build(tmp_path):
     _expect_error(_check_output_files(tmp_path, manifest), "units-index.ndjson.gz is missing")
     _sidecars(tmp_path)
     assert _check_output_files(tmp_path, manifest) == []
+    row_delta.head_path(tmp_path, unit_index.INDEX_NAME).unlink()
+    assert (tmp_path / row_delta.base_name(unit_index.INDEX_NAME, 0)).is_file()
+    _expect_error(_check_output_files(tmp_path, manifest), "units-index.ndjson.gz is missing")
     (tmp_path / "manifest.json").write_text("{}\n", encoding="utf-8")
     _expect_error(_check_output_files(tmp_path, {"classes": [], "fonts": {}}), "stamped for another manifest")
 

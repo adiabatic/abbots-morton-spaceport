@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from rebuild.pipeline import fingerprint
+from rebuild.pipeline import fingerprint, row_delta
 from rebuild.review import accepted, app_index, facts, tablediff, unit_cache
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
@@ -725,7 +725,7 @@ def test_refresh_assets_puts_the_manifest_back_when_the_corpus_is_broken(tmp_pat
     _fake_static_tree(root)
     corpus = root / "rebuild" / "out" / "review"
     _seed_refreshable_corpus(corpus, {"static": "OLD"}, root)
-    unit_index.index_path(corpus).unlink()
+    row_delta.head_path(corpus, unit_index.INDEX_NAME).unlink()
     with pytest.raises(SystemExit):
         review_build.refresh_assets(corpus, root)
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))

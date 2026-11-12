@@ -327,7 +327,7 @@ def test_a_prior_verdict_on_a_machine_unit_is_not_orphaned(tmp_path, monkeypatch
 
 
 def test_the_orphan_walk_reads_every_unit_id_from_the_index_or_the_shards(tmp_path, monkeypatch):
-    """The walk that settles the orphan count's few candidates answers for machine units as well as human ones, reading each index line's head when the index is current and the shards when it is not, as `unit_index.iter_human_units` collects the corpus's ids."""
+    """The walk that settles the orphan count's few candidates answers for machine units as well as human ones, reading each index line's id when the index is current and the shards when it is not, as `unit_index.iter_human_units` collects the corpus's ids. Over an index held as a base and a segment (#618's change 32), an id the segment's tombstone removed is not held, though the base still holds its line."""
     kept, machine, gone = _content_unit("E650:E652"), _content_unit("E652:E653"), _content_unit("E653:E654")
     corpus = tmp_path / "current"
     _write_corpus(corpus, "2026-07-02T00:00:00Z", [kept], [machine])
@@ -336,12 +336,16 @@ def test_the_orphan_walk_reads_every_unit_id_from_the_index_or_the_shards(tmp_pa
     for _unit in unit_index.iter_human_units(corpus, unit_ids=collected):
         pass
     assert carry_verdicts.corpus_holds(corpus, wanted) == wanted & collected == {kept["id"], machine["id"]}
-    unit_index.write_index(corpus, [("units", [kept, machine])])
+    unit_index.write_index(corpus, [("units", sorted([kept, machine], key=lambda unit: unit["id"]))])
     assert unit_index.index_is_current(corpus)
     monkeypatch.setattr(
         carry_verdicts.unit_index, "iter_shard_fragments", lambda _corpus: pytest.fail("read the shards")
     )
     assert carry_verdicts.corpus_holds(corpus, wanted) == {kept["id"], machine["id"]}
+    assert unit_index.write_index(corpus, [("units", [kept])]) == unit_index.IndexWrite(
+        "segment", "", 1, len(f'-\t{{"id": "{machine["id"]}", "class": null}}\n')
+    )
+    assert carry_verdicts.corpus_holds(corpus, wanted) == {kept["id"]}
 
 
 def test_a_carry_that_orphans_more_than_the_limit_refuses_unless_allowed(tmp_path, capsys):

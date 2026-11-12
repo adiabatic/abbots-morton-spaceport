@@ -17,6 +17,8 @@ The output is one `ams-perf-fingerprint/1` document:
 - `complaints`: the complaint list as canonical JSON without the keys `COMPLAINT_STAMPS` names and without any `at` inside `groups`.
 - `review_facts_pins`: the raw digest of `rebuild/review-facts-pins.json` as the pass rewrote it.
 
+The corpus's units index, held as a head, a base and segments (`units-index.ndjson.gz.head`, #618's change 32), is read in its materialized form whatever the store holds (decision 48): through the tree's own reader (`unit_index.materialized_index`, or `build.MaterializedCorpus.index_lines` where the corpus is read in its materialized form), its base and segments merged by key with each record's place put back from the manifest, every part checked against its head's size and sha256, and digested under the key `units-index.ndjson.gz` as the single file a build before the segment format wrote, its header line its head's stamps without the keys `SIDECAR_STAMPS` names. Its head, base and segment files are left out of the `corpus` block, so a corpus whose index is a head, base and segments fingerprints as the single file with the same content.
+
 A corpus whose unit store has a head (`unit-cache.ndjson.gz.head`, #618's change 28) is read in its materialized form (decision 48, the tree's `build.MaterializedCorpus`): each class's live fragments laid into the parts a from-scratch build writes, every fragment plain, a deflated one (change 35) inflated and laid out at its inflated length, the manifest's `shards` lists, the app sidecars' rows and their locator blocks in that layout, without a deflated fragment's `"deflated": true`, and the unit store's head, base and segments merged into the single file a whole write gives, every address three elements, under the key `unit-cache.ndjson.gz`, every store part checked against its head's size and sha256. The store's head, base and segment files are left out of the `corpus` block. So a build that appends a changed fragment, deflated, and a later fold, which deflates, move no digest.
 
 Two readings of the same outputs fingerprint identically, so a difference across a pass that changed no output names a missed stamp, and a tree whose windows rows are held as a base and segments fingerprints as its folded form and as the single file a build before the segment format wrote.
@@ -30,6 +32,7 @@ import hashlib
 import heapq
 import importlib
 import json
+import re
 import sys
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
@@ -53,6 +56,9 @@ COMPLAINT_STAMPS = ("manifest_generated_at", "since")
 STORES = ("unit-cache.ndjson.gz", "ink-signatures.tsv.gz")
 STORE = STORES[0]
 HEAD = f"{STORE}.head"
+INDEX = "units-index.ndjson.gz"
+INDEX_HEAD = f"{INDEX}.head"
+INDEX_FILES = re.compile(rf"{re.escape(INDEX)}(?:\.head|\.\d+\.base|\.\d+\.\d+\.delta)?")
 SITE_FONTS = tuple(
     f"site/AbbotsMortonSpaceport{family}-{weight}.otf"
     for family in ("Mono", "SansJunior", "SansSenior")
@@ -157,18 +163,22 @@ def corpus_file_digest(corpus: Path, path: Path, font_digest: Callable[[Path], s
 def corpus_digests(
     corpus: Path, font_digest: Callable[[Path], str], materialize: Callable[[Path], Any] | None = None
 ) -> tuple[dict, dict[str, str | None]]:
-    """Return the corpus block and the stores block for the review corpus at `corpus`, read in its materialized form through `materialize` (the tree's `build.MaterializedCorpus`) when its unit store has a head."""
+    """Return the corpus block and the stores block for the review corpus at `corpus`, read in its materialized form through `materialize` (the tree's `build.MaterializedCorpus`) when its unit store has a head, and otherwise file by file, with a units index held as a head, a base and segments read in its materialized form through the tree's reader (`tree_index`)."""
     files: dict[str, str] = {}
     stores: dict[str, str | None] = {name: None for name in STORES}
     if materialize is not None and (corpus / HEAD).is_file():
         _materialized_digests(corpus, font_digest, materialize, files, stores)
     elif corpus.is_dir():
+        held = (corpus / INDEX_HEAD).is_file()
         for path in sorted(p for p in corpus.rglob("*") if p.is_file()):
             rel = path.relative_to(corpus).as_posix()
             if rel in STORES:
                 stores[rel] = gz_digest(path)
-            else:
+            elif not (held and INDEX_FILES.fullmatch(rel)):
                 files[rel] = corpus_file_digest(corpus, path, font_digest)
+        if held:
+            header, lines = tree_index(corpus)
+            files[INDEX] = stream_digest(_header_line(header), lines)
     lines = "\n".join(f"{rel}\t{digest}" for rel, digest in sorted(files.items()))
     return {"digest": sha256_bytes(lines.encode()), "files": files}, stores
 
@@ -180,16 +190,22 @@ def _materialized_digests(
     files: dict[str, str],
     stores: dict[str, str | None],
 ) -> None:
-    """Fill the corpus and stores blocks from the corpus's materialized form (the module docstring). A corpus that already is its materialized form keeps its own files' digests, read as the plain form reads them."""
+    """Fill the corpus and stores blocks from the corpus's materialized form (the module docstring). A corpus that already is its materialized form keeps its own files' digests, read as the plain form reads them, but for the units index, which is read in its materialized form either way."""
     with materialize(corpus) as form:
+        index, app, locator, rows_name = form.SIDECARS
+        indexed = False
         for path in sorted(p for p in corpus.rglob("*") if p.is_file()):
             rel = path.relative_to(corpus).as_posix()
             if rel in STORES:
                 stores[rel] = gz_digest(path)
+            elif INDEX_FILES.fullmatch(rel):
+                indexed = True
             elif not form.is_layout_file(rel) or (
                 form.identical and rel != STORE and not rel.startswith(STORE)
             ):
                 files[rel] = corpus_file_digest(corpus, path, font_digest)
+        if indexed:
+            files[index] = stream_digest(_header_line(form.sidecar_header(index)), form.index_lines())
         if not form.identical:
             for name, chunks in form.part_files():
                 digest = hashlib.sha256()
@@ -197,8 +213,6 @@ def _materialized_digests(
                     digest.update(chunk)
                 files[name] = digest.hexdigest()
             files["manifest.json"] = manifest_document_digest(form.manifest)
-            index, app, locator, rows_name = form.SIDECARS
-            files[index] = stream_digest(_header_line(form.sidecar_header(index)), form.index_lines())
             files[app] = stream_digest(_header_line(form.sidecar_header(app)), form.app_lines())
             rows, blocks, machine = form.locator()
             files[rows_name] = sha256_bytes(gzip.decompress(rows))
@@ -409,6 +423,16 @@ def tree_accepted() -> ModuleType | None:
     except ImportError:
         return None
     return module if hasattr(module, "read_tail") and hasattr(module, "iter_records") else None
+
+
+def tree_index(corpus: Path) -> tuple[dict, Iterator[bytes]]:
+    """Return the materialized form of the units index of `corpus`, held as a head, a base and segments, as its header and its record lines, through the tree's `rebuild.review.unit_index.materialized_index`, imported as `tree_materialize` imports the build, from the tree first on `sys.path` only when a corpus needs it, every part checked against its head's size and sha256."""
+    materialized = importlib.import_module("rebuild.review.unit_index").materialized_index(
+        corpus, sha256=True
+    )
+    if materialized is None:
+        raise FileNotFoundError(corpus / INDEX_HEAD)
+    return materialized
 
 
 def tree_materialize(corpus: Path) -> Any:

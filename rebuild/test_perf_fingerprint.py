@@ -358,3 +358,54 @@ def test_a_corpus_appended_to_reads_as_its_materialized_form(
     assert pf.corpus_digests(deflated, fingerprint.font_content_digest, build.MaterializedCorpus) == (
         pf.corpus_digests(scratch, fingerprint.font_content_digest, build.MaterializedCorpus)
     )
+
+
+def _segmented_index(corpus: Path) -> None:
+    """Hold the corpus's units index as a head over a base and two segments whose content is the base's (#618's change 32): one that changes a record's notation and one that changes it back. A single file with no head is linked as generation 0's base first."""
+    from rebuild.pipeline import row_delta
+    from rebuild.review import unit_index
+
+    materialized = unit_index.materialized_index(corpus)
+    assert materialized is not None
+    lines = list(materialized[1])
+    record = json.loads(lines[0])
+    changed = (json.dumps({**record, "notation": "changed"}, ensure_ascii=False) + "\n").encode()
+    assert unit_index.write_index_lines(corpus, [changed, *lines[1:]]).outcome == "segment"
+    assert unit_index.write_index_lines(corpus, lines).outcome == "segment"
+    head = row_delta.read_head(corpus, unit_index.INDEX_NAME)
+    assert head is not None and len(head.segments) == 2
+    assert not unit_index.index_path(corpus).exists()
+
+
+def test_a_units_index_held_as_a_head_a_base_and_segments_reads_as_the_single_file_with_its_content(
+    mini_corpus, tmp_path
+):
+    """A corpus whose units index is a head over a base and segments (#618's change 32) fingerprints as one whose index is the single file a build before the segment format wrote with the same content, through the tree's own reader: in the materialized branch, over a corpus whose unit store has a head, and in the plain one, over a corpus with none. Either way the index is read under `units-index.ndjson.gz` and its head, base and segment files are left out of the `corpus` block, and a part whose sha256 is not the one its head records fails the reading."""
+    import shutil
+
+    from rebuild.pipeline import fingerprint
+    from rebuild.review import build, unit_index
+
+    font = fingerprint.font_content_digest
+    single = tmp_path / "single"
+    build.materialize_corpus(mini_corpus, single)
+    assert unit_index.index_path(single).is_file() and not (single / pf.HEAD).exists()
+    held = tmp_path / "held"
+    shutil.copytree(mini_corpus, held)
+    _segmented_index(held)
+    plain = tmp_path / "plain"
+    shutil.copytree(single, plain)
+    _segmented_index(plain)
+    expected = pf.corpus_digests(single, font)
+    for read in (pf.corpus_digests(held, font, build.MaterializedCorpus), pf.corpus_digests(plain, font)):
+        assert read == expected
+        assert [name for name in read[0]["files"] if name.startswith(unit_index.INDEX_NAME)] == [
+            unit_index.INDEX_NAME
+        ]
+    for corpus, materialize in ((held, build.MaterializedCorpus), (plain, None)):
+        segment = next(corpus.glob(f"{unit_index.INDEX_NAME}.0.2.delta"))
+        damaged = bytearray(segment.read_bytes())
+        damaged[-9] ^= 1
+        segment.write_bytes(bytes(damaged))
+        with pytest.raises(unit_index.IndexUnreadable, match="sha256"):
+            pf.corpus_digests(corpus, font, materialize)

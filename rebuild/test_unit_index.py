@@ -8,11 +8,12 @@ import hashlib
 import json
 import shutil
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import fingerprint
+from rebuild.pipeline import fingerprint, row_delta
 from rebuild.review import app_index, unit_index
 from rebuild.review.build import _check_output_files, _write_shard
 
@@ -34,12 +35,62 @@ def _shard_units(corpus: Path) -> list[dict]:
     return units
 
 
-def _write(corpus: Path) -> Path:
-    shards = [
-        (path.stem, json.loads(path.read_text(encoding="utf-8")))
+def _shards(corpus: Path) -> dict[str, list[dict]]:
+    return {
+        path.stem: json.loads(path.read_text(encoding="utf-8"))
         for path in sorted((corpus / "units").glob("*.json"))
-    ]
-    return unit_index.write_index(corpus, shards)
+    }
+
+
+def _write(corpus: Path) -> unit_index.IndexWrite:
+    return unit_index.write_index(corpus, _shards(corpus).items())
+
+
+def _index_files(corpus: Path) -> dict[str, bytes]:
+    """Every file of the corpus's index by name: its head, its parts, a single file and any staging file."""
+    return {path.name: path.read_bytes() for path in sorted(corpus.glob(f"{unit_index.INDEX_NAME}*"))}
+
+
+def _single(corpus: Path) -> Path:
+    """Put the corpus's index in the form a corpus from before the segment format holds, the single file `units-index.ndjson.gz` with no head, holding the index's materialized form, and return its path."""
+    materialized = unit_index.materialized_index(corpus)
+    assert materialized is not None
+    header, lines = materialized
+    held = list(lines)
+    row_delta.head_path(corpus, unit_index.INDEX_NAME).unlink()
+    row_delta.remove_unlisted(corpus, unit_index.INDEX_NAME, None)
+    return unit_index.write_materialized_index(corpus, header, held)
+
+
+def _manifest(corpus: Path) -> dict:
+    return json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+
+
+def _write_manifest(corpus: Path, manifest: dict) -> None:
+    (corpus / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
+
+
+def _whole(corpus: Path, shards: dict[str, list[dict]], target: Path) -> bytes:
+    """Return the file `write_index` writes whole over `shards` beside a copy of the corpus's manifest in `target`, its first base."""
+    target.mkdir()
+    shutil.copyfile(corpus / "manifest.json", target / "manifest.json")
+    assert unit_index.write_index(target, shards.items()).outcome == "base"
+    return (target / row_delta.base_name(unit_index.INDEX_NAME, 0)).read_bytes()
+
+
+def _materialized(corpus: Path, target: Path) -> bytes:
+    """Return the corpus's materialized index written as the single file, as `build.materialize_corpus` writes it, into `target`."""
+    materialized = unit_index.materialized_index(corpus, sha256=True)
+    assert materialized is not None
+    target.mkdir()
+    return unit_index.write_materialized_index(target, *materialized).read_bytes()
+
+
+def _segment_rows(corpus: Path, number: int) -> list[tuple[bytes, bytes]]:
+    head = row_delta.read_head(corpus, unit_index.INDEX_NAME)
+    assert head is not None and len(head.segments) >= number
+    with open(corpus / head.segments[number - 1].name, "rb") as handle:
+        return list(row_delta.keyed_segment_rows(handle, unit_index.INDEX_NAME, head.generation, number))
 
 
 def test_class_shards_reads_either_manifest_format():
@@ -217,7 +268,9 @@ def test_the_manifest_identity_ignores_the_assets_component(tmp_path):
 
 def test_a_truncated_or_foreign_index_is_refused(tmp_path):
     corpus = _fixture_corpus(tmp_path)
-    path = _write(corpus)
+    _write(corpus)
+    path = _single(corpus)
+    assert unit_index.load_index(corpus) is not None
     path.write_bytes(b"")
     assert unit_index.load_index(corpus) is None
     with gzip.open(path, "wb") as stream:
@@ -225,27 +278,48 @@ def test_a_truncated_or_foreign_index_is_refused(tmp_path):
     assert unit_index.load_index(corpus) is None
 
 
-def test_writing_the_index_twice_writes_the_same_bytes(tmp_path):
+def test_writing_the_index_twice_leaves_it_as_it_was(tmp_path):
+    """A first write over no index writes its records whole as generation 0's base under a new head. A second write over the same fragments finds every record as the first wrote it, so it writes the head alone, which comes out the same, so every file of the index keeps its bytes."""
     corpus = _fixture_corpus(tmp_path)
-    first = _write(corpus).read_bytes()
-    assert _write(corpus).read_bytes() == first
+    assert _write(corpus) == unit_index.IndexWrite("base", "first", 11, len(_index_lines(corpus)))
+    first = _index_files(corpus)
+    assert sorted(first) == [
+        row_delta.base_name(unit_index.INDEX_NAME, 0),
+        row_delta.head_name(unit_index.INDEX_NAME),
+    ]
+    assert _write(corpus) == unit_index.IndexWrite("head")
+    assert _index_files(corpus) == first
+
+
+def _index_lines(corpus: Path) -> bytes:
+    materialized = unit_index.materialized_index(corpus)
+    assert materialized is not None
+    return b"".join(materialized[1])
 
 
 def test_a_failed_index_write_leaves_the_previous_index_whole(tmp_path):
-    """The index is staged under a sibling name and renamed last, so the previous index stays readable, with no truncated gzip at the final path, whether the write raises or the build is killed during it. A write that raises, as this one does, also leaves no staging file behind. The gzip header names the final file, not the staging one."""
+    """The head is the index's commit point, renamed into place last, so a write that raises leaves the previous head and every part it lists as they were, whether its lines stop partway or come out of key order, which the write refuses rather than write a segment no merge would take, and the segment it was staging is removed, with no staging file left. The base's gzip header names the index as a whole write's does, `units-index.ndjson` with gzip's `.gz` dropped, never a staging file."""
     corpus = _fixture_corpus(tmp_path)
-    path = _write(corpus)
-    intact = path.read_bytes()
-    assert b".partial" not in intact
+    _write(corpus)
+    intact = _index_files(corpus)
+    base = intact[row_delta.base_name(unit_index.INDEX_NAME, 0)]
+    assert base[10:].startswith(b"units-index.ndjson\0")
+    slot = unit_index.slot_reader(corpus)
+    lines = [
+        unit_index.index_line({**fragment, "notation": "changed"}, **slot(fragment))
+        for fragment in _shard_units(corpus)
+    ]
 
-    def lines():
-        yield b'{"id": "u-0"}\n'
+    def stopping():
+        yield lines[0]
         raise RuntimeError("the write stops here")
 
     with pytest.raises(RuntimeError, match="stops here"):
-        unit_index.write_index_lines(corpus, lines())
-    assert path.read_bytes() == intact
-    assert not path.with_name(path.name + ".partial").exists()
+        unit_index.write_index_lines(corpus, stopping())
+    assert _index_files(corpus) == intact
+    with pytest.raises(ValueError, match="out of key order"):
+        unit_index.write_index_lines(corpus, [lines[1], lines[0], *lines[2:]])
+    assert _index_files(corpus) == intact
 
 
 def test_iter_units_and_load_units_agree(tmp_path):
@@ -334,28 +408,167 @@ def test_human_stream_fallback_keeps_legacy_fragment_batches(tmp_path):
     assert ids == {"human", "machine"}
 
 
-def test_an_index_line_opens_with_the_id_order_and_batch(tmp_path):
-    """`load_human_units` reads a line's id, and whether its batch is null, from the head cut at `CLASS_SEAM`, without parsing the line. That depends on `index_record` starting every record with `id`, `order`, `batch` in that order. A key added before `batch`, or a moved `class`, would misclassify every record on the corpus without an error, so this test checks the order: the head, closed with `}`, parses as a record of those three keys only, the id slices out of it, and the head ends with `MACHINE_TAIL` if and only if the batch is null."""
-    fragment = _shard_units(_fixture_corpus(tmp_path))[0]
+def test_a_record_reads_its_place_from_the_manifest_whatever_its_line_holds(tmp_path):
+    """Every reader takes a record's `order` and `batch` from the manifest beside the index (`unit_index.Places`), never from its line (#618's decision 55). A line opens with `id`, `order` and `batch`, so its id is sliced after `ID_OPEN` and its place is whatever lies before `CLASS_SEAM`: a base's line with a stale place, one with none, and a segment's line, which holds no place, all read the manifest's place for their id. That lookup also classifies a line as human or machine without parsing it. A fragment that carries its own `batch`, as only one from an older corpus does, reads null for both through the index when the triage index lacks its id, though its line holds that batch."""
+    corpus = _fixture_corpus(tmp_path)
+    fragment = _shard_units(corpus)[0]
+    places = unit_index.Places(_manifest(corpus))
     assert list(unit_index.index_record(fragment))[:3] == ["id", "order", "batch"]
-    for order, batch in ((7, 0), (None, None)):
-        line = unit_index.index_line(fragment, order=order, batch=batch)
-        head = line[: line.index(unit_index.CLASS_SEAM)]
-        assert head.startswith(unit_index.ID_OPEN)
-        assert json.loads(head + b"}") == {"id": fragment["id"], "order": order, "batch": batch}
-        assert head[len(unit_index.ID_OPEN) : head.index(unit_index.ORDER_SEAM)].decode() == fragment["id"]
-        assert head.endswith(unit_index.MACHINE_TAIL) is (batch is None)
-
-
-def test_a_fragment_carrying_its_own_batch_reads_as_human():
-    """`human_unit_slot`'s branch for a fragment that carries its own `batch` and has no `order` writes a head ending in a number instead of `null`, so the record is classified as human. It is the only form in which `batch` is not null without an `order`."""
-    fragment = {"id": "u-0001", "batch": 2}
-    slot = unit_index.human_unit_slot({}, 300, fragment)
+    order = places.positions[fragment["id"]]
+    expected = unit_index.index_line(fragment, order=order, batch=order // places.batch_size)
+    unplaced = (
+        unit_index.ID_OPEN
+        + fragment["id"].encode()
+        + b'"'
+        + expected[expected.index(unit_index.CLASS_SEAM) :]
+    )
+    for line in (
+        unit_index.index_line(fragment, order=order + 7, batch=9),
+        unit_index.index_line(fragment),
+        unplaced,
+    ):
+        assert unit_index.line_id(line) == fragment["id"]
+        assert places.placed(line) == expected
+        assert unit_index.index_key(line) == [
+            unit_index.class_shard_key(fragment["class"]).encode(),
+            fragment["id"].encode(),
+        ]
+    legacy = {"id": "u-legacy", "class": "fixture-intended", "batch": 2}
+    slot = unit_index.human_unit_slot(places.positions, places.batch_size, legacy)
     assert slot == {"order": None, "batch": 2}
-    line = unit_index.index_line(fragment, **slot)
-    head = line[: line.index(unit_index.CLASS_SEAM)]
-    assert not head.endswith(unit_index.MACHINE_TAIL)
-    assert json.loads(head + b"}")["batch"] == 2
+    assert places.placed(unit_index.index_line(legacy, **slot)) == unit_index.index_line(legacy)
+
+
+def test_a_unit_inserted_ahead_in_the_triage_index_moves_every_later_place_and_its_segment_holds_only_what_changed(
+    tmp_path,
+):
+    """A human unit inserted at the front of the triage index moves the place of every human unit after it, and a write over a base whose records hold the old places writes a segment of the new record and the one whose fields changed alone, each without a place, since the compare cuts places on both sides. Every reader reads the places a whole write gives, and the materialized index, written as the single file, is that whole file byte for byte, gzip bytes included (#618's decision 48)."""
+    corpus = _fixture_corpus(tmp_path)
+    _write(corpus)
+    shards = _shards(corpus)
+    changed = shards["join-dropped"][0]["id"]
+    shards["join-dropped"][0] = {**shards["join-dropped"][0], "notation": "·Changed"}
+    shards["fixture-intended"] = sorted(
+        [*shards["fixture-intended"], {**shards["fixture-intended"][0], "id": "u-0inserted"}],
+        key=lambda fragment: fragment["id"],
+    )
+    manifest = _manifest(corpus)
+    manifest["human_unit_ids"] = ["u-0inserted", *manifest["human_unit_ids"]]
+    _write_manifest(corpus, manifest)
+    written = unit_index.write_index(corpus, shards.items())
+    assert (written.outcome, written.rows) == ("segment", 2)
+    rows = _segment_rows(corpus, 1)
+    assert [(op, unit_index.line_id(payload)) for op, payload in rows] == [
+        (b"+", "u-0inserted"),
+        (b"+", changed),
+    ]
+    assert not any(b'"order"' in payload or b'"batch"' in payload for _op, payload in rows)
+    whole = _whole(corpus, shards, tmp_path / "whole")
+    assert _materialized(corpus, tmp_path / "form") == whole
+    fresh = tmp_path / "whole"
+    assert unit_index.load_index(corpus) == unit_index.load_index(fresh)
+    assert list(unit_index.iter_units(corpus)) == list(unit_index.iter_units(fresh))
+    assert unit_index.load_human_units(corpus) == unit_index.load_human_units(fresh)
+    assert list(unit_index.iter_human_units(corpus)) == list(unit_index.iter_human_units(fresh))
+    human = manifest["human_unit_ids"]
+    for record in unit_index.iter_units(corpus):
+        position = human.index(record["id"]) if record["id"] in human else None
+        assert (record["order"], record["batch"]) == (
+            (None, None) if position is None else (position, position // manifest["batch_size"])
+        ), record["id"]
+
+
+def test_a_unit_that_leaves_the_triage_index_reads_null_though_its_base_record_holds_a_place(tmp_path):
+    """A human unit the manifest's triage index drops reads null for `order` and `batch`, and as a machine unit, through every reader, though the base's record still holds its old place: a write whose records all come out the same writes the head alone under the new manifest's stamp, and the readers take every place from that manifest. The units after it move up one place, and the materialized index is the file a whole write gives."""
+    corpus = _fixture_corpus(tmp_path)
+    _write(corpus)
+    manifest = _manifest(corpus)
+    left = manifest["human_unit_ids"].pop(3)
+    following = manifest["human_unit_ids"][3]
+    _write_manifest(corpus, manifest)
+    assert _write(corpus) == unit_index.IndexWrite("head")
+    head = row_delta.read_head(corpus, unit_index.INDEX_NAME)
+    assert head is not None and not head.segments
+    with gzip.open(corpus / head.base.name, "rb") as stream:
+        held = next(line for line in stream if unit_index.line_id(line) == left)
+    assert held.startswith(unit_index.line_head(left, 3, 0))
+    records = {record["id"]: record for record in unit_index.iter_units(corpus)}
+    assert (records[left]["order"], records[left]["batch"]) == (None, None)
+    assert (records[following]["order"], records[following]["batch"]) == (3, 0)
+    human, ids = unit_index.load_human_units(corpus)
+    assert left not in {record["id"] for record in human} and left in ids
+    assert left not in {record["id"] for record in unit_index.iter_human_units(corpus)}
+    assert _materialized(corpus, tmp_path / "form") == _whole(corpus, _shards(corpus), tmp_path / "whole")
+
+
+def test_a_removed_unit_leaves_every_reader_and_a_unit_that_changes_class_is_a_tombstone_and_an_upsert(
+    tmp_path,
+):
+    """A unit no fragment holds any more is a tombstone at its key, its class and id, and a unit whose class changed is a tombstone at its old key and an upsert at its new one, all in one segment in key order, and nothing else is written though the removed human unit moved every later place. Every reader then reads the removed unit nowhere and the moved one once, in its new class, and the materialized index is the file a whole write gives."""
+    corpus = _fixture_corpus(tmp_path)
+    _write(corpus)
+    shards = _shards(corpus)
+    removed = shards["fixture-mismatch"].pop(0)["id"]
+    moved = shards["fixture-intended"].pop(0)
+    shards["join-dropped"] = sorted(
+        [*shards["join-dropped"], {**moved, "class": "join-dropped"}], key=lambda fragment: fragment["id"]
+    )
+    manifest = _manifest(corpus)
+    assert removed in manifest["human_unit_ids"]
+    manifest["human_unit_ids"].remove(removed)
+    _write_manifest(corpus, manifest)
+    assert unit_index.write_index(corpus, shards.items()).outcome == "segment"
+    assert [(op, unit_index.index_key(payload)) for op, payload in _segment_rows(corpus, 1)] == [
+        (b"-", [b"fixture-intended.json", moved["id"].encode()]),
+        (b"-", [b"fixture-mismatch.json", removed.encode()]),
+        (b"+", [b"join-dropped.json", moved["id"].encode()]),
+    ]
+    classes = [(record["id"], record["class"]) for record in unit_index.iter_units(corpus)]
+    assert removed not in {unit_id for unit_id, _class in classes}
+    assert [found for found in classes if found[0] == moved["id"]] == [(moved["id"], "join-dropped")]
+    assert removed not in unit_index.load_human_units(corpus)[1]
+    ids = unit_index.iter_index_ids(corpus)
+    assert ids is not None and sorted(ids) == sorted(unit_id for unit_id, _class in classes)
+    assert _materialized(corpus, tmp_path / "form") == _whole(corpus, shards, tmp_path / "whole")
+
+
+def test_index_is_current_reads_the_head_and_a_single_file_by_its_inline_header(tmp_path):
+    """The index is current when its head's stamps name this format and the manifest beside it and every part the head lists is on disk at the size the head records: a head stamped for another manifest, a manifest moved under it, a segment missing and a base of another size each make it not current, and every reader falls back to the shards. With no head, the single file a corpus from before the segment format holds is read by its inline header, which `index_header` returns as it returns the head's stamps."""
+    corpus = _fixture_corpus(tmp_path)
+    _write(corpus)
+    shards = _shards(corpus)
+    shards["join-dropped"][0] = {**shards["join-dropped"][0], "notation": "·Changed"}
+    unit_index.write_index(corpus, shards.items())
+    head = row_delta.read_head(corpus, unit_index.INDEX_NAME)
+    assert head is not None and len(head.segments) == 1
+    stamps = {"format": unit_index.INDEX_FORMAT, "manifest_sha256": unit_index.manifest_sha256(corpus)}
+    assert unit_index.index_header(corpus) == stamps and unit_index.index_is_current(corpus)
+    row_delta.commit(corpus, replace(head, stamps={**stamps, "manifest_sha256": "another"}))
+    assert not unit_index.index_is_current(corpus) and unit_index.load_index(corpus) is None
+    row_delta.commit(corpus, head)
+    manifest = _manifest(corpus)
+    _write_manifest(corpus, {**manifest, "generated_at": "2099-01-01T00:00:00Z"})
+    assert not unit_index.index_is_current(corpus)
+    _write_manifest(corpus, manifest)
+    assert unit_index.index_is_current(corpus)
+    segment = corpus / head.segments[0].name
+    segment.rename(corpus / "held.delta")
+    assert not unit_index.index_is_current(corpus)
+    assert unit_index.load_human_units(corpus) == _human_and_ids(list(unit_index.stream_shards(corpus)))
+    (corpus / "held.delta").rename(segment)
+    base = corpus / head.base.name
+    held = base.read_bytes()
+    base.write_bytes(held + b"\0")
+    assert not unit_index.index_is_current(corpus)
+    base.write_bytes(held)
+    assert unit_index.index_is_current(corpus)
+    path = _single(corpus)
+    assert not row_delta.head_path(corpus, unit_index.INDEX_NAME).exists()
+    with gzip.open(path, "rb") as stream:
+        assert json.loads(stream.readline()) == unit_index.index_header(corpus) == stamps
+    assert unit_index.index_is_current(corpus)
+    _write_manifest(corpus, {**manifest, "generated_at": "2099-01-01T00:00:00Z"})
+    assert not unit_index.index_is_current(corpus)
 
 
 def test_load_human_units_falls_back_to_the_shards(tmp_path):
@@ -376,7 +589,9 @@ def test_load_human_units_falls_back_to_the_shards(tmp_path):
 def test_a_truncated_or_foreign_index_refuses_the_human_load_too(tmp_path):
     corpus = _fixture_corpus(tmp_path)
     fallback = _human_and_ids(unit_index.load_units(corpus))
-    path = _write(corpus)
+    _write(corpus)
+    path = _single(corpus)
+    assert unit_index.load_human_units(corpus) == fallback
     path.write_bytes(b"")
     assert unit_index.load_human_units(corpus) == fallback
     with gzip.open(path, "wb") as stream:
@@ -720,7 +935,6 @@ def test_the_iterator_takes_the_index_where_the_store_does_not_describe_the_shar
     plain_appended_corpus, mini_corpus, tmp_path
 ):
     """Over a corpus whose appends are plain (`plain_appended_corpus`), so the index can walk its parts: where the unit store does not describe the shards beside it (a part missing under its head, or a record that names a slot outside the parts of the class it records, such as the dead slot a unit left when it changed class), the iterator takes each id the index lists from its last occurrence in manifest order, overflow parts last, and reads what the store would give. A corpus with no store head, as one whose store was deleted by hand, is taken from its index too whenever the index is current, so it is read without its dead slots whether it lists an overflow part or only holds the slot a unit left in a base part when its class lost it on a pass that appended nothing. A corpus with a store head or an overflow part whose store and index are both unusable is refused rather than walked with its dead slots."""
-    from rebuild.pipeline import row_delta
     from rebuild.review import unit_cache
     from rebuild.test_unit_cache import _rewrite_store
 
@@ -755,10 +969,9 @@ def test_the_iterator_takes_the_index_where_the_store_does_not_describe_the_shar
         assert live.source == "index"
     assert list(unit_index.iter_shard_fragments(corpus)) == expected
     (corpus / "held.head").rename(head_path)
-    with gzip.open(unit_index.index_path(corpus), "wb") as stream:
-        stream.write(
-            json.dumps({"format": unit_index.INDEX_FORMAT, "manifest_sha256": "another"}).encode() + b"\n"
-        )
+    index_head = row_delta.read_head(corpus, unit_index.INDEX_NAME)
+    assert index_head is not None
+    row_delta.commit(corpus, replace(index_head, stamps={**index_head.stamps, "manifest_sha256": "another"}))
     with pytest.raises(
         unit_index.LayoutError, match="has a unit store head.*cannot be told from its dead slots"
     ):
@@ -776,10 +989,10 @@ def test_the_iterator_takes_the_index_where_the_store_does_not_describe_the_shar
             for meta in live.ordered()
             if len(unit_index.class_shards(meta)) == 1 and len(slots := live.slots(meta)) > 1
         )
-    with gzip.open(unit_index.index_path(shrunk), "rb") as stream:
-        next(stream)
-        kept = [line for line in stream if json.loads(line)["id"] != lost]
-    unit_index.write_index_lines(shrunk, kept)
+    materialized = unit_index.materialized_index(shrunk)
+    assert materialized is not None
+    kept = [line for line in materialized[1] if unit_index.line_id(line) != lost]
+    assert unit_index.write_index_lines(shrunk, kept).outcome == "segment"
     row_delta.head_path(shrunk, unit_cache.STORE_NAME).unlink()
     assert lost in _every_slot(shrunk) and not list((shrunk / "units").glob("*.x000.json"))
     with unit_index.LiveCorpus(shrunk) as live:
@@ -791,7 +1004,6 @@ def test_the_iterator_takes_the_index_where_the_store_does_not_describe_the_shar
 
 def test_only_the_store_reads_a_corpus_that_holds_a_deflated_fragment(appended_corpus, tmp_path):
     """The index and the parts walk each part as JSON, and a deflated fragment (#618's change 35) is a raw deflate stream that is not ASCII, so where either drives the iterator a part that is not ASCII is refused (`unit_index.LayoutError`) instead of yielding nothing, which would drop its class's every unit without a word. Here the store stops describing a corpus with a deflated append, and the index refuses it, as every whole-part reader then does, the build's output check among them; and a corpus whose deflated append was folded into a class's base, with neither a store head nor a current index, is refused by the parts."""
-    from rebuild.pipeline import row_delta
     from rebuild.review import build, unit_cache
     from rebuild.test_unit_cache import RETAG_CLASS, _rewrite_store
 
