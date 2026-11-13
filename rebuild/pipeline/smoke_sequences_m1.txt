@@ -2004,3 +2004,158 @@ E662 200C E653           # ZWNJ severs the exit into ·Day
 E662 200C E65D           # ZWNJ severs the half's exit into ·Jai
 E651 200C E662           # ZWNJ severs the entry from ·Bay
 00B7 E662                # Namer dot before Tall ·He
+
+# ·Why
+E663                     # ·Why in isolation
+E650 E663                # ·Pea before ·Why (break)
+E663 E650                # ·Why before ·Pea (break)
+E651 E663                # ·Bay before ·Why (break)
+E663 E651                # ·Why before ·Bay (break)
+E652 E663                # ·Tea before ·Why (break)
+E663 E652                # ·Why before ·Tea (break)
+E653 E663                # ·Day before ·Why (break)
+E663 E653                # ·Why's x-height exit into ·Day
+E654 E663                # ·Key before ·Why (break)
+E663 E654                # ·Why before ·Key (break)
+E655 E663                # ·Gay before ·Why (break)
+E663 E655                # ·Why's half into ·Gay
+E656 E663                # ·Thaw before ·Why (break)
+E663 E656                # ·Why before ·Thaw (break)
+E657 E663                # ·They before ·Why (break)
+E663 E657                # ·Why before ·They (break)
+E658 E663                # ·Fee before ·Why (break)
+E663 E658                # ·Why before ·Fee (break)
+E659 E663                # ·Vie before ·Why (break)
+E663 E659                # ·Why before ·Vie (break)
+E65A E663                # ·See before ·Why (break)
+E663 E65A                # ·Why before ·See (break)
+E65B E663                # ·Zoo before ·Why (break)
+E663 E65B                # ·Why's x-height exit into ·Zoo
+E65C E663                # ·She before ·Why (break)
+E663 E65C                # ·Why before ·She (break)
+E65D E663                # ·Jai before ·Why (break)
+E663 E65D                # ·Why's x-height exit into ·Jai
+E65E E663                # ·Cheer before ·Why (break)
+E663 E65E                # ·Why before ·Cheer (break)
+E65F E663                # ·Jay before ·Why (break)
+E663 E65F                # ·Why's x-height exit into ·Jay
+E660 E663                # ·Ye before ·Why (break)
+E663 E660                # ·Why before ·Ye (break)
+E661 E663                # ·Way before ·Why (break)
+E663 E661                # ·Why before ·Way (break)
+E662 E663                # ·He before ·Why (break)
+E663 E662                # ·Why before ·He (break)
+E663 E663                # ·Why before ·Why (break)
+E665 E663                # ·May before ·Why (break)
+E663 E665                # ·Why before ·May (break)
+E666 E663                # ·No before ·Why (break)
+E663 E666                # ·Why's x-height exit into ·No
+E667 E663                # ·Low before ·Why (break)
+E663 E667                # ·Why before ·Low (break)
+E668 E663                # ·Roe before ·Why (break)
+E663 E668                # ·Why's x-height exit into ·Roe
+E670 E663                # ·It before ·Why (break)
+E663 E670                # ·Why's x-height exit into ·It
+E672 E663                # ·Et before ·Why (break)
+E663 E672                # ·Why's x-height exit into ·Et
+E673 E663                # ·Eight before ·Why (break)
+E663 E673                # ·Why's x-height exit into ·Eight
+E674 E663                # ·At before ·Why (break)
+E663 E674                # ·Why before ·At (break)
+E675 E663                # ·I before ·Why (break)
+E663 E675                # ·Why before ·I (break)
+E676 E663                # ·Ah before ·Why (break)
+E663 E676                # ·Why before ·Ah (break)
+E677 E663                # ·Awe before ·Why (break)
+E663 E677                # ·Why's x-height exit into ·Awe
+E678 E663                # ·Ox before ·Why (break)
+E663 E678                # ·Why's x-height exit into ·Ox
+E679 E663                # ·Oy before ·Why (break)
+E663 E679                # ·Why before ·Oy (break)
+E67A E663                # ·Utter before ·Why (break)
+E663 E67A                # ·Why+Utter (the ligature; forms under every set but ss10)
+E67B E663                # ·Out before ·Why (break)
+E663 E67B                # ·Why before ·Out (break)
+E67E E663                # ·Ooze before ·Why (break)
+E663 E67E                # ·Why before ·Ooze (break)
+E652 E679 E663           # qsTea_qsOy before ·Why (break)
+E663 E652 E679           # ·Why before qsTea_qsOy (break)
+E653 E67A E663           # qsDay_qsUtter before ·Why (break)
+E663 E653 E67A           # ·Why's x-height exit into qsDay_qsUtter
+E657 E65B E663           # qsThey_qsZoo before ·Why (break)
+E663 E657 E65B           # ·Why before qsThey_qsZoo (break)
+E657 E67A E663           # qsThey_qsUtter before ·Why (break)
+E663 E657 E67A           # ·Why before qsThey_qsUtter (break)
+E659 E67A E663           # qsVie_qsUtter before ·Why (break)
+E663 E659 E67A           # ·Why before qsVie_qsUtter (break)
+E65A E67A E663           # qsSee_qsUtter before ·Why (break)
+E663 E65A E67A           # ·Why before qsSee_qsUtter (break)
+E65D E67A E663           # qsJai_qsUtter before ·Why (break)
+E663 E65D E67A           # ·Why's x-height exit into qsJai_qsUtter
+E65F E67A E663           # qsJay_qsUtter before ·Why (break)
+E663 E65F E67A           # ·Why's x-height exit into qsJay_qsUtter
+E661 E67A E663           # qsWay_qsUtter before ·Why (break)
+E663 E661 E67A           # ·Why before qsWay_qsUtter (break)
+E663 E67A E663           # qsWhy_qsUtter before ·Why (break)
+E663 E663 E67A           # ·Why before qsWhy_qsUtter (break)
+E67B E652 E663           # qsOut_qsTea before ·Why (break)
+E663 E67B E652           # ·Why before qsOut_qsTea (break)
+E663 E67A E650           # ·Why+Utter's x-height exit into ·Pea
+E663 E67A E651           # ·Why+Utter's extended x-height exit into ·Bay
+E663 E67A E652           # ·Why+Utter before ·Tea: break at default; ss03 joins ·Tea at the x-height with the extended exit
+E663 E67A E653           # ·Why+Utter's x-height exit into ·Day
+E663 E67A E654           # ·Why+Utter before ·Key (break)
+E663 E67A E655           # ·Why+Utter's extended x-height exit into ·Gay
+E663 E67A E656           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Thaw
+E663 E67A E657           # ·Why+Utter's extended x-height exit into ·They
+E663 E67A E658           # ·Why+Utter's extended x-height exit into ·Fee
+E663 E67A E659           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Vie
+E663 E67A E65A           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·See
+E663 E67A E65B           # ·Why+Utter's x-height exit into ·Zoo
+E663 E67A E65C           # ·Why+Utter before ·She (break)
+E663 E67A E65D           # ·Why+Utter before ·Jai: the follower's entry contracts by two
+E663 E67A E65E           # ·Why+Utter's x-height exit into ·Cheer
+E663 E67A E65F           # ·Why+Utter's x-height exit into ·Jay
+E663 E67A E660           # ·Why+Utter's x-height exit into ·Ye
+E663 E67A E661           # ·Why+Utter before ·Way (break)
+E663 E67A E662           # ·Why+Utter before ·He (break)
+E663 E67A E665           # ·Why+Utter's x-height exit into ·May
+E663 E67A E666           # ·Why+Utter's x-height exit into ·No
+E663 E67A E667           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Low
+E663 E67A E668           # ·Why+Utter's x-height exit into ·Roe
+E663 E67A E670           # ·Why+Utter's x-height exit into ·It
+E663 E67A E672           # ·Why+Utter's x-height exit into ·Et
+E663 E67A E673           # ·Why+Utter's x-height exit into ·Eight
+E663 E67A E674           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·At
+E663 E67A E675           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·I
+E663 E67A E676           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Ah
+E663 E67A E677           # ·Why+Utter's x-height exit into ·Awe
+E663 E67A E678           # ·Why+Utter's x-height exit into ·Ox
+E663 E67A E679           # ·Why+Utter's x-height exit into ·Oy
+E663 E67A E67B           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Out
+E663 E67A E67E           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Ooze
+E663 E655 E656           # ·Why's half keeps its baseline join into ·Gay before ·Thaw
+E663 E655 E655           # ·Why's half keeps its join into ·Gay before a second ·Gay
+E663 E655 E67A           # ·Why's half keeps its join into ·Gay before ·Utter
+E663 E655 E666           # ·Why's half into ·Gay, whose x-height exit reaches ·No
+E663 E655 E652           # ·Gay's extended baseline exit into ·Tea wins over ·Why's half
+E663 E655 E653           # ·Gay's extended baseline exit into half-·Day wins over ·Why's half
+E663 E655 E652 E653      # ·Why's half keeps ·Gay before ·Tea·Day; under ss05 ·Gay joins ·Tea and ·Why breaks
+E663 E652 E653           # ·Why before ·Tea·Day (break), keeping the ·Tea·Day join
+E663 E67A E652 E653      # ·Why+Utter before ·Tea·Day: break at default, keeping ·Tea·Day; ss03 joins ·Tea at the x-height
+E663 E670 E653           # ·Why's x-height exit into ·It, which joins half-·Day at the baseline
+E663 E668 E653           # ·Why's x-height exit into ·Roe, which does not join ·Day
+E663 E672                # Manual: `·Why ~x~ ·Et`
+E663 E675                # Manual: `·Why | ·I`
+E663 E672 E666           # Manual: `·Why ~x~ ·Et ~b~ ·No.alt`
+E663 E672 E659           # Manual: `·Why ~x~ ·Et ~b~ ·Vie`
+E663 E672 E659 E67A E668 # Manual: `·Why ~x~ ·Et ~b~ ·Vie+Utter ~x~ ·Roe`
+200C E663                # ·Why after ZWNJ: it has no entry, so there is no locked copy
+200C E663 E653           # ·Why after ZWNJ keeps its x-height exit into ·Day
+200C E663 E655           # ·Why after ZWNJ keeps its half's baseline join into ·Gay
+E663 200C E653           # ZWNJ severs the exit into ·Day
+E663 200C E655           # ZWNJ severs the half's exit into ·Gay
+200C E663 E67A           # ·Why+Utter after ZWNJ
+E663 200C E67A           # ZWNJ severs the ligature
+00B7 E663                # Namer dot before Deep ·Why
+00B7 E663 E67A           # Namer dot before ·Why+Utter

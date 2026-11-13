@@ -2242,3 +2242,7 @@
 - signature: contact:qsHe.full.ex-y0.locked:qsUtter.mono.en-y0:y1
 - signature: contact:qsHe.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsHe.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+
+# The ·Why+Utter ligature's crown is ·Utter's nub, unconditional letterform ink like the ·Way+Utter crown above. The old font draws the bare ligature with the full crown at every word edge and before every non-joining follower (baseline rows E663:E67A and E663:E67A:E654), and quikscript.yaml has no unjoined form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The ligature has no entry, so the ZWNJ lock mints no locked copy of it, and this one cell is the only one the gate checks.
+- signature: dangle:qsWhy_qsUtter.sole:exit:x-height
+  why: The ·Why·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the old font; the declined exit keeps it.

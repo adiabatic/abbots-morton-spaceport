@@ -4,7 +4,7 @@
 
 The rebuild migrates the cursive-join engine rune by rune and checks each batch against the old font through the oracle.
 
-**Next step: the qsHe batch is closed; the next migration is not selected.** `make verdict-ready` is the readiness check, `glyph_data/runes/` lists the migrated runes, and `make novelty-order` orders the remaining blanks.
+**Next step: the qsWhy batch builds green and awaits its review session.** `rebuild/M1-BATCH30-PROGRESS.md` holds the parked questions, the recorded design overrides, and the verification recipe. `make verdict-ready` is the readiness check, `glyph_data/runes/` lists the migrated runes, and `make novelty-order` orders the remaining blanks.
 
 **Each batch closes with a close-out.** A close-out folds the store's accepted verdicts into the tracked `rebuild/accepted-units.txt` and starts the journal again (`doc/review-cycle.md` § The accepted list and the close-out), and the `close-out` skill runs it, ahead of the next Add when the two come together. The first, with no letter to close, folded the whole store on 2026-11-06; its archive under `var/keep/close-outs/` keeps the store it found, with the notes and provenance markers of the verdicts it accepted, until the next close-out replaces it. With no batch closing, one is due before the journal's first event turns `journal.HISTORY_DAYS` days old, and retention's report and `make verdict-ready` warn once it turns `journal.CLOSE_OUT_DUE_DAYS` days old.
 

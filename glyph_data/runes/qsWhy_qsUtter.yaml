@@ -1,0 +1,45 @@
+rune: qsWhy_qsUtter
+sequence:
+- qsWhy
+- qsUtter
+ductus:
+  sole: | # DRAFT — pending author sign-off
+    The ·Why stroke and the ·Utter stroke drawn as one motion: begun at the top of the short left arm just below the baseline, the stroke runs down to the bottom of the descender, turns, and climbs up and to the right across the baseline as in ·Why, then finishes with ·Utter’s short rightward crown at the x-height, where it may connect to the next letter.
+stances:
+  sole:
+    motion: sole
+    outgoing: {stance: mono}
+    traits: []
+    bitmap:
+    - "       ##"  #
+    - "      #  "
+    - "     #   "
+    - "     #   "
+    - "    #    "
+    - "    #    "  #
+    - "#  #     "
+    - " # #     "
+    - "  #      "
+    y_offset: -3
+    surface:
+      entries: {}
+      exits:
+        x-height:
+          x: 9
+          stroke: horizontal
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - sole
+  refuse: []
+  prefer: []
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsGay}
+  contract: []
+  resolve: []
+  groups: {}
