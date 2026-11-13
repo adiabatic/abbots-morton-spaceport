@@ -1,9 +1,9 @@
 rune: qsWhy
 codepoint: 0xE663
 ductus:
-  full: | # DRAFT — pending author sign-off
+  full: |
     Begun at the top of the short left arm just below the baseline, the stroke runs down and to the right into a sharp point at the bottom of the descender, then climbs up and to the right in one long stroke across the baseline to the x-height. The top stands upright in isolation and bends rightward when it connects to the next letter at the x-height.
-  half: | # DRAFT — pending author sign-off
+  half: |
     As the full motion, but only the part below the baseline is drawn: begun at the top of the short left arm, the stroke runs down and to the right into a sharp point at the bottom of the descender, then climbs up and to the right at the same slope, ending just below the baseline, where it connects to the next letter at the baseline.
 mono:
   bitmap:
