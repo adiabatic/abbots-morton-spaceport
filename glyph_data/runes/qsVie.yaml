@@ -107,5 +107,13 @@ policy:
     by: 1
     when:
       left: {family: qsIng}
+  - stance: swept-out
+    exit: baseline
+    by: 1
+    when:
+      right:
+        family:
+        - qsIng
+        - qsNo
   resolve: []
   groups: {}

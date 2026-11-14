@@ -239,7 +239,7 @@ E667 E659                 # Low Vie (break)
 E675 E659                 # I Vie (break)
 E676 E659                 # Ah Vie (break)
 E659 E659                 # Vie Vie (break)
-E659 E666                 # Vie No (the swept exit into the flipped No)
+E659 E666                 # Vie No (the swept exit, contracted by one, into the flipped No)
 E659 E667                 # Vie Low (the swept exit)
 E659 E668                 # Vie Roe (the swept exit into the lower tip)
 E659 E652                 # Vie Tea (break: Tea is not in the exit's scope)
@@ -2171,7 +2171,7 @@ E657 E664                # ·They before ·-ing (break)
 E664 E657                # ·-ing before ·They (break)
 E658 E664                # ·Fee before ·-ing (break)
 E664 E658                # ·-ing before ·Fee (break)
-E659 E664                # ·Vie's swept-out exit into ·-ing
+E659 E664                # ·Vie's swept-out exit, contracted by one, into ·-ing
 E664 E659                # ·-ing's baseline exit into ·Vie, whose entry contracts by one
 E65A E664                # ·See before ·-ing (break)
 E664 E65A                # ·-ing's baseline exit into ·See

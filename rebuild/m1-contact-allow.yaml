@@ -813,6 +813,38 @@
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
+# ·Vie's swept-out tail into ·-ing and the alternate ·No, in two defect formats: an E-UNREALIZED junction gap and an E-ANCHOR on ·Vie's contracted exit. Both strokes reach the baseline on a diagonal, so the uncontracted join draws a two-pixel flat bottom, ·Vie's last tail pixel beside the follower's first left-leg pixel. The one-pixel exit contraction removes ·Vie's last tail pixel and moves the anchor onto its cell, so the follower's first pixel takes that cell and the two diagonals meet in a single-pixel point, which the author asked for in review of ·Pea·-ing·Vie·No. ·Vie then has no ink on the baseline right of its bar, so `junction_gap` finds a gap and the anchor check finds the rightmost baseline ink at the bar's end; the tail's last pixel, one row above the baseline, touches the follower's baseline pixel at the corner. There is one junction signature per pair of ·Vie and follower variants and one anchor signature per ·Vie variant.
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsIng.sole.en-y0.ex-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsIng.sole.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsNo.flipped.en-y0.ex-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsNo.flipped.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsIng.sole.en-y0.ex-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsIng.sole.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsNo.flipped.en-y0.ex-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsNo.flipped.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsIng.sole.en-y0.ex-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsIng.sole.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsNo.flipped.en-y0.ex-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsNo.flipped.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsIng.sole.en-y0.ex-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsIng.sole.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsNo.flipped.en-y0.ex-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsNo.flipped.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsIng.sole.en-y0.ex-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsIng.sole.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsNo.flipped.en-y0.ex-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsNo.flipped.en-y0:baseline
+- signature: anchor:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:exit
+- signature: anchor:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:exit
+- signature: anchor:qsVie.swept-out.en-y0.ex-y0.ex-con-1:exit
+- signature: anchor:qsVie.swept-out.ex-y0.ex-con-1:exit
+- signature: anchor:qsVie.swept-out.ex-y0.locked.ex-con-1:exit
+
 # The ·Vie·Utter ligature's declined-exit arm (E-DANGLE). The old font draws the ligature's ·Utter arm up to the x-height in every context (isolated, word-final, and before a non-joining follower; the default ·Vie·Utter·Tea window keeps the full drawing) and has no unjoined form of ·Vie·Utter. The arm ends horizontally, so it does not pass the `unjoined: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter, and it has the same shape as the ·See·Utter bar. There is one signature per entry and lock variant; all show the same arm.
 - signature: dangle:qsVie_qsUtter.sole:exit:x-height
   why: The ligature's x-height arm on the isolated drawing; the declined exit keeps it.
