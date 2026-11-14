@@ -2172,7 +2172,7 @@ E664 E657                # ·-ing before ·They (break)
 E658 E664                # ·Fee before ·-ing (break)
 E664 E658                # ·-ing before ·Fee (break)
 E659 E664                # ·Vie's swept-out exit into ·-ing
-E664 E659                # ·-ing's baseline exit into ·Vie
+E664 E659                # ·-ing's baseline exit into ·Vie, whose entry contracts by one
 E65A E664                # ·See before ·-ing (break)
 E664 E65A                # ·-ing's baseline exit into ·See
 E65B E664                # ·Zoo's baseline exit into ·-ing
@@ -2230,7 +2230,7 @@ E652 E679 E664           # the ·Tea+Oy ligature's baseline exit into ·-ing, wh
 E67B E652 E664           # ·Out+Tea before ·-ing (break: the ligature has no exit)
 E657 E65B E664           # ·They+Zoo before ·-ing (break: ·-ing takes no entry from the ligature)
 E664 E653 E67A           # ·-ing's baseline exit into half-·Day+Utter
-E664 E659 E67A           # ·-ing's baseline exit into ·Vie+Utter
+E664 E659 E67A           # ·-ing's baseline exit into ·Vie+Utter, whose entry contracts by one
 E664 E67B E652           # ·-ing's baseline exit into ·Out+Tea
 E664 E65A E67A           # ·-ing before ·See+Utter (break)
 E664 E652 E679           # ·-ing before ·Tea+Oy (break)

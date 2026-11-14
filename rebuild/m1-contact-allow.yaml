@@ -820,6 +820,8 @@
   why: The ligature entered at the baseline keeps the same arm on a declined exit.
 - signature: dangle:qsVie_qsUtter.sole.en-y0.en-ext-1:exit:x-height
   why: The extended-entry variant; the entry extension lengthens the baseline bar, not the arm.
+- signature: dangle:qsVie_qsUtter.sole.en-y0.en-con-1:exit:x-height
+  why: The contracted-entry variant (after ·-ing); the entry contraction shortens the baseline bar, not the arm.
 - signature: dangle:qsVie_qsUtter.sole.locked:exit:x-height
   why: The ZWNJ-locked copy of the ligature's arm; identical drawing.
 
