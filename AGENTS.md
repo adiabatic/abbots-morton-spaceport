@@ -49,6 +49,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - In this repository only: multiline commit messages are fine, though not mandatory, and no worktrees unless explicitly asked.
 - Commit messages describe the author/reader experience ("Make tables.html store state in the URL, not localStorage") or how the letters look different ("Reduce the half-·He extension at the x-height", "Don't join ·Way·Thaw ever"), never the mechanism.
   - When several letters fill the same slot of a join, consolidate them with braces inside one dot: `` Stop adding a pixel to the `·{Pea,Tea,He} ~x~ ·Eight` join ``, not "the ·Pea, ·Tea or ·He ~x~ ·Eight join".
+  - When a letter and the ligatures that begin with it fill the same slot, brace the tails after the shared lead, with an empty first alternative for the bare letter: `` Contract `·Bay ~b~ ·Vie{,+Utter}` by a pixel ``, not "Contract `·Bay ~b~ ·Vie` and `·Bay ~b~ ·Vie+Utter` by a pixel".
 
 ## Workflows
 
