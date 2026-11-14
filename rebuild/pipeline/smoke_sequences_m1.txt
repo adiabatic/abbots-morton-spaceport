@@ -2186,7 +2186,7 @@ E664 E65E                # ·-ing before ·Cheer (break)
 E65F E664                # ·Jay's baseline exit into ·-ing
 E664 E65F                # ·-ing before ·Jay (break)
 E660 E664                # ·Ye before ·-ing (break: ·-ing takes no entry from ·Ye)
-E664 E660                # ·-ing's baseline exit into ·Ye
+E664 E660                # ·-ing's baseline exit into ·Ye, whose entry extends by one
 E661 E664                # half-·Way's baseline exit into ·-ing
 E664 E661                # ·-ing before ·Way (break)
 E662 E664                # ·He before ·-ing (break: ·-ing takes no entry from ·He)

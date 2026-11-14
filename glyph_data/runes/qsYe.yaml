@@ -217,6 +217,10 @@ policy:
     by: 1
     when:
       right: {family: qsI}
+  - entry: baseline
+    by: 1
+    when:
+      left: {family: qsIng}
   contract: []
   resolve: []
   groups: {}
