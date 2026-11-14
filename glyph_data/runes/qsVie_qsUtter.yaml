@@ -58,5 +58,6 @@ policy:
         family:
         - qsBay
         - qsIng
+        - qsNo
   resolve: []
   groups: {}
