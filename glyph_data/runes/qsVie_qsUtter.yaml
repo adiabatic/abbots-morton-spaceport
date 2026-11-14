@@ -54,6 +54,9 @@ policy:
   - entry: baseline
     by: 1
     when:
-      left: {family: qsIng}
+      left:
+        family:
+        - qsBay
+        - qsIng
   resolve: []
   groups: {}

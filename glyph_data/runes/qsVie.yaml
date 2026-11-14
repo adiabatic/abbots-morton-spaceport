@@ -101,12 +101,18 @@ policy:
     entry: baseline
     by: 1
     when:
-      left: {family: qsIng}
+      left:
+        family:
+        - qsBay
+        - qsIng
   - stance: swept-out
     entry: baseline
     by: 1
     when:
-      left: {family: qsIng}
+      left:
+        family:
+        - qsBay
+        - qsIng
   - stance: swept-out
     exit: baseline
     by: 1
