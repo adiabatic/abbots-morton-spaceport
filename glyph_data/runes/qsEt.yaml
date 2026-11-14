@@ -38,7 +38,15 @@ policy:
   order:
   - sole
   refuse: []
-  prefer: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsPea
+        then:
+          family: qsIt
+          then: {family: qsIng}
   extend:
   - entry: x-height
     by: 1

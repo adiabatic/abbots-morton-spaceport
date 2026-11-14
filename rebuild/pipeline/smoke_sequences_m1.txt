@@ -941,7 +941,7 @@ E655 E652 E679            # Gay Tea+Oy (break: the ligature takes no entry)
 E655 200C E652            # Gay ZWNJ Tea (exit severed)
 00B7 E655                 # namer dot before Deep Gay (stays)
 
-# qsThaw windows: the Tall hook-and-stem — an arched hook at the top, a stem falling down the right side, and a slant coming to rest on the baseline at the foot. The baseline entry admits fifteen lefts onto the bare drawing; the letter joins nothing on its exit side in the migrated alphabet (its one old-font exit serves the unmigrated ·-ing), so every junction out of ·Thaw is a break, and the Tall lefts that once summoned the old font's after-tall form now simply sit outside the entry's scope.
+# qsThaw windows: the Tall hook-and-stem — an arched hook at the top, a stem falling down the right side, and a slant coming to rest on the baseline at the foot. The baseline entry admits the lefts its `from:` names onto the bare drawing, ·-ing among them; the one exit, at the foot, serves ·-ing alone and wins over the entry when both could join, so every other junction out of ·Thaw is a break, and the Tall lefts that once summoned the old font's after-tall form sit outside the entry's scope.
 E656                      # Thaw in isolation
 E651 E656                 # Bay Thaw (the baseline entry on the bare carrier)
 E653 E656                 # Day Thaw (the baseline entry)
@@ -970,7 +970,7 @@ E674 E656                 # At Thaw (break)
 E675 E656                 # I Thaw (break)
 E676 E656                 # Ah Thaw (break)
 E67B E656                 # Out Thaw (break)
-E656 E656                 # Thaw Thaw (break: no exit side)
+E656 E656                 # Thaw Thaw (break: the exit serves ·-ing alone)
 E67B E652 E656            # Out+Tea Thaw (break: the ligature has no exit)
 E654 E670 E656            # Key It Thaw (It gives Key's entry up to serve Thaw)
 E679 E670 E656            # Oy It Thaw (the standing Oy·It gain keeps the backward join)
@@ -2150,3 +2150,117 @@ E663 200C E653           # ZWNJ severs the exit into ·Day
 E663 200C E67A           # ZWNJ severs the ligature
 00B7 E663                # Namer dot before Deep ·Why
 00B7 E663 E67A           # Namer dot before ·Why+Utter
+
+# ·-ing
+E664                     # ·-ing in isolation
+E650 E664                # ·Pea's baseline exit into ·-ing
+E664 E650                # ·-ing before ·Pea (break)
+E651 E664                # ·Bay's baseline exit into ·-ing
+E664 E651                # ·-ing before ·Bay (break)
+E652 E664                # ·Tea's baseline exit into ·-ing, whose entry extends by one
+E664 E652                # ·-ing's baseline exit into ·Tea
+E653 E664                # ·Day's baseline exit into ·-ing
+E664 E653                # ·-ing's baseline exit into half-·Day
+E654 E664                # ·Key's baseline exit into ·-ing
+E664 E654                # ·-ing before ·Key (break)
+E655 E664                # ·Gay's baseline exit into ·-ing
+E664 E655                # ·-ing before ·Gay (break)
+E656 E664                # ·Thaw's foot into ·-ing, whose entry extends by two
+E664 E656                # ·-ing's exit, extended by two, into ·Thaw
+E657 E664                # ·They before ·-ing (break)
+E664 E657                # ·-ing before ·They (break)
+E658 E664                # ·Fee before ·-ing (break)
+E664 E658                # ·-ing before ·Fee (break)
+E659 E664                # ·Vie's swept-out exit into ·-ing
+E664 E659                # ·-ing's baseline exit into ·Vie
+E65A E664                # ·See before ·-ing (break)
+E664 E65A                # ·-ing's baseline exit into ·See
+E65B E664                # ·Zoo's baseline exit into ·-ing
+E664 E65B                # ·-ing's baseline exit into half-·Zoo
+E65C E664                # ·She's baseline exit into ·-ing
+E664 E65C                # ·-ing before ·She (break)
+E65D E664                # ·J’ai's extended baseline exit into ·-ing
+E664 E65D                # ·-ing before ·J’ai (break)
+E65E E664                # ·Cheer's baseline exit into ·-ing
+E664 E65E                # ·-ing before ·Cheer (break)
+E65F E664                # ·Jay's baseline exit into ·-ing
+E664 E65F                # ·-ing before ·Jay (break)
+E660 E664                # ·Ye before ·-ing (break: ·-ing takes no entry from ·Ye)
+E664 E660                # ·-ing's baseline exit into ·Ye
+E661 E664                # half-·Way's baseline exit into ·-ing
+E664 E661                # ·-ing before ·Way (break)
+E662 E664                # ·He before ·-ing (break: ·-ing takes no entry from ·He)
+E664 E662                # ·-ing's baseline exit into ·He
+E663 E664                # ·Why before ·-ing (break)
+E664 E663                # ·-ing before ·Why (break)
+E665 E664                # the grounded ·May's baseline exit into ·-ing
+E664 E665                # ·-ing's baseline exit into the loop
+E666 E664                # the flipped ·No's baseline exit into ·-ing
+E664 E666                # ·-ing's baseline exit into the flipped ·No
+E667 E664                # ·Low before ·-ing (break)
+E664 E667                # ·-ing's baseline exit into ·Low
+E668 E664                # ·Roe's baseline exit into ·-ing
+E664 E668                # ·-ing's baseline exit into ·Roe
+E670 E664                # ·It's baseline exit into ·-ing
+E664 E670                # ·-ing's baseline exit into ·It
+E672 E664                # ·Et's baseline exit into ·-ing
+E664 E672                # ·-ing before ·Et (break)
+E673 E664                # ·Eight's baseline exit into ·-ing
+E664 E673                # ·-ing before ·Eight (break)
+E674 E664                # ·At before ·-ing (break)
+E664 E674                # ·-ing's baseline exit into the rising ·At
+E675 E664                # ·I before ·-ing (break)
+E664 E675                # ·-ing's baseline exit into ·I
+E676 E664                # ·Ah before ·-ing (break)
+E664 E676                # ·-ing's baseline exit into ·Ah
+E677 E664                # ·Awe's baseline exit into ·-ing
+E664 E677                # ·-ing before ·Awe (break)
+E678 E664                # ·Ox's baseline exit into ·-ing
+E664 E678                # ·-ing before ·Ox (break)
+E679 E664                # ·Oy's baseline exit into ·-ing
+E664 E679                # ·-ing before ·Oy (break)
+E67A E664                # the alternate ·Utter's baseline exit into ·-ing
+E664 E67A                # ·-ing's baseline exit into the mono ·Utter
+E67B E664                # ·Out before ·-ing (break)
+E664 E67B                # ·-ing's baseline exit into ·Out
+E67E E664                # ·Ooze's baseline exit into ·-ing
+E664 E67E                # ·-ing's baseline exit into ·Ooze
+E664 E664                # ·-ing's baseline exit into the next ·-ing
+E652 E679 E664           # the ·Tea+Oy ligature's baseline exit into ·-ing, whose entry extends by one
+E67B E652 E664           # ·Out+Tea before ·-ing (break: the ligature has no exit)
+E657 E65B E664           # ·They+Zoo before ·-ing (break: ·-ing takes no entry from the ligature)
+E664 E653 E67A           # ·-ing's baseline exit into half-·Day+Utter
+E664 E659 E67A           # ·-ing's baseline exit into ·Vie+Utter
+E664 E67B E652           # ·-ing's baseline exit into ·Out+Tea
+E664 E65A E67A           # ·-ing before ·See+Utter (break)
+E664 E652 E679           # ·-ing before ·Tea+Oy (break)
+E656 E664 E656           # ·-ing extends its entry by two after ·Thaw and its exit by two before ·Thaw
+E652 E664 E656           # ·-ing extends its entry by one after ·Tea and its exit by two before ·Thaw
+E653 E656 E664           # ·Thaw gives up ·Day's entry to serve ·-ing
+E664 E656 E664           # ·Thaw takes no entry from ·-ing and serves the second ·-ing
+E675 E657 E664           # ·They entered at the x-height after ·I serves ·-ing at the baseline
+E676 E657 E664           # ·They entered at the x-height after ·Ah serves ·-ing at the baseline
+E67A E657 E664           # ·They entered at the x-height after ·Utter serves ·-ing at the baseline
+E65E E67A E664           # the alternate ·Utter gives up ·Cheer's entry to serve ·-ing
+E653 E67A E664           # the ligature yields; the alternate ·Utter serves ·-ing
+E665 E67A E664           # ·Utter entered at the x-height reaches back and serves ·-ing
+E67A E665 E664           # ·Utter enters ·May at the x-height; the grounded ·May serves ·-ing
+E664 E652 E653           # ·-ing yields; ·Tea keeps its forward baseline join
+E664 E652 E650           # the join holds: ·Tea gains nothing forward
+E664 E652 E666           # ·-ing yields; ·Tea groups rightward
+E664 E652 E670           # ·-ing yields; half-·Tea takes the x-height join
+E664 E67A E652 E653      # the mono ·Utter breaks, and ·Tea keeps ·Day
+E664 E670 E653           # ·It withholds the entry; its baseline exit serves ·Day
+E664 E660 E653           # ·Ye withholds the entry; its baseline exit serves ·Day
+E664 E662 E653           # ·He withholds the entry; its baseline exit serves ·Day
+E664 E65A E667           # the straighter ·See takes no entry; its baseline exit serves ·Low
+E664 E674 E665           # the falling ·At takes no entry; its baseline exit serves ·May
+E650 E666 E664           # the flipped ·No carries both baseline joins
+E651 E655 E664           # entered ·Gay cannot serve ·-ing
+E672 E650 E670 E664      # ·Et yields; half-·Pea joins ·It at the x-height, which serves ·-ing (The Manual)
+E672 E650 E670           # ·Et keeps its baseline join into ·Pea when no ·-ing follows ·It
+E67A E665 E656           # a bare ·Utter at a run start enters ·May at the x-height before ·Thaw (The Manual)
+200C E67A E665 E656      # the same after ZWNJ
+200C E664                # ZWNJ ·-ing (locked copy)
+E664 200C E656           # ZWNJ severs the exit into ·Thaw
+00B7 E664                # namer dot before Tall ·-ing (stays)

@@ -1,0 +1,156 @@
+rune: qsIng
+codepoint: 0xE664
+ductus:
+  sole: |  # DRAFT — pending author sign-off
+    Begun at the bottom left on the baseline, where a previous letter may connect, the stroke rises up and to the right to the crossing point, climbs the right side of a tall narrow loop, rounds the top, descends the left side back through the crossing point, and continues down and to the right to rest on the baseline at the bottom right, where it may connect to the next letter.
+mono:
+  bitmap:
+  - "  #  "
+  - " # # "
+  - " # # "
+  - " # # "  #
+  - " # # "
+  - " # # "
+  - "  #  "
+  - " # # "
+  - "#   #"  #
+stances:
+  sole:
+    motion: sole
+    traits: []
+    bitmap:
+    - "  #  "
+    - " # # "
+    - " # # "
+    - " # # "  #
+    - " # # "
+    - " # # "
+    - "  #  "
+    - " # # "
+    - "#   #"  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: diagonal
+          from:
+          - family:
+            - qsPea
+            - qsBay
+            - qsTea
+            - qsDay
+            - qsKey
+            - qsGay
+            - qsThaw
+            - qsThey
+            - qsVie
+            - qsZoo
+            - qsShe
+            - qsJai
+            - qsCheer
+            - qsJay
+            - qsWay
+            - qsIng
+            - qsMay
+            - qsNo
+            - qsRoe
+            - qsLlan
+            - qsExcite
+            - qsIt
+            - qsEat
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsUtter
+            - qsOoze
+            except:
+            - {family: qsThey_qsZoo}
+      exits:
+        baseline:
+          x: 5
+          stroke: diagonal
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsThaw
+            - qsVie
+            - qsVie_qsUtter
+            - qsSee
+            - qsZoo
+            - qsYe
+            - qsHe
+            - qsIng
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsExcite
+            - qsExam
+            - qsIt
+            - qsEat
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - sole
+  refuse: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          except:
+          - {family: qsPea}
+          - family: qsIt
+            then:
+              family:
+              - qsDay
+              - qsDay_qsUtter
+              - qsZoo
+              - qsJai
+              - qsJai_qsUtter
+              - qsCheer
+              - qsJay
+              - qsJay_qsUtter
+              - qsRoe
+              - qsLlan
+              - qsEight
+              - qsI
+              - qsAwe
+              - qsOx
+              - qsUtter
+              - qsOwe
+              - qsFoot
+  extend:
+  - entry: baseline
+    by: 1
+    when:
+      left:
+        family:
+        - qsTea
+        - qsTea_qsOy
+  - entry: baseline
+    by: 2
+    when:
+      left: {family: qsThaw}
+  - exit: baseline
+    by: 2
+    when:
+      right: {family: qsThaw}
+  contract: []
+  resolve: []
+  groups: {}

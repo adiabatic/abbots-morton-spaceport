@@ -418,6 +418,24 @@
 - signature: dangle:qsEight.normal-sized-loop.locked:exit:baseline
   why: The ZWNJ-locked copy of ·Eight's tail terminal; identical drawing.
 
+# ·-ing's right leg and ·Thaw's foot are part of the letter whether or not the exit joins. The old font draws bare qsIng with the full right leg at every word edge and before every non-joining follower, and bare qsThaw with the full foot everywhere but before ·-ing, and quikscript.yaml has no unjoined form of either. Each terminal pixel is reached diagonally and has no ink directly above or below it, so neither passes the `unjoined: safe` check. There is one signature per entry, extension, and lock variant; all show the same terminal.
+- signature: dangle:qsIng.sole:exit:baseline
+  why: ·-ing's right-leg terminal on the baseline, drawn unconditionally in the old font; the declined exit keeps it.
+- signature: dangle:qsIng.sole.en-y0:exit:baseline
+  why: ·-ing entered at the baseline keeps the same right-leg terminal on a declined exit.
+- signature: dangle:qsIng.sole.en-y0.en-ext-1:exit:baseline
+  why: The entry-extended-by-one variant (after ·Tea and the ·Tea·Oy ligature) keeps the same right-leg terminal; the extension touches the left leg only.
+- signature: dangle:qsIng.sole.en-y0.en-ext-2:exit:baseline
+  why: The entry-extended-by-two variant (after ·Thaw) keeps the same right-leg terminal; the extension touches the left leg only.
+- signature: dangle:qsIng.sole.locked:exit:baseline
+  why: The ZWNJ-locked copy of ·-ing's right-leg terminal; identical drawing.
+- signature: dangle:qsThaw.sole:exit:baseline
+  why: ·Thaw's foot terminal on the baseline, drawn unconditionally in the old font; the exit that ·-ing alone takes is declined everywhere else and keeps it.
+- signature: dangle:qsThaw.sole.en-y0:exit:baseline
+  why: ·Thaw entered at the baseline keeps the same foot terminal on a declined exit; the entry and the exit share the foot pixel.
+- signature: dangle:qsThaw.sole.locked:exit:baseline
+  why: The ZWNJ-locked copy of ·Thaw's foot terminal; identical drawing.
+
 # ·Eight's bowl closes one column left of ·I's loop. On the ·Eight·I baseline join (baseline row E673:E675, junction y0) the bowl's right side at y4 touches the loop's left side, as in the old font. There is one signature per ·Eight exit variant and ·I onward-exit variant; the off-junction contact is the same in all of them.
 # The bare exit cell against each ·I variant.
 - signature: contact:qsEight.normal-sized-loop.ex-y0:qsI.loop.en-y0:y4
@@ -2060,7 +2078,7 @@
 - signature: contact:qsThey_qsZoo.sole.ex-y0:qsZoo.half.en-y0.ex-y0:y-1
   why: The preserved half-·Zoo tail in `·They+Zoo ~b~ ·Zoo.half` has the same accepted off-junction contact at y=-1; the follower's outgoing anchor changes no ink there.
 
-# ·Ye's baseline entry sits on the foot of its stem, so a left letter joining at the baseline puts its last column against the stem, and the two bodies stand side by side above the junction: a Tall left's upright beside ·Ye's loop tail at y6 (·Cheer, ·Key), and a Short left's bowl beside the stem at y1 (·Ox, and ·Oy with no entry) or at y1 and y2 (·Ooze, the entered ·Oy, and the ·Tea·Oy ligature). The old font places the same anchors with no adjustment (baseline rows E65E:E660, E654:E660, E67E:E660, E678:E660, E679:E660, E652:E679:E660), so the touching strokes are the old drawing. There is one signature per left entry, adjustment, and lock variant and per touching row; the junction is identical in all of them.
+# ·Ye's baseline entry sits on the foot of its stem, so a left letter joining at the baseline puts its last column against the stem, and the two bodies stand side by side above the junction: a Tall left's upright beside ·Ye's loop tail at y6 (·Cheer, ·Key, and the right leg of ·-ing), and a Short left's bowl beside the stem at y1 (·Ox, and ·Oy with no entry) or at y1 and y2 (·Ooze, the entered ·Oy, and the ·Tea·Oy ligature). The old font places the same anchors with no adjustment (baseline rows E65E:E660, E654:E660, E664:E660, E67E:E660, E678:E660, E679:E660, E652:E679:E660), so the touching strokes are the old drawing. There is one signature per left entry, adjustment, and lock variant and per touching row; the junction is identical in all of them.
 - signature: contact:qsCheer.sole.en-y5.ex-y0:qsYe.loop.en-y0:y6
 - signature: contact:qsCheer.sole.en-y5.ex-y0.en-ext-1:qsYe.loop.en-y0:y6
 - signature: contact:qsCheer.sole.ex-y0:qsYe.loop.en-y0:y6
@@ -2068,6 +2086,11 @@
 - signature: contact:qsKey.sole.en-y8.ex-y0:qsYe.loop.en-y0:y6
 - signature: contact:qsKey.sole.ex-y0:qsYe.loop.en-y0:y6
 - signature: contact:qsKey.sole.ex-y0.locked:qsYe.loop.en-y0:y6
+- signature: contact:qsIng.sole.en-y0.ex-y0:qsYe.loop.en-y0:y6
+- signature: contact:qsIng.sole.en-y0.ex-y0.en-ext-1:qsYe.loop.en-y0:y6
+- signature: contact:qsIng.sole.en-y0.ex-y0.en-ext-2:qsYe.loop.en-y0:y6
+- signature: contact:qsIng.sole.ex-y0:qsYe.loop.en-y0:y6
+- signature: contact:qsIng.sole.ex-y0.locked:qsYe.loop.en-y0:y6
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsYe.loop.en-y0:y1
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsYe.loop.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.

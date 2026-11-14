@@ -70,6 +70,7 @@ qsGay.noentry: {rune: qsGay, stance: sole, adjustments: [locked]}
 qsGay.ss10: {rune: qsGay, stance: sole}
 qsThaw: {rune: qsThaw, stance: sole}
 qsThaw.after-tall: {rune: qsThaw, stance: sole}
+qsThaw.ex-y0: {rune: qsThaw, stance: sole, exit: baseline}
 qsThaw.noentry: {rune: qsThaw, stance: sole, adjustments: [locked]}
 qsThaw.ss10: {rune: qsThaw, stance: sole}
 qsThey: {rune: qsThey, stance: sole}
@@ -153,6 +154,13 @@ qsWhy.ss10: {rune: qsWhy, stance: full}
 qsWhy_qsUtter: {rune: qsWhy_qsUtter, stance: sole}
 qsWhy_qsUtter.ex-con-2: {rune: qsWhy_qsUtter, stance: sole, exit: x-height}
 qsWhy_qsUtter.ex-ext-1: {rune: qsWhy_qsUtter, stance: sole, exit: x-height, adjustments: [ex-ext-1]}
+qsIng: {rune: qsIng, stance: sole}
+qsIng.en-ext-1: {rune: qsIng, stance: sole, entry: baseline, adjustments: [en-ext-1]}
+qsIng.en-ext-2: {rune: qsIng, stance: sole, entry: baseline, adjustments: [en-ext-2]}
+qsIng.ex-ext-2: {rune: qsIng, stance: sole, exit: baseline, adjustments: [ex-ext-2]}
+qsIng.noentry: {rune: qsIng, stance: sole}
+qsIng.noentry.ex-ext-2: {rune: qsIng, stance: sole, exit: baseline, adjustments: [ex-ext-2]}
+qsIng.ss10: {rune: qsIng, stance: sole}
 qsNo.alt.en-y0.ex-y0.after-zoo: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
 qsFee.en-y5: {rune: qsFee, stance: reversed-loop, entry: x-height}
 qsFee.en-y8.ex-y5: {rune: qsFee, stance: loop, entry: top, exit: x-height}

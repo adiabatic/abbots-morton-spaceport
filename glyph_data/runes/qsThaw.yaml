@@ -43,6 +43,7 @@ stances:
             - qsZoo
             - qsJai
             - qsJay
+            - qsIng
             - qsMay
             - qsNo
             - qsRoe
@@ -54,6 +55,16 @@ stances:
             - qsOy
             - qsUtter
             - qsOoze
+      exits:
+        baseline:
+          x: 3
+          stroke: diagonal
+          toward:
+          - {family: qsIng}
+      pairings:
+        never:
+        - entry: baseline
+          exit: baseline
       cells: []
       unlocks: []
       require: []
@@ -61,7 +72,9 @@ policy:
   order:
   - sole
   refuse: []
-  prefer: []
+  prefer:
+  - cell: {entry: none}
+    over: {entry: baseline}
   extend: []
   contract: []
   resolve: []

@@ -142,6 +142,13 @@ policy:
       self: {entry: none}
       right: {family: qsMay}
     why: A bare ·Utter before ·May keeps the alternate baseline join; the mono x-height reach into a pulled-back ·May wins only when it buys a better join, as before ·May·May where the grounded ·May carries the chain on at the baseline.
+  - cell: {exit: x-height}
+    when:
+      self: {entry: none}
+      left: {is: boundary}
+      right:
+        family: qsMay
+        then: {family: qsThaw}
   - cell: {exit: baseline}
     over: {entry: baseline}
     when:
@@ -151,6 +158,7 @@ policy:
         - qsVie
         - qsVie_qsUtter
         - qsSee
+        - qsIng
         - qsLow
         except:
         - family: qsSee
