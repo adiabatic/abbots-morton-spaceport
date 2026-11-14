@@ -2194,7 +2194,7 @@ E664 E662                # ·-ing's baseline exit into ·He
 E663 E664                # ·Why before ·-ing (break)
 E664 E663                # ·-ing before ·Why (break)
 E665 E664                # the grounded ·May's baseline exit into ·-ing
-E664 E665                # ·-ing's baseline exit into the loop
+E664 E665                # ·-ing's baseline exit into the loop, whose entry contracts by one
 E666 E664                # the flipped ·No's baseline exit into ·-ing
 E664 E666                # ·-ing's baseline exit into the flipped ·No
 E667 E664                # ·Low before ·-ing (break)

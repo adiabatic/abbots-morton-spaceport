@@ -206,7 +206,10 @@ policy:
   - entry: baseline
     by: 1
     when:
-      left: {family: qsBay}
+      left:
+        family:
+        - qsBay
+        - qsIng
   resolve:
   - against:
       rune: qsMay
