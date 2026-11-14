@@ -2018,7 +2018,7 @@ E663 E653                # ·Why's x-height exit into ·Day
 E654 E663                # ·Key before ·Why (break)
 E663 E654                # ·Why before ·Key (break)
 E655 E663                # ·Gay before ·Why (break)
-E663 E655                # ·Why's half into ·Gay
+E663 E655                # ·Why before ·Gay (break)
 E656 E663                # ·Thaw before ·Why (break)
 E663 E656                # ·Why before ·Thaw (break)
 E657 E663                # ·They before ·Why (break)
@@ -2134,13 +2134,6 @@ E663 E67A E678           # ·Why+Utter's x-height exit into ·Ox
 E663 E67A E679           # ·Why+Utter's x-height exit into ·Oy
 E663 E67A E67B           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Out
 E663 E67A E67E           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Ooze
-E663 E655 E656           # ·Why's half keeps its baseline join into ·Gay before ·Thaw
-E663 E655 E655           # ·Why's half keeps its join into ·Gay before a second ·Gay
-E663 E655 E67A           # ·Why's half keeps its join into ·Gay before ·Utter
-E663 E655 E666           # ·Why's half into ·Gay, whose x-height exit reaches ·No
-E663 E655 E652           # ·Gay's extended baseline exit into ·Tea wins over ·Why's half
-E663 E655 E653           # ·Gay's extended baseline exit into half-·Day wins over ·Why's half
-E663 E655 E652 E653      # ·Why's half keeps ·Gay before ·Tea·Day; under ss05 ·Gay joins ·Tea and ·Why breaks
 E663 E652 E653           # ·Why before ·Tea·Day (break), keeping the ·Tea·Day join
 E663 E67A E652 E653      # ·Why+Utter before ·Tea·Day: break at default, keeping ·Tea·Day; ss03 joins ·Tea at the x-height
 E663 E670 E653           # ·Why's x-height exit into ·It, which joins half-·Day at the baseline
@@ -2152,9 +2145,7 @@ E663 E672 E659           # Manual: `·Why ~x~ ·Et ~b~ ·Vie`
 E663 E672 E659 E67A E668 # Manual: `·Why ~x~ ·Et ~b~ ·Vie+Utter ~x~ ·Roe`
 200C E663                # ·Why after ZWNJ: it has no entry, so there is no locked copy
 200C E663 E653           # ·Why after ZWNJ keeps its x-height exit into ·Day
-200C E663 E655           # ·Why after ZWNJ keeps its half's baseline join into ·Gay
 E663 200C E653           # ZWNJ severs the exit into ·Day
-E663 200C E655           # ZWNJ severs the half's exit into ·Gay
 200C E663 E67A           # ·Why+Utter after ZWNJ
 E663 200C E67A           # ZWNJ severs the ligature
 00B7 E663                # Namer dot before Deep ·Why

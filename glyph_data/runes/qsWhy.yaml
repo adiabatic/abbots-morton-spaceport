@@ -93,13 +93,7 @@ stances:
     y_offset: -3
     surface:
       entries: {}
-      exits:
-        baseline:
-          x: 5
-          ink_y: -1
-          stroke: diagonal
-          toward:
-          - {family: qsGay}
+      exits: {}
       cells: []
       unlocks: []
       require:
@@ -109,24 +103,7 @@ policy:
   - full
   - half
   refuse: []
-  prefer:
-  - cell: {exit: baseline}
-    over: {exit: none}
-    when:
-      right:
-        family: qsGay
-        then:
-          family:
-          - qsGay
-          - qsThaw
-          - qsVie
-          - qsVie_qsUtter
-          - qsSee
-          - qsMay
-          - qsLow
-          - qsAt
-          - qsAh
-          - qsUtter
+  prefer: []
   extend: []
   contract: []
   resolve: []
