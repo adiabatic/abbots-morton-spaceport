@@ -205,6 +205,23 @@ COLUMNS_REMOVED_JOIN_RULE = {
     },
 }
 
+ADVANCE_JOIN_RULE = {
+    "id": "fixture-join-dropped-with-a-follower-carrying-an-advance",
+    "verdict": "approve",
+    "note": "·F2 sits two columns further from ·No, one of them its own-frame origin, and carries what follows one column further",
+    "match": {
+        "before": {"pivot": "qsNo", "junction_out": "y0", "follower": "qsF2"},
+        "after": {
+            "gap": 2,
+            "pivot_cells": ["qsNo/flipped/baseline/None/"],
+            "follower_after_cells": ["qsF2/full/None/None/"],
+            "follower_columns_removed": 1,
+            "follower_advance": -1,
+        },
+        "except_left": [],
+    },
+}
+
 ENTRY_RULE = {
     "id": "fixture-entry-extension-dropped",
     "verdict": "approve",
@@ -2793,6 +2810,32 @@ def test_a_follower_settling_into_an_unnamed_cell_defeats_the_columns_removed_ma
     assert not sv._matches(COLUMNS_REMOVED_JOIN_RULE["match"], window, context=slide_context())
 
 
+def test_a_join_dropped_rule_may_declare_the_advance_its_follower_carries_past(slide_context):
+    """A follower whose origin moves right by its removed columns sits the gap further from the pivot, while its advance holds, so what follows it sits one column less far. The rule declares that difference as a `follower_advance` of -1, and every span after the follower is displaced by the gap plus it."""
+    assert sv._matches(ADVANCE_JOIN_RULE["match"], advance_join_window(), context=slide_context())
+
+
+def test_a_rule_declaring_no_advance_defeats_the_match_where_the_follower_carries_one(slide_context):
+    assert not sv._matches(COLUMNS_REMOVED_JOIN_RULE["match"], advance_join_window(), context=slide_context())
+
+
+def test_a_wrong_declared_advance_defeats_the_join_match(slide_context):
+    for advance in (-2, 1):
+        rule = json.loads(json.dumps(ADVANCE_JOIN_RULE))
+        rule["match"]["after"]["follower_advance"] = advance
+        assert not sv._matches(rule["match"], advance_join_window(), context=slide_context())
+
+
+def test_a_follower_carrying_an_advance_is_counted_at_each_of_two_pairs(slide_context):
+    """The second pair's pivot sits the first pair's gap plus advance from where it was, and its follower the gap further still, so the walk and the matcher agree on a window that drops the same join twice."""
+    window = two_advance_joins_window()
+    assert sv._matches(ADVANCE_JOIN_RULE["match"], window, context=slide_context())
+    assert sv._combined_match([ADVANCE_JOIN_RULE], window, slide_context()) == {
+        ADVANCE_JOIN_RULE["id"]: [1, 3]
+    }
+    assert not sv._matches(COLUMNS_REMOVED_JOIN_RULE["match"], window, context=slide_context())
+
+
 def test_a_redrawn_follower_defeats_the_join_match(slide_context):
     assert not sv._matches(
         JOIN_RULE["match"], join_window(), context=slide_context("after-join-redrawn-follower")
@@ -2922,6 +2965,27 @@ def test_removed_columns_without_follower_after_cells_are_refused_at_load(tmp_pa
     del rule["match"]["after"]["pivot_cells"]
     del rule["match"]["after"]["follower_after_cells"]
     with pytest.raises(SystemExit, match="follower_columns_removed needs follower_after_cells"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_follower_advance_of_zero_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(ADVANCE_JOIN_RULE))
+    rule["match"]["after"]["follower_advance"] = 0
+    with pytest.raises(SystemExit, match="follower that holds its advance leaves the field off"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_follower_advance_without_removed_columns_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(ADVANCE_JOIN_RULE))
+    del rule["match"]["after"]["follower_columns_removed"]
+    with pytest.raises(SystemExit, match="follower_advance needs follower_columns_removed"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_follower_advance_that_takes_what_follows_closer_than_the_break_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(ADVANCE_JOIN_RULE))
+    rule["match"]["after"]["follower_advance"] = -3
+    with pytest.raises(SystemExit, match="takes what follows the follower closer"):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
@@ -5470,6 +5534,10 @@ JOIN_BEHIND_RETARGET_RULES = [RETARGET_RULE, REDRAWN_JOIN_RULE]
 UNMOVED_JOIN_BEHIND_RETARGET_RULES = [RETARGET_RULE, UNMOVED_JOIN_RULE]
 COLUMNS_REMOVED_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1.gap-fixture", "qsF2"]
 COLUMNS_REMOVED_JOIN_CODEPOINTS = spell(LEAD, NO_GAP_REDRAWN, FOLLOWER_2)
+ADVANCE_JOIN_GLYPHS = ["qsL", "qsNo.en-ext-1.gap-fixture", "qsF2", "qsF3"]
+ADVANCE_JOIN_CODEPOINTS = spell(LEAD, NO_GAP_REDRAWN, FOLLOWER_2, FOLLOWER_3)
+TWO_ADVANCE_JOINS_GLYPHS = ["qsL", "qsNo.en-ext-1.gap-fixture", "qsF2", "qsNo.en-ext-1.gap-fixture", "qsF2"]
+TWO_ADVANCE_JOINS_CODEPOINTS = spell(LEAD, NO_GAP_REDRAWN, FOLLOWER_2, NO_GAP_REDRAWN, FOLLOWER_2)
 COLUMNS_REMOVED_BEHIND_RETARGET_GLYPHS = ["qsL", "qsTea.half.ex-y5", "qsNo.en-ext-1.gap-fixture", "qsF2"]
 COLUMNS_REMOVED_BEHIND_RETARGET_CODEPOINTS = spell(LEAD, TEA, NO_GAP_REDRAWN, FOLLOWER_2)
 COLUMNS_REMOVED_BEHIND_RETARGET_RULES = [RETARGET_RULE, COLUMNS_REMOVED_JOIN_RULE]
@@ -5977,6 +6045,45 @@ def columns_removed_join_window(uid="gbj-1", cell="qsF2/full/None/None/"):
         ["qsL/full/None/None/", "qsNo/flipped/baseline/None/", cell],
         ["y0", "break"],
         codepoints=COLUMNS_REMOVED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def advance_join_window(uid="gaj-1"):
+    return unit(
+        uid,
+        list(ADVANCE_JOIN_GLYPHS),
+        ["y0", "y0", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsNo/flipped/baseline/None/",
+            "qsF2/full/None/None/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "break", "break"],
+        codepoints=ADVANCE_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def two_advance_joins_window(uid="gaj-2"):
+    return unit(
+        uid,
+        list(TWO_ADVANCE_JOINS_GLYPHS),
+        ["y0", "y0", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsNo/flipped/baseline/None/",
+            "qsF2/full/None/None/",
+            "qsNo/flipped/baseline/None/",
+            "qsF2/full/None/None/",
+        ],
+        ["y0", "break", "break", "break"],
+        codepoints=TWO_ADVANCE_JOINS_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -7602,6 +7709,17 @@ COMBINED_WALK_CORPORA = {
     "join-dropped-with-a-follower-removing-a-column": (
         COLUMNS_REMOVED_JOIN_RULE,
         lambda: [columns_removed_join_window(), columns_removed_behind_retarget_window(), join_window()],
+        ("after", "after-join-follower-keeping-its-pen"),
+    ),
+    "join-dropped-with-a-follower-carrying-an-advance": (
+        ADVANCE_JOIN_RULE,
+        lambda: [
+            advance_join_window(),
+            two_advance_joins_window(),
+            columns_removed_join_window(),
+            columns_removed_behind_retarget_window(),
+            join_window(),
+        ],
         ("after", "after-join-follower-keeping-its-pen"),
     ),
     "entry-extension-dropped": (

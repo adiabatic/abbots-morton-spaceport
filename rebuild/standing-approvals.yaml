@@ -2983,3 +2983,22 @@ rules:
         shift: 0
         follower_shift: 0
       except_left: []
+  - id: why-gay-baseline-join-dropped
+    verdict: approve
+    note: "·Why and ·Gay no longer join at the baseline — ·Why draws its full stroke where the old font drew the half that carried the join, and ·Gay gives up the entry stroke that join gave it, so it sits two columns further from ·Why, one of them its own-frame origin, and carries what follows one column further. The author dropped the join on purpose in “Don't join `·Why ~b~ ·Gay` ever”, which took the baseline exit off ·Why's half stance and ·Why off the baseline-entry from-lists of ·Gay and ·Ah, while ·Way·Gay keeps its join. The rule names only the ·Gay cells with no x-height extension, so a window where ·Gay also gains an extension still waits for review. Every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsWhy.half
+        junction_out: y0
+        follower: qsGay
+      after:
+        gap: 2
+        pivot_cells:
+          - qsWhy/full/None/None/
+        follower_after_cells:
+          - qsGay/sole/None/None/
+          - qsGay/sole/None/baseline/
+          - qsGay/sole/None/x-height/
+        follower_columns_removed: 1
+        follower_advance: -1
+      except_left: []

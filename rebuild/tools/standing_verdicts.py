@@ -12,7 +12,7 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `ink-gain` (declared by `gained`): the pivot's new form is its old picture plus a named set of own-frame cells, and everything after the pivot moves by the declared count: zero when the fuller form keeps its advance, positive when the added ink lengthens it. ·Roe keeping the baseline bar the old shortened-bottom form dropped matches at zero, and ·Gay's extra exit cell moving ·No one column right matches at one.
 
-- `join-dropped` (declared by `gap`): a named join becomes a break. The pivot keeps its picture and own-frame origin, or, where the rule names in full the cells both letters settle into, only its origin, so it may redraw in place (as a ·No raised to the x-height does when it loses its reach down to ·Thaw). The follower keeps its picture and origin and sits the declared number of columns further away, and everything after it moves by the same gap. The gap may be zero only where the pivot may redraw (the flipped ·No losing its x-height join into ·Cheer leaves ·Cheer where it was). A rule may also declare `follower_columns_removed`: the follower's joining form had inserted columns at its left edge, so as the join goes its own-frame origin moves right by that count and it redraws inside the named follower after cells (·Gay when the ·No in front of it is raised past reaching it). The unmoved origin is what separates a dropped join from a sidebearing change, which is the `slide` shape.
+- `join-dropped` (declared by `gap`): a named join becomes a break. The pivot keeps its picture and own-frame origin, or, where the rule names in full the cells both letters settle into, only its origin, so it may redraw in place (as a ·No raised to the x-height does when it loses its reach down to ·Thaw). The follower keeps its picture and origin and sits the declared number of columns further away, and everything after it moves by the same gap. The gap may be zero only where the pivot may redraw (the flipped ·No losing its x-height join into ·Cheer leaves ·Cheer where it was). A rule may also declare `follower_columns_removed`: the follower's joining form had inserted columns at its left edge, so as the join goes its own-frame origin moves right by that count and it redraws inside the named follower after cells (·Gay when the ·No in front of it is raised past reaching it). Where that redrawn follower also changes its advance, the rule declares `follower_advance`, the columns added to the gap for everything after the follower: the follower sits the gap further away and what follows it sits the gap plus the advance further away (·Gay without the baseline entry ·Why gave it sits two columns further from ·Why, one of them its own-frame origin, and carries what follows one column further). The unmoved origin is what separates a dropped join from a sidebearing change, which is the `slide` shape.
 
 - `entry-extension-dropped` (declared by `entry_drop`): the pivot gives up a named stretch of left-side entry. Either its own-frame picture is the old one compacted left by that many columns, with every dropped cell in the removed columns and its origin and placement unchanged, or its after form names an `en-con-N` that brings the letter that many columns closer. Everything after the pivot moves closer by the count. ·Low losing the extra baseline pixel the old font drew after ·See matches.
 
@@ -36,7 +36,7 @@ The walk (`_combined_walk`) re-shapes the window in the corpus's font pair and c
 
 - slide: the pivot leads the next span, and the displacement grows by the declared slide.
 - extension: the pivot sits at the running displacement and loses, on the row its `junction_out` height names, the tail the rule names (the named extension less any shorter one its after cell keeps, or the named contraction). The displacement shrinks by that width. The follower leads the next span, which must be a translation, the same picture compacted left by the follower's dropped entry extension, or, when the follower redrew inside its named cell, a translation of the span without the follower.
-- join (dropped): the pivot sits at the running displacement, and the displacement grows by the gap. The follower leads the next span, or, where the rule declares `follower_columns_removed`, is judged by the event and left out of the span.
+- join (dropped): the pivot sits at the running displacement, and the displacement grows by the gap. The follower leads the next span, or, where the rule declares `follower_columns_removed`, is judged by the event and left out of the span. Past such a follower the displacement moves by its `follower_advance` as well, so a follower that is itself an event is never combined with a declared advance.
 - gain: the pivot sits at the running displacement, and the displacement grows by the declared shift.
 - entry: the pivot sits left of the running displacement by the part of its entry contraction its own frame did not take (zero for a dropped entry extension), and the displacement moves closer by the entry count, adjusted for an `entry-contracted` rule by any exit-extension change on the pivot. The next span is compared together with the pivot's after picture, so a cell handed between them does not count as a change.
 - redrawn: the pivot sits at the running displacement, or left of it by up to the part of its new form's extra entry contraction its frame did not take, and the displacement grows by the declared shift plus that placement move. The next span is compared together with the pivot's after picture, as for an entry event.
@@ -690,7 +690,7 @@ def _join_follower_holds(match, before, after):
 
 
 def _join_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is the named join becoming a gap, shaped under the unit's first config. For every pair `_join_pairs` finds, the pivot must pass `_join_pivot_holds` and the follower `_join_follower_holds`. Each span must paint the same pixels once displaced by the cumulative gap: the span before the first follower by nothing, the span the first follower leads by one gap, and one more gap for each further pair. A pivot that may redraw, or a follower with removed columns, is left out of the spans and only its placement is checked. No pair, a before run that differs from the recorded glyphs, a glyph count that differs from the recorded cells, a piece that fails its check, or an off-grid placement returns False, so the unit waits for human review."""
+    """Whether the window's rendered before→after change is the named join becoming a gap, shaped under the unit's first config. For every pair `_join_pairs` finds, the pivot must pass `_join_pivot_holds` and the follower `_join_follower_holds`. Each span must paint the same pixels once displaced by the cumulative gap: the span before the first follower by nothing, the span the first follower leads by one gap, and one more gap for each further pair. A rule that declares a `follower_advance` moves each follower by the gap past what the spans before it moved, and every span after it by the gap plus that advance. A pivot that may redraw, or a follower with removed columns, is left out of the spans and only its placement is checked. No pair, a before run that differs from the recorded glyphs, a glyph count that differs from the recorded cells, a piece that fails its check, or an off-grid placement returns False, so the unit waits for human review."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -720,6 +720,7 @@ def _join_geometry(match, unit, comparator):
             return False
     intern = comparator.intern
     gap = match["after"]["gap"]
+    carried = gap + match["after"].get("follower_advance", 0)
     followers = {index + 1 for index in pairs}
     pivots = set(pairs) if match["after"].get("pivot_cells") else set()
     redrawn = followers if match["after"].get("follower_columns_removed") else set()
@@ -728,15 +729,17 @@ def _join_geometry(match, unit, comparator):
     step = 0
     for index in range(len(before_names)):
         if index in followers or index in pivots:
-            if not _span_settled(intern, before_span, after_span, gap * step):
+            if not _span_settled(intern, before_span, after_span, carried * step):
                 return False
             before_span, after_span = [], []
+            displacement = carried * step
             if index in followers:
+                displacement += gap
                 step += 1
             piece_before, piece_after = before_pieces.get(index), after_pieces.get(index)
             if piece_before is None or piece_after is None:
                 return False
-            if piece_after[2] != piece_before[2] + gap * step * PIXEL_SIZE:
+            if piece_after[2] != piece_before[2] + displacement * PIXEL_SIZE:
                 return False
             if index not in pivots and index not in redrawn:
                 before_span, after_span = [piece_before], [piece_after]
@@ -745,11 +748,11 @@ def _join_geometry(match, unit, comparator):
             before_span.append(before_pieces[index])
         if index in after_pieces:
             after_span.append(after_pieces[index])
-    return _span_settled(intern, before_span, after_span, gap * step)
+    return _span_settled(intern, before_span, after_span, carried * step)
 
 
 def _matches_join_dropped(match, unit, excluded, context=None):
-    """A named join that is now a break, matched at the pixel level: the pivot keeps its own-frame origin, and its picture too unless the rule names in full the cells both letters settle into. The follower keeps its picture and origin, or, where the rule declares `follower_columns_removed`, moves its origin right by that count and redraws inside the follower after cells. The follower sits the declared number of columns further away, and everything after it moves by the same gap (`_join_geometry`). The origin check separates a cursive attachment going away from a sidebearing change, so a slide of the follower fails it. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A named join that is now a break, matched at the pixel level: the pivot keeps its own-frame origin, and its picture too unless the rule names in full the cells both letters settle into. The follower keeps its picture and origin, or, where the rule declares `follower_columns_removed`, moves its origin right by that count and redraws inside the follower after cells. The follower sits the declared number of columns further away, and everything after it moves by the same gap, or by the gap plus the declared `follower_advance` where the follower redraws and its advance changes with it (`_join_geometry`). The origin check separates a cursive attachment going away from a sidebearing change, so a slide of the follower fails it. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -769,6 +772,7 @@ def _matches_join_dropped(match, unit, excluded, context=None):
         tuple(match["after"].get("pivot_cells", ())),
         tuple(match["after"].get("follower_after_cells", ())),
         match["after"].get("follower_columns_removed", 0),
+        match["after"].get("follower_advance", 0),
         unit["id"],
     )
     verdict = context.memo.get(key)
@@ -780,7 +784,7 @@ def _matches_join_dropped(match, unit, excluded, context=None):
 
 
 def _validate_join_dropped(rule_id, match) -> None:
-    """Check a join-dropped rule at load. The gap must not be negative, because a dropped join moves the letters apart. It may be zero only where the rule names the cells both letters settle into: with both pictures unchanged a zero gap is ink-identical and machine-approved already, while a pivot that may redraw can lose its join and leave the follower where it stood (the flipped ·No before ·Cheer). `junction_out` must be a yK height, since a break has no join to drop. `pivot_cells` and `follower_after_cells` are optional but come as a pair, because naming both is what lets the pivot redraw, and their cells must belong to the named pivot and follower families. A declared `follower_columns_removed` must be at least 1 and needs `follower_after_cells`: a follower that keeps its left edge leaves the field off, and one whose joining form adds columns there belongs to the join-created shape."""
+    """Check a join-dropped rule at load. The gap must not be negative, because a dropped join moves the letters apart. It may be zero only where the rule names the cells both letters settle into: with both pictures unchanged a zero gap is ink-identical and machine-approved already, while a pivot that may redraw can lose its join and leave the follower where it stood (the flipped ·No before ·Cheer). `junction_out` must be a yK height, since a break has no join to drop. `pivot_cells` and `follower_after_cells` are optional but come as a pair, because naming both is what lets the pivot redraw, and their cells must belong to the named pivot and follower families. A declared `follower_columns_removed` must be at least 1 and needs `follower_after_cells`: a follower that keeps its left edge leaves the field off, and one whose joining form adds columns there belongs to the join-created shape. A declared `follower_advance` is never zero, needs `follower_columns_removed` because a follower that keeps its picture keeps its advance, and must leave what follows no closer than the gap alone would."""
     if match["after"]["gap"] == 0 and "pivot_cells" not in match["after"]:
         _fail(
             f"rule {rule_id!r}: match.after.gap is 0 with both pictures held; an unmoved window is "
@@ -825,6 +829,24 @@ def _validate_join_dropped(rule_id, match) -> None:
             _fail(
                 f"rule {rule_id!r}: match.after.follower_columns_removed needs follower_after_cells; the names "
                 "the follower settles into are what bound the redraw that removing the columns frees it to make"
+            )
+    if "follower_advance" in match["after"]:
+        advance = match["after"]["follower_advance"]
+        if advance == 0:
+            _fail(
+                f"rule {rule_id!r}: match.after.follower_advance is 0; a follower that holds its advance "
+                "leaves the field off"
+            )
+        if "follower_columns_removed" not in match["after"]:
+            _fail(
+                f"rule {rule_id!r}: match.after.follower_advance needs follower_columns_removed; a follower "
+                "that keeps its picture and origin has the advance it had"
+            )
+        if match["after"]["gap"] + advance < 0:
+            _fail(
+                f"rule {rule_id!r}: match.after.follower_advance is {advance}, which takes what follows "
+                f"the follower closer than the break leaves it (the gap is {match['after']['gap']}); a "
+                "dropped join sits the letters further apart, never closer"
             )
 
 
@@ -1643,7 +1665,7 @@ class Event(NamedTuple):
 
     `pivot_judged` is False only for a `retarget` or `joined` event whose pivot moved its own-frame origin. The walk keeps either kind only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot, and also keeps such a retarget behind a created join at the previous position, whose `follower_columns_added` has already checked that move.
 
-    `lead` is an entry event's expected placement offset from the running displacement, zero or negative; it is nonzero only for an entry contraction the after form's own frame did not fully take into its origin. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `follower_columns` is a created join's `follower_columns_added`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join it is `follower_columns_removed`, which makes the follower's picture part of the event instead of the head of the next span.
+    `lead` is an entry event's expected placement offset from the running displacement, zero or negative; it is nonzero only for an entry contraction the after form's own frame did not fully take into its origin. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created or dropped join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `follower_columns` is a created join's `follower_columns_added`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join it is `follower_columns_removed`, which makes the follower's picture part of the event instead of the head of the next span.
     """
 
     rule_id: str
@@ -1919,7 +1941,7 @@ def _extension_event(match, rule_id, index, intern, before_pieces, after_pieces,
 
 
 def _join_event(match, rule_id, index, before_pieces, after_pieces):
-    """Return a join Event at `index` when the pivot passes `_join_pivot_holds` and the follower has ink on both sides, or None, which leaves both pieces to be judged as span ink. When the rule declares `follower_columns_removed`, the follower must also pass `_join_follower_holds`, and the walk treats the follower as part of this event instead of the head of the next span. Without removed columns, a follower that is itself an event is judged by that event, and any other follower heads the next span, so a redrawn follower still fails there."""
+    """Return a join Event at `index` when the pivot passes `_join_pivot_holds` and the follower has ink on both sides, or None, which leaves both pieces to be judged as span ink. When the rule declares `follower_columns_removed`, the follower must also pass `_join_follower_holds`, and the walk treats the follower as part of this event instead of the head of the next span. A declared `follower_advance` is the event's `advance` past that follower. Without removed columns, a follower that is itself an event is judged by that event, and any other follower heads the next span, so a redrawn follower still fails there."""
     if not _join_pivot_holds(match, before_pieces.get(index), after_pieces.get(index)):
         return None
     if before_pieces.get(index + 1) is None or after_pieces.get(index + 1) is None:
@@ -1927,7 +1949,13 @@ def _join_event(match, rule_id, index, before_pieces, after_pieces):
     columns_removed = match["after"].get("follower_columns_removed", 0)
     if columns_removed and not _join_follower_holds(match, before_pieces[index + 1], after_pieces[index + 1]):
         return None
-    return Event(rule_id, "join", match["after"]["gap"], follower_columns=columns_removed)
+    return Event(
+        rule_id,
+        "join",
+        match["after"]["gap"],
+        advance=match["after"].get("follower_advance", 0),
+        follower_columns=columns_removed,
+    )
 
 
 def _retarget_event(match, rule_id, index, before_pieces, after_pieces):
@@ -2268,6 +2296,8 @@ def _combined_walk(rules, unit, context):
             carried = 0
             follower_index = index + 1
             if follower_index in events:
+                if event.kind == "join" and event.advance:
+                    return None
                 before_span, after_span = [], []
                 index += 1
             else:
@@ -2277,6 +2307,8 @@ def _combined_walk(rules, unit, context):
                 )
                 if follower_after[2] != follower_before[2] + displacement * PIXEL_SIZE:
                     return None
+                if event.kind == "join":
+                    displacement += event.advance
                 before_span, after_span = (
                     ([], []) if event.follower_columns else ([follower_before], [follower_after])
                 )
@@ -2463,8 +2495,8 @@ SHAPES = {
         cell_lists=("pivot_cells", "follower_after_cells"),
         matcher=_matches_join_dropped,
         validate=_validate_join_dropped,
-        optional=("pivot_cells", "follower_after_cells", "follower_columns_removed"),
-        int_fields=("gap", "follower_columns_removed"),
+        optional=("pivot_cells", "follower_after_cells", "follower_columns_removed", "follower_advance"),
+        int_fields=("gap", "follower_columns_removed", "follower_advance"),
         family_fields=("follower",),
         combinable=True,
         font_backed=True,
