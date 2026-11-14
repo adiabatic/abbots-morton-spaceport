@@ -107,6 +107,10 @@ policy:
               - qsOwe
               - qsFoot
   extend: []
-  contract: []
+  contract:
+  - exit: baseline
+    by: 1
+    when:
+      right: {family: qsNo}
   resolve: []
   groups: {}
