@@ -65,6 +65,8 @@ stances:
           stroke: diagonal
           toward:
           - family:
+            - qsVie
+            - qsVie_qsUtter
             - qsIng
             - qsNo
             - qsLow
@@ -104,6 +106,7 @@ policy:
       left:
         family:
         - qsBay
+        - qsVie
         - qsIng
         - qsNo
   - stance: swept-out
@@ -113,6 +116,7 @@ policy:
       left:
         family:
         - qsBay
+        - qsVie
         - qsIng
         - qsNo
   - stance: swept-out
