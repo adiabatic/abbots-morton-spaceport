@@ -163,6 +163,16 @@ policy:
       right: {family: qsUtter}
     why: I want the ·Day+Utter ligature here if I'm not using ·Utter.alt
   extend: []
-  contract: []
+  contract:
+  - stance: full
+    exit: baseline
+    by: 1
+    when:
+      right: {family: qsNo}
+  - stance: half
+    exit: baseline
+    by: 1
+    when:
+      right: {family: qsNo}
   resolve: []
   groups: {}

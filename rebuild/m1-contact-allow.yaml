@@ -845,6 +845,45 @@
 - signature: anchor:qsVie.swept-out.ex-y0.ex-con-1:exit
 - signature: anchor:qsVie.swept-out.ex-y0.locked.ex-con-1:exit
 
+# ·Day's and half-·Day's baseline tail into the alternate ·No, in two defect formats: an E-UNREALIZED junction gap and an E-ANCHOR on ·Day's contracted exit. ·Day's tail rises to the baseline on a diagonal and ·No.alt's left leg leaves it on one, so the uncontracted join draws a two-pixel flat step on the baseline. The one-pixel exit contraction removes the tail's last pixel and moves the anchor onto its cell, so ·No's first pixel takes that cell and the two diagonals run on as one stroke, which the author asked for in review of ·Day·No·Vie. ·Day then has no ink on the baseline right of its stem, so `junction_gap` finds a gap and the anchor check finds the rightmost baseline ink at the stem; the tail's last pixel, one row below the baseline, touches the follower's baseline pixel at the corner. There is one junction signature per pair of ·Day and follower variants and one anchor signature per ·Day variant.
+- signature: unrealized:qsDay.full.en-y5.ex-y0.ex-con-1:qsNo.flipped.en-y0.ex-y0:baseline
+- signature: unrealized:qsDay.full.en-y5.ex-y0.ex-con-1:qsNo.flipped.en-y0:baseline
+- signature: unrealized:qsDay.full.ex-y0.ex-con-1:qsNo.flipped.en-y0.ex-y0:baseline
+- signature: unrealized:qsDay.full.ex-y0.ex-con-1:qsNo.flipped.en-y0:baseline
+- signature: unrealized:qsDay.full.ex-y0.locked.ex-con-1:qsNo.flipped.en-y0.ex-y0:baseline
+- signature: unrealized:qsDay.full.ex-y0.locked.ex-con-1:qsNo.flipped.en-y0:baseline
+- signature: unrealized:qsDay.half.en-y0.ex-y0.ex-con-1:qsNo.flipped.en-y0.ex-y0:baseline
+- signature: unrealized:qsDay.half.en-y0.ex-y0.ex-con-1:qsNo.flipped.en-y0:baseline
+- signature: anchor:qsDay.full.en-y5.ex-y0.ex-con-1:exit
+- signature: anchor:qsDay.full.ex-y0.ex-con-1:exit
+- signature: anchor:qsDay.full.ex-y0.locked.ex-con-1:exit
+- signature: anchor:qsDay.half.en-y0.ex-y0.ex-con-1:exit
+
+# The contracted ·Day cells' copies of contacts already blessed on the uncontracted cells (the same signatures without `.ex-con-1`). Each contact is on ·Day's stem side, against the letter before it, and the exit contraction removes only the far end of the tail, so the contact is unchanged.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5.ex-y0.ex-con-1:y3
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay.full.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y3
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5.ex-y0.ex-con-1:y3
+- signature: contact:qsAt.rising.ex-y5.locked:qsDay.full.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y3
+- signature: contact:qsAt.rising.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsGay.sole.en-y5.ex-y0:qsDay.half.en-y0.ex-y0.ex-con-1:y-1
+- signature: contact:qsGay.sole.en-y5.ex-y0:qsDay.half.en-y0.ex-y0.ex-con-1:y-2
+- signature: contact:qsLow.sole.en-y0.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsLow.sole.ex-y5.locked:qsDay.full.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsLow.sole.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsThey.sole.en-y5.ex-y0:qsDay.half.en-y0.ex-y0.ex-con-1:y-1
+- signature: contact:qsThey_qsZoo.sole.ex-y0:qsDay.half.en-y0.ex-y0.ex-con-1:y-1
+- signature: contact:qsWay.full.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y4
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-1:qsDay.half.en-y0.ex-y0.ex-con-1:y-1
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-con-2:qsDay.half.en-y0.ex-y0.ex-con-1:y-1
+- signature: contact:qsZoo.full.en-y5.ex-y0.en-ext-1:qsDay.half.en-y0.ex-y0.ex-con-1:y-1
+- signature: contact:qsZoo.full.en-y5.ex-y0:qsDay.half.en-y0.ex-y0.ex-con-1:y-1
+- signature: contact:qsZoo.full.ex-y0.locked:qsDay.half.en-y0.ex-y0.ex-con-1:y-1
+- signature: contact:qsZoo.full.ex-y0:qsDay.half.en-y0.ex-y0.ex-con-1:y-1
+- signature: contact:qsZoo.half.en-y0.ex-y0:qsDay.half.en-y0.ex-y0.ex-con-1:y-1
+
 # The ·Vie·Utter ligature's declined-exit arm (E-DANGLE). The old font draws the ligature's ·Utter arm up to the x-height in every context (isolated, word-final, and before a non-joining follower; the default ·Vie·Utter·Tea window keeps the full drawing) and has no unjoined form of ·Vie·Utter. The arm ends horizontally, so it does not pass the `unjoined: safe` check; like ·Et's and ·Roe's terminals, it is part of the letter, and it has the same shape as the ·See·Utter bar. There is one signature per entry and lock variant; all show the same arm.
 - signature: dangle:qsVie_qsUtter.sole:exit:x-height
   why: The ligature's x-height arm on the isolated drawing; the declined exit keeps it.
