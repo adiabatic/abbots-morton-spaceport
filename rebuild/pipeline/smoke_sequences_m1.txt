@@ -2179,7 +2179,7 @@ E65B E664                # ·Zoo's baseline exit into ·-ing
 E664 E65B                # ·-ing's baseline exit into half-·Zoo
 E65C E664                # ·She's baseline exit into ·-ing
 E664 E65C                # ·-ing before ·She (break)
-E65D E664                # ·J’ai's extended baseline exit into ·-ing
+E65D E664                # ·J’ai's baseline exit into ·-ing, with no extension
 E664 E65D                # ·-ing before ·J’ai (break)
 E65E E664                # ·Cheer's baseline exit into ·-ing
 E664 E65E                # ·-ing before ·Cheer (break)
