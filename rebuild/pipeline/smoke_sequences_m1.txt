@@ -2157,7 +2157,7 @@ E650 E664                # ·Pea's baseline exit into ·-ing
 E664 E650                # ·-ing before ·Pea (break)
 E651 E664                # ·Bay's baseline exit into ·-ing
 E664 E651                # ·-ing before ·Bay (break)
-E652 E664                # ·Tea's baseline exit into ·-ing, whose entry extends by one
+E652 E664                # ·Tea's baseline exit into ·-ing, with no extension
 E664 E652                # ·-ing's baseline exit into ·Tea
 E653 E664                # ·Day's baseline exit into ·-ing
 E664 E653                # ·-ing's baseline exit into half-·Day
@@ -2235,7 +2235,7 @@ E664 E67B E652           # ·-ing's baseline exit into ·Out+Tea
 E664 E65A E67A           # ·-ing before ·See+Utter (break)
 E664 E652 E679           # ·-ing before ·Tea+Oy (break)
 E656 E664 E656           # ·-ing extends its entry by two after ·Thaw and its exit by two before ·Thaw
-E652 E664 E656           # ·-ing extends its entry by one after ·Tea and its exit by two before ·Thaw
+E652 E664 E656           # ·-ing keeps its entry after ·Tea and extends its exit by two before ·Thaw
 E653 E656 E664           # ·Thaw gives up ·Day's entry to serve ·-ing
 E664 E656 E664           # ·Thaw takes no entry from ·-ing and serves the second ·-ing
 E675 E657 E664           # ·They entered at the x-height after ·I serves ·-ing at the baseline

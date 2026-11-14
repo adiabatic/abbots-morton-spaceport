@@ -424,7 +424,7 @@
 - signature: dangle:qsIng.sole.en-y0:exit:baseline
   why: ·-ing entered at the baseline keeps the same right-leg terminal on a declined exit.
 - signature: dangle:qsIng.sole.en-y0.en-ext-1:exit:baseline
-  why: The entry-extended-by-one variant (after ·Tea and the ·Tea·Oy ligature) keeps the same right-leg terminal; the extension touches the left leg only.
+  why: The entry-extended-by-one variant (after the ·Tea+Oy ligature) keeps the same right-leg terminal; the extension touches the left leg only.
 - signature: dangle:qsIng.sole.en-y0.en-ext-2:exit:baseline
   why: The entry-extended-by-two variant (after ·Thaw) keeps the same right-leg terminal; the extension touches the left leg only.
 - signature: dangle:qsIng.sole.locked:exit:baseline

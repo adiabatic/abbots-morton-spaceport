@@ -139,10 +139,7 @@ policy:
   - entry: baseline
     by: 1
     when:
-      left:
-        family:
-        - qsTea
-        - qsTea_qsOy
+      left: {family: qsTea_qsOy}
   - entry: baseline
     by: 2
     when:
