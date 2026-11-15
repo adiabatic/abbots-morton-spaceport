@@ -3179,3 +3179,41 @@ rules:
         follower_columns_added: 0
         follower_columns_removed: 1
       except_left: []
+  - id: day-she-no-oy-tea-baseline-join-created
+    verdict: approve
+    note: "·Day, ·She, ·No.alt and ·Oy join a following ·Tea at the baseline where the old font left a break, and ·Tea comes a column nearer and holds its own advance — qsTea's full stance carries a baseline entry that its policy refuses only after ·Pea, ·Tea, ·Ye, ·He, ·Exam, ·It and ·Eat, so these four lefts, whose strokes exit at the baseline, reach it; every window that reached a review session approved the join"
+    match:
+      before:
+        pivot: [qsDay, qsShe, qsNo, qsOy]
+        junction_out: break
+        follower: qsTea
+      after:
+        joined: y0
+        pivot_cells:
+          - qsDay/full/None/baseline/
+          - qsDay/full/x-height/baseline/
+          - qsDay/half/baseline/baseline/
+          - qsShe/sole/None/baseline/
+          - qsNo/flipped/None/baseline/
+          - qsNo/flipped/baseline/baseline/
+          - qsOy/sole/None/baseline/
+          - qsOy/sole/x-height/baseline/
+        follower_after_cells:
+          - qsTea/full/baseline/None/
+          - qsTea/full/baseline/baseline/
+          - qsTea/full/baseline/baseline/ex-ext-1
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
+  - id: tea-baseline-join-dropped-after-baseline-entry
+    verdict: approve
+    note: "·Tea's baseline join into the next letter is now a break one column wider once ·Tea takes a baseline entry, so the letter it joined before sits a column further away — qsTea's full stance pairs a baseline entry with a baseline exit only under ss05, authored as “Let ss05 join ·Tea at the baseline on both sides with any neighbor”, whose message records that the default font keeps the entry and breaks the exit; every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsTea
+        junction_out: y0
+        follower: [qsVie, qsSee, qsIng, qsMay, qsLow, qsAt, qsAh, qsUtter, qsOut, qsOut_qsTea, qsOoze]
+      after:
+        gap: 1
+      except_left: []
