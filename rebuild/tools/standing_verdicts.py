@@ -10,7 +10,7 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `slide` (declared by `slide`): the window is re-shaped in the corpus's font pair, and its whole visible change must be the named pivot and everything after it moving by the declared column count, whatever the two fonts name the glyphs.
 
-- `ink-gain` (declared by `gained`): the pivot's new form is its old picture plus a named set of own-frame cells, and everything after the pivot moves by the declared count: zero when the fuller form keeps its advance, positive when the added ink lengthens it. ·Roe keeping the baseline bar the old shortened-bottom form dropped matches at zero, and ·Gay's extra exit cell moving ·No one column right matches at one. The span after the pivot is compared together with the pivot's after picture, so a cell the pivot now paints at the same place where its follower's entry used to is not a change: ·I's extra x-height exit pixel standing where ·They's entry extension was.
+- `ink-gain` (declared by `gained`): the pivot's new form is its old picture plus a named set of own-frame cells, and everything after the pivot moves by the declared count: zero when the fuller form keeps its advance, positive when the added ink lengthens it. ·Roe keeping the baseline bar the old shortened-bottom form dropped matches at zero, and ·Gay's extra exit cell moving ·No one column right matches at one. The span after the pivot is compared together with the pivot's after picture, so a cell the pivot now paints at the same place where its follower's entry used to is not a change: ·I's extra x-height exit pixel standing where ·They's entry extension was. A rule may also declare `entry_extension`: the pivot's new form names that many more columns of `en-ext-N` than its old one, and its picture is the old one translated right by that count (own-frame origin and placement both move right by it, so the old cells keep their own-frame columns) plus the named cells, which sit in the column the translation leaves at the left edge. The declared shift is still what the following span moves by: ·Ye's baseline entry after ·-ing gaining one pixel of join, and carrying everything after it one column right, matches at an `entry_extension` of one and a shift of one.
 
 - `join-dropped` (declared by `gap`): a named join becomes a break. The pivot keeps its picture and own-frame origin, or, where the rule names in full the cells both letters settle into, only its origin, so it may redraw in place (as a ·No raised to the x-height does when it loses its reach down to ·Thaw). The follower keeps its picture and origin and sits the declared number of columns further away, and everything after it moves by the same gap. The gap may be zero only where the pivot may redraw (the flipped ·No losing its x-height join into ·Cheer leaves ·Cheer where it was). A rule may also declare `follower_columns_removed`: the follower's joining form had inserted columns at its left edge, so as the join goes its own-frame origin moves right by that count and it redraws inside the named follower after cells (·Gay when the ·No in front of it is raised past reaching it). Where that redrawn follower also changes its advance, the rule declares `follower_advance`, the columns added to the gap for everything after the follower: the follower sits the gap further away and what follows it sits the gap plus the advance further away (·Gay without the baseline entry ·Why gave it sits two columns further from ·Why, one of them its own-frame origin, and carries what follows one column further). The unmoved origin is what separates a dropped join from a sidebearing change, which is the `slide` shape.
 
@@ -39,7 +39,7 @@ The walk (`_combined_walk`) re-shapes the window in the corpus's font pair and c
 - slide: the pivot leads the next span, and the displacement grows by the declared slide.
 - extension: the pivot sits at the running displacement and loses, on the row its `junction_out` height names, the tail the rule names (the named extension less any shorter one its after cell keeps, or the named contraction). The displacement shrinks by that width. The follower leads the next span, which must be a translation, the same picture compacted left by the follower's dropped entry extension, or, when the follower redrew inside its named cell, a translation of the span without the follower.
 - join (dropped): the pivot sits at the running displacement, and the displacement grows by the gap. The follower leads the next span, or, where the rule declares `follower_columns_removed`, is judged by the event and left out of the span. Past such a follower the displacement moves by its `follower_advance` as well, so a follower that is itself an event is never combined with a declared advance.
-- gain: the pivot sits at the running displacement, and the displacement grows by the declared shift. The next span is compared together with the pivot's after picture, as for an entry event.
+- gain: the pivot sits at the running displacement, or right of it by the declared `entry_extension`, and the displacement grows by the declared shift. The next span is compared together with the pivot's after picture, as for an entry event.
 - entry: the pivot sits left of the running displacement by the part of its entry contraction its own frame did not take (zero for a dropped entry extension), and the displacement moves closer by the entry count, adjusted for an `entry-contracted` rule by any exit-extension change on the pivot. The next span is compared together with the pivot's after picture, so a cell handed between them does not count as a change.
 - redrawn: the pivot sits at the running displacement, or left of it by up to the part of its new form's extra entry contraction its frame did not take, and the displacement grows by the declared shift plus that placement move. The next span is compared together with the pivot's after picture, as for an entry event.
 - stub: the pivot's placement moves right by the stub count, and the displacement is unchanged.
@@ -667,9 +667,20 @@ def _split_around(run, indices):
     return [run[start:stop] for start, stop in zip(starts, stops)]
 
 
+def _entry_extension(match):
+    """Return the columns an ink-gain rule moves its pivot's frame and placement right by, or zero for a rule that declares no `entry_extension`."""
+    return match["after"].get("entry_extension", 0)
+
+
 def _gain_holds(match, before, after, intern):
-    """Whether one pivot piece is the named ink gain: same own-frame origin, both sides on the grid, and the after picture equal to the before picture plus exactly the named cells. The after frame may extend vertically around the old picture, so the before cells are moved into the after frame by the difference in the pieces' vertical placement before the comparison. The caller checks the horizontal placement."""
-    if before[4] != after[4]:
+    """Whether one pivot piece is the named ink gain: same own-frame origin, both sides on the grid, and the after picture equal to the before picture plus exactly the named cells. The after frame may extend vertically around the old picture, so the before cells are moved into the after frame by the difference in the pieces' vertical placement before the comparison. A rule that declares `entry_extension` instead moves the own-frame origin right by that many columns, and the after glyph's name must carry that many more columns of `en-ext-N` than the before glyph's, which ties the translation to the entry extension and not to a slide. The caller checks the horizontal placement."""
+    extension = _entry_extension(match)
+    if after[4] != before[4] + extension * PIXEL_SIZE:
+        return False
+    if extension and (
+        _glyph_adjustment(after[0], ENTRY_EXTENSION) - _glyph_adjustment(before[0], ENTRY_EXTENSION)
+        != extension
+    ):
         return False
     if before[2] % PIXEL_SIZE or after[2] % PIXEL_SIZE or before[3] % PIXEL_SIZE or after[3] % PIXEL_SIZE:
         return False
@@ -682,7 +693,7 @@ def _gain_holds(match, before, after, intern):
 
 
 def _gain_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is the named cells appearing on the named pivot, shaped under the unit's first config. Each pivot must pass `_gain_holds` at its placement under the running displacement, and every span strictly between the pivots must render identically under the cumulative declared shift, the span after a pivot compared together with that pivot's after picture so a cell the pivot now paints where its follower's entry used to does not count as a change. No pivot on the before side, pivot counts that differ, a before run that differs from the recorded glyphs, an off-grid placement, a non-rectilinear outline, a lost cell, an unnamed extra cell, or following ink that moves by another amount returns False, so the unit waits for human review."""
+    """Whether the window's rendered before→after change is the named cells appearing on the named pivot, shaped under the unit's first config. Each pivot must pass `_gain_holds` at its placement under the running displacement, moved right by the rule's `entry_extension`, and every span strictly between the pivots must render identically under the cumulative declared shift, the span after a pivot compared together with that pivot's after picture so a cell the pivot now paints where its follower's entry used to does not count as a change. No pivot on the before side, pivot counts that differ, a before run that differs from the recorded glyphs, an off-grid placement, a non-rectilinear outline, a lost cell, an unnamed extra cell, or following ink that moves by another amount returns False, so the unit waits for human review."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -716,7 +727,8 @@ def _gain_geometry(match, unit, comparator):
             continue
         before = before_run[before_pivots[step]]
         after = after_run[after_pivots[step]]
-        if after[2] != before[2] + displacement * PIXEL_SIZE or not _gain_holds(match, before, after, intern):
+        expected = displacement + _entry_extension(match)
+        if after[2] != before[2] + expected * PIXEL_SIZE or not _gain_holds(match, before, after, intern):
             return False
         displacement += shift
         anchor = after
@@ -724,7 +736,7 @@ def _gain_geometry(match, unit, comparator):
 
 
 def _matches_ink_gain(match, unit, excluded, context=None):
-    """A letterform that keeps a named set of cells the old font omitted, matched at the pixel level: the old-font pivot form becomes a named new form whose picture is the old one plus those cells, and everything after the pivot moves by the declared column count (`_gain_geometry`). The new frame may extend vertically around the old picture. The unchanged horizontal placement and own-frame origin tie the extra ink to the letterform and not to a slide or a sidebearing change. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A letterform that keeps a named set of cells the old font omitted, matched at the pixel level: the old-font pivot form becomes a named new form whose picture is the old one plus those cells, and everything after the pivot moves by the declared column count (`_gain_geometry`). The new frame may extend vertically around the old picture. The unchanged horizontal placement and own-frame origin tie the extra ink to the letterform and not to a slide or a sidebearing change; a rule that declares `entry_extension` moves both right by that many columns instead. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -741,6 +753,7 @@ def _matches_ink_gain(match, unit, excluded, context=None):
         tuple(match["after"]["pivots"]),
         tuple(tuple(point) for point in match["after"]["gained"]),
         match["after"]["shift"],
+        _entry_extension(match),
         unit["id"],
     )
     verdict = context.memo.get(key)
@@ -752,7 +765,7 @@ def _matches_ink_gain(match, unit, excluded, context=None):
 
 
 def _validate_ink_gain(rule_id, match) -> None:
-    """Check an ink-gain rule at load: every pivot form on either side must belong to one family, since the rule describes one letter's extra cells, and `gained` must name at least one cell. The shift may be zero, because a fuller form can keep its advance."""
+    """Check an ink-gain rule at load: every pivot form on either side must belong to one family, since the rule describes one letter's extra cells, and `gained` must name at least one cell. The shift may be zero, because a fuller form can keep its advance. An `entry_extension` is a positive column count."""
     families = {_family(name) for name in match["before"]["pivots"] + match["after"]["pivots"]}
     if len(families) != 1:
         _fail(
@@ -763,6 +776,11 @@ def _validate_ink_gain(rule_id, match) -> None:
         _fail(
             f"rule {rule_id!r}: match.after.gained names no cells; the gain is the whole change an "
             "ink-gain rule blesses"
+        )
+    if match["after"].get("entry_extension", 1) < 1:
+        _fail(
+            f"rule {rule_id!r}: match.after.entry_extension is {match['after']['entry_extension']}; "
+            "name a positive column count, or leave it out for a gain that keeps the pivot's frame"
         )
 
 
@@ -1797,7 +1815,7 @@ class Event(NamedTuple):
 
     `pivot_judged` is False only for a `retarget` or `joined` event whose pivot moved its own-frame origin. The walk keeps either kind only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot, and also keeps such a retarget behind a created join at the previous position, whose `follower_columns_added` has already checked that move.
 
-    `lead` is an entry event's expected placement offset from the running displacement, zero or negative; it is nonzero only for an entry contraction the after form's own frame did not fully take into its origin. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created or dropped join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `follower_columns` is a created join's `follower_columns_added`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join it is `follower_columns_removed`, which makes the follower's picture part of the event instead of the head of the next span.
+    `lead` is an event's expected placement offset from the running displacement: zero or negative for an entry event, nonzero only for an entry contraction the after form's own frame did not fully take into its origin, and positive for a gain event whose rule declares an `entry_extension`, the columns that extension moves the pivot right. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created or dropped join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `follower_columns` is a created join's `follower_columns_added`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join it is `follower_columns_removed`, which makes the follower's picture part of the event instead of the head of the next span.
     """
 
     rule_id: str
@@ -2016,7 +2034,7 @@ def _slide_event(match, rule_id, index, after_names, before_pieces, after_pieces
 
 
 def _gain_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces):
-    """Return a gain Event at `index` when the after glyph carries an after pivot prefix and `_gain_holds` passes, or None, which leaves the piece to be judged as span ink. The pivot keeps its own-frame origin, and its after picture is its before picture plus exactly the named cells; the after frame may extend vertically. The walk checks the pivot's placement against the running displacement."""
+    """Return a gain Event at `index` when the after glyph carries an after pivot prefix and `_gain_holds` passes, or None, which leaves the piece to be judged as span ink. The pivot keeps its own-frame origin, or moves it right by the rule's `entry_extension`, and its after picture is its before picture plus exactly the named cells; the after frame may extend vertically. The walk checks the pivot's placement against the running displacement."""
     before, after = before_pieces.get(index), after_pieces.get(index)
     if before is None or after is None:
         return None
@@ -2024,7 +2042,7 @@ def _gain_event(match, rule_id, index, after_names, intern, before_pieces, after
         return None
     if not _gain_holds(match, before, after, intern):
         return None
-    return Event(rule_id, "gain", match["after"]["shift"])
+    return Event(rule_id, "gain", match["after"]["shift"], lead=_entry_extension(match))
 
 
 def _entry_event(match, rule_id, index, after_names, intern, before_pieces, after_pieces, junction=None):
@@ -2747,8 +2765,9 @@ SHAPES = {
         cell_lists=(),
         matcher=_matches_ink_gain,
         validate=_validate_ink_gain,
+        optional=("entry_extension",),
         name_lists=("pivots",),
-        int_fields=("shift",),
+        int_fields=("shift", "entry_extension"),
         point_lists=("gained",),
         combinable=True,
         font_backed=True,

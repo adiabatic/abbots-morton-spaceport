@@ -3091,3 +3091,15 @@ rules:
           - qsUtter/mono/baseline/x-height/
           - qsUtter/mono/baseline/x-height/ex-ext-1
       except_left: []
+  - id: ye-entry-extended-after-ing
+    verdict: approve
+    note: "·Ye draws a pixel more baseline entry after ·-ing and carries everything after it one column right — qsYe's extend record lengthens that join by a column, landed in “Extend `·-ing ~b~ ·Ye` by a pixel”; the user gave the extension standing approval at u-8goSZjPuWuW"
+    match:
+      before:
+        pivots: [qsYe.en-y0]
+      after:
+        pivots: [qsYe.loop.en-y0.en-ext-1]
+        gained: [[0, 0]]
+        entry_extension: 1
+        shift: 1
+      except_left: []

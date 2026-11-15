@@ -1820,6 +1820,9 @@ TUCKED_FOLLOWER = (_rect(50, 0, 100, 150),)
 TWO_COLUMNS_AND_A_PIXEL = (((0, 0), (100, 0), (100, 150), (50, 150), (50, 200), (0, 200)),)
 SHORTENED_ROE = (_rect(0, 0, 50, 50), _rect(0, 50, 100, 150))
 KEPT_ROE = TWO_COLUMNS
+PLAIN_ENTRY_LOOP = (_rect(0, 50, 50, 100), _rect(50, 0, 100, 50))
+ENTRY_EXTENDED_LOOP = (_rect(50, 0, 100, 100), _rect(100, 0, 150, 50))
+UNMOVED_ENTRY_EXTENDED_LOOP = (_rect(0, 0, 100, 50), _rect(0, 50, 50, 100))
 WRONG_CELL_ROE = (_rect(0, 0, 50, 50), _rect(0, 50, 100, 150), _rect(0, 150, 50, 200))
 EXTRA_CELL_ROE = (_rect(0, 0, 100, 150), _rect(0, 150, 50, 200))
 TUCKED_FOLLOWER_AND_A_PIXEL = (((50, 0), (150, 0), (150, 50), (100, 50), (100, 150), (50, 150)),)
@@ -2113,6 +2116,12 @@ FOLLOWER_HANDING_OVER = register_pair("qsThey.en-ext-1.handover-fixture", "qsThe
 UNCHANGED_LOW = register_pair("qsLow.unchanged-fixture", "qsLow.sole.unchanged-fixture")
 LOW_ENTERING_A_JOIN = register_pair("qsLow.en-ext-1.join-fixture", "qsLow.sole.join-fixture")
 
+register_glyph("before", "qsYe.en-y0.extension-fixture", PLAIN_ENTRY_LOOP, 100)
+register_glyph("after", "qsYe.loop.en-y0.en-ext-1.extension-fixture", ENTRY_EXTENDED_LOOP, 150)
+register_glyph("after", "qsYe.loop.en-y0.extension-fixture", ENTRY_EXTENDED_LOOP, 150)
+YE_EXTENDED = register_pair("qsYe.en-y0.extension-fixture", "qsYe.loop.en-y0.en-ext-1.extension-fixture")
+YE_UNNAMED_EXTENSION = register_pair("qsYe.en-y0.extension-fixture", "qsYe.loop.en-y0.extension-fixture")
+
 SPLIT_FIRST = (_rect(0, 0, 100, 150),)
 SPLIT_SECOND = (_rect(0, 0, 100, 100),)
 SPLIT_SECOND_TALLER = (_rect(0, 0, 100, 150),)
@@ -2159,6 +2168,10 @@ SLIDE_FONTS = {
     ),
     "after-roe-unmoved": (
         {**AFTER_GLYPHS, "qsRoe.sole.en-y5.en-ext-1": (SHORTENED_ROE, 100)},
+        AFTER_CMAP,
+    ),
+    "after-ye-extension-unmoved": (
+        {**AFTER_GLYPHS, "qsYe.loop.en-y0.en-ext-1.extension-fixture": (UNMOVED_ENTRY_EXTENDED_LOOP, 150)},
         AFTER_CMAP,
     ),
     "after-join-unmoved": ({**AFTER_GLYPHS, "qsAt": (TWO_COLUMNS, 100)}, AFTER_CMAP),
@@ -2684,6 +2697,81 @@ def test_a_gain_rule_with_the_wrong_following_shift_is_refused(slide_context):
     wrong = json.loads(json.dumps(SHIFTED_GAIN_RULE))
     wrong["match"]["after"]["shift"] = 0
     assert not sv._matches(wrong["match"], shifted_gain_window(), context=slide_context())
+
+
+ENTRY_EXTENSION_GAIN_RULE = {
+    "id": "fixture-entry-extension-gain",
+    "verdict": "approve",
+    "note": "the loop draws a pixel more entry and carries everything after it one column right",
+    "match": {
+        "before": {"pivots": ["qsYe.en-y0.extension-fixture"]},
+        "after": {
+            "pivots": ["qsYe.loop.en-y0.en-ext-1.extension-fixture"],
+            "gained": [[0, 0]],
+            "entry_extension": 1,
+            "shift": 1,
+        },
+        "except_left": [],
+    },
+}
+
+
+def entry_extension_window(uid="ee-1", pair=None):
+    pair = YE_EXTENDED if pair is None else pair
+    return slide_unit(uid, ["qsL", "qsYe.en-y0.extension-fixture", "qsF1"], spell(LEAD, pair, FOLLOWER_1))
+
+
+def test_an_entry_extension_that_moves_the_frame_and_placement_right_with_the_gained_cell_matches(
+    slide_context,
+):
+    assert sv._matches(ENTRY_EXTENSION_GAIN_RULE["match"], entry_extension_window(), context=slide_context())
+
+
+def test_an_entry_extension_with_the_wrong_following_shift_is_refused(slide_context):
+    wrong = json.loads(json.dumps(ENTRY_EXTENSION_GAIN_RULE))
+    wrong["match"]["after"]["shift"] = 0
+    assert not sv._matches(wrong["match"], entry_extension_window(), context=slide_context())
+
+
+def test_an_entry_extension_whose_frame_and_placement_stay_put_is_refused(slide_context):
+    """The gained cell is there, but the old cells did not move right with the frame."""
+    assert not sv._matches(
+        ENTRY_EXTENSION_GAIN_RULE["match"],
+        entry_extension_window(),
+        context=slide_context("after-ye-extension-unmoved"),
+    )
+
+
+def test_an_entry_extension_the_after_glyph_does_not_name_is_refused(slide_context):
+    """The picture and the move are the extension's, but the after name carries no `en-ext-N`, so nothing ties the move to an entry extension and not to a slide."""
+    unnamed = json.loads(json.dumps(ENTRY_EXTENSION_GAIN_RULE))
+    unnamed["match"]["after"]["pivots"] = ["qsYe.loop.en-y0.extension-fixture"]
+    assert not sv._matches(
+        unnamed["match"], entry_extension_window(pair=YE_UNNAMED_EXTENSION), context=slide_context()
+    )
+
+
+def test_a_plain_gain_rule_does_not_read_an_entry_extension(slide_context):
+    plain = json.loads(json.dumps(ENTRY_EXTENSION_GAIN_RULE))
+    del plain["match"]["after"]["entry_extension"]
+    assert not sv._matches(plain["match"], entry_extension_window(), context=slide_context())
+
+
+def test_a_slide_and_an_entry_extension_in_one_window_combine(slide_context):
+    window = slide_unit(
+        "ee-2",
+        ["qsL", "qsSee.ex-y0", "qsYe.en-y0.extension-fixture", "qsF1"],
+        spell(LEAD, SEE, YE_EXTENDED, FOLLOWER_1),
+    )
+    events = sv._combined_match([SLIDE_RULE, ENTRY_EXTENSION_GAIN_RULE], window, slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], ENTRY_EXTENSION_GAIN_RULE["id"]: [2]}
+
+
+def test_an_ink_gain_rule_naming_no_entry_extension_columns_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(ENTRY_EXTENSION_GAIN_RULE))
+    rule["match"]["after"]["entry_extension"] = 0
+    with pytest.raises(SystemExit, match="name a positive column count"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
 def test_a_vertical_frame_extension_that_keeps_the_old_pixels_matches(slide_context):
