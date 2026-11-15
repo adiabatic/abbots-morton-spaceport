@@ -3871,3 +3871,17 @@ rules:
         added: [[1, 0], [2, 0], [4, 2], [4, 8], [5, 1], [5, 3], [5, 4], [5, 5], [5, 6], [5, 7], [6, 0]]
         shift: 2
       except_left: []
+  - id: jai-exit-extension-dropped-before-vie-utter
+    verdict: approve
+    note: "·Vie sits a pixel closer to ·J’ai when ·Vie·Utter is drawn as two letters — the pixel of baseline exit the old font drew before the ·Vie+Utter ligature stays off here as it does before ·Vie alone, since qsJai's extend record has no arm for ·Vie, the narrowing decided in “Bring ·Vie, ·See, ·No, and ·Low closer to ·J’ai”, and “Draw `·Vie·Utter` as `·Vie ~b~ ·Utter` instead of a ·Vie+Utter ligature” retired the ligature that used to stand in that slot. The rule reads ·J’ai's redrawn exit tail at the pixel level, so it holds in a window that carries other approved changes, which the extension-dropped shape cannot see. Every window that reached a review session approved the shorter reach, and the user's approval of the review queue's top 22 on 2026-11-15 covers the rest"
+    match:
+      before:
+        pivots: [qsJai.en-y5.ex-y0.ex-ext-1]
+        junction_out: y0
+        follower: [qsVie_qsUtter]
+      after:
+        pivots: [qsJai.sole.en-y5.ex-y0]
+        dropped: [[6, 3]]
+        added: []
+        shift: -1
+      except_left: []
