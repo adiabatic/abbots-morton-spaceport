@@ -3256,3 +3256,13 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: tea-half-padded-left-slide
+    verdict: approve
+    note: "Half ·Tea and the letters after it sit a pixel further right after ·Gay, ·They(+Zoo), ·Vie, ·Zoo and ·May before ·J’ai — the stroke itself is unchanged and only its left clearance grows, from qsTea’s `pad_left` record, which landed in “Add `pad_left`”; the user gave the slide standing approval at u-fp6fzzDLnWu, and every window that reached a review session approved it"
+    match:
+      before:
+        pivots: [qsTea.half.ex-y5]
+      after:
+        pivots: [qsTea.half.ex-y5.ex-bind-padded-left-1]
+        slide: 1
+      except_left: []
