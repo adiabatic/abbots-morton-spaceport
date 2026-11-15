@@ -3905,3 +3905,17 @@ rules:
         shift: 3
         follower_shift: 3
       except_left: []
+  - id: vie-utter-ligature-split-into-alternate-utter
+    verdict: approve
+    note: "·Vie·Utter is drawn as ·Vie with no exit and the alternate ·Utter after it, with no join between them, where the old font drew the ·Vie+Utter ligature — ·Vie takes no baseline exit into the alternate ·Utter, whose own baseline exit is the mandatory one the user records on qsUtter's policy (“·Utter.alt has a mandatory exit, so it can't help consuming ·Tea's baseline slot”), and “Draw `·Vie·Utter` as `·Vie ~b~ ·Utter` instead of a ·Vie+Utter ligature” took the ligature's place. The user gave the split standing approval at u-ZJAZWFEtvrV, and the review queue's top 22 on 2026-11-15 covers this unjoined form"
+    match:
+      before:
+        ligature: qsVie_qsUtter
+      after:
+        split: [qsVie, qsUtter]
+        junction: break
+        first_cells:
+          - qsVie/normal/None/None/
+        second_cells:
+          - qsUtter/alternate/None/baseline/
+      except_left: []
