@@ -3388,3 +3388,20 @@ rules:
         added: []
         shift: -1
       except_left: []
+  - id: pea-vie-baseline-join-dropped
+    verdict: approve
+    note: "·Vie sits a column further from ·Pea — the two no longer join, because a ·Pea that has taken a baseline entry has no baseline exit left to reach ·Vie with: qsPea's full stance pairs no baseline entry with a baseline exit, which is why the ·Pea in these windows takes its join from ·Et and not from the letter after. The rule names the cells both letters settle into rather than holding the pictures. The regrouping is one the `join-switches-sides` divergence class leaves to each unit's own verdict (it names “·Et·Pea”). Every window that reached a review session approved the break, and the user asked for standing approval of the review queue's top 25 on 2026-11-15"
+    match:
+      before:
+        pivot: qsPea
+        junction_out: y0
+        follower: qsVie
+      after:
+        gap: 1
+        pivot_cells:
+          - qsPea/full/baseline/None/
+        follower_after_cells:
+          - qsVie/normal/None/None/
+          - qsVie/swept-out/None/baseline/
+          - qsVie/swept-out/None/baseline/ex-con-1
+      except_left: []
