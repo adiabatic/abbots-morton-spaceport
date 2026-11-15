@@ -3454,3 +3454,26 @@ rules:
         pivots: [qsIng.sole]
         entry_drop: 2
       except_left: []
+  - id: gay-vie-ing-baseline-join-created
+    verdict: approve
+    note: "·Gay joins ·Vie and ·-ing at the baseline where the old font left a break, and ·Vie or ·-ing comes a column nearer — qsGay's baseline exit has carried both on its toward-list since the letter landed in “Add ·Gay”. qsGay's pairings never join it at the baseline on both sides, so the exit goes live where the letter before ·Gay no longer enters it at the baseline, which is the regrouping the join-switches-sides class in rebuild/m1-divergences.yaml holds for a verdict per window. Every window that reached a review session approved the join, and the user approved the review queue's top 25 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsGay
+        junction_out: break
+        follower: [qsIng, qsVie]
+      after:
+        joined: y0
+        pivot_cells:
+          - qsGay/sole/None/baseline/
+        follower_after_cells:
+          - qsIng/sole/baseline/None/
+          - qsIng/sole/baseline/baseline/
+          - qsIng/sole/baseline/baseline/ex-ext-2
+          - qsVie/normal/baseline/None/
+          - qsVie/swept-out/baseline/baseline/
+          - qsVie/swept-out/baseline/baseline/ex-con-1
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
