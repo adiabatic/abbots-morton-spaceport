@@ -10,7 +10,7 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `slide` (declared by `slide`): the window is re-shaped in the corpus's font pair, and its whole visible change must be the named pivot and everything after it moving by the declared column count, whatever the two fonts name the glyphs.
 
-- `ink-gain` (declared by `gained`): the pivot's new form is its old picture plus a named set of own-frame cells, and everything after the pivot moves by the declared count: zero when the fuller form keeps its advance, positive when the added ink lengthens it. ·Roe keeping the baseline bar the old shortened-bottom form dropped matches at zero, and ·Gay's extra exit cell moving ·No one column right matches at one.
+- `ink-gain` (declared by `gained`): the pivot's new form is its old picture plus a named set of own-frame cells, and everything after the pivot moves by the declared count: zero when the fuller form keeps its advance, positive when the added ink lengthens it. ·Roe keeping the baseline bar the old shortened-bottom form dropped matches at zero, and ·Gay's extra exit cell moving ·No one column right matches at one. The span after the pivot is compared together with the pivot's after picture, so a cell the pivot now paints at the same place where its follower's entry used to is not a change: ·I's extra x-height exit pixel standing where ·They's entry extension was.
 
 - `join-dropped` (declared by `gap`): a named join becomes a break. The pivot keeps its picture and own-frame origin, or, where the rule names in full the cells both letters settle into, only its origin, so it may redraw in place (as a ·No raised to the x-height does when it loses its reach down to ·Thaw). The follower keeps its picture and origin and sits the declared number of columns further away, and everything after it moves by the same gap. The gap may be zero only where the pivot may redraw (the flipped ·No losing its x-height join into ·Cheer leaves ·Cheer where it was). A rule may also declare `follower_columns_removed`: the follower's joining form had inserted columns at its left edge, so as the join goes its own-frame origin moves right by that count and it redraws inside the named follower after cells (·Gay when the ·No in front of it is raised past reaching it). Where that redrawn follower also changes its advance, the rule declares `follower_advance`, the columns added to the gap for everything after the follower: the follower sits the gap further away and what follows it sits the gap plus the advance further away (·Gay without the baseline entry ·Why gave it sits two columns further from ·Why, one of them its own-frame origin, and carries what follows one column further). The unmoved origin is what separates a dropped join from a sidebearing change, which is the `slide` shape.
 
@@ -37,7 +37,7 @@ The walk (`_combined_walk`) re-shapes the window in the corpus's font pair and c
 - slide: the pivot leads the next span, and the displacement grows by the declared slide.
 - extension: the pivot sits at the running displacement and loses, on the row its `junction_out` height names, the tail the rule names (the named extension less any shorter one its after cell keeps, or the named contraction). The displacement shrinks by that width. The follower leads the next span, which must be a translation, the same picture compacted left by the follower's dropped entry extension, or, when the follower redrew inside its named cell, a translation of the span without the follower.
 - join (dropped): the pivot sits at the running displacement, and the displacement grows by the gap. The follower leads the next span, or, where the rule declares `follower_columns_removed`, is judged by the event and left out of the span. Past such a follower the displacement moves by its `follower_advance` as well, so a follower that is itself an event is never combined with a declared advance.
-- gain: the pivot sits at the running displacement, and the displacement grows by the declared shift.
+- gain: the pivot sits at the running displacement, and the displacement grows by the declared shift. The next span is compared together with the pivot's after picture, as for an entry event.
 - entry: the pivot sits left of the running displacement by the part of its entry contraction its own frame did not take (zero for a dropped entry extension), and the displacement moves closer by the entry count, adjusted for an `entry-contracted` rule by any exit-extension change on the pivot. The next span is compared together with the pivot's after picture, so a cell handed between them does not count as a change.
 - redrawn: the pivot sits at the running displacement, or left of it by up to the part of its new form's extra entry contraction its frame did not take, and the displacement grows by the declared shift plus that placement move. The next span is compared together with the pivot's after picture, as for an entry event.
 - stub: the pivot's placement moves right by the stub count, and the displacement is unchanged.
@@ -558,7 +558,7 @@ def _gain_holds(match, before, after, intern):
 
 
 def _gain_geometry(match, unit, comparator):
-    """Whether the window's rendered before→after change is the named cells appearing on the named pivot, shaped under the unit's first config. Each pivot must pass `_gain_holds` at its placement under the running displacement, and every span strictly between the pivots must render identically under the cumulative declared shift. No pivot on the before side, pivot counts that differ, a before run that differs from the recorded glyphs, an off-grid placement, a non-rectilinear outline, a lost cell, an unnamed extra cell, or following ink that moves by another amount returns False, so the unit waits for human review."""
+    """Whether the window's rendered before→after change is the named cells appearing on the named pivot, shaped under the unit's first config. Each pivot must pass `_gain_holds` at its placement under the running displacement, and every span strictly between the pivots must render identically under the cumulative declared shift, the span after a pivot compared together with that pivot's after picture so a cell the pivot now paints where its follower's entry used to does not count as a change. No pivot on the before side, pivot counts that differ, a before run that differs from the recorded glyphs, an off-grid placement, a non-rectilinear outline, a lost cell, an unnamed extra cell, or following ink that moves by another amount returns False, so the unit waits for human review."""
     codepoints = unit.get("codepoints") or ""
     if not codepoints:
         return False
@@ -584,8 +584,9 @@ def _gain_geometry(match, unit, comparator):
     displacement = 0
     before_spans = _split_around(before_run, before_pivots)
     after_spans = _split_around(after_run, after_pivots)
+    anchor = None
     for step, (before_span, after_span) in enumerate(zip(before_spans, after_spans)):
-        if not _span_settled(intern, before_span, after_span, displacement):
+        if not _span_settled(intern, before_span, after_span, displacement, after_anchor=anchor):
             return False
         if step == len(before_pivots):
             continue
@@ -594,6 +595,7 @@ def _gain_geometry(match, unit, comparator):
         if after[2] != before[2] + displacement * PIXEL_SIZE or not _gain_holds(match, before, after, intern):
             return False
         displacement += shift
+        anchor = after
     return True
 
 
@@ -2334,8 +2336,7 @@ def _combined_walk(rules, unit, context):
             displacement += carried + moves[explaining[0]]
             carried = 0
             before_span, after_span = [], []
-            if event.kind in ("entry", "redrawn"):
-                after_anchor = after_pieces[index]
+            after_anchor = after_pieces[index]
             index += 1
             joined = sharing.get(position)
             if joined is not None:

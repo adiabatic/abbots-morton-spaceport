@@ -1844,6 +1844,7 @@ EIGHTISH_EXTENDED = (_rect(0, 0, 50, 150), _rect(50, 100, 100, 150), _rect(100, 
 EIGHTISH_ENTRY_EXTENDED = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150), _rect(100, 100, 150, 150))
 EIGHTISH_ENTRY_EXTENDED_SMALLER = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150), _rect(100, 50, 150, 100))
 EIGHTISH_HANDING_OVER = (_rect(0, 0, 50, 150), _rect(50, 50, 100, 100), _rect(100, 100, 150, 150))
+EIGHTISH_GAINING_HANDOVER = (_rect(0, 0, 50, 150), _rect(50, 100, 100, 150), _rect(100, 100, 150, 150))
 ENTRY_HANDED_FOLLOWER = (_rect(0, 100, 50, 150), _rect(50, 0, 100, 150))
 HANDED_FOLLOWER = (_rect(50, 0, 100, 150),)
 EIGHTISH_SMALLER_AND_A_PIXEL = (_rect(0, 0, 50, 150), _rect(50, 50, 100, 100), _rect(100, 0, 150, 50))
@@ -2002,6 +2003,8 @@ register_glyph("before", "qsEight.redraw-join-fixture", EIGHTISH, 100)
 register_glyph("after", "qsEight.smaller-loop.redraw-join-fixture", EIGHTISH_SMALLER, 50)
 register_glyph("before", "qsI.handover-fixture", EIGHTISH, 50)
 register_glyph("after", "qsI.smaller-loop.handover-fixture", EIGHTISH_HANDING_OVER, 100)
+register_glyph("before", "qsI.gain-handover-fixture", EIGHTISH, 50)
+register_glyph("after", "qsI.loop.gain-handover-fixture", EIGHTISH_GAINING_HANDOVER, 100)
 register_glyph("before", "qsThey.en-ext-1.handover-fixture", ENTRY_HANDED_FOLLOWER, 100)
 register_glyph("after", "qsThey.sole.handover-fixture", HANDED_FOLLOWER, 100)
 register_glyph("before", "qsLow.unchanged-fixture", TWO_COLUMNS, 100)
@@ -2097,6 +2100,7 @@ EIGHT_REDRAWING_INTO_A_JOIN = register_pair(
     "qsEight.redraw-join-fixture", "qsEight.smaller-loop.redraw-join-fixture"
 )
 I_HANDING_OVER = register_pair("qsI.handover-fixture", "qsI.smaller-loop.handover-fixture")
+I_GAIN_HANDOVER = register_pair("qsI.gain-handover-fixture", "qsI.loop.gain-handover-fixture")
 FOLLOWER_HANDING_OVER = register_pair("qsThey.en-ext-1.handover-fixture", "qsThey.sole.handover-fixture")
 UNCHANGED_LOW = register_pair("qsLow.unchanged-fixture", "qsLow.sole.unchanged-fixture")
 LOW_ENTERING_A_JOIN = register_pair("qsLow.en-ext-1.join-fixture", "qsLow.sole.join-fixture")
@@ -2269,6 +2273,10 @@ SLIDE_FONTS = {
     ),
     "after-handover-unpainted": (
         {**AFTER_GLYPHS, "qsI.smaller-loop.handover-fixture": (EIGHTISH_SMALLER, 100)},
+        AFTER_CMAP,
+    ),
+    "after-gain-handover-extra-loss": (
+        {**AFTER_GLYPHS, "qsThey.sole.handover-fixture": ((_rect(50, 0, 100, 100),), 100)},
         AFTER_CMAP,
     ),
     "after-redrawn-overframed-pivot": (
@@ -2576,6 +2584,26 @@ SHIFTED_GAIN_RULE = {
 }
 
 
+HANDOVER_GAIN_RULE = {
+    "id": "fixture-ink-gain-handover",
+    "verdict": "approve",
+    "note": "·I draws the exit pixel its follower's entry drew, so the follower stands a column further along",
+    "match": {
+        "before": {"pivots": ["qsI.gain-handover-fixture"]},
+        "after": {"pivots": ["qsI.loop.gain-handover-fixture"], "gained": [[2, 2]], "shift": 1},
+        "except_left": [],
+    },
+}
+
+
+def gain_handover_window(uid="gh-1"):
+    return slide_unit(
+        uid,
+        ["qsL", "qsI.gain-handover-fixture", "qsThey.en-ext-1.handover-fixture", "qsF3"],
+        spell(LEAD, I_GAIN_HANDOVER, FOLLOWER_HANDING_OVER, FOLLOWER_3),
+    )
+
+
 def shifted_gain_window(uid="sg-1"):
     return slide_unit(uid, GAIN_GLYPHS, spell(LEAD, ROE_SHIFTED_GAIN, FOLLOWER_1))
 
@@ -2591,6 +2619,30 @@ def test_a_pure_gain_matches(slide_context):
 
 def test_a_gain_that_lengthens_the_pivot_moves_the_following_span(slide_context):
     assert sv._matches(SHIFTED_GAIN_RULE["match"], shifted_gain_window(), context=slide_context())
+
+
+def test_a_cell_the_gaining_pivot_takes_over_from_its_follower_is_not_a_change(slide_context):
+    """The follower's entry gives up the cell the pivot's fuller form now paints at the same place, so the rendered picture there is unchanged."""
+    assert sv._matches(HANDOVER_GAIN_RULE["match"], gain_handover_window(), context=slide_context())
+
+
+def test_a_cell_the_follower_gives_up_beyond_the_gain_defeats_the_ink_gain_match(slide_context):
+    """A follower that also loses a cell the pivot does not paint leaves a visible gap, which the anchored comparison must not hide."""
+    assert not sv._matches(
+        HANDOVER_GAIN_RULE["match"],
+        gain_handover_window(),
+        context=slide_context("after-gain-handover-extra-loss"),
+    )
+
+
+def test_a_slide_and_a_handed_over_ink_gain_in_one_window_combine(slide_context):
+    window = slide_unit(
+        "gh-2",
+        ["qsL", "qsSee.ex-y0", "qsI.gain-handover-fixture", "qsThey.en-ext-1.handover-fixture", "qsF3"],
+        spell(LEAD, SEE, I_GAIN_HANDOVER, FOLLOWER_HANDING_OVER, FOLLOWER_3),
+    )
+    events = sv._combined_match([SLIDE_RULE, HANDOVER_GAIN_RULE], window, slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], HANDOVER_GAIN_RULE["id"]: [2]}
 
 
 def test_a_gain_rule_with_the_wrong_following_shift_is_refused(slide_context):

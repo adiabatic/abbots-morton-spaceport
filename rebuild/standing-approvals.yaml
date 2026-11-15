@@ -3061,3 +3061,16 @@ rules:
         follower_advance: -3
         follower_columns_added: 0
       except_left: []
+  - id: i-exit-extension-gained
+    verdict: approve
+    note: "·I reaches a pixel further along its x-height exit into ·They, and ·They's entry stops drawing that pixel, so what follows ·I stands where it did — the extra pixel is qsI's x-height extend record, which names qsThey in “Extend the ·I·They join by a pixel”; every window that reached a review session approved the longer reach"
+    match:
+      before:
+        pivots: [qsI]
+      after:
+        pivots:
+          - qsI.loop.en-y0.ex-y5.ex-ext-1
+          - qsI.loop.ex-y5.ex-ext-1
+        gained: [[5, 5]]
+        shift: 1
+      except_left: []
