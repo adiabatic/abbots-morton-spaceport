@@ -3738,3 +3738,23 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: utter-utter-xheight-join-created
+    verdict: approve
+    note: "·Utter joins the alternate ·Utter at the x-height where the old font left a break, and the second ·Utter closes two columns onto the first, carrying everything after it two columns nearer — qsUtter's alternate stance carries qsUtter on its x-height entry's from-list, the pair that went live in “Do `{·No, ·Utter} ~x~ ·Utter.alt`”, and qsUtter's contract record takes two columns off that entry after ·Utter, from “Contract ·Utter ~x~ ·Utter.alt and ·They+Utter ~x~ ·Utter.alt by two pixels”. Every window that reached a review session approved the join, and the user approved the review queue's top 22 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsUtter
+        junction_out: break
+        follower: qsUtter
+      after:
+        joined: y5
+        pivot_cells:
+          - qsUtter/mono/None/x-height/
+          - qsUtter/mono/baseline/x-height/
+        follower_after_cells:
+          - qsUtter/alternate/x-height/baseline/en-con-2
+        shift: -2
+        follower_advance: 0
+        follower_columns_added: 0
+        follower_columns_removed: 1
+      except_left: []
