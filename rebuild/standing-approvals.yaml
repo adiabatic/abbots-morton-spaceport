@@ -3885,3 +3885,23 @@ rules:
         added: []
         shift: -1
       except_left: []
+  - id: they-xheight-entry-baseline-join-retargeted
+    verdict: approve
+    note: "·They that takes its x-height entry from ·Utter leaves at the baseline where the old font had it leave at the x-height, so its follower joins at the baseline and comes three columns further along, holding its own advance. qsThey's cells pair an x-height entry with a baseline exit alone, and the stance, its from-list and ·Utter's reach into it landed with the letter in “Add ·They”. The rule names the followers that hold their advance: ·No, ·Roe and ·It, entered at the baseline. Every window that reached a review session approved the lowered exit, and the user's approval of the review queue's top 22 on 2026-11-15 covers the ligature windows"
+    match:
+      before:
+        pivot: qsThey
+        junction_out: y5
+        follower: [qsNo, qsRoe, qsIt]
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsThey/sole/x-height/baseline/
+        follower_after_cells:
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+          - qsRoe/sole/baseline/None/
+          - qsIt/sole/baseline/None/
+        shift: 3
+        follower_shift: 3
+      except_left: []
