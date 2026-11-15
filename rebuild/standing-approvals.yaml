@@ -3008,3 +3008,13 @@ rules:
         added: []
         shift: -1
       except_left: []
+  - id: ing-entry-extension-dropped
+    verdict: approve
+    note: "·-ing sits a pixel closer after ·Tea — the extra pixel of baseline entry the old font drew after a bare ·Tea came off qsIng's extend record in “Contract `·Tea ~b~ ·-ing` by a pixel”, which kept the one after ·Tea+Oy, and the user gave the contraction standing approval at u-2gaUD6LCNN4"
+    match:
+      before:
+        pivots: [qsIng.en-ext-1]
+      after:
+        pivots: [qsIng.sole]
+        entry_drop: 1
+      except_left: []
