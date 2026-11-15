@@ -910,10 +910,10 @@ rules:
       except_left: []
   - id: utter-baseline-join-created
     verdict: approve
-    note: "·Bay, ·Key and ·Gay all join ·Utter at the baseline where the old font left a break, and ·Utter closes a column onto each of them and gives it straight back: the mono form that takes the join carries its exit a column further, so the letter comes nearer while everything past it stands where it was. qsUtter's mono stance carries an unrestricted baseline entry — no from-list at all, so every left letter with an open baseline exit reaches it — and has since the letter landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, while the alternate stance's only entry is the scoped x-height one, which is why the old pipeline broke here. Before ·May, ·Key takes the join only under the default features: qsKey's and qsUtter's records that keep The Manual's `·Key | ·Utter.alt ~b~ ·May` apply under ss08 alone since “Draw ·Key·Utter·May as `·Key ~b~ ·Utter ~x~ ·May`, with The Manual's `·Key | ·Utter.alt ~b~ ·May` behind ss08”. Every window that reached a review session approved the join"
+    note: "·Bay, ·Key, ·Gay and ·-ing all join ·Utter at the baseline where the old font left a break, and ·Utter closes a column onto each of them and gives it straight back: the mono form that takes the join carries its exit a column further, so the letter comes nearer while everything past it stands where it was. qsUtter's mono stance carries an unrestricted baseline entry — no from-list at all, so every left letter with an open baseline exit reaches it — and has since the letter landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”, while the alternate stance's only entry is the scoped x-height one, which is why the old pipeline broke here, and qsIng's baseline exit has named qsUtter since the letter landed in “Add ·-ing”. Before ·May, ·Key takes the join only under the default features: qsKey's and qsUtter's records that keep The Manual's `·Key | ·Utter.alt ~b~ ·May` apply under ss08 alone since “Draw ·Key·Utter·May as `·Key ~b~ ·Utter ~x~ ·May`, with The Manual's `·Key | ·Utter.alt ~b~ ·May` behind ss08”. Every window that reached a review session approved the join"
     match:
       before:
-        pivot: [qsBay, qsKey, qsGay]
+        pivot: [qsBay, qsKey, qsGay, qsIng]
         junction_out: break
         follower: qsUtter
       after:
@@ -925,6 +925,9 @@ rules:
           - qsKey/sole/top/baseline/
           - qsGay/sole/None/baseline/
           - qsGay/sole/x-height/baseline/
+          - qsIng/sole/None/baseline/
+          - qsIng/sole/baseline/baseline/
+          - qsIng/sole/baseline/baseline/en-ext-2
         follower_after_cells:
           - qsUtter/mono/baseline/None/
           - qsUtter/mono/baseline/x-height/
