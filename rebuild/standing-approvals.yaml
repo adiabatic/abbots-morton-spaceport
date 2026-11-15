@@ -2043,10 +2043,10 @@ rules:
       except_left: []
   - id: tea-ss05-baseline-join-created
     verdict: approve
-    note: "Under ss05, ·Bay, ·Day, ·Key, ·Gay, ·Zoo, ·She, ·Cheer, ·No, ·Eight, ·Awe, ·Ox, ·Oy, ·Utter and ·Ooze join ·Tea at the baseline where the old font left a break, and ·Tea closes one column onto each while holding its own advance, so whatever follows moves with it. ·Tea's side is its full stance's baseline-entry-and-baseline-exit pairing, which the stance refuses by default and its ss05 unlock allows; “Let ss05 join ·Tea at the baseline on both sides with any neighbor” dropped the unlock's ·Et-only left condition, so every left letter ·Tea's refusals allow now reaches it. The rule names only the ·Tea cell that keeps that onward baseline exit, which no other configuration draws, and the ·Gay it names is the one entered at the x-height, whose extend record adds no pixel of exit, so ·Tea closes onto it like the rest. Every window that reached a review session approved the join"
+    note: "Under ss05, ·Bay, ·Day, ·Key, ·Gay, ·Zoo, ·She, ·Cheer, ·-ing, ·No, ·Eight, ·Awe, ·Ox, ·Oy, ·Utter and ·Ooze join ·Tea at the baseline where the old font left a break, and ·Tea closes one column onto each while holding its own advance, so whatever follows moves with it. ·Tea's side is its full stance's baseline-entry-and-baseline-exit pairing, which the stance refuses by default and its ss05 unlock allows; “Let ss05 join ·Tea at the baseline on both sides with any neighbor” dropped the unlock's ·Et-only left condition, so every left letter ·Tea's refusals allow now reaches it, ·-ing among them, whose baseline exit has named qsTea since the letter landed in “Add ·-ing”. The rule names only the ·Tea cell that keeps that onward baseline exit, which no other configuration draws, and the ·Gay it names is the one entered at the x-height, whose extend record adds no pixel of exit, so ·Tea closes onto it like the rest. Every window that reached a review session approved the join, and the user approved the review queue's top 25 on 2026-11-15, which includes ·-ing reaching the half ·Tea the old font drew"
     match:
       before:
-        pivot: [qsBay, qsDay, qsKey, qsGay, qsZoo, qsShe, qsCheer, qsNo, qsEight, qsAwe, qsOx, qsOy, qsUtter, qsOoze]
+        pivot: [qsBay, qsDay, qsKey, qsGay, qsZoo, qsShe, qsCheer, qsIng, qsNo, qsEight, qsAwe, qsOx, qsOy, qsUtter, qsOoze]
         junction_out: break
         follower: qsTea
       after:
@@ -2069,6 +2069,9 @@ rules:
           - qsShe/sole/None/baseline/
           - qsCheer/sole/None/baseline/
           - qsCheer/sole/x-height/baseline/
+          - qsIng/sole/None/baseline/
+          - qsIng/sole/baseline/baseline/
+          - qsIng/sole/baseline/baseline/en-ext-2
           - qsNo/flipped/None/baseline/
           - qsNo/flipped/baseline/baseline/
           - qsEight/smaller-loop/None/baseline/
