@@ -42,13 +42,13 @@ rules:
       except_left: []
   - id: jai-exit-extension-dropped
     verdict: approve
-    note: "·Vie, ·See, ·No and ·Low sit a pixel closer to ·J’ai — the exit extension the old font drew before them came off ·J’ai’s extend record at the qsJai batch, and the tighter junction was approved in every window that reached a review session"
+    note: "·Vie, ·See, ·-ing, ·No and ·Low sit a pixel closer to ·J’ai — the exit extension the old font drew before them came off ·J’ai’s extend record, at the qsJai batch for ·Vie, ·See, ·No and ·Low and in “Contract `·J’ai ~b~ ·-ing` by a pixel” for ·-ing, and the tighter junction was approved in every window that reached a review session"
     match:
       before:
         pivot: qsJai
         exit_extension: ex-ext-1
         junction_out: y0
-        follower: [qsVie, qsSee, qsNo, qsLow]
+        follower: [qsVie, qsSee, qsIng, qsNo, qsLow]
       after:
         pivot_cells:
           - qsJai/sole/None/baseline/
@@ -61,6 +61,8 @@ rules:
           - qsSee/normal/baseline/None/
           - qsSee/normal/baseline/top/
           - qsSee/curled-over/baseline/y6/
+          - qsIng/sole/baseline/None/
+          - qsIng/sole/baseline/baseline/
           - qsNo/flipped/baseline/None/
           - qsNo/flipped/baseline/baseline/
           - qsLow/sole/baseline/None/
