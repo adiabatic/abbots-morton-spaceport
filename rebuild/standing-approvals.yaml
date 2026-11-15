@@ -3038,3 +3038,26 @@ rules:
         pivots: [qsJay_qsUtter.sole]
         entry_drop: 1
       except_left: []
+  - id: oy-xheight-join-created
+    verdict: approve
+    note: "·May, ·Low, ·I, ·Ah and ·Utter join ·Oy at the x-height where the old font left a break, and ·Oy opens its loop on the left to receive it — coming a column nearer, and drawing that open form three columns narrower, so whatever follows the pair comes nearer by both. The open-on-the-left bitmap is qsOy's own record of the join, hanging off the only x-height entry the letter has, whose from-list names each of them, so the redraw is the follower half of this join rather than a change of its own. The rule names the word-final ·Oy beside the one that goes on to a baseline exit, since the letter draws the same loop either way. Every window that reached a review session approved the join, and the user gave it standing approval at u-H3dLTdNrxqX"
+    match:
+      before:
+        pivot: [qsMay, qsLow, qsI, qsAh, qsUtter]
+        junction_out: break
+        follower: qsOy
+      after:
+        joined: y5
+        pivot_cells:
+          - qsMay/loop/None/x-height/
+          - qsLow/sole/None/x-height/
+          - qsI/loop/None/x-height/
+          - qsAh/sole/None/x-height/
+          - qsUtter/mono/None/x-height/
+        follower_after_cells:
+          - qsOy/sole/x-height/None/
+          - qsOy/sole/x-height/baseline/
+        shift: -1
+        follower_advance: -3
+        follower_columns_added: 0
+      except_left: []
