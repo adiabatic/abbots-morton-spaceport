@@ -2410,7 +2410,7 @@ rules:
       except_left: []
   - id: he-it-xheight-join-created
     verdict: approve
-    note: "·He goes half and joins ·It at the x-height where the old font left a break, and ·It closes three columns onto it — the author ruled in the ·He migration that `·He ~b~ ·It` never happens (from ·Pea·He·It·Jay, where the old drawing is better), and “Don't join ·He ~b~ ·It ever” took qsIt off the full stance's baseline exit, so before ·It only the half's x-height exit is on offer; that exit has named qsIt since the letter landed in “Add ·He”, and qsIt's x-height entry is open to every left letter but ·It itself. ·It holds its own advance across the change, so whatever follows the pair moves with it. The user gave the join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved it"
+    note: "·He goes half and joins ·It at the x-height where the old font left a break, and ·It closes three columns onto it — the author ruled in the ·He migration that `·He ~b~ ·It` never happens (from ·Pea·He·It·Jay, where the old drawing is better), and “Don't join ·He ~b~ ·It ever” took qsIt off the full stance's baseline exit, so before ·It only the half's x-height exit is on offer; that exit has named qsIt since the letter landed in “Add ·He”, and qsIt's x-height entry is open to every left letter but ·It itself. ·It holds its own advance across the change, so whatever follows the pair moves with it. The rule names the ·It that keeps the pixel of baseline exit before ·I beside the plain one, since the picture is the same either way. The user gave the join standing approval in any context at u-fPmY2XhXnxc, and every window that reached a review session approved it"
     match:
       before:
         pivot: qsHe
@@ -2423,6 +2423,7 @@ rules:
         follower_after_cells:
           - qsIt/sole/x-height/None/
           - qsIt/sole/x-height/baseline/
+          - qsIt/sole/x-height/baseline/ex-ext-1
         shift: -3
         follower_advance: 0
         follower_columns_added: 0
