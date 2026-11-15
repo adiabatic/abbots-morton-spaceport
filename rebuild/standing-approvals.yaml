@@ -3997,3 +3997,26 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: eight-it-baseline-join-created
+    verdict: approve
+    note: "·Eight joins ·It at the baseline where the old font left a break, drawing a pixel of baseline exit to reach it, and ·It and whatever follows stay where they were — the reach is qsEight's normal-sized loop, which “Give ·Eight its regular loop again before ·It” keeps in front of ·It, and the letters have been on each other's lists since “Add ·Eight”. Every window that reached a review session approved the join, and the user approved the review queue's top 22 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsEight
+        junction_out: break
+        follower: qsIt
+      after:
+        joined: y0
+        pivot_cells:
+          - qsEight/normal-sized-loop/None/baseline/ex-ext-1
+          - qsEight/normal-sized-loop/x-height/baseline/ex-ext-1
+        follower_after_cells:
+          - qsIt/sole/baseline/None/
+          - qsIt/sole/baseline/baseline/
+          - qsIt/sole/baseline/baseline/ex-ext-1
+          - qsIt/sole/baseline/x-height/
+          - qsIt/sole/baseline/x-height/ex-ext-1
+        shift: 0
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
