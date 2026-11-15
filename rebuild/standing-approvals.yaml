@@ -3776,3 +3776,22 @@ rules:
         follower_advance: 1
         follower_columns_added: 0
       except_left: []
+  - id: gay-ye-xheight-join-created
+    verdict: approve
+    note: "·Gay joins ·Ye at the x-height where the old font left a break, and ·Ye draws its climbing-loop stance to take the join, coming two columns nearer the ·Gay that stands in place and giving one of them back to what follows it — qsGay's x-height exit has carried qsYe on its toward-list and qsYe's climbing-loop stance has carried qsGay on its x-height entry's from-list since the letter landed in “Add ·Ye”, and the pixel ·Gay draws beyond its old exit before ·Ye is qsGay's x-height extend record from “Add a pixel of extension for `·Gay ~x~ ·Ye`”. Every window that reached a review session approved the join, and the user approved the review queue's top 22 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsGay
+        junction_out: break
+        follower: qsYe
+      after:
+        joined: y5
+        pivot_cells:
+          - qsGay/sole/None/x-height/ex-ext-1
+          - qsGay/sole/baseline/x-height/ex-ext-1
+        follower_after_cells:
+          - qsYe/climbing-loop/x-height/None/
+        shift: -2
+        follower_advance: 1
+        follower_columns_added: 0
+      except_left: []
