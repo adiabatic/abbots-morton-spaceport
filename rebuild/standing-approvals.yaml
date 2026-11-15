@@ -3837,3 +3837,25 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: may-utter-pea-xheight-join-created
+    verdict: approve
+    note: "·May and ·Utter join ·Pea at the x-height where the old font left a break, and ·Pea dips its left stroke down to the x-height to receive the join, drawing a pixel more than the old font did, and closes a column onto it, so whatever follows moves with it — qsPea's drawing notes have its left stroke dip to the x-height when the letter before exits there, and qsMay's and qsUtter's x-height exits reach it; “Stop adding a pixel to the `·May ~x~ ·Pea` join” leaves ·May's side without an extension of its own. Every window that reached a review session approved the join, and the user approved the review queue's top 22 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: [qsMay, qsUtter]
+        junction_out: break
+        follower: qsPea
+      after:
+        joined: y5
+        pivot_cells:
+          - qsMay/loop/None/x-height/
+          - qsMay/loop/baseline/x-height/
+          - qsUtter/mono/None/x-height/
+        follower_after_cells:
+          - qsPea/full/x-height/None/
+          - qsPea/half/x-height/x-height/
+          - qsPea/half/x-height/y6/
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
