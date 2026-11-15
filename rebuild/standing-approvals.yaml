@@ -3670,3 +3670,22 @@ rules:
         follower_columns_removed: 1
         follower_advance: -1
       except_left: []
+  - id: utter-thaw-baseline-join-created
+    verdict: approve
+    note: "·Utter joins ·Thaw at the baseline where the old font left a break, and ·Thaw closes three columns onto it — qsThaw's baseline entry has carried qsUtter on its from-list since the letter landed in “Add ·Thaw”, and the alternate ·Utter that an x-height entry draws has a mandatory baseline exit with nothing on either policy standing between the pair. Nothing in this survey has reached a review session, so the user's approval of the review queue's top 25 on 2026-11-15 is its record"
+    match:
+      before:
+        pivot: qsUtter
+        junction_out: break
+        follower: qsThaw
+      after:
+        joined: y0
+        pivot_cells:
+          - qsUtter/alternate/x-height/baseline/
+          - qsUtter/alternate/x-height/baseline/en-con-2
+        follower_after_cells:
+          - qsThaw/sole/baseline/None/
+        shift: -3
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
