@@ -427,6 +427,17 @@ rules:
         gained: [[4, 8]]
         shift: 1
       except_left: []
+  - id: gay-ye-xheight-extension-added-without-entry
+    verdict: approve
+    note: "·Gay gains one pixel of x-height exit into ·Ye and carries ·Ye one column right, on the ·Gay that has no baseline entry, so its extra cell sits one column further left in its own frame — qsGay's x-height extend record at by-1 names ·Ye beside ·No, widened in “Add a pixel of extension for `·Gay ~x~ ·Ye`”, and every window that reached a review session approved the longer reach"
+    match:
+      before:
+        pivots: [qsGay.ex-y5]
+      after:
+        pivots: [qsGay.sole]
+        gained: [[3, 8]]
+        shift: 1
+      except_left: []
   - id: gay-entry-contracted
     verdict: approve
     note: "·Gay's baseline entry pulls in one pixel after ·Bay, ·Day, ·Key, ·She, ·Cheer, ·No, ·Et and ·Awe — every one of those pair rulings sits on qsGay's contract record, each landed under its own “Contract … by a pixel” commit, ·Day and ·Awe in “Contract ·{Day,Awe} ~b~ ·Gay by a pixel” and ·She and ·Cheer in “Contract ·{She,Cheer} ~b~ ·Gay by a pixel”"
