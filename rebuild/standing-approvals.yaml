@@ -3795,3 +3795,24 @@ rules:
         follower_advance: 1
         follower_columns_added: 0
       except_left: []
+  - id: it-no-baseline-join-retargeted
+    verdict: approve
+    note: "·It reaches up to the x-height to join ·No, where the old font joined them at the baseline, and ·No redraws into its loop stance in place — once a baseline join enters ·It, its pairing table leaves it only an x-height exit, because the baseline-to-baseline pairing unlocks under ss04 alone (“Let ss04 join ·It at the baseline on both sides with any neighbor”), and qsNo's loop stance carries an unrestricted x-height entry, so every left letter with an open x-height exit meets it. ·No holds its own advance across the change, so whatever follows the pair stands where it was. The rule names the ·It that takes no entry beside the one that does, and the ·No that takes an x-height entry beside the one that takes none, since each draws the same stroke either way. Every window that reached a review session approved the raised join or called it either, and the user approved the review queue's top 22 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsIt
+        junction_out: y0
+        follower: qsNo
+      after:
+        retarget: y5
+        pivot_cells:
+          - qsIt/sole/None/x-height/
+          - qsIt/sole/baseline/x-height/
+          - qsIt/sole/baseline/x-height/en-ext-1
+        follower_after_cells:
+          - qsNo/loop/x-height/None/
+          - qsNo/loop/x-height/x-height/
+          - qsNo/loop/x-height/x-height/ex-ext-1
+        shift: 0
+        follower_shift: 0
+      except_left: []
