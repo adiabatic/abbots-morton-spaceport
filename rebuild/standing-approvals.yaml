@@ -3374,3 +3374,17 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: vie-baseline-exit-dropped-before-roe
+    verdict: approve
+    note: "·Roe sits a column closer to ·Vie, and ·Vie gives up the baseline exit the old font drew into it — the two no longer join, because ·Roe joins the letter after it instead; qsVie's swept-out stance carries the baseline exit and its normal stance none, and qsRoe's pairings carry no baseline entry with a baseline exit, so the ·Roe that joins the letter after it takes no join from ·Vie. The regrouping is one the `join-switches-sides` divergence class leaves to each unit's own verdict. Every window that reached a review session approved the break, and the user asked for standing approval of the review queue's top 25 on 2026-11-15"
+    match:
+      before:
+        pivots: [qsVie.en-y0.ex-y0]
+        junction_out: y0
+        follower: qsRoe
+      after:
+        pivots: [qsVie.normal]
+        dropped: [[6, 2], [7, 3]]
+        added: []
+        shift: -1
+      except_left: []
