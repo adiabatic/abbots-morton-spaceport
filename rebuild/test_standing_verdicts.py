@@ -432,6 +432,39 @@ JOIN_BEHIND_CREATED_JOIN_RULE = {
     },
 }
 
+CREATED_JOIN_BEHIND_JOIN_DROP_RULE = {
+    "id": "fixture-join-created-behind-a-join-drop",
+    "verdict": "approve",
+    "note": "·F2 joins ·F3 at the baseline where the old font left a break, on the form a dropped join left it",
+    "match": {
+        "before": {"pivot": "qsF2", "junction_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsF2/full/None/None/"],
+            "follower_after_cells": ["qsF3/full/None/None/"],
+            "shift": -1,
+            "follower_advance": 0,
+            "follower_columns_added": 0,
+        },
+        "except_left": [],
+    },
+}
+
+JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_RULE = {
+    "id": "fixture-join-dropped-behind-a-join-adding-a-column",
+    "verdict": "approve",
+    "note": "·F1 sits a column further from ·F3, which redraws in place as the join goes away",
+    "match": {
+        "before": {"pivot": "qsF3", "junction_out": "y0", "follower": "qsF1"},
+        "after": {
+            "gap": 1,
+            "pivot_cells": ["qsF3/full/None/None/"],
+            "follower_after_cells": ["qsF1/full/None/None/"],
+        },
+        "except_left": [],
+    },
+}
+
 CONTRACTED_REDRAWN_SHARED_LETTER_RULE = {
     "id": "fixture-join-created-behind-a-contraction-before-a-redraw",
     "verdict": "approve",
@@ -2115,6 +2148,14 @@ I_GAIN_HANDOVER = register_pair("qsI.gain-handover-fixture", "qsI.loop.gain-hand
 FOLLOWER_HANDING_OVER = register_pair("qsThey.en-ext-1.handover-fixture", "qsThey.sole.handover-fixture")
 UNCHANGED_LOW = register_pair("qsLow.unchanged-fixture", "qsLow.sole.unchanged-fixture")
 LOW_ENTERING_A_JOIN = register_pair("qsLow.en-ext-1.join-fixture", "qsLow.sole.join-fixture")
+register_glyph("before", "qsF2.created-after-drop-fixture", TWO_COLUMNS, 100)
+register_glyph("after", "qsF2.created-after-drop-fixture", TUCKED_FOLLOWER, 50)
+FOLLOWER_2_BEFORE_CREATED_JOIN = register_pair(
+    "qsF2.created-after-drop-fixture", "qsF2.created-after-drop-fixture"
+)
+register_glyph("before", "qsF3.reaching.drop-fixture", TUCKED_FOLLOWER, 100)
+register_glyph("after", "qsF3.reached.drop-fixture", TWO_COLUMNS, 150)
+FOLLOWER_3_COLUMN_ADDED_BEFORE_DROP = register_pair("qsF3.reaching.drop-fixture", "qsF3.reached.drop-fixture")
 
 register_glyph("before", "qsYe.en-y0.extension-fixture", PLAIN_ENTRY_LOOP, 100)
 register_glyph("after", "qsYe.loop.en-y0.en-ext-1.extension-fixture", ENTRY_EXTENDED_LOOP, 150)
@@ -2273,6 +2314,14 @@ SLIDE_FONTS = {
     ),
     "after-join-behind-created-join-unmoved": (
         {**AFTER_GLYPHS, "qsJ.full.join-behind-created-join": (TRIMMED_PIVOT, 100)},
+        AFTER_CMAP,
+    ),
+    "after-created-join-behind-join-drop-unmoved": (
+        {**AFTER_GLYPHS, "qsF2.created-after-drop-fixture": (TUCKED_FOLLOWER, 100)},
+        AFTER_CMAP,
+    ),
+    "after-join-drop-behind-columns-added-join-unmoved": (
+        {**AFTER_GLYPHS, "qsF3.reached.drop-fixture": (TWO_COLUMNS, 100)},
         AFTER_CMAP,
     ),
     "after-stub-companion-pixel": (
@@ -5723,6 +5772,29 @@ JOIN_BEHIND_CREATED_JOIN_GLYPHS = [
 ]
 JOIN_BEHIND_CREATED_JOIN_CODEPOINTS = spell(LEAD, NO, PIVOT_JOIN_DROPPED, FOLLOWER_3)
 JOIN_BEHIND_CREATED_JOIN_RULES = [EXTENSION_BEHIND_CREATED_JOIN_RULE, JOIN_BEHIND_CREATED_JOIN_RULE]
+CREATED_JOIN_BEHIND_JOIN_DROP_GLYPHS = [
+    "qsL",
+    "qsNo.en-ext-1.gap-fixture",
+    "qsF2.created-after-drop-fixture",
+    "qsF3",
+]
+CREATED_JOIN_BEHIND_JOIN_DROP_CODEPOINTS = spell(
+    LEAD, NO_GAP_REDRAWN, FOLLOWER_2_BEFORE_CREATED_JOIN, FOLLOWER_3
+)
+CREATED_JOIN_BEHIND_JOIN_DROP_RULES = [ADVANCE_JOIN_RULE, CREATED_JOIN_BEHIND_JOIN_DROP_RULE]
+JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_GLYPHS = [
+    "qsL",
+    "qsJ.ex-y0.ex-ext-3.long",
+    "qsF3.reaching.drop-fixture",
+    "qsF1",
+]
+JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_CODEPOINTS = spell(
+    LEAD, PIVOT_SHORTENED, FOLLOWER_3_COLUMN_ADDED_BEFORE_DROP, FOLLOWER_1
+)
+JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_RULES = [
+    COLUMNS_ADDED_JOIN_RULE,
+    JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_RULE,
+]
 CONTRACTED_REDRAWN_SHARED_LETTER_GLYPHS = [
     "qsBay.contract-lead",
     "qsMay.en-y0.ex-y5.contract-fixture",
@@ -6196,6 +6268,44 @@ def join_behind_created_join_window(uid="jbcj-1"):
         ],
         ["y0", "y0", "break"],
         codepoints=JOIN_BEHIND_CREATED_JOIN_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def created_join_behind_join_drop_window(uid="cjbjd-1"):
+    return unit(
+        uid,
+        list(CREATED_JOIN_BEHIND_JOIN_DROP_GLYPHS),
+        ["y0", "y0", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsNo/flipped/baseline/None/",
+            "qsF2/full/None/None/",
+            "qsF3/full/None/None/",
+        ],
+        ["y0", "break", "y0"],
+        codepoints=CREATED_JOIN_BEHIND_JOIN_DROP_CODEPOINTS,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def join_drop_behind_columns_added_join_window(uid="jdbca-1"):
+    return unit(
+        uid,
+        list(JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_GLYPHS),
+        ["y0", "break", "y0"],
+        [
+            "qsL/full/None/None/",
+            "qsJ/sole/None/baseline/ex-ext-1",
+            "qsF3/full/None/None/",
+            "qsF1/full/None/None/",
+        ],
+        ["y0", "y0", "break"],
+        codepoints=JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_CODEPOINTS,
         configs=("default",),
         ink_deltas={"default": SLIDE_DELTA},
         pair={"left": 1, "right": 2},
@@ -7150,6 +7260,76 @@ def test_a_join_drop_sharing_a_letter_with_a_created_join_still_needs_both_shift
         JOIN_BEHIND_CREATED_JOIN_RULES,
         join_behind_created_join_window(),
         slide_context("after-join-behind-created-join-unmoved"),
+    )
+    assert events is None
+
+
+def test_a_created_join_shares_a_letter_with_a_join_drop_that_removed_columns(slide_context):
+    """The join drop covers the shared letter's incoming junction, its moved own-frame origin and its placement, and spends its `follower_advance`. The created join then covers the outgoing junction and moves what follows by its shift, read with the letter standing where the drop put it."""
+    events = sv._combined_match(
+        CREATED_JOIN_BEHIND_JOIN_DROP_RULES, created_join_behind_join_drop_window(), slide_context()
+    )
+    assert events == {ADVANCE_JOIN_RULE["id"]: [1], CREATED_JOIN_BEHIND_JOIN_DROP_RULE["id"]: [2]}
+
+
+def test_neither_rule_alone_reads_a_created_join_behind_a_join_drop_with_removed_columns(slide_context):
+    window = created_join_behind_join_drop_window()
+    for rule in CREATED_JOIN_BEHIND_JOIN_DROP_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._combined_walk([rule], window, slide_context()) is None
+
+
+def test_a_created_join_behind_a_join_drop_still_needs_both_shifts(slide_context):
+    events = sv._combined_match(
+        CREATED_JOIN_BEHIND_JOIN_DROP_RULES,
+        created_join_behind_join_drop_window(),
+        slide_context("after-created-join-behind-join-drop-unmoved"),
+    )
+    assert events is None
+
+
+def test_a_created_join_whose_pivot_moved_its_origin_is_no_event_behind_a_drop_without_removed_columns(
+    slide_context,
+):
+    drop = json.loads(json.dumps(ADVANCE_JOIN_RULE))
+    del drop["match"]["after"]["follower_columns_removed"]
+    del drop["match"]["after"]["follower_advance"]
+    assert (
+        sv._combined_walk(
+            [drop, CREATED_JOIN_BEHIND_JOIN_DROP_RULE],
+            created_join_behind_join_drop_window(),
+            slide_context(),
+        )
+        is None
+    )
+
+
+def test_a_join_drop_shares_a_letter_with_a_created_join_that_added_columns(slide_context):
+    """The created join's declared `follower_columns_added` accounts for its follower's moved own-frame origin, so a follower whose joining form added a column at its left edge can still be a join drop's pivot, standing where the created join put it."""
+    events = sv._combined_match(
+        JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_RULES,
+        join_drop_behind_columns_added_join_window(),
+        slide_context(),
+    )
+    assert events == {
+        COLUMNS_ADDED_JOIN_RULE["id"]: [1],
+        JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_RULE["id"]: [2],
+    }
+
+
+def test_neither_rule_alone_reads_a_join_drop_behind_a_columns_added_join(slide_context):
+    """A join drop whose pivot moved its own-frame origin is not an event by itself. Only a created join in front of it declares that move."""
+    window = join_drop_behind_columns_added_join_window()
+    for rule in JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._combined_walk([rule], window, slide_context()) is None
+
+
+def test_a_join_drop_behind_a_columns_added_join_still_needs_both_shifts(slide_context):
+    events = sv._combined_match(
+        JOIN_DROP_BEHIND_COLUMNS_ADDED_JOIN_RULES,
+        join_drop_behind_columns_added_join_window(),
+        slide_context("after-join-drop-behind-columns-added-join-unmoved"),
     )
     assert events is None
 
