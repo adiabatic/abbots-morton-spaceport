@@ -870,6 +870,7 @@ rules:
         follower_after_cells:
           - qsVie/normal/baseline/None/
           - qsVie/swept-out/baseline/baseline/
+          - qsVie/swept-out/baseline/baseline/ex-con-1
           - qsSee/curled-over/baseline/y6/
           - qsSee/normal/baseline/None/
           - qsSee/normal/baseline/top/
