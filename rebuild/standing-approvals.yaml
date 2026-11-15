@@ -3477,3 +3477,53 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: gay-baseline-join-dropped
+    verdict: approve
+    note: "·Gay no longer joins the letter after it at the baseline where a letter before it now joins ·Gay at the baseline, and that letter sits a column further from ·Gay — qsGay's pairings never join it at the baseline on both sides, so the baseline entry the new left join gives it takes the place of the baseline exit the old font drew. This is the regrouping the join-switches-sides class in rebuild/m1-divergences.yaml holds for a verdict per window; qsGay's baseline entry and exit have carried every letter on these lists since the letter landed in “Add ·Gay”, and the left joins come from “Join full ·He to ·No, ·Gay, ·See and ·Roe at the baseline” and “Join `·No ~x~ ·Gay`, not just `·No ~b~ ·Gay`”. Every window that reached a review session approved the break, and the user approved the review queue's top 25 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsGay
+        junction_out: y0
+        follower: [qsAh, qsAt, qsGay, qsIng, qsLow, qsMay, qsOut, qsSee, qsThaw, qsUtter, qsVie]
+      after:
+        gap: 1
+        pivot_cells:
+          - qsGay/sole/baseline/None/
+          - qsGay/sole/baseline/None/en-con-1
+        follower_after_cells:
+          - qsAh/sole/None/None/
+          - qsAh/sole/None/x-height/
+          - qsAh/sole/None/x-height/ex-ext-1
+          - qsAt/rising/None/None/
+          - qsAt/rising/None/x-height/
+          - qsGay/sole/None/baseline/
+          - qsGay/sole/None/None/
+          - qsGay/sole/None/x-height/
+          - qsGay/sole/None/x-height/ex-ext-1
+          - qsGay/sole/None/x-height/ex-ext-2
+          - qsIng/sole/None/baseline/
+          - qsIng/sole/None/baseline/ex-ext-2
+          - qsIng/sole/None/None/
+          - qsLow/sole/None/None/
+          - qsLow/sole/None/x-height/
+          - qsLow/sole/None/x-height/ex-ext-1
+          - qsMay/grounded-loop/None/baseline/
+          - qsMay/loop/None/None/
+          - qsMay/loop/None/x-height/
+          - qsMay/loop/None/x-height/ex-ext-1
+          - qsMay/loop/None/x-height/ex-ext-2
+          - qsOut/normal/None/None/
+          - qsOut/swept-up/None/x-height/
+          - qsOut/swept-up/None/x-height/ex-ext-1
+          - qsSee/curled-over/None/y6/
+          - qsSee/normal/None/None/
+          - qsSee/normal/None/top/
+          - qsThaw/sole/None/None/
+          - qsUtter/alternate/None/baseline/
+          - qsUtter/mono/None/None/
+          - qsUtter/mono/None/x-height/
+          - qsUtter/mono/None/x-height/ex-ext-1
+          - qsVie/normal/None/None/
+          - qsVie/swept-out/None/baseline/
+          - qsVie/swept-out/None/baseline/ex-con-1
+      except_left: []
