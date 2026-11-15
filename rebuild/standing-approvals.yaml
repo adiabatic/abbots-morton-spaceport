@@ -596,6 +596,7 @@ rules:
           - qsIt/sole/baseline/None/
           - qsIt/sole/baseline/baseline/
           - qsIt/sole/baseline/x-height/
+          - qsIt/sole/baseline/x-height/ex-ext-1
         shift: -1
         follower_advance: 0
         follower_columns_added: 0
@@ -3918,4 +3919,23 @@ rules:
           - qsVie/normal/None/None/
         second_cells:
           - qsUtter/alternate/None/baseline/
+      except_left: []
+  - id: it-zoo-baseline-join-retargeted
+    verdict: approve
+    note: "·It reaches up to the x-height to join ·Zoo, where the old font joined them at the baseline, and ·Zoo settles onto its full form, the one with an x-height entry, in place of the half form whose baseline entry it drew — qsZoo's x-height entry has carried qsIt on its from-list since the letter landed in “Add ·Zoo”, and once a baseline join enters ·It its pairing table leaves it only an x-height exit (“Let ss04 join ·It at the baseline on both sides with any neighbor”), which qsIt's extend record lengthens by a pixel before ·Zoo, transcribed from the old font in “Migrate the four worst families to the new rune-file format, conformance-verified”. Read with ·It standing, ·Zoo sits one column to its right, and whatever follows ·Zoo stands where it did. Every window that reached a review session approved the raised join, and the user approved the review queue's top 22 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsIt
+        junction_out: y0
+        follower: qsZoo
+      after:
+        retarget: y5
+        pivot_cells:
+          - qsIt/sole/baseline/x-height/en-ext-1+ex-ext-1
+          - qsIt/sole/baseline/x-height/ex-ext-1
+        follower_after_cells:
+          - qsZoo/full/x-height/None/
+          - qsZoo/full/x-height/baseline/
+        shift: 0
+        follower_shift: 1
       except_left: []
