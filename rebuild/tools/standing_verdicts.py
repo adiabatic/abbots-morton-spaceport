@@ -22,7 +22,7 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `redrawn` (declared by `dropped`): the pivot's new form is its old picture with the named `dropped` cells removed and the named `added` cells present, both read at one common column offset, because an entry extension inserts a column at the pivot's left edge and an entry-extended variant shows the same cell swap one column over. The own-frame origin and the placement stay where they were unless the new form names more entry contraction than the old one: the frame may take up to all of that extra contraction, and the placement may move left by the part the frame did not take. Everything after the pivot moves by the declared shift plus that placement move, and the span after it is compared together with the pivot's after picture, so a cell the pivot takes over from its follower at the same place does not count as a change: ·I's smaller loop drawing the ·I·They connector pixel the old font drew on ·They's entry. ·Eight's bowl pulling in one column before ·Tea and ·It is one example. ·J'ai's crown coming in after a half-height ·Pea or ·Tea moves the letter and the rest of the word, while the same crown after an ·At the old font had already contracted moves only what the dropped tail moves, and ·Gay's baseline entry pulling in after ·No leaves the letter where it was, because its frame takes the whole contraction. `added` may be empty for a form that only loses ink (·Key's foot losing its terminal pixel before ·May, ·No, and ·It). A rule may also name the before `junction_out` its pivot opens, and then a position whose before junction differs is not a pivot: ·May giving up its x-height stroke and reach into a break brings what follows two columns closer, while the same loop giving up its x-height join into ·Fee leaves ·Fee where it stood, which is the join-dropped shape's subject. A rule may also name the `follower` families its pivot must stand before, and then a position whose next letter is in none of them is not a pivot: ·May's x-height exit losing the pixel its extend record drew before ·Pea names ·Pea, so the same loss before another letter still reaches review. This is the shape for an exit contraction whenever its windows carry any other change, because `extension-dropped` reads only names and never looks at the window's ink.
 
-- `join-retargeted` (declared by `retarget`): a named join changes height. The pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower moves by `follower_shift` (zero where the new join leaves it standing, -2 where ·Utter reaching ·May at the x-height pulls ·May back), and everything after the follower moves by `shift`. Half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline is an example.
+- `join-retargeted` (declared by `retarget`): a named join changes height. The pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower moves by `follower_shift` (zero where the new join leaves it standing, -2 where ·Utter reaching ·May at the x-height pulls ·May back), and everything after the follower moves by `shift`. A rule may also declare `follower_columns_removed`: the follower's own-frame origin moves right by that count as the join rises, and it redraws inside the named follower after cells (·Gay's baseline entry giving way to the x-height entry ·No's raised join reaches); `shift` counts what follows the follower with its frame in its new place. Half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline is an example.
 
 - `join-created` (declared by `joined`): a named pair that was a break now joins at the named height, and the pivot and follower may redraw. The pivot keeps its own-frame origin, and its placement stays or moves up to `pivot_stub_drop` columns right when the left-side entry the old font drew in front of the join comes off (·May's own entry in front of its new baseline join into ·Gay). The follower keeps its own-frame origin, or moves it left by `follower_columns_added` when its joining form inserts columns at its left edge (·Gay's stroke that reaches the baseline), or right by `follower_columns_removed` when the join contracts its entry and its frame takes the columns (·Vie's entry after ·No.alt); the rule judges only where the frame lands, and the contraction's own approval is its entry rule's. The follower moves by `shift` plus the pivot's placement move, and everything after it by that plus `follower_advance`. Two counts are needed because a follower that redraws wider gives back what the join closed: the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word where it was. The pivot may name several families, which records one letter's new entry for every left neighbor that now reaches it. `except_pivots` declines before forms that nest under a pivot prefix but need another count: the ·J'ai the old font drew with a stacked crown entry gives the follower a column, while the ·J'ai drawn without one gains a reach that cancels it.
 
@@ -54,12 +54,12 @@ Two events may share a letter only in these cases:
 - A created join behind an entry, ink-gain, or redrawn event at the same position. The earlier event judges the picture the pivot settles into, and the created join judges the junction that picture opens and its follower. Examples: ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay; ·Tea's full bar under ss03 and the baseline join it takes; ·Eight's smaller loop and the baseline join into ·It that only that loop reaches.
 - A created join, redrawn cell swap, dropped join, or further retarget whose pivot is a retarget's follower. The retarget judges that letter's incoming junction and its placement. A further retarget or dropped join takes nothing of the first retarget's `shift` beyond its follower's move, because its own counts are measured with its pivot standing and already include that letter's advance. A redrawn cell swap there must leave the letter where the retarget put it, so a new form naming an entry contraction fails. Examples: ·Gay's raised join into ·No with the break ·No now leaves before ·Thaw, or with ·No's own raised join into ·Day or ·No; ·It's lowered join into ·No and ·No's new join into ·Gay; ·Utter's raised join into ·May and the loop ·May draws with no exit left.
 - A created join, retarget, dropped join, extension drop, ink gain, entry contraction or drop, redrawn cell swap, or contracting split whose pivot is a created join's follower. The created join judges that letter's incoming junction. A following retarget receives only the created join's `follower_columns_added`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget or dropped join may have moved its pivot's own-frame origin, because the created join's `follower_columns_added` declared that move, and an entry contraction or contracting split there has taken its columns into its frame, which the created join's `follower_columns_removed` declared. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that junction and gives up its baseline tail; half-·Tea's new x-height join into ·It and the x-height join into ·J'ai that ·It gives up, since it cannot leave at the height it now enters at; ·No.alt's new baseline join into ·Vie and ·Vie's contracted entry, with or without the ·Vie+Utter ligature splitting into its two letters; ·He's new baseline join into ·Gay and ·Gay's dropped baseline join into ·Vie.
-- A created join whose pivot is a dropped join's follower, where the dropped join declares `follower_columns_removed`. The dropped join judges that letter's incoming junction, its own-frame origin move and its placement, and its `follower_advance` is spent before the created join's `shift`, which is read with the letter standing where the drop put it. Examples: ·May's dropped baseline join into ·Gay and ·Gay's new baseline join into ·Vie or ·-ing; ·Why's dropped baseline join into ·Gay and the same new join.
+- A created join whose pivot is a dropped join's or a retarget's follower, where that event declares `follower_columns_removed`. The earlier event judges that letter's incoming junction, its own-frame origin move and its placement, and its advance (a dropped join's `follower_advance`, a retarget's `shift` less its `follower_shift`) is spent before the created join's `shift`, which is read with the letter standing where the earlier event put it. Examples: ·May's dropped baseline join into ·Gay and ·Gay's new baseline join into ·Vie or ·-ing; ·Why's dropped baseline join into ·Gay and the same new join; ·No's raised join into ·Gay and ·Gay's new baseline join into ·Vie or ·-ing.
 - A dropped join or extension drop whose follower is itself an event. That event is judged next, under the displacement the first one applied (·At's dropped x-height join and ·It's dropped exit extension).
 - An entry event and a redrawn event at the same position, two shapes that describe one change to the pivot's picture: ·Jay's contracted entry after ·Pea is both qsJay's entry contraction and its crown giving up a cell. At least one must hold where the walk reaches the pivot, every one that holds must put the pivot in the same place and move what follows by the same count, and the walk counts each rule whose event holds there. Together they are one event, so a window whose only change is that pivot stays on those rules' own lines. Such a position cannot be the follower a retarget or created join judges, because those judge a single event behind them.
 - An entry shortening and a separate redraw at the same position, where neither local check holds alone: the before picture loses ink only in the named entry columns and undergoes exactly the redraw's named cell swap. A dropped entry extension compacts the picture left under an unchanged own-frame origin; an entry contraction aligns it by the columns the frame takes and moves the placement by the rest. The two shifts add, and both approvals count as independent events. ·Vie losing its entry extension or contracting its entry while also contracting its baseline exit is one example.
 
-Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A split lead shares its position with no event, and a split tail carries only a created join or a retarget, and a walk that finds a split lead without a split event returns None, as does one whose split declaring `junction_in` has no created join at the position before it, whether the join stands alone or shares that letter with an entry, ink-gain, or redrawn event (·Tea's full bar and the baseline join that bar opens). A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position, or behind a dropped join that declares `follower_columns_removed` at the position before it. A dropped join whose pivot moved its own-frame origin is an event only behind a created join that declares `follower_columns_added` at the position before it. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
+Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A split lead shares its position with no event, and a split tail carries only a created join or a retarget, and a walk that finds a split lead without a split event returns None, as does one whose split declaring `junction_in` has no created join at the position before it, whether the join stands alone or shares that letter with an entry, ink-gain, or redrawn event (·Tea's full bar and the baseline join that bar opens). A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position, or behind a dropped join or a retarget that declares `follower_columns_removed` at the position before it. A dropped join whose pivot moved its own-frame origin is an event only behind a created join that declares `follower_columns_added` at the position before it. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
 
 A candidate whose own check fails is not an event, and its ink is judged as ordinary span ink, so a rule that fails at a position does not stop the other rules from explaining the window. The pivot is judged piece by piece rather than as part of a union, so a pivot whose after form also drops a cell off the junction row (·J'ai's crown contracting under an ·At tuck) never combines.
 
@@ -1703,7 +1703,7 @@ def _retarget_geometry(
 
 
 def _matches_join_retarget(match, unit, excluded, context=None):
-    """A named join that has changed height, matched at the pixel level: the named junction becomes the `retarget` height, the pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower's placement moves by `follower_shift` (negative is nearer, zero leaves it standing), and everything after the follower moves by `shift` (`_retarget_geometry`). The unmoved origins and the unmoved pivot tie the change to the join and the two letters' forms, which rules out a slide or a dropped join. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
+    """A named join that has changed height, matched at the pixel level: the named junction becomes the `retarget` height, the pivot and follower may both redraw, the pivot keeping its own-frame origin and its placement, and the follower keeping its own-frame origin or moving it right by `follower_columns_removed`, its placement moving by `follower_shift` (negative is nearer, zero leaves it standing), and everything after the follower moves by `shift` (`_retarget_geometry`). The unmoved pivot and the follower's origin, kept or moved by the declared count, tie the change to the join and the two letters' forms, which rules out a slide or a dropped join. Any other ink change in the window fails this match; the combined match handles a window that also carries a second approved change. The unit's ink-delta digest must be the same under every config it lists, so shaping the first config stands for all of them. except_left reads the whole window."""
     deltas = unit.get("ink_deltas")
     if not isinstance(deltas, dict) or not deltas:
         return False
@@ -1724,12 +1724,18 @@ def _matches_join_retarget(match, unit, excluded, context=None):
         tuple(match["after"]["follower_after_cells"]),
         match["after"]["shift"],
         match["after"]["follower_shift"],
+        match["after"].get("follower_columns_removed", 0),
         unit["id"],
     )
     verdict = context.memo.get(key)
     if verdict is None:
         verdict = context.memo[key] = _retarget_geometry(
-            match, unit, context.comparator, match["after"]["follower_shift"], match["after"]["shift"]
+            match,
+            unit,
+            context.comparator,
+            match["after"]["follower_shift"],
+            match["after"]["shift"],
+            -match["after"].get("follower_columns_removed", 0),
         )
     if not verdict:
         return False
@@ -1782,7 +1788,7 @@ def _matches_join_created(match, unit, excluded, context=None):
 
 
 def _validate_join_retarget(rule_id, match) -> None:
-    """Check a join-retargeted rule at load: `junction_out` and `retarget` must both be yK heights and must differ, and the pivot and follower after cells must belong to the named pivot and follower families. A break before has no join to retarget, a break after belongs to the join-dropped shape, and an unchanged height belongs to the extension-dropped shape."""
+    """Check a join-retargeted rule at load: `junction_out` and `retarget` must both be yK heights and must differ, `follower_columns_removed` must be at least 1 where declared, and the pivot and follower after cells must belong to the named pivot and follower families. A break before has no join to retarget, a break after belongs to the join-dropped shape, and an unchanged height belongs to the extension-dropped shape."""
     if not JUNCTION_ROW.fullmatch(match["before"]["junction_out"]):
         _fail(
             f"rule {rule_id!r}: match.before.junction_out names {match['before']['junction_out']!r}, "
@@ -1797,6 +1803,12 @@ def _validate_join_retarget(rule_id, match) -> None:
         _fail(
             f"rule {rule_id!r}: match.after.retarget is the same height as match.before.junction_out; "
             "a junction that holds its height is not a retarget"
+        )
+    if "follower_columns_removed" in match["after"] and match["after"]["follower_columns_removed"] < 1:
+        _fail(
+            f"rule {rule_id!r}: match.after.follower_columns_removed is "
+            f"{match['after']['follower_columns_removed']}; a follower whose frame keeps its left edge leaves "
+            "the field off"
         )
     named = (
         ("pivot_cells", [_family(match["before"]["pivot"])]),
@@ -1878,7 +1890,7 @@ class Event(NamedTuple):
 
     `pivot_judged` is False only for a `retarget`, `joined` or `join` event whose pivot moved its own-frame origin. The walk keeps such an event only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot, and also keeps such a retarget behind a created join at the previous position, whose `follower_columns_added` has already checked that move, a created join behind a dropped join with removed columns, and a dropped join behind a created join with added columns.
 
-    `lead` is an event's expected placement offset from the running displacement: zero or negative for an entry event, nonzero only for an entry contraction the after form's own frame did not fully take into its origin, and positive for a gain event whose rule declares an `entry_extension`, the columns that extension moves the pivot right. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created or dropped join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `follower_columns` is a created join's `follower_columns_added`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join it is `follower_columns_removed`, which makes the follower's picture part of the event instead of the head of the next span. `compact` is a split's `first_entry_contraction`: the columns its first letter's entry pulls in, which the ligature's ink is compacted by and what follows moves closer by. `after_join` is True for a split that declares `junction_in`, whose join into the pair a created join at the position before it must make.
+    `lead` is an event's expected placement offset from the running displacement: zero or negative for an entry event, nonzero only for an entry contraction the after form's own frame did not fully take into its origin, and positive for a gain event whose rule declares an `entry_extension`, the columns that extension moves the pivot right. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created or dropped join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `follower_columns` is a created join's `follower_columns_added`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join or a retarget it is `follower_columns_removed`, which makes the follower's picture part of the event instead of the head of the next span. `compact` is a split's `first_entry_contraction`: the columns its first letter's entry pulls in, which the ligature's ink is compacted by and what follows moves closer by. `after_join` is True for a split that declares `junction_in`, whose join into the pair a created join at the position before it must make.
     """
 
     rule_id: str
@@ -2277,10 +2289,11 @@ def _join_event(match, rule_id, index, before_pieces, after_pieces):
 
 
 def _retarget_event(match, rule_id, index, before_pieces, after_pieces):
-    """Return a retarget Event at `index` when the pivot has ink on both sides and the follower keeps its own-frame origin on the grid (`_retarget_piece_holds`), or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only behind a created join at the previous position, whose `follower_columns_added` has already checked that move, or behind an entry, gain, or redrawn event at the same position, so a letter that redrew its own left edge never passes through a retarget alone. `shift` is how far the follower moves and `advance` is the rest of the declared shift, applied past the follower. Both are measured with the pivot standing, so they already include the pivot's own advance: a created join in front carries past only its follower's added columns (`_carried_past`), and a retarget in front passes on nothing."""
+    """Return a retarget Event at `index` when the pivot has ink on both sides and the follower keeps its own-frame origin on the grid or moves it right by `follower_columns_removed` (`_retarget_piece_holds`), or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only behind a created join at the previous position, whose `follower_columns_added` has already checked that move, or behind an entry, gain, or redrawn event at the same position, so a letter that redrew its own left edge never passes through a retarget alone. `shift` is how far the follower moves and `advance` is the rest of the declared shift, applied past the follower. Both are measured with the pivot standing, so they already include the pivot's own advance: a created join in front carries past only its follower's added columns (`_carried_past`), and a retarget in front passes on nothing."""
     if before_pieces.get(index) is None or after_pieces.get(index) is None:
         return None
-    if not _retarget_piece_holds(before_pieces.get(index + 1), after_pieces.get(index + 1)):
+    columns_removed = match["after"].get("follower_columns_removed", 0)
+    if not _retarget_piece_holds(before_pieces.get(index + 1), after_pieces.get(index + 1), -columns_removed):
         return None
     follower_shift = match["after"]["follower_shift"]
     return Event(
@@ -2289,6 +2302,7 @@ def _retarget_event(match, rule_id, index, before_pieces, after_pieces):
         follower_shift,
         _retarget_piece_holds(before_pieces[index], after_pieces[index]),
         advance=match["after"]["shift"] - follower_shift,
+        follower_columns=columns_removed,
     )
 
 
@@ -2515,7 +2529,12 @@ def _combined_walk(rules, unit, context):
         prior = events.get(index - 1)
         if event.kind == "retarget" and prior is not None and prior.kind == "joined":
             events[index] = event
-        elif event.kind == "joined" and prior is not None and prior.kind == "join" and prior.follower_columns:
+        elif (
+            event.kind == "joined"
+            and prior is not None
+            and prior.kind in ("join", "retarget")
+            and prior.follower_columns
+        ):
             events[index] = event
         elif event.kind == "join" and prior is not None and prior.kind == "joined" and prior.follower_columns:
             events[index] = event
@@ -2985,7 +3004,8 @@ SHAPES = {
         cell_lists=("pivot_cells", "follower_after_cells"),
         matcher=_matches_join_retarget,
         validate=_validate_join_retarget,
-        int_fields=("shift", "follower_shift"),
+        optional=("follower_columns_removed",),
+        int_fields=("shift", "follower_shift", "follower_columns_removed"),
         family_fields=("follower",),
         combinable=True,
         font_backed=True,

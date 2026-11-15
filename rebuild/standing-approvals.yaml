@@ -3475,6 +3475,7 @@ rules:
         joined: y0
         pivot_cells:
           - qsGay/sole/None/baseline/
+          - qsGay/sole/x-height/baseline/
         follower_after_cells:
           - qsIng/sole/baseline/None/
           - qsIng/sole/baseline/baseline/
@@ -3954,4 +3955,24 @@ rules:
         dropped: [[0, 4], [0, 5], [0, 6], [0, 7], [0, 8], [3, 3]]
         added: []
         shift: -1
+      except_left: []
+  - id: no-gay-baseline-join-retargeted
+    verdict: approve
+    note: "·No reaches up to the x-height to join ·Gay, where the old font joined them at the baseline, and ·Gay takes the x-height entry in its place, its own-frame origin one column further right — qsGay's x-height entry has carried qsNo on its from-list, and qsNo's x-height exit lengthens by a pixel before ·Gay, both since “Join `·No ~x~ ·Gay`, not just `·No ~b~ ·Gay`”. Every window that reached a review session approved the raised join, and the user approved the review queue's top 22 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsNo
+        junction_out: y0
+        follower: qsGay
+      after:
+        retarget: y5
+        pivot_cells:
+          - qsNo/loop/None/x-height/ex-ext-1
+          - qsNo/loop/x-height/x-height/ex-ext-1
+        follower_after_cells:
+          - qsGay/sole/x-height/None/
+          - qsGay/sole/x-height/baseline/
+        shift: -1
+        follower_shift: 0
+        follower_columns_removed: 1
       except_left: []

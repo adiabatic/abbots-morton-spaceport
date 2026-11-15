@@ -2203,6 +2203,14 @@ register_glyph("before", "qsBay.join-lead", SPLIT_FIRST, 200)
 register_glyph("after", "qsBay.join-lead", SPLIT_FIRST, 150)
 JOIN_LEAD = register_pair("qsBay.join-lead", "qsBay.join-lead")
 
+# A retarget whose follower draws its stroke a column to the right in its own frame, with its pen a column back so the ink stays where it was.
+register_glyph("before", "qsTea.half.removed-fixture", TWO_COLUMNS, 100)
+register_glyph("before", "qsNo.removed-fixture", TWO_COLUMNS, 100)
+register_glyph("after", "qsTea.removed-fixture", TWO_COLUMNS, 50)
+register_glyph("after", "qsNo.removed-fixture", TUCKED_FOLLOWER, 100)
+REMOVED_TEA = register_pair("qsTea.half.removed-fixture", "qsTea.removed-fixture")
+REMOVED_NO = register_pair("qsNo.removed-fixture", "qsNo.removed-fixture")
+
 BEFORE_GLYPHS = _OUTLINES["before"]
 AFTER_GLYPHS = _OUTLINES["after"]
 BEFORE_CMAP = {codepoint: names[0] for names, codepoint in _CODEPOINTS.items()}
@@ -2442,6 +2450,11 @@ def _build_font(path, glyphs, cmap):
 
 SLIDE_FONTS["after-contracting-split-extra-pixel"] = (
     {**AFTER_GLYPHS, "qsW": (SPLIT_SECOND_TALLER, 100)},
+    AFTER_CMAP,
+)
+
+SLIDE_FONTS["after-removed-retarget-follower-not-pulled-back"] = (
+    {**AFTER_GLYPHS, "qsNo.removed-fixture": (TUCKED_FOLLOWER, 150)},
     AFTER_CMAP,
 )
 
@@ -10775,6 +10788,139 @@ def test_a_junction_in_alone_loads_but_a_contraction_without_it_is_refused(tmp_p
     del rule["match"]["after"]["junction_in"]
     with pytest.raises(SystemExit, match="first_entry_contraction needs match.after.junction_in"):
         sv.load_rules(_write_rules(tmp_path / "refused.yaml", [rule]))
+
+
+REMOVING_RETARGET_RULE = {
+    "id": "fixture-join-retargeted-with-a-follower-removing-a-column",
+    "verdict": "approve",
+    "note": "·Tea sits as the full bar joining ·No at the baseline, and ·No draws its stroke a column right in its own frame",
+    "match": {
+        "before": {"pivot": "qsTea.half", "junction_out": "y5", "follower": "qsNo"},
+        "after": {
+            "retarget": "y0",
+            "pivot_cells": ["qsTea/full/None/baseline/"],
+            "follower_after_cells": ["qsNo/flipped/baseline/baseline/"],
+            "shift": 0,
+            "follower_shift": 0,
+            "follower_columns_removed": 1,
+        },
+        "except_left": [],
+    },
+}
+
+BEHIND_REMOVING_RETARGET_JOIN_RULE = {
+    "id": "fixture-join-created-behind-a-retarget-removing-a-column",
+    "verdict": "approve",
+    "note": "·No joins ·F3 at the baseline where the old font left a break",
+    "match": {
+        "before": {"pivot": "qsNo", "junction_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsNo/flipped/baseline/baseline/"],
+            "follower_after_cells": ["qsF3/full/baseline/None/"],
+            "shift": -1,
+            "follower_advance": 0,
+            "follower_columns_added": 0,
+        },
+        "except_left": [],
+    },
+}
+
+REMOVING_RETARGET_RULES = [REMOVING_RETARGET_RULE, BEHIND_REMOVING_RETARGET_JOIN_RULE]
+
+
+def removing_retarget_window(uid="rr-1"):
+    return unit(
+        uid,
+        ["qsL", "qsTea.half.removed-fixture", "qsNo.removed-fixture"],
+        ["y0", "y5"],
+        ["qsL/full/None/None/", "qsTea/full/None/baseline/", "qsNo/flipped/baseline/baseline/"],
+        ["y0", "y0"],
+        codepoints=spell(LEAD, REMOVED_TEA, REMOVED_NO),
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def removing_retarget_behind_join_window(uid="rr-2"):
+    return unit(
+        uid,
+        ["qsL", "qsTea.half.removed-fixture", "qsNo.removed-fixture", "qsF3"],
+        ["y0", "y5", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsTea/full/None/baseline/",
+            "qsNo/flipped/baseline/baseline/",
+            "qsF3/full/baseline/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=spell(LEAD, REMOVED_TEA, REMOVED_NO, FOLLOWER_3),
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair={"left": 1, "right": 2},
+    )
+
+
+def test_a_retarget_whose_follower_moves_its_origin_right_matches(slide_context):
+    assert sv._matches(REMOVING_RETARGET_RULE["match"], removing_retarget_window(), context=slide_context())
+
+
+def test_a_retarget_naming_removed_columns_refuses_a_follower_that_keeps_its_origin(slide_context):
+    window = removing_retarget_window()
+    assert not sv._matches(RETARGET_RULE["match"], window, context=slide_context())
+    unmoved = json.loads(json.dumps(REMOVING_RETARGET_RULE["match"]))
+    unmoved["after"]["follower_columns_removed"] = 1
+    assert not sv._matches(unmoved, retarget_window(), context=slide_context())
+
+
+def test_a_retarget_naming_removed_columns_refuses_a_follower_that_moves_its_origin_two(slide_context):
+    two = json.loads(json.dumps(REMOVING_RETARGET_RULE["match"]))
+    two["after"]["follower_columns_removed"] = 2
+    assert not sv._matches(two, removing_retarget_window(), context=slide_context())
+
+
+def test_a_created_join_shares_a_letter_with_a_retarget_that_removed_its_follower_columns(slide_context):
+    events = sv._combined_match(
+        REMOVING_RETARGET_RULES, removing_retarget_behind_join_window(), slide_context()
+    )
+    assert events == {
+        REMOVING_RETARGET_RULE["id"]: [1],
+        BEHIND_REMOVING_RETARGET_JOIN_RULE["id"]: [2],
+    }
+
+
+def test_neither_rule_alone_reads_a_created_join_behind_a_columns_removed_retarget(slide_context):
+    window = removing_retarget_behind_join_window()
+    for rule in REMOVING_RETARGET_RULES:
+        assert not sv._matches(rule["match"], window, context=slide_context())
+        assert sv._combined_walk([rule], window, slide_context()) is None
+
+
+def test_a_created_join_whose_pivot_moved_its_origin_behind_a_retarget_without_the_field_is_no_event(
+    slide_context,
+):
+    plain = json.loads(json.dumps(REMOVING_RETARGET_RULE))
+    del plain["match"]["after"]["follower_columns_removed"]
+    rules = [plain, BEHIND_REMOVING_RETARGET_JOIN_RULE]
+    assert sv._combined_walk(rules, removing_retarget_behind_join_window(), slide_context()) is None
+
+
+def test_a_created_join_behind_a_columns_removed_retarget_still_needs_the_advance(slide_context):
+    events = sv._combined_match(
+        REMOVING_RETARGET_RULES,
+        removing_retarget_behind_join_window(),
+        slide_context("after-removed-retarget-follower-not-pulled-back"),
+    )
+    assert events is None
+
+
+@pytest.mark.parametrize("columns", [0, -1])
+def test_a_retarget_removing_no_columns_is_refused_at_load(tmp_path, columns):
+    rule = json.loads(json.dumps(REMOVING_RETARGET_RULE))
+    rule["match"]["after"]["follower_columns_removed"] = columns
+    with pytest.raises(SystemExit, match="follower_columns_removed is"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
 def test_a_created_join_shares_a_letter_with_an_entry_contraction_on_its_follower(slide_context):
