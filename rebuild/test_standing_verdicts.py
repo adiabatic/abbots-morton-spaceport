@@ -1831,6 +1831,7 @@ TRIMMED_PIVOT = (_rect(0, 0, 50, 150),)
 CONTRACTED_PIVOT = (_rect(0, 0, 50, 100),)
 EXTENDED_ENTRY_LOW = (_rect(0, 0, 50, 50), _rect(50, 0, 150, 150))
 CONTRACTED_ENTRY_MAY = (_rect(50, 0, 150, 150),)
+CONTRACTED_ENTRY_REDRAWN_MAY = (_rect(50, 0, 100, 150), _rect(100, 50, 150, 150))
 CONTRACTED_ENTRY_MAY_EXTRA = (_rect(50, 0, 150, 150), _rect(150, 150, 200, 200))
 STUBBED_MAY = (_rect(0, 0, 50, 100), _rect(50, 0, 100, 150))
 STUB_CONTRACTED_IN_PLACE_MAY = (_rect(0, 0, 50, 50), _rect(50, 0, 100, 150))
@@ -1856,6 +1857,7 @@ SHORTENED_FOOT_KEY = (_rect(0, 0, 50, 450),)
 SHORTENED_FOOT_KEY_AND_A_CROWN = (_rect(0, 0, 50, 450), _rect(50, 400, 100, 450))
 PLACED_CONTRACTION_ROE = (_rect(0, 0, 50, 100), _rect(50, 0, 150, 150))
 PLACED_CONTRACTION_ROE_PULLED = (_rect(0, 50, 50, 100), _rect(50, 0, 150, 150))
+PLACED_CONTRACTION_REDRAWN_ROE = (_rect(0, 50, 50, 100), _rect(50, 0, 100, 150), _rect(100, 50, 150, 150))
 
 _OUTLINES: dict[str, dict[str, tuple]] = {"before": {}, "after": {}}
 _CODEPOINTS: dict[tuple[str, str], int] = {}
@@ -1960,6 +1962,7 @@ register_glyph("after", "qsVie.normal", TWO_COLUMNS, 100)
 register_glyph("after", "qsVie_qsUtter.sole", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop.en-y0.en-con-1", CONTRACTED_ENTRY_MAY, 150)
+register_glyph("after", "qsMay.loop.en-y0.en-con-1.ex-con-1", CONTRACTED_ENTRY_REDRAWN_MAY, 100)
 register_glyph("after", "qsMay.loop.en-y0.ex-y5.en-con-1", CONTRACTED_ENTRY_MAY, 50)
 register_glyph("after", "qsMay.loop.unchanged-fixture", TWO_COLUMNS, 100)
 register_glyph("after", "qsMay.loop.en-y0.en-con-1.in-frame-fixture", STUB_CONTRACTED_IN_PLACE_MAY, 50)
@@ -1983,6 +1986,7 @@ register_glyph("after", "qsTea.full.en-y5", FULL_TEA_BAR, 50)
 register_glyph("after", "qsTea.full.en-y5.misaligned", MISALIGNED_FULL_TEA_BAR, 50)
 register_glyph("after", "qsKey.sole.ex-y0.ex-con-1", SHORTENED_FOOT_KEY, 50)
 register_glyph("after", "qsRoe.sole.en-y5.ex-y0.en-con-1", PLACED_CONTRACTION_ROE_PULLED, 150)
+register_glyph("after", "qsRoe.sole.en-y5.ex-y0.en-con-1.ex-con-1", PLACED_CONTRACTION_REDRAWN_ROE, 100)
 register_glyph("after", "space", (), 50)
 register_glyph("before", "qsF3.reaching", TUCKED_FOLLOWER, 100)
 register_glyph("after", "qsF3.reached", TWO_COLUMNS, 100)
@@ -2051,6 +2055,9 @@ VIE = register_pair("qsVie.en-ext-1", "qsVie.normal")
 VIE_UTTER = register_pair("qsVie_qsUtter.en-ext-1", "qsVie_qsUtter.sole")
 MAY = register_pair("qsMay.en-y0.ex-y5.en-ext-1", "qsMay.loop")
 CONTRACTED_MAY = register_pair("qsMay.en-y0.ex-y5.contract-fixture", "qsMay.loop.en-y0.en-con-1")
+CONTRACTED_REDRAWN_MAY = register_pair(
+    "qsMay.en-y0.ex-y5.contract-fixture", "qsMay.loop.en-y0.en-con-1.ex-con-1"
+)
 CONTRACTED_JOINING_MAY = register_pair(
     "qsMay.en-y0.ex-y5.contract-fixture", "qsMay.loop.en-y0.ex-y5.en-con-1"
 )
@@ -2076,6 +2083,9 @@ TEA_VERTICAL_GAIN_MISALIGNED = register_pair(
     "qsTea.half.en-y5.after-xheight-exit", "qsTea.full.en-y5.misaligned"
 )
 PLACED_CONTRACTION = register_pair("qsRoe.ex-y0.placed-contraction", "qsRoe.sole.en-y5.ex-y0.en-con-1")
+PLACED_CONTRACTED_REDRAWN_ROE = register_pair(
+    "qsRoe.ex-y0.placed-contraction", "qsRoe.sole.en-y5.ex-y0.en-con-1.ex-con-1"
+)
 FOLLOWER_3_COLUMN_ADDED = register_pair("qsF3.reaching", "qsF3.reached")
 STUB_LEAD = register_pair("qsBay.stub-lead", "qsBay.stub-lead")
 STUB_SEE = register_pair("qsSee.ex-y0.stub-fixture", "qsSee.straighter.stub-fixture")
@@ -2218,7 +2228,18 @@ SLIDE_FONTS = {
         AFTER_CMAP,
     ),
     "after-redrawn-extra-cell": (
-        {**AFTER_GLYPHS, "qsEight.smaller-loop": (EIGHTISH_SMALLER_AND_A_PIXEL, 100)},
+        {
+            **AFTER_GLYPHS,
+            "qsEight.smaller-loop": (EIGHTISH_SMALLER_AND_A_PIXEL, 100),
+            "qsMay.loop.en-y0.en-con-1.ex-con-1": (
+                CONTRACTED_ENTRY_REDRAWN_MAY + (_rect(150, 150, 200, 200),),
+                100,
+            ),
+            "qsRoe.sole.en-y5.ex-y0.en-con-1.ex-con-1": (
+                PLACED_CONTRACTION_REDRAWN_ROE + (_rect(150, 150, 200, 200),),
+                100,
+            ),
+        },
         AFTER_CMAP,
     ),
     "after-gain-behind-created-join-unmoved": (
@@ -2226,7 +2247,12 @@ SLIDE_FONTS = {
         AFTER_CMAP,
     ),
     "after-redrawn-unmoved-follower": (
-        {**AFTER_GLYPHS, "qsEight.smaller-loop": (EIGHTISH_SMALLER, 150)},
+        {
+            **AFTER_GLYPHS,
+            "qsEight.smaller-loop": (EIGHTISH_SMALLER, 150),
+            "qsMay.loop.en-y0.en-con-1.ex-con-1": (CONTRACTED_ENTRY_REDRAWN_MAY, 150),
+            "qsRoe.sole.en-y5.ex-y0.en-con-1.ex-con-1": (PLACED_CONTRACTION_REDRAWN_ROE, 150),
+        },
         AFTER_CMAP,
     ),
     "after-key-crowned": (
@@ -7631,31 +7657,73 @@ def test_a_pure_loss_and_an_entry_drop_in_one_window_combine(slide_context):
     assert events == {PURE_LOSS_RULE["id"]: [1], ENTRY_RULE["id"]: [2]}
 
 
-@pytest.fixture
-def entry_redrawn_rules():
-    entry = json.loads(json.dumps(ENTRY_RULE))
-    entry["match"]["before"]["pivots"] = ["qsEight.en-ext-1"]
-    entry["match"]["after"]["pivots"] = ["qsEight.smaller-loop"]
-    return [entry, REDRAWN_RULE]
+@pytest.fixture(params=["entry-drop", "entry-contracted", "placed-entry-contracted"])
+def entry_redrawn_rules(request):
+    if request.param == "entry-drop":
+        entry = json.loads(json.dumps(ENTRY_RULE))
+        entry["match"]["before"]["pivots"] = ["qsEight.en-ext-1"]
+        entry["match"]["after"]["pivots"] = ["qsEight.smaller-loop"]
+        return [entry, REDRAWN_RULE]
+    placed = request.param == "placed-entry-contracted"
+    entry = json.loads(json.dumps(PLACED_CONTRACTION_RULE if placed else CONTRACTED_ENTRY_RULE))
+    after = "qsRoe.sole.en-y5.ex-y0.en-con-1.ex-con-1" if placed else "qsMay.loop.en-y0.en-con-1.ex-con-1"
+    entry["match"]["after"]["pivots"] = [after]
+    redrawn = json.loads(json.dumps(PURE_LOSS_RULE))
+    redrawn["match"]["before"]["pivots"] = entry["match"]["before"]["pivots"]
+    redrawn["match"]["after"]["pivots"] = [after]
+    redrawn["match"]["after"]["dropped"] = [[2, 0]]
+    return [entry, redrawn]
 
 
-def entry_redrawn_window(*, slide=False):
-    glyphs = ["qsL", "qsEight.en-ext-1", "qsF3"]
-    codepoints = [LEAD, EIGHT_ENTRY_DROPPED_AND_REDRAWN, FOLLOWER_3]
+def entry_redrawn_window(rules, *, slide=False):
+    entry = rules[0]["match"]
+    contracted = "entry_contraction" in entry["after"]
+    placed = contracted and entry["before"]["pivots"][0].startswith("qsRoe")
+    if contracted:
+        glyphs = [
+            "qsBay.contract-lead",
+            "qsRoe.ex-y0.placed-contraction" if placed else "qsMay.en-y0.ex-y5.contract-fixture",
+            "qsF3",
+        ]
+        codepoints = [
+            CONTRACTION_LEAD,
+            PLACED_CONTRACTED_REDRAWN_ROE if placed else CONTRACTED_REDRAWN_MAY,
+            FOLLOWER_3,
+        ]
+    else:
+        glyphs = ["qsL", "qsEight.en-ext-1", "qsF3"]
+        codepoints = [LEAD, EIGHT_ENTRY_DROPPED_AND_REDRAWN, FOLLOWER_3]
     if slide:
-        glyphs.insert(1, "qsSee.ex-y0")
-        codepoints.insert(1, SEE)
-    return slide_unit("entry-redrawn", glyphs, spell(*codepoints))
+        if contracted:
+            glyphs[:0] = ["qsL", "qsSee.ex-y0"]
+            codepoints[:0] = [LEAD, SEE]
+        else:
+            glyphs.insert(1, "qsSee.ex-y0")
+            codepoints.insert(1, SEE)
+    window = slide_unit("entry-redrawn", glyphs, spell(*codepoints))
+    if contracted:
+        pivot = len(glyphs) - 2
+        window["after"]["cells"][pivot] = (
+            "qsRoe/sole/x-height/baseline/en-con-1+ex-con-1"
+            if placed
+            else "qsMay/loop/baseline/None/en-con-1+ex-con-1"
+        )
+        if placed:
+            window["before"]["junctions"][pivot - 1] = "y5"
+            window["after"]["junctions"][pivot - 1] = "y5"
+    return window
 
 
 @pytest.mark.parametrize("slide", [False, True])
-def test_an_entry_drop_and_a_separate_redraw_of_one_pivot_compose(slide_context, entry_redrawn_rules, slide):
-    window = entry_redrawn_window(slide=slide)
+def test_an_entry_shortening_and_a_separate_redraw_of_one_pivot_compose(
+    slide_context, entry_redrawn_rules, slide
+):
+    window = entry_redrawn_window(entry_redrawn_rules, slide=slide)
     rules = [SLIDE_RULE, *entry_redrawn_rules] if slide else entry_redrawn_rules
     context = slide_context()
     for rule in rules:
         assert not sv._matches(rule["match"], window, context=context)
-    expected = {rule["id"]: [2 if slide else 1] for rule in entry_redrawn_rules}
+    expected = {rule["id"]: [len(window["before"]["glyphs"]) - 2] for rule in entry_redrawn_rules}
     if slide:
         expected[SLIDE_RULE["id"]] = [1]
     events = sv._combined_match(rules, window, context)
@@ -7666,21 +7734,28 @@ def test_an_entry_drop_and_a_separate_redraw_of_one_pivot_compose(slide_context,
 @pytest.mark.parametrize("missing", [0, 1])
 def test_a_same_pivot_composition_needs_both_approvals(slide_context, entry_redrawn_rules, missing):
     rules = [rule for index, rule in enumerate(entry_redrawn_rules) if index != missing]
-    assert sv._combined_match(rules, entry_redrawn_window(), slide_context()) is None
+    assert sv._combined_match(rules, entry_redrawn_window(entry_redrawn_rules), slide_context()) is None
 
 
 @pytest.mark.parametrize("after", ["after-redrawn-extra-cell", "after-redrawn-unmoved-follower"])
 def test_a_same_pivot_composition_rejects_extra_ink_or_wrong_displacement(
     slide_context, entry_redrawn_rules, after
 ):
-    assert sv._combined_match(entry_redrawn_rules, entry_redrawn_window(), slide_context(after)) is None
+    assert (
+        sv._combined_match(
+            entry_redrawn_rules, entry_redrawn_window(entry_redrawn_rules), slide_context(after)
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize("guarded", [0, 1])
 def test_a_same_pivot_composition_keeps_each_approvals_guard(slide_context, entry_redrawn_rules, guarded):
     rules = json.loads(json.dumps(entry_redrawn_rules))
-    rules[guarded]["match"]["except_left"] = ["qsL"]
-    window = entry_redrawn_window()
+    rules[guarded]["match"]["except_left"] = (
+        ["qsBay"] if "entry_contraction" in rules[0]["match"]["after"] else ["qsL"]
+    )
+    window = entry_redrawn_window(entry_redrawn_rules)
     context = slide_context()
     events = sv._combined_match(rules, window, context)
     assert events is not None

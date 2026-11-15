@@ -2978,3 +2978,33 @@ rules:
         added: []
         shift: -1
       except_left: []
+  - id: vie-entry-contracted-after-ing
+    verdict: approve
+    note: "·Vie's baseline entry contracts by one column after ·-ing on both the normal and swept-out stances — qsVie's contract records carry the pair from “Contract `·-ing ~b~ ·Vie` and `·-ing ~b~ ·Vie+Utter` by a pixel”; the user gave the contraction standing approval at u-SnccfSEiUSf"
+    match:
+      before:
+        left: qsIng
+        pivots: [qsVie]
+      after:
+        pivots:
+          - qsVie.normal.en-y0.en-con-1
+          - qsVie.swept-out.en-y0.ex-y0.en-con-1
+        entry_contraction: 1
+      except_left: []
+  - id: day-no-exit-contracted
+    verdict: approve
+    note: "·No.alt sits a pixel closer to full- or half-·Day — both stances contract their baseline exit by one column before ·No on qsDay's contract records from “Contract `·Day ~b~ ·No.alt` by a pixel”; the user gave the contraction standing approval for both forms at u-T8agtAZmsrt"
+    match:
+      before:
+        pivots: [qsDay]
+        junction_out: y0
+        follower: qsNo
+      after:
+        pivots:
+          - qsDay.full.ex-y0.ex-con-1
+          - qsDay.full.en-y5.ex-y0.ex-con-1
+          - qsDay.half.en-y0.ex-y0.ex-con-1
+        dropped: [[3, 3]]
+        added: []
+        shift: -1
+      except_left: []
