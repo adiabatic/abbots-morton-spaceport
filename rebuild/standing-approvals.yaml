@@ -3608,3 +3608,20 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: ing-he-baseline-join-dropped
+    verdict: approve
+    note: "·-ing no longer joins ·He at the baseline where ·He goes half and joins ·It at the x-height, and ·He sits a column further away — the half stance has no entry at all, so it takes nothing from ·-ing, and the author ruled in the ·He migration that `·He ~b~ ·It` never happens, which leaves the half's x-height exit the only way ·He reaches ·It; qsIng's baseline exit has named qsHe since the letter landed in “Add ·-ing”. Every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsIng
+        junction_out: y0
+        follower: qsHe
+      after:
+        gap: 1
+        pivot_cells:
+          - qsIng/sole/None/None/
+          - qsIng/sole/baseline/None/
+          - qsIng/sole/baseline/None/en-ext-2
+        follower_after_cells:
+          - qsHe/half/None/x-height/
+      except_left: []
