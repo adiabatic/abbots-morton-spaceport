@@ -3416,3 +3416,20 @@ rules:
           - qsVie/swept-out/None/baseline/
           - qsVie/swept-out/None/baseline/ex-con-1
       except_left: []
+  - id: ing-no-baseline-join-dropped
+    verdict: approve
+    note: "·-ing no longer joins ·No at the baseline where ·No goes on to join the next letter at the x-height, and ·No sits a column further away — qsNo's loop stance, the one that carries the x-height exit, has no baseline entry at all, and its yielding prefer takes that exit over the baseline one whenever ·Day, ·No, ·It or ·Oy follows and the left letter is neither ·Pea nor ·It, on the why recorded in “Give ·Pea·No the baseline join no matter what follows it”; qsIng's baseline exit has named qsNo since the letter landed in “Add ·-ing”. Every window that reached a review session approved the break"
+    match:
+      before:
+        pivot: qsIng
+        junction_out: y0
+        follower: qsNo
+      after:
+        gap: 1
+        pivot_cells:
+          - qsIng/sole/None/None/
+          - qsIng/sole/baseline/None/
+          - qsIng/sole/baseline/None/en-ext-2
+        follower_after_cells:
+          - qsNo/loop/None/x-height/
+      except_left: []
