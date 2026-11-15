@@ -3318,3 +3318,14 @@ rules:
         follower_advance: 1
         follower_columns_added: 1
       except_left: []
+  - id: gay-jay-xheight-extension-added
+    verdict: approve
+    note: "·Gay reaches two pixels further into ·Jay than the old font drew, carrying ·Jay and everything past it two columns right, on the ·Gay that has no baseline entry, so its two extra cells sit further left in its own frame. The reach is qsGay's x-height extend record before qsJay, qsJay_qsUtter and qsCheer, at by-2: set in “Extend ·Gay·Jay by 3 pixels to match ·Gay·J’ai” and shortened by a pixel in “Extend ·Gay·Jay by 2 pixels, not 3”. Every window that reached a review session approved the longer reach"
+    match:
+      before:
+        pivots: [qsGay.ex-y5]
+      after:
+        pivots: [qsGay.sole]
+        gained: [[3, 8], [4, 8]]
+        shift: 2
+      except_left: []
