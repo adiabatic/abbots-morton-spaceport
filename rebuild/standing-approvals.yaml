@@ -3561,3 +3561,26 @@ rules:
           - qsIng/sole/None/baseline/
           - qsIng/sole/None/baseline/ex-ext-2
       except_left: []
+  - id: roe-vie-baseline-join-created
+    verdict: approve
+    note: "·Roe joins ·Vie at the baseline where the old font left a break, and ·Vie closes one column onto it — qsRoe's baseline exit has carried qsVie on its toward-list since the letter landed in “Declare ·I done and add ·Roe”, and qsVie's baseline entry carries no from-list at all, so the junction settles on join-count rank with no policy record involved; the regrouping trades the join ·Vie drew into ·Roe, and the `join-switches-sides` divergence class leaves such regroupings to each unit's own verdict. Every window that reached a review session approved this join, and the user asked for standing approval of the review queue's top 25 on 2026-11-15"
+    match:
+      before:
+        pivot: qsRoe
+        junction_out: break
+        follower: qsVie
+      after:
+        joined: y0
+        pivot_cells:
+          - qsRoe/sole/None/baseline/
+          - qsRoe/sole/x-height/baseline/
+          - qsRoe/sole/x-height/baseline/en-con-1
+          - qsRoe/sole/x-height/baseline/en-ext-1
+        follower_after_cells:
+          - qsVie/normal/baseline/None/
+          - qsVie/swept-out/baseline/baseline/
+          - qsVie/swept-out/baseline/baseline/ex-con-1
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
