@@ -2445,6 +2445,16 @@ SLIDE_FONTS["after-contracting-split-extra-pixel"] = (
     AFTER_CMAP,
 )
 
+SLIDE_FONTS["after-split-tail-redrawn"] = (
+    {**AFTER_GLYPHS, "qsR": ((_rect(0, 50, 100, 100),), 100)},
+    AFTER_CMAP,
+)
+
+SLIDE_FONTS["after-split-tail-wide-first-letter"] = (
+    {**AFTER_GLYPHS, "qsQ": ((_rect(0, 0, 100, 200),), 100)},
+    AFTER_CMAP,
+)
+
 SLIDE_FONTS["after-whole-entry-split-extra-pixel"] = (
     {**AFTER_GLYPHS, "qsR": (SPLIT_SECOND_TALLER, 100)},
     AFTER_CMAP,
@@ -8258,6 +8268,183 @@ def test_a_split_view_lines_the_sides_up_and_leaves_the_after_side_alone():
     assert view["unsplit"] is window
 
 
+TAIL_SPLIT_RULE = {
+    "id": "fixture-ligature-split-before-a-tail-rule",
+    "verdict": "approve",
+    "note": "·Q·R is drawn as ·Q joined to ·R where the old font drew the ·Q+R ligature",
+    "match": {
+        "before": {"ligature": "qsQ_qsR"},
+        "after": {
+            "split": ["qsQ", "qsR"],
+            "junction": "y0",
+            "first_cells": ["qsQ/full/None/None/"],
+            "second_cells": ["qsR/full/None/baseline/"],
+        },
+        "except_left": [],
+    },
+}
+
+TAIL_JOIN_RULE = {
+    "id": "fixture-join-created-at-a-split-tail",
+    "verdict": "approve",
+    "note": "·R joins ·F3 at the baseline where the old font left a break after the ·Q+R ligature",
+    "match": {
+        "before": {"pivot": "qsR", "junction_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsR/full/None/baseline/"],
+            "follower_after_cells": ["qsF3/full/baseline/None/"],
+            "shift": 0,
+            "follower_advance": 0,
+            "follower_columns_added": 0,
+        },
+        "except_left": [],
+    },
+}
+
+TAIL_RETARGET_RULE = {
+    "id": "fixture-join-retargeted-at-a-split-tail",
+    "verdict": "approve",
+    "note": "·R joins ·F1 at the baseline where the old font joined at the x-height after the ·Q+R ligature",
+    "match": {
+        "before": {"pivot": "qsR", "junction_out": "y5", "follower": "qsF1"},
+        "after": {
+            "retarget": "y0",
+            "pivot_cells": ["qsR/full/None/baseline/"],
+            "follower_after_cells": ["qsF1/full/baseline/baseline/"],
+            "shift": 0,
+            "follower_shift": 0,
+        },
+        "except_left": [],
+    },
+}
+
+TAIL_BEHIND_RETARGET_JOIN_RULE = {
+    "id": "fixture-join-created-behind-a-split-tail-retarget",
+    "verdict": "approve",
+    "note": "·F1 joins ·F3 at the baseline where the old font left a break",
+    "match": {
+        "before": {"pivot": "qsF1", "junction_out": "break", "follower": "qsF3"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsF1/full/baseline/baseline/"],
+            "follower_after_cells": ["qsF3/full/baseline/None/"],
+            "shift": 0,
+            "follower_advance": 0,
+            "follower_columns_added": 0,
+        },
+        "except_left": [],
+    },
+}
+
+TAIL_JOIN_RULES = [TAIL_SPLIT_RULE, TAIL_JOIN_RULE]
+TAIL_RETARGET_RULES = [TAIL_SPLIT_RULE, TAIL_RETARGET_RULE, TAIL_BEHIND_RETARGET_JOIN_RULE]
+
+
+def split_tail_window(uid="st-1"):
+    """·Q+R sits before ·F3 with a break after it, and the after font draws ·Q joined to ·R, which reaches ·F3 at the baseline."""
+    return split_unit(
+        uid,
+        ["qsL", "qsQ_qsR", "qsF3"],
+        ["qsL", "qsQ", "qsR/full/None/baseline/", "qsF3/full/baseline/None/"],
+        spell(LEAD, SPLIT_Q, SPLIT_R, FOLLOWER_3),
+        junctions=["y0", "break"],
+        after_junctions=["y0", "y0", "y0"],
+    )
+
+
+def split_tail_retarget_window(uid="st-2"):
+    """The ligature's junction out rises at the x-height in the old font and falls to the baseline in the after font, and ·F1 then joins ·F3, where the old font left a break."""
+    return split_unit(
+        uid,
+        ["qsL", "qsQ_qsR", "qsF1", "qsF3"],
+        ["qsL", "qsQ", "qsR/full/None/baseline/", "qsF1/full/baseline/baseline/", "qsF3/full/baseline/None/"],
+        spell(LEAD, SPLIT_Q, SPLIT_R, FOLLOWER_1, FOLLOWER_3),
+        junctions=["y0", "y5", "break"],
+        after_junctions=["y0", "y0", "y0", "y0"],
+    )
+
+
+def test_a_view_names_the_tail_where_the_junction_out_of_the_pair_changes(slide_context):
+    window = split_tail_window()
+    view = viewed(window, (TAIL_SPLIT_RULE,))
+    assert view is not window
+    assert view["splits"] == (1,)
+    assert view["tails"] == (2,)
+    assert sv._combined_walk([TAIL_SPLIT_RULE], view, slide_context()) is None
+
+
+def test_a_view_names_no_tail_where_the_junction_out_of_the_pair_holds():
+    assert viewed(split_window())["tails"] == ()
+
+
+def test_a_split_tail_is_the_pivot_of_a_created_join(slide_context):
+    window = viewed(split_tail_window(), (TAIL_SPLIT_RULE,))
+    assert sv._letter_for_letter(window)
+    events = sv._combined_match(TAIL_JOIN_RULES, window, slide_context())
+    assert events == {TAIL_JOIN_RULE["id"]: [2], TAIL_SPLIT_RULE["id"]: [1]}
+
+
+def test_a_split_tail_may_paint_a_pixel_the_ligature_did_not(slide_context):
+    window = viewed(split_tail_window(), (TAIL_SPLIT_RULE,))
+    events = sv._combined_match(TAIL_JOIN_RULES, window, slide_context("after-whole-entry-split-extra-pixel"))
+    assert events == {TAIL_JOIN_RULE["id"]: [2], TAIL_SPLIT_RULE["id"]: [1]}
+
+
+def test_a_split_tail_may_be_redrawn_whole(slide_context):
+    window = viewed(split_tail_window(), (TAIL_SPLIT_RULE,))
+    events = sv._combined_match(TAIL_JOIN_RULES, window, slide_context("after-split-tail-redrawn"))
+    assert events == {TAIL_JOIN_RULE["id"]: [2], TAIL_SPLIT_RULE["id"]: [1]}
+
+
+def test_a_split_tail_retarget_carries_a_created_join_behind_it(slide_context):
+    window = viewed(split_tail_retarget_window(), (TAIL_SPLIT_RULE,))
+    events = sv._combined_match(TAIL_RETARGET_RULES, window, slide_context())
+    assert events == {
+        TAIL_SPLIT_RULE["id"]: [1],
+        TAIL_RETARGET_RULE["id"]: [2],
+        TAIL_BEHIND_RETARGET_JOIN_RULE["id"]: [3],
+    }
+
+
+def test_a_changed_junction_out_with_no_tail_rule_is_not_walked(slide_context):
+    window = viewed(split_tail_window(), (TAIL_SPLIT_RULE,))
+    assert not sv._matches(TAIL_SPLIT_RULE["match"], window, context=slide_context())
+    assert sv._combined_walk([TAIL_SPLIT_RULE], window, slide_context()) is None
+
+
+def test_a_split_tail_needs_its_first_letter_inside_the_ligature(slide_context):
+    window = viewed(split_tail_window(), (TAIL_SPLIT_RULE,))
+    assert sv._combined_walk(TAIL_JOIN_RULES, window, slide_context()) is not None
+    assert (
+        sv._combined_walk(TAIL_JOIN_RULES, window, slide_context("after-split-tail-wide-first-letter"))
+        is None
+    )
+
+
+def test_a_tail_rule_whose_pivot_cell_is_not_named_is_not_a_candidate():
+    window = viewed(split_tail_window(), (TAIL_SPLIT_RULE,))
+    assert sv._candidates(TAIL_JOIN_RULE["match"], window) == [2]
+    unnamed = json.loads(json.dumps(TAIL_JOIN_RULE["match"]))
+    unnamed["after"]["pivot_cells"] = ["qsR/full/None/None/"]
+    assert sv._candidates(unnamed, window) == []
+
+
+def test_the_split_lead_is_never_a_pivot():
+    window = viewed(split_tail_window(), (TAIL_SPLIT_RULE,))
+    lead = json.loads(json.dumps(TAIL_JOIN_RULE["match"]))
+    lead["before"] = {"pivot": "qsQ", "junction_out": "y0", "follower": "qsR"}
+    lead["after"]["pivot_cells"] = ["qsQ/full/None/None/"]
+    lead["after"]["follower_after_cells"] = ["qsR/full/None/baseline/"]
+    assert sv._candidates(lead, window) == []
+
+
+def test_a_tail_event_beside_a_changed_junction_into_the_ligature_stays_unplaced():
+    window = split_tail_window()
+    window["before"]["junctions"][0] = "break"
+    assert viewed(window, (TAIL_SPLIT_RULE,)) is window
+
+
 def test_a_view_adds_exactly_the_fields_the_projection_test_nets_out():
     window = split_window()
     assert set(viewed(window)) - set(window) == sv.SPLIT_VIEW_FIELDS
@@ -8289,16 +8476,6 @@ def test_a_view_keeps_every_junction_around_a_twice_split_window():
                 junctions=["break", "y0"],
             ),
             id="junction-into-the-ligature-changes",
-        ),
-        pytest.param(
-            split_unit(
-                "sp-5",
-                ["qsL", "qsQ_qsR", "qsF1"],
-                ["qsL", "qsQ", "qsR", "qsF1"],
-                spell(LEAD, SPLIT_Q, SPLIT_R, FOLLOWER_1),
-                after_junctions=["y0", "y0", "break"],
-            ),
-            id="junction-out-of-the-pair-changes",
         ),
         pytest.param(
             split_unit(

@@ -3113,6 +3113,7 @@ rules:
         junction: y0
         first_cells:
           - qsVie/swept-out/None/baseline/ex-con-1
+          - qsVie/swept-out/baseline/baseline/en-ext-1+ex-con-1
           - qsVie/swept-out/baseline/baseline/ex-con-1
         second_cells:
           - qsUtter/mono/baseline/None/
@@ -3717,4 +3718,22 @@ rules:
           - qsUtter/mono/baseline/None/
           - qsUtter/mono/baseline/x-height/
           - qsUtter/mono/baseline/x-height/ex-ext-1
+      except_left: []
+  - id: utter-may-xheight-join-created
+    verdict: approve
+    note: "·Utter reaches ·May at the x-height where the old font left a break after the ·Vie+Utter ligature, and ·May comes three columns nearer and holds its own advance — the ligature drew no exit into ·May, and once “Draw `·Vie·Utter` as `·Vie ~b~ ·Utter` instead of a ·Vie+Utter ligature” made ·Utter a letter of its own, its baseline-entered mono stroke leaves at the x-height into ·May's x-height entry, which has carried qsUtter on its from-list since “Name ·May's x-height arrivers once”. The rule names the ·May that takes the join with no exit of its own. Every window that reached a review session approved the join, and the user's approval of the review queue's top 22 on 2026-11-15 covers the rest"
+    match:
+      before:
+        pivot: qsUtter
+        junction_out: break
+        follower: qsMay
+      after:
+        joined: y5
+        pivot_cells:
+          - qsUtter/mono/baseline/x-height/
+        follower_after_cells:
+          - qsMay/loop/x-height/None/
+        shift: -3
+        follower_advance: 0
+        follower_columns_added: 0
       except_left: []
