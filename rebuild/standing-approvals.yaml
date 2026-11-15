@@ -941,20 +941,22 @@ rules:
       except_left: []
   - id: it-xheight-join-created
     verdict: approve
-    note: "·Low and ·Ah both join ·It at the x-height where the old font left a break, and ·It closes one column onto each of them — qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved, and neither qsLow's nor qsAh's x-height exit refuses anything, so the join follows from open surfaces on both sides rather than from a pair ruling, and has since the letters landed in “Add ·Low” and “Add ·Ah”. Every window that reached a review session approved it"
+    note: "·Way, ·Low, ·Ah and ·Utter all join ·It at the x-height where the old font left a break, and ·It closes one column onto each of them — qsIt's x-height entry is open to every left letter but ·It itself, the single exclusion “Never join ·It to itself” carved, and none of their x-height exits refuses anything, so the join follows from open surfaces on both sides rather than from a pair ruling, and has since the letters landed in “Add ·Way”, “Add ·Low”, “Add ·Ah” and “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. Every window that reached a review session approved it, and the user approved the review queue's top 22 on 2026-11-15, which includes the ·Way and ·Utter ones"
     match:
       before:
-        pivot: [qsLow, qsAh]
+        pivot: [qsWay, qsLow, qsAh, qsUtter]
         junction_out: break
         follower: qsIt
       after:
         joined: y5
         pivot_cells:
+          - qsWay/full/None/x-height/
           - qsLow/sole/None/x-height/
           - qsLow/sole/baseline/x-height/
           - qsAh/sole/None/x-height/
           - qsAh/sole/baseline/x-height/
           - qsAh/sole/baseline/x-height/en-con-1
+          - qsUtter/mono/None/x-height/
         follower_after_cells:
           - qsIt/sole/x-height/None/
           - qsIt/sole/x-height/baseline/
