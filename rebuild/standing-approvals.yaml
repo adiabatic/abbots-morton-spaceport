@@ -3300,3 +3300,21 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: he-gay-baseline-join-created
+    verdict: approve
+    note: "·He joins ·Gay at the baseline where the old font left a break, and ·Gay takes the join on its full reaching-back form: ·He does not pull that entry in, so the stroke inserts a column at ·Gay's left edge, the letter comes four columns nearer and its own advance is a column wider for the stroke. qsGay's baseline entry names qsHe on its from-list from “Join full ·He to ·No, ·Gay, ·See and ·Roe at the baseline”, and qsHe's full stance supplies the baseline exit that reaches it. The rule names only the ·Gay with no exit extension, which is the ·Gay the old font drew without an x-height reach. Every window that reached a review session approved this join, and the user approved the review queue's top 25 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsHe
+        junction_out: break
+        follower: qsGay
+      after:
+        joined: y0
+        pivot_cells:
+          - qsHe/full/None/baseline/
+        follower_after_cells:
+          - qsGay/sole/baseline/None/
+        shift: -4
+        follower_advance: 1
+        follower_columns_added: 1
+      except_left: []
