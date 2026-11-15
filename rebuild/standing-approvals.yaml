@@ -3018,3 +3018,23 @@ rules:
         pivots: [qsIng.sole]
         entry_drop: 1
       except_left: []
+  - id: jay-entry-extension-dropped
+    verdict: approve
+    note: "·Jay sits a pixel closer after ·It — the extra pixel of x-height entry the old font drew came off qsJay's extend record in “Contract ·It ~x~ ·Jay by a pixel”, and the user gave the contraction standing approval at u-L1wtp2vqzo9"
+    match:
+      before:
+        pivots: [qsJay.en-y5.ex-y0.en-ext-1]
+      after:
+        pivots: [qsJay.sole]
+        entry_drop: 1
+      except_left: []
+  - id: jay-utter-entry-extension-dropped
+    verdict: approve
+    note: "·Jay+Utter sits a pixel closer after ·It — the extra pixel of x-height entry the old font drew came off qsJay_qsUtter's extend record in the same “Contract ·It ~x~ ·Jay by a pixel”, and every window that reached a review session approved the shorter reach"
+    match:
+      before:
+        pivots: [qsJay_qsUtter.en-ext-1]
+      after:
+        pivots: [qsJay_qsUtter.sole]
+        entry_drop: 1
+      except_left: []
