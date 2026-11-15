@@ -3701,3 +3701,20 @@ rules:
         gained: [[6, 8]]
         shift: 1
       except_left: []
+  - id: vie-utter-ligature-split-after-created-join
+    verdict: approve
+    note: "·Vie·Utter is drawn as ·Vie joined to ·Utter at the baseline where the old font drew the ·Vie+Utter ligature, and where the letter in front now joins ·Vie at the baseline the pair paints the ligature's ink with ·Vie's entry whole — qsVie's contract record before ·Utter takes the ligature's place in “Draw `·Vie·Utter` as `·Vie ~b~ ·Utter` instead of a ·Vie+Utter ligature”, and qsVie's baseline entry carries no from-list, so every left letter with an open baseline exit reaches it. The user gave the split standing approval at u-ZJAZWFEtvrV, and the review queue's top 22 on 2026-11-15 covers it after a new join into the ligature"
+    match:
+      before:
+        ligature: qsVie_qsUtter
+      after:
+        split: [qsVie, qsUtter]
+        junction: y0
+        junction_in: y0
+        first_cells:
+          - qsVie/swept-out/baseline/baseline/ex-con-1
+        second_cells:
+          - qsUtter/mono/baseline/None/
+          - qsUtter/mono/baseline/x-height/
+          - qsUtter/mono/baseline/x-height/ex-ext-1
+      except_left: []

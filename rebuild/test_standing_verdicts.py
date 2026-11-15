@@ -2198,6 +2198,11 @@ SPLIT_U = register_pair("qsU", "qsU.contracted")
 SPLIT_U_UNCONTRACTED_PAIR = register_pair("qsU", "qsU.uncontracted")
 SPLIT_W = register_pair("qsW", "qsW")
 
+# A lead whose advance falls by the one column its join closes, before a ligature whose first letter keeps its whole entry.
+register_glyph("before", "qsBay.join-lead", SPLIT_FIRST, 200)
+register_glyph("after", "qsBay.join-lead", SPLIT_FIRST, 150)
+JOIN_LEAD = register_pair("qsBay.join-lead", "qsBay.join-lead")
+
 BEFORE_GLYPHS = _OUTLINES["before"]
 AFTER_GLYPHS = _OUTLINES["after"]
 BEFORE_CMAP = {codepoint: names[0] for names, codepoint in _CODEPOINTS.items()}
@@ -2437,6 +2442,11 @@ def _build_font(path, glyphs, cmap):
 
 SLIDE_FONTS["after-contracting-split-extra-pixel"] = (
     {**AFTER_GLYPHS, "qsW": (SPLIT_SECOND_TALLER, 100)},
+    AFTER_CMAP,
+)
+
+SLIDE_FONTS["after-whole-entry-split-extra-pixel"] = (
+    {**AFTER_GLYPHS, "qsR": (SPLIT_SECOND_TALLER, 100)},
     AFTER_CMAP,
 )
 
@@ -10430,6 +10440,166 @@ def test_a_contracting_split_still_refuses_ink_the_ligature_did_not_paint(slide_
     )
 
 
+WHOLE_ENTRY_JOIN_RULE = {
+    "id": "fixture-join-created-before-a-whole-entry-split",
+    "verdict": "approve",
+    "note": "·Bay joins ·Q at the baseline where the old font left a break, and ·Q closes a column onto it",
+    "match": {
+        "before": {"pivot": "qsBay", "junction_out": "break", "follower": ["qsQ", "qsQ_qsR"]},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsBay/full/None/baseline/"],
+            "follower_after_cells": ["qsQ/full/baseline/None/"],
+            "shift": -1,
+            "follower_advance": 0,
+            "follower_columns_added": 0,
+        },
+        "except_left": [],
+    },
+}
+
+WHOLE_ENTRY_SPLIT_RULE = {
+    "id": "fixture-ligature-split-after-a-created-join-whole",
+    "verdict": "approve",
+    "note": "·Q·R is drawn as ·Q joined to ·R where the old font drew the ·Q+R ligature, and where ·Bay now joins ·Q the pair paints the ligature's ink with ·Q's entry whole",
+    "match": {
+        "before": {"ligature": "qsQ_qsR"},
+        "after": {
+            "split": ["qsQ", "qsR"],
+            "junction": "y0",
+            "junction_in": "y0",
+            "first_cells": ["qsQ/full/baseline/None/"],
+            "second_cells": ["qsR/full/None/None/"],
+        },
+        "except_left": [],
+    },
+}
+
+WHOLE_ENTRY_SPLIT_RULES = [WHOLE_ENTRY_JOIN_RULE, WHOLE_ENTRY_SPLIT_RULE]
+
+
+def whole_entry_split_window(uid="ws-1"):
+    """·Bay now joins the ·Q+R ligature, which the after font draws as ·Q joined to ·R with ·Q's entry as whole as the ligature's."""
+    return unit(
+        uid,
+        ["qsBay.join-lead", "qsQ_qsR"],
+        ["break"],
+        ["qsBay/full/None/baseline/", "qsQ/full/baseline/None/", "qsR/full/None/None/"],
+        ["y0", "y0"],
+        codepoints=spell(JOIN_LEAD, SPLIT_Q, SPLIT_R),
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+    )
+
+
+def test_a_split_that_declares_only_junction_in_follows_the_created_join_that_makes_its_junction(
+    slide_context,
+):
+    window = viewed(whole_entry_split_window(), (WHOLE_ENTRY_SPLIT_RULE,))
+    assert sv._letter_for_letter(window)
+    events = sv._combined_match(WHOLE_ENTRY_SPLIT_RULES, window, slide_context())
+    assert events == {WHOLE_ENTRY_JOIN_RULE["id"]: [0], WHOLE_ENTRY_SPLIT_RULE["id"]: [1]}
+
+
+SHARED_JOIN_RULE = json.loads(json.dumps(GAINED_CREATED_JOIN_RULE))
+SHARED_JOIN_RULE["id"] = "fixture-join-created-behind-a-gain-into-a-ligature"
+SHARED_JOIN_RULE["match"]["before"]["follower"] = ["qsF3", "qsQ_qsR"]
+SHARED_JOIN_RULE["match"]["after"]["follower_after_cells"] = ["qsQ/full/baseline/None/"]
+SHARED_JOIN_RULES = [GAIN_UNDER_CREATED_JOIN_RULE, SHARED_JOIN_RULE, WHOLE_ENTRY_SPLIT_RULE]
+
+
+def shared_join_split_window(uid="ws-2"):
+    """·Tea takes its full bar and the baseline join that bar opens into the ·Q+R ligature, which the after font draws as ·Q joined to ·R."""
+    return unit(
+        uid,
+        ["qsL", "qsTea.half.en-y5.after-xheight-exit.gain-join-fixture", "qsQ_qsR"],
+        ["y0", "break"],
+        [
+            "qsL/full/None/None/",
+            "qsTea/full/x-height/baseline/",
+            "qsQ/full/baseline/None/",
+            "qsR/full/None/None/",
+        ],
+        ["y0", "y0", "y0"],
+        codepoints=spell(LEAD, TEA_GAINING_A_JOIN, SPLIT_Q, SPLIT_R),
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+    )
+
+
+def test_a_split_declaring_junction_in_follows_a_created_join_that_shares_its_letter_with_a_gain(
+    slide_context,
+):
+    window = viewed(shared_join_split_window(), (WHOLE_ENTRY_SPLIT_RULE,))
+    events = sv._combined_match(SHARED_JOIN_RULES, window, slide_context())
+    assert events == {
+        GAIN_UNDER_CREATED_JOIN_RULE["id"]: [1],
+        SHARED_JOIN_RULE["id"]: [1],
+        WHOLE_ENTRY_SPLIT_RULE["id"]: [2],
+    }
+
+
+def test_a_split_declaring_junction_in_alone_is_not_a_window_the_rule_fills(slide_context):
+    window = viewed(whole_entry_split_window(), (WHOLE_ENTRY_SPLIT_RULE,))
+    assert not sv._matches(WHOLE_ENTRY_SPLIT_RULE["match"], window, context=slide_context())
+    assert sv._combined_walk([WHOLE_ENTRY_SPLIT_RULE], window, slide_context()) is None
+
+
+def test_a_split_declaring_junction_in_needs_a_created_join_at_the_position_before_it(slide_context):
+    other_join = json.loads(json.dumps(WHOLE_ENTRY_JOIN_RULE))
+    other_join["match"]["after"]["pivot_cells"] = ["qsBay/full/None/None/"]
+    window = viewed(whole_entry_split_window(), (WHOLE_ENTRY_SPLIT_RULE,))
+    assert sv._combined_walk([other_join, WHOLE_ENTRY_SPLIT_RULE], window, slide_context()) is None
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(
+            lambda window: window["before"]["junctions"].__setitem__(0, "y5"),
+            id="the-old-junction-was-a-join",
+        ),
+        pytest.param(
+            lambda window: window["after"]["junctions"].__setitem__(0, "y5"),
+            id="the-new-join-is-at-another-height",
+        ),
+        pytest.param(
+            lambda window: window["after"]["junctions"].__setitem__(1, "break"),
+            id="the-pair-does-not-join",
+        ),
+    ],
+)
+def test_a_split_declaring_junction_in_needs_a_break_that_joins_at_its_height(mutate):
+    window = whole_entry_split_window()
+    mutate(window)
+    assert viewed(window, (WHOLE_ENTRY_SPLIT_RULE,)) is window
+
+
+def test_a_split_declaring_junction_in_names_its_lead_position_to_the_candidate_checks():
+    window = viewed(whole_entry_split_window(), (WHOLE_ENTRY_SPLIT_RULE,))
+    assert sv._candidates(WHOLE_ENTRY_SPLIT_RULE["match"], window) == [1]
+    assert sv._candidates(WHOLE_ENTRY_JOIN_RULE["match"], window) == [0]
+
+
+def test_a_split_declaring_junction_in_alone_still_refuses_ink_the_ligature_did_not_paint(slide_context):
+    window = viewed(whole_entry_split_window(), (WHOLE_ENTRY_SPLIT_RULE,))
+    assert sv._combined_walk(WHOLE_ENTRY_SPLIT_RULES, window, slide_context()) is not None
+    assert (
+        sv._combined_walk(
+            WHOLE_ENTRY_SPLIT_RULES, window, slide_context("after-whole-entry-split-extra-pixel")
+        )
+        is None
+    )
+
+
+def test_a_junction_in_alone_loads_but_a_contraction_without_it_is_refused(tmp_path):
+    assert sv.load_rules(_write_rules(tmp_path / "rules.yaml", WHOLE_ENTRY_SPLIT_RULES))
+    rule = json.loads(json.dumps(CONTRACTING_SPLIT_RULE))
+    del rule["match"]["after"]["junction_in"]
+    with pytest.raises(SystemExit, match="first_entry_contraction needs match.after.junction_in"):
+        sv.load_rules(_write_rules(tmp_path / "refused.yaml", [rule]))
+
+
 def test_a_created_join_shares_a_letter_with_an_entry_contraction_on_its_follower(slide_context):
     events = sv._combined_match(
         CONTRACTED_FOLLOWER_RULES, contraction_behind_created_join_window(), slide_context()
@@ -10476,13 +10646,8 @@ def test_a_created_join_naming_the_frame_a_contraction_takes_is_checked_at_load(
     ("mutate", "message"),
     [
         pytest.param(
-            lambda after: after.pop("first_entry_contraction"),
-            "junction_in and match.after.first_entry_contraction come together",
-            id="a-junction-without-a-contraction",
-        ),
-        pytest.param(
             lambda after: after.pop("junction_in"),
-            "junction_in and match.after.first_entry_contraction come together",
+            "first_entry_contraction needs match.after.junction_in",
             id="a-contraction-without-a-junction",
         ),
         pytest.param(
