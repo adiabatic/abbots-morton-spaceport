@@ -53,6 +53,7 @@ Two events may share a letter only in these cases:
 - A created join, retarget, dropped join, extension drop, ink gain, or redrawn cell swap whose pivot is a created join's follower. The created join judges that letter's incoming junction. A following retarget receives only the created join's `follower_columns_added`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget may have moved its pivot's own-frame origin, because the created join's `follower_columns_added` declared that move. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that junction and gives up its baseline tail; half-·Tea's new x-height join into ·It and the x-height join into ·J'ai that ·It gives up, since it cannot leave at the height it now enters at.
 - A dropped join or extension drop whose follower is itself an event. That event is judged next, under the displacement the first one applied (·At's dropped x-height join and ·It's dropped exit extension).
 - An entry event and a redrawn event at the same position, two shapes that describe one change to the pivot's picture: ·Jay's contracted entry after ·Pea is both qsJay's entry contraction and its crown giving up a cell. At least one must hold where the walk reaches the pivot, every one that holds must put the pivot in the same place and move what follows by the same count, and the walk counts each rule whose event holds there. Together they are one event, so a window whose only change is that pivot stays on those rules' own lines. Such a position cannot be the follower a retarget or created join judges, because those judge a single event behind them.
+- An entry-extension drop and a separate redraw at the same position, where neither local check holds alone: the before picture loses ink only in the named entry columns and compacts left, then undergoes exactly the redraw's named cell swap. The pivot keeps its own-frame origin and placement, the two shifts add, and both approvals count as independent events. ·Vie losing its entry extension and contracting its baseline exit is one example.
 
 Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
 
@@ -1236,6 +1237,18 @@ def _redrawn_cell_swap(match):
     )
 
 
+def _redrawn_cells_hold(match, painted, kept):
+    """Whether two own-frame cell sets differ by exactly the named redraw at one common column offset."""
+    dropped, added = _redrawn_cell_swap(match)
+    gone, gained = painted - kept, kept - painted
+    if len(gone) != len(dropped) or len(gained) != len(added):
+        return False
+    offset = min(gone)[0] - min(dropped)[0]
+    return {(column + offset, row) for column, row in dropped} == gone and {
+        (column + offset, row) for column, row in added
+    } == gained
+
+
 def _redrawn_holds(match, before, after, intern):
     """Return how many columns of entry contraction the pivot's own frame took, or None when the piece is not the named redraw. Both pieces must have the same height and sit on the grid, and the after picture must be the before picture with the named dropped cells gone and the named added cells present. Both sets are read at one common column offset, derived from the lost cells, because an entry extension inserts a column at the pivot's left edge and moves the whole frame right, so an entry-extended variant shows the same cell swap one column over. Deriving the offset from the losses lets `added` be empty. The own-frame origin stays unless the after form names more entry contraction than the before form (`_contraction_room`); then the origin may move right by up to that difference while the ink it keeps stays where it was. The pictures are aligned by that move before the cell swap is read, and the caller subtracts what the frame took from the room the placement has. A cell lost or gained outside the named cell swap fails."""
     if before[3] != after[3]:
@@ -1252,14 +1265,7 @@ def _redrawn_holds(match, before, after, intern):
     if painted is None or kept is None:
         return None
     kept = {(column + frame, row) for column, row in kept}
-    dropped, added = _redrawn_cell_swap(match)
-    gone, gained = painted - kept, kept - painted
-    if len(gone) != len(dropped) or len(gained) != len(added):
-        return None
-    offset = min(gone)[0] - min(dropped)[0]
-    if {(column + offset, row) for column, row in dropped} != gone:
-        return None
-    if {(column + offset, row) for column, row in added} != gained:
+    if not _redrawn_cells_hold(match, painted, kept):
         return None
     return frame
 
@@ -1678,6 +1684,16 @@ class Event(NamedTuple):
     follower_columns: int = 0
 
 
+class WalkEvents(dict[str, list[int]]):
+    """The counted rule positions, with the number of pivots whose independent entry drop and redraw compose instead of describing the same change."""
+
+    __slots__ = ("composed_pictures",)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.composed_pictures = 0
+
+
 def _shape_of(match):
     """Return the SHAPES row whose `keyed_by` field the rule's `match.after` carries, or None when it carries none. `load_rules` requires exactly one, so a loaded rule always has a shape."""
     for shape in SHAPES.values():
@@ -1911,6 +1927,28 @@ def _redrawn_event(match, rule_id, index, after_names, intern, before_pieces, af
     return Event(rule_id, "redrawn", match["after"]["shift"], room=room)
 
 
+def _entry_redrawn_event(entry, redrawn, index, after_names, intern, before_pieces, after_pieces):
+    """Return one entry Event for two independent approvals at a pivot: its named entry extension comes off and the compacted picture undergoes exactly the named redraw. Both after prefixes must match, the pivot keeps its own-frame origin and vertical placement on the grid, and the caller checks its placement under the sum of both shifts. This fallback applies only where neither rule's standalone local check held."""
+    before, after = before_pieces.get(index), after_pieces.get(index)
+    if before is None or after is None:
+        return None
+    if before[3:] != after[3:] or before[2] % PIXEL_SIZE or after[2] % PIXEL_SIZE or before[3] % PIXEL_SIZE:
+        return None
+    for rule in (entry, redrawn):
+        if not _named_pivot(after_names[index], rule["match"]["after"]["pivots"]):
+            return None
+    columns = entry["match"]["after"]["entry_drop"]
+    if _glyph_adjustment(before[0], ENTRY_EXTENSION) < columns:
+        return None
+    painted, kept = intern.cells(before[1]), intern.cells(after[1])
+    if painted is None or kept is None or not any(column < columns for column, _row in painted):
+        return None
+    compacted = {(column - columns, row) for column, row in painted if column >= columns}
+    if not _redrawn_cells_hold(redrawn["match"], compacted, kept):
+        return None
+    return Event(entry["id"], "entry", -columns + redrawn["match"]["after"]["shift"])
+
+
 def _extension_event(match, rule_id, index, intern, before_pieces, after_pieces, cell):
     """Return an extension Event at `index` when the pivot drops exactly the named exit tail, or None, which leaves the pivot and follower to be judged as span ink. The pivot keeps its vertical placement and own-frame origin, sits on the pixel grid, and paints its before picture minus a tail. Every dropped cell lies right of the after picture's rightmost column, on the row the `junction_out` height names, and the tail is as wide as `_drop_columns` says: the named extension less any shorter one the after cell keeps, or the named contraction in full. The pivot needs its own grid check because no span ever includes it, and `_span_cells` checks every other piece. The junction row is the height divided by the pixel size, which is only correct on the grid. The follower must have ink on both sides so the walk can skip it or share it with another event, but its picture is not checked here, because the rule names its after cell and a redraw inside that cell (·May losing the stacked entry, ·I's smaller loop) is part of what the rule approves."""
     junction = JUNCTION_ROW.fullmatch(match["before"]["junction_out"])
@@ -2079,6 +2117,8 @@ def _combined_walk(rules, unit, context):
         return None
     intern = comparator.intern
     found: dict[int, list[Event]] = {}
+    failed_entries: dict[int, list[dict]] = {}
+    failed_redraws: dict[int, list[dict]] = {}
     for rule in rules:
         match = rule["match"]
         for index in _candidates(match, unit):
@@ -2129,6 +2169,24 @@ def _combined_walk(rules, unit, context):
                 )
             if event is not None:
                 found.setdefault(index, []).append(event)
+            elif _is_entry_match(match):
+                failed_entries.setdefault(index, []).append(rule)
+            elif _is_redrawn_match(match):
+                failed_redraws.setdefault(index, []).append(rule)
+    composed = {}
+    for index in failed_entries.keys() & failed_redraws.keys():
+        pairs = []
+        for entry in failed_entries[index]:
+            for redrawn in failed_redraws[index]:
+                event = _entry_redrawn_event(
+                    entry, redrawn, index, after_names, intern, before_pieces, after_pieces
+                )
+                if event is not None:
+                    pairs.append((event, redrawn["id"]))
+        if len(pairs) == 1:
+            event, redrawn_id = pairs[0]
+            found.setdefault(index, []).append(event)
+            composed[index] = redrawn_id
     events: dict[int, Event] = {}
     pivot_events: dict[int, list[Event]] = {}
     sharing: dict[int, Event] = {}
@@ -2179,7 +2237,7 @@ def _combined_walk(rules, unit, context):
         return None
     if pivot_events.keys() & (behind_retarget | behind_join):
         return None
-    counted: dict[str, list[int]] = {}
+    counted = WalkEvents()
     before_span: list = []
     after_span: list = []
     displacement = 0
@@ -2318,6 +2376,9 @@ def _combined_walk(rules, unit, context):
                 index += 2
         for explained in explaining:
             counted.setdefault(explained.rule_id, []).append(position)
+        if position in composed:
+            counted.setdefault(composed[position], []).append(position)
+            counted.composed_pictures += 1
     if not _span_explained(
         intern,
         before_span,
@@ -2332,7 +2393,7 @@ def _combined_walk(rules, unit, context):
 
 
 def _event_count(rules, events):
-    """Return how many events a walk's counted positions hold: one per rule and position, except that the entry and redrawn rules counted together at one position judge one change to that pivot's picture and count as one event."""
+    """Return how many events a walk's counted positions hold: entry and redrawn rules describing the same picture count once at their shared position, while an independently composed entry drop and redraw count twice."""
     picture = {
         rule["id"]
         for rule in rules
@@ -2341,7 +2402,8 @@ def _event_count(rules, events):
         or _is_redrawn_match(rule["match"])
     }
     shared = collections.Counter(at for rule_id, ats in events.items() if rule_id in picture for at in ats)
-    return sum(len(ats) for ats in events.values()) - sum(count - 1 for count in shared.values())
+    composed = events.composed_pictures if isinstance(events, WalkEvents) else 0
+    return sum(len(ats) for ats in events.values()) - sum(count - 1 for count in shared.values()) + composed
 
 
 def _combined_match(rules, unit, context, digest=None, counts=None):

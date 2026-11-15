@@ -187,11 +187,11 @@ rules:
       except_left: []
   - id: bay-may-entry-contracted
     verdict: approve
-    note: "·May sits a pixel closer after ·Bay — its baseline entry contracts by one column under the ·Bay-specific contract record introduced by “Have only one pixel of separation in ·Bay·May, not two”"
+    note: "·May sits a pixel closer after ·Bay or ·-ing — its baseline entry contracts by one column on qsMay's contract record, introduced for ·Bay in “Have only one pixel of separation in ·Bay·May, not two” and extended to ·-ing in “Contract `·-ing ~b~ ·May` by a pixel”; the user gave the ·-ing contraction standing approval at u-DMPKZkzU42m"
     match:
       before:
-        left: qsBay
-        pivots: [qsMay.en-y0.ex-y5]
+        left: [qsBay, qsIng]
+        pivots: [qsMay.en-y0.ex-y5, qsMay.en-y0.ex-noentry]
       after:
         pivots: [qsMay.loop.en-y0.en-con-1, qsMay.loop.en-y0.ex-y5.en-con-1]
         entry_contraction: 1
@@ -2945,4 +2945,36 @@ rules:
           - qsGay/sole/None/x-height/
         follower_columns_removed: 1
         follower_advance: -1
+      except_left: []
+  - id: bay-no-exit-contracted
+    verdict: approve
+    note: "·No sits a pixel closer to ·Bay — qsBay's baseline exit contracts by one column before ·No on the contract record introduced in “Contract `·Bay ~b~ ·No.alt` by a pixel”; the user gave the contraction standing approval at u-DMPKZkzU42m"
+    match:
+      before:
+        pivots: [qsBay]
+        junction_out: y0
+        follower: qsNo
+      after:
+        pivots: [qsBay.sole.ex-y0.ex-con-1, qsBay.sole.en-y5.ex-y0.ex-con-1]
+        dropped: [[4, 3]]
+        added: []
+        shift: -1
+      except_left: []
+  - id: vie-ing-no-exit-contracted
+    verdict: approve
+    note: "·-ing and ·No.alt sit a pixel closer to ·Vie — qsVie's swept-out baseline exit contracts by one column before them on the contract record introduced in “Contract `·Vie ~b~ ·{-ing,No.alt}` by a pixel”; the user gave both contractions standing approval while reviewing u-eF3gLfNCxrP"
+    match:
+      before:
+        pivots: [qsVie.en-y0.ex-y0]
+        junction_out: y0
+        follower: [qsIng, qsNo]
+      after:
+        pivots:
+          - qsVie.swept-out.ex-y0.ex-con-1
+          - qsVie.swept-out.en-y0.ex-y0.ex-con-1
+          - qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1
+          - qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1
+        dropped: [[7, 3]]
+        added: []
+        shift: -1
       except_left: []

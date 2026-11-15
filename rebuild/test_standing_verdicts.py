@@ -2065,6 +2065,7 @@ MAY_STUB_CONTRACTED_IN_FRAME = register_pair(
 EIGHT = register_pair("qsEight", "qsEight.smaller-loop")
 EIGHT_EXTENDED = register_pair("qsEight.ex-ext-1", "qsEight.smaller-loop")
 EIGHT_ENTRY_EXTENDED = register_pair("qsEight.en-ext-1", "qsEight.smaller-loop.en-ext-1")
+EIGHT_ENTRY_DROPPED_AND_REDRAWN = register_pair("qsEight.en-ext-1", "qsEight.smaller-loop")
 EIGHT_UNCHANGED = register_pair("qsEight", "qsEight.normal-sized-loop")
 EIGHT_REVERSED = register_pair("qsEight.smaller-loop", "qsEight.normal-sized-loop")
 EIGHT_PULLED_IN = register_pair("qsEight", "qsEight.pulled-loop.en-con-1")
@@ -7628,6 +7629,62 @@ def test_a_pure_loss_form_that_also_takes_a_cell_on_is_refused(slide_context):
 def test_a_pure_loss_and_an_entry_drop_in_one_window_combine(slide_context):
     events = sv._combined_match([PURE_LOSS_RULE, ENTRY_RULE], combined_pure_loss_window(), slide_context())
     assert events == {PURE_LOSS_RULE["id"]: [1], ENTRY_RULE["id"]: [2]}
+
+
+@pytest.fixture
+def entry_redrawn_rules():
+    entry = json.loads(json.dumps(ENTRY_RULE))
+    entry["match"]["before"]["pivots"] = ["qsEight.en-ext-1"]
+    entry["match"]["after"]["pivots"] = ["qsEight.smaller-loop"]
+    return [entry, REDRAWN_RULE]
+
+
+def entry_redrawn_window(*, slide=False):
+    glyphs = ["qsL", "qsEight.en-ext-1", "qsF3"]
+    codepoints = [LEAD, EIGHT_ENTRY_DROPPED_AND_REDRAWN, FOLLOWER_3]
+    if slide:
+        glyphs.insert(1, "qsSee.ex-y0")
+        codepoints.insert(1, SEE)
+    return slide_unit("entry-redrawn", glyphs, spell(*codepoints))
+
+
+@pytest.mark.parametrize("slide", [False, True])
+def test_an_entry_drop_and_a_separate_redraw_of_one_pivot_compose(slide_context, entry_redrawn_rules, slide):
+    window = entry_redrawn_window(slide=slide)
+    rules = [SLIDE_RULE, *entry_redrawn_rules] if slide else entry_redrawn_rules
+    context = slide_context()
+    for rule in rules:
+        assert not sv._matches(rule["match"], window, context=context)
+    expected = {rule["id"]: [2 if slide else 1] for rule in entry_redrawn_rules}
+    if slide:
+        expected[SLIDE_RULE["id"]] = [1]
+    events = sv._combined_match(rules, window, context)
+    assert events == expected
+    assert sv._event_count(rules, events) == len(rules)
+
+
+@pytest.mark.parametrize("missing", [0, 1])
+def test_a_same_pivot_composition_needs_both_approvals(slide_context, entry_redrawn_rules, missing):
+    rules = [rule for index, rule in enumerate(entry_redrawn_rules) if index != missing]
+    assert sv._combined_match(rules, entry_redrawn_window(), slide_context()) is None
+
+
+@pytest.mark.parametrize("after", ["after-redrawn-extra-cell", "after-redrawn-unmoved-follower"])
+def test_a_same_pivot_composition_rejects_extra_ink_or_wrong_displacement(
+    slide_context, entry_redrawn_rules, after
+):
+    assert sv._combined_match(entry_redrawn_rules, entry_redrawn_window(), slide_context(after)) is None
+
+
+@pytest.mark.parametrize("guarded", [0, 1])
+def test_a_same_pivot_composition_keeps_each_approvals_guard(slide_context, entry_redrawn_rules, guarded):
+    rules = json.loads(json.dumps(entry_redrawn_rules))
+    rules[guarded]["match"]["except_left"] = ["qsL"]
+    window = entry_redrawn_window()
+    context = slide_context()
+    events = sv._combined_match(rules, window, context)
+    assert events is not None
+    assert sv._combined_blocked(rules, window, events, context)
 
 
 def test_a_pure_loss_rule_loads(tmp_path):

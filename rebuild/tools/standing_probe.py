@@ -201,9 +201,7 @@ def _describe(unit, rules, context, blankness, families):
         if counted:
             events = sv._event_count(combinable, counted)
             reach = (
-                "at least two matched positions"
-                if events > 1
-                else "one matched position only, so its own line"
+                "at least two approved changes" if events > 1 else "one approved change only, so its own line"
             )
             print(f"  combined: counts {' + '.join(counted)} ({reach})")
         else:
