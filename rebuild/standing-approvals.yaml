@@ -4038,3 +4038,22 @@ rules:
         shift: 3
         follower_shift: 3
       except_left: []
+  - id: may-xheight-join-created-after-baseline-entry-without-reach
+    verdict: approve
+    note: "·May joins ·Ye or ·Cheer at the x-height where the old font left a break, after the alternate ·Utter gives it a baseline entry, and the follower comes one column nearer to it: qsMay's extend record excludes these two followers from the pixel of reach its x-height exit otherwise draws, so the join is a column shorter than before the other followers. The loop stance forbids an x-height entry with an x-height exit, which is why the ·May the ·Vie+Utter ligature entered at the x-height had none. Nothing in this survey has reached a review session, so the user's approval of the review queue's top 22 on 2026-11-15 is its record"
+    match:
+      before:
+        pivot: qsMay
+        junction_out: break
+        follower: [qsYe, qsCheer]
+      after:
+        joined: y5
+        pivot_cells:
+          - qsMay/loop/baseline/x-height/
+        follower_after_cells:
+          - qsYe/climbing-loop/x-height/None/
+          - qsCheer/sole/x-height/None/
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
