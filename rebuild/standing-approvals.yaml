@@ -3636,3 +3636,20 @@ rules:
       after:
         gap: 3
       except_left: []
+  - id: may-gay-baseline-join-dropped
+    verdict: approve
+    note: "·May no longer joins ·Gay at the baseline where ·Gay goes on to join its follower there, and ·May redraws to its plain loop — qsGay's pairings never join it at the baseline on both sides, so the letter after ·Gay takes the join and ·Gay gives up the entry stroke ·May's join gave it. ·Gay sits three columns further from ·May, one of them its own-frame origin, and carries what follows it one column less far. This is the regrouping the join-switches-sides class in rebuild/m1-divergences.yaml holds for a verdict per window; every window that reached a review session approved the break, and the user approved the review queue's top 25 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsMay
+        junction_out: y0
+        follower: qsGay
+      after:
+        gap: 3
+        pivot_cells:
+          - qsMay/loop/None/None/
+        follower_after_cells:
+          - qsGay/sole/None/baseline/
+        follower_columns_removed: 1
+        follower_advance: -1
+      except_left: []
