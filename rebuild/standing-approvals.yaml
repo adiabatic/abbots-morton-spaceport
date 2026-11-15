@@ -1307,6 +1307,7 @@ rules:
         follower_after_cells:
           - qsDay/half/baseline/None/
           - qsDay/half/baseline/baseline/
+          - qsDay/half/baseline/baseline/ex-con-1
         shift: 1
         follower_shift: 1
       except_left: []
@@ -3938,4 +3939,19 @@ rules:
           - qsZoo/full/x-height/baseline/
         shift: 0
         follower_shift: 1
+      except_left: []
+  - id: day-half-redrawn-no-exit-contracted
+    verdict: approve
+    note: "·Day's half form, the one the alternate ·Utter's baseline exit lands on, draws without the stroke of x-height entry the full form carried and sits a pixel closer to ·No.alt — qsUtter's alternate stance carries a mandatory baseline exit, the one the user records on the same rune's policy (“·Utter.alt has a mandatory exit, so it can't help consuming ·Tea's baseline slot”), so the ·Day after it is the half form, and qsDay's half stance contracts its baseline exit by one column before ·No on the contract record from “Contract `·Day ~b~ ·No.alt` by a pixel”, which the user gave standing approval at u-T8agtAZmsrt. Nothing in this survey has reached a review session, so the user's approval of the review queue's top 22 on 2026-11-15 is its record"
+    match:
+      before:
+        pivots: [qsDay]
+        junction_out: y0
+        follower: qsNo
+      after:
+        pivots:
+          - qsDay.half.en-y0.ex-y0.ex-con-1
+        dropped: [[0, 4], [0, 5], [0, 6], [0, 7], [0, 8], [3, 3]]
+        added: []
+        shift: -1
       except_left: []
