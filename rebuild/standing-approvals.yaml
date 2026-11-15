@@ -3818,3 +3818,22 @@ rules:
         shift: 0
         follower_shift: 0
       except_left: []
+  - id: ah-utter-jai-xheight-join-created
+    verdict: approve
+    note: "·Ah and ·Utter join ·J’ai at the x-height where the old font left a break, and ·J’ai closes four columns onto it on the tighter crown it draws there, so whatever follows moves with it — qsJai's contract record has asked for two columns of crown after ·Ah and ·Utter since the letter landed in “Add ·J’ai”, so ·J’ai settles into an en-con-2 cell and those two columns ride inside the declared four, and qsAh's and qsUtter's x-height exits refuse nothing, so every follower with an open x-height entry meets them. Every window that reached a review session approved the join, and the user approved the review queue's top 22 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: [qsAh, qsUtter]
+        junction_out: break
+        follower: qsJai
+      after:
+        joined: y5
+        pivot_cells:
+          - qsAh/sole/None/x-height/
+          - qsUtter/mono/None/x-height/
+        follower_after_cells:
+          - qsJai/sole/x-height/None/en-con-2
+        shift: -4
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
