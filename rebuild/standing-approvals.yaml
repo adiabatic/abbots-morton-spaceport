@@ -3689,3 +3689,14 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: may-jai-xheight-extension-added
+    verdict: approve
+    note: "·May reaches one pixel further into ·J’ai than the old font drew — two columns of x-height reach where the old font drew one — carrying ·J’ai and everything past it one column right. The reach is qsMay's x-height extend record before qsJai and qsJai_qsUtter, at by-2, set in “Adjust ·May·J’ai extension” over the one-pixel reach of the old font's “Extend ·May·J’ai by a pixel”. The rule covers the ·May with no entry live, whose frame stands. Every window that reached a review session approved the longer reach"
+    match:
+      before:
+        pivots: [qsMay.ex-ext-1]
+      after:
+        pivots: [qsMay.loop.ex-y5.ex-ext-2]
+        gained: [[6, 8]]
+        shift: 1
+      except_left: []
