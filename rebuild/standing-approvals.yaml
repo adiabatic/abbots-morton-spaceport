@@ -3977,3 +3977,23 @@ rules:
         follower_shift: 0
         follower_columns_removed: 1
       except_left: []
+  - id: he-see-baseline-join-created
+    verdict: approve
+    note: "·He joins ·See at the baseline where the old font left a break, reaching a pixel further than the old font drew, and ·See closes two columns onto it while ·He stays put — qsHe's full stance carries the baseline exit that reaches ·See, both from “Join full ·He to ·No, ·Gay, ·See and ·Roe at the baseline”, and the extra pixel is qsHe's extend record from “Extend ·He ~b~ ·See by a pixel”. Every window that reached a review session approved the join, and the user approved the review queue's top 22 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsHe
+        junction_out: break
+        follower: qsSee
+      after:
+        joined: y0
+        pivot_cells:
+          - qsHe/full/None/baseline/ex-ext-1
+        follower_after_cells:
+          - qsSee/curled-over/baseline/y6/
+          - qsSee/normal/baseline/None/
+          - qsSee/normal/baseline/top/
+        shift: -2
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
