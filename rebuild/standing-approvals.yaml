@@ -3444,3 +3444,13 @@ rules:
       after:
         gap: 3
       except_left: []
+  - id: ing-entry-extension-dropped-by-two
+    verdict: approve
+    note: "·-ing draws no entry at all once ·Thaw stops joining it, so the two pixels of baseline entry the old font drew after ·Thaw go with it and ·-ing keeps its stroke where it stood — qsIng's extend record lengthens its baseline entry by two after ·Thaw, and an entry the letter no longer has takes its extension with it. Nothing in this survey has reached a review session, so the user's approval of the review queue's top 25 on 2026-11-15 is its record"
+    match:
+      before:
+        pivots: [qsIng.en-ext-2]
+      after:
+        pivots: [qsIng.sole]
+        entry_drop: 2
+      except_left: []
