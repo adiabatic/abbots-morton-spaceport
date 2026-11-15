@@ -3527,3 +3527,15 @@ rules:
           - qsVie/swept-out/None/baseline/
           - qsVie/swept-out/None/baseline/ex-con-1
       except_left: []
+  - id: gay-entry-contracted-jay-xheight-extension-added
+    verdict: approve
+    note: "·Gay's contracted baseline entry after ·Bay, ·Day, ·Key, ·She, ·Cheer, ·No, ·Et and ·Awe and its two pixels of x-height reach into ·Jay or ·Cheer are one stroke: the entry sits on qsGay's contract record, landed in “Contract ·{Day,Awe} ~b~ ·Gay by a pixel” and “Contract ·{She,Cheer} ~b~ ·Gay by a pixel”, and the reach on its extend record before qsJay, qsJay_qsUtter and qsCheer at by-2, landed in “Extend ·Gay·Jay by 3 pixels to match ·Gay·J’ai” and “Extend ·Gay·Jay by 2 pixels, not 3”. The entry gives up one pixel and the reach gains two, so ·Jay and everything after it move one column right. Every window that reached a review session approved the longer reach"
+    match:
+      before:
+        pivots: [qsGay.en-y0.ex-y5]
+      after:
+        pivots: [qsGay.sole.en-y0.ex-y5.en-con-1.ex-ext-2]
+        dropped: [[0, 3]]
+        added: [[4, 8], [5, 8]]
+        shift: 1
+      except_left: []
