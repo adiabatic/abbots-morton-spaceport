@@ -1201,12 +1201,12 @@ rules:
           - qsCheer/sole/None/None/
           - qsCheer/sole/None/baseline/
       except_left: []
-  - id: no-jai-xheight-join-created
+  - id: jai-xheight-join-created
     verdict: approve
-    note: "·No joins ·J’ai at the x-height where the old font left a break, and ·J’ai closes three columns onto it on the tighter crown it draws there — qsJai's x-height entry has carried qsNo on its from-list since the letter landed in “Add ·J’ai”, and qsNo's loop stance exits at the x-height with no toward-list at all, so every follower with an open x-height entry meets it; that stance landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. The pixel of crown that comes off as the join is taken is qsJai's own contract record — the by-1 x-height entry after ·No, ·Low, ·At and ·I, which landed with the letter — so ·J’ai settles into an en-con-1 cell and that pixel rides inside the declared columns. ·J’ai holds its own advance across the change, so whatever follows the pair moves with it, and the rule names the word-final crown beside the one that goes on to a baseline exit, since the letter draws the same picture either way. Every window that reached a review session approved the join"
+    note: "·No, ·Low, ·At and ·I join ·J’ai at the x-height where the old font left a break, and ·J’ai closes three columns onto it on the tighter crown it draws there — qsJai's x-height entry has carried all four on its from-list since the letter landed in “Add ·J’ai”, qsNo's loop stance, qsLow's only stance and qsI's loop stance exit at the x-height with no toward-list at all, so every follower with an open x-height entry meets them, and qsAt's rising stance names qsJai on its x-height exit's toward-list; the ·No stance landed in “Checkpoint the qsDay/qsUtter/qsNo migration batch with its triage residue down to 2,535”. The pixel of crown that comes off as the join is taken is qsJai's own contract record — the by-1 x-height entry after ·No, ·Low, ·At and ·I, which landed with the letter — so ·J’ai settles into an en-con-1 cell and that pixel rides inside the declared columns. ·J’ai holds its own advance across the change, so whatever follows the pair moves with it, and the rule names the word-final crown beside the one that goes on to a baseline exit, since the letter draws the same picture either way. Every window that reached a review session approved the join"
     match:
       before:
-        pivot: qsNo
+        pivot: [qsNo, qsLow, qsAt, qsI]
         junction_out: break
         follower: qsJai
       after:
@@ -1214,6 +1214,9 @@ rules:
         pivot_cells:
           - qsNo/loop/None/x-height/
           - qsNo/loop/x-height/x-height/
+          - qsLow/sole/None/x-height/
+          - qsAt/rising/None/x-height/
+          - qsI/loop/None/x-height/
         follower_after_cells:
           - qsJai/sole/x-height/None/en-con-1
           - qsJai/sole/x-height/baseline/en-con-1
