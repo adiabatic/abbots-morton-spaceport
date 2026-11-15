@@ -26,9 +26,11 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `join-created` (declared by `joined`): a named pair that was a break now joins at the named height, and the pivot and follower may redraw. The pivot keeps its own-frame origin, and its placement stays or moves up to `pivot_stub_drop` columns right when the left-side entry the old font drew in front of the join comes off (·May's own entry in front of its new baseline join into ·Gay). The follower keeps its own-frame origin, or moves it left by `follower_columns_added` when its joining form inserts columns at its left edge (·Gay's stroke that reaches the baseline). The follower moves by `shift` plus the pivot's placement move, and everything after it by that plus `follower_advance`. Two counts are needed because a follower that redraws wider gives back what the join closed: the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word where it was. The pivot may name several families, which records one letter's new entry for every left neighbor that now reaches it. `except_pivots` declines before forms that nest under a pivot prefix but need another count: the ·J'ai the old font drew with a stacked crown entry gives the follower a column, while the ·J'ai drawn without one gains a reach that cancels it.
 
+- `ligature-split` (declared by `split`): a ligature the before font draws as one glyph that the after font draws as its two letters, joined at the named height, each in a cell the rule names in full, with the junctions into and out of the pair unchanged. The sides do not line up letter for letter, so `split_view` expands the before side where a rule names a split: the ligature stays at the first letter's position, an inkless `SPLIT_TAIL` takes the second's, and the two letters' junction goes between them, which lets the shapes that need the sides lined up read the window as they read any other. The rule judges that the pair is a renaming: the ligature's one ink piece, at the running displacement, is exactly the two letters' ink together. It is an event of its own in the combined walk, and every split in a window must be one. A window whose split no rule names stays unplaceable to every shape that needs the sides lined up, and every shape's own matcher, apart from the split's, reads the unit as recorded, so a split rule changes none of their results and a window the combined walk declines is decided as before. Another rule's event at the ligature's position, or a created join or retarget whose follower is the ligature, makes the walk return None, so a window whose ligature also changes its entry waits for review. The rule's own matcher is that walk over this rule alone.
+
 The combined match, which no rule declares, runs before any single rule is checked. It asks whether two or more approved changes together account for every rendered pixel of one window. For example, where the baseline-exit ·See slides a column closer to what precedes it and ·J'ai also gives up its exit extension, neither rule covers the window alone: `slide` fails on the extension pixel, and `extension-dropped` does not look at ink outside its judged junction.
 
-Only shapes whose `SHAPES` row sets `combinable` take part. Each names a local change the walk can check at one position: a displacement, named own-frame cells gained or swapped on the pivot, a join that is dropped, created, or changes height, or a left-side stretch or stub the pivot gives up. `ligature` reads the whole window's names and `ink-delta` its whole ink change, so neither says anything about one position.
+Only shapes whose `SHAPES` row sets `combinable` take part. Each names a local change the walk can check at one position: a displacement, named own-frame cells gained or swapped on the pivot, a join that is dropped, created, or changes height, a left-side stretch or stub the pivot gives up, or a ligature drawn as its two letters. `ligature` reads the whole window's names and `ink-delta` its whole ink change, so neither says anything about one position.
 
 Each combinable rule's candidate positions come from the index record without shaping (`_candidates`), and a window with fewer than two candidate positions in total is never shaped.
 
@@ -43,6 +45,7 @@ The walk (`_combined_walk`) re-shapes the window in the corpus's font pair and c
 - stub: the pivot's placement moves right by the stub count, and the displacement is unchanged.
 - retarget: the pivot sits at the running displacement, the follower moves by `follower_shift`, and everything after the follower moves by the full `shift`.
 - joined (created): the pivot sits at the running displacement or up to `pivot_stub_drop` columns right of it, the follower moves by `shift` plus that offset, and everything after the follower moves by that plus `follower_advance`.
+- split: the ligature's one before piece, at the running displacement, is exactly the two letters' after pieces together, and the displacement is unchanged. The next span starts after the two letters.
 
 Every span between events must render as its before picture moved by the displacement at its start.
 
@@ -55,7 +58,7 @@ Two events may share a letter only in these cases:
 - An entry event and a redrawn event at the same position, two shapes that describe one change to the pivot's picture: ·Jay's contracted entry after ·Pea is both qsJay's entry contraction and its crown giving up a cell. At least one must hold where the walk reaches the pivot, every one that holds must put the pivot in the same place and move what follows by the same count, and the walk counts each rule whose event holds there. Together they are one event, so a window whose only change is that pivot stays on those rules' own lines. Such a position cannot be the follower a retarget or created join judges, because those judge a single event behind them.
 - An entry shortening and a separate redraw at the same position, where neither local check holds alone: the before picture loses ink only in the named entry columns and undergoes exactly the redraw's named cell swap. A dropped entry extension compacts the picture left under an unchanged own-frame origin; an entry contraction aligns it by the columns the frame takes and moves the placement by the rest. The two shifts add, and both approvals count as independent events. ·Vie losing its entry extension or contracting its entry while also contracting its baseline exit is one example.
 
-Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
+Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A split shares its position with no event, and a walk that finds a split lead without a split event returns None. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
 
 A candidate whose own check fails is not an event, and its ink is judged as ordinary span ink, so a rule that fails at a position does not stop the other rules from explaining the window. The pivot is judged piece by piece rather than as part of a union, so a pivot whose after form also drops a cell off the junction row (·J'ai's crown contracting under an ·At tuck) never combines.
 
@@ -259,7 +262,9 @@ def release_alignment_cache() -> None:
 
 
 def _letter_for_letter(unit):
-    """Whether each before-glyph index and after-cell index name the same letters along the whole window, which the pivot and follower comparisons and the corpus's after-indexed `pair` rely on. The sides line up when they merge the same codepoints at the same positions. Requiring each side's components to sum to the window's codepoint count makes the check fail if a name ever covers codepoints some other way than as a ligature. The matchers and the combined walk ask this of a unit several times, so the answer is cached per unit object. The entry is keyed on the unit's `id()` and holds the unit itself beside the answer, so no other object can reuse that address while the entry exists."""
+    """Whether each before-glyph index and after-cell index name the same letters along the whole window, which the pivot and follower comparisons and the corpus's after-indexed `pair` rely on. The sides line up when they merge the same codepoints at the same positions. A unit that carries `splits` is a `split_view`, which lined the sides up before this was asked, so it is taken as lined up. Requiring each side's components to sum to the window's codepoint count makes the check fail if a name ever covers codepoints some other way than as a ligature. The matchers and the combined walk ask this of a unit several times, so the answer is cached per unit object. The entry is keyed on the unit's `id()` and holds the unit itself beside the answer, so no other object can reuse that address while the entry exists."""
+    if unit.get("splits"):
+        return True
     cached = _alignment_cache.get(id(unit))
     if cached is not None:
         return cached[1]
@@ -272,6 +277,125 @@ def _letter_for_letter(unit):
         aligned = False
     _alignment_cache[id(unit)] = (unit, aligned)
     return aligned
+
+
+SPLIT_TAIL = "split-tail"
+# The two fields `split_view` adds to a unit it lines up. The corpus's index records never carry them, so the standing projection (`standing_daemon.UNIT_FIELDS`) does not list them, and rebuild/test_unit_index.py reads the fields the standing tools take from a unit net of this set.
+SPLIT_VIEW_FIELDS = frozenset({"splits", "unsplit"})
+
+
+def _is_split_match(match):
+    return SHAPES["ligature-split"].keyed_by in match["after"]
+
+
+def _split_accepts(match, glyph, first, second, junction):
+    """Whether a ligature-split rule names this position: the before glyph is the rule's ligature (any modifiers), the two after cells are among the rule's named cells, and the junction between them is the rule's."""
+    mb, ma = match["before"], match["after"]
+    return (
+        _family(glyph) == mb["ligature"]
+        and first in ma["first_cells"]
+        and second in ma["second_cells"]
+        and junction == ma["junction"]
+    )
+
+
+def split_view(unit, rules):
+    """Return the unit as the matchers read it: the unit itself, unless a ligature-split rule names every place where the sides fail to line up letter for letter, and then a copy whose before side is expanded so that they do. The copy replaces each split ligature's glyph by the glyph itself, which keeps its name and the single ink piece the before font draws for both letters, followed by the inkless marker `SPLIT_TAIL`, and puts the two letters' junction between them, so each side's glyph, junction and cell lists then have the same length and `index` names one position on both. The after side is untouched, so `pair`, `secondary_junctions` and the after cells keep their indices. `splits` lists the lead positions, `unsplit` keeps the unit the copy was made from, and `_letter_for_letter` takes a unit that carries `splits` as lined up, because this function checked it. Only the combined walk, the split rule's own matcher and the candidate checks read the copy: every other shape's own matcher is handed `unsplit` (`_matches`), so each result it had on the recorded unit stays. A unit is expanded only when every misalignment is a split a rule's `_split_accepts` names with the junction into the ligature equal to the junction into the first letter and the junction out of it equal to the junction out of the second, and the whole window's components then add up to its code points. Anything else, including a window that also forms a ligature in the after font, comes back unchanged, so it stays unplaceable and waits for human review."""
+    if not rules or "splits" in unit or _letter_for_letter(unit):
+        return unit
+    before, after = unit.get("before"), unit.get("after")
+    codepoints = unit.get("codepoints") or ""
+    if not before or not after or not codepoints:
+        return unit
+    glyphs, junctions = before["glyphs"], before["junctions"]
+    cells, after_junctions = after["cells"], after["junctions"]
+    expanded: list[str] = []
+    expanded_junctions: list[str] = []
+    leads: list[int] = []
+    at = 0
+    for index, glyph in enumerate(glyphs):
+        if at >= len(cells):
+            return unit
+        parts, kept = _components(_family(glyph)), _components(_cell_rune(cells[at]))
+        if parts == kept:
+            expanded.append(glyph)
+            at += 1
+        elif parts == 2 and kept == 1 and at + 1 < len(cells) and _components(_cell_rune(cells[at + 1])) == 1:
+            into_before = junctions[index - 1] if index else None
+            into_after = after_junctions[at - 1] if at else None
+            out_before = junctions[index] if index < len(junctions) else None
+            out_after = after_junctions[at + 1] if at + 1 < len(after_junctions) else None
+            if into_before != into_after or out_before != out_after:
+                return unit
+            if not any(
+                _split_accepts(rule["match"], glyph, cells[at], cells[at + 1], after_junctions[at])
+                for rule in rules
+            ):
+                return unit
+            expanded.extend([glyph, SPLIT_TAIL])
+            expanded_junctions.append(after_junctions[at])
+            leads.append(at)
+            at += 2
+        else:
+            return unit
+        if index < len(junctions):
+            expanded_junctions.append(junctions[index])
+    if not leads or at != len(cells):
+        return unit
+    if sum(_components(_cell_rune(cell)) for cell in cells) != len(codepoints.split(":")):
+        return unit
+    return {
+        **unit,
+        "before": {**before, "glyphs": expanded, "junctions": expanded_junctions},
+        "splits": tuple(leads),
+        "unsplit": unit,
+    }
+
+
+def _split_positions(match, unit):
+    """Return the lead positions of a view's splits that this rule names, read from the index record without shaping."""
+    glyphs, cells = unit["before"]["glyphs"], unit["after"]["cells"]
+    after_junctions = unit["after"]["junctions"]
+    return [
+        lead
+        for lead in unit.get("splits", ())
+        if lead + 1 < len(cells)
+        and lead < len(after_junctions)
+        and _split_accepts(match, glyphs[lead], cells[lead], cells[lead + 1], after_junctions[lead])
+    ]
+
+
+def _matches_split(match, unit, excluded, context=None):
+    """A ligature the before font draws as one glyph that the after font draws as its two letters joined at the named height, with both letters' cells named in full and the junctions into and out of the pair unchanged. The window is judged by the combined walk over this rule alone (`_combined_walk`), whose split event requires the ligature's ink to equal the two letters' ink under the running displacement, so the split is a renaming and moves nothing, and everything else in the window must be a translation too. A window whose only approved change is the split matches here, and one with other approved changes is the combined match's case. Nothing about the judged pair is read, since the walk accounts for every rendered pixel."""
+    if context is None or "splits" not in unit:
+        return False
+    events = _combined_walk([{"id": "split", "match": match}], unit, context)
+    if not events:
+        return False
+    glyphs = unit["before"]["glyphs"]
+    return not any(_joining_family(glyphs[at - 1]) in excluded for at in events["split"] if at)
+
+
+def _validate_split(rule_id, match) -> None:
+    """Check a ligature-split rule at load: the before ligature is a compound of exactly the two families `split` names, `junction` is a baseline-style yK height or a break, and each named cell list's cells belong to the family it follows."""
+    ligature = match["before"]["ligature"]
+    split = match["after"]["split"]
+    if not isinstance(ligature, str) or "." in ligature or "/" in ligature:
+        _fail(f"rule {rule_id!r}: match.before.ligature must be a bare compound family name")
+    if (
+        not isinstance(split, list)
+        or len(split) != 2
+        or not all(isinstance(item, str) and item for item in split)
+    ):
+        _fail(f"rule {rule_id!r}: match.after.split must list the two families the ligature splits into")
+    if ligature.split("_") != split:
+        _fail(f"rule {rule_id!r}: match.after.split must be the families of {ligature}")
+    junction = match["after"]["junction"]
+    if not isinstance(junction, str) or not (JUNCTION_ROW.fullmatch(junction) or junction == "break"):
+        _fail(f"rule {rule_id!r}: match.after.junction must be a yK height or break")
+    for field, family in (("first_cells", split[0]), ("second_cells", split[1])):
+        if any(_cell_rune(cell) != family for cell in match["after"][field]):
+            _fail(f"rule {rule_id!r}: match.after.{field} must name only {family} cells")
 
 
 def _matches_ligature(match, unit, excluded, context=None):
@@ -1669,7 +1793,7 @@ def _validate_join_created(rule_id, match) -> None:
 class Event(NamedTuple):
     """One position where a combinable rule's check held in a combined walk.
 
-    `kind` names the shape: `slide`, `extension`, `gain`, `join` (dropped), `entry`, `stub`, `redrawn`, `retarget`, or `joined` (created). `shift` is the columns the running displacement moves at this position: the declared slide, minus the extension's dropped columns, the declared gap, the entry shortening plus any exit-extension change on the pivot, the created join's shift, the columns a retarget moves its follower, or the declared ink-gain or redrawn shift. For `stub`, `shift` is the pivot's own placement offset instead, and the followers do not move.
+    `kind` names the shape: `slide`, `extension`, `gain`, `join` (dropped), `entry`, `stub`, `redrawn`, `retarget`, `joined` (created), or `split`. `shift` is the columns the running displacement moves at this position: the declared slide, minus the extension's dropped columns, the declared gap, the entry shortening plus any exit-extension change on the pivot, the created join's shift, the columns a retarget moves its follower, or the declared ink-gain or redrawn shift. For `stub`, `shift` is the pivot's own placement offset instead, and the followers do not move.
 
     `pivot_judged` is False only for a `retarget` or `joined` event whose pivot moved its own-frame origin. The walk keeps either kind only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot, and also keeps such a retarget behind a created join at the previous position, whose `follower_columns_added` has already checked that move.
 
@@ -1779,7 +1903,7 @@ def _candidate_counts(rules, unit):
 
 
 def _candidates(match, unit):
-    """Return the window positions where a combinable rule could hold, read from the unit's index record without shaping. Slide, ink-gain, entry-drop, stub-drop, and redrawn rules use every position whose before glyph carries a before pivot prefix, and a redrawn rule that names a `junction_out` or `follower` only the positions that open that junction or stand before that follower (`_opens_named_junction`). Entry-contracted rules use `_contracted_entry_candidates`, join-dropped rules `_join_pairs`, and join-retargeted and join-created rules `_retarget_pairs`. Extension rules use `_extension_positions`, and return none when `junction_out` is not a yK height, because the walk needs a row for the dropped tail. This is the name-only precheck: a rule with no candidate is never counted, and a window with fewer than two candidate positions across all rules is never shaped."""
+    """Return the window positions where a combinable rule could hold, read from the unit's index record without shaping. Slide, ink-gain, entry-drop, stub-drop, and redrawn rules use every position whose before glyph carries a before pivot prefix, and a redrawn rule that names a `junction_out` or `follower` only the positions that open that junction or stand before that follower (`_opens_named_junction`). Entry-contracted rules use `_contracted_entry_candidates`, join-dropped rules `_join_pairs`, and join-retargeted and join-created rules `_retarget_pairs`. Split rules use the lead positions of the view's `splits` they name (`_split_positions`). Extension rules use `_extension_positions`, and return none when `junction_out` is not a yK height, because the walk needs a row for the dropped tail. This is the name-only precheck: a rule with no candidate is never counted, and a window with fewer than two candidate positions across all rules is never shaped."""
     glyphs = unit["before"]["glyphs"]
     if (
         _is_slide_match(match)
@@ -1799,6 +1923,8 @@ def _candidates(match, unit):
         return _join_pairs(match, unit)
     if _is_retarget_match(match) or _is_created_join_match(match):
         return _retarget_pairs(match, unit)
+    if _is_split_match(match):
+        return _split_positions(match, unit)
     if not JUNCTION_ROW.fullmatch(match["before"]["junction_out"]):
         return []
     return _extension_positions(match, unit)
@@ -1844,6 +1970,23 @@ def _reachable(match, unit):
         and bool(deltas)
         and set(deltas.values()) <= set(match["after"]["ink_deltas"])
     )
+
+
+def _expanded_names(names, leads):
+    """Return a shaped before run's glyph names with `SPLIT_TAIL` after each glyph at one of a view's split lead positions (`split_view`), so the run's indices are the view's. The marker has no ink piece, so `_pieces_by_glyph` leaves it out."""
+    expanded = []
+    for name in names:
+        expanded.append(name)
+        if len(expanded) - 1 in leads:
+            expanded.append(SPLIT_TAIL)
+    return tuple(expanded)
+
+
+def _split_event(rule_id, index, before_pieces, after_pieces):
+    """Return a split Event at the lead `index` when the before font drew the ligature as one ink piece and the after font drew both letters with ink, or None, which leaves the position unexplained, so the walk refuses the window (`_combined_walk` requires an event at every split lead). The event moves nothing: the walk checks that the ligature's picture, at the running displacement, is the two letters' pictures together."""
+    if index not in before_pieces or index not in after_pieces or index + 1 not in after_pieces:
+        return None
+    return Event(rule_id, "split", 0)
 
 
 def _pieces_by_glyph(names, run):
@@ -2139,6 +2282,9 @@ def _combined_walk(rules, unit, context):
     comparator = context.comparator
     features = features_for(unit["configs"][0])
     before_names, before_run = comparator.named_run("before", text, features)
+    leads = frozenset(unit.get("splits", ()))
+    if leads:
+        before_names = _expanded_names(before_names, leads)
     if list(before_names) != unit["before"]["glyphs"]:
         return None
     after_names, after_run = comparator.named_run("after", text, features)
@@ -2195,6 +2341,8 @@ def _combined_walk(rules, unit, context):
                 event = _retarget_event(match, rule["id"], index, before_pieces, after_pieces)
             elif _is_created_join_match(match):
                 event = _created_join_event(match, rule["id"], index, before_pieces, after_pieces)
+            elif _is_split_match(match):
+                event = _split_event(rule["id"], index, before_pieces, after_pieces)
             else:
                 event = _extension_event(
                     match,
@@ -2286,6 +2434,8 @@ def _combined_walk(rules, unit, context):
         return None
     if pivot_events.keys() & (behind_retarget | behind_join):
         return None
+    if any(lead not in events or events[lead].kind != "split" for lead in leads):
+        return None
     counted = WalkEvents()
     before_span: list = []
     after_span: list = []
@@ -2324,6 +2474,13 @@ def _combined_walk(rules, unit, context):
             before_span, after_span = [before_pieces[index]], [after_pieces[index]]
             displacement += event.shift
             index += 1
+        elif event.kind == "split":
+            if not _span_settled(
+                intern, [before_pieces[index]], [after_pieces[index], after_pieces[index + 1]], displacement
+            ):
+                return None
+            before_span, after_span = [], []
+            index += 2
         elif event.kind in ("gain", "entry", "redrawn"):
             moves = {}
             for rival in pivot_events.get(index, explaining):
@@ -2712,6 +2869,19 @@ SHAPES = {
         needs_ink_deltas=True,
         guard_scope="window",
     ),
+    "ligature-split": Shape(
+        keyed_by="split",
+        before=("ligature",),
+        after=("split", "junction", "first_cells", "second_cells"),
+        cell_lists=("first_cells", "second_cells"),
+        matcher=_matches_split,
+        validate=_validate_split,
+        family_fields=("split",),
+        combinable=True,
+        font_backed=True,
+        needs_ink_deltas=True,
+        guard_scope="left-neighbor",
+    ),
 }
 
 
@@ -2848,6 +3018,9 @@ def _matches(match, unit, *, guard=True, context=None):
     excluded = set(match.get("except_left", [])) if guard else set()
     for shape in SHAPES.values():
         if shape.keyed_by in match["after"]:
+            if "splits" in unit and shape is not SHAPES["ligature-split"]:
+                # Every other shape's own matcher reads the unit as the corpus recorded it, so a split rule changes none of their results: the combined walk, which counts the split, takes a window first, and a window it declines is decided as it was before.
+                unit = unit["unsplit"]
             return shape.matcher(match, unit, excluded, context)
     return False
 
@@ -3270,6 +3443,7 @@ class Decider:
         self.context = context
         self.memo = memo
         self.combinable = _combinable(rules)
+        self.splits = [rule for rule in rules if _is_split_match(rule["match"])]
         self.combinable_digest = _combinable_digest(self.combinable)
         self.gate = len(self.combinable) > 1 and context is not None
         self.roster = rules_roster(rules, self.gate)
@@ -3307,8 +3481,13 @@ class Decider:
         self.computed = 0
         self.unkeyed = 0
 
+    def view(self, unit):
+        """The unit as every matcher reads it (`split_view`): the unit itself unless a ligature-split rule of this rule set lines its sides up. The memo key is always the recorded unit's (`Memo.locate`), so a split rule's arrival changes no key. It changes what the other rules see of the windows the rule names, which `_serve` sees as the new rule having a candidate position there."""
+        return split_view(unit, self.splits)
+
     def evaluate(self, unit) -> Decision:
-        """Compute the decision. The combined match runs first, because it takes a window before any single rule is checked. For any other window each rule's own matcher runs, and a guarded rule that fails is run again unguarded to find whether its guard blocked the window. The candidate counts for the name-only precheck are computed once and also give the entry's `relevant` rules."""
+        """Compute the decision. The combined match runs first, because it takes a window before any single rule is checked. For any other window each rule's own matcher runs, and a guarded rule that fails is run again unguarded to find whether its guard blocked the window. The candidate counts for the name-only precheck are computed once and also give the entry's `relevant` rules. Every matcher reads the unit's `view`."""
+        unit = self.view(unit)
         combined = None
         relevant: tuple[str, ...] = ()
         if self.gate:
@@ -3345,6 +3524,7 @@ class Decider:
         """
         if self._gate_moved:
             return None
+        unit = self.view(unit)
         relevant = set(entry.relevant)
         combined = entry.combined
         if combined is not None:
@@ -3807,14 +3987,14 @@ def _explain_lines(rule_id, reach, records):
     ]
 
 
-def _listed_lines(rules, rule, listed, records, decide):
+def _listed_lines(rules, rule, listed, records, decide, view):
     """One line per listed unit, in the order listed: the verdict the store holds (`blank` when none), whether the unit is a name-grain candidate of the targeted rule (`_reachable`), and what the run decided. That is the combined match that explains it, with the fill's verdict or `blocked` when a guard blocks the window; else the rules whose own matchers accept it and the rules whose except_left blocks it, in rules-file order; else that no rule matches it. It shows why a unit the user named is missing from the explain block. It reads the same `Decision` the run counted, so listing a unit changes no other line."""
     order = {each["id"]: index for index, each in enumerate(rules)}
     lines = []
     for unit in listed:
         unit_id = unit["id"]
         verdict = records[unit_id]["verdict"] if unit_id in records else "blank"
-        candidacy = "a candidate" if _reachable(rule["match"], unit) else "not a candidate"
+        candidacy = "a candidate" if _reachable(rule["match"], view(unit)) else "not a candidate"
         decision = decide(unit)
         combined = decision.combined
         if combined is not None:
@@ -3834,8 +4014,8 @@ def _listed_lines(rules, rule, listed, records, decide):
     return lines
 
 
-def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
-    """The report of a `--targeted` run: the lines of the whole-domain report that concern one rule, computed over only the units the rule could match at the name grain (`_reachable`) plus the listed ids. Units stay in corpus order, because `Reach` and the explain block list ids in iteration order and the lines must match the whole-domain run's. The subset contains every unit the whole-domain run would put on this rule's lines, and every decision depends only on its own unit, so the rule's own line, the combined-match lines counting it, its rollup line, its disputed-match warning, and its explain block are byte-identical to the whole-domain run's. Other rules' lines are left out, because over this subset they would be partial and the rollup would report every other rule as reaching nothing. The vocabulary line still reads the whole corpus, since it uses glyph names and no decisions, and each listed unit gets its own line (`_listed_lines`)."""
+def targeted_report(rules, rule, units, listed_ids, records, stamp, decide, view=lambda unit: unit):
+    """The report of a `--targeted` run: the lines of the whole-domain report that concern one rule, computed over only the units the rule could match at the name grain (`_reachable`) plus the listed ids. Units stay in corpus order, because `Reach` and the explain block list ids in iteration order and the lines must match the whole-domain run's. The subset contains every unit the whole-domain run would put on this rule's lines, and every decision depends only on its own unit, so the rule's own line, the combined-match lines counting it, its rollup line, its disputed-match warning, and its explain block are byte-identical to the whole-domain run's. Other rules' lines are left out, because over this subset they would be partial and the rollup would report every other rule as reaching nothing. The vocabulary line still reads the whole corpus, since it uses glyph names and no decisions, and each listed unit gets its own line (`_listed_lines`). `view` is the decider's (`Decider.view`), so candidacy is read from the unit as the matchers read it; `decide` takes the recorded unit."""
     listed = list(dict.fromkeys(listed_ids))
     wanted = set(listed)
     match = rule["match"]
@@ -3850,7 +4030,7 @@ def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
             joining.update(_joining_family(name) for name in (unit.get("before") or {}).get("glyphs") or ())
             if unit["id"] in wanted:
                 by_id[unit["id"]] = unit
-            if unit["id"] in wanted or _reachable(match, unit):
+            if unit["id"] in wanted or _reachable(match, view(unit)):
                 evaluated += 1
                 yield unit["id"], decide(unit)
 
@@ -3861,7 +4041,7 @@ def targeted_report(rules, rule, units, listed_ids, records, stamp, decide):
         f"name-grain candidates plus {len(listed)} listed — and no fill file written"
     ]
     lines += _listed_lines(
-        rules, rule, [by_id[unit_id] for unit_id in listed if unit_id in by_id], records, decide
+        rules, rule, [by_id[unit_id] for unit_id in listed if unit_id in by_id], records, decide, view
     )
     lines += [
         f"  listed {unit_id}: not a human unit on this corpus" for unit_id in listed if unit_id not in by_id
@@ -4063,7 +4243,9 @@ def _fill(
 
     if args.targeted:
         rule = next(rule for rule in rules if rule["id"] == args.explain)
-        target_lines = targeted_report(rules, rule, asked_units(), args.unit, records, stamp, decider.decide)
+        target_lines = targeted_report(
+            rules, rule, asked_units(), args.unit, records, stamp, decider.decide, decider.view
+        )
         refused()
         for line in target_lines:
             print(line)

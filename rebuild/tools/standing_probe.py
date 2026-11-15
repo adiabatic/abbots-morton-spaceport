@@ -1,4 +1,4 @@
-"""Explain why a review-corpus unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their junctions. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, blocked by except_left, or nothing), whether the combined match counts any rules and whether it has at least two matched positions, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change.
+"""Explain why a review-corpus unit still needs a verdict, in the terms the standing approvals use, so the next standing rule is written from evidence: for each named unit, print both grains side by side. The recorded grain is the before glyphs and after cells with their junctions. The rendered grain is each font's pieces with their placement, own-frame origin and cell count, and a one-line reading of the change: "same shape" with the placement move, "redrawn" with the cell counts, "inkless", or ink appearing or vanishing. Then print what each checked-in rule makes of the unit (matches, blocked by except_left, or nothing), whether the combined match counts any rules and whether it has at least two matched positions, and how many human units have exactly this unit's ink-delta digests and how they were verdicted. That last tally often shows that the user has already decided the change. A window whose ligature a checked-in ligature-split rule names is read through the rule's view of it (`standing_verdicts.split_view`): the ligature's row, then a `split-tail` row with no before piece, and the after font's two letters on the two rows, so every rule and the combined match read it the way the fill does.
 
 `--extension-cells PIVOT TOKEN JUNCTION` lists the pivot and follower cells a new extension-dropped rule has to name. It enumerates every window where a PIVOT glyph carrying TOKEN exits at JUNCTION on both sides and settles into a cell without the named extension or with a shorter one, or into a cell carrying the named contraction. TOKEN is an `ex-ext-N` on the before glyph, or an `ex-con-N` on the after cell whose before glyph carried no exit extension. Each row gives the pivot cell, the follower's family, the follower cell, and the verdict tally.
 
@@ -6,7 +6,7 @@
 
 `--survey BEFORE_GLYPH` (or `--survey BEFORE_GLYPH AFTER_CELL`) is the enumeration needed before writing a rule in a form-naming shape (redrawn, ink-gain, entry-contracted, entry-extension-dropped, stub-dropped, slide) or in the join-dropped shape. It lists every human unit whose window has a before glyph under that prefix, grouped by the before form and the after cell it settles into, then by the family on its left with the junction change into it, the junction change out of it, and the follower's family and cell. Each group has its verdict tally. It reads the index only and shapes nothing, so it costs only the corpus load. Windows whose sides do not line up letter for letter cannot be placed, and the survey prints how many there are.
 
-`--coverage RULE_ID` reruns the enumeration for an existing rule's shape and reports what it reaches that the rule does not name, each value with its verdict tally. `COVERAGE_SHAPES` lists the shapes that have an enumeration. The cell-naming shapes use their pair enumeration, built from the rule's before-side fields with everything else the rule names dropped, except the before forms the rule declines, which belong to a companion rule's survey. The form-naming shapes use the survey over the rule's family, dropping each named list in turn while keeping the others, because nothing else on the before side limits a redraw at the name grain. The report lists pivot forms, follower families and follower cells, or before forms, after forms in the after font's naming (`_cell_glyph_name`) and, for entry-contracted, left families. The ligature shape names no forms and the ink-delta shape names digests, so neither has an enumeration, and the tool says so. The report is a list of candidates: a value is added to a rule only after its own recorded decision has been found.
+`--coverage RULE_ID` reruns the enumeration for an existing rule's shape and reports what it reaches that the rule does not name, each value with its verdict tally. `COVERAGE_SHAPES` lists the shapes that have an enumeration. The cell-naming shapes use their pair enumeration, built from the rule's before-side fields with everything else the rule names dropped, except the before forms the rule declines, which belong to a companion rule's survey. The form-naming shapes use the survey over the rule's family, dropping each named list in turn while keeping the others, because nothing else on the before side limits a redraw at the name grain. The report lists pivot forms, follower families and follower cells, or before forms, after forms in the after font's naming (`_cell_glyph_name`) and, for entry-contracted, left families. The ligature-split shape has its own enumeration of the ligature's splits (`_split_rows`), reported as first cells, second cells and junctions. The ligature shape names no forms and the ink-delta shape names digests, so neither has an enumeration, and the tool says so. The report is a list of candidates: a value is added to a rule only after its own recorded decision has been found.
 
 `--find TEXT` maps a notation back to unit ids. It is a plain substring match over every human unit's notation, blanks first, capped because one letter pair can match thousands of units. `--blank-only` and `--limit N` narrow it. The notation's grammar is defined by `parse_expect` in test/test_shaping.py, and this tool does not parse it.
 
@@ -143,6 +143,7 @@ def _reading(intern, before, after):
 
 
 def _describe(unit, rules, context, blankness, families):
+    """Print one unit's two grains and what the rules make of it. A window where a checked-in ligature-split rule lines the sides up is read through `sv.split_view`: the ligature's row carries the one piece the before font draws, the row after it (`SPLIT_TAIL`) has no before piece, and the after font's two letters sit on the two rows."""
     verdict = blankness.of(unit["id"])
     deltas = unit.get("ink_deltas") or {}
     pair = unit.get("pair")
@@ -155,10 +156,13 @@ def _describe(unit, rules, context, blankness, families):
         f"   pair {pair_text}   secondary junctions {unit.get('secondary_junctions')}"
         f"   verdict {verdict}"
     )
+    unit = sv.split_view(unit, [rule for rule in rules if sv._is_split_match(rule["match"])])
+    leads = frozenset(unit.get("splits", ()))
     glyphs, junctions = unit["before"]["glyphs"], unit["before"]["junctions"]
     cells, after_junctions = unit["after"]["cells"], unit["after"]["junctions"]
     aligned = sv._letter_for_letter(unit)
-    print(f"  letter for letter: {'yes' if aligned else 'no'}")
+    note = f" once the ligature at {', '.join(map(str, sorted(leads)))} counts as split" if leads else ""
+    print(f"  letter for letter: {'yes' if aligned else 'no'}{note}")
     before_pieces: dict = {}
     after_pieces: dict = {}
     intern = None
@@ -166,6 +170,7 @@ def _describe(unit, rules, context, blankness, families):
         text = "".join(chr(int(value, 16)) for value in unit["codepoints"].split(":"))
         features = features_for(unit["configs"][0])
         before_names, before_run = context.comparator.named_run("before", text, features)
+        before_names = sv._expanded_names(before_names, leads) if leads else before_names
         after_names, after_run = context.comparator.named_run("after", text, features)
         intern = context.comparator.intern
         if list(before_names) != glyphs:
@@ -183,7 +188,16 @@ def _describe(unit, rules, context, blankness, families):
         line = f"  {index}  {glyph:<{width}}  {junction:<5} {cell:<{cell_width}}  {after_junction:<5}"
         if intern is not None:
             before, after = before_pieces.get(index), after_pieces.get(index)
-            line += f"  {_piece_text(intern, before):<22} {_piece_text(intern, after):<22} {_reading(intern, before, after)}"
+            reading = (
+                "drawn by the ligature in the row above"
+                if index - 1 in leads
+                else (
+                    "ligature drawn as this letter and the next"
+                    if index in leads
+                    else _reading(intern, before, after)
+                )
+            )
+            line += f"  {_piece_text(intern, before):<22} {_piece_text(intern, after):<22} {reading}"
         print(line)
     for rule in rules:
         if sv._matches(rule["match"], unit, context=context):
@@ -450,6 +464,7 @@ COVERAGE_SHAPES = {
     "entry-contracted": ("--survey", None, None),
     "stub-dropped": ("--survey", None, None),
     "redrawn": ("--survey", None, None),
+    "ligature-split": ("--coverage", None, None),
 }
 
 
@@ -528,6 +543,49 @@ def _form_coverage(units, blankness, rule_id, shape, match):
     return header, result
 
 
+def _split_rows(units, blankness, ligature):
+    """Return every place a human window's after side draws LIGATURE as its two letters, keyed by the two after cells and the junction between them, with each key's verdict tally. The walk goes by components, so a window that splits another ligature earlier is walked the same way, and a ligature the after font keeps is not a split. It filters on nothing a ligature-split rule names beyond the ligature, so it serves both to write a rule and for `--coverage` on one. `--survey` cannot place these windows, since their sides do not line up letter for letter until a rule's `split_view` lines them up."""
+    rows: dict[tuple, collections.Counter] = collections.defaultdict(collections.Counter)
+    for unit in units:
+        glyphs = unit["before"]["glyphs"]
+        if not any(sv._family(name) == ligature for name in glyphs):
+            continue
+        cells, junctions = unit["after"]["cells"], unit["after"]["junctions"]
+        at = 0
+        for glyph in glyphs:
+            start, need = at, sv._components(sv._family(glyph))
+            while need > 0 and at < len(cells):
+                need -= sv._components(sv._cell_rune(cells[at]))
+                at += 1
+            if sv._family(glyph) == ligature and at - start == 2 and start < len(junctions):
+                rows[(cells[start], cells[start + 1], junctions[start])][blankness.of(unit["id"])] += 1
+    return rows
+
+
+def _split_coverage(units, blankness, rule_id, shape, match):
+    """Return the coverage of a ligature-split rule: the split enumeration of its ligature, with each named list dropped in turn while the others stay in force, as `_form_coverage` does. It reports the first cells, second cells and junctions that the ligature's splits settle into but the rule does not name. Whether the junctions into and out of the pair stay unchanged, and whether the ligature's ink is the two letters' ink, are what the rule's own matcher judges, so a candidate listed here may still fail its walk."""
+    rows = _split_rows(units, blankness, match["before"]["ligature"])
+    axes = [
+        ("first cells", 0, set(match["after"]["first_cells"])),
+        ("second cells", 1, set(match["after"]["second_cells"])),
+        ("junctions", 2, {match["after"]["junction"]}),
+    ]
+    result = []
+    for label, position, listed in axes:
+        tallies: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+        for key, tally in rows.items():
+            if key[position] in listed:
+                continue
+            if all(key[other] in named for _label, other, named in axes if other != position):
+                tallies[key[position]].update(tally)
+        result.append((label, [(value, tallies[value]) for value in sorted(tallies, key=_codepoint_key)]))
+    header = (
+        f"coverage for rule {rule_id!r} ({shape} shape), enumerated over every {match['before']['ligature']} "
+        "split with each list it names relaxed while the others hold:"
+    )
+    return header, result
+
+
 def _coverage(units, blankness, rules, rule_id):
     """Print what a rule's own enumeration reaches that the rule does not name yet. It reruns the relaxed enumeration for the rule's shape from the rule's before-side fields (`_pair_coverage` for a shape that names cells, `_form_coverage` for one that names forms) and prints each unnamed value with the verdict tally of the windows that reached it. Each value still needs its own recorded decision before it is added to the rule."""
     rule = next((rule for rule in rules if rule["id"] == rule_id), None)
@@ -543,7 +601,10 @@ def _coverage(units, blankness, rules, rule_id):
             f"--coverage answers for {flags}, the shapes that name forms or cells a survey can reach"
         )
         return
-    enumerate_ = _form_coverage if COVERAGE_SHAPES[shape][0] == "--survey" else _pair_coverage
+    if shape == "ligature-split":
+        enumerate_ = _split_coverage
+    else:
+        enumerate_ = _form_coverage if COVERAGE_SHAPES[shape][0] == "--survey" else _pair_coverage
     header, axes = enumerate_(units, blankness, rule_id, shape, match)
     print(header)
     missing = False

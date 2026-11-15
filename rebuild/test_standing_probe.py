@@ -1,4 +1,4 @@
-"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly, and that an `--extension-cells` header for a contraction names only the contraction it lists. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a corpus with no font pair says which columns and which combined-match line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the corpus prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that a run with no daemon loads the daemon's projection of the human records, `standing_daemon.UNIT_FIELDS`, and builds no set of the corpus's unit ids. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, junction changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic corpus and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
+"""Tests for rebuild/tools/standing_probe.py, the read-only tool used to write standing-approval rules. They check that every family and cell list prints in code-point order, the order the rules file is written in, so a survey can be pasted from directly, and that an `--extension-cells` header for a contraction names only the contraction it lists. They check that a verdicts file stamped for another manifest prints every verdict as UNKNOWN_VERDICT instead of BLANK, and that a corpus with no font pair says which columns and which combined-match line are missing and why. They check that `--shapes` lists every entry of `standing_verdicts.SHAPES` with the opening words of its matcher's docstring, that a run whose unit ids all miss the corpus prints the same list, and that a listing run such as `--extension-cells` does not. They check that `--find` is a substring match over notations that lists blanks first and is capped with the total stated. They check that a run with no daemon loads the daemon's projection of the human records, `standing_daemon.UNIT_FIELDS`, and builds no set of the corpus's unit ids. They check that `--survey` groups every position under a before-glyph prefix by before form, after cell, left family, junction changes, and follower, each with a verdict tally and in code-point order, that it can narrow to one after cell, that it counts the windows it cannot place, and that it says when no window carries the glyph. They check that `--coverage` re-runs a rule's enumeration without the rule's named lists and prints, once, the followers, forms, and cells the rule does not name, for every shape except ligature and ink-delta, and that it says so when a rule's shape has no enumeration. They check that `--coverage` of a ligature-split rule enumerates the ligature's splits by cell and junction, and that a unit a split rule lines up is read through the rule's view. They also check `_cell_glyph_name` against `cell_label` over the mini spec, and that the dropped and added pixels in a redrawn reading are never truncated. Every test uses a synthetic corpus and rules file under tmp_path, or the frozen mini bundle, and reads no live build artifact."""
 
 import json
 
@@ -531,6 +531,90 @@ def test_coverage_of_an_unknown_rule_id_says_so(tmp_path, capsys):
 def test_coverage_answers_for_every_shape_but_ligature_and_ink_delta():
     """A shape added to SHAPES fails this test until COVERAGE_SHAPES covers it or it is added to the exemptions here. Ligature is exempt because it names no forms, and ink-delta because it names digests."""
     assert set(probe.COVERAGE_SHAPES) == set(sv.SHAPES) - {"ligature", "ink-delta"}
+
+
+SPLIT_RULE = {
+    "id": "vie-utter-ligature-split",
+    "verdict": "approve",
+    "note": "·Vie·Utter is drawn as two letters",
+    "match": {
+        "before": {"ligature": "qsVie_qsUtter"},
+        "after": {
+            "split": ["qsVie", "qsUtter"],
+            "junction": "y0",
+            "first_cells": ["qsVie/swept-out/baseline/baseline/ex-con-1"],
+            "second_cells": ["qsUtter/mono/baseline/None/"],
+        },
+        "except_left": [],
+    },
+}
+
+
+def split_window(uid, first, second, junction="y0"):
+    """A ·Vie+Utter ligature the after font draws as two letters after a baseline-exit ·Tea, with every junction around the pair unchanged."""
+    return window(
+        uid,
+        ["qsTea.ex-y0", "qsVie_qsUtter"],
+        ["qsTea/full/None/baseline/", first, second],
+        ["y0"],
+        ["y0", junction],
+    )
+
+
+def test_coverage_names_the_splits_a_ligature_split_rule_does_not(tmp_path, capsys):
+    """Coverage walks every window by components, so it finds a ligature the after font draws as two letters though the sides do not line up. It reports a first cell, a second cell or a junction the rule does not name when the other two lists are named, and leaves a split unreported when two of its three values are unnamed."""
+    named = ("qsVie/swept-out/baseline/baseline/ex-con-1", "qsUtter/mono/baseline/None/")
+    units = [
+        split_window("s-1", *named),
+        split_window("s-2", "qsVie/swept-out/None/baseline/ex-con-1", named[1]),
+        split_window("s-3", named[0], "qsUtter/mono/baseline/x-height/"),
+        split_window("s-4", *named, junction="break"),
+        split_window("s-5", "qsVie/normal/None/None/", "qsUtter/alternate/None/baseline/", junction="break"),
+        window(
+            "s-6",
+            ["qsTea.ex-y0", "qsVie_qsUtter"],
+            ["qsTea/full/None/baseline/", "qsVie_qsUtter/sole/baseline/None/"],
+            ["y0"],
+            ["y0"],
+        ),
+    ]
+    records = [{"unit": "s-3", "verdict": "approve", "note": "", "at": STAMP}]
+    out = _run(
+        tmp_path,
+        capsys,
+        units,
+        ["--coverage", SPLIT_RULE["id"]],
+        rules=(EXT_RULE, SPLIT_RULE),
+        records=records,
+    )
+    assert "(ligature-split shape)" in out
+    assert _section(out, "  first cells the rule does not name:") == [
+        "1  qsVie/swept-out/None/baseline/ex-con-1  {'BLANK': 1}"
+    ]
+    assert _section(out, "  second cells the rule does not name:") == [
+        "1  qsUtter/mono/baseline/x-height/  {'approve': 1}"
+    ]
+    assert _section(out, "  junctions the rule does not name:") == ["1  break  {'BLANK': 1}"]
+
+
+def test_a_unit_whose_ligature_a_rule_splits_is_read_through_the_split_view(tmp_path, capsys):
+    """The recorded sides do not line up, so without the rule the probe says so. With a ligature-split rule that names the window, the probe reads the lined-up window: the ligature's row and a `split-tail` row after it, and it says which position counts as split."""
+    unit_ = window(
+        "s-1",
+        ["qsTea.ex-y0", "qsVie_qsUtter"],
+        [
+            "qsTea/full/None/baseline/",
+            "qsVie/swept-out/baseline/baseline/ex-con-1",
+            "qsUtter/mono/baseline/None/",
+        ],
+        ["y0"],
+        ["y0", "y0"],
+    )
+    plain = _run(tmp_path / "plain", capsys, [unit_], ["s-1"], rules=(EXT_RULE,))
+    assert "letter for letter: no" in plain
+    split = _run(tmp_path / "split", capsys, [unit_], ["s-1"], rules=(EXT_RULE, SPLIT_RULE))
+    assert "letter for letter: yes once the ligature at 1 counts as split" in split
+    assert "split-tail" in split
 
 
 GAP_WINDOWS = [

@@ -1873,6 +1873,14 @@ def register_glyph(side, name, outline, advance):
     drawn[name] = (outline, advance)
 
 
+_LIGATURES: dict[str, tuple[str, ...]] = {}
+
+
+def register_ligature(name, *components):
+    """Record that a drawn glyph is the ligature the font forms from `components` through a `liga` substitution, so no codepoint maps to it. `_build_font` writes the substitution into every font that draws the ligature."""
+    _LIGATURES[name] = components
+
+
 def register_pair(before_name, after_name):
     """Allocate and return the next private-use codepoint for one before-to-after glyph pair. Both names must already be drawn on their own side, and a pair registered twice fails, so each pair has exactly one codepoint."""
     for side, name in (("before", before_name), ("after", after_name)):
@@ -2105,6 +2113,23 @@ FOLLOWER_HANDING_OVER = register_pair("qsThey.en-ext-1.handover-fixture", "qsThe
 UNCHANGED_LOW = register_pair("qsLow.unchanged-fixture", "qsLow.sole.unchanged-fixture")
 LOW_ENTERING_A_JOIN = register_pair("qsLow.en-ext-1.join-fixture", "qsLow.sole.join-fixture")
 
+SPLIT_FIRST = (_rect(0, 0, 100, 150),)
+SPLIT_SECOND = (_rect(0, 0, 100, 100),)
+SPLIT_SECOND_TALLER = (_rect(0, 0, 100, 150),)
+SPLIT_LIGATURE = (_rect(0, 0, 100, 150), _rect(100, 0, 200, 100))
+register_glyph("before", "qsQ", SPLIT_FIRST, 100)
+register_glyph("before", "qsR", SPLIT_SECOND, 100)
+register_glyph("before", "qsQ_qsR", SPLIT_LIGATURE, 200)
+register_ligature("qsQ_qsR", "qsQ", "qsR")
+register_glyph("after", "qsQ", SPLIT_FIRST, 100)
+register_glyph("after", "qsR", SPLIT_SECOND, 100)
+register_glyph("after", "qsR.taller", SPLIT_SECOND_TALLER, 100)
+register_glyph("after", "qsR.blank", (), 100)
+SPLIT_Q = register_pair("qsQ", "qsQ")
+SPLIT_R = register_pair("qsR", "qsR")
+SPLIT_R_TALLER = register_pair("qsR", "qsR.taller")
+SPLIT_R_BLANK = register_pair("qsR", "qsR.blank")
+
 BEFORE_GLYPHS = _OUTLINES["before"]
 AFTER_GLYPHS = _OUTLINES["after"]
 BEFORE_CMAP = {codepoint: names[0] for names, codepoint in _CODEPOINTS.items()}
@@ -2317,6 +2342,12 @@ def _build_font(path, glyphs, cmap):
     builder.setupNameTable({"familyName": "SlideTest", "styleName": "Regular"})
     builder.setupOS2()
     builder.setupPost()
+    ligatures = {name: parts for name, parts in _LIGATURES.items() if name in glyphs}
+    if ligatures:
+        from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+
+        rules = " ".join(f"sub {' '.join(parts)} by {name};" for name, parts in ligatures.items())
+        addOpenTypeFeaturesFromString(builder.font, f"feature liga {{ {rules} }} liga;")
     builder.font.recalcTimestamp = False
     builder.font["head"].created = 0  # pyright: ignore[reportAttributeAccessIssue]
     builder.font["head"].modified = 0
@@ -2379,7 +2410,11 @@ def test_a_pair_registered_twice_is_refused():
 def test_every_drawn_glyph_is_spelled_by_some_codepoint():
     """An outline no codepoint maps to can never be shaped, so it is either an unused fixture or a pair that was never registered."""
     for side, cmap in (("before", BEFORE_CMAP), ("after", AFTER_CMAP)):
-        assert sorted(set(_OUTLINES[side]) - set(cmap.values())) == []
+        spelled = set(cmap.values())
+        formed = {
+            name for name, parts in _LIGATURES.items() if name in _OUTLINES[side] and set(parts) <= spelled
+        }
+        assert sorted(set(_OUTLINES[side]) - spelled - formed) == []
 
 
 def test_a_slide_rule_reads_no_unit_without_ink_deltas():
@@ -3296,7 +3331,7 @@ def test_main_refuses_a_corpus_that_predates_the_ink_delta_field(tmp_path, monke
         SystemExit,
         match=(
             "predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, "
-            "entry-contracted, stub-dropped, redrawn, join-retargeted, and join-created"
+            "entry-contracted, stub-dropped, redrawn, join-retargeted, join-created, and ligature-split"
         ),
     ):
         _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, INK_RULE))
@@ -3820,7 +3855,7 @@ def test_two_combinable_rules_refuse_a_corpus_that_predates_the_ink_delta_field(
         SystemExit,
         match=(
             "predates the ink-delta, slide, ink-gain, join-dropped, entry-extension-dropped, "
-            "entry-contracted, stub-dropped, redrawn, join-retargeted, and join-created"
+            "entry-contracted, stub-dropped, redrawn, join-retargeted, join-created, and ligature-split"
         ),
     ):
         _run_main(tmp_path, monkeypatch, [tea_i("u-1")], [], rules_list=(EXT_RULE, COMBINED_EXT_RULE))
@@ -7833,6 +7868,435 @@ def test_an_ink_gain_rule_naming_no_gained_cell_is_refused_at_load(tmp_path):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
+SPLIT_RULE = {
+    "id": "fixture-ligature-split",
+    "verdict": "approve",
+    "note": "·Q·R is drawn as ·Q joined to ·R where the old font drew the ·Q+R ligature",
+    "match": {
+        "before": {"ligature": "qsQ_qsR"},
+        "after": {
+            "split": ["qsQ", "qsR"],
+            "junction": "y0",
+            "first_cells": ["qsQ/full/None/None/"],
+            "second_cells": ["qsR/full/None/None/"],
+        },
+        "except_left": [],
+    },
+}
+
+SPLIT_INK_RULE = {
+    "id": "fixture-split-ink-delta",
+    "verdict": "approve",
+    "note": "the window's whole ink change is the one the user approved",
+    "match": {"after": {"ink_deltas": [SLIDE_DELTA]}, "except_left": []},
+}
+
+
+def split_unit(uid, before, after, codepoints, *, junctions=None, after_junctions=None, pair=None):
+    """A window whose before glyphs include the ligature `qsQ_qsR` and whose after cells name each family plainly, so one more after cell than before glyph; an after entry with a slash is a whole cell. Every junction is a baseline one unless a test says otherwise."""
+    return unit(
+        uid,
+        list(before),
+        ["y0"] * (len(before) - 1) if junctions is None else junctions,
+        [cell if "/" in cell else f"{cell}/full/None/None/" for cell in after],
+        ["y0"] * (len(after) - 1) if after_junctions is None else after_junctions,
+        codepoints=codepoints,
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+        pair=pair,
+    )
+
+
+def split_window(uid="sp-1", second=SPLIT_R):
+    """A ligature between two letters that are not an event: ·Q+R becomes ·Q joined to ·R."""
+    return split_unit(
+        uid,
+        ["qsL", "qsQ_qsR", "qsF1"],
+        ["qsL", "qsQ", "qsR", "qsF1"],
+        spell(LEAD, SPLIT_Q, second, FOLLOWER_1),
+        pair={"left": 0, "right": 1},
+    )
+
+
+def split_slide_window(uid="sp-2"):
+    """The baseline-exit ·See slides a column closer to what precedes it, so the split ligature after it sits one column left of where the old font drew it."""
+    return split_unit(
+        uid,
+        ["qsL", "qsSee.ex-y0", "qsQ_qsR", "qsF1"],
+        ["qsL", "qsSee", "qsQ", "qsR", "qsF1"],
+        spell(LEAD, SEE, SPLIT_Q, SPLIT_R, FOLLOWER_1),
+    )
+
+
+def split_twice_window(uid="sp-3"):
+    return split_unit(
+        uid,
+        ["qsQ_qsR", "qsL", "qsQ_qsR"],
+        ["qsQ", "qsR", "qsL", "qsQ", "qsR"],
+        spell(SPLIT_Q, SPLIT_R, LEAD, SPLIT_Q, SPLIT_R),
+    )
+
+
+def viewed(window, rules=(SPLIT_RULE,)):
+    return sv.split_view(window, list(rules))
+
+
+def test_a_split_view_lines_the_sides_up_and_leaves_the_after_side_alone():
+    window = split_window()
+    assert not sv._letter_for_letter(window)
+    view = viewed(window)
+    assert sv._letter_for_letter(view)
+    assert view["before"] == {
+        "glyphs": ["qsL", "qsQ_qsR", sv.SPLIT_TAIL, "qsF1"],
+        "junctions": ["y0", "y0", "y0"],
+    }
+    assert view["after"] is window["after"]
+    assert view["pair"] == window["pair"]
+    assert view["splits"] == (1,)
+    assert view["unsplit"] is window
+
+
+def test_a_view_adds_exactly_the_fields_the_projection_test_nets_out():
+    window = split_window()
+    assert set(viewed(window)) - set(window) == sv.SPLIT_VIEW_FIELDS
+
+
+def test_a_view_without_a_split_rule_is_the_unit_itself():
+    window = split_window()
+    assert viewed(window, ()) is window
+    aligned = founding_window()
+    assert viewed(aligned) is aligned
+
+
+def test_a_view_keeps_every_junction_around_a_twice_split_window():
+    view = viewed(split_twice_window())
+    assert view["before"]["glyphs"] == ["qsQ_qsR", sv.SPLIT_TAIL, "qsL", "qsQ_qsR", sv.SPLIT_TAIL]
+    assert view["before"]["junctions"] == ["y0", "y0", "y0", "y0"]
+    assert view["splits"] == (0, 3)
+
+
+@pytest.mark.parametrize(
+    "window",
+    [
+        pytest.param(
+            split_unit(
+                "sp-4",
+                ["qsL", "qsQ_qsR", "qsF1"],
+                ["qsL", "qsQ", "qsR", "qsF1"],
+                spell(LEAD, SPLIT_Q, SPLIT_R, FOLLOWER_1),
+                junctions=["break", "y0"],
+            ),
+            id="junction-into-the-ligature-changes",
+        ),
+        pytest.param(
+            split_unit(
+                "sp-5",
+                ["qsL", "qsQ_qsR", "qsF1"],
+                ["qsL", "qsQ", "qsR", "qsF1"],
+                spell(LEAD, SPLIT_Q, SPLIT_R, FOLLOWER_1),
+                after_junctions=["y0", "y0", "break"],
+            ),
+            id="junction-out-of-the-pair-changes",
+        ),
+        pytest.param(
+            split_unit(
+                "sp-6",
+                ["qsL", "qsQ_qsR", "qsF1"],
+                ["qsL", "qsQ", "qsR", "qsF1"],
+                spell(LEAD, SPLIT_Q, SPLIT_R, FOLLOWER_1),
+                after_junctions=["y0", "y5", "y0"],
+            ),
+            id="the-pair-joins-at-another-height",
+        ),
+        pytest.param(
+            dict(
+                split_window("sp-7"),
+                after={
+                    **split_window()["after"],
+                    "cells": [
+                        "qsL/full/None/None/",
+                        "qsQ/other/None/None/",
+                        "qsR/full/None/None/",
+                        "qsF1/full/None/None/",
+                    ],
+                },
+            ),
+            id="an-unnamed-first-cell",
+        ),
+        pytest.param(
+            dict(
+                split_window("sp-8"),
+                after={
+                    **split_window()["after"],
+                    "cells": [
+                        "qsL/full/None/None/",
+                        "qsQ/full/None/None/",
+                        "qsR/other/None/None/",
+                        "qsF1/full/None/None/",
+                    ],
+                },
+            ),
+            id="an-unnamed-second-cell",
+        ),
+        pytest.param(
+            split_unit(
+                "sp-10",
+                ["qsL", "qsQ", "qsR", "qsF1"],
+                ["qsL", "qsQ_qsR", "qsF1"],
+                spell(LEAD, SPLIT_Q, SPLIT_R, FOLLOWER_1),
+            ),
+            id="the-after-font-forms-the-ligature",
+        ),
+    ],
+)
+def test_a_window_that_is_not_the_named_split_stays_unplaced(window):
+    assert viewed(window) is window
+    assert not sv._letter_for_letter(window)
+
+
+def test_a_window_whose_after_font_keeps_the_ligature_needs_no_view():
+    window = split_unit(
+        "sp-9",
+        ["qsL", "qsQ_qsR", "qsF1"],
+        ["qsL", "qsQ_qsR", "qsF1"],
+        spell(LEAD, SPLIT_Q, SPLIT_R, FOLLOWER_1),
+    )
+    assert sv._letter_for_letter(window)
+    assert viewed(window) is window
+
+
+def test_a_split_that_names_another_ligature_stays_unplaced():
+    other = json.loads(json.dumps(SPLIT_RULE))
+    other["match"]["before"]["ligature"] = "qsQ_qsS"
+    other["match"]["after"]["split"] = ["qsQ", "qsS"]
+    other["match"]["after"]["second_cells"] = ["qsS/full/None/None/"]
+    window = split_window()
+    assert viewed(window, (other,)) is window
+
+
+def test_a_window_whose_split_ligature_has_no_following_cell_stays_unplaced():
+    window = split_unit(
+        "sp-11", ["qsL", "qsQ_qsR"], ["qsL", "qsQ"], spell(LEAD, SPLIT_Q, SPLIT_R), after_junctions=["y0"]
+    )
+    assert viewed(window) is window
+
+
+def test_a_split_window_matches_its_rule_alone(slide_context):
+    window = viewed(split_window())
+    assert sv._matches(SPLIT_RULE["match"], window, context=slide_context())
+    assert sv._combined_walk([SPLIT_RULE], window, slide_context()) == {SPLIT_RULE["id"]: [1]}
+    assert sv._candidates(SPLIT_RULE["match"], window) == [1]
+    assert sv._reachable(SPLIT_RULE["match"], window)
+
+
+def test_a_rule_reads_only_the_window_a_view_lined_up(slide_context):
+    window = split_window()
+    assert sv._candidates(SPLIT_RULE["match"], window) == []
+    assert not sv._reachable(SPLIT_RULE["match"], window)
+    assert not sv._matches(SPLIT_RULE["match"], window, context=slide_context())
+
+
+def test_a_twice_split_window_counts_the_rule_at_both_positions(slide_context):
+    window = viewed(split_twice_window())
+    assert sv._combined_walk([SPLIT_RULE], window, slide_context()) == {SPLIT_RULE["id"]: [0, 3]}
+    assert sv._combined_match([SPLIT_RULE, SLIDE_RULE], window, slide_context()) == {SPLIT_RULE["id"]: [0, 3]}
+
+
+def test_a_split_and_a_slide_in_one_window_combine(slide_context):
+    window = viewed(split_slide_window())
+    events = sv._combined_match([SLIDE_RULE, SPLIT_RULE], window, slide_context())
+    assert events == {SLIDE_RULE["id"]: [1], SPLIT_RULE["id"]: [2]}
+
+
+def test_every_other_shape_reads_a_window_carrying_a_split_as_recorded(slide_context):
+    """The slide matcher reads the window as the corpus recorded it, with or without the split rule, so the split rule never takes away a result it had. The split rule alone fails on it, because the slide moves the ligature, and the ink-delta rule matches as before."""
+    recorded = split_slide_window()
+    window = viewed(recorded)
+    assert sv._matches(SLIDE_RULE["match"], recorded, context=slide_context())
+    assert sv._matches(SLIDE_RULE["match"], window, context=slide_context())
+    assert not sv._matches(SPLIT_RULE["match"], window, context=slide_context())
+    assert sv._matches(SPLIT_INK_RULE["match"], window)
+
+
+def test_the_split_alone_does_not_hide_a_change_no_rule_approves(slide_context):
+    """A window whose only rule is the split fails when the slide is not approved, because the ligature then sits a column from where the old font drew it."""
+    window = viewed(split_slide_window())
+    assert sv._combined_walk([SPLIT_RULE], window, slide_context()) is None
+    assert not sv._matches(SPLIT_RULE["match"], window, context=slide_context())
+
+
+def test_a_window_with_a_split_no_rule_names_is_not_walked(slide_context):
+    window = split_slide_window()
+    assert sv._combined_match([SLIDE_RULE, SPLIT_RULE], window, slide_context()) is None
+    assert sv._combined_walk([SLIDE_RULE, SPLIT_RULE], window, slide_context()) is None
+
+
+def created_join_split_window(uid="cj-sp"):
+    """The ·J·F3 join the old font left a break, then a ·Q+R ligature the after font draws as two letters. The created join needs the sides lined up, which the split rule's view does."""
+    return split_unit(
+        uid,
+        [*CREATED_JOIN_GLYPHS, "qsQ_qsR"],
+        ["qsL", "qsJ/sole/None/baseline/ex-ext-1", "qsF3", "qsQ", "qsR"],
+        spell(LEAD, PIVOT_SHORTENED, FOLLOWER_3, SPLIT_Q, SPLIT_R),
+        junctions=["y0", "break", "break"],
+        after_junctions=["y0", "y0", "break", "y0"],
+    )
+
+
+def test_a_created_join_needs_the_split_rule_to_read_a_window_with_a_split(slide_context):
+    rules = [CREATED_JOIN_RULE, SPLIT_RULE]
+    recorded = created_join_split_window()
+    assert not sv._matches(CREATED_JOIN_RULE["match"], recorded, context=slide_context())
+    assert sv._combined_match(rules, recorded, slide_context()) is None
+    events = sv._combined_match(rules, viewed(recorded), slide_context())
+    assert events == {CREATED_JOIN_RULE["id"]: [1], SPLIT_RULE["id"]: [3]}
+
+
+def test_an_after_letter_that_paints_more_ink_than_the_ligature_did_is_refused(slide_context):
+    window = viewed(split_window("sp-12", second=SPLIT_R_TALLER))
+    assert not sv._matches(SPLIT_RULE["match"], window, context=slide_context())
+    assert sv._combined_walk([SPLIT_RULE], window, slide_context()) is None
+
+
+def test_an_after_letter_that_paints_no_ink_is_refused(slide_context):
+    window = viewed(split_window("sp-13", second=SPLIT_R_BLANK))
+    assert sv._combined_walk([SPLIT_RULE], window, slide_context()) is None
+
+
+def test_one_extra_pixel_after_the_split_defeats_it(slide_context):
+    window = viewed(split_window())
+    assert sv._matches(SPLIT_RULE["match"], window, context=slide_context())
+    assert not sv._matches(
+        SPLIT_RULE["match"], window, context=slide_context("after-extra-post-follower-pixel")
+    )
+
+
+def test_the_split_rules_guard_reads_the_letter_before_the_ligature(slide_context):
+    guarded = dict(SPLIT_RULE, match=guarding(SPLIT_RULE, ["qsL"]))
+    window = viewed(split_window())
+    assert not sv._matches(guarded["match"], window, context=slide_context())
+    assert sv._matches(guarded["match"], window, guard=False, context=slide_context())
+
+
+def test_a_decider_reads_a_split_window_through_its_view(slide_context):
+    window = split_slide_window()
+    decision = sv.Decider([SLIDE_RULE, SPLIT_RULE], slide_context()).evaluate(window)
+    assert decision.combined is not None
+    assert decision.combined.counted == (SLIDE_RULE["id"], SPLIT_RULE["id"])
+    assert decision.relevant == (SLIDE_RULE["id"], SPLIT_RULE["id"])
+    without = sv.Decider([SLIDE_RULE, COMBINED_EXT_RULE], slide_context()).evaluate(window)
+    assert without.combined is None and without.matched == {SLIDE_RULE["id"]}
+
+
+def test_a_decider_matches_a_lone_split_on_the_rules_own_line(slide_context):
+    decision = sv.Decider([SLIDE_RULE, SPLIT_RULE], slide_context()).evaluate(split_window())
+    assert decision.combined is None
+    assert decision.matched == {SPLIT_RULE["id"]}
+
+
+def test_the_ink_delta_shape_still_reads_a_split_window_as_recorded(slide_context):
+    decision = sv.Decider([SPLIT_INK_RULE, SPLIT_RULE], slide_context()).evaluate(split_window())
+    assert decision.matched == {SPLIT_INK_RULE["id"], SPLIT_RULE["id"]}
+
+
+def test_a_split_rule_added_to_a_rules_file_is_asked_on_the_served_windows_it_names(tmp_path, slide_context):
+    """A memo entry stored before the split rule existed saw the window unaligned, so no rule had a candidate there. The new rule has one on the view, so `_serve` refuses the entry and the window is decided again under the live rules."""
+    window = dict(split_slide_window("sp-memo"), content_key="d" * 64)
+    seed = sv.Decider([SLIDE_RULE, COMBINED_EXT_RULE], slide_context())
+    path = tmp_path / "memo.ndjson.gz"
+    stale = seed.evaluate(window)
+    assert stale.combined is None
+    _write_memo(path, [(window, stale)], seed.roster)
+    memo = sv.Memo.open(path, "env", {})
+    decider = sv.Decider([SLIDE_RULE, COMBINED_EXT_RULE, SPLIT_RULE], slide_context(), memo)
+    assert decider._serving(window) is None
+    decided = decider.decide(window)
+    assert decided.combined is not None
+    assert decided.combined.counted == (SLIDE_RULE["id"], SPLIT_RULE["id"])
+    assert (decider.served, decider.computed) == (0, 1)
+
+
+def test_main_writes_a_split_and_a_slide_as_one_combined_record(tmp_path, monkeypatch, capsys, slide_fonts):
+    payload = _run_main(
+        tmp_path,
+        monkeypatch,
+        [split_slide_window("sp-main"), split_window("sp-solo")],
+        [],
+        rules_list=(SLIDE_RULE, SPLIT_RULE),
+        fonts=slide_fonts,
+    )
+    notes = {record["unit"]: record["note"] for record in payload["verdicts"]}
+    assert notes == {
+        "sp-main": f"[standing: {SLIDE_RULE['id']} + {SPLIT_RULE['id']}] {SLIDE_RULE['note']}; {SPLIT_RULE['note']}",
+        "sp-solo": f"[standing: {SPLIT_RULE['id']}] {SPLIT_RULE['note']}",
+    }
+    lines = capsys.readouterr().out.splitlines()
+    assert (
+        f"  {SPLIT_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+        in lines
+    )
+    assert (
+        f"  {SLIDE_RULE['id']} + {SPLIT_RULE['id']}: 1 filled, 0 already verdicted, "
+        "0 blocked by except_left, left for review"
+    ) in lines
+
+
+def test_a_targeted_run_for_the_slide_rule_reaches_a_window_only_the_split_lines_up(
+    tmp_path, monkeypatch, capsys, slide_fonts
+):
+    """The slide rule has no candidate position in the unit as recorded, because its sides do not line up. Its targeted run reads candidacy through the decider's view, so it evaluates the window and prints the combined line the whole-domain run prints."""
+    units = [split_slide_window("sp-main"), founding_window("sp-founding")]
+    rules = (SLIDE_RULE, SPLIT_RULE)
+    _run_main(tmp_path / "whole", monkeypatch, units, [], rules_list=rules, fonts=slide_fonts)
+    whole = capsys.readouterr().out.splitlines()
+    _target_main(
+        tmp_path / "targeted",
+        monkeypatch,
+        units,
+        [],
+        ["--explain", SLIDE_RULE["id"], "--targeted"],
+        rules_list=rules,
+        fonts=slide_fonts,
+    )
+    targeted = capsys.readouterr().out.splitlines()
+    combined = f"  {SLIDE_RULE['id']} + {SPLIT_RULE['id']}: 1 filled, 0 already verdicted, 0 blocked by except_left, left for review"
+    assert combined in whole and combined in targeted
+    assert targeted[0].startswith(f"  targeted at {SLIDE_RULE['id']}: 2 of 2 human units evaluated")
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (lambda match: match["before"].update(ligature="qsQ_qsR.en-ext-1"), "bare compound family name"),
+        (lambda match: match["after"].update(split=["qsQ", "qsS"]), "must be the families of qsQ_qsR"),
+        (lambda match: match["after"].update(split=["qsQ"]), "two families"),
+        (lambda match: match["after"].update(junction="sideways"), "yK height or break"),
+        (
+            lambda match: match["after"].update(first_cells=["qsR/full/None/None/"]),
+            "first_cells must name only qsQ",
+        ),
+        (
+            lambda match: match["after"].update(second_cells=["qsQ/full/None/None/"]),
+            "second_cells must name only qsR",
+        ),
+    ],
+)
+def test_a_malformed_split_rule_is_refused_at_load(tmp_path, edit, message):
+    rule = json.loads(json.dumps(SPLIT_RULE))
+    edit(rule["match"])
+    with pytest.raises(SystemExit, match=message):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_split_rule_may_name_a_break_between_its_letters(tmp_path):
+    rule = json.loads(json.dumps(SPLIT_RULE))
+    rule["match"]["after"]["junction"] = "break"
+    assert (
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))[0]["match"]["after"]["junction"]
+        == "break"
+    )
+
+
 SOLO_WINDOWS = {
     "ligature": (RULE, canonical),
     "extension-dropped": (EXT_RULE, tea_i),
@@ -7846,6 +8310,7 @@ SOLO_WINDOWS = {
     "redrawn": (REDRAWN_RULE, redrawn_window),
     "join-retargeted": (RETARGET_RULE, retarget_window),
     "join-created": (CREATED_JOIN_RULE, created_join_window),
+    "ligature-split": (SPLIT_RULE, split_window),
 }
 
 

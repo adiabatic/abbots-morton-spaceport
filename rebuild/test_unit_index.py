@@ -766,7 +766,7 @@ def test_pool_preserves_distinct_json_scalar_types_inside_equal_containers(tmp_p
 
 
 def test_standing_projection_covers_the_fields_read_by_both_consumers(tmp_path):
-    from rebuild.tools import standing_daemon
+    from rebuild.tools import standing_daemon, standing_verdicts
 
     expected = {
         "id",
@@ -792,7 +792,7 @@ def test_standing_projection_covers_the_fields_read_by_both_consumers(tmp_path):
         "class",
         "duplicate_group",
     }
-    assert derived == expected == standing_daemon.UNIT_FIELDS
+    assert derived - standing_verdicts.SPLIT_VIEW_FIELDS == expected == standing_daemon.UNIT_FIELDS
     corpus, full = _reader_corpus(tmp_path, "current")
     assert unit_index.load_units(corpus, fields=standing_daemon.UNIT_FIELDS) == [
         {key: value for key, value in record.items() if key in expected} for record in full
