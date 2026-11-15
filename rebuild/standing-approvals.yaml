@@ -3280,3 +3280,23 @@ rules:
         pivots: [qsTea.half.ex-y5.ex-bind-padded-left-1]
         slide: 1
       except_left: []
+  - id: bay-day-no-baseline-join-created
+    verdict: approve
+    note: "·Bay and ·Day join ·No at the baseline where the old font left a break, and ·No flips to take the join and comes two columns nearer — ·No flips before ·Gay, the stance that carries the letter's only baseline entry, from “Join `·No ~x~ ·Gay`, not just `·No ~b~ ·Gay`”, and its from-list has named qsBay and qsDay since those letters landed in “Add ·Bay” and “Add ·Day”. One of those two columns is the pixel qsBay's and qsDay's baseline exit give up before ·No on their contract records from “Contract `·Bay ~b~ ·No.alt` by a pixel” and “Contract `·Day ~b~ ·No.alt` by a pixel”. Every window that reached a review session approved the join, and the user approved the review queue's top 25 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: [qsBay, qsDay]
+        junction_out: break
+        follower: qsNo
+      after:
+        joined: y0
+        pivot_cells:
+          - qsBay/sole/None/baseline/ex-con-1
+          - qsDay/full/None/baseline/ex-con-1
+        follower_after_cells:
+          - qsNo/flipped/baseline/None/
+          - qsNo/flipped/baseline/baseline/
+        shift: -2
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
