@@ -48,7 +48,7 @@ rules:
         pivot: qsJai
         exit_extension: ex-ext-1
         junction_out: y0
-        follower: [qsVie, qsVie_qsUtter, qsSee, qsNo, qsLow]
+        follower: [qsVie, qsSee, qsNo, qsLow]
       after:
         pivot_cells:
           - qsJai/sole/None/baseline/
@@ -58,9 +58,6 @@ rules:
         follower_cells:
           - qsVie/normal/baseline/None/
           - qsVie/swept-out/baseline/baseline/
-          - qsVie_qsUtter/sole/baseline/None/
-          - qsVie_qsUtter/sole/baseline/x-height/
-          - qsVie_qsUtter/sole/baseline/x-height/ex-ext-1
           - qsSee/normal/baseline/None/
           - qsSee/normal/baseline/top/
           - qsSee/curled-over/baseline/y6/
@@ -178,16 +175,6 @@ rules:
         pivots: [qsVie.normal, qsVie.swept-out]
         entry_drop: 1
       except_left: []
-  - id: vie-utter-entry-extension-dropped
-    verdict: approve
-    note: "·Vie+Utter sits a pixel closer after ·Pea, ·Tea and ·It — the extra pixel of baseline entry the old font drew came off the ligature's extend record in the same three ditches as bare ·Vie, and every window that reached a review session approved the shorter reach"
-    match:
-      before:
-        pivots: [qsVie_qsUtter.en-ext-1]
-      after:
-        pivots: [qsVie_qsUtter.sole]
-        entry_drop: 1
-      except_left: []
   - id: may-entry-extension-dropped
     verdict: approve
     note: "·May sits a pixel closer after ·Pea — the extra pixel of baseline entry the old font drew came off qsMay's extend record (Never lengthen ·May's baseline-entry join), and every window that reached a review session approved the shorter reach"
@@ -259,7 +246,7 @@ rules:
         pivot: qsIt
         exit_extension: ex-ext-1
         junction_out: y0
-        follower: [qsDay, qsDay_qsUtter, qsThaw, qsVie, qsVie_qsUtter, qsSee, qsZoo, qsMay, qsNo, qsLow, qsRoe, qsAt, qsI, qsAh, qsUtter, qsOut, qsOut_qsTea, qsOoze]
+        follower: [qsDay, qsDay_qsUtter, qsThaw, qsVie, qsSee, qsZoo, qsMay, qsNo, qsLow, qsRoe, qsAt, qsI, qsAh, qsUtter, qsOut, qsOut_qsTea, qsOoze]
       after:
         pivot_cells:
           - qsIt/sole/None/baseline/
@@ -273,7 +260,6 @@ rules:
           - qsThaw/sole/baseline/None/
           - qsVie/normal/baseline/None/
           - qsVie/swept-out/baseline/baseline/
-          - qsVie_qsUtter/sole/baseline/None/
           - qsSee/curled-over/baseline/y6/
           - qsSee/normal/baseline/None/
           - qsSee/normal/baseline/top/
@@ -1027,17 +1013,6 @@ rules:
         dropped: [[1, 8]]
         added: []
         shift: 0
-      except_left: []
-  - id: vie-utter-xheight-extension-added
-    verdict: approve
-    note: "·Vie+Utter gains one pixel of x-height exit into ·Gay and carries ·Gay one column right — qsVie_qsUtter’s extend record lengthens that reach before ·Bay, ·Gay and ·Fee, one decision on one stroke, so the rule covers the whole of that list rather than ·Gay alone; qsGay joined it in “Add ·Gay”, ·Bay in “Add ·Bay”, and the record itself landed with the ligature in “Declare ·See done and add ·Vie”"
-    match:
-      before:
-        pivots: [qsVie_qsUtter]
-      after:
-        pivots: [qsVie_qsUtter.sole.ex-y5.ex-ext-1]
-        gained: [[12, 8]]
-        shift: 1
       except_left: []
   - id: day-utter-xheight-extension-added
     verdict: approve
@@ -1866,7 +1841,7 @@ rules:
       before:
         pivot: qsThey_qsZoo
         junction_out: break
-        follower: [qsTea, qsDay, qsDay_qsUtter, qsGay, qsThaw, qsVie, qsVie_qsUtter, qsSee, qsZoo, qsMay, qsNo, qsLow, qsRoe, qsIt, qsAt, qsI, qsAh, qsUtter, qsOut, qsOut_qsTea, qsOoze]
+        follower: [qsTea, qsDay, qsDay_qsUtter, qsGay, qsThaw, qsVie, qsSee, qsZoo, qsMay, qsNo, qsLow, qsRoe, qsIt, qsAt, qsI, qsAh, qsUtter, qsOut, qsOut_qsTea, qsOoze]
       after:
         joined: y0
         pivot_cells:
@@ -1883,7 +1858,6 @@ rules:
           - qsThaw/sole/baseline/None/
           - qsVie/normal/baseline/None/
           - qsVie/swept-out/baseline/baseline/
-          - qsVie_qsUtter/sole/baseline/None/
           - qsSee/curled-over/baseline/y6/
           - qsSee/normal/baseline/None/
           - qsSee/normal/baseline/top/
@@ -2692,14 +2666,13 @@ rules:
     note: "The ligatures that end in ·Utter join ·Tea at the x-height under ss03 where the old font drew a pixel of reach into a break, and ·Tea, keeping its full bar, comes two columns nearer and holds its own advance — one column for the join and one for the reach, which came off qsUtter's ss03 extend record, which each ligature takes from its last letter, in “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for; the user gave the join standing approval at that length in every window"
     match:
       before:
-        pivot: [qsDay_qsUtter, qsVie_qsUtter, qsSee_qsUtter, qsJai_qsUtter, qsJay_qsUtter, qsWay_qsUtter]
+        pivot: [qsDay_qsUtter, qsSee_qsUtter, qsJai_qsUtter, qsJay_qsUtter, qsWay_qsUtter]
         junction_out: break
         follower: qsTea
       after:
         joined: y5
         pivot_cells:
           - qsDay_qsUtter/full/None/x-height/
-          - qsVie_qsUtter/sole/None/x-height/
           - qsSee_qsUtter/sole/None/x-height/
           - qsJai_qsUtter/sole/None/x-height/
           - qsJay_qsUtter/sole/None/x-height/
@@ -2735,20 +2708,6 @@ rules:
       after:
         pivots: [qsDay_qsUtter.half]
         dropped: [[8, 8]]
-        added: []
-        shift: -1
-      except_left: []
-  - id: vie-utter-tea-exit-extension-dropped
-    verdict: approve
-    note: "·Vie+Utter sits a pixel closer to ·Tea under ss03, where ·Tea keeps its full bar — the extra pixel of x-height exit the old font drew before ·Tea came off qsUtter's ss03 extend record, which the ligature takes from its last letter, in “Stop adding a pixel to the `·Utter ~x~ ·Tea` join under ss03”, which the user asked for, and the user gave the shorter reach standing approval in every window"
-    match:
-      before:
-        pivots: [qsVie_qsUtter.ex-ext-1, qsVie_qsUtter.en-ext-1.ex-ext-1]
-        junction_out: y5
-        follower: [qsTea]
-      after:
-        pivots: [qsVie_qsUtter.sole.ex-y5, qsVie_qsUtter.sole.en-y0.ex-y5]
-        dropped: [[12, 8]]
         added: []
         shift: -1
       except_left: []
@@ -2856,21 +2815,6 @@ rules:
         gap: 0
         pivot_cells:
           - qsDay_qsUtter/full/None/None/
-        follower_after_cells:
-          - qsTea/half/None/x-height/
-      except_left: []
-  - id: vie-utter-tea-xheight-join-dropped
-    verdict: approve
-    note: "·Vie+Utter gives up its x-height join into ·Tea under ss03 where half-·Tea leaves it to join the ·It after it instead, and ·Tea stays where it stood: the pixel of x-height exit the old font drew into ·Tea goes with the join, which is why the rule names the cells both letters settle into rather than holding the ligature's picture. qsTea's half stance never pairs an x-height entry with an x-height exit, so half-·Tea takes only one of the two joins, and settlement keeps the one into ·It; the user approved that switch after a bare ·Utter in every window that reached a review session and gave it standing approval after the ·Utter ligatures"
-    match:
-      before:
-        pivot: qsVie_qsUtter
-        junction_out: y5
-        follower: qsTea
-      after:
-        gap: 0
-        pivot_cells:
-          - qsVie_qsUtter/sole/None/None/
         follower_after_cells:
           - qsTea/half/None/x-height/
       except_left: []

@@ -156,7 +156,6 @@ policy:
         family:
         - qsThaw
         - qsVie
-        - qsVie_qsUtter
         - qsSee
         - qsIng
         - qsLow

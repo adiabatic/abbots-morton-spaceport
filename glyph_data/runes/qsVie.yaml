@@ -66,12 +66,12 @@ stances:
           toward:
           - family:
             - qsVie
-            - qsVie_qsUtter
             - qsIng
             - qsNo
             - qsLow
             - qsRoe
             - qsExcite
+            - qsUtter
       cells: []
       unlocks: []
       require: []
@@ -127,5 +127,6 @@ policy:
         family:
         - qsIng
         - qsNo
+        - qsUtter
   resolve: []
   groups: {}

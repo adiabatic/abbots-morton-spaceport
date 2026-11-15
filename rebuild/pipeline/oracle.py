@@ -17,6 +17,7 @@ An M1-only configuration (`conform.M1_ONLY_CONFIGS`) has no baseline table, and 
 
 from __future__ import annotations
 
+import functools
 import gc
 import hashlib
 import itertools
@@ -47,6 +48,7 @@ from rebuild.pipeline import (
     position_record,
     row_delta,
     settle,
+    spec_load,
 )
 from rebuild.pipeline.conform import (
     ORACLE_CONFIGS,
@@ -256,13 +258,25 @@ def open_row_cache(
     return store, writer
 
 
+@functools.cache
+def _registry_families(registry_path: Path = spec_load.DEFAULT_REGISTRY_PATH) -> frozenset[str]:
+    """Return the family names `rebuild/script.yaml` registers, letters and ligatures alike."""
+    raw = yaml.safe_load(Path(registry_path).read_text()) or {}
+    return frozenset(raw.get("families") or ())
+
+
+def unformed_old_ligature(name: str) -> bool:
+    """Return whether an old glyph name belongs to a family the registry does not list. Every code point in a subset row is a registered letter, so such a glyph is an old-font ligature the rebuild does not have and draws as its separate letters (the old ·Vie+Utter is one). No alias can denote it, because an alias names one cell and the rebuild settles one cell per letter, so the alias map leaves it out: every row it appears in either has fewer glyphs than settled cells and diverges as `ligation`, or lines up with cells by accident and diverges as `unaliased`."""
+    return name not in BOUNDARY_GLYPH_NAMES and name.split(".", 1)[0] not in _registry_families()
+
+
 def unaliased_subset_names(subset_dir: Path, alias_path: Path) -> dict[str, list[str]]:
-    """Map every old glyph name in the subset baseline rows that neither the alias map nor `BOUNDARY_GLYPH_NAMES` resolves to the sorted configurations it appears in. A missing alias does not always fail loudly: a ligation row never reaches the per-glyph alias check in `_compare_row`, so it is counted under a ledger class as if the name were understood. run_m1 therefore stops before building while this is non-empty. A `pending` alias passes this check but still counts as unaliased in the comparison. The names come from the sidecar the refilter writes (`baseline_subset.read_subset_names`), which changes only when the tables are refiltered, so this check is cheap enough to run on the `--gates-only` path too."""
+    """Map every old glyph name in the subset baseline rows that neither the alias map nor `BOUNDARY_GLYPH_NAMES` resolves to the sorted configurations it appears in. A missing alias does not always fail loudly: a ligation row never reaches the per-glyph alias check in `_compare_row`, so it is counted under a ledger class as if the name were understood. run_m1 therefore stops before building while this is non-empty. A `pending` alias passes this check but still counts as unaliased in the comparison. An `unformed_old_ligature` name needs no alias, and `classify_divergence` keeps every ligation row that holds one out of the ligation classes, so its rows stay unmatched. The names come from the sidecar the refilter writes (`baseline_subset.read_subset_names`), which changes only when the tables are refiltered, so this check is cheap enough to run on the `--gates-only` path too."""
     known = set(load_aliases(alias_path)) | BOUNDARY_GLYPH_NAMES
     missing: dict[str, set[str]] = {}
     for config, names in baseline_subset.read_subset_names(subset_dir).items():
         for name in names:
-            if name not in known:
+            if name not in known and not unformed_old_ligature(name):
                 missing.setdefault(name, set()).add(config)
     return {name: sorted(configs) for name, configs in sorted(missing.items())}
 
@@ -371,6 +385,9 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if not tags:
         return "roe-shortened-top-renamed"
     if "ligation" in tags:
+        if any(unformed_old_ligature(name) for name in row.baseline_glyphs):
+            # The old font formed a ligature the rebuild does not have, which no ligation class describes, so the row waits for review.
+            return None
         if "E67B:E652" in row.codepoints and "ss03" in row.config:
             return "ss03-out-tea-ligature-kept"
         if "E652:E679" in row.codepoints and ("200C" in row.codepoints or "ss03" in row.config):
@@ -422,7 +439,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "no-xheight-entry-extension-dropped"
     if tags & {"-en-ext-1:qsDay", "-en-ext-1:qsDay_qsUtter"}:
         return "day-baseline-entry-extension-dropped"
-    if tags & {"-en-ext-1:qsVie", "-en-ext-1:qsVie_qsUtter"}:
+    if "-en-ext-1:qsVie" in tags:
         return "vie-baseline-entry-extension-dropped"
     if "-ex-con-1" in tags and tags <= {"-ex-con-1", "+en-trim-1"} and "E65A:E67B" in row.codepoints:
         # The baseline ·See·Out fusion names the old pull-back differently. The old font's ex-con-1 tucks ·Out into ·See's whole tail (only the anchor moves). The runes keep the tail's anchor at its convention position and pull back the raked redraw's foot instead. The combined ink is identical and only the glyph names differ. The subset test keeps out any row where ink also moved elsewhere.

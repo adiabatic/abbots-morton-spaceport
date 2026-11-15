@@ -251,21 +251,21 @@ CODE_POINT_WINDOWS = [
     ("e-1", "qsAh", "qsAh/sole/baseline/None/"),
     ("e-2", "qsAt", "qsAt/rising/baseline/None/"),
     ("e-3", "qsMay", "qsMay/loop/baseline/None/"),
-    ("e-4", "qsVie", "qsVie/normal/baseline/None/"),
-    ("e-5", "qsVie_qsUtter", "qsVie_qsUtter/sole/baseline/None/"),
+    ("e-4", "qsSee", "qsSee/normal/baseline/None/"),
+    ("e-5", "qsSee_qsUtter", "qsSee_qsUtter/sole/baseline/None/"),
 ]
 
 
 def test_family_and_cell_listings_come_out_in_code_point_order(tmp_path, capsys):
-    """Lists print in code-point order (·Vie, ·May, ·At, ·Ah), with a bare family before a ligature that starts with it. The rules file and the skill are written in this order; sorted() would give ·Ah, ·At, ·May, ·Vie."""
+    """Lists print in code-point order (·See, ·May, ·At, ·Ah), with a bare family before a ligature that starts with it. The rules file and the skill are written in this order; sorted() would give ·Ah, ·At, ·May, ·See."""
     units = [tea_window(uid, follower, cell) for uid, follower, cell in CODE_POINT_WINDOWS]
     units.append(
-        tea_window("e-6", "qsVie", "qsVie/normal/baseline/None/", pivot_cell="qsTea/full/x-height/baseline/")
+        tea_window("e-6", "qsSee", "qsSee/normal/baseline/None/", pivot_cell="qsTea/full/x-height/baseline/")
     )
     out = _run(tmp_path, capsys, units, ["--extension-cells", "qsTea", "ex-ext-1", "y0"])
-    assert _line(out, "followers:") == "followers: ['qsVie', 'qsVie_qsUtter', 'qsMay', 'qsAt', 'qsAh']"
+    assert _line(out, "followers:") == "followers: ['qsSee', 'qsSee_qsUtter', 'qsMay', 'qsAt', 'qsAh']"
     assert _line(out, "follower cells:") == (
-        "follower cells: ['qsVie/normal/baseline/None/', 'qsVie_qsUtter/sole/baseline/None/', "
+        "follower cells: ['qsSee/normal/baseline/None/', 'qsSee_qsUtter/sole/baseline/None/', "
         "'qsMay/loop/baseline/None/', 'qsAt/rising/baseline/None/', 'qsAh/sole/baseline/None/']"
     )
     assert _line(out, "pivot cells:") == (

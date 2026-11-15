@@ -62,7 +62,6 @@ stances:
           - family:
             - qsThaw
             - qsVie
-            - qsVie_qsUtter
             - qsSee
             - qsIng
             - qsMay

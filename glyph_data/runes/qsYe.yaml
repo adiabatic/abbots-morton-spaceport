@@ -64,7 +64,6 @@ stances:
             - qsDay
             - qsDay_qsUtter
             - qsVie
-            - qsVie_qsUtter
             - qsSee
             - qsZoo
             - qsIng
@@ -130,7 +129,6 @@ stances:
             - qsDay
             - qsDay_qsUtter
             - qsVie
-            - qsVie_qsUtter
             - qsSee
             - qsZoo
             - qsIng
@@ -169,7 +167,6 @@ policy:
         - qsDay
         - qsDay_qsUtter
         - qsVie
-        - qsVie_qsUtter
         - qsSee
         - qsZoo
         - qsIng
@@ -193,7 +190,6 @@ policy:
             family:
             - qsThaw
             - qsVie
-            - qsVie_qsUtter
             - qsSee
             - qsIng
             - qsMay

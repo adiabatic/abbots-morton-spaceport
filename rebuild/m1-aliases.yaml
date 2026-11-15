@@ -180,12 +180,6 @@ qsVie.en-y0.ex-y0.en-ext-1: {rune: qsVie, stance: swept-out, entry: baseline, ex
 qsVie.en-y0.ex-y0.noentry: {rune: qsVie, stance: swept-out, exit: baseline, adjustments: [locked]}
 qsVie.noentry: {rune: qsVie, stance: normal, adjustments: [locked]}
 qsVie.ss10: {rune: qsVie, stance: normal}
-qsVie_qsUtter: {rune: qsVie_qsUtter, stance: sole}
-qsVie_qsUtter.en-ext-1: {rune: qsVie_qsUtter, stance: sole, entry: baseline, adjustments: [en-ext-1]}
-qsVie_qsUtter.en-ext-1.ex-con-2: {rune: qsVie_qsUtter, stance: sole, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
-qsVie_qsUtter.en-ext-1.ex-ext-1: {rune: qsVie_qsUtter, stance: sole, entry: baseline, exit: x-height, adjustments: [en-ext-1, ex-ext-1]}
-qsVie_qsUtter.ex-con-2: {rune: qsVie_qsUtter, stance: sole, exit: x-height}
-qsVie_qsUtter.ex-ext-1: {rune: qsVie_qsUtter, stance: sole, exit: x-height, adjustments: [ex-ext-1]}
 qsSee: {rune: qsSee, stance: normal}
 qsSee.after-ye: {rune: qsSee, stance: normal}
 qsSee.en-y0.ex-y6: {rune: qsSee, stance: curled-over, entry: baseline, exit: y6}

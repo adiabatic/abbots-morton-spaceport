@@ -36,7 +36,6 @@ families:
   qsThey_qsUtter: {sequence: [qsThey, qsUtter]}
   qsFee: {codepoint: 0xE658}
   qsVie: {codepoint: 0xE659}
-  qsVie_qsUtter: {sequence: [qsVie, qsUtter]}
   qsSee: {codepoint: 0xE65A}
   qsSee_qsEat: {sequence: [qsSee, qsEat]}
   qsSee_qsUtter: {sequence: [qsSee, qsUtter]}

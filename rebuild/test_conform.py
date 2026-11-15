@@ -842,6 +842,20 @@ class TestClassifierRouting:
         row = self._row("ss03", ("ligation",), codepoints="E665:E652:E679")
         assert oracle.classify_divergence(row) == "post-marker-ligature-formation"
 
+    def test_a_ligation_row_holding_an_old_ligature_the_registry_lacks_takes_no_class(self):
+        """The old font's ·Vie+Utter has no family in the rebuild's registry, so a row that holds it diverges for a reason no ligation class describes, even where its code points would otherwise pick one, and its names need no alias."""
+        row = self._row(
+            "ss03",
+            ("ligation",),
+            codepoints="E659:E67A:E665:E652:E679",
+            baseline_glyphs=("qsVie_qsUtter", "qsMay", "qsTea.half", "qsOy"),
+        )
+        assert oracle.classify_divergence(row) is None
+        assert oracle.unformed_old_ligature("qsVie_qsUtter.en-ext-1")
+        assert not oracle.unformed_old_ligature("qsSee_qsUtter.ex-con-2")
+        assert not oracle.unformed_old_ligature("qsVie.en-y0.ex-y0")
+        assert not oracle.unformed_old_ligature("space")
+
     def test_noentry_name_alone_takes_zwnj_word_initial_unification(self):
         row = self._row(
             "default",

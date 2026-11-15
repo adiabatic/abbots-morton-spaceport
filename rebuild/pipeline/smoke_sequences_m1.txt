@@ -228,7 +228,7 @@ E652 E659                 # Tea Vie (baseline join, extended entry)
 E653 E659                 # Day Vie (baseline join)
 E665 E659                 # May Vie (the grounded loop's exit onto the bar)
 E666 E659                 # No Vie (the flipped No's baseline exit onto the bar; ·Vie's entry contracts by one)
-E666 E659 E67A            # No Vie+Utter (the flipped No's exit into the ligature, whose entry contracts by one)
+E666 E659 E67A            # No Vie Utter (the flipped No's baseline exit onto the bar; Vie's entry and its swept exit into Utter each contract by one)
 E668 E659                 # Roe Vie (baseline join, run out under the bowl)
 E670 E659                 # It Vie (baseline join, extended entry)
 E672 E659                 # Et Vie (baseline join)
@@ -240,7 +240,7 @@ E667 E659                 # Low Vie (break)
 E675 E659                 # I Vie (break)
 E676 E659                 # Ah Vie (break)
 E659 E659                 # Vie Vie (the swept exit onto the bar; Vie's entry contracts by one)
-E659 E659 E67A            # Vie Vie+Utter (the swept exit into the ligature, whose entry contracts by one)
+E659 E659 E67A            # Vie Vie Utter (the swept exit onto the bar, then the contracted swept exit into Utter)
 E659 E666                 # Vie No (the swept exit, contracted by one, into the flipped No)
 E659 E667                 # Vie Low (the swept exit)
 E659 E668                 # Vie Roe (the swept exit into the lower tip)
@@ -251,15 +251,15 @@ E653 E670 E659            # Day It Vie (ss04: the entered It joins at the baseli
 E653 E652 E659            # Day Tea Vie (the Day-Tea-X family window)
 E672 E652 E659            # Et Tea Vie (Tea spends its slot backward and leaves Vie unjoined; ss05 chains on)
 E665 E652 E659            # May Tea Vie (ss03: half-Tea takes the left join and Vie breaks)
-E659 E67A                 # Vie+Utter (the ligature)
-E650 E659 E67A            # Pea Vie+Utter (the extended entry carries into the ligature)
-E659 E67A E665            # Vie+Utter May (the x-height exit into the pulled-back May)
-E659 E67A E658            # Vie+Utter Fee (the extended x-height exit into the reversed loop)
-E659 E67A E653            # Vie+Utter Day (the x-height exit)
-E659 E67A E652            # Vie+Utter Tea (break; ss03 extends into half-Tea)
-E659 E67A E667            # Vie+Utter Low (the guard un-forms so alt-Utter serves Low)
-E659 E67A E659            # Vie+Utter Vie (the guard un-forms so alt-Utter serves Vie)
-E659 200C E67A            # Vie ZWNJ Utter (formation severed)
+E659 E67A                 # Vie Utter (the swept exit, contracted by one, into Utter)
+E650 E659 E67A            # Pea Vie Utter (baseline joins on both sides of Vie)
+E659 E67A E665            # Vie Utter May (Utter's x-height exit into the pulled-back May)
+E659 E67A E658            # Vie Utter Fee (Utter's extended x-height exit into the reversed loop)
+E659 E67A E653            # Vie Utter Day (Utter's x-height exit)
+E659 E67A E652            # Vie Utter Tea (alt-Utter serves Tea and Vie breaks; under ss03 Utter joins full Tea at the x-height)
+E659 E67A E667            # Vie Utter Low (alt-Utter serves Low and Vie breaks)
+E659 E67A E659            # Vie Utter Vie (alt-Utter serves Vie and Vie breaks)
+E659 200C E67A            # Vie ZWNJ Utter (join severed)
 200C E659                 # ZWNJ Vie (locked copy)
 E659 200C E666            # Vie ZWNJ No (exit severed)
 00B7 E659                 # namer dot before Deep Vie (stays)
@@ -338,7 +338,7 @@ E65D E652 E670            # Jai Tea It (Jai yields; half-Tea takes the x-height 
 E65D E653                 # Jai Day (the un-extended exit into half-Day)
 E65D E653 E67A            # Jai Day+Utter (the exit into the half ligature)
 E65D E659                 # Jai Vie (the extended exit)
-E65D E659 E67A            # Jai Vie+Utter (the extended exit into the ligature)
+E65D E659 E67A            # Jai Vie Utter (Jai's baseline exit into Vie, whose swept exit joins Utter)
 E65D E65A                 # Jai See (the extended exit)
 E65D E65A E67A            # Jai See+Utter (break: the ligature takes no entry)
 E65D E665                 # Jai May (the un-extended exit into the loop)
@@ -391,7 +391,7 @@ E67A E677                 # Utter Awe (the crown's x-height exit)
 E67B E677                 # Out Awe (the swept exit)
 E677 E665 E677            # Awe May Awe (the entered loop's exit extends by one)
 E653 E67A E677            # Day+Utter Awe (the ligature's x-height exit)
-E659 E67A E677            # Vie+Utter Awe (the ligature's x-height exit)
+E659 E67A E677            # Vie Utter Awe (Utter's x-height exit)
 E65A E67A E677            # See+Utter Awe (the ligature's x-height exit)
 E65D E67A E677            # Jai+Utter Awe (the ligature's x-height exit)
 E653 E677                 # Day Awe (break)
@@ -411,7 +411,7 @@ E677 E652 E670            # Awe Tea It (Awe yields; half-Tea takes the x-height 
 E677 E653                 # Awe Day (the exit into half-Day)
 E677 E653 E67A            # Awe Day+Utter (the exit into the half ligature)
 E677 E659                 # Awe Vie (the baseline exit)
-E677 E659 E67A            # Awe Vie+Utter (the exit into the ligature)
+E677 E659 E67A            # Awe Vie Utter (the exit into Vie)
 E677 E65A                 # Awe See (the baseline exit)
 E677 E665                 # Awe May (the exit into the loop)
 E677 E666                 # Awe No (the exit into the flipped No)
@@ -451,7 +451,7 @@ E67A E678                 # Utter Ox (the crown's x-height exit)
 E67B E678                 # Out Ox (the swept exit)
 E678 E665 E678            # Ox May Ox (the entered loop's exit extends by one)
 E653 E67A E678            # Day+Utter Ox (the ligature's x-height exit)
-E659 E67A E678            # Vie+Utter Ox (the ligature's x-height exit)
+E659 E67A E678            # Vie Utter Ox (Utter's x-height exit)
 E65A E67A E678            # See+Utter Ox (the ligature's x-height exit)
 E65D E67A E678            # Jai+Utter Ox (the ligature's x-height exit)
 E653 E678                 # Day Ox (break)
@@ -471,7 +471,7 @@ E678 E652 E670            # Ox Tea It (Ox yields; half-Tea takes the x-height jo
 E678 E653                 # Ox Day (the exit into half-Day)
 E678 E653 E67A            # Ox Day+Utter (the exit into the half ligature)
 E678 E659                 # Ox Vie (the baseline exit)
-E678 E659 E67A            # Ox Vie+Utter (the exit into the ligature)
+E678 E659 E67A            # Ox Vie Utter (the exit into Vie)
 E678 E65A                 # Ox See (the baseline exit)
 E678 E665                 # Ox May (the exit into the loop)
 E678 E666                 # Ox No (the exit into the flipped No)
@@ -511,7 +511,7 @@ E67A E673                 # Utter Eight (the crown's x-height exit)
 E67B E673                 # Out Eight (the swept exit)
 E673 E665 E673            # Eight May Eight (the entered loop's exit extends by one)
 E653 E67A E673            # Day+Utter Eight (the ligature's x-height exit)
-E659 E67A E673            # Vie+Utter Eight (the ligature's x-height exit)
+E659 E67A E673            # Vie Utter Eight (Utter's x-height exit)
 E65A E67A E673            # See+Utter Eight (the ligature's x-height exit)
 E65D E67A E673            # Jai+Utter Eight (the ligature's x-height exit)
 E653 E673                 # Day Eight (break)
@@ -531,7 +531,7 @@ E673 E652 E670            # Eight Tea It (Eight yields; half-Tea takes the x-hei
 E673 E653                 # Eight Day (the exit into half-Day)
 E673 E653 E67A            # Eight Day+Utter (the exit into the half ligature)
 E673 E659                 # Eight Vie (the baseline exit)
-E673 E659 E67A            # Eight Vie+Utter (the exit into the ligature)
+E673 E659 E67A            # Eight Vie Utter (the exit into Vie)
 E673 E65A                 # Eight See (the baseline exit)
 E673 E665                 # Eight May (the exit into the loop)
 E673 E666                 # Eight No (the exit into the flipped No)
@@ -649,7 +649,7 @@ E67E E652 E670            # Ooze Tea It (Ooze yields; half-Tea takes the x-heigh
 E67E E653                 # Ooze Day (the exit into half-Day)
 E67E E653 E67A            # Ooze Day+Utter (the exit into the half ligature)
 E67E E659                 # Ooze Vie (the baseline exit)
-E67E E659 E67A            # Ooze Vie+Utter (the exit into the ligature)
+E67E E659 E67A            # Ooze Vie Utter (the exit into Vie)
 E67E E65A                 # Ooze See (the baseline exit)
 E67E E665                 # Ooze May (the exit into the loop)
 E67E E665 E67E            # Ooze May Ooze (the loop takes the entry and refuses the baseline exit)
@@ -690,7 +690,7 @@ E676 E651                 # Ah Bay (Ah's exit extends by one)
 E67A E651                 # Utter Bay (Utter's exit extends by one)
 E653 E67A E651            # Day+Utter Bay (the ligature's extended x-height exit)
 E652 E653 E67A E651       # Tea Day+Utter Bay (the entered half ligature's extended exit)
-E659 E67A E651            # Vie+Utter Bay (the ligature's extended x-height exit)
+E659 E67A E651            # Vie Utter Bay (Utter's extended x-height exit)
 E65A E67A E651            # See+Utter Bay (the ligature's extended x-height exit)
 E65D E67A E651            # Jai+Utter Bay (the ligature's extended x-height exit)
 E652 E679 E651            # Tea+Oy Bay (break: the ligature's tail exits at the baseline)
@@ -726,7 +726,7 @@ E651 E652 E670            # Bay Tea It (Bay yields; half-Tea takes the x-height 
 E651 E653                 # Bay Day (the exit into half-Day)
 E651 E653 E67A            # Bay Day+Utter (the exit into the half ligature)
 E651 E659                 # Bay Vie (the baseline exit; ·Vie's entry contracts by one)
-E651 E659 E67A            # Bay Vie+Utter (the exit into the ligature, whose entry contracts by one)
+E651 E659 E67A            # Bay Vie Utter (the exit into Vie, whose entry contracts by one)
 E651 E65A                 # Bay See (the baseline exit)
 E651 E665                 # Bay May (the exit into the loop)
 E651 E665 E651            # Bay May Bay (the loop takes the entry; its x-height exit never reaches Bay)
@@ -806,7 +806,7 @@ E654 E652 E670            # Key Tea It (Key yields; half-Tea takes the x-height 
 E654 E653                 # Key Day (the exit into half-Day)
 E654 E653 E67A            # Key Day+Utter (the exit into the half ligature)
 E654 E659                 # Key Vie (the baseline exit)
-E654 E659 E67A            # Key Vie+Utter (the exit into the ligature)
+E654 E659 E67A            # Key Vie Utter (the exit into Vie)
 E654 E65A                 # Key See (the baseline exit)
 E654 E65A E654            # Key See Key (See takes the entry and its top exit reaches on)
 E654 E665                 # Key May (the exit into the loop)
@@ -823,7 +823,7 @@ E654 E670 E675            # Key It I (It gives Key's join up; its extended basel
 E654 E670 E652            # Key It Tea (the entry holds; It's x-height exit never reaches Tea)
 E654 E670 E668            # Key It Roe (the entry holds and It's x-height exit serves Roe)
 E654 E670 E677            # Key It Awe (the entry holds and It's x-height exit serves Awe)
-E654 E670 E659 E67A       # Key It Vie+Utter (It gives Key's join up; its baseline exit serves the ligature)
+E654 E670 E659 E67A       # Key It Vie Utter (It gives Key's join up; its baseline exit serves Vie)
 E654 E674                 # Key At (the baseline exit)
 E654 E674 E665            # Key At May (At gives up its entry to join May at the baseline)
 E654 E675                 # Key I (the baseline exit)
@@ -866,7 +866,7 @@ E672 E655                 # Et Gay (the baseline entry)
 E677 E655                 # Awe Gay (the baseline entry)
 E67A E655                 # Utter Gay (the x-height entry, Utter's exit extended by one)
 E653 E67A E655            # Day+Utter Gay (the ligature's extended exit reaches the x-height entry)
-E659 E67A E655            # Vie+Utter Gay (the ligature's extended exit reaches the x-height entry)
+E659 E67A E655            # Vie Utter Gay (Utter's x-height exit reaches the x-height entry)
 E65A E67A E655            # See+Utter Gay (the ligature's extended exit reaches the x-height entry)
 E65D E67A E655            # Jai+Utter Gay (the ligature's extended exit reaches the x-height entry)
 E650 E655                 # Pea Gay (break)
@@ -895,7 +895,7 @@ E655 E652 E670            # Gay Tea It (Gay yields; half-Tea takes the x-height 
 E655 E653                 # Gay Day (the extended exit into half-Day)
 E655 E653 E67A            # Gay Day+Utter (the extended exit into the half ligature)
 E655 E659                 # Gay Vie (the baseline exit)
-E655 E659 E67A            # Gay Vie+Utter (the exit into the ligature)
+E655 E659 E67A            # Gay Vie Utter (the exit into Vie)
 E655 E65A                 # Gay See (the baseline exit)
 E655 E665                 # Gay May (the exit into the loop)
 E655 E666                 # Gay No (the exit into the flipped No)
@@ -985,7 +985,7 @@ E655 E655 E656            # Gay Gay Thaw (the second Gay keeps the self-join)
 E652 E670 E656            # Tea It Thaw (entered It rides through, exit extended by one)
 E67A E670 E656            # Utter It Thaw (entered It rides through, exit extended by one)
 E653 E67A E656            # Day Utter Thaw (the ligature yields; the alternate Utter serves Thaw)
-E659 E67A E656            # Vie Utter Thaw (the ligature yields; the alternate Utter serves Thaw)
+E659 E67A E656            # Vie Utter Thaw (alt-Utter serves Thaw and Vie breaks)
 E670 E67A E656            # It Utter Thaw (the hand-off: the alternate Utter takes the window)
 E67A E665 E656            # Utter May Thaw (entered May refuses the baseline exit)
 E655 E665 E656            # Gay May Thaw (entered May refuses the baseline exit)
@@ -1007,7 +1007,7 @@ E675 E657                 # I They (the x-height entry, extended by one)
 E676 E657                 # Ah They (Ah's extended exit meets the x-height entry)
 E67A E657                 # Utter They (Utter's extended exit meets the x-height entry)
 E653 E67A E657            # Day+Utter They (the ligature's extended exit)
-E659 E67A E657            # Vie+Utter They (the ligature's extended exit)
+E659 E67A E657            # Vie Utter They (Utter's extended x-height exit)
 E65A E67A E657            # See+Utter They (the ligature's extended exit)
 E65D E67A E657            # Jai+Utter They (the ligature's extended exit)
 E657 E666                 # They No (the x-height exit)
@@ -1054,7 +1054,7 @@ E676 E657 E655            # Ah They Gay (the hook serves Gay's baseline entry)
 E676 E657 E655 E652       # Ah They Gay Tea (Gay gives the backward join up to serve Tea)
 E676 E657 E656            # Ah They Thaw (the hook serves Thaw)
 E676 E657 E659            # Ah They Vie (the hook serves Vie)
-E676 E657 E659 E67A       # Ah They Vie+Utter (the hook serves the ligature)
+E676 E657 E659 E67A       # Ah They Vie Utter (the hook serves Vie)
 E676 E657 E65A            # Ah They See (the hook serves See)
 E676 E657 E666            # Ah They No (the hook serves the flipped No)
 E676 E657 E667            # Ah They Low (the hook serves Low)
@@ -1205,13 +1205,13 @@ E65B E670 E67A E67B       # ·Zoo joins ·It while alternate ·Utter serves ·Ou
 E65B E670 E67A E67E       # ·Zoo joins ·It while alternate ·Utter serves ·Ooze
 E653 E67A E65B            # `·Day+Utter` enters full ·Zoo at the x-height
 E657 E67A E65B            # `·They+Utter` enters full ·Zoo at the x-height
-E659 E67A E65B            # `·Vie+Utter` enters full ·Zoo at the x-height
+E659 E67A E65B            # ·Vie·Utter enters full ·Zoo at the x-height
 E65A E67A E65B            # `·See+Utter` enters full ·Zoo at the x-height
 E65D E67A E65B            # `·J’ai+Utter` enters full ·Zoo at the x-height
 E652 E679 E65B            # `·Tea+Oy` enters half-·Zoo at the baseline
 E67B E652 E65B            # `·Out+Tea` and ·Zoo break
 E65B E653 E67A            # ·Zoo enters `·Day+Utter.half` at the baseline
-E65B E659 E67A            # ·Zoo enters `·Vie+Utter` at the baseline
+E65B E659 E67A            # ·Zoo enters ·Vie·Utter at the baseline
 E65B E67B E652            # ·Zoo enters `·Out+Tea` at the baseline
 E65B E65A E67A            # ·Zoo and `·See+Utter` break
 E65B E65D E67A            # ·Zoo and `·J’ai+Utter` break
@@ -1311,7 +1311,7 @@ E658 E674 E65A E670 E666 E673 E65C E666 # The Manual's complete word containing 
 E65C E670 E667            # ·She ·It ·Low capability window
 E65C E655 E652            # ·She ·Gay ·Tea yield window
 E65C E653 E67A            # ·She enters `·Day+Utter.half` at the baseline
-E65C E659 E67A            # ·She enters `·Vie+Utter` at the baseline
+E65C E659 E67A            # ·She enters ·Vie·Utter at the baseline
 E65C E67B E652            # ·She enters `·Out+Tea` at the baseline
 E65C E652 E679            # ·She and `·Tea+Oy` break
 E65C E657 E67A            # ·She and `·They+Utter` break
@@ -1322,7 +1322,7 @@ E652 E679 E65C            # `·Tea+Oy` and ·She break
 E653 E67A E65C            # `·Day+Utter` and ·She break
 E657 E67A E65C            # `·They+Utter` and ·She break
 E657 E65B E65C            # `·They+Zoo` and ·She break
-E659 E67A E65C            # `·Vie+Utter` and ·She break
+E659 E67A E65C            # ·Vie·Utter and ·She break
 E65A E67A E65C            # `·See+Utter` and ·She break
 E65D E67A E65C            # `·J’ai+Utter` and ·She break
 E67B E652 E65C            # `·Out+Tea` and ·She break
@@ -1402,8 +1402,8 @@ E657 E65B E65E           # qsThey_qsZoo before ·Cheer
 E65E E657 E65B           # ·Cheer before qsThey_qsZoo
 E657 E67A E65E           # qsThey_qsUtter before ·Cheer
 E65E E657 E67A           # ·Cheer before qsThey_qsUtter
-E659 E67A E65E           # qsVie_qsUtter before ·Cheer
-E65E E659 E67A           # ·Cheer before qsVie_qsUtter
+E659 E67A E65E           # ·Vie·Utter before ·Cheer
+E65E E659 E67A           # ·Cheer before ·Vie·Utter
 E65A E67A E65E           # qsSee_qsUtter before ·Cheer
 E65E E65A E67A           # ·Cheer before qsSee_qsUtter
 E65D E67A E65E           # qsJai_qsUtter before ·Cheer
@@ -1446,7 +1446,7 @@ E65E E670 E67A E67B      # Alternate ·Utter continuation after ·Cheer·It
 E65E E670 E67A E67E      # Alternate ·Utter continuation after ·Cheer·It
 E65E E670 E674 E665      # ·At serves ·May after ·Cheer·It
 E65E E670 E653 E67A      # `·Day+Utter.half` receives ·It after ·Cheer
-E65E E670 E659 E67A      # ·Vie+Utter receives ·It after ·Cheer
+E65E E670 E659 E67A      # ·Vie·Utter receives ·It after ·Cheer
 E65E E670 E67B E652      # ·Out+Tea receives ·It after ·Cheer
 E670 E666 E65E           # Manual: `·It ~b~ ·No.alt | ·Cheer`
 E651 E670 E666 E65E      # ·Bay enters ·It before ·No·Cheer
@@ -1526,8 +1526,8 @@ E657 E65B E65F           # qsThey_qsZoo before ·Jay
 E65F E657 E65B           # ·Jay before qsThey_qsZoo
 E657 E67A E65F           # qsThey_qsUtter before ·Jay
 E65F E657 E67A           # ·Jay before qsThey_qsUtter
-E659 E67A E65F           # qsVie_qsUtter before ·Jay
-E65F E659 E67A           # ·Jay before qsVie_qsUtter
+E659 E67A E65F           # ·Vie·Utter before ·Jay
+E65F E659 E67A           # ·Jay before ·Vie·Utter
 E65A E67A E65F           # qsSee_qsUtter before ·Jay
 E65F E65A E67A           # ·Jay before qsSee_qsUtter
 E65D E67A E65F           # qsJai_qsUtter before ·Jay
@@ -1678,8 +1678,8 @@ E657 E65B E660           # qsThey_qsZoo before ·Ye
 E660 E657 E65B           # ·Ye before qsThey_qsZoo
 E657 E67A E660           # qsThey_qsUtter before ·Ye
 E660 E657 E67A           # ·Ye before qsThey_qsUtter
-E659 E67A E660           # qsVie_qsUtter before ·Ye
-E660 E659 E67A           # ·Ye before qsVie_qsUtter
+E659 E67A E660           # ·Vie·Utter before ·Ye
+E660 E659 E67A           # ·Ye before ·Vie·Utter
 E65A E67A E660           # qsSee_qsUtter before ·Ye
 E660 E65A E67A           # ·Ye before qsSee_qsUtter
 E65D E67A E660           # qsJai_qsUtter before ·Ye
@@ -1795,8 +1795,8 @@ E657 E65B E661           # qsThey_qsZoo before ·Way
 E661 E657 E65B           # ·Way before qsThey_qsZoo
 E657 E67A E661           # qsThey_qsUtter before ·Way
 E661 E657 E67A           # ·Way before qsThey_qsUtter
-E659 E67A E661           # qsVie_qsUtter before ·Way
-E661 E659 E67A           # ·Way before qsVie_qsUtter
+E659 E67A E661           # ·Vie·Utter before ·Way
+E661 E659 E67A           # ·Way before ·Vie·Utter
 E65A E67A E661           # qsSee_qsUtter before ·Way
 E661 E65A E67A           # ·Way before qsSee_qsUtter
 E65D E67A E661           # qsJai_qsUtter before ·Way
@@ -1968,8 +1968,8 @@ E657 E65B E662           # qsThey_qsZoo before ·He (break)
 E662 E657 E65B           # ·He before qsThey_qsZoo (break)
 E657 E67A E662           # qsThey_qsUtter before ·He (break)
 E662 E657 E67A           # ·He before qsThey_qsUtter (break)
-E659 E67A E662           # qsVie_qsUtter before ·He (break)
-E662 E659 E67A           # ·He's baseline exit into qsVie_qsUtter's extended entry
+E659 E67A E662           # ·Vie·Utter before ·He (break)
+E662 E659 E67A           # ·He's baseline exit into ·Vie's extended entry
 E65A E67A E662           # qsSee_qsUtter before ·He (break)
 E662 E65A E67A           # ·He before qsSee_qsUtter (break)
 E65D E67A E662           # qsJai_qsUtter before ·He (break)
@@ -2090,8 +2090,8 @@ E657 E65B E663           # qsThey_qsZoo before ·Why (break)
 E663 E657 E65B           # ·Why before qsThey_qsZoo (break)
 E657 E67A E663           # qsThey_qsUtter before ·Why (break)
 E663 E657 E67A           # ·Why before qsThey_qsUtter (break)
-E659 E67A E663           # qsVie_qsUtter before ·Why (break)
-E663 E659 E67A           # ·Why before qsVie_qsUtter (break)
+E659 E67A E663           # ·Vie·Utter before ·Why (break)
+E663 E659 E67A           # ·Why before ·Vie·Utter (break)
 E65A E67A E663           # qsSee_qsUtter before ·Why (break)
 E663 E65A E67A           # ·Why before qsSee_qsUtter (break)
 E65D E67A E663           # qsJai_qsUtter before ·Why (break)
@@ -2146,7 +2146,7 @@ E663 E672                # Manual: `·Why ~x~ ·Et`
 E663 E675                # Manual: `·Why | ·I`
 E663 E672 E666           # Manual: `·Why ~x~ ·Et ~b~ ·No.alt`
 E663 E672 E659           # Manual: `·Why ~x~ ·Et ~b~ ·Vie`
-E663 E672 E659 E67A E668 # Manual: `·Why ~x~ ·Et ~b~ ·Vie+Utter ~x~ ·Roe`
+E663 E672 E659 E67A E668 # Manual: `·Why ~x~ ·Et ~b~ ·Vie+?Utter ~x~ ·Roe`
 200C E663                # ·Why after ZWNJ: it has no entry, so there is no locked copy
 200C E663 E653           # ·Why after ZWNJ keeps its x-height exit into ·Day
 E663 200C E653           # ZWNJ severs the exit into ·Day
@@ -2234,7 +2234,7 @@ E652 E679 E664           # the ·Tea+Oy ligature's baseline exit into ·-ing, wh
 E67B E652 E664           # ·Out+Tea before ·-ing (break: the ligature has no exit)
 E657 E65B E664           # ·They+Zoo before ·-ing (break: ·-ing takes no entry from the ligature)
 E664 E653 E67A           # ·-ing's baseline exit into half-·Day+Utter
-E664 E659 E67A           # ·-ing's baseline exit into ·Vie+Utter, whose entry contracts by one
+E664 E659 E67A           # ·-ing's baseline exit into ·Vie, whose entry contracts by one
 E664 E67B E652           # ·-ing's baseline exit into ·Out+Tea
 E664 E65A E67A           # ·-ing before ·See+Utter (break)
 E664 E652 E679           # ·-ing before ·Tea+Oy (break)

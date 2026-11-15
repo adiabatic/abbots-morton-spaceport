@@ -5148,15 +5148,6 @@ def test_the_stub_guard_blocks_the_whole_combined_window(slide_context):
     assert sv._combined_blocked(rules, window, events, context)
 
 
-def test_the_checked_in_vie_utter_rule_reads_the_drop_and_nothing_wider(slide_context):
-    match = {rule["id"]: rule for rule in sv.load_rules(sv.RULES)}["vie-utter-entry-extension-dropped"][
-        "match"
-    ]
-    assert sv._matches(match, vie_utter_window(), context=slide_context())
-    assert not sv._matches(match, vie_window(), context=slide_context())
-    assert not sv._matches(match, entry_window(), context=slide_context())
-
-
 ENTRY_COMPANION_GLYPHS = ["qsL", "qsLow.en-ext-1", "qsM", "qsLow.unchanged-fixture"]
 ENTRY_COMPANION_CODEPOINTS = spell(LEAD, LOW, MIDDLE, UNCHANGED_LOW)
 
