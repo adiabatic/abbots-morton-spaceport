@@ -3541,3 +3541,23 @@ rules:
         added: [[4, 8], [5, 8]]
         shift: 1
       except_left: []
+  - id: may-baseline-join-dropped-before-vie-ing
+    verdict: approve
+    note: "·Vie and ·-ing sit two columns further from ·May — the two no longer join, because a ·May that has taken a baseline entry has no baseline exit left to reach them with: qsMay's loop stance carries a baseline entry and an x-height exit and no baseline exit, and its grounded-loop stance, the one with a baseline exit, takes only an x-height entry. The letter redraws in place as the exit goes, so the rule names the cells both letters settle into rather than holding ·May's picture. Every window that reached a review session approved the break, and the user asked for standing approval of the review queue's top 25 on 2026-11-15"
+    match:
+      before:
+        pivot: qsMay
+        junction_out: y0
+        follower: [qsVie, qsIng]
+      after:
+        gap: 2
+        pivot_cells:
+          - qsMay/loop/baseline/None/
+        follower_after_cells:
+          - qsVie/normal/None/None/
+          - qsVie/swept-out/None/baseline/
+          - qsVie/swept-out/None/baseline/ex-con-1
+          - qsIng/sole/None/None/
+          - qsIng/sole/None/baseline/
+          - qsIng/sole/None/baseline/ex-ext-2
+      except_left: []
