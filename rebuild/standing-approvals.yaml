@@ -3217,3 +3217,42 @@ rules:
       after:
         gap: 1
       except_left: []
+  - id: no-ing-baseline-join-created
+    verdict: approve
+    note: "·No.alt joins ·-ing at the baseline where the old font left a break, and ·-ing comes a column nearer and holds its own advance — qsIng's baseline entry has carried qsNo on its from-list since the letter landed in “Add ·-ing”, and qsNo's flipped stance takes it on its baseline exit with nothing on either policy standing between them; every window that reached a review session approved the join"
+    match:
+      before:
+        pivot: qsNo
+        junction_out: break
+        follower: qsIng
+      after:
+        joined: y0
+        pivot_cells:
+          - qsNo/flipped/None/baseline/
+          - qsNo/flipped/baseline/baseline/
+        follower_after_cells:
+          - qsIng/sole/baseline/None/
+          - qsIng/sole/baseline/baseline/
+          - qsIng/sole/baseline/baseline/ex-ext-2
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
+  - id: no-ye-baseline-join-created
+    verdict: approve
+    note: "·No.alt joins ·Ye at the baseline where the old font left a break, and ·Ye comes two columns nearer and holds its own advance — qsYe's baseline entry takes qsNo on its from-list, and qsNo's flipped stance takes it on its baseline exit with nothing on either policy standing between them; every window that reached a review session approved the join"
+    match:
+      before:
+        pivot: qsNo
+        junction_out: break
+        follower: qsYe
+      after:
+        joined: y0
+        pivot_cells:
+          - qsNo/flipped/baseline/baseline/
+        follower_after_cells:
+          - qsYe/loop/baseline/None/
+        shift: -2
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
