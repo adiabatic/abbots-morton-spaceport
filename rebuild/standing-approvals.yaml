@@ -3584,3 +3584,27 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: roe-exit-extended-low-i-baseline-join-created
+    verdict: approve
+    note: "·Roe joins ·Low and ·I at the baseline where the old font left a break, carrying the pixel of exit qsRoe's extend record draws before them, and the follower holds the place the longer join leaves it — qsRoe's baseline exit has carried qsLow and qsI on its toward-list since the letter landed in “Declare ·I done and add ·Roe”, and the same commit gave it the by-1 baseline-exit extend before ·Low and ·I; the regrouping trades the join ·Vie drew into ·Roe, and the `join-switches-sides` divergence class leaves such regroupings to each unit's own verdict. Every window that reached a review session approved this join, and the user asked for standing approval of the review queue's top 25 on 2026-11-15"
+    match:
+      before:
+        pivot: qsRoe
+        junction_out: break
+        follower: [qsLow, qsI]
+      after:
+        joined: y0
+        pivot_cells:
+          - qsRoe/sole/None/baseline/ex-ext-1
+          - qsRoe/sole/x-height/baseline/en-ext-1+ex-ext-1
+        follower_after_cells:
+          - qsLow/sole/baseline/None/
+          - qsLow/sole/baseline/x-height/
+          - qsLow/sole/baseline/x-height/ex-ext-1
+          - qsI/loop/baseline/None/
+          - qsI/loop/baseline/x-height/
+          - qsI/loop/baseline/x-height/ex-ext-1
+        shift: 0
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
