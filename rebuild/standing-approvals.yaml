@@ -553,10 +553,10 @@ rules:
       except_left: []
   - id: it-baseline-join-created
     verdict: approve
-    note: "·It takes a baseline entry from ·Zoo, ·Cheer, ·No, ·Et, ·Eight, ·Awe, ·Ox, ·Oy and ·Ooze where the old font left a break, closes one column onto each of them, and gives up the baseline exit its own pairing table only unlocks under ss04, so the gained entry and the dropped exit are one decision — qsIt's baseline entry refuses only ·It itself, qsZoo, qsCheer, qsAwe, qsOx and qsOoze have carried qsIt on their baseline-exit toward-lists since “Add ·Zoo”, “Add ·Cheer”, “Add ·Awe”, “Add ·Ox” and “Add ·Ooze”, qsOy's open baseline exit withholds only before the ·It·No chain, qsEt's baseline exit is open to everything, ·No reaches it from the flipped stance that carries the letter's only baseline entry, whose own baseline exit names no toward-list at all, and ·Eight reaches ·It only on its smaller-loop stance, whose baseline exit names ·Tea and ·It and nothing else, so the tighter bowl and this join are one record — “Give ·Eight a smaller loop before ·Tea and ·It, mirroring ·I's”. Every window that reached a review session approved the join"
+    note: "·It takes a baseline entry from ·Zoo, ·Cheer, ·-ing, ·No, ·Et, ·Eight, ·Awe, ·Ox, ·Oy and ·Ooze where the old font left a break, closes one column onto each of them, and gives up the baseline exit its own pairing table only unlocks under ss04, so the gained entry and the dropped exit are one decision — qsIt's baseline entry refuses only ·It itself, qsZoo, qsCheer, qsAwe, qsOx and qsOoze have carried qsIt on their baseline-exit toward-lists since “Add ·Zoo”, “Add ·Cheer”, “Add ·Awe”, “Add ·Ox” and “Add ·Ooze”, qsIng's baseline exit has named qsIt since the letter landed in “Add ·-ing”, qsOy's open baseline exit withholds only before the ·It·No chain, qsEt's baseline exit is open to everything, ·No reaches it from the flipped stance that carries the letter's only baseline entry, whose own baseline exit names no toward-list at all, and ·Eight reaches ·It only on its smaller-loop stance, whose baseline exit names ·Tea and ·It and nothing else, so the tighter bowl and this join are one record — “Give ·Eight a smaller loop before ·Tea and ·It, mirroring ·I's”. Every window that reached a review session approved the join"
     match:
       before:
-        pivot: [qsZoo, qsCheer, qsNo, qsEt, qsEight, qsAwe, qsOx, qsOy, qsOoze]
+        pivot: [qsZoo, qsCheer, qsIng, qsNo, qsEt, qsEight, qsAwe, qsOx, qsOy, qsOoze]
         junction_out: break
         follower: qsIt
       after:
@@ -570,6 +570,9 @@ rules:
           - qsZoo/half/baseline/baseline/
           - qsCheer/sole/None/baseline/
           - qsCheer/sole/x-height/baseline/
+          - qsIng/sole/None/baseline/
+          - qsIng/sole/baseline/baseline/
+          - qsIng/sole/baseline/baseline/en-ext-2
           - qsNo/flipped/baseline/baseline/
           - qsEt/sole/None/baseline/
           - qsEt/sole/x-height/baseline/
