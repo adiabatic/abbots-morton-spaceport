@@ -4020,3 +4020,21 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: utter-alternate-may-baseline-join-retargeted
+    verdict: approve
+    note: "The alternate ·Utter reaches ·May at the baseline where the old font joined the ·Vie+Utter ligature to ·May at the x-height, and ·May comes three columns further along into its redrawn baseline entry. The alternate ·Utter's baseline exit is the mandatory one the user records on qsUtter's own policy (“·Utter.alt has a mandatory exit, so it can't help consuming ·Tea's baseline slot”), qsMay's loop stance takes a baseline entry with no from-list at all, and the pair is the form qsKey's and qsUtter's records name in “Draw ·Key·Utter·May as `·Key ~b~ ·Utter ~x~ ·May`, with The Manual's `·Key | ·Utter.alt ~b~ ·May` behind ss08”. Nothing in this survey has reached a review session, so the user's approval of the review queue's top 22 on 2026-11-15 is its record"
+    match:
+      before:
+        pivot: qsUtter
+        junction_out: y5
+        follower: qsMay
+      after:
+        retarget: y0
+        pivot_cells:
+          - qsUtter/alternate/None/baseline/
+        follower_after_cells:
+          - qsMay/loop/baseline/x-height/
+          - qsMay/loop/baseline/x-height/ex-ext-1
+        shift: 3
+        follower_shift: 3
+      except_left: []
