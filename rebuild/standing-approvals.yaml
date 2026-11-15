@@ -3859,3 +3859,15 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: ing-entry-extension-drawn
+    verdict: approve
+    note: "·-ing draws the two pixels of baseline entry its extend record gives it after ·Thaw, and its stroke and whatever follows stand two columns further right — qsIng's extend record lengthens its baseline entry by two after ·Thaw, and the old font drew the stroke with no entry in this window. Nothing in this survey has reached a review session, so the user's approval of the review queue's top 22 on 2026-11-15 is its record"
+    match:
+      before:
+        pivots: [qsIng]
+      after:
+        pivots: [qsIng.sole.en-y0.en-ext-2]
+        dropped: [[1, 1], [1, 3], [1, 4], [1, 5], [1, 6], [1, 7], [2, 2], [2, 8], [4, 0]]
+        added: [[1, 0], [2, 0], [4, 2], [4, 8], [5, 1], [5, 3], [5, 4], [5, 5], [5, 6], [5, 7], [6, 0]]
+        shift: 2
+      except_left: []
