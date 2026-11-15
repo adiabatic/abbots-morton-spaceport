@@ -2978,12 +2978,12 @@ rules:
         added: []
         shift: -1
       except_left: []
-  - id: vie-entry-contracted-after-ing
+  - id: vie-entry-contracted-after-ing-no
     verdict: approve
-    note: "·Vie's baseline entry contracts by one column after ·-ing on both the normal and swept-out stances — qsVie's contract records carry the pair from “Contract `·-ing ~b~ ·Vie` and `·-ing ~b~ ·Vie+Utter` by a pixel”; the user gave the contraction standing approval at u-SnccfSEiUSf"
+    note: "·Vie's baseline entry contracts by one column after ·-ing or ·No.alt on both the normal and swept-out stances — qsVie's contract records carry the pairs from “Contract `·-ing ~b~ ·Vie` and `·-ing ~b~ ·Vie+Utter` by a pixel” and “Contract `·No.alt ~b~ ·Vie{,+Utter}` by a pixel”; the user gave the ·-ing contraction standing approval at u-SnccfSEiUSf and the ·No.alt one at u-dVoTvXmHPvX"
     match:
       before:
-        left: qsIng
+        left: [qsIng, qsNo]
         pivots: [qsVie]
       after:
         pivots:
