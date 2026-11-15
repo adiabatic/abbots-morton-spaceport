@@ -3758,3 +3758,21 @@ rules:
         follower_columns_added: 0
         follower_columns_removed: 1
       except_left: []
+  - id: out-ye-xheight-join-created
+    verdict: approve
+    note: "·Out joins ·Ye at the x-height where the old font left a break, and ·Ye draws its climbing-loop stance to take the join, coming four columns nearer and giving one of them back to what follows it — qsOut's x-height exit has carried qsYe on its toward-list and qsYe's climbing-loop stance has carried qsOut on its x-height entry's from-list since the letter landed in “Add ·Ye”. Every window that reached a review session approved the join, and the user approved the review queue's top 22 on 2026-11-15, which includes this one"
+    match:
+      before:
+        pivot: qsOut
+        junction_out: break
+        follower: qsYe
+      after:
+        joined: y5
+        pivot_cells:
+          - qsOut/swept-up/None/x-height/
+        follower_after_cells:
+          - qsYe/climbing-loop/x-height/None/
+        shift: -4
+        follower_advance: 1
+        follower_columns_added: 0
+      except_left: []
