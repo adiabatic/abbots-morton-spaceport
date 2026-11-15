@@ -24,9 +24,9 @@ A rule declares one shape, a row in `SHAPES`, by the field its `match.after` car
 
 - `join-retargeted` (declared by `retarget`): a named join changes height. The pivot and follower may both redraw but keep their own-frame origins, the pivot keeps its placement, the follower moves by `follower_shift` (zero where the new join leaves it standing, -2 where ·Utter reaching ·May at the x-height pulls ·May back), and everything after the follower moves by `shift`. Half-·Tea joining ·No at the x-height becoming full ·Tea joining flipped ·No at the baseline is an example.
 
-- `join-created` (declared by `joined`): a named pair that was a break now joins at the named height, and the pivot and follower may redraw. The pivot keeps its own-frame origin, and its placement stays or moves up to `pivot_stub_drop` columns right when the left-side entry the old font drew in front of the join comes off (·May's own entry in front of its new baseline join into ·Gay). The follower keeps its own-frame origin, or moves it left by `follower_columns_added` when its joining form inserts columns at its left edge (·Gay's stroke that reaches the baseline). The follower moves by `shift` plus the pivot's placement move, and everything after it by that plus `follower_advance`. Two counts are needed because a follower that redraws wider gives back what the join closed: the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word where it was. The pivot may name several families, which records one letter's new entry for every left neighbor that now reaches it. `except_pivots` declines before forms that nest under a pivot prefix but need another count: the ·J'ai the old font drew with a stacked crown entry gives the follower a column, while the ·J'ai drawn without one gains a reach that cancels it.
+- `join-created` (declared by `joined`): a named pair that was a break now joins at the named height, and the pivot and follower may redraw. The pivot keeps its own-frame origin, and its placement stays or moves up to `pivot_stub_drop` columns right when the left-side entry the old font drew in front of the join comes off (·May's own entry in front of its new baseline join into ·Gay). The follower keeps its own-frame origin, or moves it left by `follower_columns_added` when its joining form inserts columns at its left edge (·Gay's stroke that reaches the baseline), or right by `follower_columns_removed` when the join contracts its entry and its frame takes the columns (·Vie's entry after ·No.alt); the rule judges only where the frame lands, and the contraction's own approval is its entry rule's. The follower moves by `shift` plus the pivot's placement move, and everything after it by that plus `follower_advance`. Two counts are needed because a follower that redraws wider gives back what the join closed: the reaches-way-back ·Utter comes a column nearer ·May and leaves the rest of the word where it was. The pivot may name several families, which records one letter's new entry for every left neighbor that now reaches it. `except_pivots` declines before forms that nest under a pivot prefix but need another count: the ·J'ai the old font drew with a stacked crown entry gives the follower a column, while the ·J'ai drawn without one gains a reach that cancels it.
 
-- `ligature-split` (declared by `split`): a ligature the before font draws as one glyph that the after font draws as its two letters, joined at the named height, each in a cell the rule names in full, with the junctions into and out of the pair unchanged. The sides do not line up letter for letter, so `split_view` expands the before side where a rule names a split: the ligature stays at the first letter's position, an inkless `SPLIT_TAIL` takes the second's, and the two letters' junction goes between them, which lets the shapes that need the sides lined up read the window as they read any other. The rule judges that the pair is a renaming: the ligature's one ink piece, at the running displacement, is exactly the two letters' ink together. It is an event of its own in the combined walk, and every split in a window must be one. A window whose split no rule names stays unplaceable to every shape that needs the sides lined up, and every shape's own matcher, apart from the split's, reads the unit as recorded, so a split rule changes none of their results and a window the combined walk declines is decided as before. Another rule's event at the ligature's position, or a created join or retarget whose follower is the ligature, makes the walk return None, so a window whose ligature also changes its entry waits for review. The rule's own matcher is that walk over this rule alone.
+- `ligature-split` (declared by `split`): a ligature the before font draws as one glyph that the after font draws as its two letters, joined at the named height, each in a cell the rule names in full, with the junctions into and out of the pair unchanged, or, where the rule declares `junction_in` and `first_entry_contraction`, with the junction into the pair a break that the left letter now joins at `junction_in`, the first letter's entry contracting by that many columns as the join forms (·Vie after ·No.alt). The sides do not line up letter for letter, so `split_view` expands the before side where a rule names a split: the ligature stays at the first letter's position, an inkless `SPLIT_TAIL` takes the second's, and the two letters' junction goes between them, which lets the shapes that need the sides lined up read the window as they read any other. The rule judges that the pair is a renaming: the ligature's one ink piece, at the running displacement, is exactly the two letters' ink together, or, under a declared contraction, that ink with its entry pixels in the leftmost columns the contraction names taken off and the rest that many columns closer. It is an event of its own in the combined walk, and every split in a window must be one. A window whose split no rule names stays unplaceable to every shape that needs the sides lined up, and every shape's own matcher, apart from the split's, reads the unit as recorded, so a split rule changes none of their results and a window the combined walk declines is decided as before. Another rule's event at the ligature's position makes the walk return None, and so does a created join or retarget whose follower is the ligature, apart from the created join in front of a contracting split, which is that split's one partner: the contraction needs a created join at the position before it. A window whose ligature changes its entry any other way waits for review. The rule's own matcher is that walk over this rule alone.
 
 The combined match, which no rule declares, runs before any single rule is checked. It asks whether two or more approved changes together account for every rendered pixel of one window. For example, where the baseline-exit ·See slides a column closer to what precedes it and ·J'ai also gives up its exit extension, neither rule covers the window alone: `slide` fails on the extension pixel, and `extension-dropped` does not look at ink outside its judged junction.
 
@@ -45,7 +45,7 @@ The walk (`_combined_walk`) re-shapes the window in the corpus's font pair and c
 - stub: the pivot's placement moves right by the stub count, and the displacement is unchanged.
 - retarget: the pivot sits at the running displacement, the follower moves by `follower_shift`, and everything after the follower moves by the full `shift`.
 - joined (created): the pivot sits at the running displacement or up to `pivot_stub_drop` columns right of it, the follower moves by `shift` plus that offset, and everything after the follower moves by that plus `follower_advance`.
-- split: the ligature's one before piece, at the running displacement, is exactly the two letters' after pieces together, and the displacement is unchanged. The next span starts after the two letters.
+- split: the ligature's one before piece, at the running displacement, is exactly the two letters' after pieces together, and the displacement is unchanged. Under a declared contraction the ligature's picture, less the entry pixels in its leftmost columns the contraction names and with the rest that many columns closer, is the two letters' pictures together, and the displacement moves closer by it. The next span starts after the two letters.
 
 Every span between events must render as its before picture moved by the displacement at its start.
 
@@ -53,12 +53,12 @@ Two events may share a letter only in these cases:
 
 - A created join behind an entry, ink-gain, or redrawn event at the same position. The earlier event judges the picture the pivot settles into, and the created join judges the junction that picture opens and its follower. Examples: ·Ah's contracted entry after ·J'ai and its new x-height join into ·Gay; ·Tea's full bar under ss03 and the baseline join it takes; ·Eight's smaller loop and the baseline join into ·It that only that loop reaches.
 - A created join, redrawn cell swap, dropped join, or further retarget whose pivot is a retarget's follower. The retarget judges that letter's incoming junction and its placement. A further retarget or dropped join takes nothing of the first retarget's `shift` beyond its follower's move, because its own counts are measured with its pivot standing and already include that letter's advance. A redrawn cell swap there must leave the letter where the retarget put it, so a new form naming an entry contraction fails. Examples: ·Gay's raised join into ·No with the break ·No now leaves before ·Thaw, or with ·No's own raised join into ·Day or ·No; ·It's lowered join into ·No and ·No's new join into ·Gay; ·Utter's raised join into ·May and the loop ·May draws with no exit left.
-- A created join, retarget, dropped join, extension drop, ink gain, or redrawn cell swap whose pivot is a created join's follower. The created join judges that letter's incoming junction. A following retarget receives only the created join's `follower_columns_added`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget may have moved its pivot's own-frame origin, because the created join's `follower_columns_added` declared that move. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that junction and gives up its baseline tail; half-·Tea's new x-height join into ·It and the x-height join into ·J'ai that ·It gives up, since it cannot leave at the height it now enters at.
+- A created join, retarget, dropped join, extension drop, ink gain, entry contraction or drop, redrawn cell swap, or contracting split whose pivot is a created join's follower. The created join judges that letter's incoming junction. A following retarget receives only the created join's `follower_columns_added`, for the same reason as above, and any other following event receives the whole `follower_advance`. Such a retarget may have moved its pivot's own-frame origin, because the created join's `follower_columns_added` declared that move, and an entry contraction or contracting split there has taken its columns into its frame, which the created join's `follower_columns_removed` declared. Examples: ·Bay's new baseline join into ·Utter and ·Utter's raised join into ·May, which puts ·May three columns back; ·Et's new baseline join into ·Gay and ·Gay's raised join into ·No; ·Pea's lowered join into ·No, ·No's new join into ·Ah, and ·Ah's dropped tail before ·Bay; ·Ah's new x-height join into ·Gay and ·Gay's own redraw, which meets that junction and gives up its baseline tail; half-·Tea's new x-height join into ·It and the x-height join into ·J'ai that ·It gives up, since it cannot leave at the height it now enters at; ·No.alt's new baseline join into ·Vie and ·Vie's contracted entry, with or without the ·Vie+Utter ligature splitting into its two letters.
 - A dropped join or extension drop whose follower is itself an event. That event is judged next, under the displacement the first one applied (·At's dropped x-height join and ·It's dropped exit extension).
 - An entry event and a redrawn event at the same position, two shapes that describe one change to the pivot's picture: ·Jay's contracted entry after ·Pea is both qsJay's entry contraction and its crown giving up a cell. At least one must hold where the walk reaches the pivot, every one that holds must put the pivot in the same place and move what follows by the same count, and the walk counts each rule whose event holds there. Together they are one event, so a window whose only change is that pivot stays on those rules' own lines. Such a position cannot be the follower a retarget or created join judges, because those judge a single event behind them.
 - An entry shortening and a separate redraw at the same position, where neither local check holds alone: the before picture loses ink only in the named entry columns and undergoes exactly the redraw's named cell swap. A dropped entry extension compacts the picture left under an unchanged own-frame origin; an entry contraction aligns it by the columns the frame takes and moves the placement by the rest. The two shifts add, and both approvals count as independent events. ·Vie losing its entry extension or contracting its entry while also contracting its baseline exit is one example.
 
-Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A split shares its position with no event, and a walk that finds a split lead without a split event returns None. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
+Any other pair of events at one position, or a created join or retarget whose follower position is also an event, makes the walk return None. A split shares its position with no event, and a walk that finds a split lead without a split event returns None, as does one whose contracting split has no created join at the position before it. A created join whose pivot moved its own-frame origin is an event only behind an entry, ink-gain, or redrawn event at that position. A retarget whose pivot moved its origin is an event only behind a created join at the position before it, or behind an entry, ink-gain, or redrawn event at the same position, where it shares the letter the way a created join there does.
 
 A candidate whose own check fails is not an event, and its ink is judged as ordinary span ink, so a rule that fails at a position does not stop the other rules from explaining the window. The pivot is judged piece by piece rather than as part of a union, so a pivot whose after form also drops a cell off the junction row (·J'ai's crown contracting under an ·At tuck) never combines.
 
@@ -299,8 +299,16 @@ def _split_accepts(match, glyph, first, second, junction):
     )
 
 
+def _split_enters(match, into_before, into_after):
+    """Whether the junction into a split ligature is the one the rule names: unchanged where the rule declares no `junction_in`, and where it does, a break before that the left letter now joins at that height, so the first letter's entry contracts as the join forms."""
+    junction_in = match["after"].get("junction_in")
+    if junction_in is None:
+        return into_before == into_after
+    return into_before == "break" and into_after == junction_in
+
+
 def split_view(unit, rules):
-    """Return the unit as the matchers read it: the unit itself, unless a ligature-split rule names every place where the sides fail to line up letter for letter, and then a copy whose before side is expanded so that they do. The copy replaces each split ligature's glyph by the glyph itself, which keeps its name and the single ink piece the before font draws for both letters, followed by the inkless marker `SPLIT_TAIL`, and puts the two letters' junction between them, so each side's glyph, junction and cell lists then have the same length and `index` names one position on both. The after side is untouched, so `pair`, `secondary_junctions` and the after cells keep their indices. `splits` lists the lead positions, `unsplit` keeps the unit the copy was made from, and `_letter_for_letter` takes a unit that carries `splits` as lined up, because this function checked it. Only the combined walk, the split rule's own matcher and the candidate checks read the copy: every other shape's own matcher is handed `unsplit` (`_matches`), so each result it had on the recorded unit stays. A unit is expanded only when every misalignment is a split a rule's `_split_accepts` names with the junction into the ligature equal to the junction into the first letter and the junction out of it equal to the junction out of the second, and the whole window's components then add up to its code points. Anything else, including a window that also forms a ligature in the after font, comes back unchanged, so it stays unplaceable and waits for human review."""
+    """Return the unit as the matchers read it: the unit itself, unless a ligature-split rule names every place where the sides fail to line up letter for letter, and then a copy whose before side is expanded so that they do. The copy replaces each split ligature's glyph by the glyph itself, which keeps its name and the single ink piece the before font draws for both letters, followed by the inkless marker `SPLIT_TAIL`, and puts the two letters' junction between them, so each side's glyph, junction and cell lists then have the same length and `index` names one position on both. The after side is untouched, so `pair`, `secondary_junctions` and the after cells keep their indices. `splits` lists the lead positions, `unsplit` keeps the unit the copy was made from, and `_letter_for_letter` takes a unit that carries `splits` as lined up, because this function checked it. Only the combined walk, the split rule's own matcher and the candidate checks read the copy: every other shape's own matcher is handed `unsplit` (`_matches`), so each result it had on the recorded unit stays. A unit is expanded only when every misalignment is a split a rule's `_split_accepts` names with the junction into the ligature the one `_split_enters` allows (equal to the junction into the first letter, or the break-to-join a contracting split declares) and the junction out of it equal to the junction out of the second, and the whole window's components then add up to its code points. Anything else, including a window that also forms a ligature in the after font, comes back unchanged, so it stays unplaceable and waits for human review."""
     if not rules or "splits" in unit or _letter_for_letter(unit):
         return unit
     before, after = unit.get("before"), unit.get("after")
@@ -325,10 +333,11 @@ def split_view(unit, rules):
             into_after = after_junctions[at - 1] if at else None
             out_before = junctions[index] if index < len(junctions) else None
             out_after = after_junctions[at + 1] if at + 1 < len(after_junctions) else None
-            if into_before != into_after or out_before != out_after:
+            if out_before != out_after:
                 return unit
             if not any(
                 _split_accepts(rule["match"], glyph, cells[at], cells[at + 1], after_junctions[at])
+                and _split_enters(rule["match"], into_before, into_after)
                 for rule in rules
             ):
                 return unit
@@ -355,18 +364,21 @@ def split_view(unit, rules):
 def _split_positions(match, unit):
     """Return the lead positions of a view's splits that this rule names, read from the index record without shaping."""
     glyphs, cells = unit["before"]["glyphs"], unit["after"]["cells"]
-    after_junctions = unit["after"]["junctions"]
+    junctions, after_junctions = unit["before"]["junctions"], unit["after"]["junctions"]
     return [
         lead
         for lead in unit.get("splits", ())
         if lead + 1 < len(cells)
         and lead < len(after_junctions)
         and _split_accepts(match, glyphs[lead], cells[lead], cells[lead + 1], after_junctions[lead])
+        and _split_enters(
+            match, junctions[lead - 1] if lead else None, after_junctions[lead - 1] if lead else None
+        )
     ]
 
 
 def _matches_split(match, unit, excluded, context=None):
-    """A ligature the before font draws as one glyph that the after font draws as its two letters joined at the named height, with both letters' cells named in full and the junctions into and out of the pair unchanged. The window is judged by the combined walk over this rule alone (`_combined_walk`), whose split event requires the ligature's ink to equal the two letters' ink under the running displacement, so the split is a renaming and moves nothing, and everything else in the window must be a translation too. A window whose only approved change is the split matches here, and one with other approved changes is the combined match's case. Nothing about the judged pair is read, since the walk accounts for every rendered pixel."""
+    """A ligature the before font draws as one glyph that the after font draws as its two letters joined at the named height, with both letters' cells named in full and the junctions into and out of the pair unchanged (a contracting split instead needs a created join in front of it, so it only matches in the combined walk). The window is judged by the combined walk over this rule alone (`_combined_walk`), whose split event requires the ligature's ink to equal the two letters' ink under the running displacement, so the split is a renaming and moves nothing, and everything else in the window must be a translation too. A window whose only approved change is the split matches here, and one with other approved changes is the combined match's case. Nothing about the judged pair is read, since the walk accounts for every rendered pixel."""
     if context is None or "splits" not in unit:
         return False
     events = _combined_walk([{"id": "split", "match": match}], unit, context)
@@ -396,6 +408,25 @@ def _validate_split(rule_id, match) -> None:
     for field, family in (("first_cells", split[0]), ("second_cells", split[1])):
         if any(_cell_rune(cell) != family for cell in match["after"][field]):
             _fail(f"rule {rule_id!r}: match.after.{field} must name only {family} cells")
+    if ("junction_in" in match["after"]) != ("first_entry_contraction" in match["after"]):
+        _fail(
+            f"rule {rule_id!r}: match.after.junction_in and match.after.first_entry_contraction come together; "
+            "the join the left letter newly makes into the ligature is what contracts the first letter's entry"
+        )
+    if "junction_in" in match["after"]:
+        columns = match["after"]["first_entry_contraction"]
+        if not JUNCTION_ROW.fullmatch(match["after"]["junction_in"]):
+            _fail(f"rule {rule_id!r}: match.after.junction_in must be a yK height")
+        if columns < 1:
+            _fail(
+                f"rule {rule_id!r}: match.after.first_entry_contraction is {columns}; a split that contracts no "
+                "entry leaves both fields off"
+            )
+        if any(f"en-con-{columns}" not in _cell_adjustments(cell) for cell in match["after"]["first_cells"]):
+            _fail(
+                f"rule {rule_id!r}: every match.after.first_cells entry must carry en-con-{columns}, "
+                "the contraction the rule declares"
+            )
 
 
 def _matches_ligature(match, unit, excluded, context=None):
@@ -1554,8 +1585,14 @@ def _validate_redrawn(rule_id, match) -> None:
         )
 
 
+def _follower_rune(glyph, split_lead):
+    """Return the rune an after cell must carry to belong to this before glyph: its whole family, or its first letter where the glyph is the lead of a split ligature (`split_view`), whose first after cell is that letter's own."""
+    family = _family(glyph)
+    return family.split("_")[0] if split_lead else family
+
+
 def _retarget_pairs(match, unit):
-    """Return the before-glyph indices where the named pair changed its join state. The unit must line up letter for letter. At each index the glyph carries one of the pivot prefixes and none of the `except_pivots` forms, the next glyph is in a named follower family, the before junction between them is `junction_out` and the after junction is the rule's `retarget` or `joined` height, the two after cells are in `pivot_cells` and `follower_after_cells`, and each after cell belongs to its before glyph's family. `except_pivots` lets a rule skip a before form that falls under one of its prefixes but needs a different count, since a prefix also matches every longer form."""
+    """Return the before-glyph indices where the named pair changed its join state. The unit must line up letter for letter. At each index the glyph carries one of the pivot prefixes and none of the `except_pivots` forms, the next glyph is in a named follower family, the before junction between them is `junction_out` and the after junction is the rule's `retarget` or `joined` height, the two after cells are in `pivot_cells` and `follower_after_cells`, and each after cell belongs to its before glyph's family, or to the first letter of a split ligature's family where the glyph leads a split (`split_view`). `except_pivots` lets a rule skip a before form that falls under one of its prefixes but needs a different count, since a prefix also matches every longer form."""
     if not _letter_for_letter(unit):
         return []
     glyphs, junctions = unit["before"]["glyphs"], unit["before"]["junctions"]
@@ -1566,6 +1603,7 @@ def _retarget_pairs(match, unit):
     junction = match["before"]["junction_out"]
     retarget = match["after"].get("retarget", match["after"].get("joined"))
     reach = min(len(glyphs), len(cells), len(junctions) + 1, len(after_junctions) + 1) - 1
+    splits = unit.get("splits", ())
     return [
         i
         for i in range(reach)
@@ -1577,7 +1615,7 @@ def _retarget_pairs(match, unit):
         and cells[i] in match["after"]["pivot_cells"]
         and cells[i + 1] in match["after"]["follower_after_cells"]
         and _cell_rune(cells[i]) == _family(glyphs[i])
-        and _cell_rune(cells[i + 1]) == _family(glyphs[i + 1])
+        and _cell_rune(cells[i + 1]) == _follower_rune(glyphs[i + 1], i + 1 in splits)
     ]
 
 
@@ -1715,6 +1753,7 @@ def _matches_join_created(match, unit, excluded, context=None):
         match["after"]["shift"],
         match["after"]["follower_advance"],
         match["after"]["follower_columns_added"],
+        match["after"].get("follower_columns_removed", 0),
         match["after"].get("pivot_stub_drop", 0),
         unit["id"],
     )
@@ -1727,7 +1766,7 @@ def _matches_join_created(match, unit, excluded, context=None):
             context.comparator,
             shift,
             shift + match["after"]["follower_advance"],
-            match["after"]["follower_columns_added"],
+            _created_follower_columns(match),
             match["after"].get("pivot_stub_drop", 0),
         )
     if not verdict:
@@ -1765,8 +1804,13 @@ def _validate_join_retarget(rule_id, match) -> None:
                 )
 
 
+def _created_follower_columns(match):
+    """Return the columns a created join's follower moves its own-frame origin left: the declared `follower_columns_added`, less the declared `follower_columns_removed`, the columns its frame pulls in because the join contracts its entry (negative here, since the origin moves right)."""
+    return match["after"]["follower_columns_added"] - match["after"].get("follower_columns_removed", 0)
+
+
 def _validate_join_created(rule_id, match) -> None:
-    """Check a join-created rule at load. `junction_out` must be `break` and `joined` a yK height, since a pair that already joined belongs to the retarget or extension shape and a new break to the join-dropped shape. `follower_columns_added` must not be negative, since a follower that pulls its left edge in is an entry contraction. A declared `pivot_stub_drop` must be at least 1; a rule without a stub drop leaves the field off. Every `except_pivots` form must fall under one of the named pivots, since a declined form outside them declines nothing and misstates the rule's scope. The pivot and follower after cells must belong to the named pivot and follower families. Naming several pivot families lets one rule record a letter's new entry for every left neighbor that now reaches it."""
+    """Check a join-created rule at load. `junction_out` must be `break` and `joined` a yK height, since a pair that already joined belongs to the retarget or extension shape and a new break to the join-dropped shape. `follower_columns_added` must not be negative, since a follower that pulls its left edge in is an entry contraction, which `follower_columns_removed` names (at least 1, and never beside a nonzero `follower_columns_added`). A declared `pivot_stub_drop` must be at least 1; a rule without a stub drop leaves the field off. Every `except_pivots` form must fall under one of the named pivots, since a declined form outside them declines nothing and misstates the rule's scope. The pivot and follower after cells must belong to the named pivot and follower families. Naming several pivot families lets one rule record a letter's new entry for every left neighbor that now reaches it."""
     if match["before"]["junction_out"] != "break":
         _fail(
             f"rule {rule_id!r}: match.before.junction_out names {match['before']['junction_out']!r}; "
@@ -1782,6 +1826,18 @@ def _validate_join_created(rule_id, match) -> None:
             f"rule {rule_id!r}: match.after.follower_columns_added is negative; a follower's joining form adds columns at "
             "its left edge or none, and a frame that pulls in is a contraction"
         )
+    if "follower_columns_removed" in match["after"]:
+        if match["after"]["follower_columns_removed"] < 1:
+            _fail(
+                f"rule {rule_id!r}: match.after.follower_columns_removed is "
+                f"{match['after']['follower_columns_removed']}; a follower whose frame keeps its left edge leaves "
+                "the field off"
+            )
+        if match["after"]["follower_columns_added"]:
+            _fail(
+                f"rule {rule_id!r}: match.after.follower_columns_removed cannot come with a nonzero "
+                "follower_columns_added; a follower's frame either pulls in or reaches back"
+            )
     if "pivot_stub_drop" in match["after"] and match["after"]["pivot_stub_drop"] < 1:
         _fail(
             f"rule {rule_id!r}: match.after.pivot_stub_drop is "
@@ -1815,7 +1871,7 @@ class Event(NamedTuple):
 
     `pivot_judged` is False only for a `retarget` or `joined` event whose pivot moved its own-frame origin. The walk keeps either kind only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot, and also keeps such a retarget behind a created join at the previous position, whose `follower_columns_added` has already checked that move.
 
-    `lead` is an event's expected placement offset from the running displacement: zero or negative for an entry event, nonzero only for an entry contraction the after form's own frame did not fully take into its origin, and positive for a gain event whose rule declares an `entry_extension`, the columns that extension moves the pivot right. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created or dropped join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `follower_columns` is a created join's `follower_columns_added`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join it is `follower_columns_removed`, which makes the follower's picture part of the event instead of the head of the next span.
+    `lead` is an event's expected placement offset from the running displacement: zero or negative for an entry event, nonzero only for an entry contraction the after form's own frame did not fully take into its origin, and positive for a gain event whose rule declares an `entry_extension`, the columns that extension moves the pivot right. `room` is how far the pivot's placement may sit from the running displacement: to the left for a redrawn event, by the part of its new form's entry contraction its frame did not take, and to the right for a created join, by its `pivot_stub_drop`. `advance` is the further displacement applied once the walk is past the follower: a created or dropped join's `follower_advance`, or what a retarget's `shift` leaves after its `follower_shift`. `follower_columns` is a created join's `follower_columns_added`, the part of its advance a retarget that shares a letter with it still needs. On a dropped join it is `follower_columns_removed`, which makes the follower's picture part of the event instead of the head of the next span. `compact` is a split's `entry_contraction`: the columns its first letter's entry pulls in, which the ligature's ink is compacted by and what follows moves closer by.
     """
 
     rule_id: str
@@ -1826,6 +1882,7 @@ class Event(NamedTuple):
     advance: int = 0
     room: int = 0
     follower_columns: int = 0
+    compact: int = 0
 
 
 class WalkEvents(dict[str, list[int]]):
@@ -2000,11 +2057,11 @@ def _expanded_names(names, leads):
     return tuple(expanded)
 
 
-def _split_event(rule_id, index, before_pieces, after_pieces):
-    """Return a split Event at the lead `index` when the before font drew the ligature as one ink piece and the after font drew both letters with ink, or None, which leaves the position unexplained, so the walk refuses the window (`_combined_walk` requires an event at every split lead). The event moves nothing: the walk checks that the ligature's picture, at the running displacement, is the two letters' pictures together."""
+def _split_event(match, rule_id, index, before_pieces, after_pieces):
+    """Return a split Event at the lead `index` when the before font drew the ligature as one ink piece and the after font drew both letters with ink, or None, which leaves the position unexplained, so the walk refuses the window (`_combined_walk` requires an event at every split lead). The event moves nothing: the walk checks that the ligature's picture, at the running displacement, is the two letters' pictures together. A rule that declares `first_entry_contraction` has the event carry the count as `compact`, for the walk to compact the ligature's picture by and move what follows closer; the created join in front, whose `follower_columns_removed` names the columns the first letter's frame takes, judges the origin."""
     if index not in before_pieces or index not in after_pieces or index + 1 not in after_pieces:
         return None
-    return Event(rule_id, "split", 0)
+    return Event(rule_id, "split", 0, compact=match["after"].get("first_entry_contraction", 0))
 
 
 def _pieces_by_glyph(names, run):
@@ -2214,7 +2271,7 @@ def _retarget_event(match, rule_id, index, before_pieces, after_pieces):
 def _created_join_event(match, rule_id, index, before_pieces, after_pieces):
     """Return a created-join (`joined`) Event at `index` when the follower keeps its own-frame origin or moves it left by `follower_columns_added`, on the grid, and the pivot has ink on both sides, or None, which leaves both pieces to be judged as span ink. Height and picture may change. `pivot_judged` is False when the pivot moved its own-frame origin; the walk keeps such an event only when it shares its pivot with an entry, gain, or redrawn event at the same position, which has judged the pivot. In the walk the pivot sits at the running displacement or up to `pivot_stub_drop` columns right of it, the follower moves by the shift plus that offset, and the follower's advance delta is carried past it."""
     if not _retarget_piece_holds(
-        before_pieces.get(index + 1), after_pieces.get(index + 1), match["after"]["follower_columns_added"]
+        before_pieces.get(index + 1), after_pieces.get(index + 1), _created_follower_columns(match)
     ):
         return None
     if before_pieces.get(index) is None or after_pieces.get(index) is None:
@@ -2227,7 +2284,7 @@ def _created_join_event(match, rule_id, index, before_pieces, after_pieces):
         pivot_judged,
         advance=match["after"]["follower_advance"],
         room=match["after"].get("pivot_stub_drop", 0),
-        follower_columns=match["after"]["follower_columns_added"],
+        follower_columns=_created_follower_columns(match),
     )
 
 
@@ -2360,7 +2417,7 @@ def _combined_walk(rules, unit, context):
             elif _is_created_join_match(match):
                 event = _created_join_event(match, rule["id"], index, before_pieces, after_pieces)
             elif _is_split_match(match):
-                event = _split_event(rule["id"], index, before_pieces, after_pieces)
+                event = _split_event(match, rule["id"], index, before_pieces, after_pieces)
             else:
                 event = _extension_event(
                     match,
@@ -2442,7 +2499,8 @@ def _combined_walk(rules, unit, context):
         for index, event in list(events.items()) + list(sharing.items())
         if event.kind == "joined"
         and index + 1 in events
-        and events[index + 1].kind in ("joined", "retarget", "join", "extension", "gain", "redrawn")
+        and events[index + 1].kind
+        in ("joined", "retarget", "join", "extension", "gain", "entry", "redrawn", "split")
     }
     if any(
         index + 1 in events and index + 1 not in behind_retarget and index + 1 not in behind_join
@@ -2453,6 +2511,11 @@ def _combined_walk(rules, unit, context):
     if pivot_events.keys() & (behind_retarget | behind_join):
         return None
     if any(lead not in events or events[lead].kind != "split" for lead in leads):
+        return None
+    if any(
+        events[lead].compact and (lead - 1 not in events or events[lead - 1].kind != "joined")
+        for lead in leads
+    ):
         return None
     counted = WalkEvents()
     before_span: list = []
@@ -2493,9 +2556,14 @@ def _combined_walk(rules, unit, context):
             displacement += event.shift
             index += 1
         elif event.kind == "split":
-            if not _span_settled(
-                intern, [before_pieces[index]], [after_pieces[index], after_pieces[index + 1]], displacement
-            ):
+            displacement += carried
+            carried = 0
+            ligature, letters = [before_pieces[index]], [after_pieces[index], after_pieces[index + 1]]
+            if event.compact:
+                if not _span_compacted(intern, ligature, letters, displacement, event.compact):
+                    return None
+                displacement -= event.compact
+            elif not _span_settled(intern, ligature, letters, displacement):
                 return None
             before_span, after_span = [], []
             index += 2
@@ -2878,10 +2946,16 @@ SHAPES = {
         cell_lists=("pivot_cells", "follower_after_cells"),
         matcher=_matches_join_created,
         validate=_validate_join_created,
-        optional=("pivot_stub_drop",),
+        optional=("pivot_stub_drop", "follower_columns_removed"),
         before_optional=("except_pivots",),
         name_lists=("except_pivots",),
-        int_fields=("shift", "follower_advance", "follower_columns_added", "pivot_stub_drop"),
+        int_fields=(
+            "shift",
+            "follower_advance",
+            "follower_columns_added",
+            "follower_columns_removed",
+            "pivot_stub_drop",
+        ),
         family_fields=("pivot", "follower"),
         combinable=True,
         font_backed=True,
@@ -2892,7 +2966,9 @@ SHAPES = {
         keyed_by="split",
         before=("ligature",),
         after=("split", "junction", "first_cells", "second_cells"),
+        optional=("junction_in", "first_entry_contraction"),
         cell_lists=("first_cells", "second_cells"),
+        int_fields=("first_entry_contraction",),
         matcher=_matches_split,
         validate=_validate_split,
         family_fields=("split",),

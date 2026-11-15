@@ -3103,3 +3103,43 @@ rules:
         entry_extension: 1
         shift: 1
       except_left: []
+  - id: no-vie-baseline-join-created
+    verdict: approve
+    note: "·No.alt joins ·Vie at the baseline where the old font left a break, and the ·Vie it reaches pulls its own frame in by the column its entry contracts — qsNo's flipped stance takes ·Vie on its baseline exit and qsVie's contract record for the pair comes from “Contract `·No.alt ~b~ ·Vie{,+Utter}` by a pixel”; the user gave the contraction standing approval at u-dVoTvXmHPvX, and every window that reached a review session approved the join"
+    match:
+      before:
+        pivot: qsNo
+        junction_out: break
+        follower: [qsVie, qsVie_qsUtter]
+      after:
+        joined: y0
+        pivot_cells:
+          - qsNo/flipped/None/baseline/
+          - qsNo/flipped/baseline/baseline/
+        follower_after_cells:
+          - qsVie/normal/baseline/None/en-con-1
+          - qsVie/swept-out/baseline/baseline/en-con-1
+          - qsVie/swept-out/baseline/baseline/en-con-1+ex-con-1
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+        follower_columns_removed: 1
+      except_left: []
+  - id: vie-utter-ligature-split-after-no-alt
+    verdict: approve
+    note: "·Vie·Utter is drawn as ·Vie joined to ·Utter at the baseline where the old font drew the ·Vie+Utter ligature, and where ·No.alt now joins ·Vie the pair paints the ligature's ink without its entry pixel, a column closer — qsVie's contract record before ·Utter takes the ligature's place in “Draw `·Vie·Utter` as `·Vie ~b~ ·Utter` instead of a ·Vie+Utter ligature”, and its entry contraction after ·No.alt comes from “Contract `·No.alt ~b~ ·Vie{,+Utter}` by a pixel”; the user gave the split standing approval at u-ZJAZWFEtvrV and the contraction at u-dVoTvXmHPvX"
+    match:
+      before:
+        ligature: qsVie_qsUtter
+      after:
+        split: [qsVie, qsUtter]
+        junction: y0
+        junction_in: y0
+        first_entry_contraction: 1
+        first_cells:
+          - qsVie/swept-out/baseline/baseline/en-con-1+ex-con-1
+        second_cells:
+          - qsUtter/mono/baseline/None/
+          - qsUtter/mono/baseline/x-height/
+          - qsUtter/mono/baseline/x-height/ex-ext-1
+      except_left: []

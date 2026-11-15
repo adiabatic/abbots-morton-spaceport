@@ -2139,6 +2139,24 @@ SPLIT_R = register_pair("qsR", "qsR")
 SPLIT_R_TALLER = register_pair("qsR", "qsR.taller")
 SPLIT_R_BLANK = register_pair("qsR", "qsR.blank")
 
+# A ligature whose leftmost column is one entry pixel (the stub), drawn after a lead that now joins it: the first letter's entry contracts by a column, so its outline starts a column right of the ligature's and the stub is gone. The lead's advance falls by two columns, one the join closes and one the contraction takes.
+STUBBED_LIGATURE = (_rect(0, 0, 50, 50), _rect(50, 0, 150, 150), _rect(150, 0, 250, 100))
+SPLIT_U_CONTRACTED = (_rect(50, 0, 150, 150),)
+SPLIT_U_UNCONTRACTED = (_rect(0, 0, 100, 150),)
+register_glyph("before", "qsBay.split-lead", SPLIT_FIRST, 200)
+register_glyph("before", "qsU", SPLIT_FIRST, 100)
+register_glyph("before", "qsW", SPLIT_SECOND, 100)
+register_glyph("before", "qsU_qsW", STUBBED_LIGATURE, 250)
+register_ligature("qsU_qsW", "qsU", "qsW")
+register_glyph("after", "qsBay.split-lead", SPLIT_FIRST, 100)
+register_glyph("after", "qsU.contracted", SPLIT_U_CONTRACTED, 150)
+register_glyph("after", "qsU.uncontracted", SPLIT_U_UNCONTRACTED, 150)
+register_glyph("after", "qsW", SPLIT_SECOND, 100)
+SPLIT_LEAD = register_pair("qsBay.split-lead", "qsBay.split-lead")
+SPLIT_U = register_pair("qsU", "qsU.contracted")
+SPLIT_U_UNCONTRACTED_PAIR = register_pair("qsU", "qsU.uncontracted")
+SPLIT_W = register_pair("qsW", "qsW")
+
 BEFORE_GLYPHS = _OUTLINES["before"]
 AFTER_GLYPHS = _OUTLINES["after"]
 BEFORE_CMAP = {codepoint: names[0] for names, codepoint in _CODEPOINTS.items()}
@@ -2366,6 +2384,12 @@ def _build_font(path, glyphs, cmap):
     builder.font["head"].modified = 0
     builder.save(str(path))
     return path
+
+
+SLIDE_FONTS["after-contracting-split-extra-pixel"] = (
+    {**AFTER_GLYPHS, "qsW": (SPLIT_SECOND_TALLER, 100)},
+    AFTER_CMAP,
+)
 
 
 @pytest.fixture(scope="session")
@@ -10051,3 +10075,264 @@ def test_a_unit_two_rules_match_gets_its_fills_in_rules_file_order_whatever_the_
         ("u-1", f"[standing: {RULE['id']}"),
         ("u-1", f"[standing: {second['id']}"),
     ]
+
+
+CONTRACTING_JOIN_RULE = {
+    "id": "fixture-join-created-before-a-contracting-split",
+    "verdict": "approve",
+    "note": "·Bay joins ·U at the baseline where the old font left a break, and ·U pulls its frame in by the column its entry contracts",
+    "match": {
+        "before": {"pivot": "qsBay", "junction_out": "break", "follower": ["qsU", "qsU_qsW"]},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsBay/full/None/baseline/"],
+            "follower_after_cells": ["qsU/full/baseline/None/en-con-1"],
+            "shift": -1,
+            "follower_advance": 0,
+            "follower_columns_added": 0,
+            "follower_columns_removed": 1,
+        },
+        "except_left": [],
+    },
+}
+
+CONTRACTING_SPLIT_RULE = {
+    "id": "fixture-ligature-split-after-a-created-join",
+    "verdict": "approve",
+    "note": "·U·W is drawn as ·U joined to ·W where the old font drew the ·U+W ligature, and where ·Bay now joins ·U the pair paints the ligature's ink without its entry pixel, a column closer",
+    "match": {
+        "before": {"ligature": "qsU_qsW"},
+        "after": {
+            "split": ["qsU", "qsW"],
+            "junction": "y0",
+            "junction_in": "y0",
+            "first_entry_contraction": 1,
+            "first_cells": ["qsU/full/baseline/None/en-con-1"],
+            "second_cells": ["qsW/full/None/None/"],
+        },
+        "except_left": [],
+    },
+}
+
+CONTRACTING_SPLIT_RULES = [CONTRACTING_JOIN_RULE, CONTRACTING_SPLIT_RULE]
+
+CONTRACTED_FOLLOWER_JOIN_RULE = {
+    "id": "fixture-join-created-before-an-entry-contraction",
+    "verdict": "approve",
+    "note": "·Bay joins ·May where the old font left a break, and ·May pulls its frame in by the column its entry contracts",
+    "match": {
+        "before": {"pivot": "qsBay", "junction_out": "break", "follower": "qsMay"},
+        "after": {
+            "joined": "y0",
+            "pivot_cells": ["qsBay/full/None/None/"],
+            "follower_after_cells": ["qsMay/loop/baseline/None/en-con-1"],
+            "shift": 0,
+            "follower_advance": 0,
+            "follower_columns_added": 0,
+            "follower_columns_removed": 1,
+        },
+        "except_left": [],
+    },
+}
+
+CONTRACTED_FOLLOWER_RULES = [CONTRACTED_FOLLOWER_JOIN_RULE, CONTRACTED_ENTRY_RULE]
+
+
+def contracting_split_window(uid="cs-1", first=SPLIT_U):
+    """·Bay now joins the ·U+W ligature, which the after font draws as ·U joined to ·W with ·U's entry contracted by a column."""
+    return unit(
+        uid,
+        ["qsBay.split-lead", "qsU_qsW"],
+        ["break"],
+        ["qsBay/full/None/baseline/", "qsU/full/baseline/None/en-con-1", "qsW/full/None/None/"],
+        ["y0", "y0"],
+        codepoints=spell(SPLIT_LEAD, first, SPLIT_W),
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+    )
+
+
+def contraction_behind_created_join_window(uid="ccj-1"):
+    """The ·Bay·May junction of the contracted-entry window is a break in the before font, so ·Bay's join is a created one and ·May's contracted entry is behind it."""
+    window = contracted_entry_window(uid)
+    window["before"]["junctions"][0] = "break"
+    return window
+
+
+def test_a_contracting_split_follows_the_created_join_that_makes_its_junction(slide_context):
+    window = viewed(contracting_split_window(), (CONTRACTING_SPLIT_RULE,))
+    assert sv._letter_for_letter(window)
+    events = sv._combined_match(CONTRACTING_SPLIT_RULES, window, slide_context())
+    assert events == {CONTRACTING_JOIN_RULE["id"]: [0], CONTRACTING_SPLIT_RULE["id"]: [1]}
+
+
+def test_a_contracting_split_alone_is_not_a_window_the_rule_fills(slide_context):
+    window = viewed(contracting_split_window(), (CONTRACTING_SPLIT_RULE,))
+    assert not sv._matches(CONTRACTING_SPLIT_RULE["match"], window, context=slide_context())
+    assert sv._combined_walk([CONTRACTING_SPLIT_RULE], window, slide_context()) is None
+
+
+def test_a_window_whose_junction_into_the_ligature_changed_stays_unplaced_without_a_contracting_split():
+    window = contracting_split_window()
+    assert viewed(window, (SPLIT_RULE,)) is window
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(
+            lambda window: window["before"]["junctions"].__setitem__(0, "y5"),
+            id="the-old-junction-was-a-join",
+        ),
+        pytest.param(
+            lambda window: window["after"]["junctions"].__setitem__(0, "y5"),
+            id="the-new-join-is-at-another-height",
+        ),
+        pytest.param(
+            lambda window: window["after"]["junctions"].__setitem__(1, "break"),
+            id="the-pair-does-not-join",
+        ),
+    ],
+)
+def test_a_contracting_split_needs_a_break_that_joins_at_its_height(mutate):
+    window = contracting_split_window()
+    mutate(window)
+    assert viewed(window, (CONTRACTING_SPLIT_RULE,)) is window
+
+
+def test_a_contracting_split_names_its_lead_position_to_the_candidate_checks():
+    window = viewed(contracting_split_window(), (CONTRACTING_SPLIT_RULE,))
+    assert sv._candidates(CONTRACTING_SPLIT_RULE["match"], window) == [1]
+    assert sv._candidates(CONTRACTING_JOIN_RULE["match"], window) == [0]
+    assert sv._reachable(CONTRACTING_SPLIT_RULE["match"], window)
+
+
+def test_a_contracting_split_needs_a_created_join_at_the_position_before_it(slide_context):
+    """Under ·Bay's one-column shorter advance the contracted ink would fit the ligature's with no join made, so only the missing created join refuses it."""
+    window = unit(
+        "cs-3",
+        ["qsBay.contract-lead", "qsU_qsW"],
+        ["break"],
+        ["qsBay/full/None/baseline/", "qsU/full/baseline/None/en-con-1", "qsW/full/None/None/"],
+        ["y0", "y0"],
+        codepoints=spell(CONTRACTION_LEAD, SPLIT_U, SPLIT_W),
+        configs=("default",),
+        ink_deltas={"default": SLIDE_DELTA},
+    )
+    view = viewed(window, (CONTRACTING_SPLIT_RULE,))
+    assert view is not window
+    assert sv._combined_walk([CONTRACTING_SPLIT_RULE], view, slide_context()) is None
+
+
+def test_a_contracting_split_needs_its_first_letter_to_pull_its_frame_in(slide_context):
+    window = viewed(
+        contracting_split_window("cs-2", first=SPLIT_U_UNCONTRACTED_PAIR), (CONTRACTING_SPLIT_RULE,)
+    )
+    assert sv._combined_walk(CONTRACTING_SPLIT_RULES, window, slide_context()) is None
+
+
+def test_a_contracting_split_needs_the_join_rule_to_name_the_frame_the_contraction_takes(slide_context):
+    unframed = json.loads(json.dumps(CONTRACTING_JOIN_RULE))
+    del unframed["match"]["after"]["follower_columns_removed"]
+    rules = [unframed, CONTRACTING_SPLIT_RULE]
+    window = viewed(contracting_split_window(), (CONTRACTING_SPLIT_RULE,))
+    assert sv._combined_walk(rules, window, slide_context()) is None
+
+
+def test_a_contracting_split_still_refuses_ink_the_ligature_did_not_paint(slide_context):
+    window = viewed(contracting_split_window(), (CONTRACTING_SPLIT_RULE,))
+    assert sv._combined_walk(CONTRACTING_SPLIT_RULES, window, slide_context()) is not None
+    assert (
+        sv._combined_walk(
+            CONTRACTING_SPLIT_RULES, window, slide_context("after-contracting-split-extra-pixel")
+        )
+        is None
+    )
+
+
+def test_a_created_join_shares_a_letter_with_an_entry_contraction_on_its_follower(slide_context):
+    events = sv._combined_match(
+        CONTRACTED_FOLLOWER_RULES, contraction_behind_created_join_window(), slide_context()
+    )
+    assert events == {CONTRACTED_FOLLOWER_JOIN_RULE["id"]: [0], CONTRACTED_ENTRY_RULE["id"]: [1]}
+
+
+def test_a_created_join_in_front_of_an_entry_contraction_needs_the_frame_it_takes_named(slide_context):
+    unframed = json.loads(json.dumps(CONTRACTED_FOLLOWER_JOIN_RULE))
+    del unframed["match"]["after"]["follower_columns_removed"]
+    rules = [unframed, CONTRACTED_ENTRY_RULE]
+    assert sv._combined_match(rules, contraction_behind_created_join_window(), slide_context()) is None
+
+
+def test_neither_rule_alone_reads_a_created_join_in_front_of_an_entry_contraction(slide_context):
+    window = contraction_behind_created_join_window()
+    assert not sv._matches(CONTRACTED_FOLLOWER_JOIN_RULE["match"], window, context=slide_context())
+    assert sv._combined_walk([CONTRACTED_FOLLOWER_JOIN_RULE], window, slide_context()) is None
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        pytest.param(
+            lambda after: after.update(follower_columns_removed=0),
+            "follower_columns_removed is 0",
+            id="removed-zero",
+        ),
+        pytest.param(
+            lambda after: after.update(follower_columns_added=1),
+            "follower_columns_removed cannot come with a nonzero follower_columns_added",
+            id="removed-with-added",
+        ),
+    ],
+)
+def test_a_created_join_naming_the_frame_a_contraction_takes_is_checked_at_load(tmp_path, mutate, message):
+    rule = json.loads(json.dumps(CONTRACTING_JOIN_RULE))
+    mutate(rule["match"]["after"])
+    with pytest.raises(SystemExit, match=message):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        pytest.param(
+            lambda after: after.pop("first_entry_contraction"),
+            "junction_in and match.after.first_entry_contraction come together",
+            id="a-junction-without-a-contraction",
+        ),
+        pytest.param(
+            lambda after: after.pop("junction_in"),
+            "junction_in and match.after.first_entry_contraction come together",
+            id="a-contraction-without-a-junction",
+        ),
+        pytest.param(
+            lambda after: after.update(junction_in="break"),
+            "junction_in must be a yK height",
+            id="a-break-for-a-junction",
+        ),
+        pytest.param(
+            lambda after: after.update(first_entry_contraction=0),
+            "first_entry_contraction is 0",
+            id="a-contraction-of-nothing",
+        ),
+        pytest.param(
+            lambda after: after.update(first_cells=["qsU/full/baseline/None/"]),
+            "must carry en-con-1",
+            id="a-first-cell-without-the-contraction",
+        ),
+        pytest.param(
+            lambda after: after.update(first_entry_contraction=2),
+            "must carry en-con-2",
+            id="a-first-cell-with-another-contraction",
+        ),
+    ],
+)
+def test_a_contracting_split_is_checked_at_load(tmp_path, mutate, message):
+    rule = json.loads(json.dumps(CONTRACTING_SPLIT_RULE))
+    mutate(rule["match"]["after"])
+    with pytest.raises(SystemExit, match=message):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_contracting_split_rule_loads_beside_its_created_join(tmp_path):
+    assert sv.load_rules(_write_rules(tmp_path / "rules.yaml", CONTRACTING_SPLIT_RULES))
