@@ -3625,3 +3625,14 @@ rules:
         follower_after_cells:
           - qsHe/half/None/x-height/
       except_left: []
+  - id: thaw-ing-baseline-join-dropped
+    verdict: approve
+    note: "·Thaw no longer joins ·-ing at the baseline once ·Utter has joined its entry, and ·-ing sits three columns further away — qsThaw's stance carries `pairings: never` on its baseline entry and baseline exit, so a ·Thaw entered at the baseline cannot also exit there, and its baseline exit has named qsIng alone since “Add ·-ing”; the alternate ·Utter's mandatory baseline exit is what takes the entry. Nothing in this survey has reached a review session, so the user's approval of the review queue's top 25 on 2026-11-15 is its record"
+    match:
+      before:
+        pivot: qsThaw
+        junction_out: y0
+        follower: qsIng
+      after:
+        gap: 3
+      except_left: []
