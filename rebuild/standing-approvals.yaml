@@ -3350,3 +3350,27 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
+  - id: roe-may-baseline-join-created
+    verdict: approve
+    note: "·Roe joins ·May at the baseline where the old font left a break, and ·May closes one column onto it — qsRoe's baseline exit has carried qsMay on its toward-list since the letter landed in “Declare ·I done and add ·Roe”, and qsMay's loop stance carries a baseline entry with no from-list at all, so the junction settles on join-count rank with no policy record involved; the old font's grouping of ·Roe·May·Vie trades this join for the one ·May draws into ·Vie, a regrouping the `join-switches-sides` divergence class leaves to each unit's own verdict (it names “·Roe·May”). Every window that reached a review session approved this join, and the user asked for standing approval of the review queue's top 25 on 2026-11-15"
+    match:
+      before:
+        pivot: qsRoe
+        junction_out: break
+        follower: qsMay
+      after:
+        joined: y0
+        pivot_cells:
+          - qsRoe/sole/None/baseline/
+          - qsRoe/sole/x-height/baseline/
+          - qsRoe/sole/x-height/baseline/en-con-1
+          - qsRoe/sole/x-height/baseline/en-ext-1
+        follower_after_cells:
+          - qsMay/loop/baseline/None/
+          - qsMay/loop/baseline/x-height/
+          - qsMay/loop/baseline/x-height/ex-ext-1
+          - qsMay/loop/baseline/x-height/ex-ext-2
+        shift: -1
+        follower_advance: 0
+        follower_columns_added: 0
+      except_left: []
