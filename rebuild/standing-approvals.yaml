@@ -3143,3 +3143,15 @@ rules:
           - qsUtter/mono/baseline/x-height/
           - qsUtter/mono/baseline/x-height/ex-ext-1
       except_left: []
+  - id: et-xheight-entry-extension-drawn
+    verdict: approve
+    note: "·Et draws a pixel of x-height entry to the left of its stroke after ·Pea, ·Tea and ·He where the old font drew it plain, and carries everything after it one column right — qsEt's extend record lengthens that entry by a column after those three letters, transcribed from the old font in “Declare ·Roe done and add ·Et”; every window that reached a review session approved the longer entry, and the user gave it standing approval at u-LR5UFND58JQ, u-ZfFHkzz7kRF and u-ijcDQ3UjjuH"
+    match:
+      before:
+        pivots: [qsEt]
+      after:
+        pivots: [qsEt.sole.en-y5.en-ext-1]
+        dropped: [[0, 3], [0, 4], [1, 2], [2, 1], [3, 0]]
+        added: [[1, 3], [1, 4], [1, 5], [2, 2], [3, 1], [5, 0]]
+        shift: 1
+      except_left: []
