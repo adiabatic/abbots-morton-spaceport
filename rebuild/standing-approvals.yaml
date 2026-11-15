@@ -3433,3 +3433,14 @@ rules:
         follower_after_cells:
           - qsNo/loop/None/x-height/
       except_left: []
+  - id: ye-ing-baseline-join-dropped
+    verdict: approve
+    note: "·Ye no longer joins ·-ing at the baseline, and ·-ing sits three columns further away — qsIng's baseline entry is scoped positively from the baseline and leaves out ·Ye, as the old font's `noentry_after` did, which “Add ·-ing” carried over; the old font joins the two in only a few contexts, and the rebuild breaks every ·Ye·-ing the same way. Nothing in this survey has reached a review session, so the user's approval of the review queue's top 25 on 2026-11-15 is its record"
+    match:
+      before:
+        pivot: qsYe
+        junction_out: y0
+        follower: qsIng
+      after:
+        gap: 3
+      except_left: []
