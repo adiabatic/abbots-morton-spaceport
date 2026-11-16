@@ -2230,7 +2230,7 @@ E664 E67B                # ·-ing's baseline exit into ·Out
 E67E E664                # ·Ooze's baseline exit into ·-ing
 E664 E67E                # ·-ing's baseline exit into ·Ooze
 E664 E664                # ·-ing's baseline exit into the next ·-ing
-E652 E679 E664           # the ·Tea+Oy ligature's baseline exit into ·-ing, whose entry extends by one
+E652 E679 E664           # the ·Tea+Oy ligature's baseline exit into ·-ing, with no extension
 E67B E652 E664           # ·Out+Tea before ·-ing (break: the ligature has no exit)
 E657 E65B E664           # ·They+Zoo before ·-ing (break: ·-ing takes no entry from the ligature)
 E664 E653 E67A           # ·-ing's baseline exit into half-·Day+Utter
