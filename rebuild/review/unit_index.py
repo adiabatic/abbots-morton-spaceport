@@ -22,7 +22,9 @@ import re
 import sys
 import zlib
 from array import array
+from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, BinaryIO
@@ -43,6 +45,10 @@ PART_CLOSING = b"\n]\n"
 SHARD_ORDER = "shard"
 MANIFEST_ORDER = "manifest"
 INDEX_FORMAT = "ams-review-unit-index/1"
+# The plain bytes of the index each gzip member of a base or a materialized index holds (`_Members`): the lines are cut at every multiple of this many bytes, wherever a line falls, so a member's bytes depend only on its slice of the file, never on how its writer cut its writes. A write holds the member it fills and `INDEX_DEFLATE_THREADS` handed to the pool, 0.013 GB at 4 MiB. On the live index's 2.87 GB of lines the corpus build's sidecars write in the same 3.9 s at 4, 8, 16 and 64 MiB (var/keep/perf/602/), so the smallest, which holds least, is the one taken; it comes out 0.12% larger than one stream at the same level.
+INDEX_MEMBER_BYTES = 4 << 20
+# The threads a base's or a materialized index's members deflate on (#602). zlib releases the interpreter lock, so the members deflate beside the thread that feeds them the lines, and on the corpus build beside the app sidecars' writer too (`build._write_sidecars`). On the live index's 2.87 GB of lines a base writes in 3.8 s on two, against 9.0 s as one stream, and in 2.6 s on three (var/keep/perf/602/). Only a base, at a first write, a fold or an index that does not read, deflates the whole index; a segment writes as one stream (`_write_segment`).
+INDEX_DEFLATE_THREADS = 2
 ASSET_COMPONENTS: tuple[str, ...] = ("static",)
 ID_OPEN = b'{"id": "'
 CLASS_SEAM = b', "class": '
@@ -589,18 +595,103 @@ def _write_lines(
 
 
 def write_materialized_index(directory: Path, header: Mapping[str, Any], lines: Iterable[bytes]) -> Path:
-    """Write a materialized index (`materialized_index`) as the single file `units-index.ndjson.gz` under `directory`, byte for byte as a base holds the same records (`_write_lines`, at gzip level 1 with a fixed mtime and the gzip header naming the file), through `output_sink.replace_output`."""
+    """Write a materialized index (`materialized_index`) as the single file `units-index.ndjson.gz` under `directory`, byte for byte as a base holds the same records (`_write_lines`, as gzip members, `_Members`), through `output_sink.replace_output`. No head records the file's size, so a copy cut exactly where one member ends reads as a whole file that ends early; a cut anywhere else raises `EOFError` in its reader."""
     path = index_path(directory)
 
     def fill(staging: Path) -> None:
-        with open(staging, "wb") as handle:
-            with gzip.GzipFile(
-                filename=INDEX_NAME, fileobj=handle, mode="wb", mtime=0, compresslevel=1
-            ) as stream:
-                _write_lines(stream, header, lines)
+        with open(staging, "wb") as handle, _Members(handle) as stream:
+            _write_lines(stream, header, lines)
 
     output_sink.replace_output(path, writer=fill)
     return path
+
+
+def _deflate_member(plain: bytearray | memoryview) -> bytes:
+    return gzip.compress(plain, compresslevel=1, mtime=0)
+
+
+class _Members:
+    """The sink a base or a materialized index is written into: the bytes written, cut at every multiple of `INDEX_MEMBER_BYTES` into gzip members, each deflated alone at level 1 with mtime 0 and no file name (`gzip.compress`) on a pool of `INDEX_DEFLATE_THREADS` threads, and written to `raw` in order, with their size and sha256 counted as they go. Every gzip reader reads the members in order as one stream, so the file inflates to the bytes written. A member is filled in a buffer of its full size, and the writer holds the one it fills and at most `INDEX_DEFLATE_THREADS` handed to the pool: a member that would be one more waits for the oldest to be written first, whose buffer the next member fills, so the write allocates those buffers once and never grows one. Use it as a context manager: a clean exit writes the last member and every one still deflating, and any exit waits for the pool, so no member is deflated after the write ends."""
+
+    def __init__(self, raw: BinaryIO) -> None:
+        self._raw = raw
+        self._member_bytes = INDEX_MEMBER_BYTES
+        self._pool = ThreadPoolExecutor(INDEX_DEFLATE_THREADS, thread_name_prefix="units-index-deflate")
+        self._filling = bytearray(self._member_bytes)
+        self._at = 0
+        self._deflating: deque[tuple[Future[bytes], bytearray]] = deque()
+        self._spare: list[bytearray] = []
+        self._digest = hashlib.sha256()
+        self._members = 0
+        self.size = 0
+
+    def write(self, data: bytes, /) -> int:
+        size = len(data)
+        end = self._at + size
+        if end < self._member_bytes:
+            self._filling[self._at : end] = data
+            self._at = end
+            return size
+        rest = memoryview(data)
+        while rest:
+            piece = rest[: self._member_bytes - self._at]
+            end = self._at + len(piece)
+            self._filling[self._at : end] = piece
+            self._at = end
+            rest = rest[len(piece) :]
+            if end == self._member_bytes:
+                self._hand(self._filling, self._filling)
+                self._filling = self._spare.pop() if self._spare else bytearray(self._member_bytes)
+                self._at = 0
+        return size
+
+    def _hand(self, plain: bytearray | memoryview, buffer: bytearray) -> None:
+        if len(self._deflating) >= INDEX_DEFLATE_THREADS:
+            self._take()
+        self._deflating.append((self._pool.submit(_deflate_member, plain), buffer))
+        self._members += 1
+
+    def _take(self) -> None:
+        deflating, buffer = self._deflating.popleft()
+        deflated = deflating.result()
+        self._spare.append(buffer)
+        self._raw.write(deflated)
+        self._digest.update(deflated)
+        self.size += len(deflated)
+
+    def sha256(self) -> str:
+        return self._digest.hexdigest()
+
+    def __enter__(self) -> _Members:
+        return self
+
+    def __exit__(self, kind, *_exc) -> None:
+        try:
+            if kind is None:
+                if self._at or not self._members:
+                    self._hand(memoryview(self._filling)[: self._at], self._filling)
+                while self._deflating:
+                    self._take()
+        finally:
+            self._pool.shutdown(wait=True, cancel_futures=True)
+            self._filling = bytearray()
+            self._spare.clear()
+
+
+def _write_member_part(
+    directory: Path, name: str, fill: Callable[[row_delta.Sink], tuple[int, int]]
+) -> row_delta.Part:
+    """Write one base, `name` under `directory`, as gzip members (`_Members`) through `output_sink.replace_output`, as `row_delta.write_part` writes a part as one gzip stream, and return its `Part`. `fill` writes the base's lines and returns their count and bytes."""
+    written: dict[str, row_delta.Part] = {}
+
+    def staged(staging: Path) -> None:
+        with open(staging, "wb") as raw:
+            with _Members(raw) as stream:
+                rows, rows_bytes = fill(stream)
+        written["part"] = row_delta.Part(name, stream.size, stream.sha256(), rows, rows_bytes)
+
+    output_sink.replace_output(Path(directory) / name, writer=staged)
+    return written["part"]
 
 
 @dataclass(frozen=True)
@@ -767,9 +858,7 @@ def _write_base(corpus: Path, route: _IndexRoute, stamps: dict, lines: Iterable[
         differs = _compare(through(), route.opened.lines(), lambda _row: None)
         return written[0], written[1]
 
-    base = row_delta.write_part(
-        corpus, row_delta.base_name(INDEX_NAME, generation), fill, gzip_name=INDEX_NAME
-    )
+    base = _write_member_part(corpus, row_delta.base_name(INDEX_NAME, generation), fill)
     if route.opened is not None:
         route.opened.close()
     content = 0 if prior is None else prior.content + (1 if route.reason != "fold" or differs else 0)
@@ -809,7 +898,7 @@ def _write_segment(corpus: Path, route: _IndexRoute, stamps: dict, lines: Iterab
 
 
 def write_index_lines(corpus: Path, lines: Iterable[bytes]) -> IndexWrite:
-    """Write the index from already-projected lines, `index_line`'s, each with its place, in key order (`index_key`), stamped with the manifest beside it, so this must run after the manifest is written. It takes one route, decided from the prior head before anything is written (`_plan_write`, the module docstring), and commits by renaming the head into place last (`row_delta.commit`), after which the parts no head lists and the single file a corpus from before the segment format held are deleted. A base is the file a whole write gives: gzip level 1, since it is written once and read a few times a cycle and level 9's extra seconds cost more than the megabytes it saves, with a fixed mtime and the gzip header naming `units-index.ndjson.gz`, never a part's or a staging file's name. A segment holds the records whose line, its place cut, differs from the prior materialized index's (`_compare`): an upsert, `+`, a tab and the record's line without its place, for a record new or changed, and a tombstone, `-`, a tab and its id and class, for a prior record this pass lacks, so a unit that changes class is a tombstone at its old key and an upsert at its new one. The compare walks this pass's lines beside the prior's parts, a buffer a part, and holds no record. A write that raises or is killed leaves the previous head and every part it lists as they were: what it staged is removed, and a part it wrote that no head lists is deleted by the next write."""
+    """Write the index from already-projected lines, `index_line`'s, each with its place, in key order (`index_key`), stamped with the manifest beside it, so this must run after the manifest is written. It takes one route, decided from the prior head before anything is written (`_plan_write`, the module docstring), and commits by renaming the head into place last (`row_delta.commit`), after which the parts no head lists and the single file a corpus from before the segment format held are deleted. A base is the file a whole write gives: gzip members of `INDEX_MEMBER_BYTES` of its lines each, deflated at level 1 on `INDEX_DEFLATE_THREADS` threads (`_Members`), since it is written once and read a few times a cycle and level 9's extra seconds cost more than the megabytes it saves, each with mtime 0 and no file name, so its bytes depend only on its lines. A segment holds the records whose line, its place cut, differs from the prior materialized index's (`_compare`): an upsert, `+`, a tab and the record's line without its place, for a record new or changed, and a tombstone, `-`, a tab and its id and class, for a prior record this pass lacks, so a unit that changes class is a tombstone at its old key and an upsert at its new one. The compare walks this pass's lines beside the prior's parts, a buffer a part, and holds no record. A write that raises or is killed leaves the previous head and every part it lists as they were: what it staged is removed, and a part it wrote that no head lists is deleted by the next write."""
     corpus = Path(corpus)
     stamps = {"format": INDEX_FORMAT, "manifest_sha256": manifest_sha256(corpus)}
     route = _plan_write(corpus)

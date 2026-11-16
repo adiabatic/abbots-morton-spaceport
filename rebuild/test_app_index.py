@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import gzip
 import json
+import shutil
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
-from rebuild.review import app_index, unit_index
+from rebuild.review import app_index, build, unit_index
 from rebuild.test_unit_cache import deflated_corpus_of
 from rebuild.review.audit import MACHINE_CHECKS
 from rebuild.review.build import _check_output_files, _write_shard, check_output_dir
@@ -561,6 +564,79 @@ def test_a_build_writes_every_sidecar_over_its_own_shards(mini_corpus, deflated_
     if held == "deflated":
         assert marked & {row["id"] for row in rows} and marked & {row["id"] for row in locator}
     _blocks_address_their_rows(corpus)
+
+
+def test_the_sidecars_write_side_by_side_taking_turns_at_the_runs_lines(mini_corpus, tmp_path):
+    """`build._write_sidecars` writes the units index on the thread that calls it and the app sidecars on a thread of their own, and the two take turns at `pull`, which a pooled build answers over one connection a write worker, so no call starts while another runs (#602). A built corpus's lines, cut into two runs at a class boundary and held compressed as a build holds them, write its app sidecars again byte for byte and its index as the head alone."""
+    corpus = tmp_path / "corpus"
+    shutil.copytree(mini_corpus, corpus)
+    materialized = unit_index.materialized_index(corpus)
+    assert materialized is not None
+    index_lines = list(materialized[1])
+    classes = sorted({unit_index.index_key(line)[0] for line in index_lines})
+    assert len(classes) > 1
+    first_run = set(classes[: len(classes) // 2])
+
+    def run_of(class_id: str) -> int:
+        return 0 if unit_index.class_shard_key(class_id).encode() in first_run else 1
+
+    by_run: dict[tuple[int, str], list[bytes]] = {}
+    for line in index_lines:
+        by_run.setdefault(
+            (0 if unit_index.index_key(line)[0] in first_run else 1, unit_index.INDEX_NAME), []
+        ).append(line)
+    with gzip.open(app_index.artifact_path(corpus, app_index.APP_INDEX_NAME), "rb") as stream:
+        next(stream)
+        for line in stream:
+            by_run.setdefault((run_of(json.loads(line)["class"]), app_index.APP_INDEX_NAME), []).append(line)
+    held = {key: gzip.compress(b"".join(lines), compresslevel=1, mtime=0) for key, lines in by_run.items()}
+    rows = app_index.artifact_path(corpus, app_index.LOCATOR_ROWS_NAME).read_bytes()
+    blocks: list[list[dict]] = [[], []]
+    members = [b"", b""]
+    with gzip.open(app_index.artifact_path(corpus, app_index.LOCATOR_NAME), "rb") as stream:
+        next(stream)
+        for line in stream:
+            block = json.loads(line)
+            run = run_of(block["class"])
+            start, length = block["byte_start"], block["byte_length"]
+            blocks[run].append({**block, "byte_start": len(members[run])})
+            members[run] += rows[start : start + length]
+    for run in (0, 1):
+        held[(run, app_index.LOCATOR_ROWS_NAME)] = members[run]
+        held.setdefault((run, unit_index.INDEX_NAME), gzip.compress(b"", compresslevel=1, mtime=0))
+        held.setdefault((run, app_index.APP_INDEX_NAME), gzip.compress(b"", compresslevel=1, mtime=0))
+    runs = [
+        build._SidecarRun(
+            len(by_run.get((run, app_index.APP_INDEX_NAME), ())),
+            sum(block["units"] for block in blocks[run]),
+            0,
+            blocks[run],
+            0,
+        )
+        for run in (0, 1)
+    ]
+    names = (app_index.APP_INDEX_NAME, app_index.LOCATOR_NAME, app_index.LOCATOR_ROWS_NAME)
+    before = {name: app_index.artifact_path(corpus, name).read_bytes() for name in names}
+    index_before = {path.name: path.read_bytes() for path in corpus.glob(f"{unit_index.INDEX_NAME}*")}
+    inside = threading.Lock()
+    callers: dict[str, set[str]] = {}
+
+    def pull(index: int, name: str) -> bytes:
+        assert inside.acquire(blocking=False), "two pulls ran at once"
+        try:
+            callers.setdefault(name, set()).add(threading.current_thread().name)
+            time.sleep(0.01)
+            return held.pop((index, name))
+        finally:
+            inside.release()
+
+    assert build._write_sidecars(corpus, runs, pull) == unit_index.IndexWrite("head")
+    assert not held
+    assert {name: app_index.artifact_path(corpus, name).read_bytes() for name in names} == before
+    assert {path.name: path.read_bytes() for path in corpus.glob(f"{unit_index.INDEX_NAME}*")} == index_before
+    assert callers[unit_index.INDEX_NAME] == {threading.current_thread().name}
+    for name in (app_index.APP_INDEX_NAME, app_index.LOCATOR_ROWS_NAME):
+        assert len(callers[name]) == 1 and next(iter(callers[name])).startswith("corpus-app-sidecars")
 
 
 def test_a_build_satisfies_the_whole_corpus_contract(mini_corpus):

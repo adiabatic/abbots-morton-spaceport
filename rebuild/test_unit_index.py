@@ -7,6 +7,8 @@ import gzip
 import hashlib
 import json
 import shutil
+import threading
+import zlib
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -298,12 +300,10 @@ def _index_lines(corpus: Path) -> bytes:
 
 
 def test_a_failed_index_write_leaves_the_previous_index_whole(tmp_path):
-    """The head is the index's commit point, renamed into place last, so a write that raises leaves the previous head and every part it lists as they were, whether its lines stop partway or come out of key order, which the write refuses rather than write a segment no merge would take, and the segment it was staging is removed, with no staging file left. The base's gzip header names the index as a whole write's does, `units-index.ndjson` with gzip's `.gz` dropped, never a staging file."""
+    """The head is the index's commit point, renamed into place last, so a write that raises leaves the previous head and every part it lists as they were, whether its lines stop partway or come out of key order, which the write refuses rather than write a segment no merge would take, and the segment it was staging is removed, with no staging file left."""
     corpus = _fixture_corpus(tmp_path)
     _write(corpus)
     intact = _index_files(corpus)
-    base = intact[row_delta.base_name(unit_index.INDEX_NAME, 0)]
-    assert base[10:].startswith(b"units-index.ndjson\0")
     slot = unit_index.slot_reader(corpus)
     lines = [
         unit_index.index_line({**fragment, "notation": "changed"}, **slot(fragment))
@@ -320,6 +320,60 @@ def test_a_failed_index_write_leaves_the_previous_index_whole(tmp_path):
     with pytest.raises(ValueError, match="out of key order"):
         unit_index.write_index_lines(corpus, [lines[1], lines[0], *lines[2:]])
     assert _index_files(corpus) == intact
+
+
+def _gzip_members(data: bytes) -> list[tuple[bytes, bytes]]:
+    """Split a gzip file into its members, each as its bytes and the bytes it inflates to."""
+    members = []
+    while data:
+        inflater = zlib.decompressobj(31)
+        plain = inflater.decompress(data)
+        assert inflater.eof
+        rest = inflater.unused_data
+        members.append((data[: len(data) - len(rest)], plain))
+        data = rest
+    return members
+
+
+def test_a_base_is_gzip_members_cut_at_fixed_offsets_of_its_lines(tmp_path, monkeypatch):
+    """A base is its header and lines cut at every multiple of `INDEX_MEMBER_BYTES` into gzip members, wherever a line falls, each deflated alone at level 1 with mtime 0 and no file name, so its bytes depend only on its lines: one write of every line at once, as `write_materialized_index` takes them here, and a pool one thread wide write the same bytes. A first write whose lines raise partway leaves no file of the index and no deflate thread behind (#602)."""
+    monkeypatch.setattr(unit_index, "INDEX_MEMBER_BYTES", 1000)
+    corpus = _fixture_corpus(tmp_path)
+    _write(corpus)
+    base = (corpus / row_delta.base_name(unit_index.INDEX_NAME, 0)).read_bytes()
+    members = _gzip_members(base)
+    assert len(members) > unit_index.INDEX_DEFLATE_THREADS + 1
+    assert [len(plain) for _member, plain in members[:-1]] == [1000] * (len(members) - 1)
+    assert 0 < len(members[-1][1]) <= 1000
+    for member, plain in members:
+        assert member == gzip.compress(plain, compresslevel=1, mtime=0)
+        assert member[3] == 0 and member[4:8] == bytes(4)
+    header, lines = b"".join(plain for _member, plain in members).split(b"\n", 1)
+    assert json.loads(header)["format"] == unit_index.INDEX_FORMAT
+    assert lines == _index_lines(corpus)
+    materialized = unit_index.materialized_index(corpus)
+    assert materialized is not None
+    whole = tmp_path / "whole"
+    whole.mkdir()
+    assert (
+        unit_index.write_materialized_index(whole, materialized[0], [b"".join(materialized[1])]).read_bytes()
+        == base
+    )
+    monkeypatch.setattr(unit_index, "INDEX_DEFLATE_THREADS", 1)
+    assert _whole(corpus, _shards(corpus), tmp_path / "narrow") == base
+    failed = tmp_path / "failed"
+    failed.mkdir()
+    shutil.copyfile(corpus / "manifest.json", failed / "manifest.json")
+    every = _index_lines(corpus).splitlines(keepends=True)
+
+    def stopping():
+        yield from every[:-1]
+        raise RuntimeError("the write stops here")
+
+    with pytest.raises(RuntimeError, match="stops here"):
+        unit_index.write_index_lines(failed, stopping())
+    assert _index_files(failed) == {}
+    assert not [thread for thread in threading.enumerate() if thread.name.startswith("units-index-deflate")]
 
 
 def test_iter_units_and_load_units_agree(tmp_path):
