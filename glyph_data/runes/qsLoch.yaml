@@ -1,0 +1,45 @@
+rune: qsLoch
+codepoint: 0xE669
+ductus:
+  sole: |
+    Begun at the top, the stroke falls straight down the middle to the baseline, turns left along the bottom and climbs the left side, arches over the top at the x-height, crossing the stem, and runs straight down the right side to rest on the baseline at the right.
+mono:
+  bitmap:
+  - "  #  "
+  - "  #  "
+  - "  #  "
+  - " ### "  #
+  - "# # #"
+  - "# # #"
+  - "# # #"
+  - "# # #"
+  - " ## #"  #
+stances:
+  sole:
+    motion: sole
+    traits: []
+    bitmap:
+    - "  #  "
+    - "  #  "
+    - "  #  "
+    - " ### "  #
+    - "# # #"
+    - "# # #"
+    - "# # #"
+    - "# # #"
+    - " ## #"  #
+    surface:
+      entries: {}
+      exits: {}
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - sole
+  refuse: []
+  prefer: []
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}

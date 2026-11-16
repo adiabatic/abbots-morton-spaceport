@@ -1,6 +1,6 @@
 """Old-font evidence for one letter's migration, read directly from the full baseline tables under rebuild/out/.
 
-One pass over every baseline-<config>.tsv.gz collects four things for the named letter. The first is the pair-level join map in both directions, which is the authoritative scope evidence for the rune file's entry `from:` and exit `toward:` lists. Never scope those lists from FEA reconnaissance, which misses joins the bare glyph makes through its GPOS anchors alone. The second is the old compiled forms the letter takes across the rows that will join the oracle subset: the contextual-stance worklist, `.noentry` variants included. The third is the alias worklist: the names in those rows with no rebuild/m1-aliases.yaml entry yet. It is the same list run_m1's completeness gate would print, available before the first build. The fourth is the default-config subset growth, ending in the row count the live subset table should reach after the migration.
+One pass over every baseline-<config>.tsv.gz collects four things for the named letter. The first is the pair-level join map in both directions, which is the authoritative scope evidence for the rune file's entry `from:` and exit `toward:` lists. Never scope those lists from FEA reconnaissance, which misses joins the bare glyph makes through its GPOS anchors alone. The second is the old compiled forms the letter takes across the rows that will join the oracle subset: the contextual-stance worklist, `.noentry` variants included. The third is the alias worklist: the names in those rows with no rebuild/m1-aliases.yaml entry yet, less the old-font ligatures the rebuild does not form (`oracle.unformed_old_ligature`), which need none. It is the same list run_m1's completeness gate would print, available before the first build. The fourth is the default-config subset growth, ending in the row count the live subset table should reach after the migration.
 
 "Would-be subset rows" are the rows whose codepoints are all in M1_ALPHABET plus the named letter, which is exactly the set of rows the letter's migration adds to rebuild/out/m1/baseline-*.subset.tsv.gz. Partners marked with * are not yet in M1_ALPHABET. A join with one of them waits on an unmigrated letter: it may be recorded in a `from:`/`toward:` list, but re-verify it when that partner is migrated.
 
@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 from rebuild.pipeline.baseline_subset import M1_ALPHABET  # noqa: E402
+from rebuild.pipeline.oracle import unformed_old_ligature  # noqa: E402
 
 BASELINE_DIR = REPO_ROOT / "rebuild" / "out"
 SUBSET_DEFAULT = BASELINE_DIR / "m1" / "baseline-default.subset.tsv.gz"
@@ -228,7 +229,7 @@ def main(argv: list[str] | None = None) -> None:
     for name, (count, first_window, first_config) in sorted(variants.items()):
         print(f"  {name:<44} {count:>7} rows   first seen: {first_window} ({first_config})")
 
-    missing = sorted(kept_names - alias_keys())
+    missing = sorted(name for name in kept_names - alias_keys() if not unformed_old_ligature(name))
     print("\n--- alias worklist: subset-row names with no rebuild/m1-aliases.yaml entry ---")
     if missing:
         for name in missing:
