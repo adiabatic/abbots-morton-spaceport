@@ -965,18 +965,6 @@ rules:
         follower_advance: 0
         follower_columns_added: 0
       except_left: []
-  - id: gay-xheight-entry-exit-extension-dropped
-    verdict: approve
-    note: "·Gay gives up the pixel of baseline exit it drew before the followers on qsGay's extend record, and the stub its x-height entry only inks when unjoined comes off in the same stroke — that record is guarded by an entry of its own (`self: {entry: none}`), so ·Ah's x-height entry disqualifies the extension outright; the guard has stood since the letter landed in “Add ·Gay” and was last touched in “Join ·Gay ~x~ ·Et and ·Gay ~x~ ·No”. The join it rides on is ·Ah reaching that entry in “Bring back the ·Ah ~x~ ·Gay join”. Every window that reached a review session approved the dropped exit pixel and stub"
-    match:
-      before:
-        pivots: [qsGay.ex-y0.ex-ext-1]
-      after:
-        pivots: [qsGay.sole.en-y5.ex-y0]
-        dropped: [[2, 8], [4, 3]]
-        added: []
-        shift: -1
-      except_left: []
   - id: gay-baseline-join-created-reaching-back
     verdict: approve
     note: "·Gay and ·J’ai both join ·Gay at the baseline where the old font left a break, and ·Gay takes the join on its full reaching-back form: neither left letter pulls that entry in, so the stroke inserts a column at ·Gay's left edge, the letter comes two columns nearer and its own advance stands where it was. qsGay's baseline entry carries the reachable-at-the-baseline bitmap that meets them and has named both families on its from-list since the letter landed in “Add ·Gay”, where qsGay's and qsJai's own baseline exits already reached it. What ·Gay's own outgoing junction does in the same window is a decision of its own: where that reach grows into ·J’ai, carrying the tail further than the declared advance and widening the letter by a second column, or where the baseline join beyond ·Gay goes away, the rule does not match. Every window that reached a review session approved this join or called it either"

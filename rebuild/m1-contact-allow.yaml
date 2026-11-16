@@ -1930,6 +1930,8 @@
   why: ·Gay entered at the x-height never exits at the x-height (a `never` pairing in the ·Gay rune); the crown ink stays.
 - signature: dangle:qsGay.sole.en-y5.ex-y0:exit:x-height
   why: ·Gay entered at the x-height and exiting at the baseline; the crown ink stays.
+- signature: dangle:qsGay.sole.en-y5.ex-y0.ex-ext-1:exit:x-height
+  why: The extended baseline exit of the x-height-entered form moves no crown ink; the same terminal.
 - signature: dangle:qsGay.sole.ex-y0:exit:x-height
   why: ·Gay exiting at the baseline keeps the same crown terminal on the declined x-height side.
 - signature: dangle:qsGay.sole.ex-y0.ex-ext-1:exit:x-height

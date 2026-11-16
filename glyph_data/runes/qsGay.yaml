@@ -224,7 +224,6 @@ policy:
   - exit: baseline
     by: 1
     when:
-      self: {entry: none}
       right:
         family:
         - qsTea
