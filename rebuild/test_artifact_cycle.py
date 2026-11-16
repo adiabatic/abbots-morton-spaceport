@@ -7704,8 +7704,47 @@ def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(
         ac.verdicts_records_digest(autosave)
 
 
-def test_the_key_a_pass_records_over_its_landed_store_is_the_next_plans_key(tmp_path):
-    """After a land that laid nothing over the prepared store, the cycle keys the green on the store the land wrote or left in place (`store=`), and the next plan keys the live store: the two match while no save has changed a record, whatever `exported_at` each carries, and a save made after the land moves the next plan's key. The master that resolved to the live store is named `autosave` both times."""
+def test_a_store_record_written_by_other_code_is_ignored(tmp_path):
+    """The store record answers for the code that wrote it alone (`status.store_record_code`). A record holding a wrong digest and a wrong carry field for the store's very bytes answers both readers while it carries this code's value, and once it carries another's, the readers digest and parse the store again and record their own fields under this code's value."""
+    stamp = "2026-07-17T20:24:44Z"
+    autosave = tmp_path / "verdicts-autosave.json"
+    records = [
+        {"unit": f"u-{n}", "verdict": "approve", "note": "", "at": "2026-07-17T21:00:00Z"} for n in (1, 2, 3)
+    ]
+    autosave.write_text(
+        json.dumps(
+            {
+                "format": "ams-review-verdicts/1",
+                "manifest_generated_at": stamp,
+                "exported_at": stamp,
+                "verdicts": records,
+            }
+        )
+    )
+    record = status.store_record_path(tmp_path)
+    key = hashlib.sha256(autosave.read_bytes()).hexdigest()
+    digest = ac.verdicts_records_digest(autosave)
+    planted = {"digest": "0" * 64, "carry": {"stamp": stamp, "count": 7, "accepted": None, "overridden": []}}
+
+    def plant(code: str) -> None:
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(json.dumps({"code": code, "files": {key: planted}}))
+
+    plant(status.store_record_code())
+    assert ac.verdicts_records_digest(autosave, record) == "0" * 64
+    assert (status.resolve_carry_source(tmp_path, stamp, autosave) or {}).get("count") == 7
+    plant("f" * 64)
+    assert ac.verdicts_records_digest(autosave, record) == digest != "0" * 64
+    assert (status.resolve_carry_source(tmp_path, stamp, autosave) or {}).get("count") == 3
+    held = json.loads(record.read_text())
+    assert held["code"] == status.store_record_code()
+    assert held["files"] == {
+        key: {"digest": digest, "carry": {"stamp": stamp, "count": 3, "accepted": None, "overridden": []}}
+    }
+
+
+def test_the_key_a_pass_records_over_its_landed_store_is_the_next_plans_key(tmp_path, monkeypatch):
+    """After a land that laid nothing over the prepared store, the cycle keys the green on the store the land wrote or left in place (`store=`), and the next plan keys the live store: the two match while no save has changed a record, whatever `exported_at` each carries, and a save made after the land moves the next plan's key. The master that resolved to the live store is named `autosave` both times. When the live store is the file the land left, as when no save came after it, the next plan takes the store's digest from the store record the key after the land filled, and digests nothing."""
     corpus = tmp_path / "review"
     corpus.mkdir()
     (corpus / "manifest.json").write_text(
@@ -7732,6 +7771,12 @@ def test_the_key_a_pass_records_over_its_landed_store_is_the_next_plans_key(tmp_
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) == recorded
     autosave.write_text(document("2026-07-17T23:00:00Z", [{**record, "verdict": "reject"}]))
     assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) != recorded
+    autosave.unlink()
+    os.link(landed, autosave)
+    digested: list[object] = []
+    monkeypatch.setattr(status, "records_digest", digested.append)
+    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) == recorded
+    assert digested == []
 
 
 def test_dry_run_plan_skip_verdict_update_replaces_the_whole_step():

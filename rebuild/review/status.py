@@ -1,13 +1,19 @@
 """Compute the review corpus's readiness: whether the served corpus exists, whether it matches the runes and code on disk (its after font is the M1 font on disk, and its per-unit index, both app sidecars and its unit store are stamped for its manifest, the check of a finished corpus the cycle shares, `app_index.outputs_not_current`), whether a green artifact cycle produced it, and whether the verdict store (the autosave) is stamped for it. The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs.
 
-An effective verdict is a unit's latest verdict when that verdict is not skip, a store's override records on listed units (`rebuild.review.accepted.Overrides`) counted with its own. The store's count also takes the accepted list beside it (`rebuild.review.accepted`): each listed unit of the served corpus's human units that holds no override is an effective verdict of the store's, under its mark, so a store a close-out emptied counts the units it folded and no verdicts file at the root outranks it. A root file's count takes no listed unit, or a ten-record export would outrank the store. A list the readers cannot read, or a store that does not pair with it (`accepted.pair`), fails the verdict-store check, as the review server and every pass refuse it. The only state kept between calls is `_MEMO`, keyed on each verdicts file's stat. It records the file's stamp and, once the file has been parsed, its effective count, so a long-lived server checks an unchanged file with one stat.
+An effective verdict is a unit's latest verdict when that verdict is not skip, a store's override records on listed units (`rebuild.review.accepted.Overrides`) counted with its own. The store's count also takes the accepted list beside it (`rebuild.review.accepted`): each listed unit of the served corpus's human units that holds no override is an effective verdict of the store's, under its mark, so a store a close-out emptied counts the units it folded and no verdicts file at the root outranks it. A root file's count takes no listed unit, or a ten-record export would outrank the store. A list the readers cannot read, or a store that does not pair with it (`accepted.pair`), fails the verdict-store check, as the review server and every pass refuse it.
+
+Two kinds of state are kept between calls. `_MEMO`, in the process, is keyed on each verdicts file's stat. It records the file's stamp and, once the file has been parsed, its effective count, so a long-lived server checks an unchanged file with one stat. The store record, `var/cycle/store-record.json` under the directory that holds the verdicts files (`store_record_path`), is kept between processes and keyed on each verdicts file's SHA-256 and on the code of its readers (`store_record_code`). For each of the `STORE_RECORD_KEEP` files it filled last, it holds two fields that fill independently: `digest`, the file's records digest (`records_digest`), which the verdict update's key reads (`artifact_cycle.verdicts_records_digest`), and `carry`, what the carry source and the fullest-verdicts pick read of the file (`_Carried`). A pass over an unchanged store then reads and hashes it instead of parsing it. A reader hashes the bytes it would parse, read once, and records a field only once it has computed the field from those bytes, never on a failed or refused read. The verdict-store check parses the store on every call, since the blank count needs its records, and records the carry field from that parse.
 """
 
 from __future__ import annotations
 
+import functools
+import hashlib
+import io
 import json
 import os
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -70,12 +76,209 @@ class _Candidate:
     parsed: bool
 
 
-def _summarize(raw: bytes) -> _Candidate:
-    """Parse one verdicts file and return its stamp and effective count. Only the two scalars are returned, so the parsed store is freed before the caller reads the next file."""
-    data = parse_autosave_payload(raw)
-    if data is None:
-        return _Candidate(None, None, True)
-    return _Candidate(data["manifest_generated_at"], _effective_count(data), True)
+STORE_RECORD = Path("var") / "cycle" / "store-record.json"
+STORE_RECORD_KEEP = 16
+_STORE_RECORD_CODE = ("status.py", "verdict_store.py", "accepted.py")
+
+
+def store_record_path(directory) -> Path:
+    """Return the store record of the verdicts files in `directory`: `STORE_RECORD` under it, so a store in a test's or a clone's directory has a record of its own."""
+    return Path(directory) / STORE_RECORD
+
+
+@functools.cache
+def store_record_code() -> str:
+    """Return the SHA-256 of the code that computes what the store record holds, the modules `_STORE_RECORD_CODE` names in this checkout's rebuild/review: this module, which holds the records digest (`records_digest`, `sorted_records_digest`) and the effective count (`_effective_count`), verdict_store.py, which holds `parse_autosave_payload`, and accepted.py, which holds the stream readers the digest reads through (`accepted.read_tail`, `accepted.iter_records`) and the override section (`accepted.records_of`, `accepted.Overrides`). A record written under another value is ignored, so a change to how a field is computed never answers from a record the old code wrote."""
+    here = Path(__file__).resolve().parent
+    digest = hashlib.sha256()
+    for name in _STORE_RECORD_CODE:
+        digest.update(f"{name}\0".encode() + (here / name).read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def _store_record_files(path: Path) -> dict:
+    """Return the store record at `path` as a dict from a file's SHA-256 to its fields, or an empty one when the record is missing, unreadable, not the record's shape, or written under another `store_record_code`."""
+    try:
+        with open(path, "rb") as handle:
+            held = json.load(handle)
+    except OSError, ValueError:
+        return {}
+    if not isinstance(held, dict) or held.get("code") != store_record_code():
+        return {}
+    files = held.get("files")
+    return files if isinstance(files, dict) else {}
+
+
+def recorded(path: Path, key: str, field: str) -> object:
+    """Return the field `field` the store record at `path` holds for the verdicts file whose bytes hash to `key`, or None when it holds none for this code."""
+    entry = _store_record_files(path).get(key)
+    return entry.get(field) if isinstance(entry, dict) else None
+
+
+def record_field(path: Path, key: str, field: str, value: object) -> None:
+    """Set `field` to `value` in the store record at `path` for the verdicts file whose bytes hash to `key`, keeping the file's other field and the `STORE_RECORD_KEEP` files filled last. The record is written whole to a temporary name and renamed over `path`, so a reader never meets half of one; a record that cannot be written is left as it was, and two writers at once can lose one's field, which costs that field's next reader a parse."""
+    files = _store_record_files(path)
+    entry = files.pop(key, None)
+    files[key] = {**(entry if isinstance(entry, dict) else {}), field: value}
+    kept = dict(list(files.items())[-STORE_RECORD_KEEP:])
+    temporary = path.with_name(f".{path.name}.{os.getpid()}")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(json.dumps({"code": store_record_code(), "files": kept}))
+        os.replace(temporary, path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+
+
+def records_digest(handle: io.BufferedReader) -> str | None:
+    """Return the records digest of the verdicts file open at `handle`, hashed as it streams, or None for a file the stream does not take, whose digest `sorted_records_digest` gives. The digest covers a document's content: every top-level field but `exported_at`, then its own records in (unit, canonical JSON) order, a line each, then the override section's records and tombstones (`accepted.Overrides`), each sorted by its canonical JSON apart from the store's own. Every write stamps the store with a new `exported_at`, the review server's idle write and a lock holder's catch-up among them, and the merge and the server lay records out differently, so neither a save that changes no record nor a rewrite in another layout moves it. A file that is not a JSON object with a `verdicts` list is hashed by its bytes.
+
+    The file is read from its start as `accepted.read_tail` and `accepted.iter_records` read it, a block of about 1 MiB and one record at a time, never parsed whole. The stream does not take a file `read_tail` does not read as an ams-review-verdicts/1 store, one with a second `verdicts` list, or one whose records are not in (unit, line) order, which holds for every file the server, the merge and the land write, since each writes its records sorted by unit, one a unit. The members but the records are read first, then the records, hashed as they stream, both from the file `handle` opened: `read_tail` reads it through its descriptor's `/dev/fd` name, so a writer that renames another file over the path meanwhile changes neither read.
+    """
+    handle.seek(0)
+    tail = accepted.read_tail(f"/dev/fd/{handle.fileno()}")
+    if tail is None or tail.lists != 1:
+        return None
+    digest = hashlib.sha256(_records_digest_head(dict(tail.members)))
+    last: tuple[str, str] | None = None
+    try:
+        for record in accepted.iter_records(handle):
+            key = _record_order_key(record)
+            if last is not None and key < last:
+                return None
+            digest.update(key[1].encode() + b"\n")
+            last = key
+    except ValueError:
+        return None
+    for line in _records_digest_overrides(tail.members.get(accepted.OVERRIDES)):
+        digest.update(line)
+    return digest.hexdigest()
+
+
+def _record_order_key(record: object) -> tuple[str, str]:
+    """Return the key `records_digest` orders a store's records by: the record's unit, "" for one that names no string unit, and its canonical JSON line."""
+    unit = record.get("unit") if isinstance(record, dict) else None
+    return (unit if isinstance(unit, str) else "", json.dumps(record, sort_keys=True, ensure_ascii=False))
+
+
+def _records_digest_head(document: dict) -> bytes:
+    """Return the line `records_digest` starts with: a document's members but its records, `exported_at` and its override section, as canonical JSON."""
+    document.pop("exported_at", None)
+    document.pop(accepted.OVERRIDES, None)
+    return json.dumps(document, sort_keys=True, ensure_ascii=False).encode() + b"\n"
+
+
+def _records_digest_overrides(section: object) -> Iterator[bytes]:
+    """Yield the lines `records_digest` ends with: a document's override section, its records and then its tombstones each sorted by canonical JSON, and nothing for a document with no section."""
+    if section is None:
+        return
+    yield b"overrides\n"
+    held = section if isinstance(section, dict) else {}
+    for name in ("verdicts", "cleared"):
+        entries = held.get(name)
+        for line in sorted(
+            json.dumps(entry, sort_keys=True, ensure_ascii=False)
+            for entry in (entries if isinstance(entries, list) else [])
+        ):
+            yield f"{name}\t{line}\n".encode()
+
+
+def sorted_records_digest(handle: io.BufferedReader) -> str:
+    """Return `records_digest`'s value for the file open at `handle`, read whole from its start, its records sorted by their (unit, line) key, for a file the streamed read does not take: one out of that order, one `accepted.read_tail` does not read as an ams-review-verdicts/1 store, or one with a second `verdicts` list, whose last list this reads as `json.load` does. A file that is not a JSON object with a `verdicts` list is hashed by its bytes, and one that cannot be read is "absent". The cycle runs it in a short child, so no whole parse of the store stays in its own process (`artifact_cycle._whole_records_digest`)."""
+    try:
+        handle.seek(0)
+        document = json.load(handle)
+    except OSError:
+        return "absent"
+    except ValueError:
+        document = None
+    if not isinstance(document, dict) or not isinstance(document.get("verdicts"), list):
+        try:
+            handle.seek(0)
+            return hashlib.file_digest(handle, "sha256").hexdigest()
+        except OSError:
+            return "absent"
+    records = document.pop("verdicts")
+    section = document.get(accepted.OVERRIDES)
+    digest = hashlib.sha256(_records_digest_head(document))
+    for _unit, line in sorted(_record_order_key(record) for record in records):
+        digest.update(line.encode() + b"\n")
+    for line in _records_digest_overrides(section):
+        digest.update(line)
+    return digest.hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class _Carried:
+    """What the carry source and the fullest-verdicts pick read of a verdicts document, the store record's `carry` field: its stamp, its effective count (`_effective_count`, None when a record cannot be counted), the accepted list it names (its `accepted` field, None when it names none), and the units its override section names, which are all `_listed_count` reads of that section."""
+
+    stamp: str
+    count: int | None
+    named: object
+    overridden: frozenset[str]
+
+    @classmethod
+    def of(cls, data: dict, count: int | None, overrides: Overrides) -> _Carried:
+        return cls(
+            data["manifest_generated_at"],
+            count,
+            data.get("accepted"),
+            frozenset(overrides.records) | frozenset(overrides.cleared),
+        )
+
+    @classmethod
+    def parse(cls, raw: bytes) -> tuple[_Carried, dict] | None:
+        """Return what the carry reads of the verdicts file whose bytes are `raw`, with the document it parsed, or None when `raw` is not an ams-review-verdicts/1 document."""
+        data = parse_autosave_payload(raw)
+        if data is None:
+            return None
+        return cls.of(data, _effective_count(data), Overrides.of(data)), data
+
+    @classmethod
+    def recorded(cls, record: Path, key: str) -> _Carried | None:
+        """Return the `carry` field the store record at `record` holds for the file whose bytes hash to `key`, or None when it holds none of this shape for this code."""
+        field = recorded(record, key, "carry")
+        if not isinstance(field, dict):
+            return None
+        stamp, count, overridden = field.get("stamp"), field.get("count"), field.get("overridden")
+        if (
+            not isinstance(stamp, str)
+            or not (count is None or (isinstance(count, int) and not isinstance(count, bool)))
+            or not isinstance(overridden, list)
+            or not all(isinstance(unit, str) for unit in overridden)
+        ):
+            return None
+        return cls(stamp, count, field.get("accepted"), frozenset(overridden))
+
+    def record(self, record: Path, key: str) -> None:
+        record_field(
+            record,
+            key,
+            "carry",
+            {
+                "stamp": self.stamp,
+                "count": self.count,
+                "accepted": self.named,
+                "overridden": sorted(self.overridden),
+            },
+        )
+
+    def overrides(self) -> Overrides:
+        """Return an override section that names the units this one names, which is all `_listed_count` reads of it."""
+        return Overrides({}, dict.fromkeys(self.overridden, ""))
+
+
+def _summarize(raw: bytes, record: Path) -> _Candidate:
+    """Return the stamp and effective count of the verdicts file whose bytes are `raw`: from the store record at `record` when it holds them for these bytes, and otherwise from a parse of `raw`, which then records them. Only the two scalars are returned, so the parsed store is freed before the caller reads the next file."""
+    key = hashlib.sha256(raw).hexdigest()
+    carried = _Carried.recorded(record, key)
+    if carried is None:
+        parsed = _Carried.parse(raw)
+        if parsed is None:
+            return _Candidate(None, None, True)
+        carried = parsed[0]
+        carried.record(record, key)
+    return _Candidate(carried.stamp, carried.count, True)
 
 
 _SETTLE_NS = 2_000_000_000
@@ -87,8 +290,10 @@ def _stat_key(stat: os.stat_result) -> _StatKey:
     return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
 
 
-def _read_candidate(path: Path, manifest_stamp, *, counts: bool) -> tuple[_StatKey, bool, _Candidate] | None:
-    """Read one verdicts file and return its stat key from the open handle, whether its last change was at least _SETTLE_NS before the read began, and its candidate; or None when the file cannot be read. With `counts`, every file is parsed whole. Without it, a file whose head, its first `accepted.HEAD_BYTES` bytes, settles a stamp other than manifest_stamp (`accepted.head_stamp`) returns a head-only candidate, and every other file is parsed whole, so a candidate stamped manifest_stamp always carries the parsed stamp. The handle is unbuffered so that the whole-file read after the head returns one bytes object, with no copy that joins a buffered head onto the rest. The head is the whole file only when the size fstat reported fits inside it.
+def _read_candidate(
+    path: Path, manifest_stamp, *, counts: bool, record: Path
+) -> tuple[_StatKey, bool, _Candidate] | None:
+    """Read one verdicts file and return its stat key from the open handle, whether its last change was at least _SETTLE_NS before the read began, and its candidate; or None when the file cannot be read. With `counts`, every file is read whole. Without it, a file whose head, its first `accepted.HEAD_BYTES` bytes, settles a stamp other than manifest_stamp (`accepted.head_stamp`) returns a head-only candidate, and every other file is read whole, so a candidate stamped manifest_stamp always carries the stamp a whole parse gives. A file read whole is summarized from those bytes (`_summarize`), through the store record at `record`. The handle is unbuffered so that the whole-file read after the head returns one bytes object, with no copy that joins a buffered head onto the rest. The head is the whole file only when the size fstat reported fits inside it.
 
     The head read judges a file with a second top-level manifest_generated_at after its `verdicts` array by the first, where a whole parse takes the later one. On such a file, pick_fullest_verdicts's result also depends on earlier calls: once resolve_carry_source has memoized the file's whole parse, pick_fullest_verdicts uses that parse's stamp, the later one. No repo writer makes such a file.
     """
@@ -99,55 +304,65 @@ def _read_candidate(path: Path, manifest_stamp, *, counts: bool) -> tuple[_StatK
             key = _stat_key(stat)
             settled = now - max(stat.st_mtime_ns, stat.st_ctime_ns) >= _SETTLE_NS
             if counts:
-                return key, settled, _summarize(handle.read())
+                return key, settled, _summarize(handle.read(), record)
             head = handle.read(accepted.HEAD_BYTES)
             stamp = accepted.head_stamp(head)
             if stamp is not None and stamp != manifest_stamp:
                 return key, settled, _Candidate(stamp, None, False)
             if stat.st_size <= len(head):
-                return key, settled, _summarize(head)
+                return key, settled, _summarize(head, record)
             handle.seek(0)
-            return key, settled, _summarize(handle.read())
+            return key, settled, _summarize(handle.read(), record)
     except OSError:
         return None
 
 
-def _listed_count(data: dict, listed: Accepted, human_ids) -> int:
-    """Return how many units the store document `data` reads as accepted: listed, among `human_ids` (every listed id when they are None), and holding no override in it."""
+def _listed_count(overrides: Overrides, listed: Accepted, human_ids) -> int:
+    """Return how many units a store whose override section is `overrides` reads as accepted: listed, among `human_ids` (every listed id when they are None), and holding no override in it."""
     if not listed.verdicts:
         return 0
-    return sum(1 for _ in View({}, {}, listed, Overrides.of(data)).from_list(human_ids))
+    return sum(1 for _ in View({}, {}, listed, overrides).from_list(human_ids))
 
 
 def _read_autosave(
     autosave_path: Path, listed_path: Path | None, review_dir: Path, manifest_stamp
 ) -> _Candidate | None:
-    """Read the store as a carry candidate: its stamp, and its effective count with its accepted units on the served corpus's human units (`_listed_count`; none when no corpus is served), after `accepted.pair` has checked that it pairs with the list at `listed_path`, which raises `accepted.Refused` for a list it cannot read or a store that does not pair with it."""
+    """Read the store as a carry candidate: its stamp, and its effective count with its accepted units on the served corpus's human units (`_listed_count`; none when no corpus is served), after `accepted.pair` has checked that it pairs with the list at `listed_path`, which raises `accepted.Refused` for a list it cannot read or a store that does not pair with it. What the carry reads of the store comes from the store record beside it (`store_record_path`) when that holds it for the store's bytes, and otherwise from a parse of them, which then records it. A recorded store that names no list, beside a list, is parsed again for the pairing, since only its records, tombstones and override section say whether it pairs."""
     try:
         raw = autosave_path.read_bytes() if autosave_path.exists() else None
     except OSError:
         raw = None
     if raw is None:
         return None
-    data = parse_autosave_payload(raw)
-    if data is None:
-        return _Candidate(None, None, True)
-    candidate = _Candidate(data["manifest_generated_at"], _effective_count(data), True)
+    record = store_record_path(autosave_path.parent)
+    key = hashlib.sha256(raw).hexdigest()
+    carried = _Carried.recorded(record, key)
+    data: dict | None = None
+    if carried is None:
+        parsed = _Carried.parse(raw)
+        if parsed is None:
+            return _Candidate(None, None, True)
+        carried, data = parsed
+        carried.record(record, key)
+    candidate = _Candidate(carried.stamp, carried.count, True)
     if candidate.count is None or listed_path is None:
         return candidate
     listed = accepted.read(listed_path)
-    accepted.pair(data, listed, store=autosave_path)
+    if data is None and carried.named is None and listed.sha256 is not None:
+        data = parse_autosave_payload(raw)
+    accepted.pair(data if data is not None else {"accepted": carried.named}, listed, store=autosave_path)
     if manifest_stamp is None or not listed.verdicts:
         return candidate
-    count = _listed_count(data, listed, load_human_unit_ids(review_dir))
+    count = _listed_count(carried.overrides(), listed, load_human_unit_ids(review_dir))
     return _Candidate(candidate.stamp, candidate.count + count, True)
 
 
 def _survey(repo_root, manifest_stamp, *, counts: bool) -> list[tuple[Path, _Candidate]]:
-    """Return every verdicts file `_verdict_paths` finds, in its order and under the path it returns, paired with its candidate. A file that cannot be stat'ed or read is left out. A file is taken from _MEMO when its _stat_key is unchanged and the entry is enough for this call: a parsed entry always, and a head-only entry only when `counts` is false and its stamp is set and is not manifest_stamp. Any other file is read, and the read is memoized only when the file's last change was at least _SETTLE_NS before the read began, so a same-size rewrite within one timestamp tick is read again. _MEMO is then replaced by this call's entries, so it holds only files the latest glob found."""
+    """Return every verdicts file `_verdict_paths` finds, in its order and under the path it returns, paired with its candidate. A file that cannot be stat'ed or read is left out. A file is taken from _MEMO when its _stat_key is unchanged and the entry is enough for this call: a parsed entry always, and a head-only entry only when `counts` is false and its stamp is set and is not manifest_stamp. Any other file is read, through the store record of the repo root (`store_record_path`), and the read is memoized only when the file's last change was at least _SETTLE_NS before the read began, so a same-size rewrite within one timestamp tick is read again. _MEMO is then replaced by this call's entries, so it holds only files the latest glob found."""
     global _MEMO
     memo: dict[Path, tuple[_StatKey, _Candidate]] = {}
     surveyed: list[tuple[Path, _Candidate]] = []
+    record = store_record_path(repo_root)
     for path in _verdict_paths(repo_root):
         try:
             key = _stat_key(path.stat())
@@ -162,7 +377,7 @@ def _survey(repo_root, manifest_stamp, *, counts: bool) -> list[tuple[Path, _Can
                 memo[path] = memoized
                 surveyed.append((path, candidate))
                 continue
-        read = _read_candidate(path, manifest_stamp, counts=counts)
+        read = _read_candidate(path, manifest_stamp, counts=counts, record=record)
         if read is None:
             continue
         read_key, settled, candidate = read
@@ -193,7 +408,7 @@ def resolve_carry_source(
 
     The candidates are the live autosave and every verdicts-*.json at the repo root. The autosave's count takes its accepted units on the human units of the corpus at `review_dir` (the served corpus, rebuild/out/review under `repo_root`, by default), read from the list at `accepted_path` (by default the one beside the autosave, `verdict_store.accepted_path_for`), and a list it cannot read or an autosave that does not pair with it raises `accepted.Refused`. Among those stamped manifest_stamp, the one with the most effective verdicts wins, and the autosave wins a tie because it is the live store. When none is stamped manifest_stamp, the candidates with the newest stamp compete the same way and `aligned` is False. That happens when the served corpus was restamped outside a recorded cycle, or when a pass stopped between its corpus build and its carry. The cycle uses `aligned` in the line that names the master and to choose between the direct merge and the full carry. When the corpus build is skipped, an aligned master that is another file is merged straight into the store, or, when the snapshot of the store the verdict update reads is stamped for an older corpus or is not an ams-review-verdicts/1 document, into that snapshot carried onto the served corpus; an aligned master that is the store is merged from its snapshot, or, when that snapshot is either, carried onto the served corpus in its own place (`verdict_update.merge_sets_store_aside`; the carry refuses a snapshot it cannot read, naming it, and the merge refuses an ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update). An unaligned master is always carried by unit id. A verdict names its unit by content id, so a carried verdict reaches the unit with that id on the live corpus or none.
 
-    Every export is counted whatever its stamp, through the memo shared with pick_fullest_verdicts, so a file pick_fullest_verdicts read by its head alone is parsed whole here. The autosave is read whole on every call and is not memoized.
+    Every export is counted whatever its stamp, through the memo shared with pick_fullest_verdicts, so a file pick_fullest_verdicts read by its head alone is read whole here. The autosave is read whole on every call and is not memoized by its stat. A file read whole is parsed only when the store record holds no `carry` field for its bytes (`_Carried`), so on an unchanged tree each file costs a read and a hash.
     """
     entries: list[tuple[Path, str, int, bool]] = []
     autosave_path = Path(autosave_path)
@@ -436,7 +651,8 @@ def _verdict_store_check(
     listed_path: Path | None = None,
     human_ids_of=lambda: None,
 ) -> tuple[dict, _Aligned | None]:
-    """Check the store. `autosave` and `listed` are the parsed store and the list the review server already paired; without them the store and the list at `listed_path` are read here and paired (`accepted.pair`), and a list that cannot be read or a store that does not pair with it fails the check. `human_ids_of` returns the corpus's human unit ids, or None when they cannot be read, for the store's accepted units."""
+    """Check the store. `autosave` and `listed` are the parsed store and the list the review server already paired; without them the store and the list at `listed_path` are read here and paired (`accepted.pair`), and a list that cannot be read or a store that does not pair with it fails the check. `human_ids_of` returns the corpus's human unit ids, or None when they cannot be read, for the store's accepted units. A store read here and paired records the carry field for its bytes in the store record beside it (`_Carried`, `store_record_path`), from the records the check reads."""
+    recording: tuple[Path, str] | None = None
     if autosave is None:
         path = Path(autosave_path)
         try:
@@ -445,6 +661,8 @@ def _verdict_store_check(
             raw = None
         try:
             autosave = read_store_document(raw, f"The store {path.name}") if raw is not None else None
+            if autosave is not None and raw is not None:
+                recording = (store_record_path(path.parent), hashlib.sha256(raw).hexdigest())
         except MalformedStore as malformed:
             return {
                 "level": "fail",
@@ -469,12 +687,17 @@ def _verdict_store_check(
             "detail": "There is no autosave yet, so no in-progress verdicts are loaded.",
             "remedy": f"If the store was lost, restore it from its journal: {MERGE_TOOL} --list names the recorded times, and {MERGE_TOOL} --restore-as-of <time> --apply restores one.",
         }, None
-    listed_count = _listed_count(autosave, listed, human_ids_of()) if listed.verdicts else 0
+    try:
+        records: dict[str, dict] | None = _latest_from_list(accepted.records_of(autosave))
+    except KeyError, TypeError:
+        records = None
+    own = count_effective(records) if records is not None else None
+    overrides = Overrides.of(autosave)
+    if recording is not None:
+        _Carried.of(autosave, own, overrides).record(*recording)
+    listed_count = _listed_count(overrides, listed, human_ids_of()) if listed.verdicts else 0
     if autosave["manifest_generated_at"] != generated_at:
-        try:
-            stale_effective = count_effective(_latest_from_list(accepted.records_of(autosave))) + listed_count
-        except KeyError, TypeError:
-            stale_effective = listed_count
+        stale_effective = (own or 0) + listed_count
         if stale_effective == 0 and fullest_hit and fullest_hit[1] > 0:
             remedy = f"Merge {fullest_rel} into the autosave ({MERGE_TOOL}); the stale autosave is empty and is stashed automatically when it is stamped for an older corpus, and the merge refuses one stamped for a newer corpus."
         else:
@@ -487,11 +710,7 @@ def _verdict_store_check(
             ),
             "remedy": remedy,
         }, None
-    try:
-        records = _latest_from_list(accepted.records_of(autosave))
-    except KeyError, TypeError:
-        records = {}
-    aligned = _Aligned(records, listed_count)
+    aligned = _Aligned(records if records is not None else {}, listed_count)
     effective = aligned.effective
     if effective == 0 and fullest_hit and fullest_hit[1] > 0:
         return {

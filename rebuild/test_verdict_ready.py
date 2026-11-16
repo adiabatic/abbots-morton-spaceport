@@ -735,6 +735,7 @@ def test_no_parsed_verdicts_file_outlives_the_read_of_the_next(tmp_path, monkeyp
     assert pick_fullest_verdicts(tmp_path, STAMP) == (tmp_path / "verdicts-c.json", 3)
     picked = len(overlaps)
     assert picked == 3
+    status.store_record_path(tmp_path).unlink()
     hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
     assert hit == {"path": tmp_path / "verdicts-autosave.json", "stamp": STAMP, "count": 4, "aligned": True}
     assert len(overlaps) == picked + 4
@@ -1160,7 +1161,20 @@ def test_pick_fullest_verdicts_answers_an_unchanged_tree_from_the_memo(tmp_path,
     assert resolve_carry_source(tmp_path, STAMP, autosave) == carry
     counted = len(parsed)
     assert resolve_carry_source(tmp_path, STAMP, autosave) == carry
-    assert parsed[counted:] == [_digest(autosave)]
+    assert parsed[counted:] == []
+
+
+def test_the_verdict_store_check_records_what_the_next_carry_reads(tmp_path, monkeypatch):
+    """A readiness check that reads the store itself records the carry field for the store's bytes from its own parse (`status._Carried`), so the carry at the next pass's plan reads and hashes the store without parsing it and answers as a parse would."""
+    setup_green(tmp_path)
+    write_autosave(tmp_path, records=_records(3))
+    autosave = tmp_path / "verdicts-autosave.json"
+    assert call(tmp_path)["checks"]["verdict_store"]["level"] == "ok"
+    parsed = _spy_on_parses(monkeypatch)
+    hit = resolve_carry_source(tmp_path, STAMP, autosave)
+    assert hit == _reference_resolve_carry_source(tmp_path, STAMP, autosave)
+    assert hit is not None and hit["count"] == 3
+    assert parsed == []
 
 
 def test_a_same_size_rewrite_in_place_is_read_again(tmp_path, monkeypatch):
@@ -1236,9 +1250,11 @@ def test_a_candidate_changed_inside_the_settle_window_is_read_again(tmp_path, mo
     path = tmp_path / "verdicts-a.json"
     _write(path, verdicts_doc(STAMP, _records(2)))
     parsed = _spy_on_parses(monkeypatch)
+    reads = _spy_on_reads(monkeypatch)
     assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 2)
     assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 2)
-    assert parsed == [_digest(path)] * 2
+    assert reads[path] == 2 * path.stat().st_size
+    assert parsed == [_digest(path)]
 
 
 def test_resolve_carry_source_parses_only_what_pick_fullest_verdicts_read_by_its_head(tmp_path, monkeypatch):
