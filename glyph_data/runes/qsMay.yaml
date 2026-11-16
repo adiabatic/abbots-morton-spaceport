@@ -210,6 +210,7 @@ policy:
         family:
         - qsBay
         - qsIng
+        - qsNo
   resolve:
   - against:
       rune: qsMay
