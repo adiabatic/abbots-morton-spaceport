@@ -54,7 +54,7 @@ pub enum SettleError {
     Incomparable(String),
     /// E-AMBIGUOUS: two prefer records gathered at the same junction position match the window and demand conflicting outcomes, and their conditions are equal or overlap without nesting. The engine raises it before it consults any `resolve:` record, so no resolve settles it; the author edits the prefers instead, as design section 6.2 describes.
     Ambiguous(String),
-    /// E-UNACCEPTED-EXIT: the left neighbor committed an exit that this letter has no cell to accept.
+    /// E-UNACCEPTED-EXIT: the left neighbor committed an exit that this letter has no cell to accept. Raised beneath a simulated prospect's replay, whose fallback discards it unread, it carries no text (`Engine::prospect_uncached` in [`crate::engine`]).
     UnacceptedExit(String),
     /// Any other window that does not settle, such as a letter with no candidate cells, or a spec defect found during settlement.
     Plain(String),

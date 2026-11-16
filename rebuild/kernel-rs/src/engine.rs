@@ -37,6 +37,37 @@ struct EliminationSink<'a> {
     describe: bool,
 }
 
+/// Where a window's notes go: the trace's list, or nowhere for a trace only its settled record is read from ([`TraceKept::SettledOnly`]). Each note is built by a closure, so a note that goes nowhere is never formatted.
+struct NoteSink<'a> {
+    list: Option<&'a mut Vec<String>>,
+}
+
+impl NoteSink<'_> {
+    /// Add the note.
+    fn push(&mut self, note: impl FnOnce() -> String) {
+        if let Some(list) = self.list.as_deref_mut() {
+            list.push(note());
+        }
+    }
+
+    /// Add the note unless the list already holds it.
+    fn push_once(&mut self, note: impl FnOnce() -> String) {
+        if let Some(list) = self.list.as_deref_mut() {
+            let note = note();
+            if !list.contains(&note) {
+                list.push(note);
+            }
+        }
+    }
+}
+
+/// What the caller of [`Engine::transition_trace_uncached`] keeps of the trace it builds. A whole trace enters the trace memo or goes back to the caller, so it carries its notes, and its ranking when the engine records rankings. [`Engine::with_settled_unrecorded`]'s miss reads the settled record and drops the rest, so it asks for no eliminations, no notes and no ranking. Each call states it, rather than the engine, because the windows settled beneath that miss are recorded whole as usual.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TraceKept {
+    Whole,
+    SettledOnly,
+}
+
 /// One authored record's YAML pointer: `model.Provenance`'s file and path, kept apart so the value is `Copy` and hashes on two integers. [`Pointer::text`] builds the `file:path` string the corpus and the notes carry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Pointer {
@@ -1117,6 +1148,8 @@ pub struct Engine<'i> {
     simulated_prospect: bool,
     follower_prefer_slots: bool,
     simulated_prospect_fallbacks: u64,
+    /// Whether the window being settled lies beneath a simulated prospect's replay, whose fallback discards whatever the replay raises unread ([`Engine::prospect_uncached`]). An E-UNACCEPTED-EXIT raised there carries no text, because the left's cell label is the costliest part of a message nothing would read. It is set only for the replay's call and restored as the call returns, so a window settled anywhere else formats its message whole.
+    replay_errors_discarded: bool,
     fired: HashSet<Pointer>,
     fired_log: Option<Vec<Pointer>>,
     capture_starts: Vec<usize>,
@@ -1182,6 +1215,7 @@ impl<'i> Engine<'i> {
             simulated_prospect: modes.simulated_prospect,
             follower_prefer_slots: modes.follower_prefer_slots,
             simulated_prospect_fallbacks: 0,
+            replay_errors_discarded: false,
             fired: HashSet::default(),
             fired_log: modes.trace_memo.then(Vec::new),
             capture_starts: Vec::new(),
@@ -2309,8 +2343,24 @@ impl<'i> Engine<'i> {
         if self.fired_log.is_none() {
             return self.candidates_uncached(left, rune_name, right1, right2, eliminations);
         }
+        let entry = self.candidates_entry(left, rune_name, right1, right2)?;
+        let memo = &self.candidates_cache;
+        if let Some(list) = eliminations {
+            list.extend(memo.eliminations.get(entry.eliminations).iter().cloned());
+        }
+        Ok(memo.candidates.get(entry.candidates).to_vec())
+    }
+
+    /// The candidate memo's entry for this window in trace-memo mode, settled and stored first on a miss, with its delta and read set replayed on a hit. [`Engine::candidates`] copies the lists out of the memo's pools. [`Engine::transition_trace_uncached`] reads the eliminations where they sit when it needs them only for its notes, since they are read before anything else can enter the memo.
+    fn candidates_entry(
+        &mut self,
+        left: &LeftContext,
+        rune_name: Sym,
+        right1: RightToken,
+        right2: RightToken,
+    ) -> Result<CandidatesEntry, SettleError> {
         let key = Self::candidates_key(self.index, left, rune_name, right1, right2);
-        let entry = match self.candidates_cache.entries.get(&key) {
+        match self.candidates_cache.entries.get(&key) {
             Some(&cached) => {
                 replay_into(
                     &mut self.fired_log,
@@ -2318,7 +2368,7 @@ impl<'i> Engine<'i> {
                     self.deltas.get(cached.delta),
                 );
                 crate::index::journal_extend(self.reads.get(cached.reads));
-                cached
+                Ok(cached)
             }
             None => {
                 let mut local: Vec<Elimination> = Vec::new();
@@ -2347,14 +2397,9 @@ impl<'i> Engine<'i> {
                 self.candidates_clears +=
                     u64::from(clear_at_ceiling(&mut memo.entries, self.candidates_ceiling));
                 memo.entries.insert(key, entry);
-                entry
+                Ok(entry)
             }
-        };
-        let memo = &self.candidates_cache;
-        if let Some(list) = eliminations {
-            list.extend(memo.eliminations.get(entry.eliminations).iter().cloned());
         }
-        Ok(memo.candidates.get(entry.candidates).to_vec())
     }
 
     /// The candidate memo's key. The rune's ordinal is the only lookup here. The rune field has an ordinal for every registered family, so this panics only for a name the registry has no family for. A registered but unmodeled rune panics in the enumeration itself.
@@ -2706,7 +2751,7 @@ impl<'i> Engine<'i> {
     ///
     /// With `simulated_prospect` on (the default), the term is the follower's simulated transition: the follower's full settlement run one position over, with this candidate as the follower's left and the window shifted right. It scores 1 when the simulated winner has a junction. The recursion only moves right, over strictly fewer slots, and stops at the window edge, where a non-letter slot scores 0, so text past the window stays unknown. With the mode off (the section 5.7 guard's setting and the comparison state), the term is the optimistic candidacy estimate: 1 when any junction-bearing follower cell survives enumeration. That estimate respects refusals but ignores the follower's prefers and ordering.
     ///
-    /// A replayed settlement can raise where real settlement never would, for example on a prefer conflict in a window whose candidate never wins. A raising replay falls back to the candidacy estimate and counts in [`Engine::simulated_prospect_fallbacks`]. The fallback catches every [`SettleError`], including the unresolvable-class spec defect, which `spec_load` rejects long before settlement.
+    /// A replayed settlement can raise where real settlement never would, for example on a prefer conflict in a window whose candidate never wins. A raising replay falls back to the candidacy estimate and counts in [`Engine::simulated_prospect_fallbacks`]. The fallback catches every [`SettleError`], including the unresolvable-class spec defect, which `spec_load` rejects long before settlement. It reads none of them, so the replay runs with [`Engine::replay_errors_discarded`] set.
     ///
     /// The memo stores a term beside the id of its fired delta, and with a trace memo in simulated mode it holds only the asks whose replayed settlement raised (issue #166). A settling replay's delta equals the trace memo's delta for the follower's window: the synthetic left journals nothing, and deduplicating what [`Engine::with_settled`] journaled (a replayed trace delta, or the raw firings the trace memo deduplicated into that same delta) gives that delta again. The trace memo already holds that entry, under a key without this candidate's entry, so the capture is discarded instead of stored ([`Engine::abort_capture`]). The next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. A raising replay is never stored in the trace memo, so its fallback is what this memo is for. Candidacy mode runs no replay and memoizes every ask, and so does simulated mode without a trace memo, where nothing else can answer the next ask.
     ///
@@ -2813,11 +2858,13 @@ impl<'i> Engine<'i> {
         }
         let shifted = Slots::new(slots.right2, slots.right3, slots.right4, UNKNOWN);
         let read_junction = |settled: &Settled| i64::from(settled.junction.is_some());
+        let enclosing = std::mem::replace(&mut self.replay_errors_discarded, true);
         let simulated = if recorded {
             self.with_settled(&synthetic_left, slots.right1, shifted, read_junction)
         } else {
             self.with_settled_unrecorded(&synthetic_left, slots.right1, shifted, read_junction)
         };
+        self.replay_errors_discarded = enclosing;
         match simulated {
             Ok(junction_bearing) => Ok((junction_bearing, ProspectTerm::Simulated)),
             Err(_) => {
@@ -3002,7 +3049,7 @@ impl<'i> Engine<'i> {
         survivors: &[Candidate],
         left: &LeftContext,
         slots: Slots,
-        notes: &mut Vec<String>,
+        notes: &mut NoteSink<'_>,
     ) -> Result<Vec<Candidate>, SettleError> {
         if survivors.len() <= 1 {
             return Ok(survivors.to_vec());
@@ -3110,10 +3157,7 @@ impl<'i> Engine<'i> {
                 current = narrowed;
                 applied.push(position);
                 self.record_fired(record.provenance.as_ref());
-                notes.push(format!(
-                    "prefer applied: {}",
-                    gathered_text(index, rune_name, held)
-                ));
+                notes.push(|| format!("prefer applied: {}", gathered_text(index, rune_name, held)));
                 continue;
             }
             let mut partners: Vec<OwnedRecord<'i>> = Vec::new();
@@ -3218,7 +3262,7 @@ impl<'i> Engine<'i> {
         survivors: &[Candidate],
         left: &LeftContext,
         slots: Slots,
-        notes: &mut Vec<String>,
+        notes: &mut NoteSink<'_>,
     ) -> Result<Option<Vec<Candidate>>, SettleError> {
         let index = self.index();
         let vocab = index.vocab();
@@ -3297,10 +3341,12 @@ impl<'i> Engine<'i> {
             )));
         }
         self.record_fired(chosen.provenance.as_ref());
-        notes.push(format!(
-            "resolve applied: {}",
-            provenance_text(index, chosen.provenance.as_ref())
-        ));
+        notes.push(|| {
+            format!(
+                "resolve applied: {}",
+                provenance_text(index, chosen.provenance.as_ref())
+            )
+        });
         Ok(Some(picked))
     }
 
@@ -3470,7 +3516,7 @@ impl<'i> Engine<'i> {
         locked: bool,
         left: &LeftContext,
         right: Slots,
-        notes: &mut Vec<String>,
+        notes: &mut NoteSink<'_>,
     ) -> Result<Settled, SettleError> {
         let index = self.index();
         let id = index
@@ -3490,11 +3536,8 @@ impl<'i> Engine<'i> {
         if let Some(entry) = winner.entry {
             let (available, unlock_note) =
                 self.entry_available(rune, stance, entry, left, right.right1, right.right2)?;
-            if available
-                && let Some(note) = unlock_note
-                && !notes.contains(&note)
-            {
-                notes.push(note);
+            if available && let Some(note) = unlock_note {
+                notes.push_once(|| note);
             }
             let mut extend = self.pick_adjustment(
                 AdjustmentKind::Extend,
@@ -3520,10 +3563,10 @@ impl<'i> Engine<'i> {
                     .as_ref()
                     .is_some_and(|settled| settled.extension > 0)
             {
-                notes.push(
+                notes.push(|| {
                     "entry extension suppressed: the predecessor's exit already carries the junction's connector pixels (same-junction non-summing)"
-                        .to_owned(),
-                );
+                        .to_owned()
+                });
                 extend = None;
             }
             adjustments.extend(adjustment_tokens(index, Side::Entry, extend, contract)?);
@@ -3601,7 +3644,7 @@ impl<'i> Engine<'i> {
             });
         }
         if self.trace_cache.is_none() {
-            return self.transition_trace_uncached(left, token, slots);
+            return self.transition_trace_uncached(left, token, TraceKept::Whole, slots);
         }
         let key = Self::trace_key(left, token.letter_ordinal(), slots);
         if let Some(memo) = self.trace_cache.as_ref()
@@ -3633,7 +3676,7 @@ impl<'i> Engine<'i> {
             return Ok(trace);
         }
         self.begin_capture();
-        let trace = match self.transition_trace_uncached(left, token, slots) {
+        let trace = match self.transition_trace_uncached(left, token, TraceKept::Whole, slots) {
             Ok(trace) => trace,
             Err(error) => {
                 self.abort_capture();
@@ -3669,7 +3712,7 @@ impl<'i> Engine<'i> {
         Ok(read(&trace.settled))
     }
 
-    /// [`Engine::with_settled`] for a letter window not worth a memo entry: a hit is returned the same way, delta replayed, and a miss settles the window without recording it. The miss opens no capture of its own, so its firings go straight into the enclosing capture, as a recorded miss's raw firings do, and every window evaluated beneath it is memoized as usual. The caller is [`Engine::prospect`]'s probe path, whose doc comment has the measurement that justifies skipping the entry.
+    /// [`Engine::with_settled`] for a letter window not worth a memo entry: a hit is returned the same way, delta replayed, and a miss settles the window without recording it, and without the eliminations, notes and ranking only a whole trace carries ([`TraceKept::SettledOnly`]). The miss opens no capture of its own, so its firings go straight into the enclosing capture, as a recorded miss's raw firings do, and every window evaluated beneath it is memoized as usual. The caller is [`Engine::prospect`]'s probe path, whose doc comment has the measurement that justifies skipping the entry.
     fn with_settled_unrecorded<T>(
         &mut self,
         left: &LeftContext,
@@ -3680,7 +3723,7 @@ impl<'i> Engine<'i> {
         if let Some(answer) = self.settled_from_memo(left, token, slots, &read) {
             return Ok(answer);
         }
-        let trace = self.transition_trace_uncached(left, token, slots)?;
+        let trace = self.transition_trace_uncached(left, token, TraceKept::SettledOnly, slots)?;
         Ok(read(&trace.settled))
     }
 
@@ -3727,6 +3770,7 @@ impl<'i> Engine<'i> {
         &mut self,
         left: &LeftContext,
         token: RightToken,
+        kept: TraceKept,
         slots: Slots,
     ) -> Result<TransitionTrace, SettleError> {
         let index = self.index();
@@ -3743,26 +3787,31 @@ impl<'i> Engine<'i> {
             None
         };
         let locked = left.kind == TokenKind::Zwnj && index.is_entry_bearing(rune_name);
-        let mut notes: Vec<String> = Vec::new();
+        let whole = kept == TraceKept::Whole;
+        // A whole trace reads the eliminations for its notes, and in explain mode for its ranking too. In trace-memo mode outside explain mode the notes are all it reads them for, so it reads them where the candidate memo's pool holds them instead of copying them out.
         let mut eliminations: Vec<Elimination> = Vec::new();
-        let survivors = self.candidates(
-            left,
-            rune_name,
-            slots.right1,
-            slots.right2,
-            Some(&mut eliminations),
-        )?;
-        // Design section 6.3 compensation (b): the pointer of every record that eliminated a candidate here goes into the notes, so the decision-rule TSVs and the emitted FEA carry per-rule provenance comments.
-        for elimination in &eliminations {
-            if let Some(provenance) = elimination.provenance.as_ref() {
-                let pointer = provenance_pointer(index, provenance);
-                if !notes.contains(&pointer) {
-                    notes.push(pointer);
-                }
-            }
-        }
+        let (survivors, pooled) = if !whole {
+            let survivors = self.candidates(left, rune_name, slots.right1, slots.right2, None)?;
+            (survivors, None)
+        } else if self.explain_ranking || self.fired_log.is_none() {
+            let survivors = self.candidates(
+                left,
+                rune_name,
+                slots.right1,
+                slots.right2,
+                Some(&mut eliminations),
+            )?;
+            (survivors, None)
+        } else {
+            let entry = self.candidates_entry(left, rune_name, slots.right1, slots.right2)?;
+            let survivors = self.candidates_cache.candidates.get(entry.candidates);
+            (survivors.to_vec(), Some(entry.eliminations))
+        };
         if survivors.is_empty() {
             if let Some(committed) = committed {
+                if self.replay_errors_discarded {
+                    return Err(SettleError::UnacceptedExit(String::new()));
+                }
                 let settled = left
                     .settled
                     .as_ref()
@@ -3779,9 +3828,23 @@ impl<'i> Engine<'i> {
                 index.resolve(rune_name)
             )));
         }
+        let mut notes: Vec<String> = Vec::new();
+        let mut sink = NoteSink {
+            list: whole.then_some(&mut notes),
+        };
+        // Design section 6.3 compensation (b): the pointer of every record that eliminated a candidate here goes into the notes, so the decision-rule TSVs and the emitted FEA carry per-rule provenance comments.
+        let eliminated = match pooled {
+            Some(id) => self.candidates_cache.eliminations.get(id),
+            None => eliminations.as_slice(),
+        };
+        for elimination in eliminated {
+            if let Some(provenance) = elimination.provenance.as_ref() {
+                sink.push_once(|| provenance_pointer(index, provenance));
+            }
+        }
 
-        let mut ranked_order: Vec<Candidate> = Vec::new();
-        let mut ranked: HashMap<Candidate, RankedCandidate> = HashMap::default();
+        // Each survivor's scores, in the order the survivors list them. A window has a handful of survivors, so a linear search finds one for less than hashing it into a table costs.
+        let mut ranked: Vec<RankedCandidate> = Vec::with_capacity(survivors.len());
         for candidate in &survivors {
             let prospect = self.prospect(rune_name, *candidate, slots, true)?;
             let join_count = Self::score(*candidate, committed, prospect);
@@ -3790,46 +3853,55 @@ impl<'i> Engine<'i> {
                 join_count,
                 prospect,
             };
-            if ranked.insert(*candidate, scored).is_none() {
-                ranked_order.push(*candidate);
+            match ranked
+                .iter_mut()
+                .find(|entry| entry.candidate == *candidate)
+            {
+                Some(entry) => *entry = scored,
+                None => ranked.push(scored),
             }
         }
+        let scores = |candidate: &Candidate| -> RankedCandidate {
+            *ranked
+                .iter()
+                .find(|entry| entry.candidate == *candidate)
+                .expect("every survivor was ranked")
+        };
         let mut decided_stage = DecidedStage::OnlyCandidate;
         let mut runner_up: Option<Candidate> = None;
 
         let mut survivors =
-            self.apply_prefers(true, rune_name, &survivors, left, slots, &mut notes)?;
-        if survivors.len() == 1 && ranked_order.len() > 1 {
+            self.apply_prefers(true, rune_name, &survivors, left, slots, &mut sink)?;
+        if survivors.len() == 1 && ranked.len() > 1 {
             decided_stage = DecidedStage::AbsolutePrefer;
         }
 
         if survivors.len() > 1 {
             let best = survivors
                 .iter()
-                .map(|candidate| ranked[candidate].join_count)
+                .map(|candidate| scores(candidate).join_count)
                 .max()
                 .expect("the survivor list is not empty");
-            let narrowed: Vec<Candidate> = survivors
-                .iter()
-                .copied()
-                .filter(|candidate| ranked[candidate].join_count == best)
-                .collect();
-            if narrowed.len() < survivors.len() {
-                runner_up = survivors
-                    .iter()
-                    .copied()
-                    .find(|candidate| !narrowed.contains(candidate));
-                if narrowed.len() == 1 {
+            // Narrowed in place, in order, keeping the first survivor it drops as the runner-up.
+            let mut first_dropped: Option<Candidate> = None;
+            survivors.retain(|candidate| {
+                let kept = scores(candidate).join_count == best;
+                if !kept && first_dropped.is_none() {
+                    first_dropped = Some(*candidate);
+                }
+                kept
+            });
+            if first_dropped.is_some() {
+                runner_up = first_dropped;
+                if survivors.len() == 1 {
                     decided_stage = DecidedStage::JoinCount;
                 }
             }
-            survivors = narrowed;
         }
 
         if survivors.len() > 1 {
             let before = survivors.clone();
-            survivors =
-                self.apply_prefers(false, rune_name, &survivors, left, slots, &mut notes)?;
+            survivors = self.apply_prefers(false, rune_name, &survivors, left, slots, &mut sink)?;
             if survivors.len() == 1 {
                 decided_stage = DecidedStage::YieldingPrefer;
                 runner_up = before
@@ -3876,13 +3948,11 @@ impl<'i> Engine<'i> {
             locked,
             left,
             Slots::pair(slots.right1, slots.right2),
-            &mut notes,
+            &mut sink,
         )?;
-        let ranking = self.explain_ranking.then(|| {
-            let mut scored: Vec<RankedCandidate> = ranked_order
-                .iter()
-                .map(|candidate| ranked[candidate])
-                .collect();
+        let prospect = scores(&winner).prospect;
+        let ranking = (whole && self.explain_ranking).then(|| {
+            let mut scored = ranked;
             scored.sort_by_key(|entry| {
                 (
                     -entry.join_count,
@@ -3899,7 +3969,7 @@ impl<'i> Engine<'i> {
         Ok(TransitionTrace {
             settled,
             joint_tiebreak,
-            prospect: ranked[&winner].prospect,
+            prospect,
             decided_stage,
             notes,
             ranking,
@@ -4068,12 +4138,9 @@ fn gathered_text(index: &SpecIndex, rune_name: Sym, entry: OwnedRecord<'_>) -> S
 }
 
 /// Note one applied adjustment record on the trace, once. A record with no provenance notes nothing, because there is no pointer for the TSV to carry.
-fn note_applied(index: &SpecIndex, notes: &mut Vec<String>, record: Option<&PolicyRecord>) {
+fn note_applied(index: &SpecIndex, notes: &mut NoteSink<'_>, record: Option<&PolicyRecord>) {
     if let Some(provenance) = record.and_then(|record| record.provenance.as_ref()) {
-        let pointer = provenance_pointer(index, provenance);
-        if !notes.contains(&pointer) {
-            notes.push(pointer);
-        }
+        notes.push_once(|| provenance_pointer(index, provenance));
     }
 }
 
@@ -8619,6 +8686,10 @@ mod tests {
             2,
             "both of qsTea's candidates opened a cascade that raised, and both fell back"
         );
+        assert!(
+            !simulating.replay_errors_discarded,
+            "each replay put the flag back as it returned"
+        );
 
         let mut estimating = Engine::with_modes(
             &index,
@@ -8944,6 +9015,72 @@ mod tests {
             error.message(),
             "E-UNACCEPTED-EXIT: qsPea.stroke.ex-y5 committed an exit at x-height but qsMay has no acceptor cell (the lookahead closure should have prevented this commitment)"
         );
+    }
+
+    /// Beneath a simulated prospect's replay, whose fallback reads no error, the same window raises the same kind with no text, and once the flag is down again it carries its whole message.
+    #[test]
+    fn an_unaccepted_exit_beneath_a_discarding_replay_carries_no_text() {
+        let index = ranking_spec(&plain_policy(), &plain_policy());
+        let mut engine = Engine::new(&index, no_features());
+        let left = committed_left(&index, 0);
+        let may = letter_token(&index, "qsMay");
+        engine.replay_errors_discarded = true;
+        let error = engine
+            .transition_trace(&left, may, Slots::pair(EDGE, EDGE))
+            .expect_err("qsMay enters at the baseline alone");
+        assert_eq!(error.kind(), SettleErrorKind::UnacceptedExit);
+        assert_eq!(error.message(), "");
+        engine.replay_errors_discarded = false;
+        let error = engine
+            .transition_trace(&left, may, Slots::pair(EDGE, EDGE))
+            .expect_err("qsMay enters at the baseline alone");
+        assert_eq!(
+            error.message(),
+            "E-UNACCEPTED-EXIT: qsPea.stroke.ex-y5 committed an exit at x-height but qsMay has no acceptor cell (the lookahead closure should have prevented this commitment)"
+        );
+    }
+
+    /// A trace-memo engine outside explain mode reads a window's eliminations where the candidate memo's pool holds them, an engine without a memo has them written into its own list, and an explain engine copies them for its ranking: each notes the same refusal. A settled-only trace of the same window settles it the same way and fires the same records, with no notes and no ranking.
+    #[test]
+    fn every_way_of_reading_the_eliminations_notes_the_same_refusal() {
+        let index = refusal_spec();
+        let edge = LeftContext::boundary(TokenKind::Edge);
+        let token = letter_token(&index, "qsPea");
+        let slots = Slots::pair(letter_token(&index, "qsIt"), EDGE);
+        for (trace_memo, explain_ranking) in
+            [(true, false), (false, false), (true, true), (false, true)]
+        {
+            let modes = EngineModes {
+                trace_memo,
+                explain_ranking,
+                ..EngineModes::default()
+            };
+            let context = format!("trace memo {trace_memo}, explain {explain_ranking}");
+            let mut engine = Engine::with_modes(&index, no_features(), modes);
+            let trace = engine
+                .transition_trace(&edge, token, slots)
+                .expect("the fixture settles");
+            assert_eq!(trace.notes, ["qsPea.yaml:policy.refuse[0]"], "{context}");
+            assert_eq!(
+                trace
+                    .ranking
+                    .as_ref()
+                    .map(|ranking| ranking.eliminations.len()),
+                explain_ranking.then_some(1),
+                "{context}"
+            );
+
+            let mut settled_only = Engine::with_modes(&index, no_features(), modes);
+            let bare = settled_only
+                .transition_trace_uncached(&edge, token, TraceKept::SettledOnly, slots)
+                .expect("the fixture settles");
+            assert_eq!(bare.settled, trace.settled, "{context}");
+            assert_eq!(bare.prospect, trace.prospect, "{context}");
+            assert_eq!(bare.decided_stage, trace.decided_stage, "{context}");
+            assert!(bare.notes.is_empty(), "{context}");
+            assert!(bare.ranking.is_none(), "{context}");
+            assert_eq!(settled_only.fired(), engine.fired(), "{context}");
+        }
     }
 
     #[test]
