@@ -69,17 +69,7 @@ policy:
   - half
   refuse: []
   prefer: []
-  extend:
-  - stance: full
-    exit: x-height
-    by: 1
-    when:
-      right: {family: qsGay}
-  - stance: half
-    exit: x-height
-    by: 1
-    when:
-      right: {family: qsGay}
+  extend: []
   contract: []
   resolve: []
   groups: {}

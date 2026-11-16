@@ -35,11 +35,7 @@ policy:
   - sole
   refuse: []
   prefer: []
-  extend:
-  - exit: x-height
-    by: 1
-    when:
-      right: {family: qsGay}
+  extend: []
   contract: []
   resolve: []
   groups: {}

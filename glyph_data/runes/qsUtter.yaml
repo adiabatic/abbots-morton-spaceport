@@ -208,6 +208,7 @@ policy:
       right:
         family:
         - qsBay
+        - qsGay
         - qsThey
         - qsThey_qsUtter
         - qsFee
