@@ -1,7 +1,7 @@
 rune: qsIng
 codepoint: 0xE664
 ductus:
-  sole: |  # DRAFT — pending author sign-off
+  sole: |
     Begun at the bottom left on the baseline, where a previous letter may connect, the stroke rises up and to the right to the crossing point, climbs the right side of a tall narrow loop, rounds the top, descends the left side back through the crossing point, and continues down and to the right to rest on the baseline at the bottom right, where it may connect to the next letter.
 mono:
   bitmap:
