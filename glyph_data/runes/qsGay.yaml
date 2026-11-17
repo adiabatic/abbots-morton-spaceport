@@ -259,6 +259,7 @@ policy:
         family:
         - qsYe
         - qsNo
+        - qsLlan
   contract:
   - entry: baseline
     by: 1
