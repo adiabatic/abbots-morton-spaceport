@@ -88,6 +88,7 @@ from rebuild.review.change_groups import (
     reroutes,
 )
 from rebuild.review.drafts import Drafter, _import_test_shaping, corpus_index_from_pages
+from rebuild.review.feature_reach import ConfigFold, derive_fold
 from rebuild.review.ink import (
     IDENTITY_DIFF,
     JUNIOR_VERIFICATION_METHOD,
@@ -1079,6 +1080,21 @@ class _UnitProjection:
     raw_length: int = 0
 
 
+def _config_fold(before_font: Path, after_font: Path) -> ConfigFold:
+    """Derive, over the two fonts, which of the configurations a unit can hold (`audit.ACCEPTANCE_CONFIGS`) take `default`'s shapes for a window that holds none of their trigger letters (`feature_reach.derive_fold`), and print the line that names them and every configuration shaped in every window, with the check it failed. The runner derives it once, in the parent, and hands it to every worker."""
+    fold = derive_fold((before_font, after_font), ACCEPTANCE_CONFIGS)
+    console.say(f"review.build units: {fold.note()}", file=sys.stderr)
+    return fold
+
+
+def _ink_readings(comparator, fold: ConfigFold, text: str, configs: tuple[str, ...]) -> tuple[tuple, bool]:
+    """Return a unit's ink diffs, one per configuration of `configs` in its order, and its `ink_identical` flag. Each configuration is compared under its effective one (`ConfigFold.effective`), `default` for a configuration whose features cannot fire on `text` inside a unit that also holds `default`, since both fonts shape `text` under it as under `default`. So `config_diff` runs once for each distinct effective configuration and its diff goes to every configuration that maps to it, and `ink_identical` reads the distinct effective configurations, which give the answer every configuration gives."""
+    effective = fold.effective(configs, text)
+    compared = tuple(dict.fromkeys(effective))
+    diffs = {config: comparator.config_diff(text, config) for config in compared}
+    return tuple(diffs[config] for config in effective), comparator.ink_identical(text, compared)
+
+
 def _phase1_unit(
     unit,
     comparator,
@@ -1087,12 +1103,12 @@ def _phase1_unit(
     drafter: Drafter,
     report,
     identical_classes: Collection[str],
+    fold: ConfigFold,
     packer: _FragmentPacker | None = None,
 ) -> tuple[_UnitProjection, dict, list[str]]:
-    """Do one unit's per-unit work: the ink flags and deltas, the enrichment, the change group (`change_groups.assign_change_group`) of an UNMATCHED unit or of a unit `change_groups.reroutes` moves out of an `ink_identical` class (`identical_classes`), the drafted fragment (`unit_to_json`), and the drafting-time contract check over it (`check_unit` at `DRAFTED`). A re-routed unit records its ledger class (`Unit.ledger_class`) and drops the exemplar flag its ledger entry gave it, since the change group lists it for what it shows. Returns the projection the parent's whole-corpus passes read, the fragment, and the check's errors, which the caller passes to the write so the build fails there in the same list as the write-time check. With a `packer`, the fragment is deflated as it is drafted and put on the projection; the verification sample passes none and patches the fragment it holds. The deltas go onto the fragment and the projection, never onto the unit, whose `ink_deltas` stays the shared empty mapping in every process. The check runs in whichever process drafts, so the pooled and serial paths check the same way. Drafting here, before the parent's whole-corpus passes, keeps the batch's shapes in the memo for the drafter's replay."""
+    """Do one unit's per-unit work: the ink flags and deltas, read under each configuration's effective one (`_ink_readings` with `fold`), the enrichment, the change group (`change_groups.assign_change_group`) of an UNMATCHED unit or of a unit `change_groups.reroutes` moves out of an `ink_identical` class (`identical_classes`), the drafted fragment (`unit_to_json`), and the drafting-time contract check over it (`check_unit` at `DRAFTED`). A re-routed unit records its ledger class (`Unit.ledger_class`) and drops the exemplar flag its ledger entry gave it, since the change group lists it for what it shows. Returns the projection the parent's whole-corpus passes read, the fragment, and the check's errors, which the caller passes to the write so the build fails there in the same list as the write-time check. With a `packer`, the fragment is deflated as it is drafted and put on the projection; the verification sample passes none and patches the fragment it holds. The deltas go onto the fragment and the projection, never onto the unit, whose `ink_deltas` stays the shared empty mapping in every process. The check runs in whichever process drafts, so the pooled and serial paths check the same way. Drafting here, before the parent's whole-corpus passes, keeps the batch's shapes in the memo for the drafter's replay."""
     text = "".join(chr(value) for value in unit.codepoint_values)
-    diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
-    unit.ink_identical = comparator.ink_identical(text, unit.configs)
+    diffs, unit.ink_identical = _ink_readings(comparator, fold, text, unit.configs)
     unit.picture_identical = not unit.ink_identical and all(diff == IDENTITY_DIFF for diff in diffs)
     unit.junior_equivalent = not (unit.ink_identical or unit.picture_identical) and oracle.approves(
         unit.configs, text
@@ -1154,10 +1170,11 @@ def _recompute_fragment(
     drafter: Drafter,
     report,
     identical_classes: Collection[str],
+    fold: ConfigFold,
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
-    """Recompute one sampled cached unit from nothing and patch it as the write patches a recomputed fragment. The parent's global fields (duplicate group, cluster, promoted class, primary units) are injected onto the unit copy first, because the copy was taken before the whole-corpus passes ran. `report` is the unit's result from its chunk's single `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and not read from the cache. Passing it in avoids settling each sampled unit on its own, which would cost one `settle-cases` process per position. `identical_classes` are the ledger's `ink_identical` ids, so phase 1 re-routes the unit as the build's own phase 1 does. Returns the recomputed content key and ink deltas, which the caller compares with what the cache supplied; the id follows from the key."""
+    """Recompute one sampled cached unit from nothing and patch it as the write patches a recomputed fragment. The parent's global fields (duplicate group, cluster, promoted class, primary units) are injected onto the unit copy first, because the copy was taken before the whole-corpus passes ran. `report` is the unit's result from its chunk's single `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and not read from the cache. Passing it in avoids settling each sampled unit on its own, which would cost one `settle-cases` process per position. `identical_classes` are the ledger's `ink_identical` ids, so phase 1 re-routes the unit as the build's own phase 1 does, and `fold` is the build's own `ConfigFold`. Returns the recomputed content key and ink deltas, which the caller compares with what the cache supplied; the id follows from the key."""
     projection, fragment, _errors = _phase1_unit(
-        unit, comparator, oracle, enricher, drafter, report, identical_classes
+        unit, comparator, oracle, enricher, drafter, report, identical_classes, fold
     )
     unit.duplicate_group, unit.cluster, unit.class_id, junction_assign = injection
     check_stamp(
@@ -1505,7 +1522,7 @@ class _SignatureWrite:
 def _corpus_worker(conn, init: dict) -> None:
     """Run one persistent corpus worker, answering the parent's messages on `conn` until `stop`. Workers are started with spawn only, because uharfbuzz and fontTools C objects are not fork-safe and `drafts._import_test_shaping` sets a module-global singleton.
 
-    A `phase1` message carries one batch of units from the parent's queue and the worker's name, which names its tally boundaries. For each unit the worker runs config_diff, enrichment, drafting and the drafting-time contract check, releasing the shape memo after each settlement batch (`_phase1_batches`). It deflates each fragment as it is drafted (`_FragmentPacker`, made once from the preset dictionary `init` carries), so no EnrichedUnit outlives its batch. It replies `batch` with the batch's projections, each carrying its deflated fragment and the unit's ordinal, and the check's errors (`check_unit` at `DRAFTED`, capped at `CONTRACT_ERRORS_SHOWN`), and keeps nothing after the reply, so it holds one batch's units and projections at a time. `phase1-done` replies `ok`, which tells the parent the worker has drafted its last batch. `verify` recomputes phase 1 and the patch for cached units, which this worker never enriched, and replies with each one's content key and freshly computed ink deltas. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`).
+    A `phase1` message carries one batch of units from the parent's queue and the worker's name, which names its tally boundaries. For each unit the worker reads the ink (`_ink_readings`, under the `ConfigFold` the parent derived and `init` carries) and runs enrichment, drafting and the drafting-time contract check, releasing the shape memo after each settlement batch (`_phase1_batches`). It deflates each fragment as it is drafted (`_FragmentPacker`, made once from the preset dictionary `init` carries), so no EnrichedUnit outlives its batch. It replies `batch` with the batch's projections, each carrying its deflated fragment and the unit's ordinal, and the check's errors (`check_unit` at `DRAFTED`, capped at `CONTRACT_ERRORS_SHOWN`), and keeps nothing after the reply, so it holds one batch's units and projections at a time. `phase1-done` replies `ok`, which tells the parent the worker has drafted its last batch. `verify` recomputes phase 1 and the patch for cached units, which this worker never enriched, and replies with each one's content key and freshly computed ink deltas. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`).
 
     Each `batch` reply is sent as its batch finishes, so the parent can print progress while the pool is still working. `verify` sends no progress, since it covers only a couple of hundred units.
     """
@@ -1555,6 +1572,7 @@ def _corpus_worker(conn, init: dict) -> None:
                             drafter,
                             report,
                             init["identical_classes"],
+                            init["fold"],
                             packer,
                         )
                         results.append(projection)
@@ -1582,6 +1600,7 @@ def _corpus_worker(conn, init: dict) -> None:
                             drafter,
                             report,
                             init["identical_classes"],
+                            init["fold"],
                         )
                 conn.send(("ok", keys))
     except Exception:
@@ -1665,7 +1684,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 
 
 class _RecomputeRunner:
-    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, change-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`). It deflates each fragment as it is drafted (`_FragmentPacker`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store and its fragment into the parent's arena (`arena`, a `_FragmentArena` over `dictionary`) as it arrives (`phase1`), and keeps the check's errors in `contract_errors` for the write. The write reads each recomputed fragment back from the arena at the address the store holds, as it reads a cached fragment from the previous corpus.
+    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, change-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`), reading the ink under the `ConfigFold` it derives once, in the parent, as the pool starts or as the serial path first needs it (`_config_fold`), which every worker receives with its `init`. It deflates each fragment as it is drafted (`_FragmentPacker`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store and its fragment into the parent's arena (`arena`, a `_FragmentArena` over `dictionary`) as it arrives (`phase1`), and keeps the check's errors in `contract_errors` for the write. The write reads each recomputed fragment back from the arena at the address the store holds, as it reads a cached fragment from the previous corpus.
 
     Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units and projections with their deflated fragments, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and frees the arena however the build ends.
     """
@@ -1703,6 +1722,7 @@ class _RecomputeRunner:
         self.arena = _FragmentArena(dictionary)
         self.contract_errors: list[str] = []
         self._local: tuple | None = None
+        self._fold: ConfigFold | None = None
         self._procs: list = []
         self._conns: list = []
         # The verification sample is worker work too, and it is all of the work when the cache supplied every unit. Sizing the pool on the recomputed units alone would make a no-change rebuild recompute its sample in the parent, which already holds the corpus's table and store and would also build an enricher, its shapers and their memos. On a fully cached build the two measure alike: 200 units serially and across eight workers each took 4.9 s for the units phase, and the load phase set the build's peak either way.
@@ -1719,6 +1739,7 @@ class _RecomputeRunner:
                 "repo_root": repo_root,
                 "spec_root": self._spec_root,
                 "identical_classes": identical_classes,
+                "fold": self._config_fold(),
                 "corpus_index": corpus_index,
                 "dictionary": dictionary,
             }
@@ -1738,6 +1759,7 @@ class _RecomputeRunner:
             self._drive_phase1(store)
         elif self._recomputed:
             comparator, oracle, enricher, drafter = self._in_process()
+            fold = self._config_fold()
             packer = _FragmentPacker(self.arena.dictionary)
             table = self._table
             done = 0
@@ -1745,7 +1767,15 @@ class _RecomputeRunner:
             for unit_batch, reports in _phase1_batches(enricher, materialized):
                 for unit, report in zip(unit_batch, reports):
                     projection, _fragment, errors = _phase1_unit(
-                        unit, comparator, oracle, enricher, drafter, report, self._identical_classes, packer
+                        unit,
+                        comparator,
+                        oracle,
+                        enricher,
+                        drafter,
+                        report,
+                        self._identical_classes,
+                        fold,
+                        packer,
                     )
                     _load_recomputed(store, table, self.arena, projection)
                     _keep_contract_errors(self.contract_errors, errors)
@@ -1800,6 +1830,12 @@ class _RecomputeRunner:
                 else:
                     waiting.remove(conn)
 
+    def _config_fold(self) -> ConfigFold:
+        """Return the build's `ConfigFold`, derived on first use (`_config_fold` at module level, which prints its line), so a build whose pool and serial path have nothing to recompute or verify neither reads the fonts' layout tables nor prints the line."""
+        if self._fold is None:
+            self._fold = _config_fold(self._before_font, self._after_font)
+        return self._fold
+
     def _in_process(self) -> tuple:
         """Return the comparator, oracle, enricher and drafter for in-process work, built on first use. They are built lazily because, when the cache supplied every unit, the verification sample can be the only work, and they are not needed before it runs."""
         if self._local is None:
@@ -1827,7 +1863,7 @@ class _RecomputeRunner:
         return self._local
 
     def verify(self, injections: dict[str, tuple]) -> dict[str, tuple[str, tuple[tuple[str, str], ...]]]:
-        """Recompute phase 1 and the patch for the sampled cached units, and return each unit's content key with the ink deltas the recomputation found. Nothing is read from the cache: each chunk is settled in one fresh explain pass over the units' own codepoints, followed by a fresh config_diff, enrichment and drafts per unit. The result is what this build would have written had the unit missed the cache. The caller compares the key with the stamp on the cached fragment and the deltas with the store record they were taken from, since `ink_deltas` is outside the key's projection."""
+        """Recompute phase 1 and the patch for the sampled cached units, and return each unit's content key with the ink deltas the recomputation found. Nothing is read from the cache: each chunk is settled in one fresh explain pass over the units' own codepoints, followed by fresh ink readings (`_ink_readings`, under the build's `ConfigFold`), enrichment and drafts per unit. The result is what this build would have written had the unit missed the cache. The caller compares the key with the stamp on the cached fragment and the deltas with the store record they were taken from, since `ink_deltas` is outside the key's projection."""
         keys: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {}
         if not self._verify:
             return keys
@@ -1847,6 +1883,7 @@ class _RecomputeRunner:
                 keys.update(reply[1])
         else:
             comparator, oracle, enricher, drafter = self._in_process()
+            fold = self._config_fold()
             for chunk in _released_batches(self._verify):
                 reports = enricher.explain_units(chunk)
                 for unit, report in zip(chunk, reports, strict=True):
@@ -1859,6 +1896,7 @@ class _RecomputeRunner:
                         drafter,
                         report,
                         self._identical_classes,
+                        fold,
                     )
         return keys
 

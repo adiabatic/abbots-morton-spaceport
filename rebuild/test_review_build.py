@@ -1826,6 +1826,7 @@ def _drive_worker_in_thread(mini_bundle, chunks: list[list]) -> list[tuple]:
         "identical_classes": frozenset(
             entry.id for entry in load_ledger(mini_bundle.ledger) if entry.ink_identical
         ),
+        "fold": review_build._config_fold(review_build.SITE_BEFORE_FONT, MINI / "M1.otf"),
         "corpus_index": build_corpus_index(REPO_ROOT),
         "dictionary": review_build.FRAGMENT_DICTIONARY.read_bytes(),
     }
