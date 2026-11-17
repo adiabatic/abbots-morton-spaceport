@@ -172,7 +172,7 @@ _CONTAINER_POOL_LIMIT = 16_384
 
 @dataclass(frozen=True, slots=True, eq=False)
 class UnitRecord(Mapping[str, Any]):
-    """An immutable mapping over one record's selected fields, sharing its schema with every record from the same reader. Subscription and `.get` both raise KeyError for an index field the reader did not select, so a matcher that reads a field it did not declare fails instead of reading it as absent. Nested lists and dicts are pooled across records and must not be modified; copy them first. Use `dict(record)` to get an outer mapping that JSON can serialize."""
+    """An immutable mapping over one record's selected fields, sharing its schema with every record from the same reader. Subscription and `.get` both raise KeyError for an index field the reader did not select, so a matcher that reads a field it did not declare fails instead of reading it as absent. A pooling reader shares nested lists and dicts across the records it yields, so they must not be modified; copy them first. Use `dict(record)` to get an outer mapping that JSON can serialize."""
 
     _values: tuple[Any, ...]
     _schema: dict[str, int]
@@ -232,6 +232,13 @@ class _RecordReader:
 
     def record(self, document: Mapping[str, Any]) -> UnitRecord:
         return UnitRecord(tuple(self._value(document[name]) for name in self.schema), self.schema)
+
+
+class _PlainReader(_RecordReader):
+    """Projects index documents onto one field selection as `_RecordReader` does, but interns no string and pools no container: each record holds the values its line parsed into (`iter_human_units`'s `pooled=False`)."""
+
+    def record(self, document: Mapping[str, Any]) -> UnitRecord:
+        return UnitRecord(tuple(document[name] for name in self.schema), self.schema)
 
 
 def manifest_sha256(corpus: Path) -> str:
@@ -985,10 +992,14 @@ def load_units(corpus: Path, *, fields: Iterable[str] | None = None) -> list[Uni
 
 
 def iter_human_units(
-    corpus: Path, *, unit_ids: set[str] | None = None, fields: Iterable[str] | None = None
+    corpus: Path,
+    *,
+    unit_ids: set[str] | None = None,
+    fields: Iterable[str] | None = None,
+    pooled: bool = True,
 ) -> Iterator[UnitRecord]:
-    """Yield the human units' index records in shard order. When `unit_ids` is given, every unit id on the corpus is added to it during the same walk; the set is complete only once the iterator is exhausted. A line is human when the manifest's triage index holds its id, sliced from its head (`Places`), and a machine unit's line contributes only its id and is not parsed as JSON. An absent or stale index falls back to the projected shards, which classify each unit through `human_unit_slot`. A corrupt current index raises, because restarting a partly consumed stream from the shards would yield units twice."""
-    reader = _RecordReader(fields)
+    """Yield the human units' index records in shard order. When `unit_ids` is given, every unit id on the corpus is added to it during the same walk; the set is complete only once the iterator is exhausted. A line is human when the manifest's triage index holds its id, sliced from its head (`Places`), and a machine unit's line contributes only its id and is not parsed as JSON. An absent or stale index falls back to the projected shards, which classify each unit through `human_unit_slot`. A corrupt current index raises, because restarting a partly consumed stream from the shards would yield units twice. With `pooled=False` the records come from a `_PlainReader`, which interns no string and shares no container across records, and they compare equal to the pooled ones. The pool's interning and lookups repay their cost only in memory a caller keeps, so a caller that drops each record once it has taken what it keeps, as the verdict update's first walk and its standing fill do, passes it. A caller that holds the records or values taken from them (the standing daemon, the standing probe, the complaint list, `load_units`) keeps the pool, which stores each repeated string and container once."""
+    reader = _RecordReader(fields) if pooled else _PlainReader(fields)
     return _iter_human_units(corpus, reader, unit_ids)
 
 

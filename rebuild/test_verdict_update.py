@@ -42,8 +42,8 @@ def test_a_step_opens_a_phase_and_the_timing_that_follows_closes_it(capsys):
 IDS = frozenset({"u-1", "u-2", "u-machine"})
 
 
-def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
-    """Run `verdict_update.main` over a stub corpus with every step stubbed. Return the exit code, the human index records, the standing fill's calls, the fill's `--out` path, the complaint list's calls (empty unless `complaints` is set), and the units each duplicate fill received."""
+def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False, walks=None):
+    """Run `verdict_update.main` over a stub corpus with every step stubbed. Return the exit code, the human index records, the standing fill's calls, the fill's `--out` path, the complaint list's calls (empty unless `complaints` is set), and the units each duplicate fill received. `walks`, when given, receives each walk of the human units as it is asked for: whether it collects the corpus ids and whether its reader pools."""
     corpus = tmp_path / "review"
     corpus.mkdir()
     (corpus / "manifest.json").write_text(json.dumps({"generated_at": STAMP}))
@@ -54,10 +54,12 @@ def _run_verdict_update(tmp_path, monkeypatch, extra=(), complaints=False):
     complaint_list_calls = []
     duplicate_calls = []
 
-    def stream(_corpus, *, unit_ids=None):
+    def stream(_corpus, *, unit_ids=None, pooled=True):
+        if walks is not None:
+            walks.append((unit_ids is not None, pooled))
         if unit_ids is not None:
             unit_ids.update(IDS)
-        yield from (dict(unit) for unit in index)
+        return (dict(unit) for unit in index)
 
     monkeypatch.setattr(vu.unit_index, "iter_human_units", stream)
     monkeypatch.setattr(vu.merge_verdicts, "merge", lambda _inputs, **_options: vu.merge_verdicts.Merged(0))
@@ -150,6 +152,16 @@ def test_both_duplicate_fills_read_one_projection_and_the_complaint_list_takes_t
     assert {unit_id: unit_id in human for unit_id in IDS} == {"u-1": True, "u-2": True, "u-machine": False}
 
 
+def test_the_first_walk_and_the_standing_fills_read_unpooled_records_and_the_complaint_list_pooled_ones(
+    tmp_path, monkeypatch
+):
+    """The first walk, which keeps only each human unit's projection entry, and the standing fill's walks, which keep a unit's key and decision and a copy of a miss, read their records unpooled (`unit_index.iter_human_units`'s `pooled=False`), since each drops every record once it has taken what it keeps. The complaint list's walk keeps the reader's pool, because its projections hold strings taken from the records. Only the first walk collects the corpus ids."""
+    walks = []
+    code, *_rest = _run_verdict_update(tmp_path, monkeypatch, complaints=True, walks=walks)
+    assert code == 0
+    assert walks == [(True, False), (False, False), (False, False), (False, True)]
+
+
 def test_the_verdict_update_forwards_the_cycles_standing_fill_width(tmp_path, monkeypatch):
     """The verdict update passes `--standing-fill-jobs` to the standing fill as `--jobs` and computes no width of its own."""
     code, _index, calls, _out, _complaint_list_calls, _duplicate_calls = _run_verdict_update(
@@ -183,7 +195,7 @@ def _carrying_verdict_update(tmp_path, monkeypatch, extra=()):
     carries = []
     merges = []
 
-    def stream(_corpus, *, unit_ids=None):
+    def stream(_corpus, *, unit_ids=None, pooled=True):
         if unit_ids is not None:
             unit_ids.update(IDS)
         yield from (dict(unit) for unit in index)

@@ -780,6 +780,52 @@ def test_repeated_nested_values_share_storage_without_changing_json_types(tmp_pa
     assert json.loads(json.dumps(dict(first))) == unit_index.index_record(fragment)
 
 
+@pytest.mark.parametrize("mode", ["current", "absent", "stale"])
+@pytest.mark.parametrize("fields", [None, ("id", "duplicate_group")])
+def test_an_unpooled_human_stream_yields_the_pooled_records_without_sharing_their_containers(
+    tmp_path, mode, fields
+):
+    """`iter_human_units(pooled=False)`, the verdict update's first walk and standing fill, yields records equal to the pooled stream's, in the same order and over the index, the shards and a stale index alike, collects the same corpus ids, and keeps the projection's strictness: an index field it did not select raises on subscription and `.get`. It shares no nested container across records and starts no pool, so a caller that drops each record holds nothing of it."""
+    corpus, _full = _reader_corpus(tmp_path, mode)
+    pooled_ids, plain_ids = set(), set()
+    pooled = list(unit_index.iter_human_units(corpus, unit_ids=pooled_ids, fields=fields))
+    plain = list(unit_index.iter_human_units(corpus, unit_ids=plain_ids, fields=fields, pooled=False))
+    assert pooled and plain == pooled
+    assert plain_ids == pooled_ids
+    for record, other in zip(plain, pooled):
+        assert isinstance(record, unit_index.UnitRecord)
+        assert list(record) == list(other)
+        assert json.loads(json.dumps(dict(record))) == json.loads(json.dumps(dict(other)))
+    if fields is not None:
+        with pytest.raises(KeyError, match="before"):
+            plain[0].get("before")
+        with pytest.raises(KeyError, match="before"):
+            plain[0]["before"]
+    containers = [
+        id(value) for record in plain for value in record.values() if isinstance(value, (list, dict))
+    ]
+    assert len(containers) == len(set(containers))
+
+
+def test_an_unpooled_reader_interns_nothing_and_keeps_no_pool(tmp_path):
+    fragment = {
+        "id": "first",
+        "class": "repeated class value",
+        "configs": ["senior config value"],
+        "before": {"glyphs": ["repeated glyph value"], "junctions": [5]},
+        "after": {"cells": ["repeated cell value"], "junctions": [5]},
+    }
+    reader = unit_index._PlainReader(None)
+    first = reader.record(json.loads(json.dumps(unit_index.index_record(fragment))))
+    second = reader.record(json.loads(json.dumps(unit_index.index_record({**fragment, "id": "second"}))))
+    assert first == unit_index.index_record(fragment)
+    for field in ("configs", "before", "after"):
+        assert first[field] == second[field]
+        assert first[field] is not second[field]
+    assert first["before"]["junctions"] is not first["after"]["junctions"]
+    assert reader.pool == {}
+
+
 def _standing_unit_fields(source: str) -> set[str]:
     fields = set()
     for node in ast.walk(ast.parse(source)):
