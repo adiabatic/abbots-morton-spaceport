@@ -211,6 +211,10 @@ policy:
         - qsBay
         - qsIng
         - qsNo
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsLlan}
   resolve:
   - against:
       rune: qsMay
