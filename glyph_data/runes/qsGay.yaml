@@ -269,6 +269,7 @@ policy:
         - qsDay
         - qsKey
         - qsNo
+        - qsLlan
         - qsEt
         - qsAwe
   - entry: baseline
