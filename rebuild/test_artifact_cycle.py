@@ -2916,8 +2916,8 @@ class TestTheConformSweepWidth:
         )
         assert terms(skip_make_test=True) == (per_unit, corpus(True), cap(skip_make_test=True))
 
-        assert 0 < corpus(False) < verdict_update(False)
         store_write = ac.CORPUS_PARENT_BYTES
+        assert 0 < corpus(False) < verdict_update(False) + store_write
         assert terms(verdict_update_runs=True) == (per_unit, verdict_update(False) + store_write, cap())
         assert terms(verdict_update_runs=True, pool_policy="overlap") == (
             per_unit,
