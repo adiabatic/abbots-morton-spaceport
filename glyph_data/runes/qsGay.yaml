@@ -67,6 +67,7 @@ stances:
             - qsHe
             - qsMay
             - qsNo
+            - qsLlan
             - qsEt
             - qsAwe
         x-height:
@@ -121,6 +122,7 @@ stances:
             - qsJay_qsUtter
             - qsYe
             - qsNo
+            - qsLlan
             # ·Gay·Et should stay connected — there's no reason for them to not connect
             - qsEt
             - qsEight

@@ -72,6 +72,7 @@ stances:
             - qsIng
             - qsNo
             - qsRoe
+            - qsLlan
             - qsIt
             - qsEt
             - qsEight
@@ -171,6 +172,7 @@ policy:
           - qsJay_qsUtter
           - qsNo
           - qsRoe
+          - qsLlan
           - qsEt
           - qsEight
           - qsAwe

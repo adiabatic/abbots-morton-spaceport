@@ -263,6 +263,10 @@ qsRoe.ex-y0.noentry.ex-ext-1: {rune: qsRoe, stance: sole, exit: baseline, adjust
 qsRoe.noentry: {rune: qsRoe, stance: sole, adjustments: [locked]}
 qsRoe.ss10: {rune: qsRoe, stance: sole}
 qsLoch: {rune: qsLoch, stance: sole}
+qsLlan: {rune: qsLlan, stance: sole}
+qsLlan.en-ext-1: {rune: qsLlan, stance: sole, entry: x-height, adjustments: [en-ext-1]}
+qsLlan.noentry: {rune: qsLlan, stance: sole, adjustments: [locked]}
+qsLlan.ss10: {rune: qsLlan, stance: sole}
 qsIt: {rune: qsIt, stance: sole}
 qsIt.en-y0.ex-y5: {rune: qsIt, stance: sole, entry: baseline, exit: x-height}
 qsIt.en-y0.ex-y5.en-ext-1: {rune: qsIt, stance: sole, entry: baseline, exit: x-height, adjustments: [en-ext-1]}

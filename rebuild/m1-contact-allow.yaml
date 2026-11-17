@@ -2347,3 +2347,43 @@
 # The ·Why+Utter ligature's crown is ·Utter's nub, unconditional letterform ink like the ·Way+Utter crown above. The old font draws the bare ligature with the full crown at every word edge and before every non-joining follower (baseline rows E663:E67A and E663:E67A:E654), and quikscript.yaml has no unjoined form. The crown's terminal pixel has no ink above or below it, so it fails the automatic `unjoined: safe` check (`geometry.verify_unjoined_safe`). The ligature has no entry, so the ZWNJ lock mints no locked copy of it, and this one cell is the only one the gate checks.
 - signature: dangle:qsWhy_qsUtter.sole:exit:x-height
   why: The ·Why·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
+
+# ·Llan's baseline tail is part of the letter whether or not the exit joins. The old font draws bare qsLlan with the full three-pixel tail at every word edge and before every non-joining follower (baseline rows E66A and E66A:E654), and quikscript.yaml has no unjoined form. The tail ends horizontally and its last pixel has no ink directly above or below it, so it does not pass the `unjoined: safe` check (`geometry.verify_unjoined_safe`). There is one signature per entry, extension, and lock variant; all show the same terminal.
+- signature: dangle:qsLlan.sole:exit:baseline
+  why: ·Llan's baseline tail terminal, drawn unconditionally in the old font; the declined exit keeps it.
+- signature: dangle:qsLlan.sole.en-y5:exit:baseline
+  why: ·Llan entered at the x-height keeps the same tail terminal on a declined exit.
+- signature: dangle:qsLlan.sole.en-y5.en-ext-1:exit:baseline
+  why: The entry-extended-by-one variant (after ·Pea, ·Tea, or ·He) keeps the same tail terminal; the extension touches the entry stroke only.
+- signature: dangle:qsLlan.sole.locked:exit:baseline
+  why: The ZWNJ-locked copy of ·Llan's tail terminal; identical drawing.
+
+# ·Llan's x-height entry starts a downstroke two rows tall, so an exiter whose stroke is upright at its x-height exit stands one column left of it at y4: the off-junction contact of the ·Low·Day, ·Low·It, ·It·Et, and ·Way·It blocks above with ·Llan as the follower. ·At·Llan, ·It·Llan, ·Low·Llan, ·They·Llan, and ·Way·Llan join at the x-height in the old font (baseline rows E674:E66A, E670:E66A, E667:E66A, E657:E66A, and E661:E66A, junction y5), and the old font places the same anchors with no adjustment. ·Llan's left edge leaves the column below y4, so no pair touches at y3. There is one signature per exiter variant (bare, entered, entry-extended, ZWNJ-locked) and per ·Llan exit variant; the onward baseline exit does not move ·Llan's entry column, and the entry-extended ·Llan never follows these exiters, because qsLlan extends its entry only after ·Pea, ·Tea, and ·He.
+- signature: contact:qsAt.rising.ex-y5:qsLlan.sole.en-y5:y4
+- signature: contact:qsAt.rising.ex-y5:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsLlan.sole.en-y5:y4
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsLlan.sole.en-y5:y4
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsAt.rising.ex-y5.locked:qsLlan.sole.en-y5:y4
+- signature: contact:qsAt.rising.ex-y5.locked:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsIt.sole.ex-y5:qsLlan.sole.en-y5:y4
+- signature: contact:qsIt.sole.ex-y5:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsIt.sole.en-y0.ex-y5:qsLlan.sole.en-y5:y4
+- signature: contact:qsIt.sole.en-y0.ex-y5:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsIt.sole.en-y0.ex-y5.en-ext-1:qsLlan.sole.en-y5:y4
+- signature: contact:qsIt.sole.en-y0.ex-y5.en-ext-1:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsIt.sole.ex-y5.locked:qsLlan.sole.en-y5:y4
+- signature: contact:qsIt.sole.ex-y5.locked:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsLow.sole.ex-y5:qsLlan.sole.en-y5:y4
+- signature: contact:qsLow.sole.ex-y5:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsLow.sole.en-y0.ex-y5:qsLlan.sole.en-y5:y4
+- signature: contact:qsLow.sole.en-y0.ex-y5:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsLow.sole.ex-y5.locked:qsLlan.sole.en-y5:y4
+- signature: contact:qsLow.sole.ex-y5.locked:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsThey.sole.ex-y5:qsLlan.sole.en-y5:y4
+- signature: contact:qsThey.sole.ex-y5:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsThey.sole.ex-y5.locked:qsLlan.sole.en-y5:y4
+- signature: contact:qsThey.sole.ex-y5.locked:qsLlan.sole.en-y5.ex-y0:y4
+- signature: contact:qsWay.full.ex-y5:qsLlan.sole.en-y5:y4
+- signature: contact:qsWay.full.ex-y5:qsLlan.sole.en-y5.ex-y0:y4

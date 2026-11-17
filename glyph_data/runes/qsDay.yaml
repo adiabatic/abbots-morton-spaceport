@@ -125,6 +125,7 @@ policy:
           - qsNo
           - qsLow
           - qsRoe
+          - qsLlan
           - qsIt
           - qsEt
           - qsEight

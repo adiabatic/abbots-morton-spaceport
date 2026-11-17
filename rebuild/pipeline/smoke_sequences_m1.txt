@@ -2377,3 +2377,117 @@ E665 E669 E665           # ·Loch between two ·May (breaks on both sides)
 E669 200C E669           # ZWNJ between two ·Loch
 E652 200C E669           # ZWNJ after ·Tea, before ·Loch
 00B7 E669                # namer dot before Tall ·Loch
+
+# ·Llan
+E66A                     # ·Llan in isolation
+E650 E66A                # half-·Pea's x-height exit into ·Llan, whose entry extends by one
+E66A E650                # ·Llan before ·Pea (break)
+E651 E66A                # ·Bay before ·Llan (break)
+E66A E651                # ·Llan before ·Bay (break)
+E652 E66A                # half-·Tea's x-height exit into ·Llan, whose entry extends by one
+E66A E652                # ·Llan's baseline exit into ·Tea
+E653 E66A                # ·Day before ·Llan (break)
+E66A E653                # ·Llan's baseline exit into half-·Day
+E654 E66A                # ·Key before ·Llan (break)
+E66A E654                # ·Llan before ·Key (break)
+E655 E66A                # ·Gay's x-height exit into ·Llan
+E66A E655                # ·Llan's baseline exit into ·Gay
+E656 E66A                # ·Thaw before ·Llan (break)
+E66A E656                # ·Llan's baseline exit into ·Thaw
+E657 E66A                # ·They's x-height exit into ·Llan
+E66A E657                # ·Llan before ·They (break)
+E658 E66A                # ·Fee's x-height exit, extended by one, into ·Llan
+E66A E658                # ·Llan before ·Fee (break)
+E659 E66A                # ·Vie before ·Llan (break)
+E66A E659                # ·Llan's baseline exit into ·Vie
+E65A E66A                # ·See before ·Llan (break)
+E66A E65A                # ·Llan's baseline exit into ·See
+E65B E66A                # ·Zoo before ·Llan (break)
+E66A E65B                # ·Llan's baseline exit into half-·Zoo
+E65C E66A                # ·She before ·Llan (break)
+E66A E65C                # ·Llan before ·She (break)
+E65D E66A                # ·J’ai before ·Llan (break)
+E66A E65D                # ·Llan before ·J’ai (break)
+E65E E66A                # ·Cheer before ·Llan (break)
+E66A E65E                # ·Llan before ·Cheer (break)
+E65F E66A                # ·Jay before ·Llan (break)
+E66A E65F                # ·Llan before ·Jay (break)
+E660 E66A                # ·Ye before ·Llan (break)
+E66A E660                # ·Llan's baseline exit into ·Ye
+E661 E66A                # ·Way's x-height exit into ·Llan
+E66A E661                # ·Llan before ·Way (break)
+E662 E66A                # half-·He's x-height exit into ·Llan, whose entry extends by one
+E66A E662                # ·Llan's baseline exit into ·He
+E663 E66A                # ·Why's x-height exit into ·Llan
+E66A E663                # ·Llan before ·Why (break)
+E664 E66A                # ·-ing before ·Llan (break)
+E66A E664                # ·Llan's baseline exit into ·-ing
+E665 E66A                # the loop's x-height exit into ·Llan
+E66A E665                # ·Llan's baseline exit into the loop
+E666 E66A                # the ·No loop's x-height exit into ·Llan
+E66A E666                # ·Llan's baseline exit into the flipped ·No
+E667 E66A                # ·Low's x-height exit into ·Llan
+E66A E667                # ·Llan's baseline exit into ·Low
+E668 E66A                # ·Roe before ·Llan (break)
+E66A E668                # ·Llan's baseline exit into ·Roe
+E669 E66A                # ·Loch before ·Llan (break)
+E66A E669                # ·Llan before ·Loch (break)
+E670 E66A                # ·It's x-height exit into ·Llan
+E66A E670                # ·Llan's baseline exit into ·It
+E672 E66A                # ·Et before ·Llan (break)
+E66A E672                # ·Llan before ·Et (break)
+E673 E66A                # ·Eight before ·Llan (break)
+E66A E673                # ·Llan before ·Eight (break)
+E674 E66A                # the rising ·At's x-height exit into ·Llan
+E66A E674                # ·Llan's baseline exit into the rising ·At
+E675 E66A                # ·I's x-height exit, extended by one, into ·Llan
+E66A E675                # ·Llan's baseline exit into ·I
+E676 E66A                # ·Ah's x-height exit into ·Llan
+E66A E676                # ·Llan's baseline exit into ·Ah
+E677 E66A                # ·Awe before ·Llan (break)
+E66A E677                # ·Llan before ·Awe (break)
+E678 E66A                # ·Ox before ·Llan (break)
+E66A E678                # ·Llan before ·Ox (break)
+E679 E66A                # ·Oy before ·Llan (break)
+E66A E679                # ·Llan before ·Oy (break)
+E67A E66A                # the mono ·Utter's x-height exit into ·Llan
+E66A E67A                # ·Llan's baseline exit into the mono ·Utter
+E67B E66A                # the swept-up ·Out's x-height exit into ·Llan
+E66A E67B                # ·Llan's baseline exit into ·Out
+E67E E66A                # ·Ooze before ·Llan (break)
+E66A E67E                # ·Llan's baseline exit into ·Ooze
+E66A E66A                # ·Llan before ·Llan (break: the exit is at the baseline, the entry at the x-height)
+E66A E653 E67A           # ·Llan's baseline exit into half-·Day+Utter
+E66A E67B E652           # ·Llan's baseline exit into ·Out+Tea
+E66A E65D E67A           # ·Llan before ·J’ai+Utter (break)
+E66A E65A E67A           # ·Llan before ·See+Utter (break)
+E66A E652 E679           # ·Llan before ·Tea+Oy (break)
+E66A E657 E65B           # ·Llan before ·They+Zoo (break)
+E653 E67A E66A           # ·Day+Utter's x-height exit into ·Llan
+E65D E67A E66A           # ·J’ai+Utter's x-height exit into ·Llan
+E65F E67A E66A           # ·Jay+Utter's x-height exit into ·Llan
+E65A E67A E66A           # ·See+Utter's x-height exit into ·Llan
+E657 E67A E66A           # ·They+Utter's x-height exit into ·Llan
+E661 E67A E66A           # ·Way+Utter's x-height exit into ·Llan
+E663 E67A E66A           # ·Why+Utter's x-height exit into ·Llan
+E657 E65B E66A           # ·They+Zoo before ·Llan (break)
+E67B E652 E66A           # ·Out+Tea before ·Llan (break)
+E652 E679 E66A           # ·Tea+Oy before ·Llan (break)
+E665 E65D E67A E66A      # ·May into ·J’ai+Utter, which carries on into ·Llan at the x-height
+E66A E652 E653           # ·Llan yields; ·Tea keeps its forward baseline join
+E66A E652 E650           # the join holds: ·Tea gains nothing forward
+E66A E652 E670           # ·Llan yields; half-·Tea takes the x-height join
+E66A E652 E66A           # ·Llan yields; half-·Tea joins the second ·Llan, whose entry extends by one
+E66A E67A E652 E653      # the mono ·Utter breaks, and ·Tea keeps ·Day
+E653 E652 E66A           # ·Day yields; half-·Tea joins ·Llan
+E666 E652 E66A           # ·No yields; half-·Tea joins ·Llan
+E66A E656 E664           # ·Thaw gives up ·Llan's entry to serve ·-ing
+E66A E65A E667           # the straighter ·See takes no entry; its baseline exit serves ·Low
+E66A E660 E653           # ·Ye withholds the entry; its baseline exit serves ·Day
+E66A E662 E653           # ·He withholds the entry; its baseline exit serves ·Day
+E66A E670 E653           # ·It withholds the entry; its baseline exit serves ·Day
+200C E66A                # ZWNJ before ·Llan (the locked copy)
+E66A 200C E66A           # ZWNJ between two ·Llan
+E652 200C E66A           # ZWNJ severs half-·Tea's exit into ·Llan
+E66A 200C E653           # ZWNJ severs ·Llan's exit into ·Day
+00B7 E66A                # namer dot before ·Llan

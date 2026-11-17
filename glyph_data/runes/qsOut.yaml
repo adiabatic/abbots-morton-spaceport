@@ -59,6 +59,7 @@ stances:
             - qsIng
             - qsMay
             - qsNo
+            - qsLlan
             - qsIt
             - qsEt
             - qsEight
@@ -115,6 +116,7 @@ stances:
             - qsIng
             - qsMay
             - qsNo
+            - qsLlan
             - qsIt
             - qsEt
             - qsEight
@@ -141,6 +143,7 @@ stances:
             - qsYe
             - qsNo
             - qsRoe
+            - qsLlan
             - qsEt
             - qsEight
             - qsAwe
