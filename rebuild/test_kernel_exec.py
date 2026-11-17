@@ -1,13 +1,15 @@
-"""Tests for `rebuild/pipeline/kernel_exec.py`, the kernel interface, and for the `run_m1` code that calls it: the mode flags passed to the crate, the product and tables it returns, the table build record's structure stamp, the thread widths, the CLI, and the string replay. Every table is built on the mini fixture, which is enough to check the shape of the results; enumerating the live alphabet is the build's job.
+"""Tests for `rebuild/pipeline/kernel_exec.py`, the kernel interface, and for the `run_m1` code that calls it: the mode flags passed to the crate, the product and tables it returns, the table build record's structure stamp, the table-reuse record that lets a build re-stamp the tables a green run left instead of running the crate, the thread widths, the CLI, and the string replay. Every table is built on the mini fixture, which is enough to check the shape of the results; enumerating the live alphabet is the build's job.
 
 No test skips. On a machine without `cargo` these tests fail with the remedy `KernelBuildError` carries, because the M1 build cannot run there either.
 """
 
+import ast
 import fcntl
 import io
 import itertools
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -1191,6 +1193,299 @@ class TestTheKernelInvocation:
             run_m1_gates.main(argv)
         assert seen["kernel_threads"] == kernel and seen["replay_threads"] == replay
         assert "fold_jobs" not in seen
+
+    @pytest.mark.parametrize("argv, force", [([], False), (["--fresh-tables"], True)])
+    def test_the_cli_carries_fresh_tables_into_the_table_build(self, monkeypatch, tmp_path, argv, force):
+        """A bare run, by hand as under the cycle, hands the table build a `TableReuse` that lets it reuse the tables on disk, and `--fresh-tables`, which the cycle passes under `--fresh`, one that runs the crate whatever the record says."""
+        from rebuild.tools import artifact_cycle
+
+        seen = {}
+
+        def run(**rest):
+            seen.update(rest)
+            raise Reached
+
+        monkeypatch.setattr(artifact_cycle, "run_m1_skip_fingerprint", lambda root: "pinned-key")
+        monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
+        monkeypatch.setattr(run_m1.fingerprint, "stage_a", lambda root: {})
+        monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
+        monkeypatch.setattr(run_m1_gates.baseline_subset, "ensure_fresh", lambda root, before_refilter: False)
+        monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)
+        monkeypatch.setattr(run_m1, "load_default_spec", lambda: SPEC)
+        monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
+        monkeypatch.setattr(run_m1, "run", run)
+        with pytest.raises(Reached):
+            run_m1_gates.main(argv)
+        assert isinstance(seen["reuse"], run_m1.TableReuse) and seen["reuse"].force is force
+
+
+def _crate_calls(monkeypatch) -> list[str]:
+    """Wrap `kernel_exec.build_table_files` so each call is recorded, by the stamp it was asked for, and then runs the real crate, and return the list of calls."""
+    real = kernel_exec.build_table_files
+    calls: list[str] = []
+
+    def build_table_files(*args, **rest):
+        calls.append(rest["inputs"])
+        return real(*args, **rest)
+
+    monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+    return calls
+
+
+def _table_files(out_dir) -> dict[str, bytes]:
+    """Every table file under `out_dir`, by name, with its bytes: the settlement and join tables and every file of the windows outputs."""
+    return {
+        path.name: path.read_bytes()
+        for pattern in ("settlement-*", "joins-*", "windows-*")
+        for path in sorted(out_dir.glob(pattern))
+    }
+
+
+def _materialized(out_dir) -> dict[str, bytes]:
+    """Every configuration's settlement and join tables and its windows rows in their materialized form (`table.materialized_windows`), the whole payload a build from scratch writes, by name."""
+    return {
+        **{
+            path.name: path.read_bytes()
+            for pattern in ("settlement-*", "joins-*")
+            for path in sorted(out_dir.glob(pattern))
+        },
+        **{
+            table_module.windows_output(config): b"".join(table_module.materialized_windows(out_dir, config))
+            for config in conform.SETTLEMENT_CONFIGS
+        },
+    }
+
+
+def _green_build(out_dir, spec=SPEC, inputs=STAMP) -> run_m1.TableReuse:
+    """A build through the table-reuse path followed by the record a green run writes (`run_m1.settle_table_reuse`)."""
+    reuse = run_m1.TableReuse()
+    run_m1.build_tables(spec, out_dir, inputs=inputs, kernel_threads=2, reuse=reuse)
+    run_m1.settle_table_reuse(out_dir, reuse, spec)
+    assert (out_dir / run_m1.TABLE_REUSE_FILENAME).is_file()
+    return reuse
+
+
+class TestTheTableReuse:
+    """Tests for the table-reuse record (`run_m1.TableReuse`, `run_m1.table_reuse_lines`): a bare run reuses the tables a green run left when nothing the crate reads, nor the table build's driver, has moved, and they are what the crate writes, byte for byte; anything else runs the crate."""
+
+    def test_reused_tables_are_byte_for_byte_what_a_forced_build_writes(self, monkeypatch, tmp_path, capsys):
+        """After a green build, a build under another stamp with nothing else moved runs no crate. It re-stamps each configuration's head file and commits its head, and every table file, the head file, the head and every part included, is byte for byte what a build forced through the crate (`--fresh-tables`) writes from the same tree under the same stamp, and so are the returned tables and digests. Its `[t] kernel_build_tables` line says `reused=true` and carries no record, and the build deletes the record it used, which only a green run writes again."""
+        reused, forced = tmp_path / "reused", tmp_path / "forced"
+        _green_build(reused)
+        shutil.copytree(reused, forced)
+        calls = _crate_calls(monkeypatch)
+        capsys.readouterr()
+        reuse = run_m1.TableReuse()
+        reused_tables, reused_digests = run_m1.build_tables(
+            SPEC, reused, inputs="moved-stamp", kernel_threads=2, reuse=reuse
+        )
+        (entry,) = [
+            phase
+            for phase in ct.parse_inner_timings(capsys.readouterr().out)
+            if phase["label"] == "kernel_build_tables"
+        ]
+        assert calls == [] and reuse.reused
+        assert entry["reused"] is True and "structure" not in entry and "footprint_gb" not in entry
+        assert not (reused / run_m1.TABLE_REUSE_FILENAME).exists()
+        forced_tables, forced_digests = run_m1.build_tables(
+            SPEC, forced, inputs="moved-stamp", kernel_threads=2, reuse=run_m1.TableReuse(force=True)
+        )
+        assert calls == ["moved-stamp"]
+        assert _table_files(reused) == _table_files(forced)
+        assert reused_digests == forced_digests == reuse.digests
+        assert reused_tables == forced_tables
+        for config in conform.SETTLEMENT_CONFIGS:
+            assert table_module.read_windows_head(reused, config)[0] == "moved-stamp", config
+
+    @pytest.mark.parametrize("failure", ["a red crate", "a killed crate", "an interrupt"])
+    def test_a_red_or_killed_crate_followed_by_a_revert_builds_again(self, monkeypatch, tmp_path, failure):
+        """A green build, then an edit whose crate fails after writing some of its tables in place: the crate's red exit after a whole write, a crate killed partway through `default`'s settlement table, or an interrupt there. The failed build deleted the record before the crate started, so once the edit is reverted, the build at the green build's key runs the crate again instead of re-stamping a torn table set, and its tables are the green build's, byte for byte."""
+        _green_build(tmp_path)
+        green = _table_files(tmp_path)
+        tea = SPEC.runes["qsTea"]
+        edited = replace(
+            SPEC, runes={**SPEC.runes, "qsTea": replace(tea, policy=replace(tea.policy, refuse=()))}
+        )
+        real = kernel_exec.build_table_files
+
+        def failing(spec_bytes, out_dir, configs, **rest):
+            if failure == "a red crate":
+                real(spec_bytes, out_dir, configs, **rest)
+            else:
+                settlement = out_dir / "settlement-default.tsv"
+                settlement.write_bytes(settlement.read_bytes()[: settlement.stat().st_size // 2])
+                if failure == "an interrupt":
+                    raise KeyboardInterrupt
+            raise kernel_exec.KernelRunError("the kernel exited -9 on build-tables")
+
+        monkeypatch.setattr(kernel_exec, "build_table_files", failing)
+        with pytest.raises((kernel_exec.KernelRunError, KeyboardInterrupt)):
+            run_m1.build_tables(edited, tmp_path, inputs=STAMP, kernel_threads=2, reuse=run_m1.TableReuse())
+        assert not (tmp_path / run_m1.TABLE_REUSE_FILENAME).exists()
+        assert _table_files(tmp_path) != green
+        monkeypatch.setattr(kernel_exec, "build_table_files", real)
+        calls = _crate_calls(monkeypatch)
+        reuse = run_m1.TableReuse()
+        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=2, reuse=reuse)
+        assert calls == [STAMP] and not reuse.reused
+        assert _table_files(tmp_path) == green
+
+    def test_a_build_no_green_run_recorded_leaves_the_next_build_to_the_crate(self, monkeypatch, tmp_path):
+        """A build whose run never went green, so that `settle_table_reuse` never ran, leaves no record, and the next build at the same key runs the crate."""
+        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=2, reuse=run_m1.TableReuse())
+        calls = _crate_calls(monkeypatch)
+        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=2, reuse=run_m1.TableReuse())
+        assert calls == [STAMP]
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            "a damaged join table",
+            "a missing part",
+            "a stray file",
+            "another binary",
+            "another driver",
+            "another spec",
+            "a head line that does not re-stamp",
+        ],
+    )
+    def test_a_moved_key_or_a_table_file_the_record_does_not_hold_runs_the_crate(
+        self, monkeypatch, tmp_path, capsys, change
+    ):
+        """The record serves only its own key over the very files it records: a table file whose bytes differ, one missing, one the record does not name, another binary, another table build driver or another spec dump each runs the crate, and so does a head line that does not re-stamp, rather than failing the build; the crate says why it runs, and a build of the same spec puts the green build's tables back, byte for byte."""
+        _green_build(tmp_path)
+        green, materialized = _table_files(tmp_path), _materialized(tmp_path)
+        spec = SPEC
+        if change == "a damaged join table":
+            joins = tmp_path / "joins-ss03.tsv"
+            joins.write_bytes(joins.read_bytes().replace(b"\t", b" ", 1))
+        elif change == "a missing part":
+            head = table_module.windows_head(tmp_path, "ss04")
+            (tmp_path / head.base.name).unlink()
+        elif change == "a stray file":
+            stray = tmp_path / row_delta.segment_name(table_module.windows_output("default"), 0, 9)
+            stray.write_bytes(b"a part a killed build left\n")
+        elif change == "another binary":
+            monkeypatch.setattr(kernel_exec, "binary_sha256", lambda: "another binary")
+        elif change == "another driver":
+            monkeypatch.setattr(run_m1, "table_driver_digest", lambda root=run_m1.REPO_ROOT: "another driver")
+        elif change == "a head line that does not re-stamp":
+
+            def refuse(line, config, stamped, inputs):
+                raise ValueError("a head line in another layout")
+
+            monkeypatch.setattr(table_module, "restamped_head_line", refuse)
+        else:
+            tea = SPEC.runes["qsTea"]
+            spec = replace(
+                SPEC, runes={**SPEC.runes, "qsTea": replace(tea, policy=replace(tea.policy, refuse=()))}
+            )
+        calls = _crate_calls(monkeypatch)
+        capsys.readouterr()
+        reuse = run_m1.TableReuse()
+        run_m1.build_tables(spec, tmp_path, inputs=STAMP, kernel_threads=2, reuse=reuse)
+        assert calls == [STAMP] and not reuse.reused
+        assert "kernel_build_tables: running the crate:" in capsys.readouterr().out
+        if change in (
+            "a damaged join table",
+            "another binary",
+            "another driver",
+            "a head line that does not re-stamp",
+        ):
+            assert _table_files(tmp_path) == green
+        elif change == "a missing part":
+            assert _materialized(tmp_path) == materialized
+
+    def test_a_record_whose_key_moved_while_the_run_ran_is_not_written(self, monkeypatch, tmp_path, capsys):
+        """`settle_table_reuse` recomputes every line of the key but the spec dump's, and writes no record, with a warning, when one has moved since the build computed it, as an edit to the driver or the crate during the run would move it."""
+        reuse = run_m1.TableReuse()
+        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP, kernel_threads=2, reuse=reuse)
+        monkeypatch.setattr(
+            run_m1, "table_driver_digest", lambda root=run_m1.REPO_ROOT: "edited while it ran"
+        )
+        run_m1.settle_table_reuse(tmp_path, reuse, SPEC)
+        assert not (tmp_path / run_m1.TABLE_REUSE_FILENAME).exists()
+        captured = capsys.readouterr()
+        assert "table-reuse record not written" in captured.out + captured.err
+
+    def test_a_build_that_keeps_no_windows_writes_and_reads_no_record(self, monkeypatch, tmp_path):
+        """A build without a stamp keeps no windows, so it computes no key and its run writes no record; it still deletes one it finds, as every build into a directory does before it writes there."""
+        _green_build(tmp_path)
+        reuse = run_m1.TableReuse()
+        run_m1.build_tables(SPEC, tmp_path, kernel_threads=2, reuse=reuse)
+        assert reuse.lines is None and not reuse.reused
+        assert not (tmp_path / run_m1.TABLE_REUSE_FILENAME).exists()
+        run_m1.settle_table_reuse(tmp_path, reuse, SPEC)
+        assert not (tmp_path / run_m1.TABLE_REUSE_FILENAME).exists()
+
+    def test_the_driver_digest_follows_the_table_builds_code_and_not_its_prose(self, tmp_path):
+        """The driver's digest (`run_m1.table_driver_digest`) hashes the code `run_m1.TABLE_DRIVER_ENTRIES` reaches in run_m1.py: an edit to `build_tables`, `_pack_config`, `_take_windows` or the windows route moves it, so a pass after one runs the crate, while an edit to a docstring or a comment there, or to the glyph chain, which the table build never reaches, keeps it."""
+        source = (run_m1.REPO_ROOT / "rebuild" / "pipeline" / "run_m1.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        defined = {
+            node.name
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
+        assert set(run_m1.TABLE_DRIVER_ENTRIES) <= defined
+        target = tmp_path / "rebuild" / "pipeline" / "run_m1.py"
+        target.parent.mkdir(parents=True)
+
+        def digest(text: str) -> str:
+            target.write_text(text, encoding="utf-8")
+            return run_m1.table_driver_digest(tmp_path)
+
+        assert digest(source) == run_m1.table_driver_digest()
+
+        def edited(old: str, new: str) -> str:
+            assert source.count(old) == 1, old
+            return source.replace(old, new)
+
+        kept = [
+            edited(
+                '"""Finish one configuration\'s packing',
+                '"""Finish, in prose edited, one configuration\'s packing',
+            ),
+            edited(
+                "    route.staged = _stage_head_file(tables_dir, config, line)\n",
+                "    # a comment\n    route.staged = _stage_head_file(tables_dir, config, line)\n",
+            ),
+            edited("    _collect_glyph_chain()\n    return summary, gates\n", "    return summary, gates\n"),
+        ]
+        moved = [
+            edited(
+                '    table_module.windows_path(tables_dir, config).unlink(missing_ok=True)\n    console.timing(f"pack_windows[{config}]"',
+                '    console.timing(f"pack_windows[{config}]"',
+            ),
+            edited(
+                "    head = source.readline()\n    if route is None or not head:",
+                "    head = source.readline(1)\n    if route is None or not head:",
+            ),
+            edited('SEGMENT_ROUTE = "segment"', 'SEGMENT_ROUTE = "segments"'),
+            edited(
+                "    keep_windows = out_dir is not None and inputs is not None\n",
+                "    keep_windows = out_dir is not None\n",
+            ),
+        ]
+        before = run_m1.table_driver_digest()
+        assert [digest(text) for text in kept] == [before] * len(kept)
+        assert before not in [digest(text) for text in moved]
+
+    def test_a_head_line_is_re_stamped_only_where_the_crate_writes_its_stamp(self):
+        """`table.restamped_head_line` replaces the stamp where the crate writes it, after the format's marker and the configuration, and refuses a line that does not open so, or a stamp it could not write in place as the crate would."""
+        line = (
+            table_module.WINDOWS_MARKER + b'{"config":"ss03","inputs":"old+simulated-prospect","rules":[]}\n'
+        )
+        assert (
+            table_module.restamped_head_line(line, "ss03", "old+simulated-prospect", "new")
+            == table_module.WINDOWS_MARKER + b'{"config":"ss03","inputs":"new","rules":[]}\n'
+        )
+        with pytest.raises(ValueError, match="does not open"):
+            table_module.restamped_head_line(line, "ss04", "old+simulated-prospect", "new")
+        with pytest.raises(ValueError, match="does not open"):
+            table_module.restamped_head_line(line, "ss03", "other", "new")
+        with pytest.raises(ValueError, match="in place"):
+            table_module.restamped_head_line(line, "ss03", "old+simulated-prospect", 'a "quoted" stamp')
 
 
 class TestThePayloadPath:

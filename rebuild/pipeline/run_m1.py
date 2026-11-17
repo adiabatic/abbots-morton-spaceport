@@ -1,6 +1,6 @@
 """The M1 integration driver: runs the full pipeline over the real rune files and writes the `doc/rebuild-design.md` §8 artifacts under rebuild/out/m1/.
 
-First, `build_tables` builds the decision and join tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the table's row chains, and writes the window enumeration stamped with the fingerprint of its sources, as the rows that differ from the previous build's where there is one. `--conform-only` takes its glyph inventory from that enumeration's head file and stops with an error when it is stale or missing. Each configuration's windows head is committed on a background pool once its payload is written.
+First, `build_tables` builds the decision and join tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the table's row chains, and writes the window enumeration stamped with the fingerprint of its sources, as the rows that differ from the previous build's where there is one. `--conform-only` takes its glyph inventory from that enumeration's head file and stops with an error when it is stale or missing. Each configuration's windows head is committed on a background pool once its payload is written. A bare run runs the crate only when its input has moved since the last green run: when the table-reuse record a green run leaves under rebuild/out/m1 holds the same key (`table_reuse_lines`: the spec dump, the binary, the crate's sources and the roster, the table build's driver in this file, the configurations and the mode flags) and every table file still has the raw digest it records, the build re-stamps each configuration's head file with this run's sources instead, and its tables are byte for byte what the crate would write (`build_tables`). Every later stage below runs over them as over a build's, the string replay and the shipped-order walk included.
 
 Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`_spawn_rule_witnesses`, in a spawned worker of its own handed one configuration's decision table at a time, the step `run_rule_witnesses` runs in process, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the defect gates under the reviewed allow-list, emits GSUB and GPOS (also writing `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
 
@@ -10,13 +10,15 @@ Settlement-lookup outcomes are `settle.cell_label` names, so the decision-table 
 
 The split-buffer check runs inside gate:conform's sweep, at maximum length 4 on every build and at maximum length 5 or more through `make conform-deep`. Read-back's boundary-glyphs stage checks the ZWNJ glyph's zero advance and empty outline on the written font bytes, so the conformance sweep does not check them at every shaped slot.
 
-Run as `uv run python -m rebuild.pipeline.run_m1`. The entry (`cli`) refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit, and otherwise hands the command line to `run_m1_gates.main`, which parses it and calls `full_run` for a bare run. `--conform-only` runs only the conformance sweep against the M1.otf on disk. `--gates-only` re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font already on disk, without rebuilding anything. It is the fast way to re-check an edit to a comparison-side input: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the code `fingerprint.COMPARISON_CODE_MODULES` names. The tables' stamp leaves all of these out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py checks that the build never reaches that code). A `--gates-only` pass records run_m1's green when a prior green exists and everything that changed since is comparison-side, so the artifact cycle plans this gates-only rerun itself and the pass after it skips run_m1.
+Run as `uv run python -m rebuild.pipeline.run_m1`. The entry (`cli`) refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit, and otherwise hands the command line to `run_m1_gates.main`, which parses it and calls `full_run` for a bare run. A bare run by hand reuses the tables on disk as the artifact cycle's run_m1 step does whenever the table-reuse record allows it; `--fresh-tables` runs the crate whatever the record says, and the cycle passes it under its own `--fresh`. `--conform-only` runs only the conformance sweep against the M1.otf on disk. `--gates-only` re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font already on disk, without rebuilding anything. It is the fast way to re-check an edit to a comparison-side input: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, or the code `fingerprint.COMPARISON_CODE_MODULES` names. The tables' stamp leaves all of these out (`fingerprint.table_code_paths`; rebuild/test_build_code_closure.py checks that the build never reaches that code). A `--gates-only` pass records run_m1's green when a prior green exists and everything that changed since is comparison-side, so the artifact cycle plans this gates-only rerun itself and the pass after it skips run_m1.
 
 A full run and a `--gates-only` rerun both serve what they can from the per-row verdict stores that rebuild/pipeline/oracle_cache.py keeps beside the tables. A ledger edit changes no family key and no stamp line, so every row and position verdict is served and only the ledger match and the audit run. An alias edit changes the family keys of the families it names, so only the rows that reach them are re-derived. An edit to the kern sidecar or to the position comparison's code closure keeps the row verdicts and re-shapes the positions, an edit to the comparison's code outside that closure (the walk, the crate, the store) re-derives every row and keeps each position whose settled cells did not change, and a classifier edit serves both. `--fresh-oracle-cache` ignores the stores, and `--gates-only` may read them but never writes one.
 """
 
 from __future__ import annotations
 
+import ast
+import copy
 import functools
 import gc
 import glob
@@ -117,7 +119,7 @@ def _spawn_pool(
 
 
 def memo_structure_stamp(spec: ResolvedSpec, root: Path = REPO_ROOT) -> str:
-    """Return the table build's structure stamp, the `structure` its `TableBuildRecord` carries: what the crate reads apart from each rune's content and each predicate class's membership. The crate reads nothing but the spec dump and its command line (`kernel_exec.build_table_files`). The lines are the code `table_build_code_paths` names (the crate, and the module-grain import closure of `kernel_exec` and `kernel_io` outside rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`, so the width and telemetry helpers that closure stops at are not hashed), the dumped registry with each class reduced to its name (`_registry_digest`), the rune order, the semantics tokens, the alphabet with its ligature sequences and the resolved rune-local groups, and the capability features. The rest of `fingerprint.table_code_paths` and the data files reach the crate, if at all, only through the dump, or through command-line values that change no table: the width, which the crate's unit test `a_table_fan_out_files_the_same_bytes_at_every_width` (rebuild/kernel-rs/src/fanout.rs) shows changes no table; the schedule flags, which the identity tests in rebuild/kernel-rs/tests/cli.rs and rebuild/test_kernel_exec.py show change no table; and `--inputs` and `--timings`, which only label or time what the crate writes. So an edit to the spec loader, to an emitter, to read-back or to run_m1.py moves none of these code lines, and it moves the stamp only where it changes the dump or what the stamp's own code in run_m1.py and `spec_load.capability_features` compute from it; `replay_structure_stamp` hashes that code instead."""
+    """Return the table build's structure stamp, the `structure` its `TableBuildRecord` carries: what the crate reads apart from each rune's content and each predicate class's membership. The crate reads nothing but the spec dump and its command line (`kernel_exec.build_table_files`). The lines are the code `table_build_code_paths` names (the crate, and the module-grain import closure of `kernel_exec` and `kernel_io` outside rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`, so the width and telemetry helpers that closure stops at are not hashed), the dumped registry with each class reduced to its name (`_registry_digest`), the rune order, the semantics tokens, the alphabet with its ligature sequences and the resolved rune-local groups, and the capability features. The rest of `fingerprint.table_code_paths` and the data files reach the crate, if at all, only through the dump, or through command-line values that change no table: the width, which the crate's unit test `a_table_fan_out_files_the_same_bytes_at_every_width` (rebuild/kernel-rs/src/fanout.rs) shows changes no table; the schedule flags, which the identity tests in rebuild/kernel-rs/tests/cli.rs and rebuild/test_kernel_exec.py show change no table; and `--inputs` and `--timings`, which only label or time what the crate writes. So an edit to the spec loader, to an emitter, to read-back or to run_m1.py moves none of these code lines, and it moves the stamp only where it changes the dump or what the stamp's own code in run_m1.py and `spec_load.capability_features` compute from it; `replay_structure_stamp` hashes that code instead. The table-reuse record's key holds it beside the dump's own digest and the driver's (`table_reuse_lines`)."""
     from rebuild.pipeline import spec_load
 
     lines = [
@@ -174,7 +176,7 @@ def table_build_code_paths(root: Path = REPO_ROOT) -> list[Path]:
 
 @dataclass(frozen=True)
 class TableBuildRecord:
-    """What the timings journal records of a table build into an `out_dir`, so that two builds with the same code and a different alphabet can be paired across a letter batch: the structure stamp (`memo_structure_stamp`, which hashes the code `code` covers beside the dumped registry, the rune order, the semantics tokens, the alphabet and the capability features, so under one `code` it moves with the spec, with the mode set, or with an edit to its own code in run_m1.py or to `spec_load.capability_features`, which `code` does not cover), the digest of the code the table build runs (`table_build_code_paths`, through `fingerprint.code_file_digest`, which drops its Python files' docstrings and its Rust files' whole-line comments and hashes the crate's manifest and lock as raw bytes), the table build's width, and the number of runes in the alphabet. Every build enumerates cold, since none reads a memo an earlier build wrote. `tokens` writes the record as the `key=value` tail of the `[t] kernel_build_tables` line, and `cycle_timings.parse_inner_timings` reads each token back under its key."""
+    """What the timings journal records of a table build into an `out_dir`, so that two builds with the same code and a different alphabet can be paired across a letter batch: the structure stamp (`memo_structure_stamp`, which hashes the code `code` covers beside the dumped registry, the rune order, the semantics tokens, the alphabet and the capability features, so under one `code` it moves with the spec, with the mode set, or with an edit to its own code in run_m1.py or to `spec_load.capability_features`, which `code` does not cover), the digest of the code the table build runs (`table_build_code_paths`, through `fingerprint.code_file_digest`, which drops its Python files' docstrings and its Rust files' whole-line comments and hashes the crate's manifest and lock as raw bytes), the table build's width, and the number of runes in the alphabet. Every build enumerates cold, since none reads a memo an earlier build wrote. `tokens` writes the record as the `key=value` tail of the `[t] kernel_build_tables` line, and `cycle_timings.parse_inner_timings` reads each token back under its key. A pass that reuses the tables runs no build and carries no record (`build_tables`)."""
 
     structure: str
     code: str
@@ -260,12 +262,12 @@ def _replay_threads(replay_threads: int | None) -> int:
 
 
 def _core_bound_threads(count: int) -> int:
-    """Return the width of a per-configuration pool whose tasks are CPU-bound and hold nothing the memory-derived widths account for: one task per settlement configuration, capped at the cores this process may run on, and at least one. It sizes the packing, whose tasks each commit one configuration's windows head over its staged head file and the part its payload's reader wrote (`_pack_config`), and the shipped-order walks. The window payloads' readers (`_take_windows`) run outside this pool, one a configuration for the crate's whole run (`build_tables`), because each must read its FIFO for as long as the crate writes it; each holds a zlib stream and a copy buffer, and `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measured 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5, with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat. A shipped-order walk is one single-threaded crate process that holds the rules and labels and streams the rows, 0.105 GB of child RSS, a small fraction of the table build's peak. `AMS_KERNEL_THREADS` and `--kernel-threads` do not affect these pools: that setting exists to keep the table build out of swap, so a build set to width one narrows the crate's delta round while the packing and the walks still run every configuration at once. The string replay's setting (`_replay_threads`) affects neither pool."""
+    """Return the width of a per-configuration pool whose tasks are CPU-bound and hold nothing the memory-derived widths account for: one task per settlement configuration, capped at the cores this process may run on, and at least one. It sizes the packing, whose tasks each commit one configuration's windows head over its staged head file and the part its payload's reader wrote (`_pack_config`), on a pass that reuses the tables first gzipping the configuration's re-stamped head line, megabytes, into that head file (`_restamp_config`), and the shipped-order walks. The window payloads' readers (`_take_windows`) run outside this pool, one a configuration for the crate's whole run (`build_tables`), because each must read its FIFO for as long as the crate writes it; each holds a zlib stream and a copy buffer, and `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measured 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5, with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat. A shipped-order walk is one single-threaded crate process that holds the rules and labels and streams the rows, 0.105 GB of child RSS, a small fraction of the table build's peak. `AMS_KERNEL_THREADS` and `--kernel-threads` do not affect these pools: that setting exists to keep the table build out of swap, so a build set to width one narrows the crate's delta round while the packing and the walks still run every configuration at once. The string replay's setting (`_replay_threads`) affects neither pool."""
     return max(1, min(count, usable_cores()))
 
 
 class Packing:
-    """One table build's packing once its crate has exited cleanly, on a thread pool that can outlive `build_tables`: each configuration's staged head file renamed into place and its windows head committed over the part its payload's reader wrote (`_pack_config`). Each configuration's pack is a future keyed by the configuration's name, so a stage that reads a configuration's rows (`run_emitted_order`'s walks) waits for its own configuration's commit through `wait` instead of for the whole build. `build_tables` opens and closes its own `Packing` when the caller passes none, which blocks until packing finishes. `run` passes one, and the table-only branch closes it after the last walk that reads a committed head. `close` waits for every pack, shuts the pool down, reports `[t] pack_windows_total` (from the first submit to the last pack's completion, since the pool stays open across the kernel run and the walks), and raises the first pack failure."""
+    """One table build's packing once its crate has exited cleanly, on a thread pool that can outlive `build_tables`: each configuration's staged head file renamed into place and its windows head committed over the part its payload's reader wrote (`_pack_config`), or, on a pass that reuses the tables, each configuration's re-stamped head line staged as its head file and its windows head committed over it the same way (`_restamp_config`). Each configuration's pack is a future keyed by the configuration's name, so a stage that reads a configuration's rows (`run_emitted_order`'s walks) waits for its own configuration's commit through `wait` instead of for the whole build. `build_tables` opens and closes its own `Packing` when the caller passes none, which blocks until packing finishes. `run` passes one, and the table-only branch closes it after the last walk that reads a committed head. `close` waits for every pack, shuts the pool down, reports `[t] pack_windows_total` (from the first submit to the last pack's completion, since the pool stays open across the kernel run and the walks), and raises the first pack failure."""
 
     def __init__(self, threads: int) -> None:
         self._pool = ThreadPoolExecutor(max_workers=threads, thread_name_prefix="pack-windows")
@@ -596,6 +598,175 @@ def _stage_head_file(tables_dir: Path, config: str, head: bytes) -> Path:
     return staged
 
 
+def _restamp_config(
+    tables_dir: Path, config: str, route: WindowsRoute, line: bytes, inputs: str | None, digest: str
+) -> None:
+    """Re-stamp one configuration's tables on a pass that reuses them (`build_tables`): stage `line`, its head file's line re-stamped with this build's `inputs` (`table.restamped_head_line`), as the head file, and commit its windows head over it through `_pack_config`, which a crate build whose rows all came out the same also takes, so the head file and the head are byte for byte what that build commits."""
+    route.staged = _stage_head_file(tables_dir, config, line)
+    _pack_config(tables_dir, config, route, inputs, digest)
+
+
+TABLE_REUSE_FILENAME = "table-reuse.json"
+TABLE_REUSE_FORMAT = "ams-m1-table-reuse/1"
+# The definitions in this file whose code the table-reuse key hashes beside the roster (`table_driver_digest`), with every definition here they name: the table build, which runs the crate, packs and commits its tables or re-stamps the ones on disk, and the write of the record.
+TABLE_DRIVER_ENTRIES = ("build_tables", "settle_table_reuse")
+
+
+@dataclass
+class TableReuse:
+    """One bare run's dealings with the table-reuse record under its `out_dir` (`table_reuse_lines`): `force`, run_m1's `--fresh-tables`, says to run the crate whatever the record says, and `build_tables` leaves what `settle_table_reuse` writes once the whole run has gone green: the record's key as it stood before the crate would start (`lines`), the configurations built (`configs`), each one's table digest (`digests`), and whether the build reused the tables on disk (`reused`). `lines` stays None for a build that keeps no windows, which writes no record."""
+
+    force: bool = False
+    lines: dict[str, str] | None = None
+    configs: tuple[str, ...] = ()
+    digests: dict[str, str] = field(default_factory=dict)
+    reused: bool = False
+
+
+def _without_docstrings(node: ast.AST) -> ast.AST:
+    """A copy of `node` with the docstring of every function, class and method in it removed, so a prose edit moves no key."""
+    stripped = copy.deepcopy(node)
+    for inner in ast.walk(stripped):
+        if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and inner.body:
+            first = inner.body[0]
+            if (
+                isinstance(first, ast.Expr)
+                and isinstance(first.value, ast.Constant)
+                and isinstance(first.value.value, str)
+            ):
+                inner.body = inner.body[1:] or [ast.Pass()]
+    return stripped
+
+
+def table_driver_digest(root: Path = REPO_ROOT) -> str:
+    """The digest of the table build's driver in this file at function grain: every module-level definition `TABLE_DRIVER_ENTRIES` names, and every one those name, transitively (functions, classes and assignments, a class with its methods), each as `ast.unparse` writes it without docstrings, so comments, docstrings, layout and the order of the definitions move nothing and any edit to the code does. The driver sits outside the roster `memo_structure_stamp` hashes, and hashing the whole file would move the key on every edit to the glyph chain or the gates here, so this hashes what the build runs here and nothing else. The modules the driver calls are hashed elsewhere or change no table file: the roster's, beside the crate, by `memo_structure_stamp`; `conform`'s configuration set as the key's `configs`; the widths, which change no table; and the console and the timings journal."""
+    tree = ast.parse((root / "rebuild" / "pipeline" / "run_m1.py").read_text(encoding="utf-8"))
+    defined: dict[str, list[ast.stmt]] = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            defined.setdefault(node.name, []).append(node)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for name in (inner for target in targets for inner in ast.walk(target)):
+                if isinstance(name, ast.Name):
+                    defined.setdefault(name.id, []).append(node)
+    reached: set[str] = set()
+    queue: list[str] = list(TABLE_DRIVER_ENTRIES)
+    while queue:
+        name = queue.pop()
+        if name in reached or name not in defined:
+            continue
+        reached.add(name)
+        for node in defined[name]:
+            queue.extend(inner.id for inner in ast.walk(node) if isinstance(inner, ast.Name))
+    sources = sorted({ast.unparse(_without_docstrings(node)) for name in reached for node in defined[name]})
+    return hashlib.sha256("\n\n".join(sources).encode()).hexdigest()
+
+
+def table_reuse_lines(
+    spec_digest: str, configs: Sequence[str], structure: str, root: Path = REPO_ROOT
+) -> dict[str, str]:
+    """The table-reuse record's key, one line a component, over everything the crate reads and everything that decides what a build writes under its `out_dir`: the record's format; the sha256 of the spec dump's bytes (`kernel_io.spec_bytes`), which the crate reads beside its command line and nothing else (`memo_structure_stamp`); the built binary (`kernel_exec.binary_sha256`), since the repository pins no toolchain; the structure stamp (`memo_structure_stamp`), which hashes the crate's sources, manifest and lock and the roster `table_build_code_paths` names, so a width, a `*_BYTES` constant or a roster edit runs the crate; the table build's driver in this file (`table_driver_digest`), so an edit to `build_tables`, `_pack_config` or anything they call here runs the crate before any pass reuses what it writes; the configurations; and the mode flags. It leaves out the width, the schedule flags and `--inputs`, which change no table (`memo_structure_stamp` names the tests that show it), and the prior parts the crate merges against, which change only how the rows that differ are written, never the materialized table."""
+    return {
+        "format": TABLE_REUSE_FORMAT,
+        "spec": spec_digest,
+        "binary": kernel_exec.binary_sha256(),
+        "structure": structure,
+        "driver": table_driver_digest(root),
+        "configs": ",".join(configs),
+        "modes": ",".join(kernel_exec.mode_flags()),
+    }
+
+
+def retract_table_reuse(out_dir: Path) -> None:
+    """Delete the table-reuse record under `out_dir`. `build_tables` calls it before it writes a table file, the crate's or a re-stamp's, as `run_m1_gates._retract_stage_a` deletes the Stage A record before a run's first write, so a build that goes red, is killed, or tears its table set leaves no record, and the next build runs the crate whatever its key."""
+    (Path(out_dir) / TABLE_REUSE_FILENAME).unlink(missing_ok=True)
+
+
+def _reuse_files(tables_dir: Path, configs: Sequence[str]) -> list[Path]:
+    """Every table file the configurations have on disk under `tables_dir` (`config_table_files`): each one's settlement and join tables, its windows head and head file, and every part the head lists, which is all a committed build leaves."""
+    return [path for config in configs for path in config_table_files(tables_dir, config) if path.is_file()]
+
+
+def _reusable_tables(
+    tables_dir: Path, lines: Mapping[str, str], configs: Sequence[str]
+) -> tuple[dict[str, str] | None, str]:
+    """Return each configuration's table digest from the table-reuse record under `tables_dir` when its key is `lines`, the table files on disk are the ones it names, each still holds the raw sha256 it records, and each windows head records the digest it holds; otherwise None, beside the reason the crate runs."""
+    path = tables_dir / TABLE_REUSE_FILENAME
+    try:
+        record = json.loads(path.read_bytes())
+    except FileNotFoundError:
+        return None, "no green build recorded the tables on disk"
+    except OSError, ValueError:
+        return None, f"{path.name} does not read"
+    if not isinstance(record, dict) or record.get("format") != TABLE_REUSE_FORMAT:
+        return None, f"{path.name} is not an {TABLE_REUSE_FORMAT} record"
+    recorded, digests, files = record.get("lines"), record.get("digests"), record.get("files")
+    if not isinstance(recorded, dict) or not isinstance(digests, dict) or not isinstance(files, dict):
+        return None, f"{path.name} does not hold a key, digests and files"
+    moved = sorted(name for name in {*lines, *recorded} if recorded.get(name) != lines.get(name))
+    if moved:
+        return None, f"the key moved since the last green build: {', '.join(moved)}"
+    if set(digests) != set(configs) or not all(isinstance(value, str) for value in digests.values()):
+        return None, f"{path.name} records the digests of other configurations"
+    if {table.name for table in _reuse_files(tables_dir, configs)} != set(files):
+        return None, "the table files on disk are not the ones the last green build left"
+    for name, sha256 in files.items():
+        try:
+            if row_delta.file_sha256(tables_dir / name) != sha256:
+                return None, f"{name} is not the file the last green build left"
+        except OSError:
+            return None, f"{name} does not read"
+    for config in configs:
+        try:
+            head = table_module.windows_head(tables_dir, config)
+        except OSError, ValueError:
+            return None, f"{config}'s windows head does not read"
+        if head.stamps.get(table_module.TABLE_DIGEST_STAMP) != digests[config]:
+            return None, f"{config}'s windows head records another table digest"
+    return {config: digests[config] for config in configs}, ""
+
+
+def _restamped_heads(
+    tables_dir: Path, configs: Sequence[str], inputs: str
+) -> dict[str, tuple[row_delta.Head, bytes]]:
+    """Each configuration's windows head beside its head file's line re-stamped with `inputs`, read through the head (`table.read_head_line`) and re-stamped where the crate writes the stamp (`table.restamped_head_line`), before a pass that reuses the tables writes anything, so a line that does not re-stamp runs the crate instead of failing the build. Raises what those two raise, and `ValueError` for a head that records no stamp."""
+    restamped: dict[str, tuple[row_delta.Head, bytes]] = {}
+    for config in configs:
+        head, line = table_module.read_head_line(tables_dir, config)
+        stamped = head.stamps.get(table_module.INPUTS_STAMP)
+        if not isinstance(stamped, str):
+            raise ValueError(f"{config}'s windows head records no stamp")
+        restamped[config] = head, table_module.restamped_head_line(line, config, stamped, inputs)
+    return restamped
+
+
+def settle_table_reuse(out_dir: Path, reuse: TableReuse, spec: ResolvedSpec, root: Path = REPO_ROOT) -> None:
+    """Write the table-reuse record under `out_dir` once a bare run has gone green (`full_run`), after the table-only branch, the packing included, has been joined: the key the build computed before the crate would start (`reuse.lines`), each configuration's table digest, and the raw sha256 of every table file on disk (`_reuse_files`). A build that keeps no windows wrote no key and gets no record. As `run_m1_gates._settle_stage_a` declines a record whose inputs moved while the run ran, this recomputes every line of the key but the spec dump's, which the build hashed from the bytes the crate read, and writes nothing, with a warning, when one has moved. The check catches an edit still on disk at the settle, not one made and reverted while the run was going, and not an edit to the driver between its import and the build's key, the limits `table_build_record`'s stamps share. The record is written through a staging file renamed into place (`output_sink.replace_output`), so a reader finds the whole record or none. A table file or a write that fails leaves no record either, with a warning, and never turns the green run red: a missing record costs only a crate run."""
+    if reuse.lines is None:
+        return
+    current = table_reuse_lines(reuse.lines["spec"], reuse.configs, memo_structure_stamp(spec, root), root)
+    if current != reuse.lines:
+        console.warn(
+            "run_m1: green, but the table build's code moved while it ran — table-reuse record not written"
+        )
+        return
+    try:
+        record = {
+            "format": TABLE_REUSE_FORMAT,
+            "lines": reuse.lines,
+            "digests": reuse.digests,
+            "files": {
+                path.name: row_delta.file_sha256(path) for path in _reuse_files(out_dir, reuse.configs)
+            },
+        }
+        output_sink.replace_output(Path(out_dir) / TABLE_REUSE_FILENAME, json.dumps(record, indent=1) + "\n")
+    except OSError as error:
+        console.warn(
+            f"run_m1: green, but the table files did not read — table-reuse record not written: {error}"
+        )
+
+
 def build_tables(
     spec: ResolvedSpec,
     out_dir: Path | None = None,
@@ -604,8 +775,9 @@ def build_tables(
     packing: Packing | None = None,
     configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
     scratch_beside_default: int | None = None,
+    reuse: TableReuse | None = None,
 ) -> tuple[dict[str, tuple], dict[str, str]]:
-    """Build the decision and join tables for the named settlement configurations, all of them unless `configs` narrows the set. The resolved spec is dumped once, into a pipe one crate `build-tables` process inherits and reads it from (`kernel_exec.build_table_files`), so the dump never reaches the disk. That process enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo, or from scratch beside `default` (`scratch_beside_default`), prepares its fold as it finishes, and, once every configuration has exchanged the windows the others keep live (`rebuild/kernel-rs/src/crossconfig.rs`), finishes each fold. The crate writes the settlement TSV, the join TSV and the window payload itself; nothing is folded on the Python side.
+    """Build the decision and join tables for the named settlement configurations, all of them unless `configs` narrows the set, or, given `reuse`, reuse the ones on disk when their input has not moved (the paragraph on `reuse` below). The resolved spec is dumped once, into a pipe one crate `build-tables` process inherits and reads it from (`kernel_exec.build_table_files`), so the dump never reaches the disk. That process enumerates `default`'s fixpoint and folds it, then enumerates each other configuration as a delta over `default`'s finished memo, or from scratch beside `default` (`scratch_beside_default`), prepares its fold as it finishes, and, once every configuration has exchanged the windows the others keep live (`rebuild/kernel-rs/src/crossconfig.rs`), finishes each fold. The crate writes the settlement TSV, the join TSV and the window payload itself; nothing is folded on the Python side.
 
     A narrowed set is for `rebuild/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `rebuild/out/m1`. A narrowed set writes the same windows and join tables as the whole set, but its settlement tables can differ, since it has fewer configurations to import windows from. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over, so its width is derived from the from-scratch bound. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
 
@@ -613,7 +785,9 @@ def build_tables(
 
     The window payload never reaches the disk as plain text. Before the crate starts, a FIFO stands at each configuration's payload path (`kernel_exec.stream_payloads`), and one thread a configuration, outside the `Packing` pool and whatever the crate's width, reads it for the crate's whole run (`_take_windows`): it keeps the head line, stages it as the head file and, when the build is stamped, gzips the rest into the configuration's next segment or base as the crate writes it, at compressor speed, since a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. A part is written under its final name, which no head lists until the commit, and a part no head lists is deleted by the next build. Each payload's end of file comes with the crate's close of it. Once the crate has exited, any FIFO it never opened is opened and closed so that no reader waits forever, and an empty stream packs nothing. Only after the crate's clean exit, with every reader finished, is each staged head file renamed into place and each windows head committed over it (`_pack_config`), as `run_m1_gates` promotes the oracle's row stores, so a build whose crate or any reader fails, or that is interrupted before the crate's clean exit, deletes what it staged and wrote and leaves the previous build's head file, head and parts in place. A reader's failure fails the build, as the cause of the crate's broken pipe when the reader stopped early. Per configuration, Python then parses the kept head for the rules, the reachable cells and the fired provenance every downstream stage needs, and parses the join TSV back for the defect gates, on a thread pool at the table build's width, and this call waits for them. The commit (`_pack_config`) runs on a `Packing` pool at `_core_bound_threads` width, one task per configuration up to the cores. When `packing` is passed, the tables are returned as soon as the heads are parsed, and the caller waits on each commit through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
-    No build reads or writes a memo file: `default`'s memo lives only inside the crate's process, so every build enumerates cold. A build with an `out_dir` ends its `[t] kernel_build_tables` line with its `TableBuildRecord`; a caller with no `out_dir` carries no record. Every build's line then carries the `build-tables` process's own resident peak and peak footprint (`_table_build_tail`). Either way the crate's phase lines and that line are kept in `_build_phase_lines` for run_m1's check line.
+    No build reads or writes a memo file: `default`'s memo lives only inside the crate's process, so every build that runs the crate enumerates cold. A build with an `out_dir` ends its `[t] kernel_build_tables` line with its `TableBuildRecord`; a caller with no `out_dir` carries no record. Every build's line then carries the `build-tables` process's own resident peak and peak footprint (`_table_build_tail`). Either way the crate's phase lines and that line are kept in `_build_phase_lines` for run_m1's check line.
+
+    `reuse`, which only `full_run` passes, lets a stamped build into `out_dir` run no crate when nothing the crate reads, and nothing that decides what this function writes, has moved since the last green run, as the table-reuse record under `out_dir` (`TABLE_REUSE_FILENAME`) says. Before anything is written it computes the record's key (`table_reuse_lines`). When the record holds the same key, the table files on disk are the ones it names, each still has the raw sha256 it records, and each windows head records the table digest the record holds (`_reusable_tables`), the build reads each configuration's head file through its head and re-stamps the line with this build's `inputs` (`_restamped_heads`), and has the `Packing` pool stage it as the head file and commit the head over it (`_restamp_config`), as a crate build whose rows all came out the same commits them, so every table file is byte for byte what the crate would leave; the digests are the record's. A miss of any kind, a head line that does not re-stamp among them, or `reuse.force`, runs the crate, and a console line says why. Every build with an `out_dir` deletes the record (`retract_table_reuse`) after that check and before it writes anything, `stale_table_files`' deletions included, so a build that goes red, is killed, or leaves a torn table set leaves no record, and only a run that goes green writes one again (`settle_table_reuse`). A build that reused the tables ends its `[t] kernel_build_tables` line with `reused=true` in place of its record and the crate's peaks, and the line times the record's check and the head files' reads; it keeps no crate phase lines.
 
     `out_dir`, when given, receives the TSVs listed in `doc/rebuild-design.md` §8. The second returned mapping is each configuration's `table.table_digest` as the crate reported it, computed while the window rows are still in memory, which avoids recomputing the fixpoint, and recorded in each windows head. The crate also prints it on stdout, where `rebuild/tools/scaling_sweep.py` reads it. Both returned mappings are built in `configs` order however the configurations finish, so completion order cannot affect an artifact.
 
@@ -642,31 +816,60 @@ def build_tables(
             out_dir if out_dir is not None else Path(scratch.enter_context(tempfile.TemporaryDirectory()))
         )
         tables_dir.mkdir(parents=True, exist_ok=True)
+        record = table_build_record(spec, threads) if out_dir is not None else None
+        start = time.perf_counter()
+        held: dict[str, str] | None = None
+        restamped: dict[str, tuple[row_delta.Head, bytes]] = {}
+        if reuse is not None and inputs is not None and record is not None:
+            reuse.lines = table_reuse_lines(hashlib.sha256(spec_bytes).hexdigest(), configs, record.structure)
+            reuse.configs = configs
+            held, why = (
+                (None, "--fresh-tables asks for it")
+                if reuse.force
+                else _reusable_tables(tables_dir, reuse.lines, configs)
+            )
+            if held is not None:
+                try:
+                    restamped = _restamped_heads(tables_dir, configs, inputs)
+                except (OSError, ValueError) as error:
+                    held, why = None, f"a head line does not re-stamp: {error}"
+            if held is None:
+                console.say(f"kernel_build_tables: running the crate: {why}")
+        if out_dir is not None:
+            retract_table_reuse(tables_dir)
         for path in stale_table_files(tables_dir):
             path.unlink(missing_ok=True)
 
-        record = table_build_record(spec, threads) if out_dir is not None else None
         routes: dict[str, WindowsRoute] = {}
         try:
-            if keep_windows:
-                kernel_exec.raise_descriptor_limit()
-                routes = _plan_windows(tables_dir, configs)
-            start = time.perf_counter()
-            crate, kept = kernel_exec.stream_payloads(
-                {config: kernel_exec.windows_payload(tables_dir, config) for config in configs},
-                lambda config, source: _take_windows(source, routes.get(config)),
-                lambda: kernel_exec.build_table_files(
-                    spec_bytes,
-                    tables_dir,
-                    list(configs),
-                    inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
-                    threads=threads,
-                    symbols=len(conform.spec_alphabet(spec)),
-                    timings=True,
-                    scratch_beside_default=scratch_beside_default,
-                    previous={config: route.prior_parts() for config, route in routes.items()},
-                ),
-            )
+            if held is not None:
+                kept = {config: line for config, (_head, line) in restamped.items()}
+                routes = {
+                    config: WindowsRoute(config, tables_dir, SEGMENT_ROUTE, prior=head)
+                    for config, (head, _line) in restamped.items()
+                }
+                digests, timings, tail = held, (), "reused=true"
+            else:
+                if keep_windows:
+                    kernel_exec.raise_descriptor_limit()
+                    routes = _plan_windows(tables_dir, configs)
+                start = time.perf_counter()
+                crate, kept = kernel_exec.stream_payloads(
+                    {config: kernel_exec.windows_payload(tables_dir, config) for config in configs},
+                    lambda config, source: _take_windows(source, routes.get(config)),
+                    lambda: kernel_exec.build_table_files(
+                        spec_bytes,
+                        tables_dir,
+                        list(configs),
+                        inputs=inputs if inputs is not None else kernel_exec.UNSTAMPED_WINDOWS,
+                        threads=threads,
+                        symbols=len(conform.spec_alphabet(spec)),
+                        timings=True,
+                        scratch_beside_default=scratch_beside_default,
+                        previous={config: route.prior_parts() for config, route in routes.items()},
+                    ),
+                )
+                digests, timings, tail = crate.digests, crate.timings, _table_build_tail(record, crate.peaks)
         except BaseException:
             for route in routes.values():
                 route.discard()
@@ -674,15 +877,16 @@ def build_tables(
         finally:
             for route in routes.values():
                 route.close()
-        digests = crate.digests
-        line = console.timing(
-            "kernel_build_tables", time.perf_counter() - start, _table_build_tail(record, crate.peaks)
-        )
-        _build_phase_lines[:] = [*crate.timings, line]
+        line = console.timing("kernel_build_tables", time.perf_counter() - start, tail)
+        _build_phase_lines[:] = [*timings, line]
 
         def read_one(config: str) -> tuple[str, tuple]:
             head = kernel_exec.payload_head(kept[config], kernel_exec.windows_payload(tables_dir, config))
-            _stamp, decision = table_module.read_windows(head, windows=False)
+            stamp, decision = table_module.read_windows(head, windows=False)
+            if keep_windows and stamp != inputs:
+                raise ValueError(
+                    f"{config}'s head line is stamped {stamp!r} where the build is stamped {inputs!r}"
+                )
             joins = table_module.read_join_tsv(tables_dir / f"joins-{config}.tsv")
             return config, (decision, joins)
 
@@ -691,8 +895,20 @@ def build_tables(
                 for config in configs:
                     packers.submit(
                         config,
-                        functools.partial(
-                            _pack_config, tables_dir, config, routes.get(config), inputs, digests[config]
+                        (
+                            functools.partial(
+                                _restamp_config,
+                                tables_dir,
+                                config,
+                                routes[config],
+                                kept[config],
+                                inputs,
+                                digests[config],
+                            )
+                            if held is not None
+                            else functools.partial(
+                                _pack_config, tables_dir, config, routes.get(config), inputs, digests[config]
+                            )
                         ),
                         len(configs),
                     )
@@ -708,6 +924,9 @@ def build_tables(
             raise
         if not deferred:
             packers.close()
+    if reuse is not None:
+        reuse.digests = {config: digests[config] for config in configs}
+        reuse.reused = held is not None
     return {config: built[config] for config in configs}, {config: digests[config] for config in configs}
 
 
@@ -1041,10 +1260,11 @@ def run(
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
     replay_threads: int | None = None,
     scratch_beside_default: int | None = None,
+    reuse: TableReuse | None = None,
 ) -> tuple[dict, TableGates]:
     """Build the tables, then run two branches over them. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay, the witness stage (in a spawned process of its own) and the shipped-order walks. The glyph chain (minting, the defect gates, the emission, the compile and read-back) runs on the calling thread and writes `pipeline_summary.json`. Once it has returned, `run` collects its cyclic garbage once (`_collect_glyph_chain`), since `cli` runs the whole batch with the collector frozen and off and feaLib's and fontTools' cycles would otherwise stay beside the oracle's pool, and returns the chain's summary with the branch's `TableGates` handle without joining the branch. The caller joins it: `full_run` calls `wait_for_replay` before the oracle, passes `wait_for_memo` for the oracle to call before its memo writes, calls `join` after the oracle so the gate covers both branches, and calls `close` in a `finally`. When the glyph chain raises, the branch's first failure is raised in its place if there is one, so a failed replay is reported as incomplete tables and not as whatever the glyph chain made of them.
 
-    `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memos the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from, and so does `scratch_beside_default` (`build_tables`). `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
+    `inputs` is `tables_inputs` over the sources `spec` was loaded from, computed before the load so it can only name content the tables are at least as new as. Passing it keeps the window enumeration under `out_dir` for the conformance sweep and the shipped-order walk. A caller running its own spec omits it, and the walk does not run. `memo_inputs` is `settle_memo_inputs`, computed at the same moment. It names the settle memos the string replay fills and the witness stage, the oracle and the conformance sweep then load; without it the replay writes no memo, the witness stage settles every certificate, and nothing is shared. `kernel_threads` applies only to the table build, whose per-configuration memory cost that width was derived from, and so does `scratch_beside_default` (`build_tables`). `reuse` reaches the table build too, which reuses the tables on disk instead of running the crate when the table-reuse record allows it, and leaves in it what `full_run` records once the run goes green (`TableReuse`). `replay_threads` applies only to the string replay, whose memory cost is `kernel_exec.REPLAY_PEAK_BYTES` and which derives its own width (`_replay_threads`) when none is given. The packing and the shipped-order walks run one task per configuration up to the cores (`_core_bound_threads`) regardless of either width. The witness stage and the walks can still be running when the oracle's pool starts, since the oracle waits only for the string replay (`TableGates.wait_for_replay`), and they share the machine with that pool.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     commit = head_commit()
@@ -1065,6 +1285,7 @@ def run(
             kernel_threads=kernel_threads,
             packing=packing,
             scratch_beside_default=scratch_beside_default,
+            reuse=reuse,
         )
     except BaseException:
         with suppress(Exception):
@@ -2008,8 +2229,9 @@ def full_run(
     replay_threads: int | None = None,
     scratch_beside_default: int | None = None,
     fresh_oracle_cache: bool = False,
+    fresh_tables: bool = False,
 ) -> None:
-    """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the Stage A capture, the pre-gate guards, `run_ligature_outgoing`, the deletion of the Stage A record immediately before the run's first write (`run_m1_gates._retract_stage_a`; that write is the guards' refilter when the subset tables are stale, and the build otherwise), the build (`run`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the record of this process's own peak footprint (`PARENT_POOL_UNIT`, one reading, `peak_rss.peak_footprint_self_bytes`), then the run_m1 gate, the Stage A record once that gate passes (`run_m1_gates._settle_stage_a`), the green record and the check line (timed from `started`). The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
+    """Run a bare `python -m rebuild.pipeline.run_m1` once `run_m1_gates.main` has parsed its command line: the Stage A capture, the pre-gate guards, `run_ligature_outgoing`, the deletion of the Stage A record immediately before the run's first write (`run_m1_gates._retract_stage_a`; that write is the guards' refilter when the subset tables are stale, and the build otherwise), the build (`run`), which reuses the tables on disk instead of running the crate when the table-reuse record allows it and `fresh_tables` (`--fresh-tables`) does not ask for the crate (`build_tables`), the defect exit, the Manual-pin gate, the oracle at `jobs` once the string replay has returned, and the join of the table-only branch, then the record of this process's own peak footprint (`PARENT_POOL_UNIT`, one reading, `peak_rss.peak_footprint_self_bytes`), then the run_m1 gate, the Stage A record and the table-reuse record once that gate passes (`run_m1_gates._settle_stage_a`, `settle_table_reuse`), the green record and the check line (timed from `started`). A run that goes red anywhere writes no table-reuse record, so the run after it, a fix's or a revert's, runs the crate. The gates it calls are in rebuild/pipeline/run_m1_gates.py, outside the tables' stamp, but this function stays here, inside it: `--gates-only` never runs it, so a build-side check added here must restamp the tables rather than earn a green without running."""
     from rebuild.pipeline import run_m1_gates
     from rebuild.tools.artifact_cycle import (
         _defect_gate_failure,
@@ -2028,6 +2250,7 @@ def full_run(
     memo_inputs = settle_memo_inputs()
     spec = load_default_spec()
     before = run_m1_key()
+    reuse = TableReuse(force=fresh_tables)
     gates: TableGates | None = None
     defect_failure: str | None = None
     try:
@@ -2042,6 +2265,7 @@ def full_run(
             memo_inputs=memo_inputs,
             replay_threads=replay_threads,
             scratch_beside_default=scratch_beside_default,
+            reuse=reuse,
         )
         console.timing("run_total", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
         console.say(json.dumps(summary, indent=2))
@@ -2098,6 +2322,7 @@ def full_run(
     gate = evaluate_run_m1_gate(summary, pin_gate, oracle_summary)
     if gate.ok:
         run_m1_gates._settle_stage_a(OUT_DIR, stage)
+        settle_table_reuse(OUT_DIR, reuse, spec)
     run_m1_gates._settle_green(
         RUN_M1_GREEN, before, gate.ok, run_m1_key, "run_m1", files_of=lambda: run_m1_skip_files(REPO_ROOT)
     )

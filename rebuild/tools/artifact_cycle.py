@@ -2345,7 +2345,7 @@ def build_plan(
             str(replay_threads),
         ]
         if fresh:
-            run_m1_argv += ["--fresh-oracle-cache"]
+            run_m1_argv += ["--fresh-oracle-cache", "--fresh-tables"]
         plan.steps.append(Step("run_m1", run_m1_argv, run_m1_note, lane="build"))
 
     if live_pass and not skip_corpus:
@@ -5584,7 +5584,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--fresh",
         action="store_true",
-        help="run every stage and gate even when a green record shows its inputs unchanged since the last green run (disables all auto-skips, gate:make-test's included)",
+        help="run every stage and gate even when a green record shows its inputs unchanged since the last green run (disables all auto-skips, gate:make-test's included, and has run_m1 run the crate's table build rather than reuse the tables on disk, through its --fresh-tables)",
     )
     parser.add_argument(
         "--conform-max-length",

@@ -1363,6 +1363,11 @@ def main(argv: list[str] | None = None) -> None:
         help="derive every row rather than serving any from the oracle's per-row verdict stores, and write fresh ones over them; under --gates-only, which may not write a build input, it declines to read the stores and leaves them where they are",
     )
     parser.add_argument(
+        "--fresh-tables",
+        action="store_true",
+        help="run the kernel crate's table build even when the table-reuse record the last green build left under rebuild/out/m1 shows that nothing the crate reads, nor the table build's driver, has moved since; without it a bare run, by hand as under the artifact cycle, re-stamps those tables in place of running the crate whenever the record holds its key and every table file its raw digest, and the cycle passes this flag under its own --fresh",
+    )
+    parser.add_argument(
         "--conform-max-length",
         "--conform-horizon",
         type=int,
@@ -1457,6 +1462,7 @@ def main(argv: list[str] | None = None) -> None:
             replay_threads=args.replay_threads,
             scratch_beside_default=args.scratch_beside_default,
             fresh_oracle_cache=args.fresh_oracle_cache,
+            fresh_tables=args.fresh_tables,
         )
 
 

@@ -901,6 +901,14 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
     assert settled_verdict_update is None or "--fresh-standing-memo" not in settled_verdict_update
 
 
+def test_a_fresh_pass_has_run_m1_build_its_tables_with_the_crate():
+    """Under `--fresh`, run_m1's build argv ends with `--fresh-tables` beside `--fresh-oracle-cache`, so the pass runs the crate's table build where the table-reuse record would let it re-stamp the tables on disk; a build planned without `--fresh` carries neither."""
+    fresh = {step.name: step for step in _plan(fresh=True).steps}["run_m1"].argv
+    built = {step.name: step for step in _plan().steps}["run_m1"].argv
+    assert fresh is not None and fresh[-2:] == ["--fresh-oracle-cache", "--fresh-tables"]
+    assert built is not None and "--fresh-tables" not in built and "--fresh-oracle-cache" not in built
+
+
 def test_the_plan_block_leads_with_its_arithmetic_and_puts_the_paths_after_the_rows():
     """The header goes straight to the step count and the rows. The paths this pass resolved (the master the carry reads, where the carried file goes) follow the rows, and the concurrency block comes last."""
     plan = _plan()
@@ -6134,11 +6142,11 @@ def test_main_forces_the_rebuild_suite_under_fresh(tmp_path, monkeypatch, capsys
 
 
 def _full_build_step(out: str):
-    """Return the match for the rendered run_m1 step of a plan that builds, so the negative cases can show a build was planned instead of the gates-only argv. `--jobs` appears before `--kernel-threads` only when the sweep width is above one, the count of deltas started beside `default` and then `--replay-threads` always follow `--kernel-threads`, and `--fresh-oracle-cache` appears only under `--fresh`."""
+    """Return the match for the rendered run_m1 step of a plan that builds, so the negative cases can show a build was planned instead of the gates-only argv. `--jobs` appears before `--kernel-threads` only when the sweep width is above one, the count of deltas started beside `default` and then `--replay-threads` always follow `--kernel-threads`, and `--fresh-oracle-cache --fresh-tables` appears only under `--fresh`."""
     return re.search(
         r"^ +\$ uv run python -m rebuild\.pipeline\.run_m1"
         r"( --jobs \d+)? --kernel-threads \d+ --scratch-beside-default \d+"
-        r" --replay-threads \d+( --fresh-oracle-cache)?$",
+        r" --replay-threads \d+( --fresh-oracle-cache --fresh-tables)?$",
         _step_lines(out, "run_m1"),
         re.MULTILINE,
     )

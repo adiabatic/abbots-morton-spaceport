@@ -92,7 +92,7 @@ def _stub_gates(
     monkeypatch.setattr(
         run_m1,
         "build_tables",
-        lambda spec, out_dir=None, inputs=None, kernel_threads=None, packing=None, scratch_beside_default=None: (
+        lambda spec, out_dir=None, inputs=None, kernel_threads=None, packing=None, scratch_beside_default=None, reuse=None: (
             TABLES,
             {},
         ),
@@ -558,6 +558,27 @@ class TestMain:
             checks = ct.load_checks(ct.JOURNAL)
             assert len(checks) == 1 and checks[0]["outcome"] == "red"
             assert "shipped settlement order" in checks[0]["failures"][0]
+
+    @pytest.mark.parametrize("green", [True, False])
+    def test_only_a_green_run_records_its_tables_for_reuse(self, monkeypatch, tmp_path, green):
+        """A bare run writes the table-reuse record (`run_m1.settle_table_reuse`) once the run_m1 gate passes, after the table-only branch and its packing are joined, and a run red at a later stage, here the shipped-order walk, writes none, so the next run builds its tables with the crate."""
+        events: list = []
+        settled: list = []
+        _stub_main(monkeypatch, tmp_path, events, **({} if green else {"emitted": RED_EMITTED}))
+        monkeypatch.setattr(
+            run_m1, "settle_table_reuse", lambda out_dir, reuse, spec: settled.append((out_dir, reuse, spec))
+        )
+        if green:
+            run_m1_gates.main([])
+        else:
+            with pytest.raises(SystemExit, match="shipped settlement order"):
+                run_m1_gates.main([])
+        if green:
+            ((out_dir, reuse, spec),) = settled
+            assert out_dir == tmp_path and isinstance(reuse, run_m1.TableReuse) and spec is SPEC
+            assert not reuse.force
+        else:
+            assert settled == []
 
     def test_a_red_replay_is_raised_ahead_of_the_oracle(self, monkeypatch, tmp_path):
         events: list = []

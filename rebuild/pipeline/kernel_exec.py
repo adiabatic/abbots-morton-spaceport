@@ -2,7 +2,7 @@
 
 The semantics defaults live here beside the flags that pass them to the kernel. `SIMULATED_PROSPECT_DEFAULT` and `FOLLOWER_PREFER_SLOTS_DEFAULT` control settlement, and `DEEP_CLASSES_DEFAULT` controls enumeration. Each is a module attribute read at call time, so a process sets them through the environment and a test can monkeypatch them. A caller that wants a different mode set builds a `SettlementModes` and passes it to `settle_cases`, `settle_windows` or `settle_sequences`.
 
-The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build. `make kernel-build` runs the same build by hand through `main`.
+The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `rebuild/test_kernel_io.py` both run `target/release/ams-m1-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build. `make kernel-build` runs the same build by hand through `main`. `binary_sha256` hashes the binary that build left, for the table-reuse record's key (`run_m1.table_reuse_lines`).
 
 `build_table_files` is what `run_m1` calls. It hands the crate the spec dump (`kernel_io.spec_bytes`) through a pipe the crate inherits (`_InheritedPipes`), which the crate reads once, front to back, before it opens any payload, so the dump never reaches the disk. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window payload, which for a configuration whose previous windows rows it is handed (`PriorPart`, each part decompressed into a pipe of its own by a thread of this process, headers stripped) holds only the rows that differ from them, merged by key at the configuration's finish (`rebuild/kernel-rs/src/row_merge.rs`), and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines and the process's own resident peak and peak footprint (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest; `rebuild/kernel-rs/src/memo.rs` gives the argument. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`); when every delta does, `default` keeps no memo. The memo lives only inside the process: every build enumerates cold, and none reads or writes a memo file. Before any table is written, the configurations exchange windows (`rebuild/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
 
@@ -32,6 +32,7 @@ import errno
 import fcntl
 import functools
 import gzip
+import hashlib
 import io
 import json
 import os
@@ -623,6 +624,18 @@ def ensure_built() -> None:
         return
     cargo_build()
     _BUILT = True
+
+
+def binary_sha256() -> str:
+    """The sha256 of the built binary's bytes, read with the relink lock held shared, so a `cargo build` elsewhere cannot replace the file while it is read. `run_m1.table_reuse_lines` keys the table-reuse record on it beside the crate's sources, because the repository pins no toolchain, so a compiler or a build flag can change the binary while no source file moves. Raises `KernelRunError` for a missing binary."""
+    digest = hashlib.sha256()
+    try:
+        with _relink_lock(fcntl.LOCK_SH), BINARY.open("rb") as handle:
+            while chunk := handle.read(1 << 20):
+                digest.update(chunk)
+    except FileNotFoundError:
+        raise _no_binary() from None
+    return digest.hexdigest()
 
 
 def mode_flags() -> list[str]:

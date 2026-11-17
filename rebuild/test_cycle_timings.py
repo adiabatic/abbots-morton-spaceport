@@ -139,11 +139,13 @@ def test_parse_inner_timings_reads_the_corpus_builds_phase_lines():
 
 
 def test_parse_inner_timings_reads_the_table_builds_record():
-    """run_m1's `kernel_build_tables` line ends with the table build's record, and each token is kept under its key, typed by its reader: the stamps as text and the counts as integers. A value its reader rejects is left out, and so is a token no reader names, such as an older line's `memos_read`."""
+    """run_m1's `kernel_build_tables` line ends with the table build's record, and each token is kept under its key, typed by its reader: the stamps as text and the counts as integers. A value its reader rejects is left out, and so is a token no reader names, such as an older line's `memos_read`. A run that reused the tables on disk ends the line with `reused=true` alone, kept as a boolean."""
     text = "\n".join(
         [
             "[t] kernel_build_tables 220.2s structure=454ec84a code=4a63df81 width=5 runes=44",
             "[t] kernel_build_tables 3.0s memos_read=5 width=all runes=44",
+            "[t] kernel_build_tables 0.6s reused=true",
+            "[t] kernel_build_tables 0.5s reused=maybe",
         ]
     )
     assert ct.parse_inner_timings(text) == [
@@ -156,6 +158,8 @@ def test_parse_inner_timings_reads_the_table_builds_record():
             "runes": 44,
         },
         {"label": "kernel_build_tables", "elapsed_s": 3.0, "runes": 44},
+        {"label": "kernel_build_tables", "elapsed_s": 0.6, "reused": True},
+        {"label": "kernel_build_tables", "elapsed_s": 0.5},
     ]
 
 
