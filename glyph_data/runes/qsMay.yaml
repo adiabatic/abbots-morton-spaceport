@@ -202,6 +202,7 @@ policy:
         - {family: qsJai_qsUtter}
         - {family: qsCheer}
         - {family: qsYe}
+        - {family: qsLlan}
   contract:
   - entry: baseline
     by: 1
@@ -211,10 +212,6 @@ policy:
         - qsBay
         - qsIng
         - qsNo
-  - exit: x-height
-    by: 1
-    when:
-      right: {family: qsLlan}
   resolve:
   - against:
       rune: qsMay
