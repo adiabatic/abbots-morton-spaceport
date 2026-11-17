@@ -929,17 +929,27 @@ def _built_corpus(tmp_path, **totals):
     return corpus
 
 
-def test_do_corpus_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp_path):
-    corpus = _built_corpus(tmp_path, units=15897, rows=81867, batches=16, duplicate_groups=402)
+def _do_corpus_build_with(corpus, spawn, held):
+    """Run `_do_corpus_build` over `corpus` with `spawn`, handing it a `_HeldCorpusBuild` when `held` is set, and return its result with the holder it used (None without one)."""
+    holder = ac._HeldCorpusBuild() if held else None
     report = ac.CycleReport()
     ok = ac._do_corpus_build(
         report,
-        spawn=lambda name, argv, **k: _step(name, 0),
+        spawn=spawn,
         emit=ac._Emitter(),
         registry=ac._ChildRegistry(),
         review_out=corpus,
         argv=["uv", "run", "python", "-m", "rebuild.review.build"],
+        held=holder,
     )
+    return ok, report, holder
+
+
+@pytest.mark.parametrize("held", [False, True])
+def test_do_corpus_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp_path, held):
+    """A stand-in spawn prints no review-facts line, and the thread's `finally` releases the wait as it returns, so the step closes before `_do_corpus_build` returns, with or without a holder, and a holder has nothing left to join."""
+    corpus = _built_corpus(tmp_path, units=15897, rows=81867, batches=16, duplicate_groups=402)
+    ok, report, holder = _do_corpus_build_with(corpus, lambda name, argv, **k: _step(name, 0), held)
     assert ok
     assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.duplicate_groups) == (
         15897,
@@ -947,37 +957,25 @@ def test_do_corpus_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp_
         16,
         402,
     )
+    assert holder is None or holder.join(ac._Emitter(), report)
 
 
-def test_do_corpus_build_fails_when_a_clean_build_left_no_manifest(tmp_path, capsys):
+@pytest.mark.parametrize("held", [False, True])
+def test_do_corpus_build_fails_when_a_clean_build_left_no_manifest(tmp_path, capsys, held):
     corpus = tmp_path / "review"
     corpus.mkdir()
-    report = ac.CycleReport()
-    ok = ac._do_corpus_build(
-        report,
-        spawn=lambda name, argv, **k: _step(name, 0),
-        emit=ac._Emitter(),
-        registry=ac._ChildRegistry(),
-        review_out=corpus,
-        argv=["uv", "run", "python", "-m", "rebuild.review.build"],
-    )
+    ok, report, holder = _do_corpus_build_with(corpus, lambda name, argv, **k: _step(name, 0), held)
     assert not ok
     assert "review.build exited 0 but left no readable manifest.json" in capsys.readouterr().out
     assert report.corpus_units is None
+    assert holder is None or holder.join(ac._Emitter(), report)
 
 
-def test_do_corpus_build_reads_no_totals_from_a_failed_build(tmp_path, capsys):
-    """After a nonzero exit, the manifest in the corpus directory is the previous pass's, so the step fails before reading any totals from it."""
+@pytest.mark.parametrize("held", [False, True])
+def test_do_corpus_build_reads_no_totals_from_a_failed_build(tmp_path, capsys, held):
+    """After a nonzero exit before the review-facts line, the manifest in the corpus directory is the previous pass's, so the step fails before reading any totals from it, and a holder does not report the failure a second time."""
     corpus = _built_corpus(tmp_path, units=1, rows=2, batches=3, duplicate_groups=4)
-    report = ac.CycleReport()
-    ok = ac._do_corpus_build(
-        report,
-        spawn=lambda name, argv, **k: _step(name, 3),
-        emit=ac._Emitter(),
-        registry=ac._ChildRegistry(),
-        review_out=corpus,
-        argv=["uv", "run", "python", "-m", "rebuild.review.build"],
-    )
+    ok, report, holder = _do_corpus_build_with(corpus, lambda name, argv, **k: _step(name, 3), held)
     assert not ok
     assert "review.build exited 3" in capsys.readouterr().out
     assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.duplicate_groups) == (
@@ -986,6 +984,159 @@ def test_do_corpus_build_reads_no_totals_from_a_failed_build(tmp_path, capsys):
         None,
         None,
     )
+    assert holder is None or holder.join(ac._Emitter(), report)
+    assert "review.build exited 3" not in capsys.readouterr().out
+
+
+# A corpus build that prints the line closing its review-facts phase, then writes its stores until the file named by its first argument appears, and exits with the status its second argument names.
+_FACTS_THEN_STORE = (
+    "import pathlib, sys, time\n"
+    "print('[t] review.build review-facts 1.9s rss_gb=1.00', file=sys.stderr, flush=True)\n"
+    "deadline = time.monotonic() + 30\n"
+    "while not pathlib.Path(sys.argv[1]).exists() and time.monotonic() < deadline:\n"
+    "    time.sleep(0.01)\n"
+    "sys.exit(int(sys.argv[2]))\n"
+)
+
+
+@pytest.mark.parametrize("store_rc", [0, 3])
+def test_a_held_corpus_build_returns_at_its_review_facts_line_and_is_joined_later(tmp_path, capsys, store_rc):
+    """With a holder, `_do_corpus_build` returns as the build prints `CORPUS_FACTS_LINE`, with the totals read from the manifest the build wrote before it, while the child still writes its stores. The step closes at the join, which reports a store write that exits nonzero as the build's failure, and only once."""
+    corpus = _built_corpus(tmp_path, units=7, rows=8, batches=1, duplicate_groups=0)
+    release = tmp_path / "release"
+    held = ac._HeldCorpusBuild()
+    report = ac.CycleReport()
+    try:
+        assert ac._do_corpus_build(
+            report,
+            spawn=ac._run_step,
+            emit=ac._Emitter(),
+            registry=ac._ChildRegistry(),
+            review_out=corpus,
+            argv=[sys.executable, "-c", _FACTS_THEN_STORE, str(release), str(store_rc)],
+            held=held,
+        )
+        assert report.corpus_units == 7
+        assert not held.exited()
+    finally:
+        release.touch()
+    assert held.join(ac._Emitter(), report) is (store_rc == 0)
+    assert ("review.build exited 3" in capsys.readouterr().out) is (store_rc == 3)
+    assert held.join(ac._Emitter(), report)
+    assert "review.build exited" not in capsys.readouterr().out
+
+
+def test_a_corpus_build_without_a_holder_waits_for_its_store_write(tmp_path):
+    """Without a holder, `_do_corpus_build` waits past the review-facts line for the whole child, as a caller with no later join needs."""
+    corpus = _built_corpus(tmp_path, units=7, rows=8, batches=1, duplicate_groups=0)
+    release = tmp_path / "release"
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        built = pool.submit(
+            ac._do_corpus_build,
+            ac.CycleReport(),
+            spawn=ac._run_step,
+            emit=ac._Emitter(),
+            registry=ac._ChildRegistry(),
+            review_out=corpus,
+            argv=[sys.executable, "-c", _FACTS_THEN_STORE, str(release), "0"],
+        )
+        with pytest.raises(TimeoutError):
+            built.result(timeout=0.5)
+        release.touch()
+        assert built.result(timeout=30)
+
+
+def _store_write_cycle(monkeypatch, *, store_rc, snapshot_ok=True, review_out=None):
+    """Run a pass whose corpus build, through the real `_do_corpus_build`, prints its review-facts line and then holds its store write open until the verdict update has run, or until the store snapshot has been taken when that fails, and exits `store_rc`. Return the exit status, what the stages did in order, and the pass's printed output."""
+    order: list[str] = []
+    beside = threading.Event()
+
+    def spawn(name, argv, *, emit, registry, stream, env=None, on_line=None, **_):
+        if name != "corpus-build":
+            return _step(name)
+        assert on_line is not None
+        order.append("review facts")
+        on_line(ac.CORPUS_FACTS_LINE + "1.9s rss_gb=1.00")
+        assert beside.wait(timeout=30)
+        order.append("store written")
+        return _step(name, store_rc)
+
+    def snapshot(report, *, emit, plan):
+        order.append("store-snapshot")
+        if not snapshot_ok:
+            beside.set()
+        return snapshot_ok
+
+    def update(report, *, spawn, emit, registry, plan):
+        order.append("verdict-update")
+        beside.set()
+        return _verdict_update_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+
+    def land(report, *, spawn, emit, registry, plan):
+        order.append("land")
+        return _land_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_do_store_snapshot", snapshot)
+    monkeypatch.setattr(ac, "_do_verdict_update", update)
+    monkeypatch.setattr(ac, "_do_land", land)
+    monkeypatch.setattr(ac, "_do_review_facts", _review_facts_clean)
+    monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_gate_fingerprints(monkeypatch)
+    plan = _plan() if review_out is None else _plan(review_out=review_out)
+    assert plan.update_corpus is not None
+    plan.update_corpus.mkdir(parents=True, exist_ok=True)
+    (plan.update_corpus / "manifest.json").write_text(
+        json.dumps({"totals": {"units": 3, "rows": 4, "batches": 1, "duplicate_groups": 0}})
+    )
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=spawn)
+    assert report.corpus_units == 3
+    return rc, order, report
+
+
+@pytest.mark.parametrize("store_rc", [0, 1])
+def test_the_verdict_update_runs_beside_the_corpus_builds_store_write_and_the_land_waits_for_it(
+    monkeypatch, capsys, store_rc
+):
+    """The store snapshot and the verdict update start once the corpus build has closed its review-facts phase, while its store write is still running, and the land waits for the build. A store write that exits nonzero fails the pass as a failed build does and stops the land, though the verdict update has already run."""
+    rc, order, report = _store_write_cycle(monkeypatch, store_rc=store_rc)
+    assert order[:4] == ["review facts", "store-snapshot", "verdict-update", "store written"]
+    assert report.step_returncodes["corpus-build"] == store_rc
+    out = capsys.readouterr().out
+    if store_rc == 0:
+        assert rc == 0
+        assert order[4:] == ["land"]
+        assert "corpus rebuild failed" not in out
+    else:
+        assert rc == 1
+        assert order[4:] == []
+        assert "review.build exited 1" in out
+        assert out.count("corpus rebuild failed") == 1
+
+
+@pytest.mark.parametrize("store_rc", [0, 1])
+def test_a_failed_store_snapshot_still_joins_the_corpus_build(monkeypatch, capsys, store_rc):
+    """A store snapshot that fails stops the pass before the verdict update, and `stop_here` joins the corpus build first, so the pass does not end while the build still writes its store, and a store write that failed as well is reported beside the snapshot."""
+    rc, order, report = _store_write_cycle(monkeypatch, store_rc=store_rc, snapshot_ok=False)
+    assert rc == 1
+    assert order == ["review facts", "store-snapshot", "store written"]
+    assert report.step_returncodes["corpus-build"] == store_rc
+    out = capsys.readouterr().out
+    assert "store snapshot failed" in out
+    assert ("corpus rebuild failed" in out) is (store_rc == 1)
+
+
+def test_a_pass_that_does_not_land_still_waits_for_the_store_write(monkeypatch, tmp_path):
+    """A staging pass (`--review-out`) runs no land, and the join sits outside the land's branch, so it still waits for the corpus build's store write before it finishes."""
+    rc, order, report = _store_write_cycle(monkeypatch, store_rc=0, review_out=tmp_path / "staged")
+    assert rc == 0
+    assert order == ["review facts", "verdict-update", "store written"]
+    assert report.step_returncodes["corpus-build"] == 0
 
 
 def _argv(step: ac.Step) -> list[str]:
@@ -2713,7 +2864,7 @@ class TestTheConformSweepWidth:
     """The cycle sizes gate:conform's sweep: one spawn process per unit, each holding `CONFORM_SWEEP_UNIT_BYTES`. The conformance sweep is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build or the verdict-update step after it, and the larger of the two that the pass runs is subtracted from memory before the division. Its cap is the cores less the corpus build's processes and gate:make-test's pool under the overlap policy, never below the acceptance-configuration count."""
 
     def test_the_corpus_build_comes_off_the_machine_before_the_division(self):
-        """Checked at the fit terms, where no machine size enters, for the same reason as the memory set aside beside the corpus build: on no fleet machine does the subtraction change the conformance sweep's width. The corpus term is the build's parent plus the workers `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the conformance sweep wait for make-test. The cap is `_conform_core_cap`'s in every case."""
+        """Checked at the fit terms, where no machine size enters, for the same reason as the memory set aside beside the corpus build: on no fleet machine does the subtraction change the conformance sweep's width. The corpus term is the build's parent plus the workers `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead, and one that runs both subtracts that step with the build's whole parent beside it, since the parent writes its unit store as the verdict update starts. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the conformance sweep wait for make-test. The cap is `_conform_core_cap`'s in every case."""
 
         def corpus(skip_make_test):
             return ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(
@@ -2766,7 +2917,13 @@ class TestTheConformSweepWidth:
         assert terms(skip_make_test=True) == (per_unit, corpus(True), cap(skip_make_test=True))
 
         assert 0 < corpus(False) < verdict_update(False)
-        assert terms(verdict_update_runs=True) == (per_unit, verdict_update(False), cap())
+        store_write = ac.CORPUS_PARENT_BYTES
+        assert terms(verdict_update_runs=True) == (per_unit, verdict_update(False) + store_write, cap())
+        assert terms(verdict_update_runs=True, pool_policy="overlap") == (
+            per_unit,
+            verdict_update(False) + store_write + make_test,
+            cap(pool_policy="overlap"),
+        )
         assert terms(skip_corpus=True, verdict_update_runs=True) == (
             per_unit,
             verdict_update(False),
@@ -2784,7 +2941,7 @@ class TestTheConformSweepWidth:
         )
 
     def test_the_larger_build_lane_step_is_the_one_that_comes_off(self, monkeypatch):
-        """The conformance sweep starts beside the corpus build, and a conformance sweep still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The corpus build stops at the build lane's share of the cores while the standing fill takes all of them, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted. On one core each pool runs one worker, and a corpus worker outweighs a refill worker, so with the two parents held equal the corpus build is the larger there; the test states that ordering before relying on it."""
+        """The conformance sweep starts beside the corpus build, and a conformance sweep still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. On a pass that runs the build, the verdict-update step counts the build's whole parent too, which writes the unit store as the verdict update starts (`_do_corpus_build`); a pass that skips the build counts none. The corpus build stops at the build lane's share of the cores while the standing fill takes all of them, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted. On one core each pool runs one worker, and a corpus worker outweighs a refill worker, so with no verdict-update process held the corpus build is the larger there, the build's parent counting on both sides; the test states that ordering before relying on it."""
         machine: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=MACHINE_48_GIB)
         wide: dict[str, Any] = dict(machine, ncores=40)
         corpus = ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(**wide)
@@ -2794,6 +2951,10 @@ class TestTheConformSweepWidth:
         assert verdict_update > corpus
         assert ac._conform_build_lane(**wide, skip_corpus=False, verdict_update_runs=True) == (
             "verdict-update",
+            verdict_update + ac.CORPUS_PARENT_BYTES,
+        )
+        assert ac._conform_build_lane(**wide, skip_corpus=True, verdict_update_runs=True) == (
+            "verdict-update",
             verdict_update,
         )
         assert ac._conform_build_lane(**wide, skip_corpus=False, verdict_update_runs=False) == (
@@ -2802,14 +2963,12 @@ class TestTheConformSweepWidth:
         )
         assert (
             ac._conform_fit_terms(**wide, skip_corpus=False, verdict_update_runs=True, pool_policy="queue")[1]
-            == verdict_update
+            == verdict_update + ac.CORPUS_PARENT_BYTES
         )
-        monkeypatch.setattr(ac, "STANDING_FILL_PARENT_BYTES", ac.CORPUS_PARENT_BYTES)
+        monkeypatch.setattr(ac, "STANDING_FILL_PARENT_BYTES", 0)
         narrow: dict[str, Any] = dict(machine, ncores=1)
         narrow_corpus = ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(**narrow)
-        narrow_fill = ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(
-            **narrow
-        )
+        narrow_fill = ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(**narrow) + ac.CORPUS_PARENT_BYTES
         assert narrow_corpus > narrow_fill
         assert ac._conform_build_lane(**narrow, skip_corpus=False, verdict_update_runs=True) == (
             "corpus-build",
@@ -2931,7 +3090,7 @@ class TestTheConformSweepWidth:
             line = _lane_conform_line(plan)
             derivation = _plan_conform_derivation(plan, **machine)
             assert (
-                f"(--jobs {plan.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the verdict-update step outweighing the corpus build, so beside the verdict update's process and its {plan.standing_fill_jobs} refill workers"
+                f"(--jobs {plan.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the verdict-update step outweighing the corpus build, so beside the corpus build's parent writing its unit store, the verdict update's process and its {plan.standing_fill_jobs} refill workers"
                 in line
             )
             assert line.endswith(f"; {derivation})")
@@ -3004,7 +3163,7 @@ class TestTheConformSweepWidth:
         outweighed = _plan(**wide, pool_policy="queue")
         line = _lane_conform_line(outweighed)
         assert (
-            f"CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the verdict-update step outweighing the corpus build, so beside the verdict update's process and its {outweighed.standing_fill_jobs} refill workers; "
+            f"CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the verdict-update step outweighing the corpus build, so beside the corpus build's parent writing its unit store, the verdict update's process and its {outweighed.standing_fill_jobs} refill workers; "
             in line
         )
         assert line.endswith(f"; {_plan_conform_derivation(outweighed, **wide)})")
@@ -4323,11 +4482,11 @@ def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeyp
 
 
 def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
-    """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the corpus build. Beside a corpus build at its lane share, the queue policy gives the suite the gate lane's share, five workers on a ten-core machine and six on a twelve-core one. Under the overlap policy gate:make-test's pool already holds that share, so the arithmetic leaves none, the floor gives the suite one worker, and the plan says so. When the corpus build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
+    """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the corpus build and the corpus build's store write running beside store-snapshot and the verdict update, a clause a pass that skips the build leaves off. Beside a corpus build at its lane share, the queue policy gives the suite the gate lane's share, five workers on a ten-core machine and six on a twelve-core one. Under the overlap policy gate:make-test's pool already holds that share, so the arithmetic leaves none, the floor gives the suite one worker, and the plan says so. When the corpus build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
     gated = _plan(pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB)
     text = _plan_text(gated)
     assert (
-        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts -> corpus-seed -> corpus-build -> store-snapshot -> verdict-update -> land -> review-facts"
+        "Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts -> corpus-seed -> corpus-build -> store-snapshot -> verdict-update -> land -> review-facts; corpus-build returns at its review-facts phase and writes its unit store beside store-snapshot and verdict-update, joined before land\n"
         in text
     )
     assert (
@@ -4364,6 +4523,10 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
         in solo_text
     )
     assert "submitted beside the corpus build" not in solo_text
+    assert (
+        "Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts -> corpus-seed -> corpus-build -> store-snapshot -> verdict-update -> land -> review-facts\n"
+        in solo_text
+    )
     assert {step.name: step for step in solo.steps}["gate:rebuild-contracts"].note == (
         "submitted once the run_m1 gate passes (no corpus build this pass)"
     )
@@ -4389,7 +4552,7 @@ def test_a_pass_with_no_other_gate_pool_holds_the_suite_until_the_units_pool_fin
     assert (held.corpus_jobs, held.corpus_gates_idle_jobs, held.contracts_workers) == (8, 17, 9)
     text = _plan_text(held)
     assert (
-        "Lane build[serial, main thread]  : run_m1 -> submit gate:rebuild-contracts (held until the corpus build's units pool finishes) -> corpus-seed -> corpus-build"
+        "Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts (held until the corpus build's units pool finishes) -> corpus-seed -> corpus-build"
         in text
     )
     assert (

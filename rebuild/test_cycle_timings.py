@@ -1600,6 +1600,58 @@ def test_critical_path_names_the_step_that_ended_each_pass_and_groups_passes_by_
     ]
 
 
+def test_critical_path_ranks_overlapping_build_lane_steps_by_their_ends(tmp_path):
+    """The corpus build's child writes its unit store beside the verdict update (`artifact_cycle._HeldCorpusBuild`), so two build-lane steps overlap and the build step can end after the step that started after it. Each lane is ranked by its steps' ends: on a pass that does not land, the corpus build ends the build lane, and on one that lands, the land does, whatever order the steps started in."""
+
+    def stamp(seconds):
+        return (datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+    def run(run_id, spans):
+        return [
+            *(
+                {
+                    "kind": "step",
+                    "run": run_id,
+                    "host": "h1",
+                    "name": name,
+                    "elapsed_s": end - start,
+                    "finished_at": stamp(end),
+                }
+                for name, start, end in spans
+            ),
+            {
+                "kind": "run",
+                "run": run_id,
+                "host": "h1",
+                "started_at": stamp(0),
+                "plan": {"pool_policy": "overlap"},
+            },
+        ]
+
+    overlapping = [("corpus-build", 0, 300), ("verdict-update", 270, 290), ("gate:rebuild-contracts", 0, 250)]
+    path = tmp_path / "j.ndjson"
+    _write_journal(path, [*run("staged", overlapping), *run("landed", [*overlapping, ("land", 300, 303)])])
+    runs, steps, _ = ct.load_journal(path)
+    staged = ct.critical_path(runs["staged"], steps["staged"])
+    assert staged is not None
+    assert (staged["last"], staged["last_end_s"], staged["runner_up"], staged["margin_s"]) == (
+        "corpus-build",
+        300.0,
+        "gate:rebuild-contracts",
+        50.0,
+    )
+    landed = ct.critical_path(runs["landed"], steps["landed"])
+    assert landed is not None
+    assert (landed["last"], landed["last_end_s"], landed["runner_up"], landed["margin_s"]) == (
+        "land",
+        303.0,
+        "gate:rebuild-contracts",
+        53.0,
+    )
+
+
 def test_parse_inner_timings_finds_every_label_when_two_branches_interleave():
     """run_m1's table-only branch and its glyph chain print to one step log at the same time. Each producer writes whole lines in one write, so every label is found however the lines interleave."""
     text = "\n".join(
