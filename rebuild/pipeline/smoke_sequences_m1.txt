@@ -2491,3 +2491,120 @@ E66A 200C E66A           # ZWNJ between two ·Llan
 E652 200C E66A           # ZWNJ severs half-·Tea's exit into ·Llan
 E66A 200C E653           # ZWNJ severs ·Llan's exit into ·Day
 00B7 E66A                # namer dot before ·Llan
+
+# ·Excite
+E66B                     # ·Excite in isolation
+E650 E66B                # ·Pea before ·Excite (break)
+E66B E650                # ·Excite before ·Pea (break)
+E651 E66B                # ·Bay's baseline exit into ·Excite, whose left foot splays
+E66B E651                # ·Excite before ·Bay (break)
+E652 E66B                # ·Tea before ·Excite (break)
+E66B E652                # ·Excite's splayed right foot joins ·Tea at the baseline
+E653 E66B                # ·Day's baseline exit into ·Excite, whose left foot splays
+E66B E653                # ·Excite's splayed right foot joins half-·Day at the baseline
+E654 E66B                # ·Key's baseline exit into ·Excite, whose left foot splays
+E66B E654                # ·Excite before ·Key (break)
+E655 E66B                # ·Gay before ·Excite (break)
+E66B E655                # ·Excite before ·Gay (break)
+E656 E66B                # ·Thaw before ·Excite (break)
+E66B E656                # ·Excite before ·Thaw (break)
+E657 E66B                # ·They before ·Excite (break)
+E66B E657                # ·Excite before ·They (break)
+E658 E66B                # ·Fee before ·Excite (break)
+E66B E658                # ·Excite before ·Fee (break)
+E659 E66B                # the swept-out ·Vie's baseline exit into ·Excite, whose left foot splays
+E66B E659                # ·Excite's splayed right foot joins ·Vie at the baseline
+E65A E66B                # ·See before ·Excite (break)
+E66B E65A                # ·Excite's splayed right foot joins ·See at the baseline
+E65B E66B                # ·Zoo's baseline exit into ·Excite, whose left foot splays
+E66B E65B                # ·Excite's splayed right foot joins half-·Zoo at the baseline
+E65C E66B                # ·She's flattened baseline exit into ·Excite, whose left foot splays
+E66B E65C                # ·Excite before ·She (break)
+E65D E66B                # ·J’ai's baseline exit into ·Excite, whose left foot splays
+E66B E65D                # ·Excite before ·J’ai (break)
+E65E E66B                # ·Cheer's baseline exit into ·Excite, whose left foot splays
+E66B E65E                # ·Excite before ·Cheer (break)
+E65F E66B                # ·Jay's baseline exit into ·Excite, whose left foot splays
+E66B E65F                # ·Excite before ·Jay (break)
+E660 E66B                # ·Ye before ·Excite (break)
+E66B E660                # ·Excite before ·Ye (break)
+E661 E66B                # ·Way before ·Excite (break)
+E66B E661                # ·Excite before ·Way (break)
+E662 E66B                # ·He before ·Excite (break)
+E66B E662                # ·Excite before ·He (break)
+E663 E66B                # ·Why before ·Excite (break)
+E66B E663                # ·Excite before ·Why (break)
+E664 E66B                # ·-ing's baseline exit into ·Excite, whose left foot splays
+E66B E664                # ·Excite's splayed right foot joins ·-ing at the baseline
+E665 E66B                # the grounded ·May's baseline exit into ·Excite, whose left foot splays
+E66B E665                # ·Excite's splayed right foot joins the ·May loop at the baseline
+E666 E66B                # the flipped ·No's baseline exit into ·Excite, whose left foot splays
+E66B E666                # ·Excite's splayed right foot joins the flipped ·No at the baseline
+E667 E66B                # ·Low before ·Excite (break)
+E66B E667                # ·Excite's splayed right foot joins ·Low at the baseline
+E668 E66B                # ·Roe before ·Excite (break)
+E66B E668                # ·Excite's splayed right foot joins ·Roe at the baseline
+E669 E66B                # ·Loch before ·Excite (break)
+E66B E669                # ·Excite before ·Loch (break)
+E66A E66B                # ·Llan's baseline exit into ·Excite, whose left foot splays
+E66B E66A                # ·Excite before ·Llan (break)
+E670 E66B                # ·It's baseline exit into ·Excite, whose left foot splays
+E66B E670                # ·Excite's splayed right foot joins ·It at the baseline
+E672 E66B                # ·Et's baseline exit into ·Excite, whose left foot splays
+E66B E672                # ·Excite before ·Et (break)
+E673 E66B                # ·Eight's baseline exit into ·Excite, whose left foot splays
+E66B E673                # ·Excite before ·Eight (break)
+E674 E66B                # ·At before ·Excite (break)
+E66B E674                # ·Excite's splayed right foot joins the rising ·At at the baseline
+E675 E66B                # ·I before ·Excite (break)
+E66B E675                # ·Excite's splayed right foot joins ·I at the baseline
+E676 E66B                # ·Ah before ·Excite (break)
+E66B E676                # ·Excite's splayed right foot joins ·Ah at the baseline
+E677 E66B                # ·Awe's baseline exit into ·Excite, whose left foot splays
+E66B E677                # ·Excite before ·Awe (break)
+E678 E66B                # ·Ox's baseline exit into ·Excite, whose left foot splays
+E66B E678                # ·Excite before ·Ox (break)
+E679 E66B                # ·Oy's baseline exit into ·Excite, whose left foot splays
+E66B E679                # ·Excite before ·Oy (break)
+E67A E66B                # the alternate ·Utter's baseline exit into ·Excite, whose left foot splays
+E66B E67A                # ·Excite's splayed right foot joins the mono ·Utter at the baseline
+E67B E66B                # ·Out before ·Excite (break)
+E66B E67B                # ·Excite's splayed right foot joins ·Out at the baseline
+E67E E66B                # ·Ooze's baseline exit into ·Excite, whose left foot splays
+E66B E67E                # ·Excite's splayed right foot joins ·Ooze at the baseline
+E66B E66B                # ·Excite into ·Excite: the first splays right, the second left
+E66B E66B E66B           # the middle ·Excite splays both feet
+E651 E66B E652           # ·Bay ~b~ ·Excite ~b~ ·Tea: both feet splay
+E650 E66B E652           # ·Pea | ·Excite ~b~ ·Tea: the right foot alone splays
+E66B E653 E67A           # ·Excite's baseline exit into half-·Day+Utter
+E66B E67B E652           # ·Excite's baseline exit into ·Out+Tea
+E66B E659 E67A           # ·Excite's baseline exit into ·Vie, which joins ·Utter at the baseline
+E66B E65D E67A           # ·Excite before ·J’ai+Utter (break)
+E66B E65A E67A           # ·Excite before ·See+Utter (break)
+E66B E652 E679           # ·Excite before ·Tea+Oy (break)
+E66B E657 E65B           # ·Excite before ·They+Zoo (break)
+E652 E679 E66B           # ·Tea+Oy's baseline exit into ·Excite
+E657 E65B E66B           # ·They+Zoo before ·Excite (break)
+E67B E652 E66B           # ·Out+Tea before ·Excite (break)
+E653 E67A E66B           # ·Day+Utter before ·Excite (break)
+E65D E67A E66B           # ·J’ai+Utter before ·Excite (break)
+E67A E655 E66B           # ·Utter ~x~ ·Gay | ·Excite: the entered ·Gay still breaks before ·Excite
+E675 E657 E66B           # ·I ~x~ ·They | ·Excite: the entered ·They still breaks before ·Excite
+E676 E657 E66B           # ·Ah ~x~ ·They | ·Excite
+E675 E652 E66B           # ·I before ·Tea, which never joins ·Excite at the baseline
+E66B E652 E653           # ·Excite yields; ·Tea keeps its forward baseline join
+E66B E652 E650           # the join holds: ·Tea gains nothing forward
+E66B E652 E670           # ·Excite yields; half-·Tea takes the x-height join
+E66B E67A E652 E653      # the mono ·Utter breaks, and ·Tea keeps ·Day
+E651 E66B E652 E653      # ·Excite yields to ·Tea·Day and keeps only the left splay
+E653 E652 E66B           # ·Day ~b~ ·Tea | ·Excite
+E666 E672 E66B E652      # The Manual's ·No ~x~ ·Et ~b~ ·Excite ~b~ ·Tea
+E672 E66B E650 E672      # The Manual's ·Et ~b~ ·Excite | ·Pea.half ~x~ ·Et
+E670 E66B E652 E670      # The Manual's ·It ~b~ ·Excite | ·Tea.half ~x~ ·It
+200C E66B                # ZWNJ before ·Excite (the locked copy)
+E66B 200C E66B           # ZWNJ between two ·Excite
+E651 200C E66B           # ZWNJ severs ·Bay's exit into ·Excite
+E66B 200C E653           # ZWNJ severs ·Excite's exit into ·Day
+0020 E66B E652           # word-initial ·Excite joins ·Tea, as at a text edge
+00B7 E66B                # namer dot before ·Excite
+00B7 E66B E652           # namer dot, then ·Excite joins ·Tea as at a word start

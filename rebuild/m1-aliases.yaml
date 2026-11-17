@@ -267,6 +267,14 @@ qsLlan: {rune: qsLlan, stance: sole}
 qsLlan.en-ext-1: {rune: qsLlan, stance: sole, entry: x-height, adjustments: [en-ext-1]}
 qsLlan.noentry: {rune: qsLlan, stance: sole, adjustments: [locked]}
 qsLlan.ss10: {rune: qsLlan, stance: sole}
+qsExcite: {rune: qsExcite, stance: sole}
+qsExcite.en-y0.ex-y0.before-vertical: {rune: qsExcite, stance: sole, entry: baseline, exit: baseline}
+qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter: {rune: qsExcite, stance: sole, entry: baseline, exit: baseline}
+qsExcite.en-y0.ex-y0.before-vertical.noentry: {rune: qsExcite, stance: sole, exit: baseline}
+qsExcite.en-y0.noexit: {rune: qsExcite, stance: sole, entry: baseline}
+qsExcite.noentry: {rune: qsExcite, stance: sole, adjustments: [locked]}
+qsExcite.nonjoining-left: {rune: qsExcite, stance: sole}
+qsExcite.ss10: {rune: qsExcite, stance: sole}
 qsIt: {rune: qsIt, stance: sole}
 qsIt.en-y0.ex-y5: {rune: qsIt, stance: sole, entry: baseline, exit: x-height}
 qsIt.en-y0.ex-y5.en-ext-1: {rune: qsIt, stance: sole, entry: baseline, exit: x-height, adjustments: [en-ext-1]}

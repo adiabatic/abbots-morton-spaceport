@@ -60,6 +60,7 @@ stances:
             - qsMay
             - qsNo
             - qsLlan
+            - qsExcite
             - qsIt
             - qsEt
             - qsEight
@@ -117,6 +118,7 @@ stances:
             - qsMay
             - qsNo
             - qsLlan
+            - qsExcite
             - qsIt
             - qsEt
             - qsEight

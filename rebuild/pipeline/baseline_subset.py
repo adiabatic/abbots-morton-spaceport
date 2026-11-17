@@ -83,6 +83,7 @@ M1_ALPHABET = _switch_alphabet() or frozenset(
         0xE668,
         0xE669,
         0xE66A,
+        0xE66B,
         0xE670,
         0xE672,
         0xE673,

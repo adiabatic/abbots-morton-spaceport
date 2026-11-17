@@ -1,0 +1,173 @@
+rune: qsExcite
+codepoint: 0xE66B
+ductus:
+  sole: |  # DRAFT — pending author sign-off
+    Begun at the bottom left on the baseline, where a previous letter may connect, the first stroke rises up and to the right through the crossing point at mid-height and ends at the x-height on the right. The pen lifts, and the second stroke begins at the top left, falls straight down to just above the x-height, then angles down and to the right through the crossing point to rest on the baseline at the bottom right, where it may connect to the next letter. Each foot splays one column outward when it connects at the baseline.
+mono:
+  bitmap:
+  - "#    "
+  - "#    "
+  - "#    "
+  - " #  #"  #
+  - " # # "
+  - "  #  "
+  - " # # "
+  - "#   #"
+  - "#   #"  #
+stances:
+  sole:
+    motion: sole
+    traits: []
+    bitmap:
+    - "#    "
+    - "#    "
+    - "#    "
+    - " #  #"  #
+    - " # # "
+    - "  #  "
+    - " # # "
+    - "#   #"
+    - "#   #"  #
+    bitmaps:
+      wide-at-baseline:
+        bitmap:
+        - " #     "
+        - " #     "
+        - " #     "
+        - "  #  # "  #
+        - "  # #  "
+        - "   #   "
+        - "  # #  "
+        - " #   # "
+        - "#     #"  #
+      wide-on-left-at-baseline:
+        bitmap:
+        - " #    "
+        - " #    "
+        - " #    "
+        - "  #  #"  #
+        - "  # # "
+        - "   #  "
+        - "  # # "
+        - " #   #"
+        - "#    #"  #
+      wide-on-right-at-baseline:
+        bitmap:
+        - "#     "
+        - "#     "
+        - "#     "
+        - " #  # "  #
+        - " # #  "
+        - "  #   "
+        - " # #  "
+        - "#   # "
+        - "#    #"  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: diagonal
+          joined: wide-on-left-at-baseline
+          from:
+          - family:
+            - qsBay
+            - qsDay
+            - qsKey
+            - qsVie
+            - qsZoo
+            - qsShe
+            - qsJai
+            - qsCheer
+            - qsJay
+            - qsIng
+            - qsMay
+            - qsNo
+            - qsLlan
+            - qsExcite
+            - qsIt
+            - qsEat
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsUtter
+            - qsOoze
+            except:
+            - {family: qsThey_qsZoo}
+      exits:
+        baseline:
+          x: 6
+          stroke: diagonal
+          unjoined: safe
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsDay_qsUtter
+            - qsVie
+            - qsSee
+            - qsZoo
+            - qsIng
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsExcite
+            - qsExam
+            - qsIt
+            - qsEat
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOut_qsTea
+            - qsOoze
+      cells:
+      - entry: none
+        exit: baseline
+        bitmap: wide-on-right-at-baseline
+      - entry: baseline
+        exit: baseline
+        bitmap: wide-at-baseline
+        exit_x: 7
+      unlocks: []
+      require: []
+policy:
+  order:
+  - sole
+  refuse: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      right:
+        family: qsTea
+        then:
+          except:
+          - {family: qsPea}
+          - family: qsIt
+            then:
+              family:
+              - qsDay
+              - qsDay_qsUtter
+              - qsZoo
+              - qsJai
+              - qsJai_qsUtter
+              - qsCheer
+              - qsJay
+              - qsJay_qsUtter
+              - qsRoe
+              - qsLlan
+              - qsEight
+              - qsI
+              - qsAwe
+              - qsOx
+              - qsUtter
+              - qsOwe
+              - qsFoot
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}

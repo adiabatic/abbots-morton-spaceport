@@ -77,6 +77,7 @@ stances:
             - qsNo
             - qsLow
             - qsRoe
+            - qsExcite
             - qsIt
             - qsAt
             - qsI
@@ -124,6 +125,7 @@ stances:
             - qsIng
             - qsNo
             - qsLlan
+            - qsExcite
             - qsIt
             - qsEt
             - qsEight
@@ -154,6 +156,7 @@ stances:
             - qsNo
             - qsLow
             - qsRoe
+            - qsExcite
             - qsIt
             - qsAt
             - qsI
