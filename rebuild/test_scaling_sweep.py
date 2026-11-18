@@ -1,4 +1,7 @@
+import io
 from types import SimpleNamespace
+
+import pytest
 
 from rebuild.pipeline import conform, fixtures, kernel_exec, kernel_io, spec_load, table
 from rebuild.tools import scaling_sweep
@@ -50,19 +53,79 @@ def test_a_sizes_font_figures_come_from_a_whole_set_build_and_its_read_back(monk
     assert seen["configs"] == list(conform.SETTLEMENT_CONFIGS)
 
 
-def test_a_size_counts_the_same_through_a_fifo_as_from_the_kept_payload(tmp_path):
-    """A size counted through a FIFO, as the sweep runs without `AMS_SCALING_DUMP`, gets the digest a kept run gets and the windows, rules and cells the payload that run wrote as a file holds, read back whole, and leaves nothing at the payload's path, where the kept run leaves the file. The size is the mini fixture narrowed to ·Tea, ·May and ·It."""
+def _spec_path(tmp_path):
+    """The mini fixture narrowed to ·Tea, ·May and ·It, dumped for the crate, which is built first."""
     spec_path = tmp_path / "spec.json"
     kernel_io.write_spec(spec_load.narrowed(fixtures.mini_spec(), ("qsTea", "qsMay", "qsIt")), spec_path)
     kernel_exec.ensure_built()
+    return spec_path
+
+
+def test_a_size_counts_the_same_through_a_pipe_as_from_the_kept_payload(monkeypatch, tmp_path):
+    """A size counted through a pipe, as the sweep runs without `AMS_SCALING_DUMP`, gets the digest a kept run gets and the windows, rules and cells the payload that run wrote as a file holds, read back whole, and the crate's `windows_bytes` is that file's size. The piped run names the crate a `/dev/fd/` path for the payload, and nothing stands at the payload's path while the crate writes it or after, where the kept run leaves the file. The size is the mini fixture narrowed to ·Tea, ·May and ·It."""
+    spec_path = _spec_path(tmp_path)
+    piped = kernel_exec.windows_payload(tmp_path / "piped", "default")
+    seen = {}
+    scan, run_size = scaling_sweep.scan, scaling_sweep.run_size
+
+    def scanning(source):
+        source.peek(1)
+        seen.setdefault("while writing", piped.exists() or piped.is_symlink())
+        return scan(source)
+
+    def running(binary, spec_path, out_dir, stamp, payloads=None):
+        seen.setdefault("payload path", None if payloads is None else payloads.path("default"))
+        return run_size(binary, spec_path, out_dir, stamp, payloads)
+
+    monkeypatch.setattr(scaling_sweep, "scan", scanning)
+    monkeypatch.setattr(scaling_sweep, "run_size", running)
     measured = {}
     for keep in (False, True):
-        out_dir = tmp_path / ("kept" if keep else "fifo")
+        out_dir = tmp_path / ("kept" if keep else "piped")
         run, counts = scaling_sweep.measure(kernel_exec.BINARY, spec_path, out_dir, "sweep-stamp", keep)
         measured[keep] = (run["digest"], counts)
+        if keep:
+            assert run["windows_bytes"] == kernel_exec.windows_payload(out_dir, "default").stat().st_size
     assert measured[False] == measured[True]
     kept = kernel_exec.windows_payload(tmp_path / "kept", "default")
     with kept.open("rt", encoding="utf-8") as handle:
         _stamp, whole = table.read_windows(handle)
     assert measured[False][1] == (len(whole.transitions), len(whole.rules), len(whole.reachable_cells()))
-    assert not kernel_exec.windows_payload(tmp_path / "fifo", "default").exists()
+    assert seen["payload path"].startswith("/dev/fd/")
+    assert seen["while writing"] is False
+    assert not piped.exists() and not piped.is_symlink()
+
+
+@pytest.mark.parametrize("keep", [False, True], ids=["piped", "kept"])
+def test_a_payload_whose_reader_lost_bytes_stops_the_size(monkeypatch, tmp_path, keep):
+    """A payload whose reader receives fewer bytes than the crate answers it wrote, here one row another reader took, stops the run naming both counts instead of counting a short payload, through a pipe and from a kept file alike."""
+    spec_path = _spec_path(tmp_path)
+    scan = scaling_sweep.scan
+
+    def losing(source):
+        head, columns, _taken, rest = source.readline(), source.readline(), source.readline(), source.read()
+        return scan(io.BytesIO(head + columns + rest))
+
+    monkeypatch.setattr(scaling_sweep, "scan", losing)
+    with pytest.raises(SystemExit, match=r"received \d+ bytes where the crate wrote \d+"):
+        scaling_sweep.measure(kernel_exec.BINARY, spec_path, tmp_path / "out", "sweep-stamp", keep)
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        b'{"config":"default","digest":"ab"}\n',
+        b'{"config":"default","digest":"ab","windows_bytes":"12"}\n',
+        b'{"config":"ss03","digest":"ab","windows_bytes":12}\n',
+        b"not json\n",
+    ],
+    ids=["no byte count", "a byte count that is not a number", "another configuration", "not JSON"],
+)
+def test_an_answer_that_is_not_the_table_builds_stops_the_run(stdout):
+    """Each `build-tables` answer line must be a `{config, digest, windows_bytes}` object with an integer byte count, for the configurations named and no others."""
+    with pytest.raises(SystemExit, match="build-tables"):
+        scaling_sweep.table_answers(stdout, ["default"])
+    good = b'{"config":"default","digest":"ab","windows_bytes":12}\n'
+    assert scaling_sweep.table_answers(good, ["default"]) == [
+        {"config": "default", "digest": "ab", "windows_bytes": 12}
+    ]

@@ -42,7 +42,7 @@ from contextlib import ExitStack, suppress
 from dataclasses import dataclass, field, replace
 from multiprocessing.process import BaseProcess
 from pathlib import Path
-from typing import IO, Any, Callable, Mapping, Sequence
+from typing import IO, Any, Callable, Mapping, Protocol, Sequence
 
 import yaml
 
@@ -262,7 +262,7 @@ def _replay_threads(replay_threads: int | None) -> int:
 
 
 def _core_bound_threads(count: int) -> int:
-    """Return the width of a per-configuration pool whose tasks are CPU-bound and hold nothing the memory-derived widths account for: one task per settlement configuration, capped at the cores this process may run on, and at least one. It sizes the packing, whose tasks each commit one configuration's windows head over its staged head file and the part its payload's reader wrote (`_pack_config`), on a pass that reuses the tables first gzipping the configuration's re-stamped head line, megabytes, into that head file (`_restamp_config`), and the shipped-order walks. The window payloads' readers (`_take_windows`) run outside this pool, one a configuration for the crate's whole run (`build_tables`), because each must read its FIFO for as long as the crate writes it; each holds a zlib stream and a copy buffer, and `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measured 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5, with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat. A shipped-order walk is one single-threaded crate process that holds the rules and labels and streams the rows, 0.105 GB of child RSS, a small fraction of the table build's peak. `AMS_KERNEL_THREADS` and `--kernel-threads` do not affect these pools: that setting exists to keep the table build out of swap, so a build set to width one narrows the crate's delta round while the packing and the walks still run every configuration at once. The string replay's setting (`_replay_threads`) affects neither pool."""
+    """Return the width of a per-configuration pool whose tasks are CPU-bound and hold nothing the memory-derived widths account for: one task per settlement configuration, capped at the cores this process may run on, and at least one. It sizes the packing, whose tasks each commit one configuration's windows head over its staged head file and the part its payload's reader wrote (`_pack_config`), on a pass that reuses the tables first gzipping the configuration's re-stamped head line, megabytes, into that head file (`_restamp_config`), and the shipped-order walks. The window payloads' readers (`_take_windows`) run outside this pool, one a configuration for the crate's whole run (`build_tables`), because each must read its pipe for as long as the crate writes it; each holds a zlib stream and a copy buffer, and `_pack_windows` over the plain `default` enumeration from a `ThreadPoolExecutor` measured 1.26s, 1.22s and 1.30s per task at widths 1, 3 and 5, with maxrss 0.044, 0.054 and 0.062 GB, so it scales flat. A shipped-order walk is one single-threaded crate process that holds the rules and labels and streams the rows, 0.105 GB of child RSS, a small fraction of the table build's peak. `AMS_KERNEL_THREADS` and `--kernel-threads` do not affect these pools: that setting exists to keep the table build out of swap, so a build set to width one narrows the crate's delta round while the packing and the walks still run every configuration at once. The string replay's setting (`_replay_threads`) affects neither pool."""
     return max(1, min(count, usable_cores()))
 
 
@@ -517,7 +517,7 @@ def _plan_windows(tables_dir: Path, configs: Sequence[str]) -> dict[str, Windows
 def _pack_config(
     tables_dir: Path, config: str, route: WindowsRoute | None, inputs: str | None, digest: str
 ) -> None:
-    """Finish one configuration's packing after the crate's clean exit, when the build is stamped (`route`): rename the head file its payload's reader staged (`_take_windows`) into place, commit the windows head over it and the part the reader wrote (`row_delta.commit`, which deletes the generation a fold superseded), and delete the single file a tree from before the segment format held. The head's stamps are the build's `inputs`, the crate's `digest` over the table's own rows and the head file's name, size and sha256. A base written because a head, a part or a single file did not read is counted as `rewritten whole` (`output_sink.note_rewritten`). Prints `[t] pack_windows[<config>]` with what it wrote (`WindowsRoute.note`)."""
+    """Finish one configuration's packing after the crate's clean exit, once its reader's byte count has matched the crate's and its head line has parsed (`build_tables`), when the build is stamped (`route`): rename the head file its payload's reader staged (`_take_windows`) into place, commit the windows head over it and the part the reader wrote (`row_delta.commit`, which deletes the generation a fold superseded), and delete the single file a tree from before the segment format held. The head's stamps are the build's `inputs`, the crate's `digest` over the table's own rows and the head file's name, size and sha256. A base written because a head, a part or a single file did not read is counted as `rewritten whole` (`output_sink.note_rewritten`). Prints `[t] pack_windows[<config>]` with what it wrote (`WindowsRoute.note`)."""
     started = time.perf_counter()
     if route is None:
         console.timing(f"pack_windows[{config}]", time.perf_counter() - started)
@@ -542,7 +542,41 @@ def _pack_config(
     console.timing(f"pack_windows[{config}]", time.perf_counter() - started, route.note(committed))
 
 
-def _copy_counting(source: IO[bytes], sink: row_delta.Sink, first: bytes = b"") -> tuple[int, int]:
+class PayloadSource(Protocol):
+    """What a payload's packer reads its stream through: a line, or at most so many bytes."""
+
+    def readline(self) -> bytes: ...
+
+    def read(self, size: int, /) -> bytes: ...
+
+
+class _Counted:
+    """A payload's stream beside the count of the bytes read from it, which `build_tables` checks against the count the crate wrote."""
+
+    def __init__(self, source: PayloadSource) -> None:
+        self._source = source
+        self.received = 0
+
+    def readline(self) -> bytes:
+        line = self._source.readline()
+        self.received += len(line)
+        return line
+
+    def read(self, size: int, /) -> bytes:
+        chunk = self._source.read(size)
+        self.received += len(chunk)
+        return chunk
+
+
+@dataclass(frozen=True)
+class TakenWindows:
+    """What a payload's reader kept of it (`_take_windows`): its head line, and how many bytes the reader received in all."""
+
+    head: bytes
+    received: int
+
+
+def _copy_counting(source: PayloadSource, sink: row_delta.Sink, first: bytes = b"") -> tuple[int, int]:
     """Copy `first` and then the rest of `source` into `sink` a megabyte at a time, and return the lines and bytes copied."""
     rows, size = first.count(b"\n"), len(first)
     sink.write(first)
@@ -553,17 +587,18 @@ def _copy_counting(source: IO[bytes], sink: row_delta.Sink, first: bytes = b"") 
     return rows, size
 
 
-def _take_windows(source: IO[bytes], route: WindowsRoute | None) -> bytes:
-    """Read one configuration's window payload from its FIFO to the end and return its head line, the one line `table.read_windows` reads with `windows=False`. With `route`, the build is stamped: the head line is staged as the head file, gzipped as a base is (`_stage_head_file`), and the rest is written as the route says, a segment of the rows that differ, under its header (`row_delta.segment_header`) and only when some row differs, or a base, the whole payload through `_pack_windows`, each under its final name, which no head lists until `_pack_config` commits it. Without it, the rest is read and dropped. An empty stream, from a crate that never opened the FIFO, writes nothing."""
+def _take_windows(stream: PayloadSource, route: WindowsRoute | None) -> TakenWindows:
+    """Read one configuration's window payload from its pipe to the end and return its head line, the one line `table.read_windows` reads with `windows=False`, beside the bytes received in all (`TakenWindows`), which `build_tables` checks against the count the crate wrote before anything is committed. With `route`, the build is stamped: the head line is staged as the head file, gzipped as a base is (`_stage_head_file`), and the rest is written as the route says, a segment of the rows that differ, under its header (`row_delta.segment_header`) and only when some row differs, or a base, the whole payload through `_pack_windows`, each under its final name, which no head lists until `_pack_config` commits it. Without it, the rest is read and dropped. An empty stream, from a crate that never opened the pipe, writes nothing."""
+    source = _Counted(stream)
     head = source.readline()
     if route is None or not head:
         while source.read(1 << 20):
             pass
-        return head
+        return TakenWindows(head, source.received)
     route.staged = _stage_head_file(route.tables_dir, route.config, head)
     if route.route == BASE_ROUTE:
         route.part = _pack_windows(source, route.tables_dir, route.part_name(), head)
-        return head
+        return TakenWindows(head, source.received)
     first = source.read(1 << 20)
     if first:
         prior = route.prior
@@ -578,7 +613,7 @@ def _take_windows(source: IO[bytes], route: WindowsRoute | None) -> bytes:
             return _copy_counting(source, stream, first)
 
         route.part = row_delta.write_part(route.tables_dir, route.part_name(), fill)
-    return head
+    return TakenWindows(head, source.received)
 
 
 def _head_file_staging(tables_dir: Path, config: str) -> Path:
@@ -783,7 +818,7 @@ def build_tables(
 
     Each configuration's windows rows are an output in the segment format, beside a head file (`table`'s module docstring), and a stamped build writes each configuration's rows as its route says (`WindowsRoute`), decided before the crate starts (`_plan_windows`): with no size test and no stamp clause, so a letter batch and a structure-stamp move write a segment like any other pass (#618's decisions 74 and 75). On the segment route the parts the head lists are opened with their sha256 checked before the crate starts, and a thread a part decompresses each into a pipe the crate inherits, for the crate's whole run, outside the `Packing` pool (`kernel_exec.PriorPart`), so the crate merges the configuration's rows against them at its finish and writes only the rows that differ. A tree from before the segment format holds each configuration's whole payload in a single file, which the first build to find it and no head adopts as generation 0's base by hard link, counting its rows once before the crate starts (`_adopted_base`), and then merges against like any other base. The plan raises the descriptor limit first (`kernel_exec.raise_descriptor_limit`), since at six configurations each at a base and twenty segments it holds a part handle, a pipe's write end and, until the crate is spawned, its read end, for each of 126 parts.
 
-    The window payload never reaches the disk as plain text. Before the crate starts, a FIFO stands at each configuration's payload path (`kernel_exec.stream_payloads`), and one thread a configuration, outside the `Packing` pool and whatever the crate's width, reads it for the crate's whole run (`_take_windows`): it keeps the head line, stages it as the head file and, when the build is stamped, gzips the rest into the configuration's next segment or base as the crate writes it, at compressor speed, since a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. A part is written under its final name, which no head lists until the commit, and a part no head lists is deleted by the next build. Each payload's end of file comes with the crate's close of it. Once the crate has exited, any FIFO it never opened is opened and closed so that no reader waits forever, and an empty stream packs nothing. Only after the crate's clean exit, with every reader finished, is each staged head file renamed into place and each windows head committed over it (`_pack_config`), as `run_m1_gates` promotes the oracle's row stores, so a build whose crate or any reader fails, or that is interrupted before the crate's clean exit, deletes what it staged and wrote and leaves the previous build's head file, head and parts in place. A reader's failure fails the build, as the cause of the crate's broken pipe when the reader stopped early. Per configuration, Python then parses the kept head for the rules, the reachable cells and the fired provenance every downstream stage needs, and parses the join TSV back for the defect gates, on a thread pool at the table build's width, and this call waits for them. The commit (`_pack_config`) runs on a `Packing` pool at `_core_bound_threads` width, one task per configuration up to the cores. When `packing` is passed, the tables are returned as soon as the heads are parsed, and the caller waits on each commit through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
+    The window payload never reaches the disk as plain text. Each configuration's payload goes through a pipe the crate inherits (`kernel_exec.stream_payloads`), which has no path, so no other process can open it and take bytes from it, and one thread a configuration, outside the `Packing` pool and whatever the crate's width, reads it for the crate's whole run (`_take_windows`): it keeps the head line, stages it as the head file and, when the build is stamped, gzips the rest into the configuration's next segment or base as the crate writes it, at compressor speed, since a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. A part is written under its final name, which no head lists until the commit, and a part no head lists is deleted by the next build. Each payload's end of file comes with the crate's exit, and a payload the crate never opened is an empty stream, which packs nothing. Nothing is committed that the readers cannot vouch for. Every reader counts the bytes it received, and the crate answers the bytes it wrote of each payload beside its digest (`kernel_exec.TableBuild.windows_bytes`); a configuration whose two counts differ fails the build, naming both. Per configuration, Python then parses the kept head for the rules, the reachable cells and the fired provenance every downstream stage needs, checks its stamp, and parses the join TSV back for the defect gates, on a thread pool at the table build's width, and this call waits for them. Only after the crate's clean exit, with every reader finished, every count matched and every head parsed, is each staged head file renamed into place and each windows head committed over it (`_pack_config`), as `run_m1_gates` promotes the oracle's row stores, so a build whose crate or any reader fails, whose payload lost bytes, whose head does not parse, or that is interrupted before then, deletes what it staged and wrote and leaves the previous build's head file, head and parts in place. A reader's failure fails the build, as the cause of the crate's broken pipe when the reader stopped early. The commit (`_pack_config`) runs on a `Packing` pool at `_core_bound_threads` width, one task per configuration up to the cores. When `packing` is passed, the tables are returned as soon as the heads are parsed and the commits submitted, and the caller waits on each commit through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
     No build reads or writes a memo file: `default`'s memo lives only inside the crate's process, so every build that runs the crate enumerates cold. A build with an `out_dir` ends its `[t] kernel_build_tables` line with its `TableBuildRecord`; a caller with no `out_dir` carries no record. Every build's line then carries the `build-tables` process's own resident peak and peak footprint (`_table_build_tail`). Either way the crate's phase lines and that line are kept in `_build_phase_lines` for run_m1's check line.
 
@@ -843,7 +878,7 @@ def build_tables(
         routes: dict[str, WindowsRoute] = {}
         try:
             if held is not None:
-                kept = {config: line for config, (_head, line) in restamped.items()}
+                kept = {config: TakenWindows(line, len(line)) for config, (_head, line) in restamped.items()}
                 routes = {
                     config: WindowsRoute(config, tables_dir, SEGMENT_ROUTE, prior=head)
                     for config, (head, _line) in restamped.items()
@@ -855,9 +890,9 @@ def build_tables(
                     routes = _plan_windows(tables_dir, configs)
                 start = time.perf_counter()
                 crate, kept = kernel_exec.stream_payloads(
-                    {config: kernel_exec.windows_payload(tables_dir, config) for config in configs},
+                    configs,
                     lambda config, source: _take_windows(source, routes.get(config)),
-                    lambda: kernel_exec.build_table_files(
+                    lambda payloads: kernel_exec.build_table_files(
                         spec_bytes,
                         tables_dir,
                         list(configs),
@@ -867,8 +902,15 @@ def build_tables(
                         timings=True,
                         scratch_beside_default=scratch_beside_default,
                         previous={config: route.prior_parts() for config, route in routes.items()},
+                        payloads=payloads,
                     ),
                 )
+                for config in configs:
+                    received, written = kept[config].received, crate.windows_bytes[config]
+                    if received != written:
+                        raise kernel_exec.KernelRunError(
+                            f"{config}: the window payload's reader received {received} bytes where the crate wrote {written}"
+                        )
                 digests, timings, tail = crate.digests, crate.timings, _table_build_tail(record, crate.peaks)
         except BaseException:
             for route in routes.values():
@@ -881,7 +923,9 @@ def build_tables(
         _build_phase_lines[:] = [*timings, line]
 
         def read_one(config: str) -> tuple[str, tuple]:
-            head = kernel_exec.payload_head(kept[config], kernel_exec.windows_payload(tables_dir, config))
+            head = kernel_exec.payload_head(
+                kept[config].head, kernel_exec.windows_payload(tables_dir, config)
+            )
             stamp, decision = table_module.read_windows(head, windows=False)
             if keep_windows and stamp != inputs:
                 raise ValueError(
@@ -891,6 +935,17 @@ def build_tables(
             return config, (decision, joins)
 
         try:
+            try:
+                with ThreadPoolExecutor(max_workers=threads) as heads:
+                    for finished in as_completed([heads.submit(read_one, config) for config in configs]):
+                        config, tables = finished.result()
+                        built[config] = tables
+                        console.progress(len(built), len(configs), "configurations")
+            except BaseException:
+                if held is None:
+                    for route in routes.values():
+                        route.discard()
+                raise
             if out_dir is not None:
                 for config in configs:
                     packers.submit(
@@ -901,7 +956,7 @@ def build_tables(
                                 tables_dir,
                                 config,
                                 routes[config],
-                                kept[config],
+                                kept[config].head,
                                 inputs,
                                 digests[config],
                             )
@@ -912,11 +967,6 @@ def build_tables(
                         ),
                         len(configs),
                     )
-            with ThreadPoolExecutor(max_workers=threads) as heads:
-                for finished in as_completed([heads.submit(read_one, config) for config in configs]):
-                    config, tables = finished.result()
-                    built[config] = tables
-                    console.progress(len(built), len(configs), "configurations")
         except BaseException:
             if not deferred:
                 with suppress(Exception):
@@ -980,7 +1030,7 @@ def stale_table_files(tables_dir: Path) -> list[Path]:
     ]
 
 
-def _pack_windows(source: IO[bytes], directory: Path, name: str, head: bytes) -> row_delta.Part:
+def _pack_windows(source: PayloadSource, directory: Path, name: str, head: bytes) -> row_delta.Part:
     """Gzip a whole payload the kernel writes into a windows base, `name` under `directory` (`row_delta.write_part`), and return its `Part`: `head`, what a reader has already taken from `source`, then the column line, checked, and the rest of `source`, whose lines are the base's rows. The gzip timestamp is zeroed and the header names no file, so two builds of one table are byte-identical whatever the part's name, and so is a payload however its reads are cut, and the base is the whole payload packed exactly as a tree from before the segment format holds it in its single file. Level 1 is used because the payload is gigabytes of plain TSV per build, written once and read back a few times, and compression time is spent on every build that writes an `out_dir`. The level affects only time, since table identity is taken over the decompressed bytes. `rebuild/kernel-rs/src/artifacts.rs` also states that the decompressed bytes are the artifact's identity."""
 
     def fill(stream: row_delta.Sink) -> tuple[int, int]:
@@ -1521,7 +1571,6 @@ def run_replay_strings(
         for config, memo in conform.settle_memo_files(out_dir, spec, memo_inputs).items()
         if config in configs
     }
-    clear_replay_leftovers(out_dir, memos)
     if memos and not all(conform.settle_memo_standing(memo) for memo in memos.values()):
         families = None
     emitting = families is None and bool(memos)
@@ -1576,12 +1625,6 @@ def _record_replay_walk(peak: int, *, walks: int) -> None:
         worker_peaks={"per walk": peak // walks},
         controller_peak_bytes=peak_rss_self_bytes(),
     )
-
-
-def clear_replay_leftovers(out_dir: Path, memos: Mapping[str, conform.SettleMemoFile]) -> None:
-    """Remove what a killed full replay can leave for each configuration of `memos` at the FIFO at its window memo path (`kernel_exec.replay_memo_dump`). Only the replay writes that path while it runs, so whatever is there is a leftover. A part an absorb worker wrote under its final name, which no head lists, and a staging file a killed write left, are the next plan's to delete (`conform.plan_settle_memos`, through `row_delta.remove_unlisted` and `row_delta.remove_staging`)."""
-    for config in memos:
-        kernel_exec.replay_memo_dump(out_dir, config).unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -1672,7 +1715,7 @@ def _replay_worker_init(
 
 
 def _stop_when_orphaned(parent: BaseProcess) -> None:
-    """Wait for the process that started this full replay's absorb worker to end, as a stop that reached run_m1 alone ends it, and then stop the worker wherever it is: waiting for a slot, walking, waiting for the verdict, or idle in its pool. Nothing is left to read its report or set its verdict. It sends the worker's main thread SIGTERM, and again every `REPLAY_REPORT_POLL_S` until the worker has ended. At its default action a SIGTERM ends the worker at once; inside a walk, where it raises an interrupt instead (`kernel_exec.stream_payloads`), the first one kills and reaps the walk's crate and removes its FIFO, and a later one ends the worker once the walk's handlers are gone. A slot the worker held is not given back, which no worker misses, since every worker of the replay stops the same way. A file it staged stays at its staged path until the next replay starts (`clear_replay_leftovers`)."""
+    """Wait for the process that started this full replay's absorb worker to end, as a stop that reached run_m1 alone ends it, and then stop the worker wherever it is: waiting for a slot, walking, waiting for the verdict, or idle in its pool. Nothing is left to read its report or set its verdict. It sends the worker's main thread SIGTERM, and again every `REPLAY_REPORT_POLL_S` until the worker has ended. At its default action a SIGTERM ends the worker at once; inside a walk, where it raises an interrupt instead (`kernel_exec.stream_payloads`), the first one kills and reaps the walk's crate, and a later one ends the worker once the walk's handlers are gone. A slot the worker held is not given back, which no worker misses, since every worker of the replay stops the same way. A file it staged stays at its staged path until the next replay's plan deletes it (`conform.plan_settle_memos`, through `row_delta.remove_staging`)."""
     parent.join()
     main = threading.main_thread().ident
     assert main is not None
@@ -1712,7 +1755,7 @@ def _walk_and_absorb(
     digest: bool = False,
     keep: bool = True,
 ) -> ReplayAbsorb:
-    """One configuration's walk and absorb, in a full replay's absorb worker. Holding a slot of the replay's gate, it runs the walk, a `replay-strings` process for `config` alone, reading its window memo from a FIFO into the settle memo's columns as it arrives (`kernel_exec.replay_memo_walk`, `conform.read_replay_memo`). Once the crate has exited it sends the parent its walk (`ReplayWalkReport`) and lays out its part as `route`, which the parent planned, says: on a base route the refill's whole file, its index built (`conform.ReplayMemoRows.finish`); on the segment route the refill compared with the standing memo (`conform.compare_replay`), which gives a segment of what differs, or nothing when the refill settles every window as the memo holds it, so the parent commits the head alone, or, when the standing memo does not read, the refill's whole file as an `unusable` base (`conform.SettleMemoRoute.unusable`), the route it returns for the parent to commit through. With `digest` it hashes the part's bytes in order. Where the width is below the walk count and a walk has yet to take a slot, the slot it is about to leave goes to that walk, so it writes the part at once under its final name with `keep`, which no head lists until the parent commits it on a pass and which the parent removes on a red replay, or discards it without, and then waits for the verdict holding no part; a red replay at such a width can therefore write parts it then removes. Otherwise it leaves the slot and holds the part until the parent's verdict: on a pass with the parts kept it writes it under its final name, and on a red replay it discards it. Either way it returns only once the verdict is set, so no worker takes a second walk. A memo the absorb could not read, a standing memo that changed after the plan, or a part it could not write, is a warning on the result rather than a failure, as a memo the crate never wrote is."""
+    """One configuration's walk and absorb, in a full replay's absorb worker. Holding a slot of the replay's gate, it runs the walk, a `replay-strings` process for `config` alone, reading its window memo from a pipe into the settle memo's columns as it arrives (`kernel_exec.replay_memo_walk`, `conform.read_replay_memo`). Once the crate has exited it sends the parent its walk (`ReplayWalkReport`) and lays out its part as `route`, which the parent planned, says: on a base route the refill's whole file, its index built (`conform.ReplayMemoRows.finish`); on the segment route the refill compared with the standing memo (`conform.compare_replay`), which gives a segment of what differs, or nothing when the refill settles every window as the memo holds it, so the parent commits the head alone, or, when the standing memo does not read, the refill's whole file as an `unusable` base (`conform.SettleMemoRoute.unusable`), the route it returns for the parent to commit through. With `digest` it hashes the part's bytes in order. Where the width is below the walk count and a walk has yet to take a slot, the slot it is about to leave goes to that walk, so it writes the part at once under its final name with `keep`, which no head lists until the parent commits it on a pass and which the parent removes on a red replay, or discards it without, and then waits for the verdict holding no part; a red replay at such a width can therefore write parts it then removes. Otherwise it leaves the slot and holds the part until the parent's verdict: on a pass with the parts kept it writes it under its final name, and on a red replay it discards it. Either way it returns only once the verdict is set, so no worker takes a second walk. A memo the absorb could not read, a standing memo that changed after the plan, or a part it could not write, is a warning on the result rather than a failure, as a memo the crate never wrote is."""
     state = _REPLAY_WORKER
     assert state is not None, "a full replay's worker runs under _replay_worker_init"
     name = kernel_exec.replay_memo_dump(out_dir, config)
@@ -1823,7 +1866,7 @@ def replay_and_absorb(
 ) -> FullReplay:
     """Walk every configuration of `memos` over every text up to `REPLAY_MAX_LENGTH`, each in a crate process of its own, at most `threads` crate processes at once, each beside the spawn worker that absorbs its window memo (`_walk_and_absorb`), and commit each configuration's settle memo head once every walk has passed.
 
-    Before the pool starts, the parent plans each configuration's settle memo route (`conform.plan_settle_memos`, printed as `[t] settle_memo_plan`): a base for a configuration with no memo, one that does not read or whose fold this pass holds, and otherwise the segment route over its head, or over its single file from before the segment format, adopted by hard link as generation 0's base. It builds the kernel (`kernel_exec.ensure_built`) and dumps the spec once (`kernel_exec._spec_dump`), then starts a spawn pool with one worker a configuration, whose initializer marks the kernel built from the parent's word, keeps the spec dump's path and starts the thread that stops the worker, wherever it waits, once the parent has gone (`_replay_worker_init`, `_stop_when_orphaned`). Each worker gets its route, never rows. The width gates the walks through a semaphore and not the workers: a worker holds its slot from its walk's start until its part is laid out, then leaves it and holds the part until the verdict, so a worker waiting with its part never holds a slot another walk needs and a width of one cannot deadlock. Where the width is below the configuration count, a worker whose part is laid out while a walk has yet to take a slot writes it at once under its final name, which no head lists, or discards it without `keep`, before it leaves its slot, and then waits for the verdict holding no part: so the walks running and the parts held never outnumber the width. No worker returns before the verdict, so each runs one walk. Each worker reports its walk on a queue as soon as its crate has exited; a worker that ends without reporting counts as a failed walk. Once every walk has reported, the replay passes if every walk passed. The parent then sets the verdict: on a pass with `keep` each worker still holding its part writes it, and the parent commits each configuration's head over it, or alone where the refill settled every window as the memo held it, with every part recorded under the current stamp and family keys, through the route the worker returns (`conform.SettleMemoRoute.commit`), one writer a configuration; otherwise every worker still holding its part discards it, and the parent removes every part a worker wrote early and every adoption's link, so a red replay commits no head and leaves no part. With `digest` each worker hashes its part before the verdict, which the memory series reads with `keep` off. Every message between the parent and a worker is counts, lines, peaks, a route and a part's name, size and sha256, never rows or the part. Every FIFO is removed however this ends (`clear_replay_leftovers` removes what a killed run left, before a replay starts). `cache_stats` passes `--cache-stats` to each crate. `spec_path` names a dump of `spec` the caller already wrote, in place of this process's own (`kernel_exec._spec_dump`).
+    Before the pool starts, the parent plans each configuration's settle memo route (`conform.plan_settle_memos`, printed as `[t] settle_memo_plan`): a base for a configuration with no memo, one that does not read or whose fold this pass holds, and otherwise the segment route over its head, or over its single file from before the segment format, adopted by hard link as generation 0's base. It builds the kernel (`kernel_exec.ensure_built`) and dumps the spec once (`kernel_exec._spec_dump`), then starts a spawn pool with one worker a configuration, whose initializer marks the kernel built from the parent's word, keeps the spec dump's path and starts the thread that stops the worker, wherever it waits, once the parent has gone (`_replay_worker_init`, `_stop_when_orphaned`). Each worker gets its route, never rows. The width gates the walks through a semaphore and not the workers: a worker holds its slot from its walk's start until its part is laid out, then leaves it and holds the part until the verdict, so a worker waiting with its part never holds a slot another walk needs and a width of one cannot deadlock. Where the width is below the configuration count, a worker whose part is laid out while a walk has yet to take a slot writes it at once under its final name, which no head lists, or discards it without `keep`, before it leaves its slot, and then waits for the verdict holding no part: so the walks running and the parts held never outnumber the width. No worker returns before the verdict, so each runs one walk. Each worker reports its walk on a queue as soon as its crate has exited; a worker that ends without reporting counts as a failed walk. Once every walk has reported, the replay passes if every walk passed. The parent then sets the verdict: on a pass with `keep` each worker still holding its part writes it, and the parent commits each configuration's head over it, or alone where the refill settled every window as the memo held it, with every part recorded under the current stamp and family keys, through the route the worker returns (`conform.SettleMemoRoute.commit`), one writer a configuration; otherwise every worker still holding its part discards it, and the parent removes every part a worker wrote early and every adoption's link, so a red replay commits no head and leaves no part. With `digest` each worker hashes its part before the verdict, which the memory series reads with `keep` off. Every message between the parent and a worker is counts, lines, peaks, a route and a part's name, size and sha256, never rows or the part. `cache_stats` passes `--cache-stats` to each crate. `spec_path` names a dump of `spec` the caller already wrote, in place of this process's own (`kernel_exec._spec_dump`).
     """
     configs = list(memos)
     plan = conform.plan_settle_memos(memos)
@@ -1918,7 +1961,6 @@ def replay_and_absorb(
             absorbs[config] = replace(absorb, segments=len(head.segments))
     finally:
         for config in configs:
-            kernel_exec.replay_memo_dump(out_dir, config).unlink(missing_ok=True)
             absorb = absorbs.get(config)
             if config not in committed and absorb is not None and absorb.part is not None:
                 (memos[config].path.parent / absorb.part.name).unlink(missing_ok=True)

@@ -1,4 +1,4 @@
-"""Tests for the end of `run_m1.run`: the table-only branch (the string replay, the witness stage, the shipped-order walks) running beside the glyph chain, the window packing, which reads each payload through a FIFO while the crate writes it, writes its part, and commits its windows head after the crate's clean exit, and the join that decides the gate. The build reports the first failure in serial order, whatever the glyph chain made of the tables. The witness stage runs after the replay that fills the settle memo it loads. The oracle starts once the replay has returned, but writes the settle memo only once the witness stage, which reads it and writes none of it, has returned. Every stage that runs the crate, spawns a process or compiles a font is stubbed with a barrier or a recorder; the packing tests build the mini fixture's real tables, because the packer is what they test."""
+"""Tests for the end of `run_m1.run`: the table-only branch (the string replay, the witness stage, the shipped-order walks) running beside the glyph chain, the window packing, which reads each payload through a pipe while the crate writes it, writes its part, and commits its windows head after the crate's clean exit, and the join that decides the gate. The build reports the first failure in serial order, whatever the glyph chain made of the tables. The witness stage runs after the replay that fills the settle memo it loads. The oracle starts once the replay has returned, but writes the settle memo only once the witness stage, which reads it and writes none of it, has returned. Every stage that runs the crate, spawns a process or compiles a font is stubbed with a barrier or a recorder; the packing tests build the mini fixture's real tables, because the packer is what they test."""
 
 import dataclasses
 import functools
@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import threading
 import time
 from types import SimpleNamespace
@@ -644,7 +645,7 @@ def _outcome_within(seconds, call):
 
 
 def _reference_pack(payload: bytes, path) -> bytes:
-    """Pack `payload` from a plain file in one stream with the artifact's gzip settings (no file name, mtime 0, level 1), the reference a FIFO reader's artifact must match, and return its bytes."""
+    """Pack `payload` from a plain file in one stream with the artifact's gzip settings (no file name, mtime 0, level 1), the reference a pipe reader's artifact must match, and return its bytes."""
     plain = path.with_name(path.name + ".plain")
     plain.write_bytes(payload)
     with (
@@ -702,21 +703,59 @@ class TestThePacking:
             packing.close()
         packing.close()
 
-    def test_each_payload_reaches_its_artifact_through_a_fifo_and_leaves_no_plain_file(
+    def test_each_payload_reaches_its_artifact_through_a_pipe_that_stands_at_no_path(
         self, monkeypatch, tmp_path
     ):
-        """When the crate starts, a FIFO stands at each configuration's payload path, so the plain payload never reaches the disk. Once the build returns, each configuration's head file and windows head are in place under the build's stamp over its base, and nothing else is left under a `windows-` name: no FIFO, no plain payload and no staged file."""
-        real = kernel_exec.build_table_files
-        fifos = {}
+        """While the crate writes each configuration's payload, nothing stands at the payload's path or anywhere in the build's directory for another process to open, neither a FIFO nor a plain payload, so a `cat` over `windows-*.tsv` run there then has nothing to open and takes no byte (#627: a FIFO at the payload's path lets such a reader take whole reads, and the build commit what is left). Each payload's reader runs the check once it has the head line, while the crate, whose payload is megabytes and so cannot all wait in the pipe, still runs, which a wait that reaps nothing (`WNOWAIT`) confirms, so the build still reaps it itself. Once the build returns, each configuration's head file and windows head are in place under the build's stamp over its base, and nothing else is left under a `windows-` name: no plain payload and no staged file."""
+        spawned: list = []
+        spawn = kernel_exec._spawn_kernel
 
-        def build_table_files(spec_bytes, out_dir, configs, **rest):
-            for config in configs:
-                fifos[config] = stat.S_ISFIFO(kernel_exec.windows_payload(out_dir, config).lstat().st_mode)
-            return real(spec_bytes, out_dir, configs, **rest)
+        def spawn_kernel(arguments, **rest):
+            process = spawn(arguments, **rest)
+            spawned.append(process)
+            return process
 
-        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        checks: dict[str, tuple] = {}
+
+        def check(config: str) -> None:
+            standing = sorted(
+                entry.name
+                for entry in tmp_path.iterdir()
+                if stat.S_ISFIFO(entry.lstat().st_mode)
+                or (entry.name.startswith("windows-") and entry.name.endswith(".tsv"))
+            )
+            outsider = subprocess.run(
+                ["/bin/sh", "-c", "cat windows-*.tsv"], cwd=tmp_path, capture_output=True, timeout=60
+            )
+            running = os.waitid(os.P_PID, spawned[-1].pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None
+            checks[config] = (
+                running,
+                standing,
+                outsider.returncode != 0 and outsider.stdout == b"",
+            )
+
+        class Checked:
+            """A payload's stream that runs the check once its head line has been read."""
+
+            def __init__(self, stream, config: str) -> None:
+                self._stream, self._config = stream, config
+
+            def readline(self) -> bytes:
+                line = self._stream.readline()
+                if self._config not in checks:
+                    check(self._config)
+                return line
+
+            def read(self, size: int, /) -> bytes:
+                return self._stream.read(size)
+
+        take = run_m1._take_windows
+        monkeypatch.setattr(kernel_exec, "_spawn_kernel", spawn_kernel)
+        monkeypatch.setattr(
+            run_m1, "_take_windows", lambda stream, route: take(Checked(stream, route.config), route)
+        )
         run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
-        assert fifos == dict.fromkeys(CONFIGS, True)
+        assert checks == dict.fromkeys(CONFIGS, (True, [], True))
         for config in CONFIGS:
             assert table_module.read_windows_head(tmp_path, config)[0] == STAMP, config
         assert sorted(path.name for path in tmp_path.glob("windows-*")) == _committed_names(tmp_path)
@@ -725,17 +764,18 @@ class TestThePacking:
     def test_a_failed_or_interrupted_build_leaves_the_previous_head_file_head_and_parts(
         self, monkeypatch, tmp_path, failure
     ):
-        """A build that fails, or is interrupted before the crate's clean exit, commits nothing: each configuration's head file, windows head, base and segment are the previous build's, byte for byte, and nothing it staged or wrote is left, no FIFO, no staged head file and no part. The previous build wrote a segment over a base, so the failing build is on the segment route and feeds both to the crate. The failures are a reader that raises once it has the head, which breaks the real crate's pipe, so the crate's failure names the reader's as its cause; a crate that writes half of `default`'s payload, opens no other FIFO and fails; and an interrupt before the crate opens any FIFO. A reader left waiting on a FIFO would hang the build, so the build runs on a thread that must finish in time."""
+        """A build that fails, or is interrupted before the crate's clean exit, commits nothing: each configuration's head file, windows head, base and segment are the previous build's, byte for byte, and nothing it staged or wrote is left, no staged head file and no part. The previous build wrote a segment over a base, and the pass's fold is held by another output, so the failing build is on the segment route for every configuration and feeds both to the crate. The failures are a reader that raises once it has the head of `ss04`'s payload, megabytes of rows that differ, more than its pipe holds, so the reader's close breaks the real crate's pipe and the crate's failure names the reader's as its cause; a crate that writes half of `default`'s payload into its pipe, writes no other payload and fails; and an interrupt before the crate writes any payload. A reader left waiting on a pipe would hang the build, so the build runs on a thread that must finish in time."""
         narrow = spec_load.narrowed(SPEC, ("qsTea", "qsMay", "qsIt"))
         run_m1.build_tables(narrow, tmp_path, inputs=STAMP)
         run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
         assert all(len(table_module.windows_head(tmp_path, config).segments) == 1 for config in CONFIGS)
+        assert row_delta.claim_fold("unit-cache.ndjson.gz")
         before = _windows_bytes(tmp_path)
         if failure == "a reader fails":
             real = run_m1._stage_head_file
 
             def stage(tables_dir, config, head):
-                if config == "default":
+                if config == "ss04":
                     raise OSError("no room for the pack")
                 return real(tables_dir, config, head)
 
@@ -743,10 +783,10 @@ class TestThePacking:
         else:
             payload = b"".join(table_module.materialized_windows(tmp_path, "default"))
 
-            def build_table_files(spec_bytes, out_dir, configs, **_rest):
+            def build_table_files(spec_bytes, out_dir, configs, *, payloads, **_rest):
                 if failure == "an interrupt":
                     raise KeyboardInterrupt
-                with kernel_exec.windows_payload(out_dir, "default").open("wb") as sink:
+                with open(payloads.path("default"), "wb") as sink:
                     sink.write(payload[: len(payload) // 2])
                 raise kernel_exec.KernelRunError("the kernel exited 1 on build-tables: killed")
 
@@ -759,6 +799,109 @@ class TestThePacking:
         if failure == "a reader fails":
             assert isinstance(error.__cause__, OSError) and "no room" in str(error.__cause__), error
         assert _windows_bytes(tmp_path) == before
+        assert not list(tmp_path.glob("*.tmp"))
+
+    @pytest.mark.parametrize("route", ["segment", "base"])
+    def test_a_payload_that_lost_bytes_on_its_way_commits_nothing(self, monkeypatch, tmp_path, route):
+        """A reader that receives fewer bytes of its payload than the crate wrote, as one does when another process takes reads from its payload (#627), fails the build once the crate has exited cleanly, with a `KernelRunError` naming both counts, and commits nothing: each configuration's head file, windows head and parts are the previous build's, byte for byte, and nothing the build staged or wrote is left, no staged head file and no part. A stream that takes bytes out of `default`'s rows stands between its pipe and its reader. The previous build wrote a segment over a base, and the pass's fold is held by another output. On the `segment` route `default`'s reader writes the rows that differ as a segment; on the `base` route, which a flipped byte in `default`'s base forces (`unusable`), it writes a whole new base. Every other configuration is on the segment route."""
+        narrow = spec_load.narrowed(SPEC, ("qsTea", "qsMay", "qsIt"))
+        run_m1.build_tables(narrow, tmp_path, inputs=STAMP)
+        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
+        assert row_delta.claim_fold("unit-cache.ndjson.gz")
+        if route == "base":
+            base = tmp_path / table_module.windows_head(tmp_path, "default").base.name
+            raw = bytearray(base.read_bytes())
+            raw[len(raw) // 2] ^= 1
+            base.write_bytes(bytes(raw))
+        before = _windows_bytes(tmp_path)
+        plan = run_m1._plan_windows
+        planned: dict[str, str] = {}
+
+        def planning(tables_dir, configs):
+            routes = plan(tables_dir, configs)
+            planned.update((config, routed.route) for config, routed in routes.items())
+            return routes
+
+        monkeypatch.setattr(run_m1, "_plan_windows", planning)
+        dropped = 1000
+        taken: list[int] = []
+
+        class Thief:
+            """A payload's stream with `dropped` bytes taken out of the middle of its first long read past the lines its reader takes whole, as another reader of the payload would take them."""
+
+            def __init__(self, stream) -> None:
+                self._stream = stream
+
+            def readline(self) -> bytes:
+                return self._stream.readline()
+
+            def read(self, size: int, /) -> bytes:
+                chunk = self._stream.read(size)
+                if taken or len(chunk) <= 2 * dropped:
+                    return chunk
+                taken.append(dropped)
+                middle = len(chunk) // 2
+                return chunk[:middle] + chunk[middle + dropped :]
+
+        take = run_m1._take_windows
+        monkeypatch.setattr(
+            run_m1,
+            "_take_windows",
+            lambda stream, route: take(Thief(stream) if route.config == "default" else stream, route),
+        )
+        real = kernel_exec.build_table_files
+        written: dict[str, int] = {}
+
+        def build_table_files(*args, **rest):
+            built = real(*args, **rest)
+            written.update(built.windows_bytes)
+            return built
+
+        monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        error = _outcome_within(120, lambda: run_m1.build_tables(narrow, tmp_path, inputs=STAMP))
+        assert planned == {
+            **dict.fromkeys(CONFIGS, run_m1.SEGMENT_ROUTE),
+            "default": run_m1.BASE_ROUTE if route == "base" else run_m1.SEGMENT_ROUTE,
+        }
+        assert taken == [dropped]
+        assert isinstance(error, kernel_exec.KernelRunError), error
+        assert str(error) == (
+            f"default: the window payload's reader received {written['default'] - dropped} bytes"
+            f" where the crate wrote {written['default']}"
+        )
+        assert _windows_bytes(tmp_path) == before
+        assert not list(tmp_path.glob("*.tmp"))
+
+    @pytest.mark.parametrize("head", ["a head line that does not parse", "a head line under another stamp"])
+    def test_a_head_line_that_fails_its_check_commits_nothing(self, monkeypatch, tmp_path, head):
+        """No commit starts before every kept head line has parsed and carries the build's stamp, so a build whose head line does not parse, or is stamped other than the build is, raises once the crate has exited cleanly and commits nothing: each configuration's head file, windows head and parts are the previous build's, byte for byte, and nothing the build staged or wrote is left, no staged head file and no part. The head line that does not parse is `default`'s, cut short after its reader staged it whole; the ones under another stamp are every configuration's, from a crate asked for another stamp than the build's."""
+        narrow = spec_load.narrowed(SPEC, ("qsTea", "qsMay", "qsIt"))
+        run_m1.build_tables(narrow, tmp_path, inputs=STAMP)
+        run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
+        before = _windows_bytes(tmp_path)
+        if head == "a head line that does not parse":
+            take = run_m1._take_windows
+
+            def cut(stream, route):
+                kept = take(stream, route)
+                if route.config != "default":
+                    return kept
+                return run_m1.TakenWindows(kept.head[: len(kept.head) // 2] + b"\n", kept.received)
+
+            monkeypatch.setattr(run_m1, "_take_windows", cut)
+        else:
+            real = kernel_exec.build_table_files
+
+            def build_table_files(spec_bytes, out_dir, configs, *, inputs, **rest):
+                return real(spec_bytes, out_dir, configs, inputs="another-stamp", **rest)
+
+            monkeypatch.setattr(kernel_exec, "build_table_files", build_table_files)
+        error = _outcome_within(120, lambda: run_m1.build_tables(narrow, tmp_path, inputs=STAMP))
+        assert isinstance(error, ValueError), error
+        if head == "a head line under another stamp":
+            assert f"is stamped 'another-stamp' where the build is stamped {STAMP!r}" in str(error)
+        assert _windows_bytes(tmp_path) == before
+        assert not list(tmp_path.glob("*.tmp"))
 
     def test_a_part_no_head_lists_is_deleted_by_the_next_build(self, tmp_path):
         """A part a failed build left under its final name, a segment past what the head lists or a base of the next generation, is no head's, and the next build deletes it before it writes, leaving only what its own head lists. So is the staging file a build killed while it filled a part or the head leaves, whose name, a part's carrying its generation and number, no later write may take again."""
@@ -871,7 +1014,7 @@ class TestThePacking:
             assert len(table_module.windows_head(tmp_path, config).segments) == widest, config
 
     def test_the_packed_base_is_the_reference_packing_of_its_payload(self, tmp_path):
-        """Each base a payload's FIFO reader packs is byte for byte the reference packing of the same payload from a plain file (`_reference_pack`), and so is the payload written into a FIFO in ragged pieces, so how the payload arrives changes no base."""
+        """Each base a payload's pipe reader packs is byte for byte the reference packing of the same payload from a plain file (`_reference_pack`), and so is the payload written into a pipe in ragged pieces, so how the payload arrives changes no base. The reader counts every byte it received."""
         run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
         for config in CONFIGS:
             packed = (tmp_path / table_module.windows_head(tmp_path, config).base.name).read_bytes()
@@ -881,10 +1024,9 @@ class TestThePacking:
         reference = _reference_pack(payload, tmp_path / "reference")
         ragged = tmp_path / "ragged"
         ragged.mkdir()
-        fifo = ragged / "ragged.tsv"
 
-        def write():
-            with fifo.open("wb", buffering=0) as sink:
+        def write(pipes):
+            with open(pipes.path("ss04"), "wb", buffering=0) as sink:
                 offset = 0
                 for size in itertools.cycle((1, 511, 65_537, 3, 1 << 20, 4_093)):
                     if offset >= len(payload):
@@ -892,12 +1034,12 @@ class TestThePacking:
                     offset += sink.write(payload[offset : offset + size])
 
         route = run_m1.WindowsRoute("ss04", ragged, run_m1.BASE_ROUTE, "first")
-        _ran, heads = kernel_exec.stream_payloads(
-            {"ss04": fifo}, lambda _config, source: run_m1._take_windows(source, route), write
+        _ran, taken = kernel_exec.stream_payloads(
+            ["ss04"], lambda _config, source: run_m1._take_windows(source, route), write
         )
-        assert heads["ss04"] == payload[: payload.index(b"\n") + 1]
+        assert taken["ss04"] == run_m1.TakenWindows(payload[: payload.index(b"\n") + 1], len(payload))
         assert route.part is not None and (ragged / route.part.name).read_bytes() == reference
-        assert gzip.decompress((route.staged or ragged).read_bytes()) == heads["ss04"]
+        assert gzip.decompress((route.staged or ragged).read_bytes()) == taken["ss04"].head
 
     def test_each_walk_waits_on_its_own_pack(self, monkeypatch, tmp_path):
         """The packs are released one at a time in reverse order, and each walk must find its own configuration's pack released and its windows head committed when it calls `kernel_exec.replay_emitted`."""

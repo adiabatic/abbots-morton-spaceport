@@ -2,7 +2,7 @@
 
 Each table step is one `build-tables` over the configurations named (every settlement configuration unless `--configs` narrows them) on one alphabet cut, at the flags a bare run_m1 derives on this machine (`bare_flags`, as `run_m1.build_tables` derives them with nothing beside the build: the width and how many deltas start from scratch beside `default`), unless `--kernel-threads` or `--scratch-beside-default` states one. Every step runs the same flags, so the cuts differ only in their alphabet. The cut is `scaling_series.sub_spec`'s, over `scaling_series.series_order`, the rule the alphabet switch (`spec_load.M1_RUNES_ENV`) narrows by too, so a line's `alphabet` is what that switch takes to build the same cut in a tree of the fault kit's kind. The sizes default to `SIZES` below the whole alphabet and the whole alphabet itself, so the largest line is the live build's; positional arguments name other rune counts, and a count named twice is measured twice.
 
-A step's build writes no file. Each configuration's windows payload goes through a FIFO at its path and is counted as it arrives (`scaling_sweep.scan`, through `kernel_exec.stream_payloads`). The settlement and joins paths are symbolic links to the null device. The crate opens every one of these paths with `File::create`, which opens a FIFO or the null device and truncates neither. The crate's stdout and stderr come back through pipes. The `--inputs` stamp is `STAMP_PREFIX` and the rune count, so one cut hashes the same from run to run.
+A step's build writes no file. Each configuration's windows payload goes through a pipe the crate inherits, named to it as `--windows=<config>=/dev/fd/<number>`, and is counted as it arrives (`scaling_sweep.scan`, through `kernel_exec.stream_payloads`, in `run_piped`), so it stands at no path; the bytes counted must be the bytes the crate answers it wrote (`scaling_sweep.counts`). The settlement and joins paths are symbolic links to the null device, which the crate opens with `File::create`, which does not truncate it. The crate's stdout and stderr come back through pipes. The `--inputs` stamp is `STAMP_PREFIX` and the rune count, so one cut hashes the same from run to run.
 
 A table line holds, beside `step` (`tables`) and the cut (`runes`, `letters`, `ligs`, `configs`, the two flags and `modes`, the settlement modes `kernel_exec.mode_flags` passes):
 
@@ -11,12 +11,12 @@ A table line holds, beside `step` (`tables`) and the cut (`runes`, `letters`, `l
 - `start`, `peak` and `end`: a sampler thread reads the child's resident set and footprint (`peak_rss.resident_bytes`, `peak_rss.footprint_bytes`) and the machine (`read_machine`: swap in use, `peak_rss.swap_used_bytes`; the compressor's occupancy, `peak_rss.parse_compressor_bytes`, and the swapout count, `peak_rss.parse_swapouts`, both over `vm_stat`; and the internal SSD's write counter, as the write meter reads it) every `--interval` seconds. `start` is the machine just before the spawn, `peak` the sample whose footprint was highest, and `end` the machine once the child is reaped beside the last sample's child figures, whose footprint reads None when that sample caught the child exiting (`peak_rss.footprint_bytes`). `compressor_max` and `swap_used_max` are the highest of every reading, and `samples` how many the sampler took.
 - `windows`: each configuration's `[windows, rules, cells]`, counted from its payload as `scaling_sweep.counts` counts them. `digests`: each configuration's table digest from the child's stdout.
 - `phases`: the child's `[t]` lines, label to seconds. `tables`: the `[c]` lines that give a collection's length and capacity, as `[len, cap, load]` by configuration and collection, the load being length over capacity. `resident`: the `[c]` lines that give a resident size, in bytes. `stats`: every other `[c]` line's fields (`cache_lines` says how a line is keyed).
-- `written`: the write meter's fields (`rebuild/tools/write_meter.py`). The meter is read with the device `--idle-seconds` before the step and again just before the step's FIFOs are made, which gives the device's idle rate (`idle_rate`); then once the child is reaped and every FIFO drained (`end`), and again `--after-seconds` after that (`after`), since a write the kernel defers and the swap the pressure leaves reach the device late. Each of the two blocks reads from the reading just before the FIFOs are made: `basis`, `written` (the coalition's logical writes, `WriteDelta.bytes`), `diskio`, `device`, `device_net` (the device's delta less the idle rate over the same seconds), `swap` (the VM volume's writes), `swapouts` (the `vm_stat` swapout delta from `start`), `seconds`, and the meter's `warning` when it has one. `vm.swapusage` lags and does not fall back once the pressure ends, so the swapout delta is the swap reading a step owns. The window from that reading to `end` holds the build, the machine reading before its spawn, and the making and removal of the step's FIFOs, which come to a few kilobytes of directory metadata; it holds neither the step directory's making nor its removal. Before the first step's idle reading the run flushes its own setup's writes (the crate's build, the binary's copy, the spec dumps, the index refresh `git describe` makes and the record's truncation) with `os.sync` and waits `SETTLE_S` for them to reach the device, so the first step's idle rate holds none of them. A basis other than `own` or a warning also prints a `[warn]` line.
+- `written`: the write meter's fields (`rebuild/tools/write_meter.py`). The meter is read with the device `--idle-seconds` before the step and again just before the child's spawn, which gives the device's idle rate (`idle_rate`); then once the child is reaped and every payload's pipe drained (`end`), and again `--after-seconds` after that (`after`), since a write the kernel defers and the swap the pressure leaves reach the device late. Each of the two blocks reads from the reading just before the spawn: `basis`, `written` (the coalition's logical writes, `WriteDelta.bytes`), `diskio`, `device`, `device_net` (the device's delta less the idle rate over the same seconds), `swap` (the VM volume's writes), `swapouts` (the `vm_stat` swapout delta from `start`), `seconds`, and the meter's `warning` when it has one. `vm.swapusage` lags and does not fall back once the pressure ends, so the swapout delta is the swap reading a step owns. The window from that reading to `end` holds the build and the machine reading before its spawn, and nothing on the disk for the payloads, whose pipes have no path; it holds neither the step directory's making, with its links, nor its removal. Before the first step's idle reading the run flushes its own setup's writes (the crate's build, the binary's copy, the spec dumps, the index refresh `git describe` makes and the record's truncation) with `os.sync` and waits `SETTLE_S` for them to reach the device, so the first step's idle rate holds none of them. A basis other than `own` or a warning also prints a `[warn]` line.
 - `alphabet` (the cut's rune names), `cpus` and `ram` (`memory_budget.usable_cores` and `total_memory_bytes`, which `doc/fleet.md` matches to a machine; no hostname is recorded), `head` (the commit, with `-dirty` after it when tracked files have changed) and `finished_at`.
 
 The lines' writes read in the own basis only when nothing outside the series shares its resource coalition, which is what `make memory-series` gives it: it runs the series as a one-shot launchd job's own process (`rebuild/tools/job_launch.py`), as `make fault-kit` runs the kit, and follows its log in `tmp/memory-series.log`. Run another way, the series still runs, and each line's basis says what its figure is.
 
-The series works in its own tree, `TREE_PATH` under this checkout's `var/perf/`, never in the live tree, and empties it as a run starts (`empty_tree`). For the table holder `prepare_tree` then copies the crate's release binary into it once `kernel_exec.cargo_build` has built it, so a crate rebuilt elsewhere during the series changes nothing it measures, and every cut's spec dump (`spec-r<runes>.json`) is written there before the first step, so a rune edited during the series changes nothing either. Each table step's directory, `r<runes>`, holds only its FIFOs and links and is removed when the step ends. A run holds `<tree>.lock` beside the tree (`store_lock.hold_flock`) and refuses when another run holds it, since two series would share the tree and each other's memory. It refuses too while the alphabet switch is set, because the series cuts its alphabets from the whole store itself; it never sets the switch. SIGINT, SIGTERM and SIGHUP stop a run as they stop a cycle pass (`artifact_cycle.stop_signals`), which matters because `job_launch` forwards each to the series alone: the running step's child is killed (a corpus line's with its whole process group), the step's directory and the corpus step's clones are removed, the lock is released, and the run exits with 128 plus the signal's number.
+The series works in its own tree, `TREE_PATH` under this checkout's `var/perf/`, never in the live tree, and empties it as a run starts (`empty_tree`). For the table holder `prepare_tree` then copies the crate's release binary into it once `kernel_exec.cargo_build` has built it, so a crate rebuilt elsewhere during the series changes nothing it measures, and every cut's spec dump (`spec-r<runes>.json`) is written there before the first step, so a rune edited during the series changes nothing either. Each table step's directory, `r<runes>`, holds only its links to the null device and is removed when the step ends. A run holds `<tree>.lock` beside the tree (`store_lock.hold_flock`) and refuses when another run holds it, since two series would share the tree and each other's memory. It refuses too while the alphabet switch is set, because the series cuts its alphabets from the whole store itself; it never sets the switch. SIGINT, SIGTERM and SIGHUP stop a run as they stop a cycle pass (`artifact_cycle.stop_signals`), which matters because `job_launch` forwards each to the series alone: the running step's child is killed (a corpus line's with its whole process group), the step's directory and the corpus step's clones are removed, the lock is released, and the run exits with 128 plus the signal's number.
 
 Each line prints to stdout as its step finishes and goes to `--out`, `OUT_PATH` by default, the checked-in record of each holder's last run. A run replaces only its own holder's lines and fit there and keeps every other holder's as the file held them, holders in `HOLDERS` order (`Record`), rewriting the file as each line finishes. After a table run's last step both get the whole-series fit against runes of the windows, the peak footprint and resident, the CPU time and the first configuration's table lengths (`report`), the lengths rather than the table bytes, because a hash table's bytes move in doublings.
 
@@ -42,7 +42,7 @@ A corpus line holds, beside `step` (`corpus` or `corpus-load` with its `scale`),
 
 After a corpus run's last line the record and stdout get the fit of each corpus figure against units, of the parent's footprint at the load's and the plan's marks against rows, and of the pack child's figures against the pack's rows, over the cut lines, and the ×2 load line's ratio to the ×1 line at each mark (`corpus_report`).
 
-The replay step measures a full string replay as run_m1 runs one (`run_m1.replay_and_absorb`): every configuration named (every settlement configuration unless `--configs` narrows them) walked over every text to `run_m1.REPLAY_MAX_LENGTH`, one `replay-strings` process a configuration at most `--replay-threads` at once (the width a bare run_m1 derives, `run_m1._replay_threads`, by default), each beside the spawn worker that absorbs its window memo from a FIFO into the settle memo's columns, builds its index and holds the finished part until every walk has passed, or below the configuration count drops it at once while a walk still waits for a slot. The series' tree holds no settle memo, so every absorb takes the `first` route and lays its refill out as a whole base, today's file byte for byte (`conform.SettleMemoRoute`). The cuts default to `REPLAY_SIZES` below the whole alphabet and the whole alphabet; positional arguments name others, and a count named twice is measured twice. For each distinct cut the run first builds the tables once, unmeasured (`build_replay_tables`): one `build-tables` at the table holder's flags whose settlement and joins tables are written plain under `<tree>/replay/r<runes>/`, since the walks read them, about 0.05 GB a cut, and whose windows payloads are drained from FIFOs; it writes the cut's spec dump and a pickle of the cut beside the tree's other spec dumps, and removes the tables as the run ends, however it ends. Each line then runs the replay in a child, `rebuild/tools/memory_series_child.py`'s `replay` entry, so the absorb workers import run_m1's modules and the child's and not this module's. The child runs in `corpus_environment`, without the allocator setting a corpus line adds, and takes this process's built kernel as its own (`--built`), so no `cargo build` runs inside a line. KERNEL_ALLOCATOR_ENVIRONMENT reaches the walks alone, as in run_m1, since `kernel_exec.replay_memo_walk` adds it to each crate's environment and the absorb workers are Python processes: each crate runs with `--cache-stats`, and each absorb hashes its finished part's bytes in order and then discards it, as a red replay does, so a line writes no settle memo and commits no head. The walks and absorbs run the checkout's crate binary and code, as run_m1's do.
+The replay step measures a full string replay as run_m1 runs one (`run_m1.replay_and_absorb`): every configuration named (every settlement configuration unless `--configs` narrows them) walked over every text to `run_m1.REPLAY_MAX_LENGTH`, one `replay-strings` process a configuration at most `--replay-threads` at once (the width a bare run_m1 derives, `run_m1._replay_threads`, by default), each beside the spawn worker that absorbs its window memo from a pipe the crate inherits into the settle memo's columns, builds its index and holds the finished part until every walk has passed, or below the configuration count drops it at once while a walk still waits for a slot. The series' tree holds no settle memo, so every absorb takes the `first` route and lays its refill out as a whole base, today's file byte for byte (`conform.SettleMemoRoute`). The cuts default to `REPLAY_SIZES` below the whole alphabet and the whole alphabet; positional arguments name others, and a count named twice is measured twice. For each distinct cut the run first builds the tables once, unmeasured (`build_replay_tables`): one `build-tables` at the table holder's flags whose settlement and joins tables are written plain under `<tree>/replay/r<runes>/`, since the walks read them, about 0.05 GB a cut, and whose windows payloads are drained from pipes (`run_piped`); it writes the cut's spec dump and a pickle of the cut beside the tree's other spec dumps, and removes the tables as the run ends, however it ends. Each line then runs the replay in a child, `rebuild/tools/memory_series_child.py`'s `replay` entry, so the absorb workers import run_m1's modules and the child's and not this module's. The child runs in `corpus_environment`, without the allocator setting a corpus line adds, and takes this process's built kernel as its own (`--built`), so no `cargo build` runs inside a line. KERNEL_ALLOCATOR_ENVIRONMENT reaches the walks alone, as in run_m1, since `kernel_exec.replay_memo_walk` adds it to each crate's environment and the absorb workers are Python processes: each crate runs with `--cache-stats`, and each absorb hashes its finished part's bytes in order and then discards it, as a red replay does, so a line writes no settle memo and commits no head. The walks and absorbs run the checkout's crate binary and code, as run_m1's do.
 
 A replay line holds, beside `step` (`replay`), the cut (`runes`, `letters`, `ligs`, `alphabet`), `configs`, `width`, `max_length` and `modes` (the settlement flags the walks take):
 
@@ -141,7 +141,6 @@ INTERVAL_S = 0.5
 STAMP_PREFIX = "memory-series-r"
 VM_STAT = "/usr/bin/vm_stat"
 READ_CHUNK_BYTES = 1 << 20
-WINDOWS = "windows"
 # A `[c]` line's fields that say which instance of a collection it reports, such as `shared_memo_hits id=0` or a replay walk's `walk_memo unit=3`, rather than a figure.
 CACHE_QUALIFIERS = ("id", "release", "unit")
 _CACHE_LINE = re.compile(r"^\[c\] (\S+) (.+)$", re.MULTILINE)
@@ -327,16 +326,13 @@ def step_arguments(
     return arguments
 
 
-def route(out_dir: Path, configs: Sequence[str]) -> dict[str, Path]:
-    """Make `out_dir`, which must not exist, with each configuration's settlement and joins paths linked to the null device, and return the paths `kernel_exec.stream_payloads` makes FIFOs at: each configuration's windows payload, keyed `windows <config>`."""
+def route(out_dir: Path, configs: Sequence[str]) -> None:
+    """Make `out_dir`, which must not exist, with each configuration's settlement and joins paths linked to the null device. The windows payloads need nothing here: each goes through a pipe the crate inherits (`run_piped`), so it stands at no path."""
     out_dir.mkdir(parents=True)
-    paths: dict[str, Path] = {}
     for config in configs:
         settlement, joins = run_m1.config_table_files(out_dir, config)[:2]
         settlement.symlink_to(os.devnull)
         joins.symlink_to(os.devnull)
-        paths[f"{WINDOWS} {config}"] = kernel_exec.windows_payload(out_dir, config)
-    return paths
 
 
 def _vm_stat() -> str | None:
@@ -410,13 +406,23 @@ def run_child(
     env: Mapping[str, str] | None,
     interval: float,
     machine: Callable[[], Machine] = read_machine,
+    payloads: kernel_exec.PayloadPipes | None = None,
 ) -> ChildRun:
-    """Run one kernel child with its stdout and stderr on pipes drained by threads of their own, sampled (`Sampler`) until it exits, and return what it did (`ChildRun`). Once both pipes close it waits for the exit without reaping (`os.waitid` with `WNOWAIT`), stops the sampler, reads the child's peak footprint, and reaps it with `os.wait4`, whose rusage gives its resident peak and CPU time. The sampler stops before the reap, so it never reads a pid the reap has freed. An interrupt kills and reaps the child before it propagates, so no crate outlives the end of its payloads' reads (`kernel_exec.stream_payloads`)."""
+    """Run one kernel child with its stdout and stderr on pipes drained by threads of their own, sampled (`Sampler`) until it exits, and return what it did (`ChildRun`). With `payloads`, the child also inherits the write end of each payload's pipe (`kernel_exec.PayloadPipes`), and this process closes its own copies right after the spawn, and after a failed spawn too, so each payload's reader meets end of file when the child exits. Once both pipes close it waits for the exit without reaping (`os.waitid` with `WNOWAIT`), stops the sampler, reads the child's peak footprint, and reaps it with `os.wait4`, whose rusage gives its resident peak and CPU time. The sampler stops before the reap, so it never reads a pid the reap has freed. An interrupt kills and reaps the child before it propagates, so no crate outlives the end of its payloads' reads (`kernel_exec.stream_payloads`)."""
     begin = machine()
     origin = time.perf_counter()
-    process = subprocess.Popen(
-        list(arguments), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env
-    )
+    try:
+        process = subprocess.Popen(
+            list(arguments),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            pass_fds=() if payloads is None else payloads.pass_fds,
+        )
+    finally:
+        if payloads is not None:
+            payloads.close_write_ends()
     assert process.stdout is not None and process.stderr is not None
     drained: dict[str, bytes] = {}
     readers = [
@@ -455,23 +461,41 @@ def run_child(
     )
 
 
-def check_child(child: ChildRun, configs: Sequence[str], arguments: Sequence[str]) -> dict[str, str]:
-    """Hold the child to the CLI contract `kernel_exec.build_table_files` holds a build to and return its digests by configuration: exit 2 is a usage error, any other nonzero exit an error about the inputs, stdout one `{config, digest}` line for each configuration in the order named, and stderr on a clean exit only `[t]` and `[c]` lines."""
+def check_child(
+    child: ChildRun, configs: Sequence[str], arguments: Sequence[str]
+) -> dict[str, dict[str, Any]]:
+    """Hold the child to the CLI contract `kernel_exec.build_table_files` holds a build to and return its answers by configuration, each its `config`, `digest` and `windows_bytes` (`kernel_exec.TABLE_ANSWER_KEYS`): exit 2 is a usage error, any other nonzero exit an error about the inputs, stdout one such line for each configuration in the order named (`scaling_sweep.table_answers`), and stderr on a clean exit only `[t]` and `[c]` lines."""
     if child.returncode == 2:
         raise SystemExit(
             f"the kernel rejected the invocation as a usage error: {child.stderr.strip()} ({' '.join(arguments)})"
         )
     if child.returncode != 0:
         raise SystemExit(f"the kernel exited {child.returncode} on build-tables: {child.stderr.strip()}")
-    answers = [json.loads(line) for line in child.stdout.decode().splitlines()]
-    if [answer.get("config") for answer in answers] != list(configs):
-        raise SystemExit(
-            f"build-tables answered for {[answer.get('config') for answer in answers]}, not for {list(configs)}"
-        )
+    answers = scaling_sweep.table_answers(child.stdout, configs)
     stray = [line for line in child.stderr.splitlines() if line and not line.startswith(("[t] ", "[c] "))]
     if stray:
         raise SystemExit(f"the kernel wrote a line that is neither [t] nor [c] on a clean exit: {stray[0]}")
-    return {answer["config"]: answer["digest"] for answer in answers}
+    return {answer["config"]: answer for answer in answers}
+
+
+def run_piped[T](
+    arguments: Sequence[str],
+    configs: Sequence[str],
+    read: Callable[[IO[bytes]], T],
+    *,
+    env: Mapping[str, str] | None,
+    interval: float,
+    machine: Callable[[], Machine],
+) -> tuple[list[str], ChildRun, dict[str, T]]:
+    """Run one `build-tables` child over `configs` (`run_child`) with each configuration's windows payload sent into a pipe the child inherits, named to it as `--windows=<config>=/dev/fd/<number>` after `arguments`, and read by `read` on a thread of its own as the child writes it (`kernel_exec.stream_payloads`), so no payload reaches the disk or stands at a path another process could open. Return the command line the child ran, the child, and what `read` returned for each configuration."""
+    spawned = list(arguments)
+
+    def spawn(pipes: kernel_exec.PayloadPipes[T]) -> ChildRun:
+        spawned.extend(pipes.windows_flags(configs))
+        return run_child(spawned, env=env, interval=interval, machine=machine, payloads=pipes)
+
+    child, read_back = kernel_exec.stream_payloads(configs, lambda _config, source: read(source), spawn)
+    return spawned, child, read_back
 
 
 def cache_lines(stderr: str) -> dict[str, dict[str, dict[str, object]]]:
@@ -578,30 +602,30 @@ def measure_step(
     machine: Callable[[], Machine] = read_machine,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    """Run one step in `step_dir`, which must not exist and is removed once the meter has read the step's end, so the window from the meter's reading just before the FIFOs are made to its reading at the end holds the FIFOs' making and removal, the machine reading before the spawn and the build, and neither the directory's making nor its removal, and return its measured fields, everything a line holds but the cut, the flags and the provenance (the module docstring lists them). `meter`, `machine` and `sleep` are the write meter, the machine reading and the wait, which a test replaces."""
+    """Run one step in `step_dir`, which must not exist and is removed once the meter has read the step's end, so the window from the meter's reading just before the child's spawn to its reading at the end holds the machine reading before the spawn and the build, whose payloads go through pipes with no path (`run_piped`), and neither the directory's making, with its links (`route`), nor its removal, and return its measured fields, everything a line holds but the cut, the flags and the provenance (the module docstring lists them). A payload whose bytes received differ from the bytes the crate answers it wrote stops the run (`scaling_sweep.counts`). `meter`, `machine` and `sleep` are the write meter, the machine reading and the wait, which a test replaces."""
     arguments = step_arguments(binary, spec_path, step_dir, configs, stamp, flags)
     try:
-        paths = route(step_dir, configs)
+        route(step_dir, configs)
         idle = None
         if idle_s > 0:
             idle = meter()
             sleep(idle_s)
         start = meter()
-        child, payloads = kernel_exec.stream_payloads(
-            paths,
-            lambda _name, source: scaling_sweep.scan(source),
-            lambda: run_child(arguments, env=env, interval=interval_s, machine=machine),
+        arguments, child, scanned = run_piped(
+            arguments, configs, scaling_sweep.scan, env=env, interval=interval_s, machine=machine
         )
         end = meter()
     finally:
         shutil.rmtree(step_dir, ignore_errors=True)
     rate = None if idle is None else idle_rate(idle, start)
-    digests = check_child(child, configs, arguments)
+    answers = check_child(child, configs, arguments)
+    digests = {config: answer["digest"] for config, answer in answers.items()}
     windows: dict[str, list[int]] = {}
     for config in configs:
-        scanned = payloads[f"{WINDOWS} {config}"]
-        assert isinstance(scanned, tuple)
-        windows[config] = list(scaling_sweep.counts(scanned, kernel_exec.windows_payload(step_dir, config)))
+        payload = kernel_exec.windows_payload(step_dir, config)
+        windows[config] = list(
+            scaling_sweep.counts(scanned[config], payload, answers[config]["windows_bytes"])
+        )
     after: dict[str, object] | None = None
     if after_s > 0:
         sleep(after_s)
@@ -1843,7 +1867,7 @@ def build_replay_tables(
     *,
     env: Mapping[str, str] | None,
 ) -> None:
-    """Build one cut's tables, unmeasured, for the replay holder's lines to walk: one `build-tables` at the flags the table holder's step takes, its settlement and joins tables written plain into `cut_dir`, which must not exist, and each windows payload drained from a FIFO at its path (`kernel_exec.stream_payloads`), so no payload reaches the disk. A build that fails stops the run (`check_child`)."""
+    """Build one cut's tables, unmeasured, for the replay holder's lines to walk: one `build-tables` at the flags the table holder's step takes, its settlement and joins tables written plain into `cut_dir`, which must not exist, and each windows payload drained from a pipe the crate inherits (`run_piped`), so no payload reaches the disk. A build that fails stops the run (`check_child`)."""
     cut_dir.mkdir(parents=True)
     arguments = [
         str(kernel_exec.BINARY),
@@ -1857,11 +1881,8 @@ def build_replay_tables(
     ]
     if flags.scratch_beside_default:
         arguments.append(f"--scratch-beside-default={flags.scratch_beside_default}")
-    paths = {f"{WINDOWS} {config}": kernel_exec.windows_payload(cut_dir, config) for config in configs}
-    child, _drained = kernel_exec.stream_payloads(
-        paths,
-        lambda _name, source: _discard(source),
-        lambda: run_child(arguments, env=env, interval=INTERVAL_S, machine=lambda: QUIET),
+    arguments, child, _drained = run_piped(
+        arguments, configs, _discard, env=env, interval=INTERVAL_S, machine=lambda: QUIET
     )
     check_child(child, configs, arguments)
 

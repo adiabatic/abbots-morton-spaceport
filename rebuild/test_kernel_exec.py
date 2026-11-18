@@ -11,12 +11,14 @@ import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import threading
 import time
 from collections import OrderedDict
 from dataclasses import fields, replace
+from pathlib import Path
 
 import pytest
 
@@ -56,8 +58,7 @@ CONFIG_COUNT = len(conform.SETTLEMENT_CONFIGS)
 
 _INTERRUPTED_RUN = """
 import signal
-import sys
-from pathlib import Path
+import threading
 
 from rebuild.pipeline import kernel_exec
 
@@ -76,12 +77,17 @@ def spawned(arguments, **rest):
 kernel_exec._spawn_kernel = spawned
 try:
     kernel_exec.stream_payloads(
-        {"default": kernel_exec.windows_payload(Path(sys.argv[1]), "default")},
+        ["default"],
         lambda _name, source: source.read(),
-        lambda: kernel_exec._run_kernel_reaped(["/bin/sleep", "120"], "build-tables", timeout=600),
+        lambda pipes: kernel_exec._run_kernel_reaped(
+            ["/bin/sleep", "120"], "build-tables", timeout=600, payloads=pipes
+        ),
     )
 except KeyboardInterrupt:
-    print("interrupted", flush=True)
+    readers = [thread for thread in threading.enumerate() if thread.name.startswith("payload ")]
+    for reader in readers:
+        reader.join(10)
+    print("interrupted", sum(reader.is_alive() for reader in readers), flush=True)
 """
 
 
@@ -89,14 +95,12 @@ _ORPHANED_WORKERS = """
 import multiprocessing
 import os
 import signal
-import sys
 import time
-from pathlib import Path
 
 from rebuild.pipeline import kernel_exec, run_m1
 
 
-def park(where, scratch):
+def park(where):
     state = run_m1._REPLAY_WORKER
     state.reports.put((where, os.getpid()))
     if where == "slot":
@@ -113,9 +117,11 @@ def park(where, scratch):
 
         kernel_exec._spawn_kernel = spawned
         kernel_exec.stream_payloads(
-            {"memo": Path(scratch) / "memo.bin"},
+            ["memo"],
             lambda _name, source: source.read(),
-            lambda: kernel_exec._run_kernel_reaped(["/bin/sleep", "120"], "replay-strings", timeout=600),
+            lambda pipes: kernel_exec._run_kernel_reaped(
+                ["/bin/sleep", "120"], "replay-strings", timeout=600, payloads=pipes
+            ),
         )
 
 
@@ -126,10 +132,10 @@ if __name__ == "__main__":
     shared = (gate, reports, decided, context.Value("b", 0), context.Value("i", 0), 4, False)
     pool = run_m1._spawn_pool(4, 4, initializer=run_m1._replay_worker_init, initargs=(False, "spec.json", *shared))
     for where in ("slot", "verdict", "walk"):
-        pool.submit(park, where, sys.argv[1])
+        pool.submit(park, where)
     for _ in range(4):
         print(*reports.get(), flush=True)
-    pool.submit(park, "idle", sys.argv[1]).result()
+    pool.submit(park, "idle").result()
     print(*reports.get(), flush=True)
     time.sleep(600)
 """
@@ -229,7 +235,7 @@ class TestTheInvocationInterface:
             waited.append((verb, timeout))
             raise kernel_exec._no_answer(arguments, verb, timeout)
 
-        def reaped(arguments, verb, *, timeout, env=None, pipes=None):
+        def reaped(arguments, verb, *, timeout, env=None, pipes=None, payloads=None):
             return run(arguments, verb, timeout=timeout)
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", run)
@@ -279,7 +285,7 @@ class TestTheInvocationInterface:
         """On macOS, `build_table_files` spawns `build-tables`, and `replay_strings` spawns `replay-strings` for the string replay and for each deep replay unit, with this process's environment and `KERNEL_ALLOCATOR_ENVIRONMENT` (`MallocLargeCache=0`), so the tables a memo outgrows go back to the system as they are freed. Elsewhere each passes no environment, which leaves the child this process's own."""
         environments = []
 
-        def reaped(arguments, verb, *, timeout, env=None, pipes=None):
+        def reaped(arguments, verb, *, timeout, env=None, pipes=None, payloads=None):
             environments.append((verb, env))
             raise kernel_exec._no_answer(arguments, verb, timeout)
 
@@ -380,10 +386,10 @@ class TestTheInvocationInterface:
         assert killed[-1] == "hung killed"
 
     @pytest.mark.parametrize("stop", [signal.SIGINT, signal.SIGTERM, signal.SIGHUP])
-    def test_an_interrupt_kills_and_reaps_the_child_before_it_propagates(self, tmp_path, stop):
-        """A real stop signal sent to the waiting process alone, as `kill -INT`, `kill -TERM` or `kill -HUP` sends one, reaches its caller as `KeyboardInterrupt` only once `_run_kernel_reaped` has killed and reaped the child and `kernel_exec.stream_payloads` has ended its FIFO's read and removed the FIFO, so no crate outlives the caller's cleanup or is left to block in the open of a FIFO no one reads. A SIGTERM or SIGHUP would otherwise end the process with no cleanup at all. A `sleep` stands in for the crate. The waiting process starts from the dispositions a run started from a terminal inherits, so the test does not depend on whether the suite was started under `nohup` or in the background."""
+    def test_an_interrupt_kills_and_reaps_the_child_before_it_propagates(self, stop):
+        """A real stop signal sent to the waiting process alone, as `kill -INT`, `kill -TERM` or `kill -HUP` sends one, reaches its caller as `KeyboardInterrupt` only once `_run_kernel_reaped` has killed and reaped the child, whose exit closes the write end of its payload's pipe, and `kernel_exec.stream_payloads` has waited for that payload's reader, so no crate outlives the caller's cleanup and no reader is left waiting on a pipe. A SIGTERM or SIGHUP would otherwise end the process with no cleanup at all. A `sleep` that inherits the write end stands in for the crate. The waiting process starts from the dispositions a run started from a terminal inherits, so the test does not depend on whether the suite was started under `nohup` or in the background."""
         waiter = subprocess.Popen(
-            [sys.executable, "-c", _INTERRUPTED_RUN, str(tmp_path)],
+            [sys.executable, "-c", _INTERRUPTED_RUN],
             cwd=kernel_exec.REPO_ROOT,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -400,8 +406,7 @@ class TestTheInvocationInterface:
             if waiter.poll() is None:
                 waiter.kill()
                 waiter.wait()
-        assert out.split() == ["interrupted"], err
-        assert not list(tmp_path.iterdir())
+        assert out.split() == ["interrupted", "0"], err
         try:
             os.kill(child, 0)
         except ProcessLookupError:
@@ -423,6 +428,68 @@ class TestTheInvocationInterface:
                 symbols=len(conform.spec_alphabet(SPEC)),
             )
         assert [thread for thread in threading.enumerate() if thread not in before] == []
+
+    @staticmethod
+    def _answered(monkeypatch, stdout: bytes, payloads=None) -> tuple[kernel_exec.TableBuild, list]:
+        """Run `build_table_files` for `default` against a stubbed `build-tables` process that exits 0 with `stdout`, and return what it returns beside each call's arguments and `payloads`."""
+        from rebuild.tools.peak_rss import ReapedPeaks
+
+        calls = []
+
+        def reaped(arguments, verb, *, timeout, env=None, pipes=None, payloads=None):
+            calls.append((arguments, payloads))
+            return subprocess.CompletedProcess(arguments, 0, stdout, b""), ReapedPeaks(1, 1, 0.1)
+
+        monkeypatch.setattr(kernel_exec, "_run_kernel_reaped", reaped)
+        built = kernel_exec.build_table_files(
+            kernel_io.spec_bytes(SPEC),
+            Path("tables"),
+            ["default"],
+            inputs=STAMP,
+            threads=1,
+            symbols=1,
+            payloads=payloads,
+        )
+        return built, calls
+
+    def test_each_answer_line_carries_its_payloads_byte_count(self, monkeypatch):
+        """Each `build-tables` answer line is `{config, digest, windows_bytes}`, and `TableBuild.windows_bytes` holds each configuration's count beside its digest. With `payloads`, the crate is spawned with them and told to write each configuration's payload into its pipe (`--windows=<config>=/dev/fd/<number>`), and a payload it never writes is an empty stream."""
+        pipes = kernel_exec.PayloadPipes(["default"], lambda _name, source: source.read())
+        try:
+            path = pipes.path("default")
+            built, calls = self._answered(
+                monkeypatch, b'{"config":"default","digest":"d0","windows_bytes":12345}\n', pipes
+            )
+        finally:
+            pipes.close_write_ends()
+        assert pipes.finish() == ({"default": b""}, None)
+        assert (built.digests, built.windows_bytes) == ({"default": "d0"}, {"default": 12345})
+        ((arguments, passed),) = calls
+        assert passed is pipes and f"--windows=default={path}" in arguments
+        _built, calls = self._answered(monkeypatch, b'{"config":"default","digest":"d0","windows_bytes":0}\n')
+        ((arguments, passed),) = calls
+        assert passed is None and not [
+            argument for argument in arguments if argument.startswith("--windows=")
+        ]
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            b'{"config":"default","digest":"d0"}',
+            b'{"config":"default","digest":"d0","windows_bytes":"12"}',
+            b'{"config":"default","digest":"d0","windows_bytes":12.0}',
+            b'{"config":"default","digest":"d0","windows_bytes":true}',
+            b'{"config":"default","digest":"d0","windows_bytes":null}',
+            b'{"config":"default","digest":"d0","windows_bytes":1,"extra":1}',
+        ],
+        ids=["no count", "a string", "a float", "a boolean", "null", "an extra key"],
+    )
+    def test_an_answer_line_without_an_integer_byte_count_is_refused(self, monkeypatch, line):
+        """An answer line whose `windows_bytes` is missing or is not an integer, or that carries any other key, raises `KernelRunError`, so a caller never checks what it received against a count the crate did not state."""
+        with pytest.raises(
+            kernel_exec.KernelRunError, match=r"line 1 is not a \{config, digest, windows_bytes\}"
+        ):
+            self._answered(monkeypatch, line + b"\n")
 
     def test_a_missing_binary_names_the_recipe_that_builds_one(self, monkeypatch, tmp_path):
         monkeypatch.setattr(kernel_exec, "BINARY", tmp_path / "ams-m1-kernel")
@@ -1488,11 +1555,16 @@ class TestTheTableReuse:
             table_module.restamped_head_line(line, "ss03", "old+simulated-prospect", 'a "quoted" stamp')
 
 
+def _open_descriptors() -> int:
+    """How many descriptors this process holds open, as `/dev/fd` lists them."""
+    return len(os.listdir("/dev/fd"))
+
+
 class TestThePayloadPath:
-    """Tests for what a caller puts at the crate's window payload path (`kernel_exec.windows_payload`), which the crate opens with `File::create`, and for the FIFOs `kernel_exec.stream_payloads` reads payloads through. `rebuild/test_run_m1_tail.py` tests the build's packing through them, and `rebuild/test_scaling_sweep.py` the sweep's count."""
+    """Tests for where the crate writes a window payload: at the path a caller that names no other place leaves for it (`kernel_exec.windows_payload`), which the crate opens with `File::create`, or into the anonymous pipes `kernel_exec.stream_payloads` reads payloads through (`kernel_exec.PayloadPipes`), which stand at no path. `rebuild/test_run_m1_tail.py` tests the build's packing through them, and `rebuild/test_scaling_sweep.py` the sweep's count."""
 
     def test_the_crate_writes_its_payload_through_what_the_caller_put_at_the_path(self, tmp_path):
-        """With nothing at the path, as a test leaves it, the crate writes the payload as a file whose head reads back under the build's stamp. With a symbolic link to the null device there, as a reading that wants no payload puts, the link is left as it was and nothing is written through it, and the build answers with the same digest and settlement table. The build is `default` over the mini fixture narrowed to ·Tea, ·May and ·It."""
+        """With nothing at the path, as a test leaves it, the crate writes the payload as a file whose head reads back under the build's stamp. With a symbolic link to the null device there, as a caller that wants no file there puts, the link is left as it was and nothing is written through it, and the build answers with the same digest and settlement table. The build is `default` over the mini fixture narrowed to ·Tea, ·May and ·It."""
         spec = spec_load.narrowed(SPEC, ("qsTea", "qsMay", "qsIt"))
         kernel_exec.ensure_built()
         built = {}
@@ -1521,18 +1593,27 @@ class TestThePayloadPath:
             tmp_path / "nothing" / "settlement-default.tsv"
         ).read_bytes()
 
-    @pytest.mark.parametrize("late, runs", [(False, 1), (True, 1), (False, 200)])
-    def test_a_fifo_no_crate_opens_gives_its_reader_an_empty_stream(self, monkeypatch, tmp_path, late, runs):
-        """A run that ends without opening any FIFO, as a crate that fails before it writes does, leaves no reader waiting: each reads an empty stream, the run's answer comes back, and every FIFO is removed. That holds whether each reader is already waiting in its open when the run ends or, `late`, reaches its open only after `finish` has first tried the FIFO, which finds no reader and tries again, and across `runs` calls in a row, where `finish` often closes its writer while a reader is still inside its open. A reader left waiting would hang the call, so it runs on a thread that must finish in time."""
+    @pytest.mark.parametrize("child", [False, True], ids=["no crate", "a crate that opens nothing"])
+    @pytest.mark.parametrize("late, runs", [(False, 1), (True, 1), (False, 100)])
+    def test_a_payload_no_crate_opens_gives_its_reader_an_empty_stream(self, monkeypatch, late, runs, child):
+        """A run that ends without spawning a crate, or whose crate exits without opening any payload, as a crate that fails before it writes does, leaves no reader waiting: each reads an empty stream, the run's answer comes back, and every descriptor the call opened is closed. That holds whether each reader is already waiting in its first read when the run ends or, `late`, reaches it only after every write end is closed, and across `runs` calls in a row. A reader left waiting would hang the call, so it runs on a thread that must finish in time."""
         if late:
-            run = kernel_exec._PayloadFifo._run
+            run = kernel_exec.PayloadPipes._run
 
-            def late_run(fifo):
+            def late_run(descriptor, read, result):
                 time.sleep(0.2)
-                run(fifo)
+                run(descriptor, read, result)
 
-            monkeypatch.setattr(kernel_exec._PayloadFifo, "_run", late_run)
-        paths = {f"payload-{index}": tmp_path / f"payload-{index}.tsv" for index in range(6)}
+            monkeypatch.setattr(kernel_exec.PayloadPipes, "_run", staticmethod(late_run))
+        names = [f"payload-{index}" for index in range(6)]
+
+        def exits(pipes):
+            finished, _peaks = kernel_exec._run_kernel_reaped(
+                ["/usr/bin/true"], "build-tables", timeout=60, payloads=pipes
+            )
+            return finished.returncode
+
+        before = _open_descriptors()
         for _ in range(runs):
             answer = {}
             caller = threading.Thread(
@@ -1540,7 +1621,9 @@ class TestThePayloadPath:
                     zip(
                         ("ran", "read"),
                         kernel_exec.stream_payloads(
-                            paths, lambda _name, source: source.read(), lambda: "ran"
+                            names,
+                            lambda _name, source: source.read(),
+                            exits if child else lambda _pipes: "ran",
                         ),
                     )
                 ),
@@ -1548,9 +1631,103 @@ class TestThePayloadPath:
             )
             caller.start()
             caller.join(timeout=30)
-            assert not caller.is_alive(), "a reader of a FIFO no crate opened is still waiting"
-            assert answer == {"ran": "ran", "read": dict.fromkeys(paths, b"")}
-            assert not list(tmp_path.iterdir())
+            assert not caller.is_alive(), "a reader of a pipe no crate opened is still waiting"
+            assert answer == {"ran": 0 if child else "ran", "read": dict.fromkeys(names, b"")}
+        assert _open_descriptors() == before
+
+    def test_a_run_that_fails_before_it_spawns_gives_each_reader_an_empty_stream(self):
+        """A `run` that raises before it spawns anything, as a build whose spawn finds no binary does, raises as it came, with no cause, once each reader has read an empty stream, and every descriptor the call opened is closed."""
+        read: dict[str, bytes] = {}
+
+        def run(_pipes):
+            raise kernel_exec.KernelRunError("no kernel binary")
+
+        before = _open_descriptors()
+        with pytest.raises(kernel_exec.KernelRunError, match="no kernel binary") as raised:
+            kernel_exec.stream_payloads(
+                ["default", "ss03"], lambda name, source: read.setdefault(name, source.read()), run
+            )
+        assert raised.value.__cause__ is None
+        assert read == {"default": b"", "ss03": b""}
+        assert _open_descriptors() == before
+
+    @pytest.mark.parametrize("ending", ["a clean run", "a failing run", "an interrupt"])
+    def test_a_readers_failure_is_raised_after_a_clean_run_and_is_the_cause_of_a_failing_one(self, ending):
+        """A reader that raises fails the call: after a clean run with its own error, and when the run fails, as the cause of the run's error, since a reader that stops early breaks the crate's pipe; an interrupt is raised as it came, with no cause. Every other reader still reads its payload whole, and every descriptor the call opened is closed. A shell stands in for the crate, writing each payload through the path its pipe is named by (`PayloadPipes.path`) before it exits, and the run raises once it has exited."""
+        names = ["default", "ss03"]
+        read: dict[str, bytes] = {}
+
+        def reader(name, source):
+            read[name] = source.read()
+            if name == "ss03":
+                raise ValueError("ss03's reader fails")
+            return read[name]
+
+        def run(pipes):
+            script = " && ".join(f"printf '{name} rows\\n' > {pipes.path(name)}" for name in names)
+            finished, _peaks = kernel_exec._run_kernel_reaped(
+                ["/bin/sh", "-c", f"{script} && exit {0 if ending == 'a clean run' else 3}"],
+                "build-tables",
+                timeout=60,
+                payloads=pipes,
+            )
+            if ending == "an interrupt":
+                raise KeyboardInterrupt
+            if finished.returncode:
+                raise kernel_exec.KernelRunError(f"the kernel exited {finished.returncode} on build-tables")
+            return finished.returncode
+
+        before = _open_descriptors()
+        with pytest.raises((ValueError, kernel_exec.KernelRunError, KeyboardInterrupt)) as raised:
+            kernel_exec.stream_payloads(names, reader, run)
+        error = raised.value
+        if ending == "a clean run":
+            assert isinstance(error, ValueError) and str(error) == "ss03's reader fails"
+        elif ending == "a failing run":
+            assert isinstance(error, kernel_exec.KernelRunError) and "exited 3" in str(error)
+            assert isinstance(error.__cause__, ValueError) and str(error.__cause__) == "ss03's reader fails"
+        else:
+            assert isinstance(error, KeyboardInterrupt) and error.__cause__ is None
+        assert read == {name: f"{name} rows\n".encode() for name in names}
+        assert _open_descriptors() == before
+
+    def test_a_payload_streams_through_a_pipe_that_stands_at_no_path(self, tmp_path):
+        """While a crate writes its payloads, nothing stands at any payload's path in the output directory, neither a FIFO nor a file named `windows-<config>.tsv`, so a reader in another process, here a `cat` over `windows-*.tsv` run there while the payloads stream, has nothing to open and takes no byte, and each payload's reader receives it whole (#627: a FIFO at the payload's path lets such a reader take whole reads). A shell stands in for the crate: it writes each payload's first line through the path its pipe is named by (`PayloadPipes.path`), waits until the check is done, and writes the rest."""
+        names = ["default", "ss03"]
+        started = {name: threading.Event() for name in names}
+
+        def reader(name, source):
+            first = source.readline()
+            started[name].set()
+            return first + source.read()
+
+        def run(pipes):
+            heads = "; ".join(f"printf '{name} head\\n' > {pipes.path(name)}" for name in names)
+            rows = "; ".join(f"printf '{name} rows\\n' > {pipes.path(name)}" for name in names)
+            child = subprocess.Popen(
+                ["/bin/sh", "-c", f"{heads}; read go; {rows}"], stdin=subprocess.PIPE, pass_fds=pipes.pass_fds
+            )
+            pipes.close_write_ends()
+            try:
+                assert all(event.wait(30) for event in started.values()), "a reader never got its first line"
+                streaming = child.poll() is None
+                standing = [
+                    entry.name
+                    for entry in tmp_path.iterdir()
+                    if entry.name.startswith("windows-") or stat.S_ISFIFO(entry.lstat().st_mode)
+                ]
+                outsider = subprocess.run(
+                    ["/bin/sh", "-c", "cat windows-*.tsv"], cwd=tmp_path, capture_output=True, timeout=30
+                )
+            finally:
+                child.communicate(b"go\n", timeout=30)
+            return streaming, standing, outsider, child.returncode
+
+        (streaming, standing, outsider, code), payloads = kernel_exec.stream_payloads(names, reader, run)
+        assert streaming and standing == [] and code == 0
+        assert outsider.returncode != 0 and outsider.stdout == b""
+        assert payloads == {name: f"{name} head\n{name} rows\n".encode() for name in names}
+        assert not any(kernel_exec.windows_payload(tmp_path, name).exists() for name in names)
 
 
 class TestTheStructureStamp:
@@ -1926,6 +2103,48 @@ class TestTheStringReplay:
             assert json.loads(head)["rows"] == answered[config]["windows"]
         assert not list(tables_dir.glob("replay-windows-*.bin"))
 
+    def test_the_builds_walk_reads_its_window_memo_from_a_pipe_as_a_memo_directory_files_it(
+        self, tables_dir, tmp_path, monkeypatch
+    ):
+        """`replay_memo_walk`, the build's walk of one configuration, names its window memo to the crate as `--memo-file=` on a pipe the crate inherits, never as `--memo-dir=`: while the walk's reader reads, nothing stands in the tables directory at the configuration's memo path (`replay_memo_dump`) or as a FIFO, and what the reader receives is byte for byte the memo a walk with `memo_dir` files there, beside the same counts."""
+        reaped = kernel_exec._run_kernel_reaped
+        arguments: list[list[str]] = []
+        monkeypatch.setattr(
+            kernel_exec,
+            "_run_kernel_reaped",
+            lambda command, verb, **rest: (arguments.append(list(command)), reaped(command, verb, **rest))[1],
+        )
+        seen: list[list[str]] = []
+
+        def read(source):
+            first = source.read(1)
+            seen.append(
+                sorted(
+                    entry.name
+                    for entry in tables_dir.iterdir()
+                    if entry.name.startswith("replay-windows-") or stat.S_ISFIFO(entry.lstat().st_mode)
+                )
+            )
+            return first + source.read()
+
+        walked = kernel_exec.replay_memo_walk(
+            kernel_exec._spec_dump(SPEC),
+            tables_dir,
+            "ss03",
+            max_length=3,
+            symbols=len(conform.spec_alphabet(SPEC)),
+            read=read,
+        )
+        filed = kernel_exec.replay_strings(
+            SPEC, tables_dir, ["ss03"], max_length=3, families=None, threads=1, memo_dir=tmp_path
+        )
+        walk, _filed = arguments
+        (memo_flag,) = [argument for argument in walk if argument.startswith("--memo-")]
+        assert memo_flag.startswith("--memo-file=/dev/fd/"), memo_flag
+        assert seen == [[]]
+        assert walked.memo and walked.memo == kernel_exec.replay_memo_dump(tmp_path, "ss03").read_bytes()
+        assert walked.counts == filed["ss03"]
+
     def test_a_memo_ceiling_reaches_the_verb_and_moves_only_the_settle_count(
         self, tables_dir, tmp_path, monkeypatch
     ):
@@ -2288,16 +2507,14 @@ class TestTheReplayStage:
             assert not list(tmp_path.glob("settle-memo-*")) and not list(tmp_path.glob("*.tmp"))
 
     def test_a_worker_whose_parent_has_gone_stops_wherever_it_waits(self, tmp_path):
-        """A stop that ends a full replay's parent alone, as the artifact cycle's driver's SIGTERM to `uv run` ends run_m1, leaves no absorb worker behind, wherever the worker waits: for a slot, for the verdict, idle in its pool after its task, or inside a walk, whose crate it kills and reaps and whose FIFO it removes before it ends. A real spawn pool under the replay's initializer stands in for the replay, a parent that never sets the verdict and never frees a slot, and a `sleep` for the crate; the parent ends at SIGTERM's default action, with no cleanup of its own."""
+        """A stop that ends a full replay's parent alone, as the artifact cycle's driver's SIGTERM to `uv run` ends run_m1, leaves no absorb worker behind, wherever the worker waits: for a slot, for the verdict, idle in its pool after its task, or inside a walk, whose crate, which holds the write end of its memo's pipe, it kills and reaps before it ends. A real spawn pool under the replay's initializer stands in for the replay, a parent that never sets the verdict and never frees a slot, and a `sleep` for the crate; the parent ends at SIGTERM's default action, with no cleanup of its own."""
         script = tmp_path / "orphaned_workers.py"
         script.write_text(_ORPHANED_WORKERS)
-        scratch = tmp_path / "scratch"
-        scratch.mkdir()
         log = tmp_path / "orphaned_workers.log"
         pids: dict[str, int] = {}
         with log.open("w") as errors:
             parent = subprocess.Popen(
-                [sys.executable, str(script), str(scratch)],
+                [sys.executable, str(script)],
                 cwd=kernel_exec.REPO_ROOT,
                 env={**os.environ, "PYTHONPATH": str(kernel_exec.REPO_ROOT)},
                 stdin=subprocess.DEVNULL,
@@ -2332,7 +2549,6 @@ class TestTheReplayStage:
         for where in left:
             os.kill(pids[where], signal.SIGKILL)
         assert not left, log.read_text()
-        assert not list(scratch.iterdir())
 
     def test_the_stage_walks_at_its_own_width_and_a_stated_one_is_only_ever_narrowed(
         self, monkeypatch, tmp_path
@@ -2432,16 +2648,9 @@ class TestTheReplayStage:
         assert not list(tmp_path.glob("replay-windows-*.bin"))
 
     def test_a_narrowed_replay_walks_and_keys_only_the_configurations_it_names(self, monkeypatch, tmp_path):
-        """With `configs=["default"]`, the stage walks and absorbs `default` alone and clears only `default`'s window memo path. With no `configs` it walks and absorbs every settlement configuration and clears every path. `conform.settle_memo_files` returns every configuration either way, so the filtering happens in this stage."""
+        """With `configs=["default"]`, the stage walks and absorbs `default` alone. With no `configs` it walks and absorbs every settlement configuration. `conform.settle_memo_files` returns every configuration either way, so the filtering happens in this stage."""
         asked: list = []
-        dumps: list = []
-
-        def replay_memo_dump(out_dir, config):
-            dumps.append(config)
-            return tmp_path / f"replay-windows-{config}.bin"
-
         monkeypatch.setattr(run_m1, "replay_and_absorb", self._absorbing(asked))
-        monkeypatch.setattr(kernel_exec, "replay_memo_dump", replay_memo_dump)
         digests = {name: f"d-{name}" for name in SPEC.runes}
         inputs = oracle_cache.SettleMemoInputs(rune_digests=dict(digests), oracle_code="code", data="data")
         assert set(conform.settle_memo_files(tmp_path, SPEC, inputs)) == set(conform.SETTLEMENT_CONFIGS)
@@ -2449,13 +2658,10 @@ class TestTheReplayStage:
         narrowed = run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs, configs=["default"])
         assert asked == [("absorbed", ("default",))]
         assert list(narrowed["configs"]) == ["default"]
-        assert set(dumps) == {"default"}
 
-        dumps.clear()
         whole = run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)
         assert asked[-1] == ("absorbed", tuple(conform.SETTLEMENT_CONFIGS))
         assert list(whole["configs"]) == list(conform.SETTLEMENT_CONFIGS)
-        assert set(dumps) == set(conform.SETTLEMENT_CONFIGS)
 
     @pytest.fixture(scope="class")
     def tables_dir(self, tmp_path_factory):
@@ -2475,7 +2681,7 @@ class TestTheReplayStage:
     def test_a_full_replay_walks_each_configuration_in_a_crate_of_its_own_beside_its_absorb(
         self, tables_dir, tmp_path, capsys
     ):
-        """A full replay with memo inputs runs one `replay-strings` process a configuration, each writing its own `spec_parse[<config>]` line, and one absorb worker beside each, at widths 1 and 2 alike: it answers the counts the one-process walk answers, writes every configuration's settle memo file, leaves no FIFO and no staged file, and records each walk's own peak and each absorb's footprint, one observation a configuration."""
+        """A full replay with memo inputs runs one `replay-strings` process a configuration, each writing its own `spec_parse[<config>]` line, and one absorb worker beside each, at widths 1 and 2 alike: it answers the counts the one-process walk answers, writes every configuration's settle memo file, leaves nothing at any window memo path and no staged file, and records each walk's own peak and each absorb's footprint, one observation a configuration."""
         from rebuild.tools import cycle_timings
 
         inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
@@ -2511,7 +2717,7 @@ class TestTheReplayStage:
     def test_a_red_walk_in_any_configuration_writes_no_settle_memo_byte(
         self, tables_dir, tmp_path, monkeypatch
     ):
-        """A disagreement in one configuration's walk, not the first's, makes a replay at the configuration count red with that walk's message and no counts, every absorb discards its file, so no settle memo file appears and a standing one keeps its bytes and its inode, and no FIFO or staged file is left."""
+        """A disagreement in one configuration's walk, not the first's, makes a replay at the configuration count red with that walk's message and no counts, every absorb discards its file, so no settle memo file appears and a standing one keeps its bytes and its inode, and nothing is left at a window memo path and no staged file."""
         monkeypatch.setattr(run_m1, "usable_cores", lambda: 64)
         out_dir = self._tables(tables_dir, tmp_path / "red")
         table = out_dir / "settlement-ss04.tsv"

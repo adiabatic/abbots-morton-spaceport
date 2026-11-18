@@ -204,16 +204,24 @@ fn sorted_cells<'a>(index: &SpecIndex, cells: &'a [CellId]) -> Vec<&'a CellId> {
 /// The head's keys, in order, are `config`, `inputs` (the fingerprint of the sources the table was built from), `identity_guard_rules`, `cited_provenance`, `cells`, `deep_classes`, `rules`, `certificates`, `imports`, `fold_order`, and `buckets`. The set-valued ones are sorted here. `table.read_windows` reads the keys by name. `certificates` holds one token list per rule, in rule order: the strings from [`crate::certificate`] that should make each rule fire, which `run_m1`'s witness stage settles; a guard rule's list starts with [`crate::certificate::GUARD_MARKER`] and the configuration it settles under. `imports` holds the windows the table took from other configurations ([`crate::crossconfig`]), in key order, each as its six labels, its outcome, and the configuration it is live in. `fold_order`, the build's configurations in the order the emitter folds them, and `buckets`, one per rule in rule order, are where the exchange expects the emitter to ship the rules ([`crate::crossconfig::Spellings::fold_order`], [`crate::crossconfig::rule_buckets`]), which `emit_gsub._fold_rules` checks; both are empty outside a table build. These four are left out of `table.table_digest` and `table.windows_digest` because they are evidence about the rules, not part of the rules; the rules an import shapes are in both digests.
 ///
 /// With `previous`, the configuration's previous rows ([`row_merge::KeyedMerge`]), its own rows are merged against them in key order and only the rows that differ are written, each as a segment row: `+\t<row>` for a key the previous rows lack or hold with another outcome, and `-\t<six key fields>` for a key they hold that this table lacks. A row that is the same is written not at all. The table's own rows must strictly ascend by key, as every part's do, and a refusal names what failed. There is no size test: however many rows differ, they are all written as rows that differ.
+///
+/// `path` may name `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.stream_payloads` hands one. Returns the bytes the file took, counted beneath the buffer, which `build-tables` answers beside the digest so that a caller reading the payload from a pipe can check that it received every one.
 pub fn write_windows(
     index: &SpecIndex,
     decision: &DecisionTable,
     inputs: &str,
     path: &Path,
     previous: Option<&mut row_merge::KeyedMerge<'_>>,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     let fail = |error: std::io::Error| format!("{}: {error}", path.display());
     let file = std::fs::File::create(path).map_err(fail)?;
-    let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
+    let mut out = std::io::BufWriter::with_capacity(
+        1 << 20,
+        Counted {
+            sink: file,
+            bytes: 0,
+        },
+    );
     let mut line = String::new();
     line.push_str("# ");
     line.push_str(WINDOWS_FORMAT);
@@ -229,7 +237,8 @@ pub fn write_windows(
             window_line_into(&mut line, row, decision);
             out.write_all(line.as_bytes()).map_err(fail)?;
         }
-        return out.flush().map_err(fail);
+        out.flush().map_err(fail)?;
+        return Ok(out.get_ref().bytes);
     };
     out.write_all(line.as_bytes()).map_err(fail)?;
     let mut prior = Vec::new();
@@ -267,7 +276,26 @@ pub fn write_windows(
         write_tombstone(&mut out, prior_key(&prior)).map_err(fail)?;
         held = previous.next_into(&mut prior)?;
     }
-    out.flush().map_err(fail)
+    out.flush().map_err(fail)?;
+    Ok(out.get_ref().bytes)
+}
+
+/// A sink beside the count of the bytes it took.
+struct Counted<W> {
+    sink: W,
+    bytes: u64,
+}
+
+impl<W: std::io::Write> std::io::Write for Counted<W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let taken = self.sink.write(buffer)?;
+        self.bytes += taken as u64;
+        Ok(taken)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.sink.flush()
+    }
 }
 
 /// The key of a previous row the merge yielded: everything before its last tab.
@@ -535,7 +563,13 @@ mod tests {
         let root = std::env::temp_dir().join(format!("ams-windows-delta-{}", std::process::id()));
         std::fs::create_dir_all(&root).expect("a scratch directory");
         let whole = root.join("whole.tsv");
-        write_windows(&index, &decision, "stamp", &whole, None).expect("the whole payload");
+        let whole_bytes =
+            write_windows(&index, &decision, "stamp", &whole, None).expect("the whole payload");
+        assert_eq!(
+            whole_bytes,
+            std::fs::metadata(&whole).expect("it stats").len(),
+            "the count is every byte of the whole payload"
+        );
         let text = std::fs::read_to_string(&whole).expect("it reads back");
         let rows: Vec<&str> = text.lines().skip(2).collect();
         let (dropped, changed, stray_after) = (rows[2], rows[5], rows[7]);
@@ -565,9 +599,14 @@ mod tests {
         )
         .expect("the previous rows open");
         let delta = root.join("delta.tsv");
-        write_windows(&index, &decision, "stamp", &delta, Some(&mut merge))
+        let delta_bytes = write_windows(&index, &decision, "stamp", &delta, Some(&mut merge))
             .expect("the rows that differ");
         let written = std::fs::read_to_string(&delta).expect("it reads back");
+        assert_eq!(
+            delta_bytes,
+            written.len() as u64,
+            "the count is every byte of the rows that differ"
+        );
         let mut lines = written.lines();
         assert_eq!(
             lines.next(),

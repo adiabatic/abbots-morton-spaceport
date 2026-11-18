@@ -3,7 +3,7 @@
 //! The unit tests call the same code as functions and test the fixpoint and the fan-out there. These tests check behavior that only a process shows: that `enumerate` and `enumerate-configs` write the same bytes to different places, that a clean fan-out writes nothing to stdout or stderr, that `--timings` writes to stderr in the format `cycle_timings.py` parses, and that a usage error exits 2 while a failed run exits 1. The spec is the four-family fixture the unit tests use (`fixtures::mini_dump`), written to disk because the binary takes only a path.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 use ams_m1_kernel::index::fixtures;
 
@@ -369,7 +369,36 @@ fn a_configuration_that_cannot_write_fails_the_run_naming_the_earliest_one() {
     );
 }
 
-/// A table build writes three files per configuration in the directory it was given, prints one digest line per configuration in the order named, and writes the `--inputs=` stamp into the windows head, where `table.read_windows` reads it.
+/// Each answer line of a `build-tables` run as its configuration, its digest, and the bytes its window file took, in the order printed. Every line holds exactly those three keys, in that order.
+fn table_answers(stdout: &[u8]) -> Vec<(String, String, u64)> {
+    std::str::from_utf8(stdout)
+        .expect("the answers are text")
+        .lines()
+        .map(|line| {
+            let answer: serde_json::Value = serde_json::from_str(line).expect("an answer is JSON");
+            let fields = answer.as_object().expect("an answer is an object");
+            assert_eq!(
+                fields.keys().map(String::as_str).collect::<Vec<_>>(),
+                ["config", "digest", "windows_bytes"],
+                "{line}"
+            );
+            (
+                fields["config"].as_str().expect("a token").to_owned(),
+                fields["digest"].as_str().expect("a digest").to_owned(),
+                fields["windows_bytes"].as_u64().expect("a byte count"),
+            )
+        })
+        .collect()
+}
+
+/// The size of the file at `path`.
+fn size_of(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+        .len()
+}
+
+/// A table build writes three files per configuration in the directory it was given, prints one answer line per configuration in the order named, its digest beside the bytes its window file took, which are the file's size, and writes the `--inputs=` stamp into the windows head, where `table.read_windows` reads it.
 #[test]
 fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration() {
     let root = scratch("cli-tables");
@@ -385,16 +414,22 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     ]);
     assert!(output.status.success(), "{}", stderr_of(&output));
     assert!(output.stderr.is_empty(), "a clean build says nothing");
+    let counted = table_answers(&output.stdout);
     let answers: Vec<String> = String::from_utf8(output.stdout)
         .expect("the digests are text")
         .lines()
         .map(str::to_owned)
         .collect();
     assert_eq!(answers.len(), 2);
-    for (answer, (token, _)) in answers.iter().zip(CONFIGS) {
+    for ((answer, (token, _)), (_, _, windows_bytes)) in answers.iter().zip(CONFIGS).zip(&counted) {
         assert!(
             answer.starts_with(&format!("{{\"config\":\"{token}\",\"digest\":\"")),
             "the answer names its configuration in the order it was asked for: {answer}"
+        );
+        assert_eq!(
+            *windows_bytes,
+            size_of(&outdir.join(format!("windows-{token}.tsv"))),
+            "the count is every byte of {token}'s window file"
         );
         for family in ["settlement", "joins"] {
             let path = outdir.join(format!("{family}-{token}.tsv"));
@@ -416,7 +451,7 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
     }
 }
 
-/// A table build with `--previous=` for a configuration writes that configuration's head line and then only the rows that differ from its previous rows, with no column line, and every other configuration's whole payload, byte for byte what a build with no previous rows writes. Previous rows that are the table's own leave the head line alone. A part whose rows are not the count it names exits 1 naming the part, and a `--previous=` for a configuration the build does not name, or given twice for one, is a usage error.
+/// A table build with `--previous=` for a configuration writes that configuration's head line and then only the rows that differ from its previous rows, with no column line, and every other configuration's whole payload, byte for byte what a build with no previous rows writes. Its digests are a build's with no previous rows, and each answer's `windows_bytes` is the size of the file its configuration wrote, the rows that differ or the whole payload. Previous rows that are the table's own leave the head line alone. A part whose rows are not the count it names exits 1 naming the part, and a `--previous=` for a configuration the build does not name, or given twice for one, is a usage error.
 #[test]
 fn a_table_build_over_previous_rows_writes_the_rows_that_differ() {
     let root = scratch("cli-tables-previous");
@@ -456,10 +491,30 @@ fn a_table_build_over_previous_rows_writes_the_rows_that_differ() {
     let merged = root.join("merged");
     let output = build(&merged, &[&flag]);
     assert!(output.status.success(), "{}", stderr_of(&output));
+    let digests = |stdout: &[u8]| -> Vec<(String, String)> {
+        table_answers(stdout)
+            .into_iter()
+            .map(|(token, digest, _)| (token, digest))
+            .collect()
+    };
     assert_eq!(
-        output.stdout,
-        build(&root.join("again"), &[]).stdout,
+        digests(&output.stdout),
+        digests(&build(&root.join("again"), &[]).stdout),
         "the digests are the table's own"
+    );
+    let counts = |stdout: &[u8]| -> Vec<u64> {
+        table_answers(stdout)
+            .into_iter()
+            .map(|(_, _, windows_bytes)| windows_bytes)
+            .collect()
+    };
+    assert_eq!(
+        counts(&output.stdout),
+        [
+            size_of(&merged.join("windows-default.tsv")),
+            size_of(&merged.join("windows-ss03.tsv"))
+        ],
+        "each count is the bytes its configuration's file took"
     );
     assert_eq!(
         std::fs::read_to_string(merged.join("windows-ss03.tsv")).expect("the rows that differ"),
@@ -478,6 +533,11 @@ fn a_table_build_over_previous_rows_writes_the_rows_that_differ() {
     assert_eq!(
         std::fs::read_to_string(merged.join("windows-ss03.tsv")).expect("the head line"),
         format!("{head}\n")
+    );
+    assert_eq!(
+        counts(&output.stdout)[1],
+        head.len() as u64 + 1,
+        "the count of a payload that holds its head line alone is that line's"
     );
     let output = build(
         &merged,
@@ -509,6 +569,136 @@ fn a_table_build_over_previous_rows_writes_the_rows_that_differ() {
     }
     let twice = format!("--previous=ss03={}:{same_rows}", word(&same));
     assert_eq!(build(&merged, &[&twice, &twice]).status.code(), Some(2));
+}
+
+/// `--windows=<config>=<path>` writes that configuration's window file at the path and nothing at `<outdir>/windows-<config>.tsv`, while every other configuration writes its own under the output directory: byte for byte what a build without the flag writes, under the same answer lines. The path may name `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.stream_payloads` hands one; here it is the build's standard error, which a clean build leaves otherwise empty, and its answer's `windows_bytes` is every byte the pipe carried, for a whole payload and for the rows that differ from `--previous=` rows. A `--windows=` for a configuration the build does not name, given twice for one, with an empty path, an empty configuration, or no `=` after the configuration, is a usage error that writes nothing, and so is the flag on `enumerate-configs`.
+#[test]
+fn a_table_build_writes_a_window_file_where_windows_names_it() {
+    let root = scratch("cli-tables-windows");
+    let spec = spec_at(&root);
+    let arguments_for = |outdir: &Path, extra: &[&str]| -> Vec<String> {
+        let mut arguments: Vec<String> = [
+            "build-tables",
+            word(&spec),
+            word(outdir),
+            "--configs=default,ss03",
+            "--inputs=cli-stamp",
+            "--threads=2",
+            SMALL_SNAPSHOT_CACHE,
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        arguments.extend(extra.iter().map(|argument| (*argument).to_owned()));
+        arguments
+    };
+    let build = |outdir: &Path, extra: &[&str]| {
+        Command::new(KERNEL)
+            .args(arguments_for(outdir, extra))
+            .output()
+            .expect("the binary this crate just built runs")
+    };
+    let whole = root.join("whole");
+    let reference = build(&whole, &[]);
+    assert!(reference.status.success(), "{}", stderr_of(&reference));
+    let payload = std::fs::read(whole.join("windows-ss03.tsv")).expect("the whole payload");
+
+    let elsewhere = root.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).expect("the directory is makeable");
+    let named = elsewhere.join("ss03.tsv");
+    let moved = root.join("moved");
+    let output = build(&moved, &[&format!("--windows=ss03={}", word(&named))]);
+    assert!(output.status.success(), "{}", stderr_of(&output));
+    assert_eq!(
+        output.stdout, reference.stdout,
+        "the answer lines are the same"
+    );
+    assert_eq!(std::fs::read(&named).expect("the named file"), payload);
+    assert!(
+        !moved.join("windows-ss03.tsv").exists(),
+        "nothing is written at the configuration's path under the output directory"
+    );
+    assert_eq!(
+        std::fs::read(moved.join("windows-default.tsv")).expect("default's window file"),
+        std::fs::read(whole.join("windows-default.tsv")).expect("default's window file"),
+    );
+    let counts: Vec<u64> = table_answers(&output.stdout)
+        .into_iter()
+        .map(|(_, _, windows_bytes)| windows_bytes)
+        .collect();
+    assert_eq!(
+        counts,
+        [size_of(&moved.join("windows-default.tsv")), size_of(&named)]
+    );
+
+    let piped = root.join("piped");
+    let output = build(&piped, &["--windows=ss03=/dev/fd/2"]);
+    assert!(output.status.success(), "{}", stderr_of(&output));
+    assert_eq!(
+        output.stdout, reference.stdout,
+        "the answer lines are the same"
+    );
+    assert_eq!(output.stderr, payload, "the pipe carries the whole payload");
+    assert!(!piped.join("windows-ss03.tsv").exists());
+    assert_eq!(
+        table_answers(&output.stdout)[1].2,
+        output.stderr.len() as u64
+    );
+
+    let text = String::from_utf8(payload.clone()).expect("the payload is text");
+    let head = text.lines().next().expect("a head line");
+    let rows: Vec<&str> = text.lines().skip(2).collect();
+    let lacking = root.join("lacking.tsv");
+    let kept: String = rows
+        .iter()
+        .enumerate()
+        .filter(|(at, _)| *at != 1)
+        .map(|(_, row)| format!("{row}\n"))
+        .collect();
+    std::fs::write(&lacking, &kept).expect("the previous rows are writable");
+    let previous = format!("--previous=ss03={}:{}", word(&lacking), rows.len() - 1);
+    let output = build(&piped, &[&previous, "--windows=ss03=/dev/fd/2"]);
+    assert!(output.status.success(), "{}", stderr_of(&output));
+    assert_eq!(
+        String::from_utf8(output.stderr.clone()).expect("the rows that differ are text"),
+        format!("{head}\n+\t{}\n", rows[1]),
+        "the pipe carries the rows that differ"
+    );
+    assert_eq!(
+        table_answers(&output.stdout)[1].2,
+        output.stderr.len() as u64
+    );
+
+    let refused_at = root.join("refused");
+    let path = elsewhere.join("refused.tsv");
+    let to = format!("--windows=ss03={}", word(&path));
+    for refused in [
+        vec![format!("--windows=ss05={}", word(&path))],
+        vec![to.clone(), to.clone()],
+        vec![to.clone(), format!("--windows=ss03={}", word(&named))],
+        vec!["--windows=ss03=".to_owned()],
+        vec![format!("--windows=={}", word(&path))],
+        vec!["--windows=ss03".to_owned()],
+    ] {
+        let words: Vec<&str> = refused.iter().map(String::as_str).collect();
+        let output = build(&refused_at, &words);
+        assert_eq!(output.status.code(), Some(2), "{refused:?}");
+        assert!(output.stdout.is_empty(), "{refused:?}");
+        assert!(!path.exists() && !refused_at.exists(), "{refused:?}");
+    }
+    let enumerated = run(&[
+        "enumerate-configs",
+        word(&spec),
+        word(&refused_at),
+        "--configs=default",
+        &to,
+    ]);
+    assert_eq!(
+        enumerated.status.code(),
+        Some(2),
+        "{}",
+        stderr_of(&enumerated)
+    );
+    assert!(!path.exists() && !refused_at.exists());
 }
 
 /// A second table build into the same directory leaves each settlement and join table whose bytes come out the same in place, so each keeps its inode and modification time, and a table path linked to the null device, as `memory_series.route` links both, is written through and stays a link.
@@ -1469,10 +1659,10 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
     );
 }
 
-/// The window memo through a FIFO, as `run_m1` reads it: with a FIFO at a configuration's memo path, the bytes a reader takes from it are the bytes the same walk writes to a file, and the answer lines are the same. A reader that opens the FIFO and closes it at once leaves the walk answered: the run exits 0 with the same answer lines and nothing on stderr.
+/// The window memo at `--memo-file=`, as `run_m1` reads it: a walk naming one configuration writes at that path byte for byte the memo `--memo-dir=` files for it, with the same answer lines, and nothing else beside it. The path may name `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.replay_memo_walk` hands one; here it is the walk's standard error, which a clean walk without `--timings` leaves otherwise empty, and the pipe carries the memo's bytes. A reader that closes the pipe once the memo has begun, at a depth whose memo is more than a pipe holds, leaves the walk answered: the run exits 0 with the answer lines of a walk that writes no memo. `--memo-file=` for a run naming two configurations, beside `--memo-dir=` or `--memo-windows=`, given twice, or with an empty path, is a usage error that writes nothing to stdout and nothing at the path.
 #[test]
-fn a_replay_memo_written_through_a_fifo_is_the_memo_written_to_a_file() {
-    let root = scratch("cli-replay-memo-fifo");
+fn a_replay_memo_written_at_a_memo_file_is_the_memo_a_memo_directory_files() {
+    let root = scratch("cli-replay-memo-file");
     let spec = spec_at(&root);
     let outdir = root.join("tables");
     let built = run(&[
@@ -1483,51 +1673,101 @@ fn a_replay_memo_written_through_a_fifo_is_the_memo_written_to_a_file() {
         "--inputs=cli-stamp",
     ]);
     assert!(built.status.success(), "{}", stderr_of(&built));
-    let replay = |memos: &Path| {
-        run(&[
-            "replay-strings",
-            word(&spec),
-            word(&outdir),
-            "--configs=default",
-            "--max-length=4",
-            &format!("--memo-dir={}", word(memos)),
-        ])
+    let arguments_for = |depth: &str, extra: &[&str]| -> Vec<String> {
+        let mut arguments: Vec<String> = ["replay-strings", word(&spec), word(&outdir)]
+            .map(str::to_owned)
+            .to_vec();
+        arguments.push("--configs=default".to_owned());
+        arguments.push(format!("--max-length={depth}"));
+        arguments.extend(extra.iter().map(|argument| (*argument).to_owned()));
+        arguments
+    };
+    let replay = |extra: &[&str]| {
+        Command::new(KERNEL)
+            .args(arguments_for("4", extra))
+            .output()
+            .expect("the binary this crate just built runs")
     };
     let files = root.join("files");
     std::fs::create_dir_all(&files).expect("the memo directory is makeable");
-    let filed = replay(&files);
+    let filed = replay(&[&format!("--memo-dir={}", word(&files))]);
     assert!(filed.status.success(), "{}", stderr_of(&filed));
     let written = std::fs::read(files.join("replay-windows-default.bin")).expect("the memo file");
 
-    let piped = root.join("piped");
-    std::fs::create_dir_all(&piped).expect("the memo directory is makeable");
-    let fifo = piped.join("replay-windows-default.bin");
-    let made = Command::new("mkfifo")
-        .arg(&fifo)
-        .status()
-        .expect("mkfifo runs");
-    assert!(made.success(), "the FIFO is made");
-    let reading = fifo.clone();
-    let reader = std::thread::spawn(move || std::fs::read(reading));
-    let through = replay(&piped);
-    let taken = reader
-        .join()
-        .expect("the reader thread ends")
-        .expect("the FIFO reads to its end");
+    let at = root.join("at");
+    std::fs::create_dir_all(&at).expect("the directory is makeable");
+    let memo = at.join("memo.bin");
+    let named = replay(&[&format!("--memo-file={}", word(&memo))]);
+    assert!(named.status.success(), "{}", stderr_of(&named));
+    assert_eq!(named.stdout, filed.stdout, "the answer lines are unchanged");
+    assert_eq!(std::fs::read(&memo).expect("the memo file"), written);
+    let beside: Vec<String> = std::fs::read_dir(&at)
+        .expect("the directory lists")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert_eq!(
+        beside,
+        ["memo.bin"],
+        "the walk writes nothing beside the memo"
+    );
+
+    let through = replay(&["--memo-file=/dev/fd/2"]);
     assert!(through.status.success(), "{}", stderr_of(&through));
     assert_eq!(
         through.stdout, filed.stdout,
         "the answer lines are unchanged"
     );
-    assert_eq!(taken, written, "the FIFO carries the file's bytes");
+    assert_eq!(through.stderr, written, "the pipe carries the memo's bytes");
 
-    let closing = fifo.clone();
-    let closer = std::thread::spawn(move || drop(std::fs::File::open(closing)));
-    let closed = replay(&piped);
-    closer.join().expect("the closing reader ends");
-    assert_eq!(closed.status.code(), Some(0), "{}", stderr_of(&closed));
-    assert_eq!(closed.stdout, filed.stdout, "the walk is still answered");
-    assert!(closed.stderr.is_empty(), "{}", stderr_of(&closed));
+    let deep = Command::new(KERNEL)
+        .args(arguments_for("6", &[]))
+        .output()
+        .expect("the binary this crate just built runs");
+    assert!(deep.status.success(), "{}", stderr_of(&deep));
+    let mut walking = Command::new(KERNEL)
+        .args(arguments_for("6", &["--memo-file=/dev/fd/2"]))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the binary this crate just built runs");
+    let mut reader = walking.stderr.take().expect("the pipe's read end");
+    let mut first = [0u8; 1];
+    std::io::Read::read_exact(&mut reader, &mut first).expect("the memo begins");
+    assert_eq!(&first, b"#", "the memo begins with its head line");
+    drop(reader);
+    let closed = walking.wait_with_output().expect("the walk ends");
+    assert_eq!(closed.status.code(), Some(0));
+    assert_eq!(closed.stdout, deep.stdout, "the walk is still answered");
+
+    let refused_at = root.join("refused.bin");
+    let to = format!("--memo-file={}", word(&refused_at));
+    let two = {
+        let mut arguments = arguments_for("4", &[&to]);
+        arguments[3] = "--configs=default,ss03".to_owned();
+        arguments
+    };
+    let refusals = [
+        two,
+        arguments_for("4", &[&to, &format!("--memo-dir={}", word(&files))]),
+        arguments_for("4", &[&to, "--memo-windows=5"]),
+        arguments_for("4", &[&to, &to]),
+        arguments_for("4", &["--memo-file="]),
+    ];
+    for refused in refusals {
+        let output = Command::new(KERNEL)
+            .args(&refused)
+            .output()
+            .expect("the binary this crate just built runs");
+        assert_eq!(output.status.code(), Some(2), "{refused:?}");
+        assert!(output.stdout.is_empty(), "{refused:?}");
+        assert!(!refused_at.exists(), "{refused:?}");
+    }
 }
 
 /// The replay's cache stats through the binary. `--cache-stats` leaves the answer lines byte for byte as the plain walk prints them. Without `--timings` it writes only `[c]` lines to stderr: for each configuration, the walk's own memo and its side memo, every engine memo with the trace memo's ranking pool empty, an elimination-text size of zero, a unit count of one a symbol of the fixture's six with each unit's release reported under `unit=<k>`, an empty row store for a walk that writes no memo, and the resident size after the walk. With `--timings`, a configuration's cache-stats lines come before its `replay[<config>]` phase line. Under a memo ceiling of a third of one unit's share of the walk's window count, one sixth, each release reports the walk memo and the engine's memos under `release=<k>` with the resident size before and after, the walk reports its release count, and no `walk_memo` row exceeds the ceiling.

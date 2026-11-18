@@ -338,10 +338,11 @@ fn scratch_tiers(work: &[(usize, DeltaWork<'_>)], most: usize) -> usize {
         .unwrap_or(0)
 }
 
-/// One configuration's table build result: the digest [`artifacts::table_digest`] computes over its decision and join tables, and its timing lines.
+/// One configuration's table build result: the digest [`artifacts::table_digest`] computes over its decision and join tables, the bytes its window file took ([`artifacts::write_windows`]), and its timing lines.
 #[derive(Debug)]
 pub struct TableAnswer {
     pub digest: String,
+    pub windows_bytes: u64,
     pub timed: Vec<String>,
 }
 
@@ -372,6 +373,7 @@ pub fn run_configs_tables(
     report: Report,
     sharing: MemoSharing,
     previous: &[Vec<row_merge::PriorPart>],
+    windows: &[Option<PathBuf>],
 ) -> Result<Vec<TableAnswer>, String> {
     std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
     let spellings = Spellings::new(
@@ -389,6 +391,7 @@ pub fn run_configs_tables(
         spellings: &spellings,
         board: &board,
         previous,
+        windows,
     };
     let default_position = sharing
         .default_memo_sharing
@@ -489,7 +492,7 @@ pub fn run_configs_tables(
     settle_ends(ended, configs.len())
 }
 
-/// What every thread of one table build reads: the spec, where to write, the report flags, the build's spellings, the board, and each configuration's previous windows rows by listed position.
+/// What every thread of one table build reads: the spec, where to write, the report flags, the build's spellings, the board, and, by listed position, each configuration's previous windows rows and the path its window file goes to when the caller named one.
 struct TableRun<'a> {
     index: &'a SpecIndex,
     outdir: &'a Path,
@@ -498,6 +501,7 @@ struct TableRun<'a> {
     spellings: &'a Spellings,
     board: &'a Board,
     previous: &'a [Vec<row_merge::PriorPart>],
+    windows: &'a [Option<PathBuf>],
 }
 
 /// Why a configuration's thread ended without its tables: its own failure, with the message the run reports, or a halt another configuration's failure caused while this thread waited.
@@ -917,7 +921,7 @@ fn table_thread<'a>(
         .and_then(|folded| write_tables(run, token, listed, &folded));
     run.board.give_slot();
     watch.armed = false;
-    let (digest, windowing) = finished.map_err(fail)?;
+    let (digest, windows_bytes, windowing) = finished.map_err(fail)?;
     timed.append(&mut fold_lines);
     if timings {
         timed.push(fold_timing_line(
@@ -929,23 +933,30 @@ fn table_thread<'a>(
     if timings {
         timed.push(timing_line(&format!("fold[{token}]"), folding));
     }
-    Ok(TableAnswer { digest, timed })
+    Ok(TableAnswer {
+        digest,
+        windows_bytes,
+        timed,
+    })
 }
 
-/// Writes one configuration's three artifact files and returns its table digest beside the time the window file's write took. The settlement and join tables go through [`write_text`], which leaves a table whose bytes come out the same in place. The window file is the whole enumeration for a configuration with no previous rows, and for one with them the rows that differ, merged by key against its base and segments, which it opens here, inside the finish's slot, each through one buffer of [`row_merge::BUFFER_BYTES`] ([`artifacts::write_windows`]). The digest is over the table's own rows either way.
+/// Writes one configuration's three artifact files and returns its table digest, the bytes its window file took, and the time that file's write took. The window file goes to the path the caller named for the configuration (`--windows=`), or to `<outdir>/windows-<config>.tsv` when it named none. The settlement and join tables go through [`write_text`], which leaves a table whose bytes come out the same in place. The window file is the whole enumeration for a configuration with no previous rows, and for one with them the rows that differ, merged by key against its base and segments, which it opens here, inside the finish's slot, each through one buffer of [`row_merge::BUFFER_BYTES`] ([`artifacts::write_windows`]). The digest is over the table's own rows either way.
 fn write_tables(
     run: &TableRun<'_>,
     token: &str,
     listed: usize,
     folded: &fold::Folded,
-) -> Result<(String, Duration), String> {
+) -> Result<(String, u64, Duration), String> {
     let settlement = run.outdir.join(format!("settlement-{token}.tsv"));
     write_text(&settlement, &artifacts::settlement_tsv(&folded.decision))?;
     let joins = run.outdir.join(format!("joins-{token}.tsv"));
     write_text(&joins, &artifacts::join_tsv(&folded.joins))?;
-    let windows = run.outdir.join(format!("windows-{token}.tsv"));
+    let windows = match run.windows.get(listed) {
+        Some(Some(named)) => named.clone(),
+        _ => run.outdir.join(format!("windows-{token}.tsv")),
+    };
     let started = Instant::now();
-    match run.previous.get(listed).filter(|parts| !parts.is_empty()) {
+    let windows_bytes = match run.previous.get(listed).filter(|parts| !parts.is_empty()) {
         Some(parts) => {
             let mut merge = row_merge::KeyedMerge::open(token, parts)?;
             artifacts::write_windows(
@@ -954,13 +965,14 @@ fn write_tables(
                 run.inputs,
                 &windows,
                 Some(&mut merge),
-            )?;
+            )?
         }
         None => artifacts::write_windows(run.index, &folded.decision, run.inputs, &windows, None)?,
-    }
+    };
     let windowing = started.elapsed();
     Ok((
         artifacts::table_digest(run.index, &folded.decision, &folded.joins),
+        windows_bytes,
         windowing,
     ))
 }
@@ -1034,7 +1046,7 @@ pub struct ReplayAnswer {
     pub timed: Vec<String>,
 }
 
-/// Replays every configuration's persisted rules over `text_set`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the text set, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two engine mode flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo_dir`, each passing walk writes its window memo there as `replay-windows-<config>.bin` ([`replay::Replay::write_window_memo`]), where `run_m1` puts a FIFO its absorb worker reads; a reader that closes it early leaves the walk's answer standing. A walk that fails writes nothing. A walk that released its memo under the text set's ceiling fails instead of writing, and the `replay-strings` CLI rejects `--memo-dir` with `--memo-windows`, so no command line can request that.
+/// Replays every configuration's persisted rules over `text_set`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the text set, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two engine mode flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo`, each passing walk writes its window memo where it says ([`MemoPath`], [`replay::Replay::write_window_memo`]), for `run_m1` a pipe its absorb worker reads; a reader that closes it early leaves the walk's answer standing. A walk that fails writes nothing. A walk that released its memo under the text set's ceiling fails instead of writing, and the `replay-strings` CLI rejects `--memo-dir` and `--memo-file` with `--memo-windows`, so no command line can request that.
 #[allow(clippy::too_many_arguments)]
 pub fn run_configs_replay(
     index: &SpecIndex,
@@ -1044,10 +1056,10 @@ pub fn run_configs_replay(
     text_set: replay::TextSet<'_>,
     workers: usize,
     report: Report,
-    memo_dir: Option<&Path>,
+    memo: Option<MemoPath<'_>>,
 ) -> Result<Vec<ReplayAnswer>, String> {
     claim_all(configs, workers, |config| {
-        run_config_replay(index, config, modes, outdir, text_set, report, memo_dir)
+        run_config_replay(index, config, modes, outdir, text_set, report, memo)
             .map_err(|error| format!("{}: {error}", config.token))
     })
 }
@@ -1057,7 +1069,23 @@ pub fn replay_memo_path(memo_dir: &Path, token: &str) -> PathBuf {
     memo_dir.join(format!("replay-windows-{token}.bin"))
 }
 
-/// Replays one configuration: reads its rules back and walks its text set, a unit a last symbol unless the text set names one ([`replay::Replay::walk_texts`]). When asked, it returns the cache stats' `[c]` lines and a `replay[<config>]` timing line. With a `memo_dir`, the walk files every window it settles in its row store ([`replay::Replay::keep_rows`]) and then writes the window memo from it, timed as `replay_memo[<config>]`; a reader that closes the memo before its end stops the write and not the walk. The walk's clock stops before the cache stats are taken, so the end-of-walk resident-size sample is not counted in the walk's time; the samples a walk with cache stats takes at each unit release and each release under the text set's ceiling are.
+/// Where a replay's walks write their window memos: each configuration's under a directory (`--memo-dir=`, [`replay_memo_path`]), or the one configuration's at a path the caller named (`--memo-file=`), which may be `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.replay_memo_walk` hands one.
+#[derive(Clone, Copy, Debug)]
+pub enum MemoPath<'a> {
+    Under(&'a Path),
+    At(&'a Path),
+}
+
+impl MemoPath<'_> {
+    fn of(self, token: &str) -> PathBuf {
+        match self {
+            MemoPath::Under(memo_dir) => replay_memo_path(memo_dir, token),
+            MemoPath::At(path) => path.to_path_buf(),
+        }
+    }
+}
+
+/// Replays one configuration: reads its rules back and walks its text set, a unit a last symbol unless the text set names one ([`replay::Replay::walk_texts`]). When asked, it returns the cache stats' `[c]` lines and a `replay[<config>]` timing line. With a `memo`, the walk files every window it settles in its row store ([`replay::Replay::keep_rows`]) and then writes the window memo from it, timed as `replay_memo[<config>]`; a reader that closes the memo before its end stops the write and not the walk. The walk's clock stops before the cache stats are taken, so the end-of-walk resident-size sample is not counted in the walk's time; the samples a walk with cache stats takes at each unit release and each release under the text set's ceiling are.
 pub fn run_config_replay(
     index: &SpecIndex,
     config: &Configuration<'_>,
@@ -1065,7 +1093,7 @@ pub fn run_config_replay(
     outdir: &Path,
     text_set: replay::TextSet<'_>,
     report: Report,
-    memo_dir: Option<&Path>,
+    memo: Option<MemoPath<'_>>,
 ) -> Result<ReplayAnswer, String> {
     let token = config.token;
     let started = Instant::now();
@@ -1083,7 +1111,7 @@ pub fn run_config_replay(
     if report.cache_stats {
         walk.with_cache_stats(token);
     }
-    if memo_dir.is_some() {
+    if memo.is_some() {
         walk.keep_rows();
     }
     let walked = walk.walk_texts(text_set)?;
@@ -1092,13 +1120,9 @@ pub fn run_config_replay(
     if report.timings {
         timed.push(timing_line(&format!("replay[{token}]"), elapsed));
     }
-    if let Some(memo_dir) = memo_dir {
+    if let Some(memo) = memo {
         let started = Instant::now();
-        walk.write_window_memo(
-            &replay_memo_path(memo_dir, token),
-            token,
-            text_set.max_length,
-        )?;
+        walk.write_window_memo(&memo.of(token), token, text_set.max_length)?;
         if report.timings {
             timed.push(timing_line(
                 &format!("replay_memo[{token}]"),
@@ -1666,6 +1690,7 @@ mod tests {
                     },
                     sharing.clone(),
                     &[],
+                    &[],
                 )
                 .expect("every configuration answers");
                 assert_eq!(answers.len(), configs.len());
@@ -1756,6 +1781,7 @@ mod tests {
                 workers,
                 Report::timed(true),
                 sharing,
+                &[],
                 &[],
             )
             .expect("every configuration answers");
@@ -1899,6 +1925,7 @@ mod tests {
             Report::timed(false),
             MemoSharing::default(),
             &[],
+            &[],
         )
         .expect("ss03 closes on its own");
         let error = run_configs_tables(
@@ -1910,6 +1937,7 @@ mod tests {
             8,
             Report::timed(false),
             beside_default(),
+            &[],
             &[],
         )
         .expect_err("default's labels collide");
@@ -1942,6 +1970,7 @@ mod tests {
             Report::timed(false),
             MemoSharing::default(),
             &[],
+            &[],
         )
         .expect_err("a directory in the settlement table's place is not writable");
         assert!(
@@ -1965,6 +1994,7 @@ mod tests {
             2,
             Report::timed(false),
             MemoSharing::default(),
+            &[],
             &[],
         )
         .expect_err("no configuration can write its settlement table");
@@ -2109,6 +2139,7 @@ mod tests {
                     0,
                     met.map(|()| TableAnswer {
                         digest: String::new(),
+                        windows_bytes: 0,
                         timed: Vec::new(),
                     }),
                 )
@@ -2122,6 +2153,7 @@ mod tests {
                     1,
                     again.map(|()| TableAnswer {
                         digest: String::new(),
+                        windows_bytes: 0,
                         timed: Vec::new(),
                     }),
                 )

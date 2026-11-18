@@ -483,7 +483,7 @@ HEAD_NAME_READERS = {
     (
         "rebuild/pipeline/run_m1.py",
         "build_tables.read_one",
-    ): "the head line its payload's reader kept from the crate's FIFO",
+    ): "the head line its payload's reader kept from the crate's pipe",
     (
         "rebuild/pipeline/run_m1.py",
         "_pack_config",
@@ -501,7 +501,7 @@ HEAD_NAME_READERS = {
         "rebuild/tools/perf_fingerprint.py",
         "table_digests",
     ): "the single file of a tree from before the segment format",
-    ("rebuild/tools/scaling_sweep.py", "counts"): "the head line of a payload read through its FIFO",
+    ("rebuild/tools/scaling_sweep.py", "counts"): "the head line of a payload read through its pipe",
 }
 
 

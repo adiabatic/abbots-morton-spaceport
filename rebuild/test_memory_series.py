@@ -64,31 +64,48 @@ def _reading(at, device, logical=0):
     )
 
 
-def test_a_step_reads_through_fifos_what_a_build_on_files_writes_and_leaves_only_null_links(
+def _listing(directory):
+    return {
+        path.name: "fifo" if path.is_fifo() else os.readlink(path) if path.is_symlink() else "file"
+        for path in directory.iterdir()
+    }
+
+
+def test_a_step_reads_through_pipes_what_a_build_on_files_writes_and_leaves_only_null_links(
     monkeypatch, tmp_path
 ):
-    """A step's windows counts and digests are what the same build writes as files, counted and hashed after it exits, and while the crate runs its directory holds the FIFOs and the settlement and joins links to the null device and nothing else, so the build writes no file. The directory is gone once the step returns."""
+    """A step's windows counts and digests are what the same build writes as files, counted and hashed after it exits, and each payload's byte count the crate answers is its file's size. The step's crate takes each payload's pipe as `--windows=<config>=/dev/fd/<number>`, inheriting its write end, and its directory holds the settlement and joins links to the null device and nothing else at the spawn and while the crate writes the payloads, so the build writes no file and no payload stands at a path. The directory is gone once the step returns."""
     spec_path = _spec_path(tmp_path)
     files = tmp_path / "files"
     arguments = ms.step_arguments(kernel_exec.BINARY, spec_path, files, CONFIGS, STAMP, FLAGS)
     done = subprocess.run(arguments, capture_output=True, check=True)
-    digests = {answer["config"]: answer["digest"] for answer in map(json.loads, done.stdout.splitlines())}
+    answers = {answer["config"]: answer for answer in map(json.loads, done.stdout.splitlines())}
+    digests = {config: answer["digest"] for config, answer in answers.items()}
     windows = {}
     for config in CONFIGS:
         payload = kernel_exec.windows_payload(files, config)
+        assert answers[config]["windows_bytes"] == payload.stat().st_size
         with payload.open("rb") as source:
-            windows[config] = list(scaling_sweep.counts(scaling_sweep.scan(source), payload))
+            scanned = scaling_sweep.scan(source)
+        windows[config] = list(scaling_sweep.counts(scanned, payload, answers[config]["windows_bytes"]))
 
     step_dir = tmp_path / "step"
-    seen: dict[str, str] = {}
-    run_child = ms.run_child
+    seen = {}
+    run_child, scan = ms.run_child, scaling_sweep.scan
 
     def looking(arguments, **rest):
-        for path in step_dir.iterdir():
-            seen[path.name] = "fifo" if path.is_fifo() else os.readlink(path) if path.is_symlink() else "file"
+        seen["spawn"] = _listing(step_dir)
+        seen["windows"] = [argument for argument in arguments if argument.startswith("--windows=")]
+        seen["pass_fds"] = rest["payloads"].pass_fds
         return run_child(arguments, **rest)
 
+    def scanning(source):
+        source.peek(1)
+        seen.setdefault("writing", _listing(step_dir))
+        return scan(source)
+
     monkeypatch.setattr(ms, "run_child", looking)
+    monkeypatch.setattr(scaling_sweep, "scan", scanning)
     measured = ms.measure_step(
         kernel_exec.BINARY,
         spec_path,
@@ -108,15 +125,54 @@ def test_a_step_reads_through_fifos_what_a_build_on_files_writes_and_leaves_only
     expected = {}
     for config in CONFIGS:
         expected |= {f"settlement-{config}.tsv": os.devnull, f"joins-{config}.tsv": os.devnull}
-        expected |= {f"windows-{config}.tsv": "fifo"}
-    assert seen == expected
+    assert seen["spawn"] == expected
+    assert seen["writing"] == expected
+    assert [flag.split("=")[1] for flag in seen["windows"]] == CONFIGS
+    assert {int(flag.rpartition("/dev/fd/")[2]) for flag in seen["windows"]} == set(seen["pass_fds"])
     assert not step_dir.exists()
 
 
-def test_the_meter_reads_idle_then_before_the_fifos_the_end_and_after_the_wait_with_the_device_netted(
+def test_a_step_whose_payload_lost_bytes_stops_the_run(monkeypatch, tmp_path):
+    """A payload whose reader receives fewer bytes than the crate answers it wrote, here one row another reader took, stops the run naming both counts instead of recording a short count, and the step's directory is still removed."""
+    scan = scaling_sweep.scan
+
+    def losing(source):
+        head, columns, _taken, rest = source.readline(), source.readline(), source.readline(), source.read()
+        return scan(io.BytesIO(head + columns + rest))
+
+    monkeypatch.setattr(scaling_sweep, "scan", losing)
+    step_dir = tmp_path / "step"
+    with pytest.raises(SystemExit, match=r"received \d+ bytes where the crate wrote \d+"):
+        ms.measure_step(
+            kernel_exec.BINARY,
+            _spec_path(tmp_path),
+            step_dir,
+            CONFIGS,
+            FLAGS,
+            STAMP,
+            idle_s=0,
+            after_s=0,
+            interval_s=0.01,
+            meter=lambda: write_meter.read(device=False),
+            machine=lambda: QUIET,
+        )
+    assert not step_dir.exists()
+
+
+def test_a_replay_cuts_tables_are_written_plain_with_their_payloads_drained_from_pipes(tmp_path):
+    """A replay cut's unmeasured build writes each configuration's settlement and joins tables as plain files, which the walks read, and drains each windows payload from its pipe, so no payload file is left in the cut's directory."""
+    cut_dir = tmp_path / "cut"
+    ms.build_replay_tables(_spec_path(tmp_path), cut_dir, CONFIGS, FLAGS, STAMP, env=None)
+    expected = {}
+    for config in CONFIGS:
+        expected |= {f"settlement-{config}.tsv": "file", f"joins-{config}.tsv": "file"}
+    assert _listing(cut_dir) == expected
+
+
+def test_the_meter_reads_idle_then_before_the_spawn_the_end_and_after_the_wait_with_the_device_netted(
     tmp_path,
 ):
-    """The meter is read once before the idle wait, once just before the step's FIFOs are made, once the build is done, and once more after the after-wait. Each block reads from the reading before the FIFOs, and its `device_net` is its device delta less the idle rate over that block's own seconds: 1 MB/s idle over 10 s, a 50 MB device delta over the step's 20 s and 80 MB over the 320 s to the later reading."""
+    """The meter is read once before the idle wait, once just before the step's child is spawned, once the build is done, and once more after the after-wait. Each block reads from the reading before the spawn, and its `device_net` is its device delta less the idle rate over that block's own seconds: 1 MB/s idle over 10 s, a 50 MB device delta over the step's 20 s and 80 MB over the 320 s to the later reading."""
     readings = iter(
         [
             _reading(0.0, 1_000_000_000),

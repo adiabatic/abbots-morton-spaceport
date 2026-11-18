@@ -3880,28 +3880,30 @@ class TestCrateEmittedSettleMemo:
         return rows.rows
 
     @staticmethod
-    def _through_fifo(dump, memo, spec, config, fifo):
-        """Absorb `dump` as `_absorb` does, its bytes fed through a FIFO at `fifo` by a thread of their own, as the crate writes a full replay's memo, and return the file's bytes."""
-        fifo.unlink(missing_ok=True)
-        os.mkfifo(fifo)
+    def _through_pipe(dump, memo, spec, config, name):
+        """Absorb `dump` as `_absorb` does, its bytes fed through a pipe by a thread of their own, as the crate writes a full replay's memo, with `name` naming the stream as the build's walk names it (`kernel_exec.replay_memo_dump`), and return the file's bytes."""
+        source, sink = os.pipe()
         data = dump.read_bytes()
 
         def feed():
-            with fifo.open("wb") as sink:
-                sink.write(data)
+            with os.fdopen(sink, "wb") as stream:
+                stream.write(data)
 
         writer = threading.Thread(target=feed, daemon=True)
-        writer.start()
         try:
-            with fifo.open("rb") as stream:
-                rows = conform.read_replay_memo(stream, spec, config, fifo)
+            writer.start()
+        except BaseException:
+            os.close(sink)
+            raise
+        try:
+            with os.fdopen(source, "rb") as stream:
+                rows = conform.read_replay_memo(stream, spec, config, name)
         finally:
             writer.join()
-            fifo.unlink()
         os.replace(rows.finish(memo).stage(memo.path), memo.path)
         return memo.path.read_bytes()
 
-    def test_a_dump_through_a_fifo_absorbs_to_the_bytes_the_in_memory_absorb_writes(
+    def test_a_dump_through_a_pipe_absorbs_to_the_bytes_the_in_memory_absorb_writes(
         self, spec, dumps_dir, tmp_path, monkeypatch
     ):
         """The streaming absorb lays out the file `absorb_replay_memo` lays out from the same dump, byte for byte: over the crate's narrow dumps for `default` and `ss03`; over a wide dump with more than 65,536 labels, so the dump's rows and the file's id columns are both `I`; and over a dump whose rows use two pairs of record ids as their lefts, each pair sharing one display name that no raw label spells, which takes the row check over the same columns, where the second pair's merged ids lie past the first repeat, and merges each pair's rows into one, and still matches. Only that last dump reaches the row check."""
@@ -3917,9 +3919,9 @@ class TestCrateEmittedSettleMemo:
             in_memory = self._memo(tmp_path / "in-memory" / name, config)
             streamed = self._memo(tmp_path / "streamed" / name, config)
             conform.absorb_replay_memo(dump, in_memory, spec, config)
-            assert self._through_fifo(dump, streamed, spec, config, tmp_path / "memo.fifo") == (
-                in_memory.path.read_bytes()
-            ), name
+            assert self._through_pipe(
+                dump, streamed, spec, config, kernel_exec.replay_memo_dump(tmp_path, config)
+            ) == (in_memory.path.read_bytes()), name
             header = conform._settle_memo_header(streamed)
             assert header is not None, name
             return header
@@ -3969,7 +3971,7 @@ class TestCrateEmittedSettleMemo:
             ],
         )
         assert same(repeated, "default", "repeated")["rows"] == 3
-        assert checked == [repeated, tmp_path / "memo.fifo"]
+        assert checked == [repeated, kernel_exec.replay_memo_dump(tmp_path, "default")]
 
     @pytest.mark.parametrize("config", ["default", "ss03"])
     def test_the_absorbed_memo_serves_every_window_the_walk_reaches_and_settles_alike(
