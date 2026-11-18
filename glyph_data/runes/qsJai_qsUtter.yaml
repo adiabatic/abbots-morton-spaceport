@@ -29,56 +29,17 @@ stances:
           x: 1
           stroke: horizontal
           from:
-          - family:
-            - qsPea
-            - qsTea
-            - qsGay
-            - qsFee
-            - qsWay
-            - qsHe
-            - qsWhy
-            - qsMay
-            - qsNo
-            - qsLow
-            - qsRoe
-            - qsIt
-            - qsAt
-            - qsI
-            - qsAh
-            - qsUtter
-            - qsOut
+          - class: can-exit-at-x-height
+            except:
+            - {family: qsThey}
       exits:
         x-height:
           x: 10
           stroke: horizontal
           toward:
-          - family:
-            - qsPea
-            - qsBay
-            - qsTea
-            - qsDay
-            - qsDay_qsUtter
-            - qsGay
-            - qsThey
-            - qsThey_qsUtter
-            - qsFee
-            - qsZoo
-            - qsJai
-            - qsJai_qsUtter
-            - qsCheer
-            - qsJay
-            - qsJay_qsUtter
-            - qsYe
-            - qsMay
-            - qsNo
-            - qsRoe
-            - qsLlan
-            - qsIt
-            - qsEt
-            - qsEight
-            - qsAwe
-            - qsOx
-            - qsOy
+          - class: can-enter-at-x-height
+            except:
+            - {family: qsUtter}
       cells: []
       unlocks: []
       require: []

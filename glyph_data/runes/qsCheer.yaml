@@ -34,21 +34,14 @@ stances:
           x: 0
           stroke: horizontal
           from:
-          - family:
-            - qsPea
-            - qsGay
-            - qsFee
-            - qsMay
-            - qsNo
-            - qsLow
-            - qsIt
-            - qsAt
-            - qsI
-            - qsAh
-            - qsUtter
-            - qsOut
-            - qsOwe
-            - qsFoot
+          - class: can-exit-at-x-height
+            except:
+            - {family: qsTea}
+            - {family: qsThey}
+            - {family: qsWay}
+            - {family: qsHe}
+            - {family: qsWhy}
+            - {family: qsRoe}
       exits:
         baseline:
           x: 4

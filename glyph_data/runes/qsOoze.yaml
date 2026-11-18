@@ -28,34 +28,14 @@ stances:
           x: 0
           stroke: vertical
           from:
-          - family:
-            - qsPea
-            - qsBay
-            - qsTea
-            - qsDay
-            - qsKey
-            - qsGay
-            - qsThey
-            - qsSee
-            - qsZoo
-            - qsShe
-            - qsJai
-            - qsCheer
-            - qsJay
-            - qsYe
-            - qsHe
-            - qsIng
-            - qsNo
-            - qsLlan
-            - qsExcite
-            - qsIt
-            - qsEt
-            - qsEight
-            - qsAwe
-            - qsOx
-            - qsOy
-            - qsUtter
-            - qsOoze
+          - class: can-exit-at-baseline
+            except:
+            - {family: qsThaw}
+            - {family: qsVie}
+            - {family: qsWay}
+            - {family: qsMay}
+            - {family: qsRoe}
+            - {family: qsAt}
       exits:
         baseline:
           x: 5

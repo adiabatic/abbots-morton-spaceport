@@ -28,25 +28,7 @@ stances:
           x: 0
           stroke: horizontal
           from:
-          - family:
-            - qsPea
-            - qsTea
-            - qsGay
-            - qsThey
-            - qsFee
-            - qsWay
-            - qsHe
-            - qsWhy
-            - qsMay
-            - qsNo
-            - qsLow
-            - qsRoe
-            - qsIt
-            - qsAt
-            - qsI
-            - qsAh
-            - qsUtter
-            - qsOut
+          - {class: can-exit-at-x-height}
       exits:
         baseline:
           x: 5
@@ -77,25 +59,7 @@ stances:
           x: 0
           stroke: horizontal
           from:
-          - family:
-            - qsPea
-            - qsTea
-            - qsGay
-            - qsThey
-            - qsFee
-            - qsWay
-            - qsHe
-            - qsWhy
-            - qsMay
-            - qsNo
-            - qsLow
-            - qsRoe
-            - qsIt
-            - qsAt
-            - qsI
-            - qsAh
-            - qsUtter
-            - qsOut
+          - {class: can-exit-at-x-height}
       exits:
         baseline:
           x: 5
