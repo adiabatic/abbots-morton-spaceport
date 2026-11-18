@@ -1,13 +1,14 @@
 @font-face {
   font-family: "AMS Review Before";
-  src: url("fonts/before.otf") format("opentype");
+  /* The server's copy with the namer dot's stand-in mapped (`namer_dot_stand_in_font` in rebuild/review/serve.py); fonts/before.otf is the corpus's byte-identical copy. */
+  src: url("fonts/browser/before.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
 }
 
 @font-face {
   font-family: "AMS Review After";
-  src: url("fonts/after.otf") format("opentype");
+  src: url("fonts/browser/after.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
 }

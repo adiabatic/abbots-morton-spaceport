@@ -4,11 +4,14 @@ The app saves its verdicts to the server through /autosave, and the server keeps
 
 The server keeps running through every artifact-cycle pass. A pass builds its corpus beside the served one and runs the verdict update on the pass's own names for the store's file, which every writer replaces by rename rather than writing through, then lands the corpus and the store together under the lock (rebuild.review.landing). A land killed inside that section leaves its intent file (`landing.intent_path_for`); before it answers /autosave or /status, the server finishes such a land when the lock is free, in its executor, and any request to either made while a land still holds the lock gets the retryable 503, so no tab reads the new corpus beside the old store. While that recovery refuses (`landing.LandUnrecoverable`), every such request gets the refusal under the reason it names, a GET of /autosave as a 404 and the others as a 422, which the app shows the reader, keeping its outbox (`orphaned_land_reply`). At boot the server waits for the lock, finishing an interrupted land and then catching the store up with the journal (`landing.locked_store`, `boot_catch_up`, which prints a line when it applied saves), so a server the cycle stopped with saves still unwritten loses none of them, before it loads the store, and a recovery that refuses stops it with the refusal. /capabilities names the land protocol the server speaks, the digest of its protocol and freshness modules as it loaded them (`landing.code_digest`), its repo root and its store (`capabilities_payload`); the cycle keeps the server running only when that root is its own checkout and that digest is the working tree's, and restarts a server whose code is older.
 
+The app's fonts come from /fonts/browser/before.otf and /fonts/browser/after.otf, not from the corpus's fonts/ copies: the server serves each corpus font with a private-use stand-in for the namer dot mapped beside the dot (`namer_dot_stand_in_font`), and the app writes the stand-in where a sample has the dot, so Chromium shapes a sample as one run. The corpus copies stay byte-identical to the fonts the units were built from.
+
 Livereload reloads no tab on a file change: the server registers one watch that ignores its path (`register_dormant_watch`). The cycle tells open tabs what changed through livereload's /forcereload with an `ams:` path, `ams:corpus/<generated_at>` after a pass's land moved the served corpus and `ams:assets/<static hash>` after an assets refresh, and the app's livereload plugin (static/reload-plugin.js) hands it to the app, which saves, waits while the reader types, and reloads at the same URL hash. A tab also moves when a save's reply or /status names a corpus other than the one it loaded.
 
 Usage: uv run python -m rebuild.review.serve
 """
 
+import io
 import json
 import time
 from collections.abc import Awaitable, Callable
@@ -35,6 +38,7 @@ __all__ = [
     "WRITE_BUSY",
     "WRITE_FAILED",
     "capabilities_payload",
+    "namer_dot_stand_in_font",
     "parse_autosave_payload",
     "receive_autosave",
     "receive_autosave_locked",
@@ -64,6 +68,40 @@ LAND_RUNNING = {
     "reason": "store-locked",
     "error": "a pass is moving the corpus and the verdict store into place; ask again shortly",
 }
+NAMER_DOT = 0x00B7
+NAMER_DOT_STAND_IN = 0xF8FF
+BROWSER_FONT_ROUTE = r"/fonts/browser/(before|after)\.otf"
+
+
+def namer_dot_stand_in_font(source: Path) -> bytes:
+    """Return the bytes of the font at `source` with `NAMER_DOT_STAND_IN` mapped, in every Unicode cmap subtable, to the glyph the namer dot (U+00B7) maps to.
+
+    Chromium ends a shaping run at U+00B7, because its Script_Extensions (Latn, Grek, Geor, Hani) leave out the Unknown script of the Quikscript letters, so the letters after the dot are shaped as a run of their own that does not see the dot. The old font then draws them as at the start of a text: it joins ·Excite to its follower after the namer dot, where HarfBuzz and CoreText shape the same font to a break. The app writes the stand-in where a sample has the dot (`namerDotStandIn` in static/render.js), and the stand-in, a private-use code point like the letters, keeps the sample in one run. GSUB and GPOS act on glyphs, so the stand-in shapes as the dot does.
+
+    The font is read with a glyph order of placeholder names, one per glyph id, so the cmap compiles back to the same glyph ids without the `CFF ` table being read, and every table but `cmap` and `head`, which holds the checksum adjustment, is written back as the bytes it was read from. Raises ValueError when the font maps no glyph to the namer dot, or already maps the stand-in to another glyph.
+
+    This exists only while the old font is reviewed in a browser. rebuild/REVIEW-PLAN.md § At cutover lists what to remove, and `test_the_namer_dot_stand_in_goes_at_cutover` in rebuild/test_review_autosave.py fails once cutover archives the old font's source.
+    """
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(source, recalcBBoxes=False, recalcTimestamp=False)
+    glyph_count = font["maxp"].numGlyphs  # pyright: ignore[reportAttributeAccessIssue]
+    font.setGlyphOrder([f"gid{gid}" for gid in range(glyph_count)])
+    glyph = (font.getBestCmap() or {}).get(NAMER_DOT)
+    if glyph is None:
+        raise ValueError(f"{source} maps no glyph to U+{NAMER_DOT:04X}")
+    for table in font["cmap"].tables:  # pyright: ignore[reportAttributeAccessIssue]
+        if not table.isUnicode() or table.format == 14:
+            continue
+        held = table.cmap.get(NAMER_DOT_STAND_IN)
+        if held is not None and held != glyph:
+            raise ValueError(
+                f"{source} already maps U+{NAMER_DOT_STAND_IN:04X}, the namer dot's stand-in, to another glyph"
+            )
+        table.cmap[NAMER_DOT_STAND_IN] = glyph
+    buffer = io.BytesIO()
+    font.save(buffer)
+    return buffer.getvalue()
 
 
 def static_headers_for(path: str) -> dict[str, str]:
@@ -265,7 +303,7 @@ def main() -> None:
     from livereload import Server
     from tornado.ioloop import IOLoop
     from tornado.iostream import StreamClosedError
-    from tornado.web import RequestHandler, StaticFileHandler
+    from tornado.web import HTTPError, RequestHandler, StaticFileHandler
 
     from rebuild.review import status
 
@@ -458,12 +496,35 @@ def main() -> None:
             self.set_header("Content-Type", "application/json")
             self.finish(json.dumps(capabilities_payload(code)))
 
+    browser_fonts: dict[str, tuple[tuple[int, int, int], bytes]] = {}
+
+    class BrowserFontHandler(RequestHandler):
+        """Serve the corpus's fonts/<side>.otf with the namer dot's stand-in mapped (`namer_dot_stand_in_font`). The bytes are derived in the executor once per font file, keyed by its inode, mtime and size, so the font a land moves into place replaces the cached one."""
+
+        def set_default_headers(self) -> None:
+            self.set_header("Cache-Control", "no-store")
+
+        async def get(self, side: str) -> None:
+            source = REVIEW_DIR / "fonts" / f"{side}.otf"
+            try:
+                stat = source.stat()
+            except FileNotFoundError:
+                raise HTTPError(404) from None
+            key = (stat.st_ino, stat.st_mtime_ns, stat.st_size)
+            cached = browser_fonts.get(side)
+            if cached is None or cached[0] != key:
+                body = await IOLoop.current().run_in_executor(None, namer_dot_stand_in_font, source)
+                cached = browser_fonts[side] = (key, body)
+            self.set_header("Content-Type", "font/otf")
+            self.finish(cached[1])
+
     class ReviewServer(Server):
         def get_web_handlers(self, script):
             return [
                 (r"/status", StatusHandler),
                 (r"/autosave", AutosaveHandler),
                 (r"/capabilities", CapabilitiesHandler),
+                (BROWSER_FONT_ROUTE, BrowserFontHandler),
             ] + super().get_web_handlers(script)
 
     server = ReviewServer()

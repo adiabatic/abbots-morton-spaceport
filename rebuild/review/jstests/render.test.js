@@ -11,6 +11,8 @@ import {
   highlightRect,
   pairBand,
   markOffset,
+  namerDotStandIn,
+  namerDotStandInEntities,
   secondaryJunctionsOf,
   junctionChip,
   cellCodepointSpans,
@@ -478,6 +480,18 @@ test('a slim fragment reaching the fold renderer yields a row from its cells and
 test('markOffset converts a boundary mark x position', () => {
   assert.equal(markOffset(0, 88, 550), 0);
   assert.equal(markOffset(137, 88, 550), 21.92);
+});
+
+test('the namer dot is written as its private-use stand-in, so Chromium shapes a sample as one run', () => {
+  assert.equal(namerDotStandIn('·'), '');
+  assert.equal(namerDotStandIn('· ·'), ' ');
+  assert.equal(namerDotStandIn(' ‌'), ' ‌');
+  assert.equal(
+    namerDotStandInEntities('&#xE650;&#x00B7;&#xE66B;&#xE652;'),
+    '&#xE650;&#xF8FF;&#xE66B;&#xE652;',
+  );
+  assert.equal(namerDotStandInEntities('&#xb7;&#x00b7;&#x0000B7;'), '&#xF8FF;&#xF8FF;&#xF8FF;');
+  assert.equal(namerDotStandInEntities('&#x20B7;&#xE6B7;&#x0020;'), '&#x20B7;&#xE6B7;&#x0020;');
 });
 
 test('familiesOfGroup splits the lead pair', () => {

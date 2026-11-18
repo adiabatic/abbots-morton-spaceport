@@ -111,6 +111,17 @@ export function markOffset(x, fontSize, upem) {
   return (x * fontSize) / upem;
 }
 
+// Chromium ends a shaping run at the namer dot (U+00B7), whose Script_Extensions leave out the letters' Unknown script, so the letters after it are shaped without seeing it and the old font draws them as at the start of a text. The server's /fonts/browser/ copies map U+F8FF to the dot's glyph as well (`namer_dot_stand_in_font` in rebuild/review/serve.py), and the samples write U+F8FF in the dot's place, which keeps each sample in one run. This goes at cutover, with the server's half; rebuild/REVIEW-PLAN.md § At cutover lists both.
+export const NAMER_DOT_STAND_IN = '';
+
+export function namerDotStandIn(text) {
+  return text.replaceAll('·', NAMER_DOT_STAND_IN);
+}
+
+export function namerDotStandInEntities(entities) {
+  return entities.replace(/&#x0*b7;/giu, '&#xF8FF;');
+}
+
 export function secondaryJunctionsOf(unit) {
   if (unit.ink_identical || unit.picture_identical) return [];
   return Array.isArray(unit.secondary_junctions) ? unit.secondary_junctions : [];

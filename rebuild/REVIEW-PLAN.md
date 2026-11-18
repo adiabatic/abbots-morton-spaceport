@@ -48,6 +48,8 @@ Build and serve are separate commands because the server is long-running. `serve
 
 At cutover the app moves out of `rebuild/out/`, and the serve script is likely to merge into `tools/serve.py`'s livereload. The `review-build` and `review-serve` Makefile targets stay as they are, and the move needs no `site/` changes and touches no existing pipeline files. One leftover waits for the move without blocking anything: the build copies a `{"type":"module"}` `package.json` from `static/` into the output verbatim, which is harmless.
 
+The namer dot's stand-in goes at cutover, or earlier once the old font no longer needs reviewing. It is a workaround for Chromium, which ends a shaping run at U+00B7 and so draws the old font after a namer dot as at the start of a text. Remove `namer_dot_stand_in_font`, `BrowserFontHandler` and their constants from `rebuild/review/serve.py`, and `namerDotStandIn`, `namerDotStandInEntities` and their callers from `static/render.js` and `static/app.js`. Point the `@font-face` rules in `static/app.css` back at `fonts/before.otf` and `fonts/after.otf`, and remove the tests of the stand-in in `rebuild/test_review_autosave.py` and `rebuild/review/jstests/render.test.js`. `test_the_namer_dot_stand_in_goes_at_cutover` fails once `glyph_data/quikscript.yaml` is gone or `glyph_data/script.yaml` exists.
+
 ## 2. Data model
 
 ### 2.1 Units, dedupe, ordering

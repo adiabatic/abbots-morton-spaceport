@@ -6,6 +6,8 @@ The POST path takes the verdict store's lock without waiting, and answers a retr
 
 The headers every static file is served with. `static_headers_for` is a pure function so it can be tested without a server.
 
+The namer dot's stand-in in the fonts the app loads (`namer_dot_stand_in_font`), and the test that fails once cutover makes it due for removal.
+
 The reloads: the server's one livereload watch never fires, and `force_reload` sends an `ams:` path to /forcereload on the port it is given and returns False for anything but a server that took it.
 
 The accepted list beside the store (`rebuild.review.accepted`): the full GET's `accepted` field, which the shared samples pin, and the store file's, which names the list; a set on an accepted unit stored as an override, a clear of one kept as a tombstone, and a set equal to its accepted record returning it to the list, journaled as a removal and reported back flagged; a stale save that differs from the mark answered with the accepted record; a stale skip on one leaving a tombstone; a move onto the served corpus leaving a tombstone on each accepted unit it lacks that the store held a record or tombstone for; a new list invalidating every token; a malformed or unpaired list refusing every save and GET; and the empty store the server writes at boot beside a list.
@@ -40,6 +42,7 @@ from rebuild.review.serve import (
     parse_autosave_payload,
     receive_autosave,
     receive_autosave_locked,
+    namer_dot_stand_in_font,
     register_dormant_watch,
     stash_path_for,
     static_headers_for,
@@ -47,6 +50,7 @@ from rebuild.review.serve import (
     write_pending_store,
 )
 from rebuild.tools.review_server import force_reload
+from rebuild.validation.shaping import Shaper
 from rebuild.review.store_lock import store_lock
 from rebuild.review.verdict_store import (
     MalformedSet,
@@ -273,6 +277,76 @@ def test_everything_else_is_served_uncompressed_and_uncached():
         f"/{app_index.LOCATOR_ROWS_NAME}",
     ):
         assert static_headers_for(path) == {"Cache-Control": "no-store"}
+
+
+def _dot_font(path: Path, cmap: dict[int, str]) -> Path:
+    """Build a small CFF font, as the corpus fonts are, with a namer dot, a letter, and a `calt` rule that swaps the letter for its alternate before the dot, so a test can see the dot's context reach the letter."""
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.t2CharStringPen import T2CharStringPen
+
+    order = [".notdef", "periodcentered", "qsPea", "qsPea.alt"]
+    charstrings = {}
+    for name in order:
+        pen = T2CharStringPen(500, None)
+        if name != ".notdef":
+            pen.moveTo((100, 100))
+            pen.lineTo((150, 100))
+            pen.lineTo((150, 150))
+            pen.closePath()
+        charstrings[name] = pen.getCharString()
+    builder = FontBuilder(550, isTTF=False)
+    builder.setupGlyphOrder(order)
+    builder.setupCharacterMap(cmap)
+    builder.setupCFF("DotTest-Regular", {"FullName": "DotTest"}, charstrings, {})
+    builder.setupHorizontalMetrics({name: (500, 0 if name == ".notdef" else 100) for name in order})
+    builder.setupHorizontalHeader(ascent=450, descent=-100)
+    builder.setupNameTable({"familyName": "DotTest", "styleName": "Regular"})
+    builder.setupOS2()
+    builder.setupPost()
+    builder.addOpenTypeFeatures("feature calt { sub qsPea' periodcentered by qsPea.alt; } calt;")
+    builder.save(str(path))
+    return path
+
+
+def test_the_namer_dots_stand_in_shapes_as_the_dot_and_changes_nothing_else(tmp_path):
+    """The stand-in maps to the dot's glyph, so a rule with the dot in its context fires on the stand-in too, and every table but `cmap` and `head`, which holds the checksum adjustment, comes back as the bytes it was read from."""
+    from fontTools.ttLib import TTFont
+
+    source = _dot_font(tmp_path / "dot.otf", {0x00B7: "periodcentered", 0xE650: "qsPea"})
+    derived = tmp_path / "derived.otf"
+    derived.write_bytes(namer_dot_stand_in_font(source))
+    before, after = TTFont(source), TTFont(derived)
+    assert after.getBestCmap() == {**(before.getBestCmap() or {}), 0xF8FF: "periodcentered"}
+    tags = [tag for tag in before.keys() if tag != "GlyphOrder"]
+    assert [tag for tag in after.keys() if tag != "GlyphOrder"] == tags
+    for tag in tags:
+        if tag not in ("cmap", "head"):
+            assert after.getTableData(tag) == before.getTableData(tag), tag
+    shaper = Shaper(derived)
+    assert (
+        shaper.shape("\ue650\uf8ff").names
+        == shaper.shape("\ue650\u00b7").names
+        == ("qsPea.alt", "periodcentered")
+    )
+
+
+def test_the_namer_dots_stand_in_refuses_a_font_it_cannot_patch(tmp_path):
+    """A font with no namer dot has no glyph to stand in for, and one that maps the stand-in to another glyph would draw that glyph where the app writes the dot."""
+    taken = _dot_font(tmp_path / "taken.otf", {0x00B7: "periodcentered", 0xE650: "qsPea", 0xF8FF: "qsPea"})
+    with pytest.raises(ValueError, match=r"already maps U\+F8FF"):
+        namer_dot_stand_in_font(taken)
+    dotless = _dot_font(tmp_path / "dotless.otf", {0xE650: "qsPea"})
+    with pytest.raises(ValueError, match=r"maps no glyph to U\+00B7"):
+        namer_dot_stand_in_font(dotless)
+
+
+def test_the_namer_dot_stand_in_goes_at_cutover():
+    """The namer dot's stand-in (`namer_dot_stand_in_font` and the app's `namerDotStandIn`) works around Chromium's shaping of the old font after a namer dot, so it goes once the old font stops being reviewed, at cutover at the latest. Cutover archives the old pipeline with `glyph_data/quikscript.yaml` and moves the registry to `glyph_data/script.yaml` (doc/rebuild-design.md §13.6, rebuild/M1-PLAN.md), and either one fails this test. rebuild/REVIEW-PLAN.md § At cutover lists what to remove, this test among it."""
+    glyph_data = Path(__file__).resolve().parent.parent / "glyph_data"
+    assert (glyph_data / "quikscript.yaml").is_file() and not (glyph_data / "script.yaml").exists(), (
+        "cutover has begun, so the old font is no longer reviewed: remove the namer dot's stand-in from the review app "
+        "as rebuild/REVIEW-PLAN.md § At cutover lists"
+    )
 
 
 def test_the_servers_watch_never_reloads_a_tab_when_the_corpus_changes(tmp_path):
