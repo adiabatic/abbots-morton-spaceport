@@ -182,6 +182,39 @@ policy:
       right:
         family: qsIt
         then: {family: qsEt}
+  - cell: {entry: none}
+    over: {entry: baseline}
+    when:
+      left:
+        class: can-exit-at-baseline
+        except:
+        - {family: qsTea_qsOy}
+        - {family: qsDay}
+        - {family: qsNo}
+        - {family: qsOy}
+      right:
+        except:
+        - {family: qsPea}
+        - family: qsIt
+          then:
+            family:
+            - qsDay
+            - qsDay_qsUtter
+            - qsZoo
+            - qsJai
+            - qsJai_qsUtter
+            - qsCheer
+            - qsJay
+            - qsJay_qsUtter
+            - qsRoe
+            - qsLlan
+            - qsEight
+            - qsI
+            - qsAwe
+            - qsOx
+            - qsUtter
+            - qsOwe
+            - qsFoot
   # I like the older, narrower-top ·J'ai  part
   extend:
   - entry: baseline
