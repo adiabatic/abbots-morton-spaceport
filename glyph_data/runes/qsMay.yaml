@@ -173,6 +173,7 @@ policy:
       right:
         family:
         - qsDay
+        - qsDay_qsEat
         - qsDay_qsUtter
         - qsFee
         - qsJay

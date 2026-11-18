@@ -39,6 +39,7 @@ stances:
           - family:
             - qsTea
             - qsDay
+            - qsDay_qsEat
             - qsDay_qsUtter
             - qsGay
             - qsThaw

@@ -170,15 +170,15 @@
 
 - id: half-day-closer-at-baseline-join
   title: "Half-·Day a pixel closer at a baseline join"
-  summary: "Half-·Day and half-·Day+Utter sit a pixel closer to the letter before them than in the old font; today that letter is always ·Tea+Oy, as in `·Tea+Oy ~b~ ·Day.half`."
+  summary: "Half-·Day, half-·Day+Eat and half-·Day+Utter sit a pixel closer to the letter before them than in the old font, as in `·Tea ~b~ ·Day.half`, `·Ye ~b~ ·Day.half` and `·Tea+Oy ~b~ ·Day.half`."
   status: approved
   match: {predicate: day_baseline_entry_extension_dropped, configs: all}
   exemplars:
     - {config: default, codepoints: "E652:E679:E653", baseline: "qsTea_qsOy|qsDay.half.en-y0.ex-y0.en-ext-1", new: "qsTea_qsOy/sole/None/baseline/|qsDay/half/baseline/None/ (no en-ext-1)"}
     - {config: default, codepoints: "E652:E679:E653:E67A", baseline: "qsTea_qsOy|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1", new: "qsTea_qsOy/sole/None/baseline/|qsDay_qsUtter/half/baseline/None/ (no en-ext-1)"}
   why: |
-    The old font extends half-·Day's (and half-·Day+Utter's) baseline entry by one pixel after the ·Tea+Oy ligature. The runes' baseline extend records name only bare qsTea and qsYe, and the ligature is neither, so the rebuild draws the same baseline join one pixel tighter. The user decided this with qsDay's own family, from side-by-side renders of `·Tea+Oy ~b~ ·Day.half` with and without the pixel. Adding qsTea_qsOy to both extend scopes restores the old ink on exactly these windows with no other change, and the user declined it, so the tighter join is intended.
-    The predicate takes half-·Day's dropped entry extension after any letter; today that letter is always ·Tea+Oy. Word-final members, whose exit is also dropped, match here and not identical-unused-join-name, whose identical-drawing claim this pixel would break.
+    The old font extends the baseline entry of half-·Day, half-·Day+Eat and half-·Day+Utter by one pixel after ·Tea, ·Ye and the ·Tea+Oy ligature. The user declined the pixel after ·Tea+Oy with qsDay's own family, from side-by-side renders of `·Tea+Oy ~b~ ·Day.half` with and without it, and then stopped adding it after ·Tea and ·Ye for half-·Day and half-·Day+Utter, so the runes carry no baseline entry extension into half-·Day and the tighter join is intended. Half-·Day+Eat enters with the same foot hook and carries none either.
+    The predicate takes the dropped entry extension after any letter. Word-final members, whose exit is also dropped, match here and not identical-unused-join-name, whose identical-drawing claim this pixel would break.
 
 - id: vie-closer-at-baseline-join
   title: "·Vie a pixel closer at a baseline join"

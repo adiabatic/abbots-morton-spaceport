@@ -437,7 +437,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "may-baseline-entry-extension-dropped"
     if "-en-ext-1:qsNo" in tags:
         return "no-xheight-entry-extension-dropped"
-    if tags & {"-en-ext-1:qsDay", "-en-ext-1:qsDay_qsUtter"}:
+    if tags & {"-en-ext-1:qsDay", "-en-ext-1:qsDay_qsEat", "-en-ext-1:qsDay_qsUtter"}:
         return "day-baseline-entry-extension-dropped"
     if "-en-ext-1:qsVie" in tags:
         return "vie-baseline-entry-extension-dropped"

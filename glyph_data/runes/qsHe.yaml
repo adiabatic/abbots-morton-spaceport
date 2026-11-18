@@ -61,6 +61,7 @@ stances:
           toward:
           - family:
             - qsDay
+            - qsDay_qsEat
             - qsDay_qsUtter
             - qsGay
             - qsVie

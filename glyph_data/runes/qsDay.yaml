@@ -94,6 +94,7 @@ policy:
         then:
           family:
           - qsDay
+          - qsDay_qsEat
           - qsDay_qsUtter
           - qsUtter
   - cell: {exit: none}
@@ -115,6 +116,7 @@ policy:
         then:
           family:
           - qsDay
+          - qsDay_qsEat
           - qsDay_qsUtter
           - qsZoo
           - qsJai
@@ -150,6 +152,7 @@ policy:
                 then:
                   family:
                   - qsDay
+                  - qsDay_qsEat
                   - qsDay_qsUtter
                   - qsMay
                   - qsNo

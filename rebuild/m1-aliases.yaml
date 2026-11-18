@@ -94,6 +94,9 @@ qsDay_qsUtter.half.en-y0.ex-y5: {rune: qsDay_qsUtter, stance: half, entry: basel
 qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1: {rune: qsDay_qsUtter, stance: half, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
 qsDay_qsUtter.half.en-y0.ex-y5.ex-con-2: {rune: qsDay_qsUtter, stance: half, entry: baseline, exit: x-height}
 qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1: {rune: qsDay_qsUtter, stance: half, entry: baseline, exit: x-height, adjustments: [ex-ext-1]}
+qsDay_qsEat: {rune: qsDay_qsEat, stance: full}
+qsDay_qsEat.half.en-y0.ex-y0: {rune: qsDay_qsEat, stance: half, entry: baseline, exit: baseline}
+qsDay_qsEat.half.en-y0.ex-y0.en-ext-1: {rune: qsDay_qsEat, stance: half, entry: baseline, exit: baseline, adjustments: [en-ext-1]}
 qsFee: {rune: qsFee, stance: loop}
 qsZoo: {rune: qsZoo, stance: full}
 qsZoo.en-con-2: {rune: qsZoo, stance: full, entry: x-height, adjustments: [en-con-2]}
@@ -193,6 +196,8 @@ qsSee.ss10: {rune: qsSee, stance: normal}
 qsSee_qsUtter: {rune: qsSee_qsUtter, stance: sole}
 qsSee_qsUtter.ex-con-2: {rune: qsSee_qsUtter, stance: sole, exit: x-height}
 qsSee_qsUtter.ex-ext-1: {rune: qsSee_qsUtter, stance: sole, exit: x-height, adjustments: [ex-ext-1]}
+qsSee_qsEat: {rune: qsSee_qsEat, stance: sole}
+qsSee_qsEat.ex-ext-1: {rune: qsSee_qsEat, stance: sole, exit: baseline, adjustments: [ex-ext-1]}
 qsJai: {rune: qsJai, stance: sole}
 qsJai.en-y5.ex-y0: {rune: qsJai, stance: sole, entry: x-height, exit: baseline}
 qsJai.en-y5.ex-y0.en-con-1: {rune: qsJai, stance: sole, entry: x-height, exit: baseline, adjustments: [en-con-1]}
@@ -294,6 +299,11 @@ qsIt.ex-y5: {rune: qsIt, stance: sole, exit: x-height}
 qsIt.ex-y5.ex-ext-1: {rune: qsIt, stance: sole, exit: x-height, adjustments: [ex-ext-1]}
 qsIt.noentry: {rune: qsIt, stance: sole, adjustments: [locked]}
 qsIt.ss10: {rune: qsIt, stance: sole}
+qsEat: {rune: qsEat, stance: sole}
+qsEat.ex-ext-1: {rune: qsEat, stance: sole, exit: baseline, adjustments: [ex-ext-1]}
+qsEat.noentry: {rune: qsEat, stance: sole, adjustments: [locked]}
+qsEat.noentry.ex-ext-1: {rune: qsEat, stance: sole, exit: baseline, adjustments: [locked, ex-ext-1]}
+qsEat.ss10: {rune: qsEat, stance: sole}
 qsEt: {rune: qsEt, stance: sole}
 qsEt.en-ext-1: {rune: qsEt, stance: sole, entry: x-height, adjustments: [en-ext-1]}
 qsEt.noentry: {rune: qsEt, stance: sole, adjustments: [locked]}
@@ -350,6 +360,7 @@ qsUtter.noentry.ex-con-2: {rune: qsUtter, stance: mono, exit: x-height, adjustme
 qsUtter.noentry.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [locked, ex-ext-1]}
 qsUtter.ss10: {rune: qsUtter, stance: mono}
 qsOut: {rune: qsOut, stance: normal}
+qsOut.en-y0.after-see: {rune: qsOut, stance: normal, entry: baseline, adjustments: [en-bind-raked]}
 qsOut.en-y0.after-see.en-trim-1: {rune: qsOut, stance: normal, entry: baseline, adjustments: [en-bind-raked, en-trim-1]}
 qsOut.en-y0.ex-y5: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height}
 qsOut.en-y0.ex-y5.after-see.before-fee: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-raked, ex-ext-1]}

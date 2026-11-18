@@ -48,6 +48,7 @@ stances:
           - family:
             - qsTea
             - qsDay
+            - qsDay_qsEat
             - qsDay_qsUtter
             - qsZoo
             - qsJai
@@ -124,6 +125,7 @@ policy:
       right:
         family:
         - qsDay
+        - qsDay_qsEat
         - qsDay_qsUtter
         - qsCheer
         - qsNo

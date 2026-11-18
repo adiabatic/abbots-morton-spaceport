@@ -90,6 +90,7 @@ policy:
       right:
         family:
         - qsDay
+        - qsDay_qsEat
         - qsDay_qsUtter
   - exit: x-height
     when:
@@ -118,7 +119,10 @@ policy:
   - entry: baseline
     when:
       self: {exit: none}
-      left: {family: qsJay}
+      left:
+        family:
+        - qsJay
+        - qsEat
   - exit: baseline
     when:
       self: {entry: none}
@@ -140,6 +144,7 @@ policy:
       right:
         except:
         - {family: qsDay}
+        - {family: qsDay_qsEat}
         - {family: qsDay_qsUtter}
         - {family: qsUtter}
   - exit: baseline
@@ -148,7 +153,6 @@ policy:
       left:
         family:
         - qsShe
-        - qsEat
         - qsOwe
       right: {family: qsUtter}
   - exit: baseline

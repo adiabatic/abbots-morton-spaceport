@@ -62,6 +62,7 @@ stances:
           toward:
           - family:
             - qsDay
+            - qsDay_qsEat
             - qsDay_qsUtter
             - qsVie
             - qsSee
@@ -127,6 +128,7 @@ stances:
           toward:
           - family:
             - qsDay
+            - qsDay_qsEat
             - qsDay_qsUtter
             - qsVie
             - qsSee
@@ -165,6 +167,7 @@ policy:
       right:
         family:
         - qsDay
+        - qsDay_qsEat
         - qsDay_qsUtter
         - qsVie
         - qsSee

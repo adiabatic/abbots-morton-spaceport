@@ -146,6 +146,7 @@ policy:
         family:
         - qsTea
         - qsDay
+        - qsDay_qsEat
         - qsDay_qsUtter
         - qsZoo
         - qsRoe
@@ -157,6 +158,7 @@ policy:
           then:
             family:
             - qsDay
+            - qsDay_qsEat
             - qsDay_qsUtter
             - qsUtter
   - cell: {exit: none}
@@ -168,6 +170,7 @@ policy:
           family:
           - qsTea
           - qsDay
+          - qsDay_qsEat
           - qsDay_qsUtter
           - qsZoo
           - qsRoe
@@ -186,6 +189,7 @@ policy:
         family:
         - qsTea
         - qsDay
+        - qsDay_qsEat
         - qsDay_qsUtter
         - qsZoo
         - qsRoe

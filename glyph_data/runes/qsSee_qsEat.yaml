@@ -1,0 +1,41 @@
+rune: qsSee_qsEat
+sequence:
+- qsSee
+- qsEat
+ductus:
+  sole: |  # DRAFT — pending author sign-off
+    The ·See stroke and the ·Eat stroke drawn as one motion: begun at the crest, the stroke snakes down the ·See spine, leftward through the waist, back out to the right, and leftward again to the baseline. Then the ·Eat part of the stroke retraces the lower spine on the way back up, breaks out on its own up and to the right to the x-height, and drops straight down the right side to the baseline, where it may connect to the next letter.
+stances:
+  sole:
+    motion: sole
+    outgoing: {stance: sole}
+    traits: []
+    bitmap:
+    - "   #   "
+    - "  #    "
+    - " #     "
+    - " #    #"  #
+    - "  #  ##"
+    - "   ## #"
+    - "   #  #"
+    - "  #   #"
+    - " #    #"  #
+    surface:
+      entries: {}
+      exits:
+        baseline:
+          x: 7
+          stroke: vertical
+          unjoined: safe
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - sole
+  refuse: []
+  prefer: []
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}

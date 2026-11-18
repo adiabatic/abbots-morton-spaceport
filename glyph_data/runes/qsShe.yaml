@@ -81,6 +81,7 @@ policy:
         then:
           family:
           - qsDay
+          - qsDay_qsEat
           - qsDay_qsUtter
   extend: []
   contract:

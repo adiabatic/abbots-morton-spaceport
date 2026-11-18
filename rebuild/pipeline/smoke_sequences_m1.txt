@@ -2608,3 +2608,139 @@ E66B 200C E653           # ZWNJ severs ·Excite's exit into ·Day
 0020 E66B E652           # word-initial ·Excite joins ·Tea, as at a text edge
 00B7 E66B                # namer dot before ·Excite
 00B7 E66B E652           # namer dot, then ·Excite joins ·Tea as at a word start
+
+# ·Eat
+E671                     # ·Eat in isolation
+E650 E671                # the full ·Pea's baseline exit into ·Eat
+E671 E650                # ·Eat before ·Pea (break)
+E651 E671                # ·Bay's baseline exit into ·Eat
+E671 E651                # ·Eat before ·Bay (break)
+E652 E671                # ·Tea's baseline exit into ·Eat
+E671 E652                # ·Eat before ·Tea (break)
+E653 E671                # the ·Day+Eat ligature
+E671 E653                # ·Eat's baseline exit into half-·Day
+E654 E671                # ·Key's baseline exit into ·Eat
+E671 E654                # ·Eat before ·Key (break)
+E655 E671                # ·Gay's baseline exit into ·Eat
+E671 E655                # ·Eat before ·Gay (break)
+E656 E671                # ·Thaw before ·Eat (break)
+E671 E656                # ·Eat's baseline exit into ·Thaw
+E657 E671                # ·They before ·Eat (break)
+E671 E657                # ·Eat before ·They (break)
+E658 E671                # ·Fee before ·Eat (break)
+E671 E658                # ·Eat before ·Fee (break)
+E659 E671                # ·Vie before ·Eat (break)
+E671 E659                # ·Eat's baseline exit into ·Vie
+E65A E671                # the ·See+Eat ligature
+E671 E65A                # ·Eat's baseline exit into ·See
+E65B E671                # ·Zoo's baseline exit into ·Eat
+E671 E65B                # ·Eat's baseline exit into half-·Zoo
+E65C E671                # ·She's baseline exit into ·Eat
+E671 E65C                # ·Eat before ·She (break)
+E65D E671                # ·J’ai's baseline exit into ·Eat
+E671 E65D                # ·Eat before ·J’ai (break)
+E65E E671                # ·Cheer's baseline exit into ·Eat
+E671 E65E                # ·Eat before ·Cheer (break)
+E65F E671                # ·Jay's baseline exit into ·Eat
+E671 E65F                # ·Eat before ·Jay (break)
+E660 E671                # ·Ye's baseline exit into ·Eat
+E671 E660                # ·Eat before ·Ye (break)
+E661 E671                # ·Way before ·Eat (break)
+E671 E661                # ·Eat before ·Way (break)
+E662 E671                # ·He's baseline exit into ·Eat
+E671 E662                # ·Eat before ·He (break)
+E663 E671                # ·Why before ·Eat (break)
+E671 E663                # ·Eat before ·Why (break)
+E664 E671                # ·-ing's baseline exit into ·Eat
+E671 E664                # ·Eat's baseline exit into ·-ing
+E665 E671                # ·May before ·Eat (break)
+E671 E665                # ·Eat's baseline exit into the ·May loop
+E666 E671                # the flipped ·No's baseline exit into ·Eat
+E671 E666                # ·Eat's baseline exit into the flipped ·No
+E667 E671                # ·Low before ·Eat (break)
+E671 E667                # ·Eat's baseline exit into ·Low
+E668 E671                # ·Roe before ·Eat (break)
+E671 E668                # ·Eat's baseline exit into ·Roe
+E669 E671                # ·Loch before ·Eat (break)
+E671 E669                # ·Eat before ·Loch (break)
+E66A E671                # ·Llan's baseline exit into ·Eat
+E671 E66A                # ·Eat before ·Llan (break)
+E66B E671                # ·Excite's splayed right foot joins ·Eat at the baseline
+E671 E66B                # ·Eat's baseline exit into ·Excite, whose left foot splays
+E670 E671                # ·It's baseline exit into ·Eat
+E671 E670                # ·Eat before ·It (break)
+E672 E671                # ·Et's baseline exit into ·Eat
+E671 E672                # ·Eat before ·Et (break)
+E673 E671                # ·Eight's baseline exit into ·Eat
+E671 E673                # ·Eat before ·Eight (break)
+E674 E671                # ·At before ·Eat (break)
+E671 E674                # ·Eat's baseline exit into ·At
+E675 E671                # ·I before ·Eat (break)
+E671 E675                # ·Eat's baseline exit, extended by one, into ·I
+E676 E671                # ·Ah before ·Eat (break)
+E671 E676                # ·Eat's baseline exit into ·Ah
+E677 E671                # ·Awe's baseline exit into ·Eat
+E671 E677                # ·Eat before ·Awe (break)
+E678 E671                # ·Ox's baseline exit into ·Eat
+E671 E678                # ·Eat before ·Ox (break)
+E679 E671                # ·Oy's baseline exit into ·Eat
+E671 E679                # ·Eat before ·Oy (break)
+E67A E671                # the alternate ·Utter's baseline exit into ·Eat
+E671 E67A                # ·Eat's baseline exit into the mono ·Utter
+E67B E671                # ·Out before ·Eat (break)
+E671 E67B                # ·Eat's baseline exit into ·Out
+E67E E671                # ·Ooze's baseline exit into ·Eat
+E671 E67E                # ·Eat's baseline exit into ·Ooze
+E671 E671                # ·Eat's baseline exit into a second ·Eat
+E671 E671 E671           # three ·Eat joined at the baseline
+E651 E671 E675           # ·Bay ~b~ ·Eat ~b~ ·I: the exit extends by one
+E671 E653 E67A           # ·Eat's baseline exit into half-·Day+Utter
+E671 E653 E671           # ·Eat's baseline exit into half-·Day+Eat
+E671 E67B E652           # ·Eat's baseline exit into ·Out+Tea
+E671 E65A E671           # ·Eat before ·See+Eat (break: the ligature has no entry)
+E671 E65A E67A           # ·Eat before ·See+Utter (break)
+E671 E65D E67A           # ·Eat before ·J’ai+Utter (break)
+E671 E652 E679           # ·Eat before ·Tea+Oy (break)
+E671 E657 E65B           # ·Eat before ·They+Zoo (break)
+E652 E679 E671           # ·Tea+Oy's baseline exit into ·Eat
+E657 E65B E671           # ·They+Zoo before ·Eat (break)
+E67B E652 E671           # ·Out+Tea before ·Eat (break)
+E653 E67A E671           # ·Day | ·Utter.alt ~b~ ·Eat: the ·Day+Utter ligature does not form
+E65A E67A E671           # ·See+Utter before ·Eat
+E651 E653 E671           # ·Bay's baseline exit into half-·Day+Eat
+E652 E653 E671           # ·Tea's baseline exit into half-·Day+Eat
+E661 E653 E671           # ·Way's x-height exit into the full ·Day+Eat
+E675 E653 E671           # ·I's x-height exit into the full ·Day+Eat
+E670 E653 E671           # ·It's baseline exit into half-·Day+Eat
+E668 E653 E671           # ·Roe before ·Day+Eat (break)
+E653 E671 E653           # ·Day+Eat's baseline exit into half-·Day
+E653 E671 E675           # ·Day+Eat's baseline exit into ·I
+E653 E671 E670           # ·Day+Eat before ·It (break)
+E653 E671 E670 E65B      # ·Day+Eat | ·It ~b~ half-·Zoo, as after ·Eat
+E653 E671 E652           # ·Day+Eat before ·Tea (break)
+E65A E671 E675           # ·See+Eat's baseline exit, extended by one, into ·I
+E65A E671 E67B           # ·See+Eat's baseline exit into ·Out, drawn as after ·Eat
+E65A E671 E653           # ·See+Eat's baseline exit into half-·Day
+E651 E65A E671           # ·Bay before ·See+Eat (break)
+E675 E657 E671           # ·I ~x~ ·They | ·Eat: ·They's tuck for ·May does not reach ·Eat
+E676 E657 E671           # ·Ah ~x~ ·They | ·Eat
+E675 E657 E653 E671      # ·I ~x~ ·They ~b~ half-·Day+Eat, as before half-·Day
+E671 E670 E653           # ·Eat | ·It ~b~ half-·Day; under ss04 ·It joins on both sides
+E671 E670 E67A           # ·Eat | ·It ~b~ ·Utter; under ss04 ·It joins on both sides
+E671 E670 E65B           # ·Eat | ·It ~b~ half-·Zoo
+E671 E674 E665           # ·Eat | ·At ~b~ ·May: ·At's baseline tuck joins ·May instead
+E671 E67A E652 E653      # ·Eat into the alternate ·Utter, which breaks, and ·Tea keeps ·Day
+E671 E67A E65A           # ·Eat | ·Utter.alt ~b~ ·See
+E671 E666 E655 E653      # ·Eat | the flipped ·No ~b~ ·Gay ~b~ half-·Day
+E672 E652 E671           # ·Et ~b~ ·Tea | ·Eat
+E651 E655 E671           # ·Bay ~b~ ·Gay | ·Eat: the entered ·Gay exits only at the x-height
+E651 E670 E671           # ·Bay ~b~ ·It | ·Eat: the entered ·It exits only at the x-height
+200C E671                # ZWNJ before ·Eat (the locked copy)
+E671 200C E671           # ZWNJ between two ·Eat
+E651 200C E671           # ZWNJ severs ·Bay's exit into ·Eat
+E671 200C E653           # ZWNJ severs ·Eat's exit into ·Day
+200C E653 E671           # ZWNJ before the ·Day+Eat ligature
+200C E671 E675           # the locked ·Eat's baseline exit, extended by one, into ·I
+00B7 E671                # namer dot before ·Eat
+00B7 E66B E671           # namer dot, then ·Excite joins ·Eat as at a word start
+00B7 E653 E671           # namer dot before the ·Day+Eat ligature

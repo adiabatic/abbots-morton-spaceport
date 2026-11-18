@@ -106,6 +106,7 @@ stances:
           - family:
             - qsTea
             - qsDay
+            - qsDay_qsEat
             - qsDay_qsUtter
             - qsVie
             - qsSee
