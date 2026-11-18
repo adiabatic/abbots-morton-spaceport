@@ -1,8 +1,10 @@
 rune: qsExcite
 codepoint: 0xE66B
 ductus:
-  sole: |  # DRAFT — pending author sign-off
-    Begun at the bottom left on the baseline, where a previous letter may connect, the first stroke rises up and to the right through the crossing point at mid-height and ends at the x-height on the right. The pen lifts, and the second stroke begins at the top left, falls straight down to just above the x-height, then angles down and to the right through the crossing point to rest on the baseline at the bottom right, where it may connect to the next letter. Each foot splays one column outward when it connects at the baseline.
+  sole: |
+    - Begun at the bottom left on the baseline, where a previous letter may connect, the first stroke rises up and to the right through the crossing point at mid-height and ends at the x-height on the right. The pen lifts, and the second stroke begins at the top left and angles down and to the right through the crossing point to rest on the baseline at the bottom right, where it may connect to the next letter.
+    - Or the strokes in the other order: begun at the top left, the first stroke angles down and to the right through the crossing point to rest on the baseline at the bottom right, where it may connect to the next letter. The pen lifts, and the second stroke begins at the bottom left on the baseline, and rises up and to the right through the crossing point to end at the x-height on the right, where it may connect to the next letter.
+    - Either way, each foot splays one column outward when it connects at the baseline.
 mono:
   bitmap:
   - "#    "
