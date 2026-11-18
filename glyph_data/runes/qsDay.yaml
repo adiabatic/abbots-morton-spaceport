@@ -169,11 +169,17 @@ policy:
     exit: baseline
     by: 1
     when:
-      right: {family: qsNo}
+      right:
+        family:
+        - qsNo
+        - qsExcite
   - stance: half
     exit: baseline
     by: 1
     when:
-      right: {family: qsNo}
+      right:
+        family:
+        - qsNo
+        - qsExcite
   resolve: []
   groups: {}
