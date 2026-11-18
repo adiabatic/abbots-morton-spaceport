@@ -88,28 +88,12 @@ stances:
           stroke: horizontal
           unjoined: safe
           toward:
-          - family:
-            - qsTea
-            - qsDay
-            - qsDay_qsUtter
-            - qsGay
-            - qsThaw
-            - qsVie
-            - qsSee
-            - qsZoo
-            - qsIng
-            - qsMay
-            - qsNo
-            - qsLow
-            - qsRoe
-            - qsIt
-            - qsAt
-            - qsI
-            - qsAh
-            - qsUtter
-            - qsOut
-            - qsOut_qsTea
-            - qsOoze
+          - class: can-enter-at-baseline
+            except:
+            - {family: qsPea}
+            - {family: qsYe}
+            - {family: qsHe}
+            - {family: qsExcite}
         x-height:
           x: 4
           stroke: horizontal

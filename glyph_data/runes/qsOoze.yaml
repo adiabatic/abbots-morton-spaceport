@@ -62,30 +62,10 @@ stances:
           stroke: vertical
           unjoined: safe
           toward:
-          - family:
-            - qsTea
-            - qsDay
-            - qsDay_qsUtter
-            - qsThaw
-            - qsVie
-            - qsSee
-            - qsZoo
-            - qsYe
-            - qsHe
-            - qsIng
-            - qsMay
-            - qsNo
-            - qsLow
-            - qsRoe
-            - qsExcite
-            - qsIt
-            - qsAt
-            - qsI
-            - qsAh
-            - qsUtter
-            - qsOut
-            - qsOut_qsTea
-            - qsOoze
+          - class: can-enter-at-baseline
+            except:
+            - {family: qsPea}
+            - {family: qsGay}
       cells: []
       unlocks: []
       require: []

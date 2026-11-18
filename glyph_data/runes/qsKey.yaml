@@ -40,30 +40,10 @@ stances:
           x: 4
           stroke: horizontal
           toward:
-          - family:
-            - qsTea
-            - qsDay
-            - qsDay_qsUtter
-            - qsGay
-            - qsVie
-            - qsSee
-            - qsZoo
-            - qsYe
-            - qsHe
-            - qsIng
-            - qsMay
-            - qsNo
-            - qsLow
-            - qsRoe
-            - qsExcite
-            - qsIt
-            - qsAt
-            - qsI
-            - qsAh
-            - qsUtter
-            - qsOut
-            - qsOut_qsTea
-            - qsOoze
+          - class: can-enter-at-baseline
+            except:
+            - {family: qsPea}
+            - {family: qsThaw}
       cells: []
       unlocks: []
       require: []
