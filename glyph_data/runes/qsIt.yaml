@@ -115,14 +115,10 @@ policy:
         - qsJay
         - qsYe
         - qsIt
-        - qsEat
   - entry: baseline
     when:
       self: {exit: none}
-      left:
-        family:
-        - qsJay
-        - qsEat
+      left: {family: qsJay}
   - exit: baseline
     when:
       self: {entry: none}

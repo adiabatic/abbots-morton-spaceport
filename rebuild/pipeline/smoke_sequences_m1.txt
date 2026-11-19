@@ -2668,7 +2668,7 @@ E671 E66A                # ·Eat before ·Llan (break)
 E66B E671                # ·Excite's splayed right foot joins ·Eat at the baseline
 E671 E66B                # ·Eat's baseline exit into ·Excite, whose left foot splays
 E670 E671                # ·It's baseline exit into ·Eat
-E671 E670                # ·Eat before ·It (break)
+E671 E670                # ·Eat before ·It (break, under ss04 too)
 E672 E671                # ·Et's baseline exit into ·Eat
 E671 E672                # ·Eat before ·Et (break)
 E673 E671                # ·Eight's baseline exit into ·Eat
@@ -2725,8 +2725,8 @@ E651 E65A E671           # ·Bay before ·See+Eat (break)
 E675 E657 E671           # ·I ~x~ ·They | ·Eat: ·They's tuck for ·May does not reach ·Eat
 E676 E657 E671           # ·Ah ~x~ ·They | ·Eat
 E675 E657 E653 E671      # ·I ~x~ ·They ~b~ half-·Day+Eat, as before half-·Day
-E671 E670 E653           # ·Eat | ·It ~b~ half-·Day; under ss04 ·It joins on both sides
-E671 E670 E67A           # ·Eat | ·It ~b~ ·Utter; under ss04 ·It joins on both sides
+E671 E670 E653           # ·Eat | ·It ~b~ half-·Day, under ss04 too
+E671 E670 E67A           # ·Eat | ·It ~b~ ·Utter, under ss04 too
 E671 E670 E65B           # ·Eat | ·It ~b~ half-·Zoo
 E671 E674 E665           # ·Eat | ·At ~b~ ·May: ·At's baseline tuck joins ·May instead
 E671 E67A E652 E653      # ·Eat into the alternate ·Utter, which breaks, and ·Tea keeps ·Day

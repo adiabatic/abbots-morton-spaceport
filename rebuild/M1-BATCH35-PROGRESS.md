@@ -7,6 +7,7 @@ Scratch for the ·Eat migration. Delete it when the review session closes the ba
 - The drafted ductus in `glyph_data/runes/qsEat.yaml`, `glyph_data/runes/qsDay_qsEat.yaml` and `glyph_data/runes/qsSee_qsEat.yaml` waits for the author's review, and their `# DRAFT` markers mark what to review. The old record has no ductus or notes for ·Eat or either ligature, so each motion is drafted from the bitmap.
 - The new review units wait for their review session. `make verdict-ready` reports whether the corpus is ready for it. Every new unmatched row holds ·Eat. Nearly all repeat a change the same window shows, in the same configuration, with ·Ooze in ·Eat's place (·Day+Utter in ·Day+Eat's, ·See in ·See+Eat's), or a change at a junction ·Eat does not touch. The changes only ·Eat brings are the author's rulings below:
   - `·{I,Ah} ~x~ ·They | ·Eat`, where the old font joins;
+  - under ss04, `·{,Day+,See+}Eat | ·It ~b~ ·{Day,Utter}`, where the old font joins both sides of ·It;
   - after the namer dot, `·Excite ~b~ ·{Eat,Day+Eat}`, the ·Excite batch's namer-dot ruling;
   - `·{Day,See}+Eat | ·It ~b~ ·Zoo`, where the old font draws `·{Day,See}+Eat ~b~ ·It ~x~ ·Zoo`;
   - `·See+Eat ~b~ ·{Out,Low,At}` drawn as after ·Eat, where the old font draws ·Out's after-·See form and ·Low's and ·At's after-·See entry extension;
@@ -21,12 +22,13 @@ The old record is one bitmap with a baseline entry, a baseline exit and an `exte
 
 ·Day+Eat enters exactly as ·Day+Utter does, pair for pair, so every right-facing selector that names `qsDay_qsUtter` as a ·Day-led entry names `qsDay_qsEat` beside it. ·See+Eat has no entry, as ·See+Utter has none. Both ligatures take ·Eat's exit records through `outgoing: {stance: sole}`.
 
-Under ss04 the old font joins `·Eat ~b~ ·It ~b~ ·{Day,Utter}` and otherwise breaks `·Eat | ·It`, so ·Eat's `toward:` names qsIt and qsIt's refusal of a baseline entry without an exit after ·Jay names ·Eat too, on the qsJay precedent. qsIt's refusal of a baseline exit into ·Utter from an unentered ·It no longer names ·Eat: it transcribed the old `before_utter` stance's `not_after`, but the old font's plain baseline-exit ·It still draws `·{Eat,Day+Eat} | ·It ~b~ ·Utter`.
+qsIt's refusal of a baseline exit into ·Utter from an unentered ·It no longer names ·Eat: it transcribed the old `before_utter` stance's `not_after`, but the old font's plain baseline-exit ·It still draws `·{Eat,Day+Eat} | ·It ~b~ ·Utter`.
 
 qsWay's ·Gay preference names ·Eat, as issue #522 asked, so the rebuild keeps the old `·Way.half ~b~ ·Gay | ·Eat`. The `half-day-closer-at-baseline-join` ledger class takes half-·Day+Eat beside half-·Day and half-·Day+Utter, after the author's rulings that dropped the pixel after ·{Tea,Ye} for those two.
 
-The author ruled on five old-font behaviors:
+The author ruled on these old-font behaviors:
 
+- Under ss04 the old font joins `·{,Day+,See+}Eat ~b~ ·It ~b~ ·{Day,Utter}`, and otherwise breaks `·Eat | ·It`. ·Eat never joins ·It, as ·It never joins itself, because the two adjacent verticals read as one thick stroke: ·Eat's baseline `toward:` leaves out qsIt, and both ligatures take that scope through `outgoing: {stance: sole}`.
 - The old font joins `·{I,Ah} ~x~ ·They ~b~ ·Eat` through ·They's tuck for ·May, where the bare pair breaks. As for ·Excite, it breaks: qsThey stays off ·Eat's entry `from:` and keeps ·Eat off its baseline `toward:`. ·Day+Eat follows ·Day and ·Day+Utter in that `toward:` and keeps the join.
 - The old font draws ·Out's after-·See form after ·See+Eat, and gives ·Low and ·At their after-·See entry extension there, because its `after: qsSee` selectors also matched ·See-led ligatures. ·See+Eat ends in the ·Eat stroke, so `·See+Eat ~b~ ·{Out,Low,At}` draws them as after ·Eat. The author expects to drop the extra left column of ·Out's `raked` drawing.
 - The old font draws `·{Day,See}+Eat ~b~ ·It ~x~ ·Zoo`, because its ·It guard against an x-height exit after ·Eat missed the ligatures. They follow ·Eat there: `·{Day,See}+Eat | ·It ~b~ ·Zoo`.
