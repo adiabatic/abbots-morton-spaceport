@@ -4,9 +4,9 @@
 
 A key is the window's codepoints packed right-aligned into one unsigned 64-bit integer, four 16-bit slots zero-padded on the left. The extractor writes rows in `(length, codepoints)` order, which is also the integer order, so a table normally arrives sorted; one that does not is sorted here, on the in-memory path below.
 
-The packer runs in the corpus build's parent before the workload loads and before any pool starts, and its memory is budgeted under `CORPUS_PARENT_BYTES` in rebuild/tools/artifact_cycle.py. It reads the tables in two passes, each in one spawn process a configuration whatever the build's widths, which inherit the parent's environment and with it the build's allocator setting. Pass 1 (`_survey`) streams one table through `_projected_rows` and returns its row count, whether its keys strictly increase, its glyph names and junction tokens, its largest glyph, cluster and junction counts, and the exception its read raised, as a value, since the tables finish in any order. The parent collects every survey before it decides: it raises the earliest configuration's error in `configs` order, the one a serial read in that order meets first, and writes no file before it does. Otherwise it lays out the header from the surveys exactly as one pass over every row would (`_layout`), marks `SURVEYED_MARK` with the rows and strings (`memory_tally.mark`), writes the header and its padding at offset 0 of the temporary file, and sizes the file to its final length with `ftruncate`, which leaves every alignment gap a hole that reads as zeros, so no byte is written twice. Pass 2 (`_write_section`) opens the temporary file by path without truncating it, so a late opener leaves its neighbors' sections alone, streams its table again, encodes each row with the header's string ids and record layout (`_encode_section`), and writes its keys and its records at their offsets with `pwrite`, a bounded chunk at a time. No message between the parent and a pack process carries rows: the arguments are paths and the header's parameters, and the results are counts, a few hundred strings and errors. So the parent holds the surveys' sets and the header, and each pack process one table's field memos and a chunk. The file is renamed into place once every pass-2 process has answered, and removed if any failed, so a reader never maps a partly written pack.
+The packer runs in the corpus build's parent before the workload loads and before any pool starts, and its memory is budgeted under `CORPUS_PARENT_BYTES` in rebuild/tools/artifact_cycle.py. It reads the tables in two passes in one spawn process a configuration whatever the build's widths, each process serving both passes over its own configuration's table (`_PackProcesses`, `_pack_process`); they inherit the parent's environment and with it the build's allocator setting. Pass 1 (`_survey`) streams one table through `_projected_rows` and returns its row count, whether its keys strictly increase, its glyph names and junction tokens, its largest glyph, cluster and junction counts, and the exception its read raised, as a value, since the tables finish in any order. The parent collects every survey before it decides: it raises the earliest configuration's error in `configs` order, the one a serial read in that order meets first, and writes no file before it does. Otherwise it lays out the header from the surveys exactly as one pass over every row would (`_layout`), marks `SURVEYED_MARK` with the rows and strings (`memory_tally.mark`), writes the header and its padding at offset 0 of the temporary file, and sizes the file to its final length with `ftruncate`, which leaves every alignment gap a hole that reads as zeros, so no byte is written twice. Pass 2 (`_write_section`) opens the temporary file by path without truncating it, so a late opener leaves its neighbors' sections alone, streams its table again, encodes each row with the header's string ids and record layout (`_encode_section`), and writes its keys and its records at their offsets with `pwrite`, a bounded chunk at a time. No message between the parent and a pack process carries rows: the arguments are paths and the header's parameters, and the results are counts, a few hundred strings and errors. So the parent holds the surveys' sets and the header, and each pack process one table's field memos and a chunk. The file is renamed into place once every pass-2 process has answered, and removed if any failed, so a reader never maps a partly written pack. However the pack ends, the parent asks each process for its peak footprint (`peak_rss.peak_footprint_self_bytes`) as it stops it, and writes them, one a configuration, with its own peak footprint as the controller's, to a `subset-pack` pool record in the timings journal (`cycle_timings.record_pool`).
 
-A table whose keys do not strictly increase sends the whole pack down the in-memory path (`write_pack_in_memory`), in the parent alone: it holds every table's keys as one `array` of unsigned 64-bit integers and its rows as one `array` of indices into a pool of distinct `(glyphs, clusters, junctions)` triples, which repeat heavily across configurations, plus one encoded record per distinct triple and one configuration's encoded section at a time while it is written. It sorts an out-of-order table and refuses a window with two rows, and writes the bytes the two passes write.
+A table whose keys do not strictly increase sends the whole pack down the in-memory path (`write_pack_in_memory`), in the parent alone, which writes no pool record of its own (the processes whose pass 1 sent it there record theirs as they stop): it holds every table's keys as one `array` of unsigned 64-bit integers and its rows as one `array` of indices into a pool of distinct `(glyphs, clusters, junctions)` triples, which repeat heavily across configurations, plus one encoded record per distinct triple and one configuration's encoded section at a time while it is written. It sorts an out-of-order table and refuses a window with two rows, and writes the bytes the two passes write.
 
 `SubsetPack.open` maps the file with `mmap.ACCESS_READ` and fails when the header's format, packer digest, byte order, or table digests differ from this process's code and from the digests the caller computed from the tables on disk. It interns the string table once through `sys.intern`. `row` bisects the key array through a cast `memoryview` and builds one frozen `SubsetRow` from the record at that index. Every worker shares the mapping through the page cache, and a process's resident share is the pages its lookups touch, so a corpus worker's memory does not grow with the tables or the alphabet (`CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py budgets the rest). `ensure_pack` is the entry point a reader needs: it returns a current pack beside the tables, writing one if needed.
 
@@ -25,13 +25,16 @@ import sys
 from array import array
 from bisect import bisect_left
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from concurrent.futures import Executor, ProcessPoolExecutor
 from dataclasses import dataclass
-from itertools import repeat
+from multiprocessing.connection import Connection
+from multiprocessing.process import BaseProcess
 from pathlib import Path
+from types import TracebackType
 
 from rebuild.pipeline.fingerprint import code_file_digest, file_sha256
 from rebuild.tools import memory_tally
+from rebuild.tools.cycle_timings import record_pool
+from rebuild.tools.peak_rss import peak_footprint_self_bytes
 from rebuild.validation.rowmodel import open_table
 
 PACK_NAME = "baseline-subsets.pack"
@@ -333,36 +336,139 @@ def _write_section(
     return None
 
 
+def _pack_process(conn: Connection, path: str) -> None:
+    """Run one pack process over the table at `path`, answering the parent on `conn`: it sends `survey` with its pass-1 `_Survey` as it starts, answers each `write` message, which carries pass 2's arguments but the table's path, with `written` and what `_write_section` returned, and answers `stop` with `peak` and its peak footprint (`peak_rss.peak_footprint_self_bytes`), then exits. A parent that has gone ends it at its next read."""
+    try:
+        conn.send(("survey", _survey(path)))
+        while True:
+            message = conn.recv()
+            if message[0] == "stop":
+                conn.send(("peak", peak_footprint_self_bytes()))
+                return
+            temp, rows, keys_at, records_at, strings, slots = message[1:]
+            conn.send(("written", _write_section(temp, path, rows, keys_at, records_at, strings, slots)))
+    except EOFError:
+        pass
+    finally:
+        conn.close()
+
+
+class _PackProcesses:
+    """The pack's processes, one spawn process a configuration, each serving both passes over its own table (`_pack_process`), started on entry and stopped on exit however the pack ends: each is asked for its peak footprint and joined, and the parent writes the `subset-pack` pool record, one reading a configuration whose process answered, with its own peak footprint as the controller's. `surveys` and `write` read the answers in configuration order."""
+
+    def __init__(self, configs: Sequence[str], paths: Sequence[str]) -> None:
+        self._configs = tuple(configs)
+        self._paths = tuple(paths)
+        self._conns: list[Connection] = []
+        self._procs: list[BaseProcess] = []
+
+    def __enter__(self) -> _PackProcesses:
+        context = multiprocessing.get_context("spawn")
+        try:
+            for path in self._paths:
+                parent_conn, child_conn = context.Pipe()
+                process = context.Process(target=_pack_process, args=(child_conn, path))
+                process.start()
+                child_conn.close()
+                self._conns.append(parent_conn)
+                self._procs.append(process)
+        except BaseException:
+            self.stop()
+            raise
+        return self
+
+    def __exit__(
+        self,
+        kind: type[BaseException] | None,
+        value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.stop()
+
+    def _answer(self, index: int, tag: str):
+        try:
+            reply = self._conns[index].recv()
+        except EOFError:
+            raise RuntimeError(
+                f"the pack process for {self._configs[index]} exited without answering {tag}"
+            ) from None
+        if reply[0] != tag:
+            raise RuntimeError(f"the pack process for {self._configs[index]} answered {reply[0]}, not {tag}")
+        return reply[1]
+
+    def surveys(self) -> list[_Survey]:
+        return [self._answer(index, "survey") for index in range(len(self._conns))]
+
+    def write(
+        self,
+        temp: str,
+        sections: Sequence[tuple[int, int, int]],
+        strings: Sequence[str],
+        slots: tuple[int, int, int],
+    ) -> list[Exception | None]:
+        """Have every process write its section of `temp` (pass 2), each `(rows, keys_at, records_at)` of `sections` its own configuration's, and return what each returned."""
+        for conn, (rows, keys_at, records_at) in zip(self._conns, sections):
+            conn.send(("write", temp, rows, keys_at, records_at, strings, slots))
+        return [self._answer(index, "written") for index in range(len(self._conns))]
+
+    def stop(self) -> None:
+        """Ask each process for its peak footprint, join them all, and write the pool record. A reply a failed pass left queued ahead of the peak is drained, and a second call does nothing."""
+        peaks: dict[str, int] = {}
+        for config, conn in zip(self._configs, self._conns):
+            try:
+                conn.send(("stop",))
+                while conn.poll(5):
+                    reply = conn.recv()
+                    if reply[0] == "peak":
+                        peaks[config] = int(reply[1])
+                        break
+            except OSError, EOFError:
+                pass
+            conn.close()
+        for process in self._procs:
+            process.join(timeout=5)
+            if process.is_alive():
+                process.terminate()
+                process.join()
+        if peaks:
+            record_pool(
+                "subset-pack",
+                width=len(self._procs),
+                worker_peaks=peaks,
+                controller_peak_bytes=peak_footprint_self_bytes(),
+                worker_reading="footprint",
+            )
+        self._conns = []
+        self._procs = []
+
+
 def write_pack(
     subset_dir: Path, configs: Sequence[str], digests: Mapping[str, str], destination: Path
 ) -> Path:
-    """Pack every named configuration's table into `destination` in two passes, one spawn process a configuration, through a temporary file beside it that is renamed into place once every section is written (the module docstring has the passes). Raises the exception the earliest configuration's table raised in pass 1 before any file is written, and takes the in-memory path (`write_pack_in_memory`) when a table's keys do not strictly increase."""
+    """Pack every named configuration's table into `destination` in two passes, one spawn process a configuration serving both (`_PackProcesses`), through a temporary file beside it that is renamed into place once every section is written (the module docstring has the passes). Raises the exception the earliest configuration's table raised in pass 1 before any file is written, and takes the in-memory path (`write_pack_in_memory`) when a table's keys do not strictly increase. The processes are stopped, and their pool record written, before either returns or raises, the in-memory path's pass 1 among them."""
     subset_dir = Path(subset_dir)
     destination = Path(destination)
     paths = [str(table_path(subset_dir, config)) for config in configs]
-    with ProcessPoolExecutor(
-        max_workers=max(1, len(paths)), mp_context=multiprocessing.get_context("spawn")
-    ) as pool:
-        surveys = list(pool.map(_survey, paths))
+    with _PackProcesses(configs, paths) as processes:
+        surveys = processes.surveys()
         for survey in surveys:
             if survey.error is not None:
                 raise survey.error
             if not survey.increasing:
                 break
         else:
-            return _write_sections(pool, configs, paths, surveys, digests, destination)
+            return _write_sections(processes, configs, surveys, digests, destination)
     return write_pack_in_memory(subset_dir, configs, digests, destination)
 
 
 def _write_sections(
-    pool: Executor,
+    processes: _PackProcesses,
     configs: Sequence[str],
-    paths: Sequence[str],
     surveys: Sequence[_Survey],
     digests: Mapping[str, str],
     destination: Path,
 ) -> Path:
-    """Lay the pack out from the surveys, stage the header in a temporary file sized to the pack's length, have `pool` run pass 2 one table a task, and rename the file into place once every task has answered, or remove it and raise the earliest configuration's error if any failed."""
+    """Lay the pack out from the surveys, stage the header in a temporary file sized to the pack's length, have each process run pass 2 over its own table, and rename the file into place once every process has answered, or remove it and raise the earliest configuration's error if any failed."""
     layout = _layout(configs, surveys, digests)
     header = layout.header
     memory_tally.mark(
@@ -377,17 +483,14 @@ def _write_sections(
             os.ftruncate(descriptor, layout.size)
         finally:
             os.close(descriptor)
-        failures = list(
-            pool.map(
-                _write_section,
-                repeat(str(temp)),
-                paths,
-                [section["rows"] for section in sections],
-                [layout.base + section["keys"] for section in sections],
-                [layout.base + section["records"] for section in sections],
-                repeat(header["strings"]),
-                repeat(layout.slots),
-            )
+        failures = processes.write(
+            str(temp),
+            [
+                (section["rows"], layout.base + section["keys"], layout.base + section["records"])
+                for section in sections
+            ],
+            header["strings"],
+            layout.slots,
         )
         failure = next((failure for failure in failures if failure is not None), None)
         if failure is not None:
@@ -402,7 +505,7 @@ def _write_sections(
 def write_pack_in_memory(
     subset_dir: Path, configs: Sequence[str], digests: Mapping[str, str], destination: Path
 ) -> Path:
-    """Pack every named configuration's table into `destination` in this process, through a temporary file beside it, which is renamed into place only after every table has been read and checked: the path `write_pack` takes when a table's keys do not strictly increase, which sorts the table. After the header, sections are encoded and written one configuration at a time, so the process holds at most one encoded section beside the loaded tables and the encoded records of the distinct rows. It writes the bytes the two passes write."""
+    """Pack every named configuration's table into `destination` in this process, which writes no pool record, through a temporary file beside it, which is renamed into place only after every table has been read and checked: the path `write_pack` takes when a table's keys do not strictly increase, which sorts the table. After the header, sections are encoded and written one configuration at a time, so the process holds at most one encoded section beside the loaded tables and the encoded records of the distinct rows. It writes the bytes the two passes write."""
     subset_dir = Path(subset_dir)
     destination = Path(destination)
     distinct: dict[tuple, int] = {}

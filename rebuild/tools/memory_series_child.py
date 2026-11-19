@@ -2,7 +2,7 @@
 
 A corpus child runs `build.build_m1` as a library over the line's inputs at the stated widths. It points the timings journal at the line's `--journal`, installs the mark reporter (`memory_tally.report_marks`), which prints each mark with this process's resident set and footprint (`[m]`) and on a load line (`--load`) stops the build at the plan's mark, makes a load line's substitutions (`substitute_for_load`), and prints this process's own rusage and its reaped children's (`[r]`) before it exits.
 
-A pack child (`pack` before its flags) runs `subset_pack.write_pack` over the tables under `--tables`, each a FIFO the series fills for every open, for `--configs`, into `--pack`, after linking the pack's temporary name to the null device, where `ftruncate` and `pwrite` both succeed on macOS, so it writes nothing; it prints a mark (`[m]`) as it starts the pack (`pack started`) and once the pack is renamed into place (`pack`), beside the one the pack's parent makes between the passes (`pack surveyed`), and its rusage line (`[r]`) before it exits (`pack_main`).
+A pack child (`pack` before its flags) points the timings journal at `--journal`, where the pack's parent writes its processes' pool record, and runs `subset_pack.write_pack` over the tables under `--tables`, each a FIFO the series fills for every open, for `--configs`, into `--pack`, after linking the pack's temporary name to the null device, where `ftruncate` and `pwrite` both succeed on macOS, so it writes nothing; it prints a mark (`[m]`) as it starts the pack (`pack started`) and once the pack is renamed into place (`pack`), beside the one the pack's parent makes between the passes (`pack surveyed`), and its rusage line (`[r]`) before it exits (`pack_main`).
 
 A replay child (`replay` before its flags) runs `run_m1.replay_and_absorb` over the line's cut, as a full replay of run_m1 runs it, at the stated width, with each crate's cache stats on and each absorb hashing its finished file and then discarding it, so the line writes no settle memo; it prints what the replay did as one JSON line (`replay_main`).
 
@@ -10,7 +10,7 @@ An absorb child (`absorb`) reads its job from stdin, maps the parts' shared memo
 
 The child is a module of its own, whose top-level imports are the standard library and modules the build imports itself, because multiprocessing's spawn imports the launching process's main module into every worker the build starts. Run as this module, the build's parent and each of its units, write and signature workers hold the build's modules and this one beside them, where a cycle's build, run as `python -m rebuild.review.build`, holds the build's modules alone; a pack child's pack processes hold `subset_pack` and this module, where a cycle's hold the build's modules; a replay's absorb workers likewise hold run_m1's modules and this one, where run_m1's own hold run_m1's alone. The series' own imports, the table step's among them, reach none of them.
 
-Run as: python -m rebuild.tools.memory_series_child --inputs JSON --audit FILE --out DIR --journal FILE --jobs N --signature-jobs N --write-jobs N [--load], which the series does once a corpus line, python -m rebuild.tools.memory_series_child pack --tables DIR --configs a,b --pack FILE, once a cut line, python -m rebuild.tools.memory_series_child replay --spec PICKLE --spec-dump JSON --out DIR --configs a,b --width N [--built], once a replay line, or python -m rebuild.tools.memory_series_child absorb with its job on stdin, twice an absorbs line.
+Run as: python -m rebuild.tools.memory_series_child --inputs JSON --audit FILE --out DIR --journal FILE --jobs N --signature-jobs N --write-jobs N [--load], which the series does once a corpus line, python -m rebuild.tools.memory_series_child pack --tables DIR --configs a,b --pack FILE --journal FILE, once a cut line, python -m rebuild.tools.memory_series_child replay --spec PICKLE --spec-dump JSON --out DIR --configs a,b --width N [--built], once a replay line, or python -m rebuild.tools.memory_series_child absorb with its job on stdin, twice an absorbs line.
 """
 
 from __future__ import annotations
@@ -128,15 +128,18 @@ def print_rusage() -> None:
 
 
 def pack_main(argv: Sequence[str]) -> int:
-    """Run one cut line's pack child: link the temporary name `subset_pack.write_pack` stages `--pack` under to the null device, mark `pack started`, write the pack over the tables under `--tables` for `--configs`, each a FIFO the series fills for every open, mark `pack` once it is renamed into place, remove the link it leaves at `--pack`, and print the rusage line. The header records `PACK_CHILD_DIGEST` for every table."""
+    """Run one cut line's pack child: point the timings journal at `--journal`, link the temporary name `subset_pack.write_pack` stages `--pack` under to the null device, mark `pack started`, write the pack over the tables under `--tables` for `--configs`, each a FIFO the series fills for every open, mark `pack` once it is renamed into place, remove the link it leaves at `--pack`, and print the rusage line. The header records `PACK_CHILD_DIGEST` for every table."""
     parser = argparse.ArgumentParser(prog="python -m rebuild.tools.memory_series_child pack")
     parser.add_argument("--tables", type=Path, required=True)
     parser.add_argument("--configs", required=True)
     parser.add_argument("--pack", type=Path, required=True)
+    parser.add_argument("--journal", type=Path, required=True)
     args = parser.parse_args(argv)
     from rebuild.review import subset_pack
+    from rebuild.tools import cycle_timings
 
     configs = args.configs.split(",")
+    cycle_timings.JOURNAL = args.journal
     memory_tally.report_marks(functools.partial(report_mark, through_plan=False))
     temp = args.pack.with_name(f"{args.pack.name}.tmp-{os.getpid()}")
     temp.symlink_to(os.devnull)

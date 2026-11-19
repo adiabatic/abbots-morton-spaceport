@@ -619,11 +619,9 @@ def test_a_signature_pool_record_goes_to_the_cores_bound_row(tmp_path, capsys):
     assert "40.00 GB" not in corpus_block
 
 
-@pytest.mark.parametrize("name", ["run-m1-parent", "replay-absorb"])
-def test_run_m1s_parent_and_the_replay_absorbs_are_reported_by_footprint_and_never_checked(
-    tmp_path, capsys, name
-):
-    """run_m1's own process and the string replay's settle-memo absorbs record their peak footprints under units of their own, and only their own rows read them. No constant books either, so `--check` passes at any reading and the row reports the figure."""
+@pytest.mark.parametrize("name", ["run-m1-parent", "replay-absorb", "subset-pack"])
+def test_footprint_pools_no_constant_books_are_reported_and_never_checked(tmp_path, capsys, name):
+    """run_m1's own process, the string replay's settle-memo absorbs and the subset pack's processes record their peak footprints under units of their own, and only their own rows read them. No constant books either, so `--check` passes at any reading and the row reports the figure."""
     assert _unit(name).constant is None
     assert [unit.name for unit in cb.UNITS if name in unit.pool_units] == [name]
     path = _journal(tmp_path, [_pool(name, [40_000_000_000])])

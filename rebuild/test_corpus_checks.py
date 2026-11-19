@@ -48,6 +48,7 @@ from rebuild.review.drafts import DraftError, Drafter
 from rebuild.review.enrich import LETTERS, Enricher, _highlight, load_spec
 from rebuild.review.subset_pack import SubsetPack, SubsetRow, pack_key, table_digests, write_pack
 from rebuild.review.unit_store import UnitStore
+from rebuild.tools import cycle_timings
 from rebuild.validation.rowmodel import Row, iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -660,6 +661,15 @@ def _subset_table(path: Path, *rows: Row) -> Path:
     return path
 
 
+def _pack_pools() -> list[dict]:
+    """Return the `subset-pack` pool records in the test's timings journal, which the autouse redirect points under the test's `tmp_path`."""
+    return [
+        record
+        for record in cycle_timings.load_pool_records(cycle_timings.JOURNAL)
+        if record["unit"] == "subset-pack"
+    ]
+
+
 def _pack(tmp_path: Path, *configs: str) -> SubsetPack:
     """Packs the named configurations' tables under `tmp_path` and opens the pack, checking its header against digests of the same tables."""
     digests = table_digests(tmp_path, configs)
@@ -846,7 +856,7 @@ def _table_lines(path: Path, *lines: str) -> Path:
 
 
 def test_the_two_passes_write_the_bytes_the_in_memory_path_writes(tmp_path, mini_bundle):
-    """`write_pack` writes, byte for byte, the file `write_pack_in_memory` writes over the same tables, header, padding, sections and the gaps between them alike: here two configurations that share a row, rows with no junction, the widest record, four glyphs and three junctions, in one table only, and a table with no rows last, so each slot count and the string table come from every table at once and the file ends on an aligned gap; and the mini bundle's tables, which its fixture packs in memory."""
+    """`write_pack` writes, byte for byte, the file `write_pack_in_memory` writes over the same tables, header, padding, sections and the gaps between them alike: here two configurations that share a row, rows with no junction, the widest record, four glyphs and three junctions, in one table only, and a table with no rows last, so each slot count and the string table come from every table at once and the file ends on an aligned gap; and the mini bundle's tables, which its fixture packs in memory. Each `write_pack` writes one `subset-pack` pool record of peak footprints, one a configuration's process, and `write_pack_in_memory` writes none."""
     shared = _row((0xE650, 0xE652), ("qsPea", "qsTea"), ("y0",))
     _subset_table(
         tmp_path / "baseline-first.subset.tsv.gz",
@@ -884,6 +894,15 @@ def test_the_two_passes_write_the_bytes_the_in_memory_path_writes(tmp_path, mini
         MINI, ACCEPTANCE_CONFIGS, table_digests(MINI, ACCEPTANCE_CONFIGS), tmp_path / "mini.pack"
     )
     assert mini.read_bytes() == mini_bundle.subset_pack.read_bytes()
+    pools = _pack_pools()
+    assert [(pool["width"], pool["worker_reading"]) for pool in pools] == [
+        (len(configs), "footprint"),
+        (len(ACCEPTANCE_CONFIGS), "footprint"),
+    ]
+    for pool, named in zip(pools, (configs, ACCEPTANCE_CONFIGS)):
+        assert set(pool["worker_peak_rss_bytes"]) == set(named), pool
+        assert all(peak > 0 for peak in pool["worker_peak_rss_bytes"].values()), pool
+        assert pool["controller_peak_rss_bytes"] > 0
 
 
 def test_the_two_passes_raise_the_earliest_configurations_error_and_leave_no_file(tmp_path):
@@ -957,7 +976,7 @@ def test_each_section_lands_the_same_whatever_order_the_writers_open_the_pack_in
 
 
 def test_a_table_out_of_key_order_sends_the_whole_pack_down_the_in_memory_path(tmp_path, monkeypatch):
-    """A table whose keys do not strictly increase is packed, with every table beside it, by the in-memory path, which sorts it, as `test_a_subset_key_is_spelled_the_way_the_row_model_spells_it` reads back; tables in key order never reach that path."""
+    """A table whose keys do not strictly increase is packed, with every table beside it, by the in-memory path, which sorts it, as `test_a_subset_key_is_spelled_the_way_the_row_model_spells_it` reads back; tables in key order never reach that path. The pack's processes ran pass 1 before it, so their pool record still holds one reading a configuration."""
     taken: list[tuple[str, ...]] = []
     in_memory = subset_pack.write_pack_in_memory
 
@@ -975,6 +994,10 @@ def test_a_table_out_of_key_order_sends_the_whole_pack_down_the_in_memory_path(t
     assert taken == [("sorted", "unsorted")]
     assert [codepoints for codepoints, _row in pack.rows("unsorted")] == ["E650:E652", "E650:E652:E650"]
     pack.close()
+    assert [sorted(pool["worker_peak_rss_bytes"]) for pool in _pack_pools()] == [
+        ["sorted"],
+        ["sorted", "unsorted"],
+    ]
 
 
 def test_a_cached_unit_skips_check_unit_but_not_the_cross_unit_grain():

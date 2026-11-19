@@ -192,6 +192,15 @@ UNITS: tuple[Unit, ...] = (
         note="The corpus build's ink-signature pool is cores-bound rather than memory-bound — `artifact_cycle.signature_job_budget` hands it the whole machine's cores, under a gated cycle as in a hand run, and divides nothing — because a signature worker holds one comparator over the two fonts and a resident set flat in the number of signature misses it shapes, so no constant estimates its peak memory and there is nothing here to calibrate. The observations are collected and reported anyway, one per worker per pooled pass, each the worker's own peak returned to the parent process on its last chunk's reply, so that a figure exists if a width ever needs one — the rebuild-contracts row's position. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures, and it would read a build's footprint as a comparator's.",
     ),
     Unit(
+        name="subset-pack",
+        constant=None,
+        source=None,
+        pool_units=("subset-pack",),
+        step_names=(),
+        step_caveat="",
+        note="These pool records come from `subset_pack.write_pack`, one per pack it writes in its processes, which `ensure_pack` runs in the corpus build's parent when the pack is not current for the tables, with one observation per acceptance configuration's process that answered the stop, labeled by its configuration: its peak footprint (`peak_rss.peak_footprint_self_bytes`) over both passes, which one process a configuration serves. No constant books them: they run before any of the build's pools starts and have exited before the load begins, inside the corpus-build step's booking, so the figure is reported and checked against nothing. A pack whose pass 1 sent it down the in-memory path still records its processes, and the in-memory path itself, in the parent alone, records nothing. The corpus-build step peak is deliberately not admitted: that max reads the parent, which the corpus-parent row measures.",
+    ),
+    Unit(
         name="oracle-shard",
         constant=ORACLE_SHARD_NAME,
         source=CORPUS_SOURCE,

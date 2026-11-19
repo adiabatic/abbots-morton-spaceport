@@ -929,7 +929,7 @@ def _audit_rows(excluded=frozenset()):
 def test_a_cut_line_builds_over_the_cut_audit_and_writes_only_what_the_build_reads_back(
     mini_bundle, mini_corpus, monkeypatch, tmp_path
 ):
-    """A cut line's build reads the audit rows whose windows use only the cut's letters, here every letter but ·Out and ·Fee, from the cut audit the run wrote for it, a real file in sorted sections, which the build reads as a stream. As the child starts, its out dir holds a clone of the live signature store and a link to the null device at every staging name `null_routes` gives, and once the line is done the only regular files it left are the ones the build reads back or does not route, and its directory is gone. The line reads every mark in `CORPUS_MARKS` order, the key-only read's largest process peak from the load note, the signatures all answered by the clone, both pools' workers from their pool records and from the sampler, one held sidecar figure a write run from the write phase's note, and its pack child's block with one pack process a configuration, the child run with the line's allocator setting. The checkout's code digests are read after the idle wait and before the after-wait, so an edit made during either wait is not one made during the build."""
+    """A cut line's build reads the audit rows whose windows use only the cut's letters, here every letter but ·Out and ·Fee, from the cut audit the run wrote for it, a real file in sorted sections, which the build reads as a stream. As the child starts, its out dir holds a clone of the live signature store and a link to the null device at every staging name `null_routes` gives, and once the line is done the only regular files it left are the ones the build reads back or does not route, and its directory is gone. The line reads every mark in `CORPUS_MARKS` order, the key-only read's largest process peak from the load note, the signatures all answered by the clone, both pools' workers from their pool records and from the sampler, one held sidecar figure a write run from the write phase's note, and its pack child's block with one peak footprint a configuration's pack process from the pack's pool record, the child run with the line's allocator setting. The checkout's code digests are read after the idle wait and before the after-wait, so an edit made during either wait is not one made during the build."""
     inputs = _mini_inputs(mini_bundle, mini_corpus)
     routes = _routes(inputs)
     excluded = frozenset({0xE67B, 0xE658})
@@ -983,7 +983,10 @@ def test_a_cut_line_builds_over_the_cut_audit_and_writes_only_what_the_build_rea
         assert pool["width"] == 2 and pool["reading"] == "footprint", pool
         assert len(pool["peaks"]) == len(pool["resident"]) == 2, pool
     assert measured["pools"]["signature"]["peaks"] == []
-    assert measured["pools"]["pack"]["width"] == len(audit.ACCEPTANCE_CONFIGS) and measured["pack"]["rows"]
+    pack_pool = measured["pools"]["pack"]
+    assert pack_pool["width"] == len(pack_pool["peaks"]) == len(audit.ACCEPTANCE_CONFIGS), pack_pool
+    assert pack_pool["reading"] == "footprint" and all(peak > 0 for peak in pack_pool["peaks"]), pack_pool
+    assert len(pack_pool["resident"]) <= len(audit.ACCEPTANCE_CONFIGS) and measured["pack"]["rows"]
     assert measured["pack"]["allocator_env"] == dict(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT)
     assert len(measured["sidecar_lines_mb"]) == len(measured["write_runs"]) and all(
         measured["sidecar_lines_mb"]
@@ -994,7 +997,7 @@ def test_a_cut_line_builds_over_the_cut_audit_and_writes_only_what_the_build_rea
 
 @null_pack
 def test_a_cut_lines_pack_child_packs_the_cut_tables_through_fifos_onto_the_null_device(tmp_path):
-    """A cut line's pack child runs `write_pack` over each configuration's subset table cut to the line's letters, here every letter but ·Out and ·Fee, each served through a FIFO that is filled on every open, so the two passes read each table twice, with its pack linked to the null device, so it leaves only the FIFOs. It records the cut tables' rows and strings, each pass's seconds, its own peaks and environment, and one pack process a configuration under the `pack` pool."""
+    """A cut line's pack child runs `write_pack` over each configuration's subset table cut to the line's letters, here every letter but ·Out and ·Fee, each served through a FIFO that is filled on every open, so the two passes read each table twice, with its pack linked to the null device, so it leaves only the FIFOs. It records the cut tables' rows and strings, each pass's seconds, its own peaks and environment, and under the `pack` pool one peak footprint a configuration's pack process from the pool record the pack's parent writes to the child's journal, which the line reads and removes; the sampler's resident readings are at most one a process."""
     excluded = frozenset({0xE67B, 0xE658})
     rows = 0
     strings: set[str] = set()
@@ -1025,7 +1028,9 @@ def test_a_cut_lines_pack_child_packs_the_cut_tables_through_fifos_onto_the_null
     assert pack["survey_s"] > 0 and pack["write_s"] > 0 and pack["peak_footprint"] and pack["peak_resident"]
     assert pack["fills"] == 2 * len(audit.ACCEPTANCE_CONFIGS)
     assert pack["allocator_env"] == dict(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT)
-    assert pool["width"] == len(audit.ACCEPTANCE_CONFIGS) == len(pool["peaks"]) == len(pool["resident"])
+    assert pool["width"] == len(audit.ACCEPTANCE_CONFIGS) == len(pool["peaks"]), pool
+    assert pool["reading"] == "footprint" and all(peak > 0 for peak in pool["peaks"]) and pool["controller"]
+    assert len(pool["resident"]) <= len(audit.ACCEPTANCE_CONFIGS), pool
     left = sorted(path.name for path in pack_dir.iterdir())
     assert left == sorted(
         subset_pack.table_path(pack_dir, config).name for config in audit.ACCEPTANCE_CONFIGS
