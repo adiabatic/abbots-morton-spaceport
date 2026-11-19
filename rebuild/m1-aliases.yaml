@@ -360,18 +360,18 @@ qsUtter.noentry.ex-con-2: {rune: qsUtter, stance: mono, exit: x-height, adjustme
 qsUtter.noentry.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [locked, ex-ext-1]}
 qsUtter.ss10: {rune: qsUtter, stance: mono}
 qsOut: {rune: qsOut, stance: normal}
-qsOut.en-y0.after-see: {rune: qsOut, stance: normal, entry: baseline, adjustments: [en-bind-raked]}
-qsOut.en-y0.after-see.en-trim-1: {rune: qsOut, stance: normal, entry: baseline, adjustments: [en-bind-raked, en-trim-1]}
+qsOut.en-y0.after-see: {rune: qsOut, stance: normal, entry: baseline}
+qsOut.en-y0.after-see.en-trim-1: {rune: qsOut, stance: normal, entry: baseline, adjustments: [en-trim-1]}
 qsOut.en-y0.ex-y5: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height}
-qsOut.en-y0.ex-y5.after-see.before-fee: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-raked, ex-ext-1]}
-qsOut.en-y0.ex-y5.after-see.before-other: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-raked]}
+qsOut.en-y0.ex-y5.after-see.before-fee: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-low-bend, ex-ext-1]}
+qsOut.en-y0.ex-y5.after-see.before-other: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [en-bind-low-bend]}
 qsOut.en-y0.ex-y5.ex-ext-1: {rune: qsOut, stance: swept-up, entry: baseline, exit: x-height, adjustments: [ex-ext-1]}
 qsOut.en-y0.ex-y5.noentry: {rune: qsOut, stance: swept-up, exit: x-height, adjustments: [locked]}
 qsOut.en-y0.ex-y5.noentry.ex-ext-1: {rune: qsOut, stance: swept-up, exit: x-height, adjustments: [locked, ex-ext-1]}
 qsOut.noentry: {rune: qsOut, stance: normal, adjustments: [locked]}
 qsOut.ss10: {rune: qsOut, stance: normal}
 qsOut_qsTea: {rune: qsOut_qsTea, stance: sole}
-qsOut_qsTea.after-see: {rune: qsOut_qsTea, stance: sole, entry: baseline, adjustments: [en-bind-raked]}
+qsOut_qsTea.after-see: {rune: qsOut_qsTea, stance: sole, entry: baseline, adjustments: [en-bind-low-bend]}
 qsOoze: {rune: qsOoze, stance: sole}
 qsOoze.noentry: {rune: qsOoze, stance: sole, adjustments: [locked]}
 qsOoze.ss10: {rune: qsOoze, stance: sole}

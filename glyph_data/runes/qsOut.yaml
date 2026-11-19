@@ -24,15 +24,6 @@ stances:
     - " #   ## "
     - "#       "
     - "#       "  #
-    bitmaps:
-      raked:
-        bitmap:
-        - "     ### "  #
-        - "    ##  #"
-        - "   # #  #"
-        - "  #   ## "
-        - " #       "
-        - " #       "  #
     surface:
       entries:
         baseline:
@@ -59,14 +50,14 @@ stances:
     - "#    "
     - "#    "  #
     bitmaps:
-      raked:
+      low-bend:
         bitmap:
-        - "     ##"  #
-        - "    #  "
-        - "   # # "
-        - "  # #  "
-        - " #     "
-        - " #     "  #
+        - "    ##"  #
+        - "   #  "
+        - "  # # "
+        - " # #  "
+        - "#     "
+        - "#     "  #
     surface:
       entries:
         baseline:
@@ -127,14 +118,13 @@ policy:
   contract:
   - stance: normal
     entry: baseline
-    bind: raked
     trim: 1
     why: I'd like to recreate the old look of ·See·Out.
     when:
       left: {family: qsSee}
   - stance: swept-up
     entry: baseline
-    bind: raked
+    bind: low-bend
     trim: 1
     when:
       left: {family: qsSee}

@@ -23,17 +23,17 @@ stances:
     - "#       "
     - "#       "  #
     bitmaps:
-      raked:
+      low-bend:
         bitmap:
-        - "     #   "
-        - "     #   "
-        - "     #   "
-        - "     ### "  #
-        - "    ##  #"
-        - "   # #  #"
-        - "  #   ## "
-        - " #       "
-        - " #       "  #
+        - "    #   "
+        - "    #   "
+        - "    #   "
+        - "    ### "  #
+        - "   ##  #"
+        - "  # #  #"
+        - " #   ## "
+        - "#       "
+        - "#       "  #
     surface:
       entries:
         baseline:
@@ -57,7 +57,7 @@ policy:
   extend: []
   contract:
   - entry: baseline
-    bind: raked
+    bind: low-bend
     trim: 1
     when:
       left: {family: qsSee}

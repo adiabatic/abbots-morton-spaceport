@@ -1089,39 +1089,39 @@
 - signature: contact:qsTea_qsOy.sole.ex-y0:qsOut_qsTea.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
-# The ·See·Out fusion at the baseline, in three defect formats: an E-CONTACT overlap, an E-CONTACT side-by-side row at y2, and an E-UNREALIZED junction gap. ·See keeps its whole straighter tail, whose left-kicking last pixel fills the junction row. ·Out's raked redraws are entry-trimmed, so ·Out has no ink on the junction row, and the leg's lowest pixel, directly above the junction, fuses into the tail at (2, 1) in ·See's bitmap, one row above the baseline. One row higher, at y2, the tail sits one column left of ·Out's leg. The overlap is the fusion, and the empty ·Out junction row is why `junction_gap` finds no ink there. The old font's `ex-con-1` on ·See is a tuck that keeps the tail's ink, so this reproduces the old font's fused ·See·Out and every after-·See form is pixel-identical to it (the identical-see-out-fusion class in rebuild/m1-divergences.yaml).
-- signature: contact:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-bind-raked.en-trim-1:overlap
-- signature: contact:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-bind-raked.en-trim-1:y2
+# The ·See·Out fusion at the baseline, in three defect formats: an E-CONTACT overlap, an E-CONTACT side-by-side row at y2, and an E-UNREALIZED junction gap. ·See keeps its whole straighter tail, whose left-kicking last pixel fills the junction row. Every ·Out form after ·See is entry-trimmed, the swept-up and ·Out+Tea forms on their `low-bend` drawings, which give them the arch's leg, so ·Out has no ink on the junction row, and the leg's lowest pixel, directly above the junction, fuses into the tail at (2, 1) in ·See's bitmap, one row above the baseline. One row higher, at y2, the tail sits one column left of ·Out's leg. The overlap is the fusion, and the empty ·Out junction row is why `junction_gap` finds no ink there. The old font's `ex-con-1` on ·See is a tuck that keeps the tail's ink, so this reproduces the old font's fused ·See·Out and every after-·See form is pixel-identical to it (the identical-see-out-fusion class in rebuild/m1-divergences.yaml).
+- signature: contact:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-trim-1:y2
   why: The pair in the `:overlap` signature above also touches at y2, off the junction row.
-- signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:overlap
-- signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:y2
+- signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1:y2
   why: The pair in the `:overlap` signature above also touches at y2, off the junction row.
-- signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:overlap
-- signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:y2
+- signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1.ex-ext-1:overlap
+- signature: contact:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1.ex-ext-1:y2
   why: The pair in the `:overlap` signature above also touches at y2, off the junction row.
-- signature: contact:qsSee.straighter.ex-y0:qsOut_qsTea.sole.en-y0.en-bind-raked.en-trim-1:overlap
-- signature: contact:qsSee.straighter.ex-y0:qsOut_qsTea.sole.en-y0.en-bind-raked.en-trim-1:y2
+- signature: contact:qsSee.straighter.ex-y0:qsOut_qsTea.sole.en-y0.en-bind-low-bend.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0:qsOut_qsTea.sole.en-y0.en-bind-low-bend.en-trim-1:y2
   why: The pair in the `:overlap` signature above also touches at y2, off the junction row.
-- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.normal.en-y0.en-bind-raked.en-trim-1:overlap
-- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.normal.en-y0.en-bind-raked.en-trim-1:y2
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.normal.en-y0.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.normal.en-y0.en-trim-1:y2
   why: The pair in the `:overlap` signature above also touches at y2, off the junction row.
-- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:overlap
-- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:y2
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1:y2
   why: The pair in the `:overlap` signature above also touches at y2, off the junction row.
-- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:overlap
-- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:y2
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1.ex-ext-1:overlap
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1.ex-ext-1:y2
   why: The pair in the `:overlap` signature above also touches at y2, off the junction row.
-- signature: contact:qsSee.straighter.ex-y0.locked:qsOut_qsTea.sole.en-y0.en-bind-raked.en-trim-1:overlap
-- signature: contact:qsSee.straighter.ex-y0.locked:qsOut_qsTea.sole.en-y0.en-bind-raked.en-trim-1:y2
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut_qsTea.sole.en-y0.en-bind-low-bend.en-trim-1:overlap
+- signature: contact:qsSee.straighter.ex-y0.locked:qsOut_qsTea.sole.en-y0.en-bind-low-bend.en-trim-1:y2
   why: The pair in the `:overlap` signature above also touches at y2, off the junction row.
-- signature: unrealized:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-bind-raked.en-trim-1:baseline
-- signature: unrealized:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:baseline
-- signature: unrealized:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:baseline
-- signature: unrealized:qsSee.straighter.ex-y0:qsOut_qsTea.sole.en-y0.en-bind-raked.en-trim-1:baseline
-- signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut.normal.en-y0.en-bind-raked.en-trim-1:baseline
-- signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1:baseline
-- signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-raked.en-trim-1.ex-ext-1:baseline
-- signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut_qsTea.sole.en-y0.en-bind-raked.en-trim-1:baseline
+- signature: unrealized:qsSee.straighter.ex-y0:qsOut.normal.en-y0.en-trim-1:baseline
+- signature: unrealized:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1:baseline
+- signature: unrealized:qsSee.straighter.ex-y0:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1.ex-ext-1:baseline
+- signature: unrealized:qsSee.straighter.ex-y0:qsOut_qsTea.sole.en-y0.en-bind-low-bend.en-trim-1:baseline
+- signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut.normal.en-y0.en-trim-1:baseline
+- signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1:baseline
+- signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut.swept-up.en-y0.ex-y5.en-bind-low-bend.en-trim-1.ex-ext-1:baseline
+- signature: unrealized:qsSee.straighter.ex-y0.locked:qsOut_qsTea.sole.en-y0.en-bind-low-bend.en-trim-1:baseline
 
 # ·At's vertical cap runs beside the follower's left stroke at y4 and y3, the two rows below the y5 junction, on these x-height joins that the old font also makes. Entry, lock, and onward-exit adjustments do not move the off-junction contact.
 - signature: contact:qsAt.rising.en-y0.ex-y5:qsDay.full.en-y5:y4

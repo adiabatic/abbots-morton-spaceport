@@ -30,7 +30,7 @@ The author ruled on these old-font behaviors:
 
 - Under ss04 the old font joins `·{,Day+,See+}Eat ~b~ ·It ~b~ ·{Day,Utter}`, and otherwise breaks `·Eat | ·It`. ·Eat never joins ·It, as ·It never joins itself, because the two adjacent verticals read as one thick stroke: ·Eat's baseline `toward:` leaves out qsIt, and both ligatures take that scope through `outgoing: {stance: sole}`.
 - The old font joins `·{I,Ah} ~x~ ·They ~b~ ·Eat` through ·They's tuck for ·May, where the bare pair breaks. As for ·Excite, it breaks: qsThey stays off ·Eat's entry `from:` and keeps ·Eat off its baseline `toward:`. ·Day+Eat follows ·Day and ·Day+Utter in that `toward:` and keeps the join.
-- The old font draws ·Out's after-·See form after ·See+Eat, and gives ·Low and ·At their after-·See entry extension there, because its `after: qsSee` selectors also matched ·See-led ligatures. ·See+Eat ends in the ·Eat stroke, so `·See+Eat ~b~ ·{Out,Low,At}` draws them as after ·Eat. The author expects to drop the extra left column of ·Out's `raked` drawing.
+- The old font draws ·Out's after-·See form after ·See+Eat, and gives ·Low and ·At their after-·See entry extension there, because its `after: qsSee` selectors also matched ·See-led ligatures. ·See+Eat ends in the ·Eat stroke, so `·See+Eat ~b~ ·{Out,Low,At}` draws them as after ·Eat.
 - The old font draws `·{Day,See}+Eat ~b~ ·It ~x~ ·Zoo`, because its ·It guard against an x-height exit after ·Eat missed the ligatures. They follow ·Eat there: `·{Day,See}+Eat | ·It ~b~ ·Zoo`.
 - The old font extends ·Eat's and ·See+Eat's exit before ·I but not ·Day+Eat's, whose old `derive` block replaced the inherited one. Both ligatures keep ·Eat's extension.
 

@@ -264,7 +264,7 @@ E659 200C E67A            # Vie ZWNJ Utter (join severed)
 E659 200C E666            # Vie ZWNJ No (exit severed)
 00B7 E659                 # namer dot before Deep Vie (stays)
 #
-# qsOut windows: the Short arch — entered at the baseline, exiting (swept up past the crown) at the x-height toward a few receivers; the after-See forms swap in the raked diagonal leg.
+# qsOut windows: the Short arch — entered at the baseline, exiting (swept up past the crown) at the x-height toward a few receivers; the after-See forms trim the leg's foot, and the swept-up form swaps in the arch's leg (`low-bend`).
 E67B                      # Out in isolation
 E650 E67B                 # Pea Out (baseline join)
 E652 E67B                 # Tea Out (baseline join)
