@@ -204,6 +204,13 @@ policy:
         - {family: qsCheer}
         - {family: qsYe}
         - {family: qsLlan}
+  - exit: baseline
+    by: 1
+    when:
+      right:
+        family:
+        - qsDay_qsEat
+        - qsDay_qsUtter
   contract:
   - entry: baseline
     by: 1
