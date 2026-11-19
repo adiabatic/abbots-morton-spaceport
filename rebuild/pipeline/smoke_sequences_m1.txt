@@ -2744,3 +2744,129 @@ E671 200C E653           # ZWNJ severs ·Eat's exit into ·Day
 00B7 E671                # namer dot before ·Eat
 00B7 E66B E671           # namer dot, then ·Excite joins ·Eat as at a word start
 00B7 E653 E671           # namer dot before the ·Day+Eat ligature
+
+# ·Foot
+E67D                     # ·Foot in isolation
+E650 E67D                # half-·Pea's x-height exit into ·Foot, whose entry extends by one
+E67D E650                # ·Foot before ·Pea (break)
+E651 E67D                # ·Bay before ·Foot (break)
+E67D E651                # ·Foot before ·Bay (break)
+E652 E67D                # ·Tea before ·Foot (break)
+E67D E652                # ·Foot before ·Tea (break, under ss03 too)
+E653 E67D                # ·Day before ·Foot (break)
+E67D E653                # ·Foot's x-height exit into the full ·Day
+E654 E67D                # ·Key before ·Foot (break)
+E67D E654                # ·Foot before ·Key (break)
+E655 E67D                # ·Gay's x-height exit, extended by one, into ·Foot
+E67D E655                # ·Foot before ·Gay (break)
+E656 E67D                # ·Thaw before ·Foot (break)
+E67D E656                # ·Foot before ·Thaw (break)
+E657 E67D                # ·They's x-height exit into ·Foot
+E67D E657                # ·Foot before ·They (break)
+E658 E67D                # ·Fee's x-height exit, extended by one, into ·Foot
+E67D E658                # ·Foot before ·Fee (break)
+E659 E67D                # ·Vie before ·Foot (break)
+E67D E659                # ·Foot before ·Vie (break)
+E65A E67D                # ·See before ·Foot (break)
+E67D E65A                # ·Foot before ·See (break)
+E65B E67D                # ·Zoo before ·Foot (break)
+E67D E65B                # ·Foot's x-height exit into the full ·Zoo
+E65C E67D                # ·She before ·Foot (break)
+E67D E65C                # ·Foot before ·She (break)
+E65D E67D                # ·J’ai before ·Foot (break)
+E67D E65D                # ·Foot's x-height exit into ·J’ai, whose entry contracts by one
+E65E E67D                # ·Cheer before ·Foot (break)
+E67D E65E                # ·Foot's x-height exit into ·Cheer
+E65F E67D                # ·Jay before ·Foot (break)
+E67D E65F                # ·Foot's x-height exit into ·Jay
+E660 E67D                # ·Ye before ·Foot (break)
+E67D E660                # ·Foot's x-height exit into the climbing ·Ye
+E661 E67D                # ·Way's x-height exit into ·Foot
+E67D E661                # ·Foot before ·Way (break)
+E662 E67D                # half-·He's x-height exit into ·Foot, whose entry extends by one
+E67D E662                # ·Foot before ·He (break)
+E663 E67D                # ·Why's x-height exit into ·Foot
+E67D E663                # ·Foot before ·Why (break)
+E664 E67D                # ·-ing before ·Foot (break)
+E67D E664                # ·Foot before ·-ing (break)
+E665 E67D                # the ·May loop's x-height exit into ·Foot
+E67D E665                # ·Foot before ·May (break)
+E666 E67D                # the ·No loop's x-height exit into ·Foot
+E67D E666                # ·Foot's x-height exit into the ·No loop
+E667 E67D                # ·Low's x-height exit into ·Foot
+E67D E667                # ·Foot before ·Low (break)
+E668 E67D                # ·Roe before ·Foot (break)
+E67D E668                # ·Foot's x-height exit into ·Roe
+E669 E67D                # ·Loch before ·Foot (break)
+E67D E669                # ·Foot before ·Loch (break)
+E66A E67D                # ·Llan before ·Foot (break)
+E67D E66A                # ·Foot's x-height exit into ·Llan
+E66B E67D                # ·Excite before ·Foot (break)
+E67D E66B                # ·Foot before ·Excite (break)
+E670 E67D                # ·It's x-height exit into ·Foot
+E67D E670                # ·Foot's x-height exit into ·It
+E671 E67D                # ·Eat before ·Foot (break)
+E67D E671                # ·Foot before ·Eat (break)
+E672 E67D                # ·Et before ·Foot (break)
+E67D E672                # ·Foot's x-height exit into ·Et
+E673 E67D                # ·Eight before ·Foot (break)
+E67D E673                # ·Foot's x-height exit into ·Eight
+E674 E67D                # the rising ·At's x-height exit into ·Foot
+E67D E674                # ·Foot before ·At (break)
+E675 E67D                # ·I's x-height exit, extended by one, into ·Foot
+E67D E675                # ·Foot before ·I (break)
+E676 E67D                # ·Ah's x-height exit into ·Foot
+E67D E676                # ·Foot before ·Ah (break)
+E677 E67D                # ·Awe before ·Foot (break)
+E67D E677                # ·Foot's x-height exit into ·Awe
+E678 E67D                # ·Ox before ·Foot (break)
+E67D E678                # ·Foot's x-height exit into ·Ox
+E679 E67D                # ·Oy before ·Foot (break)
+E67D E679                # ·Foot before ·Oy (break)
+E67A E67D                # the mono ·Utter's x-height exit into ·Foot
+E67D E67A                # ·Foot before ·Utter (break)
+E67B E67D                # the swept-up ·Out's x-height exit into ·Foot
+E67D E67B                # ·Foot before ·Out (break)
+E67E E67D                # ·Ooze before ·Foot (break)
+E67D E67E                # ·Foot before ·Ooze (break)
+E67D E67D                # ·Foot's x-height exit into a second ·Foot
+E67D E67D E67D           # three ·Foot joined at the x-height
+E650 E67D E65D           # half-·Pea ~x~ ·Foot ~x~ ·J’ai: ·Foot's entry extends and ·J’ai's contracts
+E662 E67D E65D           # half-·He ~x~ ·Foot ~x~ ·J’ai
+E67D E653 E67A           # ·Foot's x-height exit into the full ·Day+Utter
+E67D E653 E671           # ·Foot's x-height exit into the full ·Day+Eat
+E67D E65D E67A           # ·Foot's x-height exit into ·J’ai+Utter, whose entry contracts by one
+E67D E65F E67A           # ·Foot's x-height exit into ·Jay+Utter
+E653 E67A E67D           # ·Day+Utter's x-height exit into ·Foot
+E65D E67A E67D           # ·J’ai+Utter's x-height exit into ·Foot
+E65F E67A E67D           # ·Jay+Utter's x-height exit into ·Foot
+E657 E67A E67D           # ·They+Utter's x-height exit into ·Foot
+E65A E67A E67D           # ·See+Utter's x-height exit into ·Foot
+E661 E67A E67D           # ·Way+Utter's x-height exit into ·Foot
+E663 E67A E67D           # ·Why+Utter's x-height exit into ·Foot
+E67D E652 E679           # ·Foot before ·Tea+Oy (break)
+E67D E657 E65B           # ·Foot before ·They+Zoo (break)
+E67D E657 E67A           # ·Foot before ·They+Utter (break)
+E67D E65A E67A           # ·Foot before ·See+Utter (break)
+E67D E67B E652           # ·Foot before ·Out+Tea (break)
+E652 E679 E67D           # ·Tea+Oy before ·Foot (break)
+E657 E65B E67D           # ·They+Zoo before ·Foot (break)
+E67B E652 E67D           # ·Out+Tea before ·Foot (break)
+E653 E671 E67D           # ·Day+Eat before ·Foot (break)
+E65A E671 E67D           # ·See+Eat before ·Foot (break)
+E67D E655 E652 E679      # ·Foot | ·Gay | ·Tea+Oy, as after ·Low
+E67D E655 E656 E664      # ·Foot | ·Gay before ·Thaw·-ing, as after ·Low
+E651 E655 E67D           # ·Bay ~b~ ·Gay ~x~ ·Foot: the entered ·Gay's exit extends by one
+E651 E665 E67D           # ·Bay ~b~ ·May ~x~ ·Foot: the entered ·May's exit extends by one
+E651 E670 E67D           # ·Bay ~b~ ·It ~x~ ·Foot
+E67D E670 E653           # ·Foot ~x~ ·It ~b~ half-·Day
+E67D E652 E653           # ·Foot | ·Tea ~b~ half-·Day
+E67D E67A E652 E653      # ·Foot | ·Utter, and ·Tea keeps ·Day
+E67A E652 E653 E67D      # ·Utter·Tea·Day before ·Foot: ·Tea keeps ·Day
+200C E67D                # ZWNJ before ·Foot (the locked copy)
+E67D 200C E67D           # ZWNJ between two ·Foot
+E675 200C E67D           # ZWNJ severs ·I's exit into ·Foot
+E67D 200C E653           # ZWNJ severs ·Foot's exit into ·Day
+200C E67D E65D           # the locked ·Foot's x-height exit into ·J’ai, whose entry contracts by one
+00B7 E67D                # namer dot before ·Foot
+00B7 E67D E653           # namer dot, then ·Foot joins ·Day as at a word start

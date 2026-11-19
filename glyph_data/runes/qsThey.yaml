@@ -96,6 +96,7 @@ stances:
             - qsEight
             - qsAwe
             - qsOx
+            - qsFoot
       pairings:
         never:
         - entry: x-height

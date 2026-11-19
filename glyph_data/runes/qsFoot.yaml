@@ -1,0 +1,80 @@
+rune: qsFoot
+codepoint: 0xE67D
+ductus:
+  sole: |  # DRAFT — pending author sign-off
+    Begun at the top left at the x-height, where a previous letter may connect, the stroke drops straight down the left side, slants down and to the right to a point on the baseline, then climbs the mirrored path up and to the right and straight up the right side to the x-height, where it may connect to the next letter.
+mono:
+  bitmap:
+  - "#   #"  #
+  - "#   #"
+  - "#   #"
+  - " # # "
+  - " # # "
+  - "  #  "  #
+stances:
+  sole:
+    motion: sole
+    traits: []
+    bitmap:
+    - "#   #"  #
+    - "#   #"
+    - "#   #"
+    - " # # "
+    - " # # "
+    - "  #  "  #
+    surface:
+      entries:
+        x-height:
+          x: 0
+          stroke: vertical
+          from:
+          - class: can-exit-at-x-height
+            except:
+            - {family: qsTea}
+            - {family: qsRoe}
+      exits:
+        x-height:
+          x: 5
+          stroke: vertical
+          unjoined: safe
+          toward:
+          - family:
+            - qsDay
+            - qsDay_qsEat
+            - qsDay_qsUtter
+            - qsZoo
+            - qsJai
+            - qsJai_qsUtter
+            - qsCheer
+            - qsJay
+            - qsJay_qsUtter
+            - qsYe
+            - qsNo
+            - qsRoe
+            - qsLlan
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOwe
+            - qsFoot
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - sole
+  refuse: []
+  prefer: []
+  extend:
+  - entry: x-height
+    by: 1
+    when:
+      left:
+        family:
+        - qsPea
+        - qsHe
+  contract: []
+  resolve: []
+  groups: {}

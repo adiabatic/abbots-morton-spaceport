@@ -113,6 +113,7 @@ stances:
             - qsAwe
             - qsOx
             - qsOy
+            - qsFoot
       pairings:
         never:
         - entry: baseline
@@ -220,6 +221,7 @@ policy:
         - qsYe
         - qsNo
         - qsLlan
+        - qsFoot
   contract:
   - entry: baseline
     by: 1

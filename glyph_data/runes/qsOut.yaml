@@ -95,6 +95,7 @@ stances:
             - qsAwe
             - qsOx
             - qsOy
+            - qsFoot
       cells: []
       unlocks: []
       require: []
