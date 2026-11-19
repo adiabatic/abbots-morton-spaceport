@@ -113,22 +113,17 @@ pub(crate) fn journal_len() -> usize {
     LOG.with(|log| log.borrow().len())
 }
 
-/// The reads journaled since `start`, sorted with repeats collapsed — the set a capture's evaluation read. The log keeps them, since an enclosing capture reads the same slice.
-pub(crate) fn journal_since(start: usize) -> Box<[Read]> {
-    LOG.with(|log| {
-        let mut reads: Vec<Read> = log.borrow()[start..].to_vec();
-        reads.sort_unstable();
-        reads.dedup();
-        reads.into_boxed_slice()
-    })
+/// Drop every read journaled from `start` on, which a closing inner capture does once it has taken its slice as one set and journaled that set's id in the engine's fired log instead.
+pub(crate) fn journal_truncate(start: usize) {
+    LOG.with(|log| log.borrow_mut().truncate(start));
 }
 
-/// Lend the whole journal to `read`, for a capture that takes its slice apart instead of as one set ([`crate::engine::Engine::end_verdict`]).
+/// Lend the whole journal to `read`: a closing capture takes its slice from it, and a published probe's capture takes its slice apart ([`crate::engine::Engine::end_verdict`]).
 pub(crate) fn journal_view<R>(read: impl FnOnce(&[Read]) -> R) -> R {
     LOG.with(|log| read(&log.borrow()))
 }
 
-/// A memo hit's recorded reads replayed into the journal, so an open capture's own slice carries what the hit's evaluation read; a no-op while the journal is off.
+/// A shared memo hit's recorded reads replayed into the journal, so an open capture's own slice carries what the hit's evaluation read; a no-op while the journal is off. An own memo hit journals its read set's id in the engine's fired log instead.
 pub(crate) fn journal_extend(reads: &[Read]) {
     if ARMED.with(Cell::get) {
         LOG.with(|log| log.borrow_mut().extend_from_slice(reads));
