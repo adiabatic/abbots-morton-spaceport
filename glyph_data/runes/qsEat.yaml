@@ -1,7 +1,7 @@
 rune: qsEat
 codepoint: 0xE671
 ductus:
-  sole: |  # DRAFT — pending author sign-off
+  sole: |
     Begun at the bottom left on the baseline, where a previous letter may connect, the stroke rises diagonally up and to the right to the x-height, then turns and drops straight down the right side to rest on the baseline at the bottom right, where it may connect to the next letter.
 mono:
   bitmap:

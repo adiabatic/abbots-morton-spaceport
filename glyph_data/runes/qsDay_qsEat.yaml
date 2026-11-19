@@ -3,9 +3,9 @@ sequence:
 - qsDay
 - qsEat
 ductus:
-  full: |  # DRAFT — pending author sign-off
+  full: |
     The ·Day downstroke and the ·Eat stroke drawn as one motion: straight down the left from the x-height into the descender, hooking out of the foot and rising diagonally up and to the right to the x-height, then straight down the right side to rest on the baseline, where it may connect to the next letter.
-  half: |  # DRAFT — pending author sign-off
+  half: |
     As the full ligature, but begun from the ·Day foot hook at the baseline, then rising across to the x-height and straight down the right side to the baseline exit.
 stances:
   full:
