@@ -50,6 +50,16 @@ impl NoteSink<'_> {
         }
     }
 
+    /// Add the note `text` lends unless the list already holds it, copying it only when it is added.
+    fn push_text_once<'t>(&mut self, text: impl FnOnce() -> &'t str) {
+        if let Some(list) = self.list.as_deref_mut() {
+            let text = text();
+            if !list.iter().any(|held| held == text) {
+                list.push(text.to_owned());
+            }
+        }
+    }
+
     /// Add the note unless the list already holds it.
     fn push_once(&mut self, note: impl FnOnce() -> String) {
         if let Some(list) = self.list.as_deref_mut() {
@@ -66,6 +76,13 @@ impl NoteSink<'_> {
 enum TraceKept {
     Whole,
     SettledOnly,
+}
+
+/// What [`Engine::settled_from_memo`] found for one window: the read applied to a memo's settled record, a miss in the own memo and every shared memo under the key it carries, or no lookup at all, for a non-letter token or an engine with no trace memo.
+enum MemoRead<T> {
+    Hit(T),
+    Missed(TraceKey),
+    Unkeyed,
 }
 
 /// One authored record's YAML pointer: `model.Provenance`'s file and path, kept apart so the value is `Copy` and hashes on two integers. [`Pointer::text`] builds the `file:path` string the corpus and the notes carry.
@@ -660,6 +677,23 @@ struct OwnedRecord<'i> {
     at: Position,
 }
 
+/// What one window's two prefer stages share about its follower: the follower's rune, read when a stage first gathers records, and the follower's candidate list under each survivor, fetched the first time a follower prefer reads it and stored in `cells` at the span `lists` gives. A window has a handful of survivors, so `lists` is searched in place.
+#[derive(Debug, Default)]
+struct FollowerReads<'i> {
+    rune: Option<Option<&'i Rune>>,
+    cells: Vec<Candidate>,
+    lists: Vec<(Candidate, usize, usize)>,
+}
+
+impl FollowerReads<'_> {
+    /// Forget the window, keeping the buffers.
+    fn clear(&mut self) {
+        self.rune = None;
+        self.cells.clear();
+        self.lists.clear();
+    }
+}
+
 /// One gathered prefer record that applies to this window: it is relevant, it favors something, and what it favors is a strict subset of the survivor list. `favored` holds each favored candidate once, in survivor order, and is searched in place, because a window has a handful of survivors and the narrowing only tests membership.
 struct Applicable<'i> {
     owner: Sym,
@@ -1146,7 +1180,7 @@ impl TraceMemo {
         }
         let entry = TraceEntry::new(
             TraceSettledId::at(self.settled.intern(&trace.settled).index()),
-            TraceNotesId::at(self.notes.intern(trace.notes.clone()).index()),
+            TraceNotesId::at(self.notes.intern_slice(&trace.notes).index()),
             delta,
             reads,
             trace.prospect,
@@ -1198,6 +1232,10 @@ pub struct Engine<'i> {
     /// Spare candidate and score lists that a window's ranking and a follower prefer borrow and give back, about one of each per level of the recursion through the prospect's replay, so a settled window allocates no list once they have grown.
     cell_buffers: Vec<Vec<Candidate>>,
     ranked_buffers: Vec<Vec<RankedCandidate>>,
+    /// The buffers a window's prefer stages read the follower through ([`FollowerReads`]), lent to one window at a time.
+    follower_reads: FollowerReads<'i>,
+    /// Each eliminating record's `file:path` text, formatted the first time a window's notes name it. One entry per authored record that eliminates a candidate.
+    pointer_texts: HashMap<Pointer, String>,
     /// The table every memoized fired delta is stored in, whichever memo journaled it. The trace, candidate, prospect and closure memos all hold [`DeltaId`]s into it, so a delta journaled by several memos is held once. It belongs to the engine because the closure and prospect memos store entries in every mode. Outside trace-memo mode nothing is journaled and there is no trace memo, and those two memos store the empty delta here, so the pool never grows past that one delta (issue #167). [`Engine::release_memos`] resets the pool with every memo that indexes it, so no id outlives its table.
     deltas: DeltaPool,
     /// The table every memoized read set is stored in (issue #184): the runes and classes an evaluation read from the spec, journaled by the index's accessors while the capture was open ([`crate::index`]), so a memo entry records which runes and classes its result depends on. Released with the delta pool, and detached into a snapshot with it.
@@ -1269,6 +1307,8 @@ impl<'i> Engine<'i> {
             capture_scratch: CaptureScratch::default(),
             cell_buffers: Vec::new(),
             ranked_buffers: Vec::new(),
+            follower_reads: FollowerReads::default(),
+            pointer_texts: HashMap::default(),
             deltas: DeltaPool::default(),
             reads: ReadsPool::default(),
             read_starts: Vec::new(),
@@ -2826,6 +2866,7 @@ impl<'i> Engine<'i> {
     }
 
     /// The trace memo's key. `token` is the input rune's ordinal, not the whole token, because a non-letter input returns the boundary trace before any key is built. Nothing is looked up: the left carries its ordinals and each letter token its rune's.
+    #[inline]
     fn trace_key(left: &LeftContext, token: Ordinal, slots: Slots) -> TraceKey {
         let tokens = slots.as_array();
         TraceKey {
@@ -2856,7 +2897,7 @@ impl<'i> Engine<'i> {
     ///
     /// A replayed settlement can raise where real settlement never would, for example on a prefer conflict in a window whose candidate never wins. A raising replay falls back to the candidacy estimate and counts in [`Engine::simulated_prospect_fallbacks`]. The fallback catches every [`SettleError`], including the unresolvable-class spec defect, which `spec_load` rejects long before settlement. It reads none of them, so the replay runs with [`Engine::replay_errors_discarded`] set.
     ///
-    /// The memo stores a term beside the id of its fired delta, and with a trace memo in simulated mode it holds only the asks whose replayed settlement raised (issue #166). A settling replay's delta equals the trace memo's delta for the follower's window: the synthetic left journals nothing, and deduplicating what [`Engine::with_settled`] journaled (a replayed trace delta, or the capture of a missed window, which closes into that same delta) gives that delta again. The trace memo already holds that entry, under a key without this candidate's entry, so the capture is discarded instead of stored ([`Engine::abort_capture`]). The next ask with this key reads the trace memo through `with_settled`, which replays the same first-fired sequence into the same enclosing capture at the same point. A raising replay is never stored in the trace memo, so its fallback is what this memo is for. Candidacy mode runs no replay and memoizes every ask, and so does simulated mode without a trace memo, where nothing else can answer the next ask.
+    /// The memo stores a term beside the id of its fired delta, and with a trace memo in simulated mode it holds only the asks whose replayed settlement raised (issue #166). A settling replay's delta equals the trace memo's delta for the follower's window: the synthetic left journals nothing, and deduplicating what [`Engine::with_settled`] journaled (a replayed trace delta, or the capture of a missed window, which closes into that same delta) gives that delta again. The trace memo already holds that entry, under a key without this candidate's entry, so the capture is discarded instead of stored ([`Engine::abort_capture`]). In simulated mode the trace memo is read before this memo, so the next ask with this key finds the follower's window there and replays the same first-fired sequence into the same enclosing capture at the same point, and a window the trace memo and every shared memo miss is settled under the key that lookup built, without a second lookup. A raising replay is never stored in the trace memo, so its fallback is what this memo is for. Candidacy mode runs no replay and memoizes every ask, and so does simulated mode without a trace memo, where nothing else can answer the next ask.
     ///
     /// `recorded` says whether the follower's window may enter the trace memo. The ranking asks with it on, from inside a trace. [`Engine::probe_prospect`], a liveness probe's ask, passes it off, so its follower window is settled through [`Engine::with_settled_unrecorded`]: read from the trace memo when the memo holds it, and not added when it does not (issue #168). The probes memoize their verdicts above this call on their own keys, so the window is asked for again only by a row whose ranking reaches the same shifted window. An instrumented run over the whole alphabet measured how rarely that happens: the probes' replays wrote well over a third of the trace memo's entries and nearly all were never read, and the fourth-slot probes' windows (a letter third and an unknown fourth, which a row reaches only past a live fourth slot) almost never. In that run, recording them pushed the memo's bucket table past a power-of-two doubling, and leaving them out kept it under. The replays that a probe's replay runs in turn are recorded as usual, since every ranking shares those windows.
     fn prospect(
@@ -2900,6 +2941,18 @@ impl<'i> Engine<'i> {
                 right2: slots.right2.letter_ordinal(),
             }
         };
+        let read_junction = |settled: &Settled| i64::from(settled.junction.is_some());
+        let missed = if self.simulated_prospect {
+            let synthetic_left = Self::synthetic_left(rune_name, candidate);
+            let shifted = Slots::new(slots.right2, slots.right3, slots.right4, UNKNOWN);
+            match self.settled_from_memo(&synthetic_left, slots.right1, shifted, read_junction) {
+                MemoRead::Hit(junction_bearing) => return Ok(junction_bearing),
+                MemoRead::Missed(key) => Some(key),
+                MemoRead::Unkeyed => None,
+            }
+        } else {
+            None
+        };
         if let Some(&(cached, delta_id, reads)) = self.prospect_cache.get(&key) {
             replay_own(
                 &mut self.fired_log,
@@ -2915,7 +2968,7 @@ impl<'i> Engine<'i> {
             self.begin_capture();
         }
         let (result, term) =
-            match self.prospect_uncached(rune_name, candidate, slots, follower, recorded) {
+            match self.prospect_uncached(rune_name, candidate, slots, follower, recorded, missed) {
                 Ok(answer) => answer,
                 Err(error) => {
                     if capturing {
@@ -2943,7 +2996,7 @@ impl<'i> Engine<'i> {
         Ok(result)
     }
 
-    /// The term computed from scratch, with how it was computed: from the follower's simulated trace, or by the candidacy estimate, either as the mode's own term or as the fallback after a raising replay. `recorded` says whether the follower's window may enter the trace memo. [`Engine::prospect`] withholds that for a probe's ask.
+    /// The term computed from scratch, with how it was computed: from the follower's simulated trace, or by the candidacy estimate, either as the mode's own term or as the fallback after a raising replay. `recorded` says whether the follower's window may enter the trace memo. [`Engine::prospect`] withholds that for a probe's ask. `missed` is the follower window's key when [`Engine::prospect`] has already found it in no trace memo, so the window is settled without being looked up again.
     fn prospect_uncached(
         &mut self,
         rune_name: Sym,
@@ -2951,6 +3004,7 @@ impl<'i> Engine<'i> {
         slots: Slots,
         follower: Sym,
         recorded: bool,
+        missed: Option<TraceKey>,
     ) -> Result<(i64, ProspectTerm), SettleError> {
         let synthetic_left = Self::synthetic_left(rune_name, candidate);
         if !self.simulated_prospect {
@@ -2961,10 +3015,24 @@ impl<'i> Engine<'i> {
         let shifted = Slots::new(slots.right2, slots.right3, slots.right4, UNKNOWN);
         let read_junction = |settled: &Settled| i64::from(settled.junction.is_some());
         let enclosing = std::mem::replace(&mut self.replay_errors_discarded, true);
-        let simulated = if recorded {
-            self.with_settled(&synthetic_left, slots.right1, shifted, read_junction)
-        } else {
-            self.with_settled_unrecorded(&synthetic_left, slots.right1, shifted, read_junction)
+        let simulated = match (missed, recorded) {
+            (Some(key), true) => self
+                .settle_missed(&synthetic_left, slots.right1, shifted, key)
+                .map(|trace| read_junction(&trace.settled)),
+            (Some(_), false) => self
+                .transition_trace_uncached(
+                    &synthetic_left,
+                    slots.right1,
+                    TraceKept::SettledOnly,
+                    shifted,
+                )
+                .map(|trace| read_junction(&trace.settled)),
+            (None, true) => {
+                self.with_settled(&synthetic_left, slots.right1, shifted, read_junction)
+            }
+            (None, false) => {
+                self.with_settled_unrecorded(&synthetic_left, slots.right1, shifted, read_junction)
+            }
         };
         self.replay_errors_discarded = enclosing;
         match simulated {
@@ -3040,6 +3108,34 @@ impl<'i> Engine<'i> {
         let Some(owner) = slots.right1.rune() else {
             return Ok(None);
         };
+        let (synthetic_left, follower_prefer_right2, shifted_slots) =
+            self.follower_frame(rune_name, candidate, slots);
+        let mut follower_cells = self.take_cells();
+        self.candidates_read(
+            &synthetic_left,
+            owner,
+            slots.right2,
+            follower_prefer_right2,
+            |cells| follower_cells.extend_from_slice(cells),
+        )?;
+        let favors = self.follower_cells_favor(
+            record,
+            owner,
+            &follower_cells,
+            &synthetic_left,
+            shifted_slots,
+        );
+        self.give_cells(follower_cells);
+        favors
+    }
+
+    /// Where a follower prefer reads the follower under one candidate: the candidate as the follower's left, the slot past the follower that enumerates its cells, and the window's slots shifted by one as the follower's own window.
+    fn follower_frame(
+        &self,
+        rune_name: Sym,
+        candidate: Candidate,
+        slots: Slots,
+    ) -> (LeftContext, RightToken, Slots) {
         let synthetic_left = Self::synthetic_left(rune_name, candidate);
         let (follower_prefer_right2, follower_prefer_right3) = if self.follower_prefer_slots {
             (slots.right3, slots.right4)
@@ -3049,14 +3145,6 @@ impl<'i> Engine<'i> {
                 self.follower_prefer_deep_slot,
             )
         };
-        let mut follower_cells = self.take_cells();
-        self.candidates_read(
-            &synthetic_left,
-            owner,
-            slots.right2,
-            follower_prefer_right2,
-            |cells| follower_cells.extend_from_slice(cells),
-        )?;
         let shifted_slots = Slots::new(
             slots.right2,
             follower_prefer_right2,
@@ -3067,15 +3155,47 @@ impl<'i> Engine<'i> {
                 self.follower_prefer_deep_slot
             },
         );
-        let favors = self.follower_cells_favor(
+        (synthetic_left, follower_prefer_right2, shifted_slots)
+    }
+
+    /// [`Engine::prefer_favors`] for a record gathered at the follower's position, with the follower's candidate list under `candidate` fetched once per window into `follower` and read from there by every later follower prefer. A repeated fetch would return the same list and replay the same delta and read set into the same captures, so skipping it changes no capture's delta or read set.
+    fn follower_prefer_favors(
+        &mut self,
+        record: &PolicyRecord,
+        rune_name: Sym,
+        candidate: Candidate,
+        slots: Slots,
+        follower: &mut FollowerReads<'i>,
+    ) -> Result<Option<bool>, SettleError> {
+        let Some(owner) = slots.right1.rune() else {
+            return Ok(None);
+        };
+        let (synthetic_left, follower_prefer_right2, shifted_slots) =
+            self.follower_frame(rune_name, candidate, slots);
+        let (start, end) = match follower.lists.iter().find(|(held, ..)| *held == candidate) {
+            Some(&(_, start, end)) => (start, end),
+            None => {
+                let start = follower.cells.len();
+                let cells = &mut follower.cells;
+                self.candidates_read(
+                    &synthetic_left,
+                    owner,
+                    slots.right2,
+                    follower_prefer_right2,
+                    |found| cells.extend_from_slice(found),
+                )?;
+                let end = follower.cells.len();
+                follower.lists.push((candidate, start, end));
+                (start, end)
+            }
+        };
+        self.follower_cells_favor(
             record,
             owner,
-            &follower_cells,
+            &follower.cells[start..end],
             &synthetic_left,
             shifted_slots,
-        );
-        self.give_cells(follower_cells);
-        favors
+        )
     }
 
     /// The follower prefer's verdict over the follower's cells under one candidate, [`Engine::prefer_favors`]'s last step.
@@ -3167,10 +3287,12 @@ impl<'i> Engine<'i> {
     /// One prefer stage, absolute or yielding, over the records of both junction positions, most specific first, narrowing `survivors` in place.
     ///
     /// Records are gathered in declaration order, our own rune's at the current position before the follower's at its position, then sorted by how many other applicable records outrank them, so the narrowest applies first. At a doubled letter the follower is our own rune, and its records are gathered a second time at the follower's position, where [`Engine::prefer_favors`] evaluates them one position over as it does any follower's. When a record's favored set no longer overlaps the survivors, the stage looks for an already applied record of equal or incomparable specificity. Gathered at the same position, that raises E-AMBIGUOUS. When there is none, a conflict within one position resolves by set membership without an error, but an applied record of the other position that excludes the held record's favorites ([`Engine::other_position_causes`]) still collides with it, because specificity never settles a conflict between two positions: their records compare their conditions in different frames, the follower's one position over. Across two positions, a `resolve:` naming the collision settles it, and without one it raises E-INCOMPARABLE.
+    #[allow(clippy::too_many_arguments)]
     fn apply_prefers(
         &mut self,
         mode_absolute: bool,
-        rune_name: Sym,
+        own: &'i Rune,
+        follower: &mut FollowerReads<'i>,
         survivors: &mut Vec<Candidate>,
         left: &LeftContext,
         slots: Slots,
@@ -3181,22 +3303,20 @@ impl<'i> Engine<'i> {
         }
         let index = self.index();
         let vocab = index.vocab();
-        let follower_owner = match slots.right1.rune() {
-            Some(rune) if index.is_modeled(rune) => Some(rune),
-            _ => None,
-        };
+        let rune_name = own.name;
+        let follower_rune = *follower
+            .rune
+            .get_or_insert_with(|| slots.right1.rune().and_then(|rune| index.rune(rune)));
         let mut gathered: Vec<OwnedRecord<'i>> = Vec::new();
         let positions = [
-            (Some(rune_name), Position::Current),
-            (follower_owner, Position::Follower),
+            (Some(own), Position::Current),
+            (follower_rune, Position::Follower),
         ];
-        for (owner, at) in positions {
-            let Some(owner) = owner else {
+        for (rune, at) in positions {
+            let Some(rune) = rune else {
                 continue;
             };
-            let rune = index
-                .rune(owner)
-                .expect("both gathered owners were checked modeled before they got here");
+            let owner = rune.name;
             for record in &rune.policy.prefer {
                 if (record.mode == Some(vocab.absolute)) != mode_absolute {
                     continue;
@@ -3212,9 +3332,12 @@ impl<'i> Engine<'i> {
             let mut favored = self.take_cells();
             let mut supported = false;
             for candidate in survivors.iter() {
-                let Some(favors) =
+                let favors = if at == Position::Follower {
+                    self.follower_prefer_favors(record, rune_name, *candidate, slots, follower)?
+                } else {
                     self.prefer_favors(at, record, rune_name, *candidate, left, slots)?
-                else {
+                };
+                let Some(favors) = favors else {
                     if record.cell.is_some()
                         && (record.stance.is_some() || record.over.is_some())
                         && !favored.contains(candidate)
@@ -3816,6 +3939,17 @@ impl<'i> Engine<'i> {
             self.shared_memo_hits[id] += 1;
             return Ok(trace);
         }
+        self.settle_missed(left, token, slots, key)
+    }
+
+    /// Settle a letter window that the own trace memo and every shared memo were just asked for under `key` and do not hold, and record it, as [`Engine::transition_trace`] does after its lookups. A caller that has already looked the window up comes here so the window is not looked up twice.
+    fn settle_missed(
+        &mut self,
+        left: &LeftContext,
+        token: RightToken,
+        slots: Slots,
+        key: TraceKey,
+    ) -> Result<TransitionTrace, SettleError> {
         self.begin_capture();
         let trace = match self.transition_trace_uncached(left, token, TraceKept::Whole, slots) {
             Ok(trace) => trace,
@@ -3844,10 +3978,11 @@ impl<'i> Engine<'i> {
         slots: Slots,
         read: impl Fn(&Settled) -> T,
     ) -> Result<T, SettleError> {
-        if let Some(answer) = self.settled_from_memo(left, token, slots, &read) {
-            return Ok(answer);
-        }
-        let trace = self.transition_trace(left, token, slots)?;
+        let trace = match self.settled_from_memo(left, token, slots, &read) {
+            MemoRead::Hit(answer) => return Ok(answer),
+            MemoRead::Missed(key) => self.settle_missed(left, token, slots, key)?,
+            MemoRead::Unkeyed => self.transition_trace(left, token, slots)?,
+        };
         Ok(read(&trace.settled))
     }
 
@@ -3859,25 +3994,27 @@ impl<'i> Engine<'i> {
         slots: Slots,
         read: impl Fn(&Settled) -> T,
     ) -> Result<T, SettleError> {
-        if let Some(answer) = self.settled_from_memo(left, token, slots, &read) {
+        if let MemoRead::Hit(answer) = self.settled_from_memo(left, token, slots, &read) {
             return Ok(answer);
         }
         let trace = self.transition_trace_uncached(left, token, TraceKept::SettledOnly, slots)?;
         Ok(read(&trace.settled))
     }
 
-    /// The memo's answer for one window, from the engine's own trace memo or a shared memo: the read applied to the settled record where it sits, with the entry's fired delta replayed. `None` is a miss (a non-letter token, an engine with no memo, or a window no memo has) and says nothing about how the caller should settle it.
+    /// The memo's answer for one window, from the engine's own trace memo or a shared memo: the read applied to the settled record where it sits, with the entry's fired delta replayed, or what kind of miss it is ([`MemoRead`]).
     fn settled_from_memo<T>(
         &mut self,
         left: &LeftContext,
         token: RightToken,
         slots: Slots,
         read: impl Fn(&Settled) -> T,
-    ) -> Option<T> {
+    ) -> MemoRead<T> {
         if token.kind() != TokenKind::Letter {
-            return None;
+            return MemoRead::Unkeyed;
         }
-        let memo = self.trace_cache.as_ref()?;
+        let Some(memo) = self.trace_cache.as_ref() else {
+            return MemoRead::Unkeyed;
+        };
         let key = Self::trace_key(left, token.letter_ordinal(), slots);
         if let Some(&entry) = memo.entries.get(&key) {
             let answer = read(memo.settled.get(entry.settled.widen()));
@@ -3888,10 +4025,13 @@ impl<'i> Engine<'i> {
                 entry.delta,
                 entry.reads,
             );
-            return Some(answer);
+            return MemoRead::Hit(answer);
         }
-        let (id, shared, entry) =
-            shared_memo_entry(&self.shared_memos, &mut self.shared_memo_stores, &key)?;
+        let Some((id, shared, entry)) =
+            shared_memo_entry(&self.shared_memos, &mut self.shared_memo_stores, &key)
+        else {
+            return MemoRead::Missed(key);
+        };
         let answer = read(shared.memo.settled(entry));
         replay_shared(
             &mut self.fired,
@@ -3903,7 +4043,7 @@ impl<'i> Engine<'i> {
         );
         crate::index::journal_extend(shared.memo.reads(entry));
         self.shared_memo_hits[id] += 1;
-        Some(answer)
+        MemoRead::Hit(answer)
     }
 
     fn transition_trace_uncached(
@@ -3981,9 +4121,14 @@ impl<'i> Engine<'i> {
             Some(id) => self.candidates_cache.eliminations.get(id),
             None => eliminations.as_slice(),
         };
+        let texts = &mut self.pointer_texts;
         for elimination in eliminated {
             if let Some(provenance) = elimination.provenance.as_ref() {
-                sink.push_once(|| provenance_pointer(index, provenance));
+                sink.push_text_once(|| {
+                    texts
+                        .entry(Pointer::of(provenance))
+                        .or_insert_with(|| provenance_pointer(index, provenance))
+                });
             }
         }
 
@@ -4014,7 +4159,16 @@ impl<'i> Engine<'i> {
         let mut decided_stage = DecidedStage::OnlyCandidate;
         let mut runner_up: Option<Candidate> = None;
 
-        self.apply_prefers(true, rune_name, &mut survivors, left, slots, &mut sink)?;
+        let mut follower = std::mem::take(&mut self.follower_reads);
+        self.apply_prefers(
+            true,
+            rune,
+            &mut follower,
+            &mut survivors,
+            left,
+            slots,
+            &mut sink,
+        )?;
         if survivors.len() == 1 && ranked.len() > 1 {
             decided_stage = DecidedStage::AbsolutePrefer;
         }
@@ -4045,7 +4199,15 @@ impl<'i> Engine<'i> {
         if survivors.len() > 1 {
             let mut before = self.take_cells();
             before.extend_from_slice(&survivors);
-            self.apply_prefers(false, rune_name, &mut survivors, left, slots, &mut sink)?;
+            self.apply_prefers(
+                false,
+                rune,
+                &mut follower,
+                &mut survivors,
+                left,
+                slots,
+                &mut sink,
+            )?;
             if survivors.len() == 1 {
                 decided_stage = DecidedStage::YieldingPrefer;
                 runner_up = before
@@ -4055,6 +4217,8 @@ impl<'i> Engine<'i> {
             }
             self.give_cells(before);
         }
+        follower.clear();
+        self.follower_reads = follower;
 
         if survivors.len() > 1 {
             let best_order = survivors
@@ -6524,11 +6688,10 @@ mod tests {
         }
         assert_eq!(engine.shared_memo_hits_by_id(), &[1, 1]);
         for slots in windows {
-            assert!(
-                engine
-                    .settled_from_memo(&left, token, slots, |_| ())
-                    .is_some()
-            );
+            assert!(matches!(
+                engine.settled_from_memo(&left, token, slots, |_| ()),
+                MemoRead::Hit(())
+            ));
         }
         assert_eq!(engine.shared_memo_hits_by_id(), &[2, 2]);
         assert_eq!(engine.shared_memo_hits(), 4);

@@ -2,13 +2,13 @@
 //!
 //! The model's [`Table`] keeps insertion order but offers no lookup, and this module adds the lookups. Each accessor returns what the corresponding Python read (`spec.runes[name]`, `stance.surface.entries.get(height)`, `spec.registry.heights[height]`) returns, except that a few return `None` or `false` where Python raises `KeyError`; those accessors say so.
 //!
-//! The index also keeps the read journal: a thread-local log of every rune whose content, and every predicate class whose membership, an accessor returned while the engine had a capture open. A memo entry another configuration reads is refused by what its evaluation read, and every such read passes through these accessors, so the journal is kept here. A rune's stances, rows, order, strokes, entry-bearing flag and groups journal the rune. A predicate class's membership journals the class. The rune list, the registry's heights and tokens, the ordinals, and a symbol's text journal nothing, because every configuration of a build reads the same structure through one index. The log is per thread because the index is shared across a fan-out's threads and holds nothing mutable. Each engine runs on one thread, and its captures switch the log on and clear it ([`crate::engine`]).
+//! The index also keeps the read journal: a thread-local log of every rune whose content, and every predicate class whose membership, an accessor returned while the engine had a capture open. A memo entry another configuration reads is refused by what its evaluation read, and every such read passes through these accessors, so the journal is kept here. A rune's stances, rows, order, strokes, entry-bearing flag and groups journal the rune. A predicate class's membership journals the class. The rune list, the registry's heights and tokens, the ordinals, and a symbol's text journal nothing, because every configuration of a build reads the same structure through one index. The log is per thread because the index is shared across a fan-out's threads and holds nothing mutable. Each engine runs on one thread, and its captures switch the log on and clear it ([`crate::engine`]). A read equal to the one just journaled is dropped unless a capture or a probe's ask recorded its position in between, so the log holds fewer repeats and every recorded span still holds the same set of reads.
 //!
 //! Three pure functions of the spec are computed once when the index is built, instead of in each engine: the stance order index ([`SpecIndex::order_index`]), `is_entry_bearing`, and the per-rune entry-stroke set. The last two are feature-blind reads of the surface. `settle.is_entry_bearing` computes the same flag on the Python side.
 //!
 //! The index owns the [`Spec`]. That keeps a spec lifetime out of the engine, the guard, and the caches, and it lets the build intern [`Vocab`] and the unjoined-state symbols into the spec's own pool. Adding symbols to the pool does not change emission, which walks the tree and never the pool.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::num::NonZeroU16;
 
@@ -97,48 +97,80 @@ pub enum Read {
     Class(Sym),
 }
 
+/// This thread's read journal: whether it is on, the reads it holds, and the floor below which a repeated read is still journaled. Every position a capture or a probe's ask records is read through [`journal_len`], which raises the floor to it, so a read equal to the one before it is dropped only when no position was recorded between the two, and every recorded span holds the same set of reads it would hold with the repeat.
+struct Journal {
+    armed: bool,
+    reads: Vec<Read>,
+    floor: usize,
+}
+
 thread_local! {
-    // The flag sits apart from the log so the accessors' common case — no capture open — is one thread-local `Cell` read and a branch, with the `RefCell` borrow paid only while a capture is journaling.
-    static ARMED: Cell<bool> = const { Cell::new(false) };
-    static LOG: RefCell<Vec<Read>> = const { RefCell::new(Vec::new()) };
+    // One thread-local holds the flag and the log, so an accessor pays one thread-local lookup whether or not a capture is journaling.
+    static JOURNAL: RefCell<Journal> = const {
+        RefCell::new(Journal {
+            armed: false,
+            reads: Vec::new(),
+            floor: 0,
+        })
+    };
 }
 
 /// Switch this thread's read journal on or off. Off, the accessors cost a flag test and log nothing.
 pub(crate) fn journal_arm(armed: bool) {
-    ARMED.with(|flag| flag.set(armed));
+    JOURNAL.with(|journal| journal.borrow_mut().armed = armed);
 }
 
-/// How many reads the journal holds, which is what a capture records on opening so it can take its own slice on closing.
+/// How many reads the journal holds, which is what a capture records on opening so it can take its own slice on closing, and a probe's ask on either side of it. The floor rises to it, so no read journaled after this point is dropped as a repeat of one before it.
 pub(crate) fn journal_len() -> usize {
-    LOG.with(|log| log.borrow().len())
+    JOURNAL.with(|journal| {
+        let mut journal = journal.borrow_mut();
+        journal.floor = journal.reads.len();
+        journal.floor
+    })
 }
 
-/// Drop every read journaled from `start` on, which a closing inner capture does once it has taken its slice as one set and journaled that set's id in the engine's fired log instead.
+/// Drop every read journaled from `start` on, which a closing inner capture does once it has taken its slice as one set and journaled that set's id in the engine's fired log instead. The floor drops to `start`, the position the capture recorded on opening.
 pub(crate) fn journal_truncate(start: usize) {
-    LOG.with(|log| log.borrow_mut().truncate(start));
+    JOURNAL.with(|journal| {
+        let mut journal = journal.borrow_mut();
+        journal.reads.truncate(start);
+        journal.floor = start;
+    });
 }
 
 /// Lend the whole journal to `read`: a closing capture takes its slice from it, and a published probe's capture takes its slice apart ([`crate::engine::Engine::end_verdict`]).
 pub(crate) fn journal_view<R>(read: impl FnOnce(&[Read]) -> R) -> R {
-    LOG.with(|log| read(&log.borrow()))
+    JOURNAL.with(|journal| read(&journal.borrow().reads))
 }
 
 /// A shared memo hit's recorded reads replayed into the journal, so an open capture's own slice carries what the hit's evaluation read; a no-op while the journal is off. An own memo hit journals its read set's id in the engine's fired log instead.
 pub(crate) fn journal_extend(reads: &[Read]) {
-    if ARMED.with(Cell::get) {
-        LOG.with(|log| log.borrow_mut().extend_from_slice(reads));
-    }
+    JOURNAL.with(|journal| {
+        let mut journal = journal.borrow_mut();
+        if journal.armed {
+            journal.reads.extend_from_slice(reads);
+        }
+    });
 }
 
 /// Empty the journal, which the engine does when its outermost capture closes or is abandoned.
 pub(crate) fn journal_clear() {
-    LOG.with(|log| log.borrow_mut().clear());
+    JOURNAL.with(|journal| {
+        let mut journal = journal.borrow_mut();
+        journal.reads.clear();
+        journal.floor = 0;
+    });
 }
 
 fn journal(read: Read) {
-    if ARMED.with(Cell::get) {
-        LOG.with(|log| log.borrow_mut().push(read));
-    }
+    JOURNAL.with(|journal| {
+        let mut journal = journal.borrow_mut();
+        if journal.armed
+            && !(journal.reads.len() > journal.floor && journal.reads.last() == Some(&read))
+        {
+            journal.reads.push(read);
+        }
+    });
 }
 
 /// The indexed view over one parsed dump. Nothing on it is mutable, so every engine and thread shares one.
@@ -1113,6 +1145,32 @@ pub mod fixtures {
 mod tests {
     use super::*;
     use crate::types::{NONE_STATE, UNJOINED_SUFFIX};
+
+    #[test]
+    fn the_journal_drops_a_repeated_read_only_inside_a_recorded_span() {
+        let index = fixtures::mini();
+        let tea = Read::Rune(fixtures::sym(&index, "qsTea"));
+        let pea = Read::Rune(fixtures::sym(&index, "qsPea"));
+        journal_arm(true);
+        journal(tea);
+        journal(tea);
+        let start = journal_len();
+        journal(tea);
+        journal(tea);
+        journal(pea);
+        journal(tea);
+        journal_view(|reads| {
+            assert_eq!(reads[..start], [tea]);
+            assert_eq!(reads[start..], [tea, pea, tea]);
+        });
+        journal_truncate(start);
+        journal(tea);
+        journal_view(|reads| assert_eq!(reads[start..], [tea]));
+        journal_clear();
+        journal_arm(false);
+        journal(tea);
+        journal_view(|reads| assert!(reads.is_empty()));
+    }
 
     #[test]
     fn a_rune_and_its_stances_are_found_by_name_in_declaration_order() {

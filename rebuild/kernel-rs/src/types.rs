@@ -438,6 +438,14 @@ impl NotesPool {
         id
     }
 
+    /// [`NotesPool::intern`] for a list its caller keeps: a hit copies nothing, and a miss copies the list once for the table.
+    pub fn intern_slice(&mut self, notes: &[String]) -> NotesId {
+        if let Some(&id) = self.ids.get(notes) {
+            return id;
+        }
+        self.intern(notes.to_vec())
+    }
+
     /// The list one id names.
     pub fn get(&self, id: NotesId) -> &[String] {
         &self.table[id.index()]
