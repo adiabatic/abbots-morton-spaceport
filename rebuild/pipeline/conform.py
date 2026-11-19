@@ -823,15 +823,15 @@ def settle_memo_identity(memo: SettleMemoFile) -> tuple | None:
 class _MemoStore:
     """One configuration's settle memo, mapped read-only: the part of a walk's memo loaded from disk. The memo is a head and the parts it lists, a base and its segments (`row_delta`'s segment format with the probe merge), or, with no head, one single file, which reads as a base alone.
 
-    `load` reads the head, opens and maps every part it lists with each part's size checked against the head, and keeps the mappings and their file objects until `close`. It reads the parts' tables into Python: `labels` (every part's label table in part order, interned: a segment lists only the labels no earlier part lists, so the ids of every part index this one table), `label_ids` (its inverse), and `outcomes` (each part's outcomes in part order, each passed through the walk's `_outcome`, so they are the same objects `windows` holds). Each part's six id columns, value column and probe index, and each segment's Bloom filter, are `memoryview.cast` slices over its mapping, so they cost the worker no heap. They are pages of the parts, held once per machine in the page cache however many walks map them, and the kernel can evict them under memory pressure.
+    `load` reads the head, opens and maps every part it lists with each part's size checked against the head, and keeps the mappings and their file objects until `close`. It reads the parts' tables into Python: `labels` (every part's label table in part order, interned: a segment lists only the labels no earlier part lists, so the ids of every part index this one table), `label_ids` (its inverse), and `outcomes` (each part's outcomes in part order, each passed through the walk's `_outcome`, so they are the same objects `windows` holds; an outcome whose cell the spec cannot name, for which `_outcome`'s `geometry.display_name` raises `LookupError`, as it does for a cell of a rune or an anchor height the spec does not hold, is held as a placeholder, its settled item with two empty names, which no writer reads past the settled item). Each part's six id columns, value column and probe index, and each segment's Bloom filter, are `memoryview.cast` slices over its mapping, so they cost the worker no heap. They are pages of the parts, held once per machine in the page cache however many walks map them, and the kernel can evict them under memory pressure.
 
-    Two byte arrays belong to each walk, a byte a row over every part's rows in part order, base first. `dead` flags every row this walk does not serve: every row of a part that records another stamp than `memo.stamp` (the part serves nothing, as a single file under another stamp serves nothing), a row naming a family whose key changed since its part was settled (`oracle_cache.StaleMask` at label grain over the keys its part records, computed over its six columns with C-level maps and one reduce), a row a later segment's dead bitmap names, or, for a walk restricted by `load_only_asked_by`, a row whose five settlement-independent slots are outside its asks. `reached` flags every row a probe has returned. `live` counts the rows `dead` does not flag, `stale` the rows the stale fold flags that no dead bitmap names, `loaded` the live rows plus the stale ones (the `loaded=` of the `[t] settle_memo` line), `unasked` the rows the restriction dropped, and `buried` the rows of the parts that serve under `memo.stamp` that a dead bitmap names. A load with `every_stamp` (the full replay's compare) flags only the rows a dead bitmap names.
+    Two byte arrays belong to each walk, a byte a row over every part's rows in part order, base first. `dead` flags every row this walk does not serve: every row of a part that records another stamp than `memo.stamp` (the part serves nothing, as a single file under another stamp serves nothing), a row naming a family whose key changed since its part was settled (`oracle_cache.StaleMask` at label grain over the keys its part records, computed over its six columns with C-level maps and one reduce), a row whose outcome is a placeholder (one C-level map over each part's value column, made only when the tables hold a placeholder), a row a later segment's dead bitmap names, or, for a walk restricted by `load_only_asked_by`, a row whose five settlement-independent slots are outside its asks. `reached` flags every row a probe has returned. `live` counts the rows `dead` does not flag, `stale` the rows the stale fold flags that no dead bitmap names, `loaded` the live rows plus the stale ones (the `loaded=` of the `[t] settle_memo` line), `unasked` the rows the restriction dropped, and `buried` the rows of the parts that serve under `memo.stamp` that a dead bitmap names. A load with `every_stamp` (the full replay's compare) flags only the rows a dead bitmap names.
 
     A probe maps the window's six labels through `label_ids`, and a label the tables lack is a miss before any hashing. It hashes the six ids once as every writer did: each id times its slot's odd 64-bit constant in `_MEMO_MIX`, summed modulo 2^64. It then tests the segments newest first, each through its Bloom filter (the test `row_delta.bloom_contains` makes, keyed on that sum) and then its index, shifted right by 64 - k for its 2^k slots with linear probing from there, and then the base through its index, and returns the first live row it finds, marked reached. The hash is written out so the file does not depend on Python's tuple hash, and `_memo_slots` and `_memo_hashes` are the writers' vectorized forms of it. It sums per-column products so that the ids never have to share one word: six ids at the `H` columns' 16-bit width need 96 bits, a multiply-shift over a 64-bit word that drops two of them clusters badly on the live ids, and the sum keeps chains near one probe at the writer's half-full sizing. Each part's keys are distinct (every writer keeps one row a key in a part), so a probe stops a part at the first row whose ids match, and a dead row there sends it on to the next older part.
 
     A window more than one live row holds, which only an absorb's fresh row restating a live standing row's window leaves (each segment's header counts such rows, `shadows`), is served by its newest row; the older ones are shadowed (`_shadows`, computed only when a segment counts any). `len`, `items` and `selector` read the memo as its materialized form does, one row a window: `len` counts the windows, `items` yields each at the position of its oldest live row with the outcome of its newest, and a shadowed row is chosen with the window it restates.
 
-    The load reads every part's header and tables, and reads the columns only for the stale fold or the ask restriction, one pass each. It does not scan for corruption. A valid index is at least half empty, so every chain reaches a row or an empty slot within N + 1 reads for a part of N rows, the last read of a miss landing on the empty slot. An id past a table or a chain longer than N + 1 reads occurs only in a corrupt part, and the probe that meets it retires every row (`_retire`), so the walk settles everything it asks from then on.
+    The load reads every part's header and tables, and reads the columns only for the stale fold, the ask restriction, or, when the tables hold a placeholder, the value column of every part not already all dead, one pass each. It does not scan for corruption. A valid index is at least half empty, so every chain reaches a row or an empty slot within N + 1 reads for a part of N rows, the last read of a miss landing on the empty slot. An id past a table or a chain longer than N + 1 reads occurs only in a corrupt part, and the probe that meets it retires every row (`_retire`), so the walk settles everything it asks from then on.
 
     `items` yields the live rows as (window, outcome) pairs in part order: all of them, only the reached ones, or only the unreached ones. `selector` makes the same choice as one flag per row, which `carry_into` uses to copy rows into a new file straight from the columns without building a key tuple per row. `close` drops the views and the mappings. A walk whose memo another writer replaced reads the old inodes until then, because a mapping outlives the directory entry it was opened through, and a writer deletes a generation only once the head that replaced it is in place. A mapping that an `items` iterator still reads stays open until that iterator is released.
     """
@@ -870,7 +870,7 @@ class _MemoStore:
         *,
         every_stamp: bool = False,
     ) -> None:
-        """Map the memo at `memo.path` and keep what a walk keyed with `memo` may serve: the head and every part it lists, or the single file when there is no head. A memo that is missing loads nothing, silently, and a part under another stamp, or whose moved family the registry cannot place, is mapped and serves nothing. A memo that cannot be read (a head that does not parse, a part missing or not the size its head records, a part short or torn, a header or table that will not unpickle, a layout that runs past the end of its part, a segment or dead bitmap naming another generation or another part's row count) loads nothing and prints a warning. The memo only saves time, so the walk then settles everything itself. An id past a table or an index chain longer than the row count is left for the probe that reaches it, which retires every row, so the load need not scan every page. A part whose recorded family keys differ from `memo.family_keys` serves every row except those naming a changed family, counted in `stale`. A load restricted to `asks` drops the rows outside them, counted in `unasked`. `every_stamp` reads every row no dead bitmap names, whatever stamp or keys its part records. `source` is the version of the memo it read (`_memo_source`), whether it loaded it or refused it, so a writer tells a memo that changed after its plan from one that does not load (`SettleMemoRoute.loaded`)."""
+        """Map the memo at `memo.path` and keep what a walk keyed with `memo` may serve: the head and every part it lists, or the single file when there is no head. A memo that is missing loads nothing, silently, and a part under another stamp, or whose moved family the registry cannot place, is mapped and serves nothing. An outcome `outcome_of` cannot name, raising `LookupError` as the walk's `_outcome` does for a cell of a rune or an anchor height the spec does not hold, loads as a placeholder (the class docstring), and every row holding it serves nothing, counted with the rows of such parts in `foreign`, and the memo still loads and serves its other rows. An absorb's fold carries the outcome tables whole, so a memo can list such an outcome long after its last row is gone. A memo that cannot be read (a head that does not parse, a part missing or not the size its head records, a part short or torn, a header or table that will not unpickle, a layout that runs past the end of its part, a segment or dead bitmap naming another generation or another part's row count) loads nothing and prints a warning. The memo only saves time, so the walk then settles everything itself. An id past a table or an index chain longer than the row count is left for the probe that reaches it, which retires every row, so the load need not scan every page. A part whose recorded family keys differ from `memo.family_keys` serves every row except those naming a changed family, counted in `stale`. A load restricted to `asks` drops the rows outside them, counted in `unasked`. `every_stamp` reads every row no dead bitmap names, whatever stamp or keys its part records. `source` is the version of the memo it read (`_memo_source`), whether it loaded it or refused it, so a writer tells a memo that changed after its plan from one that does not load (`SettleMemoRoute.loaded`)."""
         assert not self.parts and not self.refused, "the store is already loaded"
         directory, output = memo.path.parent, memo.path.name
         try:
@@ -1009,7 +1009,14 @@ class _MemoStore:
             label_ids.setdefault(label, label_id)
         if len(label_ids) != len(interned):
             raise ValueError("names a spelling twice")
-        outcomes = [outcome_of(item) for item in items]
+        outcomes: list[_Outcome] = []
+        unnamed: set[int] = set()
+        for outcome_id, item in enumerate(items):
+            try:
+                outcomes.append(outcome_of(item))
+            except LookupError:
+                outcomes.append((item, "", ""))
+                unnamed.add(outcome_id)
         total = sum(part.rows for part in parts)
         dead = bytearray(total)
         stale_rows: bytearray | None = None
@@ -1058,6 +1065,17 @@ class _MemoStore:
                     stale_rows[span] = moved
             if folded is not None:
                 dead[span] = folded
+        if unnamed:
+            for part in parts:
+                span = slice(part.offset, part.offset + part.rows)
+                held = dead[span]
+                if 0 not in held:
+                    continue
+                hits = bytes(map(unnamed.__contains__, part.values))
+                count = bytes(map(operator.gt, hits, held)).count(1)
+                if count:
+                    dead[span] = bytes(map(operator.or_, held, hits))
+                    foreign += count
         unasked = 0
         if asks is not None:
             allowed: set[tuple[int, ...]] = set()
@@ -1330,7 +1348,7 @@ class _MemoStore:
         return self.reached.count(1)
 
     def standing(self) -> int:
-        """The rows of the memo's standing content under `memo`'s stamp, its stale ones included: every row less those of a part under another stamp, or whose moved family the registry cannot place, which load as no memo, and less those an earlier segment's dead bitmap names (`buried`), which an earlier absorb already dropped, so an absorb's `standing - carried` counts the rows it drops itself, as a single file's absorb counts them."""
+        """The rows of the memo's standing content under `memo`'s stamp, its stale ones included: every row less those of a part under another stamp, or whose moved family the registry cannot place, which load as no memo, less those holding an outcome the load's `outcome_of` cannot name, which serve nothing (`load`), and less those an earlier segment's dead bitmap names (`buried`), which an earlier absorb already dropped, so an absorb's `standing - carried` counts the rows it drops itself, as a single file's absorb counts them."""
         return len(self.dead) - self.foreign - self.buried
 
     def stale_rows(self) -> bytearray | None:
@@ -1824,7 +1842,7 @@ class SettleMemoRoute:
     """How one configuration's settle memo is written by one writer, decided before any writer of the pass writes (`plan_settle_memos`), as #618's decisions 74 and 75 settle it for the segment format, with no size test and no stamp clause:
 
     - `segment`: one segment of what this writer changes, over `head`, beside the dead bitmaps naming the earlier rows it drops; a full replay whose refill settles every window as the memo already holds it writes the head alone.
-    - `base`: a whole file as the next generation's base, with its `reason`: `first`, no head and no single file; `unusable`, a head that does not parse, a part missing or not the size and sha256 its head records or whose header does not read, a single file whose header does not read, or a memo the plan passed that a writer's load then refuses (`unusable`, `loaded`), which the cycle reports as `rewritten whole` (`output_sink.note_rewritten`); or `fold`, `head`'s fold is due and this configuration holds the pass's fold (`row_delta.claim_fold`), or holds `row_delta.FOLD_OVERRUN` segments past its cap (`forced`), so it folds whatever another output did.
+    - `base`: a whole file as the next generation's base, with its `reason`: `first`, no head and no single file; `unusable`, a head that does not parse, a part missing or not the size and sha256 its head records or whose header does not read, a single file whose header does not read, a memo the plan passed that a writer's load then refuses (`unusable`, `loaded`), or one whose tables list an outcome the spec cannot name when a full replay compares its refill with it (`compare_replay`), which the cycle reports as `rewritten whole` (`output_sink.note_rewritten`); or `fold`, `head`'s fold is due and this configuration holds the pass's fold (`row_delta.claim_fold`), or holds `row_delta.FOLD_OVERRUN` segments past its cap (`forced`), so it folds whatever another output did.
 
     `adopted` says `head` is the single file a tree from before the segment format holds, linked as generation 0's base under a head no writer has committed (`_adopted_head`); `discard` deletes that link when nothing commits it. `signature` is the memo as the plan found it (`settle_memo_source`): a writer refuses to write once the memo on disk is no longer that one (`current`), warning and writing nothing, since every reader settles what the memo lacks.
     """
@@ -3214,7 +3232,7 @@ class ReplayCompare:
 def compare_replay(
     memo: SettleMemoFile, spec: ResolvedSpec, refill: ReplayMemoRows, route: SettleMemoRoute
 ) -> ReplayCompare | str | None:
-    """Compare a full replay's refill (`read_replay_memo`'s rows, held in heap) with the standing content of `memo` on `route`'s segment route, and lay out the segment that makes the memo serve exactly the refill's windows. It returns instead the warning its absorb carries when the memo is no longer the one the route was planned against (`SettleMemoRoute.loaded`), or None when the standing memo does not read, its load refusing it or a probe meeting a corrupt part, which leaves the refill whole for the caller to lay out as a base (`SettleMemoRoute.unusable`, `ReplayMemoRows.finish`).
+    """Compare a full replay's refill (`read_replay_memo`'s rows, held in heap) with the standing content of `memo` on `route`'s segment route, and lay out the segment that makes the memo serve exactly the refill's windows. It returns instead the warning its absorb carries when the memo is no longer the one the route was planned against (`SettleMemoRoute.loaded`), or None when the standing memo does not read, its load refusing it or a probe meeting a corrupt part, or when its tables list an outcome the spec cannot name (`_unnamed_outcome`, such as a cell of a rune the spec does not hold), which leaves the refill whole for the caller to lay out as a base (`SettleMemoRoute.unusable`, `ReplayMemoRows.finish`). Either way the memo then serves exactly the refill's windows, as a compare's segment would make it, and a whole write of the refill also drops such an outcome from the tables, which every absorb's fold carries whole and a walk's load holds as a placeholder (`_MemoStore.load`).
 
     The standing content is every row no dead bitmap names, whatever stamp or keys its part records (`_MemoStore.load` with `every_stamp`). A standing row whose window the refill settles to the same outcome is kept in place; every other standing row, changed, not in the refill, or an older row at a window a newer row holds, is named in the segment's dead bitmaps, a window several parts hold counting by the row a probe returns; the segment holds the refill's rows whose window no kept row holds, a later refill row at a window winning as `_memo_index` merges it. The head then records every part under the current stamp and keys (`SettleMemoRoute.commit` with `restamp`), so the memo serves the refill's windows, as a whole file of the refill would. A refill whose rows match the standing content row for row writes no segment.
 
@@ -3228,6 +3246,14 @@ def compare_replay(
         if isinstance(planned, str):
             return planned
         if planned.route == BASE_ROUTE:
+            return None
+        unnamed = _unnamed_outcome(spec, store.outcomes)
+        if unnamed is not None:
+            print(
+                f"[warn] settle memo: {memo.path} lists an outcome the spec cannot name ({unnamed}); the refill is written whole",
+                file=sys.stderr,
+                flush=True,
+            )
             return None
         tables = refill.tables
         missing = -1
@@ -3279,6 +3305,16 @@ def compare_replay(
         )
     finally:
         store.close()
+
+
+def _unnamed_outcome(spec: ResolvedSpec, outcomes: Iterable[_Outcome]) -> str | None:
+    """The text of the lookup error `geometry.display_name` raises for the first of `outcomes` whose cell `spec` cannot name (such as a cell of a rune or an anchor height `spec` does not hold), or None when `spec` names every one."""
+    for outcome in outcomes:
+        try:
+            geometry.display_name(spec, outcome[0].cell)
+        except LookupError as error:
+            return f"{error}" or type(error).__name__
+    return None
 
 
 def _probe_refill(
@@ -3604,7 +3640,7 @@ class _SettledWindowWalk:
         return outcome
 
     def _load_memo(self) -> None:
-        """Map the shared memo, its head and every part it lists, into `_cold`, the walk's `_MemoStore`, once, on the first wave that would otherwise reach the crate. A memo that is missing or cannot be read loads nothing, and a part under another stamp serves nothing, so the walk settles what they lack itself. A part under this stamp whose recorded family keys differ from the walk's serves every row except those naming a changed family (by a letter's label, by a formed ligature's label, or by all components of a changed ligature rune), counted in `stale_windows`; a changed family the registry cannot place makes the whole part stale. A walk restricted by `load_only_asked_by` serves only the rows whose five settlement-independent slots are in its ask set, and counts the rest in `unasked_windows`. `memo_windows` counts the rows the walk can serve plus the stale ones."""
+        """Map the shared memo, its head and every part it lists, into `_cold`, the walk's `_MemoStore`, once, on the first wave that would otherwise reach the crate. A memo that is missing or cannot be read loads nothing, and a part under another stamp serves nothing, so the walk settles what they lack itself. A part under this stamp whose recorded family keys differ from the walk's serves every row except those naming a changed family (by a letter's label, by a formed ligature's label, or by all components of a changed ligature rune), counted in `stale_windows`; a changed family the registry cannot place makes the whole part stale. An outcome whose cell this walk's spec cannot name (`_outcome` raising `LookupError`, as it does for a cell of a rune or an anchor height the spec does not hold) does not refuse the memo: every row holding it serves nothing, and the memo's other rows serve (`_MemoStore.load`). A walk restricted by `load_only_asked_by` serves only the rows whose five settlement-independent slots are in its ask set, and counts the rest in `unasked_windows`. `memo_windows` counts the rows the walk can serve plus the stale ones."""
         self._memo_loaded = True
         if self.memo is None:
             return

@@ -2130,6 +2130,22 @@ def _tea_oy_refuses_its_exit(spec):
     return dataclasses.replace(spec, runes=runes)
 
 
+def _without_the_tea_oy_ligature(spec):
+    """`spec` with the ·Tea+·Oy ligature gone, as deleting its rune file and its registry entry leaves it: no rune, no registry family and no predicate-class membership, so ·Tea followed by ·Oy settles as two letters and no cell of the ligature has a display name. ·May's condition that names the ligature among its left families names a family nothing forms."""
+    import dataclasses
+
+    name = "qsTea_qsOy"
+    registry = dataclasses.replace(
+        spec.registry,
+        families={family: info for family, info in spec.registry.families.items() if family != name},
+        predicate_classes={
+            label: members - {name} for label, members in spec.registry.predicate_classes.items()
+        },
+    )
+    runes = {rune_name: rune for rune_name, rune in spec.runes.items() if rune_name != name}
+    return dataclasses.replace(spec, runes=runes, registry=registry)
+
+
 def _font_edited(source: Path, target: Path, touches) -> Path:
     """Copy `source`, widening the advance of every glyph `touches` selects by 37 units. The family's compiled-glyph digest changes through the metrics alone, every outline stays the same, and every row that shapes one of those glyphs places its followers differently."""
     from fontTools.ttLib import TTFont
@@ -3868,6 +3884,23 @@ class TestCrateEmittedSettleMemo:
         )
         return out_dir
 
+    @pytest.fixture(scope="class")
+    def reduced_dumps_dir(self, tmp_path_factory, spec):
+        """`dumps_dir` over the fixture spec without the ·Tea+·Oy ligature (`_without_the_tea_oy_ligature`)."""
+        reduced = _without_the_tea_oy_ligature(spec)
+        out_dir = tmp_path_factory.mktemp("replay-memo-reduced")
+        run_m1.build_tables(reduced, out_dir)
+        kernel_exec.replay_strings(
+            reduced,
+            out_dir,
+            conform.SETTLEMENT_CONFIGS,
+            max_length=4,
+            families=None,
+            threads=2,
+            memo_dir=out_dir,
+        )
+        return out_dir
+
     def _memo(self, tmp_path, config="default", stamp=STAMP, keys=None):
         return conform.SettleMemoFile(tmp_path / f"settle-memo-{config}.bin", stamp, dict(keys or {}))
 
@@ -4165,6 +4198,38 @@ class TestCrateEmittedSettleMemo:
         assert cast(row_delta.PartStamp, head.base.settled).stamp == memo.stamp
         assert conform.settle_memo_standing(memo) and self._items(memo, spec) == expected
 
+    def test_a_refill_over_a_memo_listing_an_outcome_the_spec_cannot_name_is_written_whole(
+        self, spec, dumps_dir, reduced_dumps_dir, tmp_path, capsys
+    ):
+        """The first full replay after ·Tea+·Oy leaves the registry compares its refill with a memo whose tables list the formed ligature's outcomes. The compare returns None, warning, so the absorb writes the refill whole as an `unusable` base: its tables list no outcome the spec cannot name, and a walk over the spec without the ligature loads it and settles every text to depth 3 with no crate call and the results of a walk with no memo."""
+        reduced = _without_the_tea_oy_ligature(spec)
+        memo = self._memo(tmp_path)
+        self._absorb(kernel_exec.replay_memo_dump(dumps_dir, "default"), memo, spec, "default")
+        route = conform.plan_settle_memos({"default": memo}).routes["default"]
+        assert route.route == conform.SEGMENT_ROUTE
+        refill = self._refill(kernel_exec.replay_memo_dump(reduced_dumps_dir, "default"), reduced)
+        capsys.readouterr()
+        assert conform.compare_replay(memo, reduced, refill, route) is None
+        assert (
+            f"[warn] settle memo: {memo.path} lists an outcome the spec cannot name ('qsTea_qsOy'); the refill is written whole"
+            in capsys.readouterr().err
+        )
+        unusable = route.unusable()
+        head = unusable.commit(memo, unusable.write(refill.finish(memo)))
+        assert head.generation == 1 and not head.segments
+        store = conform._MemoStore()
+        store.load(memo, reduced, None, lambda item: (item, "", ""))
+        try:
+            assert store.live and conform._unnamed_outcome(reduced, store.outcomes) is None
+        finally:
+            store.close()
+        guard = kernel_exec.guard_sweep(reduced)
+        texts = _texts_to_depth(reduced, 3)
+        reference = conform._SettledWindowWalk(reduced, frozenset(), {}, guard)
+        walker = conform._SettledWindowWalk(reduced, frozenset(), {}, guard, memo=memo)
+        assert walker.walk_many(texts) == reference.walk_many(texts)
+        assert walker._settle_calls == 0 and walker.fresh_windows == 0
+
     @pytest.mark.parametrize("dropped", [False, True])
     def test_a_refill_that_changes_a_window_writes_a_segment_of_it_and_names_the_rows_it_replaces(
         self, spec, dumps_dir, tmp_path, dropped
@@ -4444,6 +4509,130 @@ class TestSettleMemoFile:
         )
         second.walk_many(texts)
         assert second.memo_windows == 0 and second.fresh_windows == len(second.windows)
+
+    def test_a_ligature_that_leaves_the_registry_leaves_its_memo_loading(self, spec, guard, tmp_path, capsys):
+        """A memo written while ·Tea+·Oy was a ligature lists outcomes whose cell is the formed ligature's, which a spec without the ligature cannot name. A walk over that spec, under family keys that lack the ligature as that spec's own keys do, must load the memo rather than refuse it: no warning and no refusal, nothing served (the keys name the ligature as moved, and the registry cannot place it), and the results of a walk with no memo."""
+        texts = self._texts(spec, 2)
+        first = conform._SettledWindowWalk(
+            spec,
+            frozenset(),
+            {},
+            guard,
+            memo=self._memo(tmp_path, keys={name: f"{name}@0" for name in spec.registry.families}),
+        )
+        first.walk_many(texts)
+        assert first.save_memo()
+        assert any(outcome[0].cell.rune == "qsTea_qsOy" for _, outcome in first._settled_items())
+        reduced = _without_the_tea_oy_ligature(spec)
+        reduced_guard = kernel_exec.guard_sweep(reduced)
+        reference = conform._SettledWindowWalk(reduced, frozenset(), {}, reduced_guard)
+        expected = reference.walk_many(texts)
+        capsys.readouterr()
+        second = conform._SettledWindowWalk(
+            reduced,
+            frozenset(),
+            {},
+            reduced_guard,
+            memo=self._memo(tmp_path, keys={name: f"{name}@0" for name in reduced.registry.families}),
+        )
+        assert second.walk_many(texts) == expected
+        assert "[warn] settle memo:" not in capsys.readouterr().err
+        assert second._memo_loaded and not second._cold.refused and second._cold.parts
+        assert second.memo_windows == 0 and second.fresh_windows == len(reference.windows)
+
+    def test_a_fold_that_carries_a_dropped_ligatures_outcomes_still_serves_every_window(
+        self, spec, guard, tmp_path, capsys, monkeypatch
+    ):
+        """The memo a pass leaves once ·Tea+·Oy has left the registry: the pooled walks settle every window again, and the absorb that folds carries the standing outcome tables whole into a base under the current keys, so the base lists the formed ligature's outcomes while no row holds one. A walk over the spec without the ligature must load that base, settle nothing and return what a walk with no memo returns."""
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path, keys={name: f"{name}@0" for name in spec.registry.families})
+        seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        seed.walk_many(texts[: len(texts) // 2])
+        assert seed.save_memo()
+        ranged = conform._SettledWindowWalk(
+            spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
+        )
+        ranged.walk_many(texts)
+        assert ranged.save_memo() and ranged.fresh_memo is not None
+        assert conform.absorb_settle_memo(memo, spec, [ranged.fresh_memo]).wrote == "segment"
+
+        reduced = _without_the_tea_oy_ligature(spec)
+        reduced_guard = kernel_exec.guard_sweep(reduced)
+        expected = conform._SettledWindowWalk(reduced, frozenset(), {}, reduced_guard).walk_many(texts)
+        keyed = self._memo(tmp_path, keys={name: f"{name}@0" for name in reduced.registry.families})
+        again = conform._SettledWindowWalk(
+            reduced,
+            frozenset(),
+            {},
+            reduced_guard,
+            memo=replace(keyed, returns_fresh=True),
+            promote_pinned=False,
+        )
+        assert again.walk_many(texts) == expected
+        assert again.memo_windows == 0 and again.save_memo() and again.fresh_memo is not None
+        monkeypatch.setattr(row_delta, "SEGMENT_CAP", 1)
+        absorbed = conform.absorb_settle_memo(keyed, reduced, [again.fresh_memo])
+        assert (absorbed.wrote, absorbed.reason, absorbed.segments) == ("base", "fold", 0)
+        head = row_delta.read_head(tmp_path, keyed.path.name)
+        assert head is not None and head.part_keys(head.base) == keyed.family_keys
+        store = conform._MemoStore()
+        store.load(keyed, reduced, None, lambda item: (item, "", ""))
+        try:
+            listed = {
+                outcome_id
+                for outcome_id, outcome in enumerate(store.outcomes)
+                if outcome[0].cell.rune == "qsTea_qsOy"
+            }
+            assert listed and store.live == len(again.windows)
+            assert listed.isdisjoint(store.parts[0].values)
+        finally:
+            store.close()
+
+        capsys.readouterr()
+        walker = conform._SettledWindowWalk(reduced, frozenset(), {}, reduced_guard, memo=keyed)
+        assert walker.walk_many(texts) == expected
+        assert "[warn] settle memo:" not in capsys.readouterr().err
+        assert walker._settle_calls == 0 and walker.fresh_windows == 0
+        assert walker.memo_windows == len(again.windows)
+
+    def test_a_row_whose_outcome_the_spec_cannot_name_serves_nothing(self, spec, guard, tmp_path, capsys):
+        """The load's own guard, which no walk on a real pass reaches, since a dropped ligature's formed label is never asked and a dropped stance moves its rune's key: a memo under the walk's stamp and keys whose rows hold outcomes the walk's spec cannot name, here the formed ·Tea+·Oy's under a spec without the ligature, loaded with the family keys it was written under. Those rows must be dead, out of `live`, `loaded`, `len`, `standing` and `items` and counted in `foreign`, and a probe of their window must miss, while every other row serves the outcome it holds."""
+        texts = self._texts(spec, 2)
+        memo = self._memo(tmp_path, keys={name: f"{name}@0" for name in spec.registry.families})
+        first = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
+        first.walk_many(texts)
+        assert first.save_memo()
+        settled = dict(first._settled_items())
+        unnamed = {window for window, outcome in settled.items() if outcome[0].cell.rune == "qsTea_qsOy"}
+        assert 0 < len(unnamed) < len(settled)
+        reduced = _without_the_tea_oy_ligature(spec)
+        walker = conform._SettledWindowWalk(
+            reduced, frozenset(), {}, kernel_exec.guard_sweep(reduced), memo=memo
+        )
+        capsys.readouterr()
+        walker._load_memo()
+        assert "[warn] settle memo:" not in capsys.readouterr().err
+        store = walker._cold
+        try:
+            served = len(settled) - len(unnamed)
+            assert not store.refused and store.stale == 0
+            assert (store.live, walker.memo_windows, len(store), store.standing(), store.foreign) == (
+                served,
+                served,
+                served,
+                served,
+                len(unnamed),
+            )
+            items = dict(store.items())
+            assert set(items) == set(settled) - unnamed
+            for window, outcome in settled.items():
+                probed = store.probe(window)
+                if window in unnamed:
+                    assert probed is None
+                else:
+                    assert probed is not None and probed[0] == outcome[0] and probed == items[window]
+        finally:
+            store.close()
 
     def test_the_sweep_prunes_what_no_text_reaches_and_the_oracle_carries_it(self, spec, guard, tmp_path):
         """Two walks over the same file with different responsibilities. The oracle's walk reaches only the windows of its rows, so it writes nothing when it settled nothing and would carry every loaded entry forward if it did. The conformance sweep's walk reaches every window any text produces, so it prunes what it never reached, and a window an edit has made unreachable leaves the file on the next sweep instead of staying in it indefinitely."""
