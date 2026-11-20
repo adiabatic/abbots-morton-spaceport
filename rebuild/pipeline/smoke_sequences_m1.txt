@@ -2752,7 +2752,7 @@ E67D E650                # ·Foot before ·Pea (break)
 E651 E67D                # ·Bay before ·Foot (break)
 E67D E651                # ·Foot before ·Bay (break)
 E652 E67D                # ·Tea before ·Foot (break)
-E67D E652                # ·Foot's x-height exit into half-·Tea, and into the full bar under ss03
+E67D E652                # ·Foot before ·Tea (break); under ss03 ·Foot's x-height exit into the full bar
 E653 E67D                # ·Day before ·Foot (break)
 E67D E653                # ·Foot's x-height exit into the full ·Day
 E654 E67D                # ·Key before ·Foot (break)
@@ -2860,10 +2860,10 @@ E651 E655 E67D           # ·Bay ~b~ ·Gay ~x~ ·Foot: the entered ·Gay's exit 
 E651 E665 E67D           # ·Bay ~b~ ·May ~x~ ·Foot: the entered ·May's exit extends by one
 E651 E670 E67D           # ·Bay ~b~ ·It ~x~ ·Foot
 E67D E670 E653           # ·Foot ~x~ ·It ~b~ half-·Day
-E67D E652 E653           # ·Foot | ·Tea ~b~ half-·Day: ·Foot yields to the ·Tea·Day pair; under ss03 the full bar takes both joins
-E67D E652 E67A           # ·Foot ~x~ half-·Tea | ·Utter; under ss03 the full bar joins ·Utter at the baseline
-E67D E652 E670           # ·Foot ~x~ half-·Tea | ·It
-E650 E67D E652           # half-·Pea ~x~ ·Foot ~x~ half-·Tea
+E67D E652 E653           # ·Foot | ·Tea ~b~ half-·Day; under ss03 the full bar takes both joins
+E67D E652 E67A           # ·Foot | ·Tea ~b~ ·Utter; under ss03 the full bar takes both joins
+E67D E652 E670           # ·Foot | half-·Tea ~x~ ·It; under ss03 ·Foot ~x~ ·Tea | ·It
+E650 E67D E652           # half-·Pea ~x~ ·Foot | ·Tea; under ss03 ·Foot joins the full bar too
 E67D E67A E652 E653      # ·Foot | ·Utter, and ·Tea keeps ·Day
 E67A E652 E653 E67D      # ·Utter·Tea·Day before ·Foot: ·Tea keeps ·Day
 200C E67D                # ZWNJ before ·Foot (the locked copy)

@@ -93,7 +93,6 @@ stances:
           - class: halves-that-exit-at-x-height
             except:
             - {family: qsDay_qsUtter}
-          - {family: qsFoot}
         top:
           x: 0
           stroke: vertical

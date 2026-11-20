@@ -67,13 +67,7 @@ policy:
   order:
   - sole
   refuse: []
-  prefer:
-  - cell: {exit: none}
-    over: {exit: x-height}
-    when:
-      right:
-        family: qsTea
-        then: {family: qsDay}
+  prefer: []
   extend:
   - entry: x-height
     by: 1

@@ -6,8 +6,7 @@ Scratch for the ·Foot migration. Delete it when the review session closes the b
 
 - The drafted ductus in `glyph_data/runes/qsFoot.yaml` waits for the author's review, and its `# DRAFT` marker marks what to review. The old record has no ductus or notes for ·Foot, so the motion is drafted from the bitmap.
 - The new review units wait for their review session. `make verdict-ready` reports whether the corpus is ready for it. Every new unmatched row holds ·Foot. Most repeat a change the same window shows with another x-height letter in ·Foot's place (·Et, ·Eight, ·No, ·Llan), at a junction ·Foot does not touch. The changes at ·Foot's own junctions are the design overrides below:
-  - `·Foot ~x~ ·Tea.half` without ss03, where the old font breaks, and `·Foot ~x~ ·Tea` with the full bar under ss03, where it draws the half stub;
-  - `·Foot ~x~ ·Tea.half | ·{Utter,It}`, where the old font draws `·Foot | ·Tea ~b~ ·Utter` and `·Foot | ·Tea.half ~x~ ·It`;
+  - `·Foot ~x~ ·Tea` with the full bar under ss03, where the old font draws the half stub;
   - `·Y ~b~ ·Gay ~x~ ·Foot` with ·Gay's exit extension, which the old font draws only after some lefts;
   - `·Foot ~x~ ·J’ai{,+Utter}` with ·J’ai's entry contraction in place of ·Foot's exit contraction, as for ·{No,Low,At,I};
   - `·Foot | ·Gay` before ·Tea+Oy and ·Thaw·-ing, as for ·{Low,At,I}.
@@ -16,7 +15,7 @@ Scratch for the ·Foot migration. Delete it when the review session closes the b
 
 ## Recorded design overrides
 
-The old record is one bitmap with an x-height entry, an x-height exit and three derives, so the rune is one `sole` stance whose entry `from:` and exit `toward:` are scoped from the x-height joins the baseline shows. The entry takes every x-height exiter but ·Tea and ·Roe, which the old font never joins to ·Foot. The exit's `toward:` names the same receivers as the rising ·At's, plus ·Tea, ·Owe and ·Foot.
+The old record is one bitmap with an x-height entry, an x-height exit and three derives, so the rune is one `sole` stance whose entry `from:` and exit `toward:` are scoped from the x-height joins the baseline shows. The entry takes every x-height exiter but ·Tea and ·Roe, which the old font never joins to ·Foot. The exit's `toward:` names the same receivers as the rising ·At's, plus ·Owe and ·Foot, and ·Tea for the ss03 full bar.
 
 - `extend_entry_after` the halves becomes an entry `extend` by one after ·Pea and ·He, the halves that join ·Foot (half-·Tea refuses its x-height exit before ·Foot). The extension is pair-wide: the old font drops it in `·{Pea,He}.half ~x~ ·Foot ~x~ ·J’ai{,+Utter}`, where its ·Foot also contracts its exit.
 - `contract_exit_before` ·J’ai becomes qsJai's and qsJai_qsUtter's entry contraction by one after ·Foot, beside ·{No,Low,At,I}, on the ·At precedent.
@@ -24,7 +23,7 @@ The old record is one bitmap with an x-height entry, an x-height exit and three 
 
 The author ruled on two old-font behaviors:
 
-- The old font joins ·Foot to ·Tea only under ss03, as `·Foot ~x~ ·Tea.half`, without the extension its `extend_exit_before_gated` names. ·Foot joins half-·Tea's x-height entry without ss03 too, and under ss03 it joins the full bar as the flat-stroke x-height exiters do, with no extension, so the bar stands straight beside ·Foot's vertical right arm. Where ·Foot's join into ·Tea and ·Tea's join onward cannot both happen, ·Foot yields only before ·Tea·Day, as ·No does, so `·Foot | ·Tea ~b~ ·Day.half` keeps the ·Tea·Day pair and `·Foot ~x~ ·Tea.half | ·{Utter,It}` stands.
+- The old font joins ·Foot to ·Tea only under ss03, as `·Foot ~x~ ·Tea.half`, without the extension its `extend_exit_before_gated` names. Without ss03 ·Foot and ·Tea stay apart, as in the old font. Under ss03 ·Foot joins the full bar as the flat-stroke x-height exiters do, with no extension, so the bar stands straight beside ·Foot's vertical right arm and `·Foot ~x~ ·Tea ~b~ ·{Day,Utter}` keeps the join onward.
 - The old font joins `·Foot ~x~ ·Gay` only where ·Gay cannot exit, before ·Tea+Oy or ·Thaw·-ing, through its entryless-exit ·Gay stance, which takes any x-height left. As for ·{Low,At,I}, ·Foot stays off qsGay's x-height `from:`, so `·Foot | ·Gay` breaks everywhere.
 
 ## Verification recipe
