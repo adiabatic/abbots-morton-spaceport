@@ -1,6 +1,6 @@
 """Run two corpus units engines over the same units and compare them unit by unit, for the port of the units recompute to Rust (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § The dual run).
 
-The sources are `units_stage_fixtures`' (`open_source`): the mini bundle with its `ss10` copies, or a live selection of the last cycle's corpus (`--per-config K`, `--batches N` or `--all`). The source's handouts are cut again at `build._handout_width` for the units handed out and the wider side's width, as `_RecomputeRunner` cuts a build's queue, and both sides take those same handouts. A Python side is a pool of real `build._corpus_worker` processes over real pipes, spawned as `_RecomputeRunner.__init__` spawns them, with one handout in flight per worker, as `_RecomputeRunner._drive_phase1` drives them. `--engines python,python` runs two Python sides at once, the first at `--python-jobs` workers and the second at one more, and the second takes the handouts in reverse.
+The sources are `units_stage_fixtures`' (`open_source`): the mini bundle with its `ss10` copies, or a live selection of the last cycle's corpus (`--per-config K`, `--batches N` or `--all`). The source's handouts are cut again at `build._handout_width` for the units handed out and the wider side's width, as `_RecomputeRunner` cuts a build's queue, and both sides take those same handouts. A Python side is a pool of real `build._corpus_worker` processes over real pipes, spawned as `_RecomputeRunner.__init__` spawns them, with one handout in flight per worker, as `_RecomputeRunner._drive_phase1` drives them. A Rust side is one `units_exec.UnitsProcess` at `--threads` threads, with one handout in flight per thread. `--engines` names the two sides, `python,rust` by default, the Python side at `--python-jobs` workers; `--engines python,python` runs two Python sides at once, the first at `--python-jobs` workers and the second at one more, and the second takes the handouts in reverse.
 
 No side runs more than `_window` handouts past the first handout not yet compared: the first side takes the lowest handout left in that window and a reversed side the highest. Each handout is compared once both sides have answered it and then dropped, so the harness holds a bounded number of handouts per side whatever the run's size. A comparison takes every `_UnitProjection` field but `packed` by ordinal, type-strictly (a tuple is not a list, a bool is not an int); inflates each side's fragment with the build's dictionary under `_FragmentArena.read`'s checks and compares the bytes; and compares the handout's contract errors as lists. Once phase 1 is in, a deterministic sample of the units goes through each side's `verify`, with injections built from the first side's projections as the build's whole-corpus passes build them, and both sides' keys must agree with each other and with the first side's phase-1 stamp and deltas, as the build's stale check requires.
 
@@ -10,8 +10,9 @@ A live `--all` run is a heavy pass: detach it, watch its log (`doc/running-long-
 
 Run from the repository root:
 
+    uv run python -m rebuild.tools.units_dual_run --source mini --threads 1
+    uv run python -m rebuild.tools.units_dual_run --source live --per-config 1 --threads 1
     uv run python -m rebuild.tools.units_dual_run --source mini --engines python,python
-    uv run python -m rebuild.tools.units_dual_run --source live --per-config 1 --engines python,python
 """
 
 from __future__ import annotations
@@ -22,8 +23,10 @@ import json
 import math
 import multiprocessing
 import multiprocessing.connection
+import queue
 import random
 import sys
+import threading
 import time
 import zlib
 from array import array
@@ -36,12 +39,12 @@ from rebuild.review import build, unit_cache
 from rebuild.review.audit import Unit
 from rebuild.review.build import _UnitProjection
 from rebuild.review.enrich import resolve_primary_unit_assignments
-from rebuild.review.units_exec import encode
+from rebuild.review.units_exec import UnitsProcess, encode
 from rebuild.tools.units_stage_fixtures import Source, _add_source_arguments, open_source, same
 
 REPORT_FORMAT = "ams-review-units-dual-run/1"
 REPORT_DIR = build.REPO_ROOT / "var" / "rust-port" / "dual-run"
-ENGINES = ("python",)
+ENGINES = ("python", "rust")
 VERIFY_SEED = "units-dual-run"
 EXAMPLES_KEPT = 5
 PROJECTION_FIELDS = tuple(item.name for item in dataclasses.fields(_UnitProjection) if item.name != "packed")
@@ -117,12 +120,12 @@ class _Handout:
     compared: bool = False
 
 
-class PythonSide:
-    """A pool of real `build._corpus_worker` processes, spawned and driven as `_RecomputeRunner` spawns and drives them. `unhanded` holds the handouts this side has not been sent, `parked` the workers waiting for the window to move, and `finishing` the workers sent the end marker."""
+class _Side:
+    """One engine's side of the run, its connections (`conns`) the slots a handout is sent through, each with at most one in flight. `unhanded` holds the handouts this side has not been sent, `parked` the slots waiting for the window to move, and `finishing` the slots sent the end marker."""
 
-    engine = "python"
+    engine = ""
 
-    def __init__(self, label: str, init: dict, jobs: int, reverse: bool, handouts: int) -> None:
+    def __init__(self, label: str, jobs: int, reverse: bool, handouts: int) -> None:
         self.label = label
         self.jobs = jobs
         self.reverse = reverse
@@ -135,17 +138,6 @@ class PythonSide:
         self.parked: list = []
         self.finishing: set = set()
         self.conns: list = []
-        self.names: dict[object, str] = {}
-        self._procs: list = []
-        ctx = multiprocessing.get_context("spawn")
-        for index in range(jobs):
-            parent_conn, child_conn = ctx.Pipe()
-            proc = ctx.Process(target=build._corpus_worker, args=(child_conn, init))
-            proc.start()
-            child_conn.close()
-            self._procs.append(proc)
-            self.conns.append(parent_conn)
-            self.names[parent_conn] = f"w{index}"
 
     def describe(self) -> dict:
         return {
@@ -158,6 +150,53 @@ class PythonSide:
             "peak_footprint_bytes": sum(self.peaks.values()),
             "worker_peaks": self.peaks,
         }
+
+    def next_handout(self, low: int, window: int) -> int | None:
+        """Take the lowest handout left below `low + window`, or the highest on a reversed side."""
+        candidates = [index for index in self.unhanded if index < low + window]
+        if not candidates:
+            return None
+        index = max(candidates) if self.reverse else min(candidates)
+        self.unhanded.discard(index)
+        return index
+
+    def receive(self, conn) -> tuple:
+        raise NotImplementedError
+
+    def send_phase1(self, conn, index: int, units: tuple[Unit, ...]) -> None:
+        raise NotImplementedError
+
+    def finish(self, conn) -> None:
+        raise NotImplementedError
+
+    def verify(self, items: Sequence[tuple[Unit, tuple]]) -> dict[str, tuple]:
+        raise NotImplementedError
+
+    def stop(self) -> None:
+        raise NotImplementedError
+
+    def kill(self) -> None:
+        raise NotImplementedError
+
+
+class PythonSide(_Side):
+    """A pool of real `build._corpus_worker` processes, spawned and driven as `_RecomputeRunner` spawns and drives them, one slot per worker."""
+
+    engine = "python"
+
+    def __init__(self, label: str, init: dict, jobs: int, reverse: bool, handouts: int) -> None:
+        super().__init__(label, jobs, reverse, handouts)
+        self.names: dict[object, str] = {}
+        self._procs: list = []
+        ctx = multiprocessing.get_context("spawn")
+        for index in range(jobs):
+            parent_conn, child_conn = ctx.Pipe()
+            proc = ctx.Process(target=build._corpus_worker, args=(child_conn, init))
+            proc.start()
+            child_conn.close()
+            self._procs.append(proc)
+            self.conns.append(parent_conn)
+            self.names[parent_conn] = f"w{index}"
 
     def receive(self, conn) -> tuple:
         try:
@@ -214,14 +253,95 @@ class PythonSide:
             proc.join(timeout=5)
         self.conns = []
 
-    def next_handout(self, low: int, window: int) -> int | None:
-        """Take the lowest handout left below `low + window`, or the highest on a reversed side."""
-        candidates = [index for index in self.unhanded if index < low + window]
-        if not candidates:
-            return None
-        index = max(candidates) if self.reverse else min(candidates)
-        self.unhanded.discard(index)
-        return index
+
+class RustSide(_Side):
+    """The Rust engine as one `units_exec.UnitsProcess` at `threads` threads, one slot per thread. A reader thread reads the engine's replies and hands each `batch` reply to the slot that sent the batch, through a queue and a byte on the slot's pipe, which `multiprocessing.connection.wait` watches as it watches a Python worker's connection; the `verify` and `stopped` replies go to a queue of their own. A failure the reader meets is handed to every slot and to that queue, so the run raises it wherever it waits."""
+
+    engine = "rust"
+
+    def __init__(self, label: str, init: dict, threads: int, reverse: bool, handouts: int) -> None:
+        super().__init__(label, threads, reverse, handouts)
+        self.process = UnitsProcess(init, threads)
+        self._writers: dict[object, multiprocessing.connection.Connection] = {}
+        self._replies: dict[object, queue.SimpleQueue] = {}
+        for _slot in range(threads):
+            reader, writer = multiprocessing.Pipe(duplex=False)
+            self.conns.append(reader)
+            self._writers[reader] = writer
+            self._replies[reader] = queue.SimpleQueue()
+        self._sent_by: dict[int, object] = {}
+        self._others: queue.SimpleQueue = queue.SimpleQueue()
+        self._reader = threading.Thread(target=self._read, name=f"{label} replies", daemon=True)
+        self._reader.start()
+
+    def _deliver(self, conn, reply: tuple) -> None:
+        self._replies[conn].put(reply)
+        self._writers[conn].send_bytes(b"!")
+
+    def _read(self) -> None:
+        try:
+            while True:
+                reply = self.process.read_reply()
+                if reply[0] == "batch":
+                    self._deliver(self._sent_by.pop(reply[1]), ("batch", reply[2], reply[3]))
+                    continue
+                self._others.put(reply)
+                if reply[0] == "stopped":
+                    return
+        except Exception as error:
+            failure = ("error", f"{type(error).__name__}: {error}")
+            self._others.put(failure)
+            for conn in list(self.conns):
+                try:
+                    self._deliver(conn, failure)
+                except OSError:
+                    pass
+
+    def _raise(self, reply: tuple) -> tuple:
+        if reply[0] == "error":
+            raise RuntimeError(f"{self.label}: the units engine failed:\n{reply[1]}")
+        return reply
+
+    def receive(self, conn) -> tuple:
+        conn.recv_bytes()
+        return self._raise(self._replies[conn].get())
+
+    def send_phase1(self, conn, index: int, units: tuple[Unit, ...]) -> None:
+        self._sent_by[index] = conn
+        self.in_flight[conn] = index
+        self.process.send_batch(index, units)
+
+    def finish(self, conn) -> None:
+        self.finishing.add(conn)
+        self._deliver(conn, ("ok",))
+
+    def verify(self, items: Sequence[tuple[Unit, tuple]]) -> dict[str, tuple]:
+        """Send the whole sample in one `verify` frame and return the keys."""
+        started = time.perf_counter()
+        self.process.send_verify(items)
+        reply = self._raise(self._others.get())
+        if reply[0] != "verify":
+            raise RuntimeError(f"{self.label}: the units engine answered verify with {reply[0]!r}")
+        self.verify_seconds = time.perf_counter() - started
+        return reply[1]
+
+    def stop(self) -> None:
+        self.process.send_stop()
+        reply = self._raise(self._others.get())
+        if reply[0] != "stopped":
+            raise RuntimeError(f"{self.label}: the units engine answered stop with {reply[0]!r}")
+        self.peaks["engine"] = int(reply[1])
+        self._reader.join()
+
+    def kill(self) -> None:
+        self.process.close()
+        for conn in self.conns:
+            conn.close()
+            self._writers[conn].close()
+        self.conns = []
+
+
+SIDES = {"python": PythonSide, "rust": RustSide}
 
 
 # --- the comparison -----------------------------------------------------------------------------
@@ -423,14 +543,27 @@ def _compare_verify(
 # --- the run ------------------------------------------------------------------------------------
 
 
-def _window(sides: Sequence[PythonSide]) -> int:
+def _window(sides: Sequence[_Side]) -> int:
     """How many handouts past the first one not yet compared a side may run: two per worker of both sides, so every worker can stay busy while the other side catches up."""
     return 2 * sum(side.jobs for side in sides)
 
 
+def _widths(engines: tuple[str, str], python_jobs: int, threads: int) -> tuple[int, int]:
+    """Each side's width: `threads` for a Rust side, `python_jobs` for the first Python side and one more for a second."""
+    if engines == ("python", "python"):
+        return python_jobs, python_jobs + 1
+    width = {"python": python_jobs, "rust": threads}
+    return width[engines[0]], width[engines[1]]
+
+
 def run(
-    source: Source, engines: tuple[str, str], python_jobs: int, plant: str | None, report: Report
-) -> tuple[list[PythonSide], int]:
+    source: Source,
+    engines: tuple[str, str],
+    python_jobs: int,
+    threads: int,
+    plant: str | None,
+    report: Report,
+) -> tuple[list[_Side], int]:
     """Run both sides over the source's handouts, compare each handout as both answers arrive, then run the verification sample through both, filling `report`. Returns the stopped sides and the planted unit's ordinal."""
     for engine in engines:
         if engine not in ENGINES:
@@ -438,7 +571,7 @@ def run(
                 f"engine {engine!r} is not one the harness runs; the engines are {', '.join(ENGINES)}"
             )
     dictionary = source.init["dictionary"]
-    widths = (python_jobs, python_jobs + 1)
+    widths = _widths(engines, python_jobs, threads)
     reverse = (False, engines[0] == engines[1])
     width = build._handout_width(source.unit_count(), max(widths))
     pieces = [array("I", piece) for handout in source.handouts for piece in batched(handout, width)]
@@ -457,10 +590,12 @@ def run(
         f"{', the second in reverse' if reverse[1] else ''}",
         file=sys.stderr,
     )
-    sides: list[PythonSide] = []
+    sides: list[_Side] = []
     try:
         for label, (engine, jobs, backwards) in enumerate(zip(engines, widths, reverse)):
-            sides.append(PythonSide(f"side {label} ({engine})", source.init, jobs, backwards, len(handouts)))
+            sides.append(
+                SIDES[engine](f"side {label} ({engine})", source.init, jobs, backwards, len(handouts))
+            )
         window = _window(sides)
         low = 0
         side_of = {conn: label for label, side in enumerate(sides) for conn in side.conns}
@@ -544,7 +679,7 @@ def write_report(
     path: Path,
     source: Source,
     engines: tuple[str, str],
-    sides: Sequence[PythonSide],
+    sides: Sequence[_Side],
     plant: str | None,
     planted: int,
     report: Report,
@@ -573,11 +708,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="units_dual_run", description=(__doc__ or "").split("\n\n")[0])
     _add_source_arguments(parser)
     parser.add_argument(
-        "--engines", default="python,python", help="the two engines, comma-separated (default: python,python)"
+        "--engines", default="python,rust", help="the two engines, comma-separated (default: python,rust)"
     )
     parser.add_argument(
         "--python-jobs", type=int, default=2, metavar="N", help="the first Python side's workers"
     )
+    parser.add_argument("--threads", type=int, default=1, metavar="N", help="the Rust side's threads")
     parser.add_argument("--plant", choices=PLANTABLE, metavar="FIELD", help="corrupt one second-side value")
     parser.add_argument("--report", type=Path, help="where to write the JSON report")
     args = parser.parse_args(argv)
@@ -586,16 +722,18 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--engines names two engines")
     if args.python_jobs < 1:
         parser.error("--python-jobs is at least 1")
+    if args.threads < 1:
+        parser.error("--threads is at least 1")
     pair = (engines[0], engines[1])
     source = open_source(args.source, args.per_config, args.batches, args.everything)
     report = Report()
-    sides, planted = run(source, pair, args.python_jobs, args.plant, report)
+    sides, planted = run(source, pair, args.python_jobs, args.threads, args.plant, report)
     name = f"{source.name}-{pair[0]}-{pair[1]}" + (f"-plant-{args.plant}" if args.plant else "")
     path = args.report or REPORT_DIR / f"{name}.json"
     write_report(path, source, pair, sides, args.plant, planted, report)
     for side in sides:
         print(
-            f"{side.label}: {side.jobs} workers, phase 1 {side.phase1_seconds:.1f} s, verify {side.verify_seconds:.1f} s, "
+            f"{side.label}: {side.jobs} {'threads' if side.engine == 'rust' else 'workers'}, phase 1 {side.phase1_seconds:.1f} s, verify {side.verify_seconds:.1f} s, "
             f"peak footprint {sum(side.peaks.values()) / 1e9:.2f} GB",
             file=sys.stderr,
         )

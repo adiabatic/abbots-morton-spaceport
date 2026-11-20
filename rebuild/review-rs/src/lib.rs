@@ -1,6 +1,6 @@
 //! The `ams-review` library: the review corpus build's unit recompute, which the `ams-review` binary serves. `rebuild/CORPUS-UNITS-PORT-PLAN.md` is the design, and § Boundary there holds the formats the binary reads and writes.
 //!
-//! The library reads the settlement model through the kernel crate's public API (`ams_m1_kernel`) and never edits it. It shapes through the HarfBuzz `build.rs` compiles in, maps the subset pack through the C library's `mmap` and deflates fragments through the system zlib, and `ffi`, which declares all three, is the only module that allows `unsafe`.
+//! The library reads the settlement model through the kernel crate's public API (`ams_m1_kernel`) and never edits it. It shapes through the HarfBuzz `build.rs` compiles in, maps the subset pack through the C library's `mmap`, deflates fragments through the system zlib and reads its peak footprint through the C library, and `ffi`, which declares all four, is the only module that allows `unsafe`. [`unit`] is the worker, and [`service`] serves it over the frames of § Boundary.
 
 #![deny(unsafe_code)]
 
@@ -20,9 +20,11 @@ pub mod pack;
 pub mod pyfmt;
 pub mod scaffold;
 pub mod schema;
+pub mod service;
 pub mod settle;
 pub mod shape;
 pub mod subset_pack;
+pub mod unit;
 pub mod wire;
 
 /// The format marker of the boundary between the build and the binary, carried by the init file whose frames and records § Boundary of `rebuild/CORPUS-UNITS-PORT-PLAN.md` describes ([`wire`]).

@@ -1,5 +1,6 @@
 //! The `ams-review` binary.
 //!
+//! - `ams-review units --init=PATH --threads=N` serves the units engine over request frames on stdin and reply frames on stdout ([`ams_review::service::serve`]): it exits 0 after `stop`, and 1 after an `error` frame or when its input closes without `stop`. The engine serves one thread, and any other `N` is answered with an `error` frame.
 //! - `ams-review version` writes the wire format, the kernel's spec dump format and the linked HarfBuzz version to stdout, one tab-separated `name value` line each ([`ams_review::version_text`]).
 //! - `ams-review stage STAGE --init=PATH FILE` runs one stage of the stage fixtures over the dump `FILE` and writes one line per answer to stdout, its `key` and the stage's outputs (`value`, `rendered` and `filtered` for `explain`, or the enriched unit's fields, its mismatch lines and its primary-unit projection for `enrich`, and `value` and the deflated fragment, `packed`, for `fragment`), each in the typed encoding. The stages are `wire` ([`ams_review::wire::stage_wire`]), `pyfmt` ([`ams_review::pyfmt::stage_pyfmt`]), `yaml` ([`ams_review::pyfmt::stage_yaml`]), `shape` ([`ams_review::shape::stage_shape`]), `ink` ([`ams_review::ink::stage_ink`]), `settle` ([`ams_review::settle::stage_settle`]), `explain` ([`ams_review::explain::stage_explain`]), `subset` ([`ams_review::subset_pack::stage_subset`]), `enrich` ([`ams_review::enrich::stage_enrich`]), `scaffold` ([`ams_review::scaffold::stage_scaffold`]), `expect` ([`ams_review::expect::stage_expect`]), `schema` ([`ams_review::schema::stage_schema`]), `draft` ([`ams_review::drafts::stage_draft`]), `fragment` ([`ams_review::fragment::stage_fragment`]) and `check` ([`ams_review::check::stage_check`]); `pyfmt` and `yaml` read nothing from the init, `schema` reads only the rune schema's path, `check` reads only the vocabulary and the glyph names by character, `settle` and `explain` read only the spec and the settlement modes, `subset` reads only the subset pack's path and header values, and `shape`, `ink`, `enrich`, `scaffold`, `expect`, `draft` and `fragment` refuse an init whose HarfBuzz version is not the linked one. A refused input exits 1 with the reason on stderr.
 //!
@@ -8,10 +9,12 @@
 #![forbid(unsafe_code)]
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: ams-review version\n       ams-review stage {wire,pyfmt,yaml,shape,ink,settle,explain,subset,enrich,scaffold,expect,schema,draft,fragment,check} --init=PATH FILE";
+use ams_review::service::Ending;
+
+const USAGE: &str = "usage: ams-review version\n       ams-review units --init=PATH --threads=N\n       ams-review stage {wire,pyfmt,yaml,shape,ink,settle,explain,subset,enrich,scaffold,expect,schema,draft,fragment,check} --init=PATH FILE";
 
 fn main() -> ExitCode {
     let Ok(arguments) = std::env::args_os()
@@ -28,6 +31,15 @@ fn main() -> ExitCode {
         .as_slice()
     {
         ["version"] => version(),
+        ["units", init, threads] => match (
+            init.strip_prefix("--init="),
+            threads
+                .strip_prefix("--threads=")
+                .and_then(|threads| threads.parse::<usize>().ok()),
+        ) {
+            (Some(init), Some(threads)) => units(init, threads),
+            _ => usage(),
+        },
         [
             "stage",
             name @ ("wire" | "pyfmt" | "yaml" | "shape" | "ink" | "settle" | "explain" | "subset"
@@ -51,6 +63,23 @@ fn version() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("ams-review: cannot write the version: {error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn units(init: &str, threads: usize) -> ExitCode {
+    let output = std::io::BufWriter::new(std::io::stdout());
+    match ams_review::service::serve(
+        PathBuf::from(init),
+        threads,
+        std::io::BufReader::new(std::io::stdin()),
+        output,
+    ) {
+        Ending::Stopped => ExitCode::SUCCESS,
+        Ending::Failed => ExitCode::from(1),
+        Ending::Closed => {
+            eprintln!("ams-review: units: the input closed without stop");
             ExitCode::from(1)
         }
     }

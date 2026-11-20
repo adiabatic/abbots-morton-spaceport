@@ -1,8 +1,8 @@
-//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); and the system zlib's deflate, behind the primed compressor the fragments are deflated with ([`Deflater`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check guards zlib's by inflating every deflated fragment through Python's `zlib`.
+//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib's deflate, behind the primed compressor the fragments are deflated with ([`Deflater`]); and the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check guards zlib's by inflating every deflated fragment through Python's `zlib`.
 
 #![allow(unsafe_code, non_camel_case_types)]
 
-use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_ulong, c_void};
+use std::ffi::{CStr, CString, c_char, c_int, c_long, c_uint, c_ulong, c_void};
 use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::ptr::NonNull;
@@ -507,9 +507,102 @@ impl Deflater {
     }
 }
 
+/// `struct rusage`, as `sys/resource.h` declares it on Darwin and Linux: two `timeval`s, then `ru_maxrss` and thirteen more `long` counters.
+#[repr(C)]
+struct rusage {
+    ru_utime: [i64; 2],
+    ru_stime: [i64; 2],
+    ru_maxrss: c_long,
+    ru_rest: [c_long; 13],
+}
+
+const RUSAGE_SELF: c_int = 0;
+
+unsafe extern "C" {
+    fn getrusage(who: c_int, usage: *mut rusage) -> c_int;
+}
+
+/// `getrusage`'s `ru_maxrss` in bytes, which Darwin reports in bytes and Linux in KiB (`peak_rss.peak_rss_self_bytes`), or 0 when it cannot be read.
+fn peak_rss_self_bytes() -> u64 {
+    let mut usage = rusage {
+        ru_utime: [0; 2],
+        ru_stime: [0; 2],
+        ru_maxrss: 0,
+        ru_rest: [0; 13],
+    };
+    // SAFETY: `usage` is a writable `struct rusage` that getrusage fills.
+    if unsafe { getrusage(RUSAGE_SELF, &raw mut usage) } != 0 {
+        return 0;
+    }
+    let peak = u64::try_from(usage.ru_maxrss).unwrap_or(0);
+    if cfg!(target_os = "macos") {
+        peak
+    } else {
+        peak * 1024
+    }
+}
+
+/// `rusage_info_v4`, as `sys/resource.h` declares it on Darwin: a UUID, then 35 64-bit fields, `ri_lifetime_max_phys_footprint` the 29th.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct rusage_info_v4 {
+    ri_uuid: [u8; 16],
+    ri_fields: [u64; 35],
+}
+
+#[cfg(target_os = "macos")]
+const RUSAGE_INFO_V4: c_int = 4;
+
+#[cfg(target_os = "macos")]
+const LIFETIME_MAX_PHYS_FOOTPRINT: usize = 28;
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn getpid() -> c_int;
+    fn proc_pid_rusage(pid: c_int, flavor: c_int, buffer: *mut c_void) -> c_int;
+}
+
+/// This process's peak footprint as `peak_rss.peak_footprint_self_bytes` reads it: `proc_pid_rusage`'s `ri_lifetime_max_phys_footprint` on Darwin, else the resident peak.
+#[cfg(target_os = "macos")]
+pub fn peak_footprint() -> u64 {
+    let mut info = rusage_info_v4 {
+        ri_uuid: [0; 16],
+        ri_fields: [0; 35],
+    };
+    // SAFETY: `info` is a writable `rusage_info_v4`, the flavor proc_pid_rusage fills.
+    let status =
+        unsafe { proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (&raw mut info).cast::<c_void>()) };
+    if status == 0 {
+        info.ri_fields[LIFETIME_MAX_PHYS_FOOTPRINT]
+    } else {
+        peak_rss_self_bytes()
+    }
+}
+
+/// This process's peak footprint as `peak_rss.peak_footprint_self_bytes` reads it: `/proc/self/status`'s `VmHWM` where it can be read, else the resident peak.
+#[cfg(not(target_os = "macos"))]
+pub fn peak_footprint() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status.lines().find_map(|line| {
+                let kib = line.strip_prefix("VmHWM:")?.trim().strip_suffix("kB")?;
+                kib.trim().parse::<u64>().ok()
+            })
+        })
+        .map_or_else(peak_rss_self_bytes, |kib| kib * 1024)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_peak_footprint_holds_at_least_what_this_process_allocated() {
+        let held = vec![1u8; 32 << 20];
+        assert!(peak_footprint() >= held.len() as u64);
+        assert!(peak_rss_self_bytes() > 0);
+    }
 
     #[test]
     fn a_feature_takes_its_tag_from_harfbuzz_and_its_value_from_the_caller() {

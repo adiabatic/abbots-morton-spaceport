@@ -3,6 +3,8 @@
 `engine()` reads the switch, `AMS_CORPUS_UNITS_ENGINE`, at call time; `ENGINES` holds the engines the build runs, and `_RecomputeRunner` refuses any other. `ensure_built` builds the crate once per process under a relink lock in the crate's `target/`, held as `kernel_exec` holds its own, and `spawn` starts the binary with that lock held shared for the spawn only.
 
 `write_init` writes the init file (`INIT_FORMAT`) into a directory the caller holds, beside the spec dump, the font facts and the preset dictionary, from the `init` dict `_RecomputeRunner.__init__` hands a Python worker; `init_values` gives the values it carries as Python holds them. `write_font_facts` writes the font facts (`FONT_FACTS_FORMAT`), what the worker's outline caches, its junction classifier and its shapers' glyph names read from the three fonts, and `font_facts` gives them as Python holds them. `encode_batch` and `encode_verify` write the request frames, one unit record per `audit.Unit` (`unit_record`, `UNIT_FIELDS`). Values whose Python type the crate must keep, the vocabulary's among them, cross in the typed encoding (`encode`, `decode`), which the stage dumps of `rebuild/tools/units_stage_fixtures.py` use too.
+
+`UnitsProcess` runs the engine, `ams-review units`, over a worker `init` dict: it writes the request frames and reads the replies, `decode_batch` turning a `batch` reply's projections into `RustProjection`s, which carry the fields of `build._UnitProjection`, and `decode_verify` a `verify` reply's keys into the mapping `_RecomputeRunner.verify` returns.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -26,9 +29,9 @@ from fontTools.ttLib import TTFont
 from rebuild.pipeline import kernel_exec, kernel_io
 from rebuild.pipeline.labels import load_alias_map
 from rebuild.pipeline.model import CellId
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, parse_codepoints
 from rebuild.review.drafts import _import_test_shaping
-from rebuild.review.enrich import load_spec
+from rebuild.review.enrich import PrimaryUnitProjection, load_spec
 from rebuild.review.ink import EMPTY_OUTLINE_KEY, JuniorOracle, OutlineCache, OutlineIntern
 from rebuild.review.subset_pack import PACK_FORMAT, PACKER_DIGEST, table_digests
 from rebuild.validation.classify import JunctionClassifier
@@ -447,3 +450,194 @@ def spawn(arguments: Sequence[str], *, stdin: int | None = subprocess.DEVNULL) -
             )
     except FileNotFoundError:
         raise EngineRunError(f"no review binary at {BINARY}; ensure_built() builds it") from None
+
+
+# --- the replies --------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class RustProjection:
+    """One recomputed unit as a `batch` reply carries it (`decode_batch`): the fields of `build._UnitProjection`, in its order and of its types, so it satisfies `unit_store.RecomputedProjection`, with the deflated fragment as `packed` and its shard bytes' length as `raw_length`."""
+
+    unit_id: str
+    input_key: str
+    content_key: str
+    ink_identical: bool
+    picture_identical: bool
+    junior_equivalent: bool
+    ink_deltas: tuple[tuple[str, str], ...]
+    diffs_digest: str
+    cluster: str
+    change_group: str
+    ledger_class: str
+    pair_codepoints: tuple[int, int] | None
+    primary_unit_projection: PrimaryUnitProjection
+    junction_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
+    mismatches: tuple[str, ...]
+    ordinal: int = -1
+    packed: bytes = b""
+    raw_length: int = 0
+
+
+def _pair(value: list | None) -> tuple[int, int] | None:
+    return None if value is None else (value[0], value[1])
+
+
+def decode_projection(record: Mapping[str, Any], packed: bytes) -> RustProjection:
+    """Return one projection record of a `batch` reply (the plan's § Replies out) as a `RustProjection`, with its deflated fragment `packed`. The primary-unit projection is rebuilt from the record's `proj`, its id, code points and two flags, and its junctions' pairs."""
+    proj = record["proj"]
+    junctions = record["junctions"]
+    return RustProjection(
+        unit_id=record["id"],
+        input_key=record["input_key"],
+        content_key=record["content_key"],
+        ink_identical=record["ink_identical"],
+        picture_identical=record["picture_identical"],
+        junior_equivalent=record["junior_equivalent"],
+        ink_deltas=tuple(record["ink_deltas"].items()),
+        diffs_digest=record["diffs_digest"],
+        cluster=record["cluster"],
+        change_group=record["change_group"],
+        ledger_class=record["ledger_class"],
+        pair_codepoints=_pair(record["pair_codepoints"]),
+        primary_unit_projection=PrimaryUnitProjection(
+            unit_id=record["id"],
+            codepoint_values=parse_codepoints(record["codepoints"]),
+            ink_identical=record["ink_identical"],
+            picture_identical=record["picture_identical"],
+            pair=_pair(proj["pair"]),
+            after_spans=tuple((start, end) for start, end in proj["after_spans"]),
+            after_cells=tuple(proj["after_cells"]),
+            after_junctions=tuple(proj["after_junctions"]),
+            before_spans=tuple((start, end) for start, end in proj["before_spans"]),
+            before_glyphs=tuple(proj["before_glyphs"]),
+            before_junctions=tuple(proj["before_junctions"]),
+            junction_pairs=tuple((junction["pair"][0], junction["pair"][1]) for junction in junctions),
+        ),
+        junction_rects=tuple(
+            ((junction["pair"][0], junction["pair"][1]), junction["before"], junction["after"])
+            for junction in junctions
+        ),
+        mismatches=tuple(record["mismatches"]),
+        ordinal=record["ordinal"],
+        packed=packed,
+        raw_length=record["raw_length"],
+    )
+
+
+def decode_batch(frame: Mapping[str, Any], payload: bytes) -> tuple[int, list[RustProjection], list[str]]:
+    """Return a `batch` reply as its batch number, its projections in order, each with its span of `payload`, and its contract errors. A payload whose length is not the projections' spans together raises `EngineRunError`."""
+    projections = []
+    start = 0
+    for record in frame["projections"]:
+        end = start + record["packed_length"]
+        projections.append(decode_projection(record, payload[start:end]))
+        start = end
+    if start != len(payload):
+        raise EngineRunError(
+            f"batch {frame['batch']}: the projections span {start} payload bytes of {len(payload)}"
+        )
+    return frame["batch"], projections, list(frame["contract_errors"])
+
+
+def decode_verify(frame: Mapping[str, Any]) -> dict[str, tuple[str, tuple[tuple[str, str], ...]]]:
+    """Return a `verify` reply as `_RecomputeRunner.verify` returns its keys: each recomputed id's content key and ink deltas."""
+    return {unit_id: (content_key, tuple(deltas.items())) for unit_id, content_key, deltas in frame["keys"]}
+
+
+class UnitsProcess:
+    """The Rust units engine, `ams-review units`, as one process at `threads` threads (the plan's § The process). Making one builds the crate (`ensure_built`), writes the init for a worker `init` dict (`write_init`) into a temporary directory it holds until `close`, and starts the binary.
+
+    `send_batch`, `send_verify` and `send_stop` write request frames, and `read_reply` reads the next reply, decoded: `("batch", batch, projections, contract errors)` (`decode_batch`), `("verify", keys)` (`decode_verify`) or `("stopped", peak footprint)`, once the process has exited 0 with nothing on stderr. An `error` frame raises `EngineRunError` with its message, and so do the output's end before `stopped` and a write the engine can no longer read. `verify` and `stop` send their frame and read its reply, for a caller with no batch in flight; the reads wait on the engine with no timeout, as the Python pool's do. `close` kills a process that still runs and removes the directory.
+    """
+
+    def __init__(self, init: Mapping[str, Any], threads: int) -> None:
+        ensure_built()
+        self.threads = threads
+        self._directory = tempfile.TemporaryDirectory(prefix="ams-review-units-")
+        try:
+            init_path = write_init(init, Path(self._directory.name))
+            self._process = spawn(
+                ["units", f"--init={init_path}", f"--threads={threads}"], stdin=subprocess.PIPE
+            )
+        except BaseException:
+            self._directory.cleanup()
+            raise
+
+    def _failed(self, what: str) -> EngineRunError:
+        self._process.kill()
+        returncode = self._process.wait()
+        assert self._process.stderr is not None
+        stderr = self._process.stderr.read().decode(errors="replace").strip()
+        return EngineRunError(f"the units engine {what} (it exited {returncode}): {stderr}")
+
+    def _send(self, frame: Mapping[str, Any]) -> None:
+        assert self._process.stdin is not None
+        try:
+            self._process.stdin.write(compact(frame).encode("ascii") + b"\n")
+            self._process.stdin.flush()
+        except BrokenPipeError:
+            raise self._failed(f"stopped reading before the {frame['op']} frame") from None
+
+    def send_batch(self, batch: int, units: Sequence[Unit]) -> None:
+        self._send(encode_batch(batch, units))
+
+    def send_verify(self, items: Sequence[tuple[Unit, tuple]]) -> None:
+        self._send(encode_verify(items))
+
+    def send_stop(self) -> None:
+        self._send({"op": "stop"})
+
+    def read_reply(self) -> tuple:
+        assert self._process.stdout is not None
+        line = self._process.stdout.readline()
+        if not line:
+            raise self._failed("closed its output before stopping")
+        frame = json.loads(line)
+        op = frame.get("op")
+        if op == "error":
+            raise EngineRunError(f"the units engine failed: {frame['message']}")
+        if op == "batch":
+            payload = self._process.stdout.read(frame["payload"])
+            if len(payload) != frame["payload"]:
+                raise self._failed(f"closed its output inside batch {frame['batch']}'s payload")
+            return ("batch", *decode_batch(frame, payload))
+        if op == "verify":
+            return ("verify", decode_verify(frame))
+        if op == "stopped":
+            returncode = self._process.wait()
+            assert self._process.stderr is not None
+            stderr = self._process.stderr.read().decode(errors="replace").strip()
+            if returncode != 0 or stderr:
+                raise EngineRunError(f"the units engine exited {returncode} after stopping: {stderr}")
+            return ("stopped", frame["peak_footprint"])
+        raise self._failed(f"answered with a frame this interface does not read: {line[:200]!r}")
+
+    def verify(
+        self, items: Sequence[tuple[Unit, tuple]]
+    ) -> dict[str, tuple[str, tuple[tuple[str, str], ...]]]:
+        self.send_verify(items)
+        reply = self.read_reply()
+        if reply[0] != "verify":
+            raise EngineRunError(f"the units engine answered verify with {reply[0]}")
+        return reply[1]
+
+    def stop(self) -> int:
+        """Stop the engine and return its peak footprint."""
+        self.send_stop()
+        reply = self.read_reply()
+        if reply[0] != "stopped":
+            raise EngineRunError(f"the units engine answered stop with {reply[0]}")
+        return reply[1]
+
+    def close(self) -> None:
+        if self._process.poll() is None:
+            self._process.kill()
+            self._process.wait()
+        for stream in (self._process.stdin, self._process.stdout, self._process.stderr):
+            if stream is not None:
+                try:
+                    stream.close()
+                except BrokenPipeError:
+                    pass
+        self._directory.cleanup()
