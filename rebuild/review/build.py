@@ -14,6 +14,7 @@ import bisect
 import ctypes
 import datetime
 import errno
+import gc
 import gzip
 import hashlib
 import http.client
@@ -1877,23 +1878,30 @@ class _RecomputeRunner:
                 engine.send_batch(index, tuple(table.unit(ordinal, store) for ordinal in batch))
                 in_flight += 1
 
-        for _thread in range(engine.threads):
-            hand()
-        done = 0
-        while in_flight:
-            reply = engine.read_reply()
-            if reply[0] != "batch":
-                raise units_exec.EngineRunError(f"the units engine answered a batch with {reply[0]}")
-            in_flight -= 1
-            _op, _batch, projections, errors = reply
-            del reply
-            for projection in projections:
-                _load_recomputed(store, table, self.arena, projection)
-            _keep_contract_errors(self.contract_errors, errors)
-            done += len(projections)
-            del projections
-            self._count(done)
-            hand()
+        # Each reply's parsed records outlive the young collections, so the cyclic collector would spend the drive rescanning them.
+        collecting = gc.isenabled()
+        gc.disable()
+        try:
+            for _thread in range(engine.threads):
+                hand()
+            done = 0
+            while in_flight:
+                reply = engine.read_reply()
+                if reply[0] != "batch":
+                    raise units_exec.EngineRunError(f"the units engine answered a batch with {reply[0]}")
+                in_flight -= 1
+                _op, _batch, projections, errors = reply
+                del reply
+                for projection in projections:
+                    _load_recomputed(store, table, self.arena, projection)
+                _keep_contract_errors(self.contract_errors, errors)
+                done += len(projections)
+                del projections
+                self._count(done)
+                hand()
+        finally:
+            if collecting:
+                gc.enable()
 
     def _config_fold(self) -> ConfigFold:
         """Return the build's `ConfigFold`, derived on first use (`_config_fold` at module level, which prints its line), so a build whose pool and serial path have nothing to recompute or verify neither reads the fonts' layout tables nor prints the line."""
