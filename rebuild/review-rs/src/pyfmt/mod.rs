@@ -1,9 +1,52 @@
 //! `PyValue`, the crate's model of a Python value, and the typed JSON encoding the stage dumps and the init's vocabulary carry it in (`units_exec.encode` and `decode` are the Python half).
 //!
 //! The encoding writes an int, a string, a boolean or None as itself, and every other value as a one-key object: `{"tuple": [...]}`, `{"list": [...]}`, `{"dict": [[key, value], ...]}` in insertion order, `{"bytes": hex}`, `{"set": [...]}` with its members sorted by their encoded text, and `{"record": [class name, [[field, value], ...]]}` for a dataclass or named tuple. There is no float, in the model or on the wire.
+//!
+//! The submodules write a value as Python writes it: [`repr`] as CPython's `repr`, [`json`] as `json.dumps` in the worker's two forms, both resting on the pinned CPython's `str` predicates ([`is_printable`], [`is_space`], [`is_digit`]) from the generated [`unicode_tables`]. [`stage_pyfmt`] is the `pyfmt` stage of the stage fixtures.
+
+pub mod json;
+pub mod repr;
+pub mod unicode_tables;
+
+use std::fmt;
+use std::io::{BufRead, Write};
+use std::path::Path;
 
 use ams_m1_kernel::emit::json_string;
 use serde_json::Value;
+
+/// A value a Python writer would refuse, or a `pyfmt` stage input that cannot be read or answered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PyFmtError(pub String);
+
+impl fmt::Display for PyFmtError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for PyFmtError {}
+
+fn in_ranges(ranges: &[(u32, u32)], letter: char) -> bool {
+    let point = u32::from(letter);
+    let index = ranges.partition_point(|&(_, end)| end < point);
+    ranges.get(index).is_some_and(|&(start, _)| start <= point)
+}
+
+/// `str.isprintable` for one character, as the pinned CPython answers it.
+pub fn is_printable(letter: char) -> bool {
+    in_ranges(unicode_tables::PRINTABLE, letter)
+}
+
+/// `str.isspace` for one character, as the pinned CPython answers it; it differs from [`char::is_whitespace`] on several control characters.
+pub fn is_space(letter: char) -> bool {
+    in_ranges(unicode_tables::SPACE, letter)
+}
+
+/// `str.isdigit` for one character, as the pinned CPython answers it.
+pub fn is_digit(letter: char) -> bool {
+    in_ranges(unicode_tables::DIGIT, letter)
+}
 
 /// One Python value. A set holds its members in the order they were given; [`PyValue::to_typed`] sorts them as `units_exec.encode` does.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,6 +77,22 @@ impl PyValue {
     /// A tuple of `str`.
     pub fn str_tuple<S: AsRef<str>>(items: &[S]) -> Self {
         Self::Tuple(items.iter().map(|item| Self::str(item.as_ref())).collect())
+    }
+
+    /// The value's Python type, as an error message names it.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Bool(_) => "a bool",
+            Self::Int(_) => "an int",
+            Self::Str(_) => "a str",
+            Self::Bytes(_) => "bytes",
+            Self::Tuple(_) => "a tuple",
+            Self::List(_) => "a list",
+            Self::Dict(_) => "a dict",
+            Self::Set(_) => "a set",
+            Self::Record(..) => "a record",
+        }
     }
 
     /// Read one value from the typed encoding, refusing anything `units_exec.encode` never writes.
@@ -165,6 +224,43 @@ impl PyValue {
     }
 }
 
+/// The `pyfmt` stage: for each line of `stage_file`, write the line's `input` in the form its `format` names (`repr`, `json-sorted` or `json-fragment`) as one `{"key", "value"}` line, the value a `str` in the typed encoding.
+pub fn stage_pyfmt(stage_file: &Path, out: &mut impl Write) -> Result<(), PyFmtError> {
+    let file = std::fs::File::open(stage_file).map_err(|failure| {
+        PyFmtError(format!("cannot read {}: {failure}", stage_file.display()))
+    })?;
+    for line in std::io::BufReader::new(file).lines() {
+        let line = line.map_err(|failure| {
+            PyFmtError(format!("cannot read {}: {failure}", stage_file.display()))
+        })?;
+        let record: Value = serde_json::from_str(&line)
+            .map_err(|failure| PyFmtError(format!("a stage line is not JSON: {failure}")))?;
+        let (Some(key), Some(form)) = (record["key"].as_str(), record["format"].as_str()) else {
+            return Err(PyFmtError(format!(
+                "a stage line has no key or format: {:.200}",
+                line
+            )));
+        };
+        let input = PyValue::from_typed(&record["input"])
+            .map_err(|failure| PyFmtError(format!("{key}: {failure}")))?;
+        let text = match form {
+            "repr" => repr::repr(&input),
+            "json-sorted" => json::dumps_sorted(&input),
+            "json-fragment" => json::fragment_text(&input),
+            other => Err(PyFmtError(format!("no pyfmt format {other:?}"))),
+        }
+        .map_err(|failure| PyFmtError(format!("{key}: {failure}")))?;
+        writeln!(
+            out,
+            "{{\"key\":{},\"value\":{}}}",
+            json_string(key),
+            json_string(&text)
+        )
+        .map_err(|failure| PyFmtError(format!("cannot write a stage line: {failure}")))?;
+    }
+    Ok(())
+}
+
 fn decode_hex(hex: &str) -> Result<Vec<u8>, String> {
     if !hex.len().is_multiple_of(2) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(format!("not typed bytes: {hex:?}"));
@@ -208,6 +304,31 @@ mod tests {
         ] {
             let data: Value = serde_json::from_str(text).expect("JSON");
             assert!(PyValue::from_typed(&data).is_err(), "{text} was accepted");
+        }
+    }
+
+    #[test]
+    fn the_predicates_answer_as_cpython_where_rust_differs() {
+        assert!(is_space('\u{1c}') && !'\u{1c}'.is_whitespace());
+        assert!(!is_space('\u{200b}') && is_space('\u{3000}'));
+        assert!(is_digit('\u{b2}') && !is_digit('\u{bd}'));
+        assert!(is_printable(' ') && !is_printable('\u{a0}') && !is_printable('\u{e650}'));
+        assert!(is_printable('\u{1f600}') && !is_printable('\u{10ffff}'));
+    }
+
+    #[test]
+    fn each_table_holds_disjoint_ascending_ranges_with_gaps_between_them() {
+        for table in [
+            unicode_tables::PRINTABLE,
+            unicode_tables::SPACE,
+            unicode_tables::DIGIT,
+        ] {
+            for (start, end) in table {
+                assert!(start <= end);
+            }
+            for pair in table.windows(2) {
+                assert!(pair[0].1 + 1 < pair[1].0, "{pair:?}");
+            }
         }
     }
 

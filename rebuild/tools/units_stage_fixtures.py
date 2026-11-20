@@ -9,6 +9,9 @@
 The stages (`STAGES`):
 
 - `wire` records each unit `_phase1_unit` receives, as the `audit.Unit` fields that cross (`unit_value`), under `unit:<ordinal>`; the Rust side reads them back from the units file. Its generated lines are the init's values with the spec's runes and the dictionary's bytes, under `init`, and a verify frame with varied injections, under `verify`, which the line carries for the Rust side to read.
+- `pyfmt` records what the worker hashes and writes, each line an `input` value, the `format` it is written in (`PYFMT_FORMS`) and the text Python wrote: the ink diffs' repr (`_ink_readings`), the repr of the cluster key's head, `(configs, class)` (`_cluster_id_from_repr`), the carry projection's sorted-key JSON (`unit_cache.carry_projection`) and each fragment's shard bytes (`_fragment_bytes`), keyed by the form and a digest of the value. Its generated lines put an edge set to each form (`_pyfmt_edges`).
+
+`unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace` and `str.isdigit` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
 The sources (`open_source`):
 
@@ -23,6 +26,7 @@ Run from the repository root:
     uv run python -m rebuild.tools.units_stage_fixtures dump --source live --per-config 1 --out var/rust-port/stages/live
     uv run python -m rebuild.tools.units_stage_fixtures selfcheck --source mini
     uv run python -m rebuild.tools.units_stage_fixtures compare wire --stages var/rust-port/stages/mini
+    uv run python -m rebuild.tools.units_stage_fixtures unicode-tables --check
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ import pickle
 import shutil
 import sys
 import tempfile
+import unicodedata
 import warnings
 from array import array
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -45,7 +50,7 @@ from dataclasses import dataclass, field
 from itertools import batched
 from multiprocessing.reduction import ForkingPickler
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 from rebuild.pipeline import fingerprint
 from rebuild.review import audit, build, unit_cache, units_exec
@@ -85,6 +90,8 @@ HOOKS: dict[str, tuple[str, str]] = {
     "_fragment_bytes": ("rebuild.review.build", "_fragment_bytes"),
     "check_unit": ("rebuild.review.build", "check_unit"),
     "Shaper.shape": ("rebuild.validation.shaping", "Shaper.shape"),
+    "_cluster_id_from_repr": ("rebuild.review.build", "_cluster_id_from_repr"),
+    "carry_projection": ("rebuild.review.unit_cache", "carry_projection"),
 }
 
 
@@ -407,23 +414,159 @@ def _wire_generated(source: Source) -> Iterator[Mapping[str, object]]:
     }
 
 
+# The forms the `pyfmt` stage checks, by the name a line's `format` gives: CPython's `repr`, the carry projection's sorted-key JSON (`unit_cache.carry_projection`), and a fragment's shard bytes (`build._fragment_bytes`).
+PYFMT_FORMS: dict[str, Callable[[Any], str]] = {
+    "repr": repr,
+    "json-sorted": lambda value: json.dumps(value, sort_keys=True),
+    "json-fragment": lambda value: build._fragment_bytes(value).decode("ascii"),
+}
+
+
+def _pyfmt_line(form: str, value: object, text: object) -> dict[str, object]:
+    """One `pyfmt` line from the run, keyed by its form and a digest of the value's typed encoding, so a value the worker writes again gives the same line under the same key (`_Sink.write`)."""
+    digest = hashlib.sha1(compact(encode(value)).encode("ascii")).hexdigest()[:20]
+    return {"key": f"{form}:{digest}", "format": form, "input": value, "value": text}
+
+
+def _pyfmt_ink_readings(_args: tuple, _kwargs: dict) -> Finisher:
+    def finish(result: object) -> dict[str, object]:
+        assert isinstance(result, tuple)
+        return _pyfmt_line("repr", result[0], repr(result[0]))
+
+    return finish
+
+
+def _pyfmt_cluster_head(args: tuple, _kwargs: dict) -> Finisher:
+    head = (tuple(args[0]), args[1])
+    return lambda _result: _pyfmt_line("repr", head, repr(head))
+
+
+def _pyfmt_carry_projection(args: tuple, _kwargs: dict) -> Finisher:
+    projection = {
+        key: value for key, value in args[0].items() if key not in unit_cache.CARRY_PRESENTATION_KEYS
+    }
+    return lambda result: _pyfmt_line("json-sorted", projection, result)
+
+
+def _pyfmt_fragment_bytes(args: tuple, _kwargs: dict) -> Finisher:
+    fragment = args[0]
+
+    def finish(result: object) -> dict[str, object]:
+        assert isinstance(result, bytes)
+        return _pyfmt_line("json-fragment", fragment, result.decode("ascii"))
+
+    return finish
+
+
+def _printable_boundaries() -> str:
+    """Every code point beside an edge of a `str.isprintable` run, outside the surrogates: the characters where a wrong printable table would first show in a repr."""
+    points: set[int] = set()
+    previous = False
+    for point in range(sys.maxunicode + 1):
+        printable = chr(point).isprintable()
+        if printable != previous:
+            points.update((point - 1, point))
+        previous = printable
+    return "".join(chr(point) for point in sorted(points) if not 0xD800 <= point <= 0xDFFF)
+
+
+def _pyfmt_edges() -> dict[str, list[object]]:
+    """The values each form's generated lines put to it: the escapes and the quoting choices, every ASCII and Latin-1 character, characters beyond the BMP, empty and one-element containers, keys that sort differently by code point than by UTF-16, and the printable table's edges."""
+    escapes = (
+        "".join(chr(point) for point in range(0x20)) + "\"'\\/\x7f\x80\xa0\xad\u2028\ue650\uffff\U0001f600"
+    )
+    texts: list[object] = [
+        "",
+        "a",
+        "'",
+        '"',
+        "'\"",
+        "it's",
+        'say "hi"',
+        "\\",
+        "\t\n\r",
+        escapes,
+        "".join(chr(point) for point in range(0x80, 0x100)),
+        "e\u0301\u3000\U000e0001\U0010ffff",
+        _printable_boundaries(),
+    ]
+    scalars: list[object] = [0, 1, -1, 2**63 - 1, -(2**63), True, False, None]
+    containers: list[object] = [
+        (),
+        (1,),
+        ("a",),
+        ((),),
+        (1, "a", None, True),
+        ((((0, 1), (2, 3)), (), 0), ((), ((5, -1),), -2)),
+        [],
+        [()],
+        ([], [1, [2, (3,)]]),
+        {},
+        {"a": (1, -2)},
+        {"k": [], "j": {}},
+        {1: "a", (2,): None, None: [True]},
+    ]
+    keyed: list[object] = [
+        {},
+        {"b": 1, "a": 2, "B": 3, "\xe9": 4, "\uffff": 5, "\U0001f600": 6, "\ue650": 7, "": 8},
+        {"z": {"y": [], "x": {}}, "a": [1, (2, 3), None, True, False, -7]},
+        {"s": escapes, "t": ("x", ["y", {"b": None, "a": 0}])},
+        {"deep": {"a": [{"b": [{"c": []}]}]}, "n": -(2**63)},
+    ]
+    return {
+        "repr": scalars + texts + containers + keyed[1:],
+        "json-sorted": keyed + [["a", {"b": 1, "a": 0}], "x\u2028", 5, None, False],
+        "json-fragment": keyed,
+    }
+
+
+def _pyfmt_generated(_source: Source) -> Iterator[Mapping[str, object]]:
+    for form, values in _pyfmt_edges().items():
+        for index, value in enumerate(values):
+            yield {
+                "key": f"{form}:edge:{index}",
+                "format": form,
+                "input": value,
+                "value": PYFMT_FORMS[form](value),
+            }
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
+    "pyfmt": Stage(
+        "pyfmt",
+        {
+            "_ink_readings": _pyfmt_ink_readings,
+            "_cluster_id_from_repr": _pyfmt_cluster_head,
+            "carry_projection": _pyfmt_carry_projection,
+            "_fragment_bytes": _pyfmt_fragment_bytes,
+        },
+        _pyfmt_generated,
+    ),
 }
 
 
 class _Sink:
-    """The open `STAGE.ndjson` files of one run under `out`, each line a JSON object whose `from` says whether the run or the stage's generator produced it and whose other fields are typed values."""
+    """The open `STAGE.ndjson` files of one run under `out`, each line a JSON object whose `from` says whether the run or the stage's generator produced it and whose other fields are typed values. A line whose key a stage already wrote is written once: a second, equal line is dropped, and a different one raises ValueError."""
 
     def __init__(self, out: Path, stages: Sequence[Stage]) -> None:
         self._handles: dict[str, IO[str]] = {
             stage.name: (out / f"{stage.name}.ndjson").open("w", encoding="ascii") for stage in stages
         }
+        self._written: dict[str, dict[object, bytes]] = {stage.name: {} for stage in stages}
 
     def write(self, stage: str, origin: str, fields: Mapping[str, object]) -> None:
-        line = {"from": origin} | {name: encode(value) for name, value in fields.items()}
-        self._handles[stage].write(compact(line) + "\n")
+        text = compact({"from": origin} | {name: encode(value) for name, value in fields.items()})
+        digest = hashlib.sha1(text.encode("ascii")).digest()
+        key = fields.get("key")
+        written = self._written[stage]
+        if key in written:
+            if written[key] != digest:
+                raise ValueError(f"the {stage} stage recorded two different lines under the key {key!r}")
+            return
+        written[key] = digest
+        self._handles[stage].write(text + "\n")
 
     def close(self) -> None:
         for handle in self._handles.values():
@@ -720,6 +863,67 @@ def compare(stage: Stage, stages: Path) -> bool:
     return ok
 
 
+UNICODE_TABLES = REPO_ROOT / "rebuild" / "review-rs" / "src" / "pyfmt" / "unicode_tables.rs"
+# Each table's Rust name, the `str` predicate it holds, and what its doc comment says it is.
+UNICODE_PREDICATES = (
+    ("PRINTABLE", "isprintable", "`str.isprintable`"),
+    ("SPACE", "isspace", "`str.isspace`, behind `strip`, `split` and `re`'s `\\s`"),
+    ("DIGIT", "isdigit", "`str.isdigit`"),
+)
+
+
+def _predicate_ranges(predicate: Callable[[str], bool]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    start = None
+    for point in range(sys.maxunicode + 2):
+        if point <= sys.maxunicode and predicate(chr(point)):
+            if start is None:
+                start = point
+        elif start is not None:
+            ranges.append((start, point - 1))
+            start = None
+    return ranges
+
+
+def unicode_tables_text() -> str:
+    """The text of `UNICODE_TABLES` for this CPython: each predicate's inclusive code point ranges in ascending order, one per line under `#[rustfmt::skip]`."""
+    lines = [
+        "//! The pinned CPython's `str` predicates as code point ranges, for `repr` and the ported string handling ([`super::is_printable`], [`super::is_space`], [`super::is_digit`]). `uv run python -m rebuild.tools.units_stage_fixtures unicode-tables` generates this file and `--check` fails when it is stale; it is never edited by hand.",
+        "",
+        "/// The Unicode version of the CPython the tables come from (`unicodedata.unidata_version`).",
+        f'pub const UNICODE_VERSION: &str = "{unicodedata.unidata_version}";',
+    ]
+    for name, method, what in UNICODE_PREDICATES:
+        lines += [
+            "",
+            f"/// The code points {what} accepts, as inclusive ranges in ascending order.",
+            "#[rustfmt::skip]",
+            f"pub static {name}: &[(u32, u32)] = &[",
+            *(f"    (0x{start:04X}, 0x{end:04X})," for start, end in _predicate_ranges(getattr(str, method))),
+            "];",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+def unicode_tables(check: bool) -> bool:
+    """Write `UNICODE_TABLES`, or with `check` report whether it holds what this CPython would write, and return whether it does."""
+    text = unicode_tables_text()
+    if not check:
+        UNICODE_TABLES.write_text(text, encoding="utf-8")
+        print(f"wrote {UNICODE_TABLES.relative_to(REPO_ROOT)}", file=sys.stderr)
+        return True
+    current = UNICODE_TABLES.read_text(encoding="utf-8") if UNICODE_TABLES.is_file() else None
+    if current != text:
+        print(
+            f"{UNICODE_TABLES.relative_to(REPO_ROOT)} is not what this CPython (Unicode "
+            f"{unicodedata.unidata_version}) gives; unicode-tables rewrites it",
+            file=sys.stderr,
+        )
+        return False
+    print(f"{UNICODE_TABLES.relative_to(REPO_ROOT)} is current", file=sys.stderr)
+    return True
+
+
 def _add_source_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--per-config", type=int, default=0, metavar="K")
@@ -741,7 +945,11 @@ def main(argv: list[str] | None = None) -> int:
     compare_parser = commands.add_parser("compare", help="check the Rust side of a stage against a dump")
     compare_parser.add_argument("stage", metavar="STAGE")
     compare_parser.add_argument("--stages", type=Path, required=True, metavar="DIR")
+    tables_parser = commands.add_parser("unicode-tables", help="write the crate's str predicate tables")
+    tables_parser.add_argument("--check", action="store_true", help="fail when the tables are stale")
     args = parser.parse_args(argv)
+    if args.command == "unicode-tables":
+        return 0 if unicode_tables(args.check) else 1
     if args.command == "compare":
         (stage,) = _selected([args.stage])
         return 0 if compare(stage, args.stages) else 1
