@@ -300,13 +300,20 @@ pub(crate) enum Accessor {
     Compare,
 }
 
-/// What a recording ask leaves behind ([`end_recording`]): its questions when it may stand for other tokens, or why it may not: a rune accessor poisoned it, a memo answered its own prospect or window, or it did not take its value from a simulated trace it settled.
+/// How a recording ask's own prospect took the value it returned, when it computed the value itself: from the follower's simulated trace it settled, or from the candidacy estimate, as the mode's own term or after a simulated replay raised.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Lead {
+    Simulated,
+    Estimate,
+}
+
+/// What a recording ask leaves behind ([`end_recording`]): its questions and how it took its value when it may stand for other tokens, or why it may not: a rune accessor or a comparison poisoned it, a memo answered its own prospect or window, or its own prospect returned without computing a value either way.
 #[derive(Debug)]
 pub(crate) enum Recorded {
-    Transcript(Vec<Question>),
+    Transcript(Vec<Question>, Lead),
     Poisoned(Accessor),
     AnsweredFromMemo,
-    NotSimulated,
+    Unled,
 }
 
 /// How a call with token arguments relates to the recording ask ([`enter`]).
@@ -327,7 +334,7 @@ struct Recorder {
     depth: u32,
     ask_entered: bool,
     poisoned: Option<Accessor>,
-    simulated: bool,
+    lead: Option<Lead>,
     unqualified: bool,
     questions: Vec<Question>,
 }
@@ -339,7 +346,7 @@ thread_local! {
             depth: 0,
             ask_entered: false,
             poisoned: None,
-            simulated: false,
+            lead: None,
             unqualified: false,
             questions: Vec::new(),
         })
@@ -392,13 +399,13 @@ pub(crate) fn begin_recording() {
         recorder.depth = 0;
         recorder.ask_entered = false;
         recorder.poisoned = None;
-        recorder.simulated = false;
+        recorder.lead = None;
         recorder.unqualified = false;
         recorder.questions.clear();
     });
 }
 
-/// Stop recording and return what the ask recorded: its questions when it was not poisoned, its own prospect was not answered from a memo, and it took its value from the follower's simulated trace.
+/// Stop recording and return what the ask recorded: its questions when it was not poisoned, its own prospect was not answered from a memo, and its own prospect computed the value it returned ([`Lead`]).
 pub(crate) fn end_recording() -> Recorded {
     RECORDER.with(|recorder| {
         let mut recorder = recorder.borrow_mut();
@@ -407,10 +414,10 @@ pub(crate) fn end_recording() -> Recorded {
             Recorded::Poisoned(accessor)
         } else if recorder.unqualified {
             Recorded::AnsweredFromMemo
-        } else if !recorder.simulated {
-            Recorded::NotSimulated
+        } else if let Some(lead) = recorder.lead {
+            Recorded::Transcript(std::mem::take(&mut recorder.questions), lead)
         } else {
-            Recorded::Transcript(std::mem::take(&mut recorder.questions))
+            Recorded::Unled
         }
     })
 }
@@ -449,9 +456,9 @@ pub(crate) fn note_answered_from_memo() {
     RECORDER.with(|recorder| recorder.borrow_mut().unqualified = true);
 }
 
-/// The recording ask's own prospect took its value from the follower's simulated trace, settled here.
-pub(crate) fn note_simulated() {
-    RECORDER.with(|recorder| recorder.borrow_mut().simulated = true);
+/// The recording ask's own prospect computed the value it returns, as `lead` says.
+pub(crate) fn note_lead(lead: Lead) {
+    RECORDER.with(|recorder| recorder.borrow_mut().lead = Some(lead));
 }
 
 #[cfg(test)]
@@ -609,7 +616,7 @@ mod tests {
         assert_eq!(tea.sweep_to(pea), tea);
     }
 
-    /// A recording ask records the questions its swept token answers at its own level, records nothing for an unswept token or inside a nested question, keeps the nested question itself, and is poisoned by a rune accessor or a comparison at its own level but not inside a nested question.
+    /// A recording ask records the questions its swept token answers at its own level, and how it took its value, records nothing for an unswept token or inside a nested question, keeps the nested question itself, and is poisoned by a rune accessor or a comparison at its own level but not inside a nested question.
     #[test]
     fn a_recording_ask_records_its_swept_tokens_questions_and_a_raw_read_poisons_it() {
         let index = crate::index::fixtures::mini();
@@ -642,9 +649,9 @@ mod tests {
             "a call inside a nested question is plain"
         );
         leave(Question::Stroke(sym("qsPea"), false));
-        note_simulated();
+        note_lead(Lead::Simulated);
         match end_recording() {
-            Recorded::Transcript(questions) => {
+            Recorded::Transcript(questions, Lead::Simulated) => {
                 assert_eq!(questions.len(), 2, "{questions:?}");
                 assert!(
                     matches!(&questions[0], Question::Family(list, true) if **list == families)
@@ -658,7 +665,7 @@ mod tests {
         assert_eq!(enter(&[swept], true), Role::Ask);
         assert_eq!(swept.letter(), sym("qsTea"));
         assert!(swept.in_family(&families));
-        note_simulated();
+        note_lead(Lead::Simulated);
         assert!(matches!(
             end_recording(),
             Recorded::Poisoned(Accessor::Letter)
@@ -667,7 +674,7 @@ mod tests {
         begin_recording();
         assert_eq!(enter(&[swept], true), Role::Ask);
         assert_ne!(swept, pea, "a comparison reads the swept token");
-        note_simulated();
+        note_lead(Lead::Simulated);
         assert!(matches!(
             end_recording(),
             Recorded::Poisoned(Accessor::Compare)
@@ -676,7 +683,7 @@ mod tests {
         begin_recording();
         assert_eq!(enter(&[swept], true), Role::Ask);
         note_answered_from_memo();
-        note_simulated();
+        note_lead(Lead::Simulated);
         assert!(
             matches!(end_recording(), Recorded::AnsweredFromMemo),
             "an ask a memo answered stands for no other token"
@@ -684,9 +691,18 @@ mod tests {
 
         begin_recording();
         assert_eq!(enter(&[swept], true), Role::Ask);
+        assert!(swept.in_family(&families));
+        note_lead(Lead::Estimate);
         assert!(
-            matches!(end_recording(), Recorded::NotSimulated),
-            "an ask that did not take a simulated trace stands for no other token"
+            matches!(end_recording(), Recorded::Transcript(questions, Lead::Estimate) if questions.len() == 1),
+            "an ask that took the estimate stands for other tokens"
+        );
+
+        begin_recording();
+        assert_eq!(enter(&[swept], true), Role::Ask);
+        assert!(
+            matches!(end_recording(), Recorded::Unled),
+            "an ask whose own prospect computed no value stands for no other token"
         );
     }
 }

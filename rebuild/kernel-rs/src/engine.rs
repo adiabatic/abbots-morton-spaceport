@@ -24,7 +24,7 @@ use crate::model::{
     Condition, PolicyRecord, Provenance, Rune, Stance, SurfaceRow, Sym, Table, When,
 };
 use crate::specificity;
-use crate::token::{Question, Recorded, Role};
+use crate::token::{Lead, Question, Recorded, Role};
 use crate::types::{
     AdjustmentToken, Candidate, CandidateOrdinals, CellId, DecidedStage, Elimination,
     EliminationStage, LeftContext, NotesId, NotesPool, PackedKinds, RankedCandidate, RightToken,
@@ -95,17 +95,20 @@ pub enum GroupedSweeps {
     Check,
 }
 
-/// What a grouped sweep did, for the cache stats: the asks it was given, the ones a transcript answered, the ones it ran in full, the transcripts it kept, the full runs a rune accessor poisoned (by accessor, in [`crate::token::Accessor`] order), that a memo answered at their own level, that did not take their value from a simulated trace they settled, and that raised, the asks run in full because a capture was open, the most transcripts one probe held and questions one transcript held, and the probes that found their slot live after a transcript had answered one of their asks.
+/// What a grouped sweep did, for the cache stats: the asks it was given, the ones a transcript answered and the transcripts it kept, each split by how the transcript's ask took its value ([`Lead`]: from a simulated trace, or from the estimate), the ones it ran in full, the full runs a rune accessor or a comparison poisoned (by accessor, in [`crate::token::Accessor`] order), that a memo answered at their own level, whose own prospect computed no value, and that raised, the prospect memo entries the engine inserted, the asks run in full because a capture was open, the most transcripts one probe held and questions one transcript held, and the probes that found their slot live after a transcript had answered one of their asks.
 #[derive(Clone, Copy, Debug, Default)]
 struct SweepStats {
     asks: u64,
     matched: u64,
+    matched_estimate: u64,
     full: u64,
     kept: u64,
+    kept_estimate: u64,
     poisoned: [u64; 5],
     answered_from_memo: u64,
-    not_simulated: u64,
+    unled: u64,
     raised: u64,
+    prospect_inserts: u64,
     capture_open: u64,
     max_transcripts: usize,
     max_questions: usize,
@@ -118,6 +121,7 @@ pub(crate) struct Transcript {
     token: RightToken,
     questions: Vec<Question>,
     result: i64,
+    lead: Lead,
 }
 
 #[cfg(test)]
@@ -128,6 +132,7 @@ impl Transcript {
             token,
             questions: Vec::new(),
             result,
+            lead: Lead::Simulated,
         }
     }
 }
@@ -3043,7 +3048,7 @@ impl<'i> Engine<'i> {
         }
     }
 
-    /// [`Engine::prospect`] itself. `ask` is set for a recording ask's own prospect, which notes for the recorder whether a memo answered it and whether it took its value from a simulated trace it settled ([`crate::token::end_recording`]).
+    /// [`Engine::prospect`] itself. `ask` is set for a recording ask's own prospect, which notes for the recorder whether a memo answered it and how it computed the value it returned otherwise ([`crate::token::end_recording`]).
     fn prospect_inner(
         &mut self,
         rune_name: Sym,
@@ -3140,7 +3145,7 @@ impl<'i> Engine<'i> {
         if capturing && term == ProspectTerm::Simulated {
             self.abort_capture();
             if ask && settled_here {
-                crate::token::note_simulated();
+                crate::token::note_lead(Lead::Simulated);
             }
             return Ok(result);
         }
@@ -3150,7 +3155,11 @@ impl<'i> Engine<'i> {
         } else {
             (self.deltas.intern(&[]), self.reads.intern(&[]))
         };
+        if ask && term == ProspectTerm::Estimated {
+            crate::token::note_lead(Lead::Estimate);
+        }
         let prospect = i8::try_from(result).expect("a prospect is a junction count, zero or one");
+        self.sweep_stats.prospect_inserts += 1;
         self.prospect_clears += u64::from(clear_at_ceiling(
             &mut self.prospect_cache,
             self.prospect_ceiling,
@@ -3444,23 +3453,26 @@ impl<'i> Engine<'i> {
         }
         let stats = &self.sweep_stats;
         Some(format!(
-            "[c] {config} grouped_sweeps asks={} matched={} full={} kept={} poisoned_rune={} poisoned_letter={} poisoned_ordinal={} poisoned_letter_ordinal={} poisoned_compare={} answered_from_memo={} not_simulated={} raised={} capture_open={} max_transcripts={} max_questions={} live_after_match={}",
+            "[c] {config} grouped_sweeps asks={} matched_simulated={} matched_estimate={} full={} kept_simulated={} kept_estimate={} poisoned_rune={} poisoned_letter={} poisoned_ordinal={} poisoned_letter_ordinal={} poisoned_compare={} answered_from_memo={} unled={} raised={} capture_open={} max_transcripts={} max_questions={} live_after_match={} prospect_inserts={}",
             stats.asks,
-            stats.matched,
+            stats.matched - stats.matched_estimate,
+            stats.matched_estimate,
             stats.full,
-            stats.kept,
+            stats.kept - stats.kept_estimate,
+            stats.kept_estimate,
             stats.poisoned[0],
             stats.poisoned[1],
             stats.poisoned[2],
             stats.poisoned[3],
             stats.poisoned[4],
             stats.answered_from_memo,
-            stats.not_simulated,
+            stats.unled,
             stats.raised,
             stats.capture_open,
             stats.max_transcripts,
             stats.max_questions,
-            stats.live_after_match
+            stats.live_after_match,
+            stats.prospect_inserts
         ))
     }
 
@@ -3474,9 +3486,9 @@ impl<'i> Engine<'i> {
         self.sweep_stats.live_after_match += 1;
     }
 
-    /// One ask of a grouped fourth-slot prospect sweep: [`Engine::probe_prospect`] for `slots`, whose fourth slot is the swept token, answered by the first of the probe's `transcripts` whose every question the token answers alike, or else asked in full with the token swept and recorded, its transcript kept when it may stand for other tokens.
+    /// One ask of a grouped fourth-slot prospect sweep: [`Engine::probe_prospect`] for `slots`, whose fourth slot is the swept token, answered by the first of the probe's `transcripts` whose every question the token answers alike, or else asked in full with the token swept and recorded, its transcript kept when it may stand for other tokens: when it returns a value its own prospect computed, from the simulated trace it settled or from the candidacy estimate after a replay raised, with no memo answering it and no rune accessor or comparison reading its token at its own level.
     ///
-    /// An ask whose evaluation learns about its token only through recorded questions takes the same path, returns the same result and fires the same pointers outside those questions for every token that answers them alike ([`crate::liveness`]). Answering a transcript makes each nested question's call again for the token, through the memos, so what it fires and inserts is what the full ask's would; the questions asked before a mismatch are ones the full ask asks next. The skipped ask's own window is settled unrecorded and its prospect is not memoized, so it would have inserted no memo entry of its own; its other lookups are ones the probe's earlier asks made. Answering moves a question's lookups ahead of the ask's own work, so where a memo is cleared at its ceiling between them, an entry can be inserted again or not, and a memo's length at its last clear can differ by those entries; the tables never do. Only an ask with no capture open is grouped, since a skipped ask journals nothing into one. Under [`GroupedSweeps::Check`] every match also runs the full ask and raises when its result differs or it fires a pointer [`Engine::fired`] lacks.
+    /// An ask whose evaluation learns about its token only through recorded questions takes the same path, returns the same result and fires the same pointers outside those questions for every token that answers them alike ([`crate::liveness`]). Answering a transcript makes each nested question's call again for the token, through the memos, so what it fires and inserts is what the full ask's would; the questions asked before a mismatch are ones the full ask asks next. The skipped ask's own window is settled unrecorded, so it inserts no trace entry. Its prospect is memoized only when it takes the estimate, with the delta and read set of what it fired; answered, it stores no prospect entry and interns nothing for one, so the prospect memo holds fewer entries than an ungrouped build's and the delta and read-set pools can too, and the same prospect asked again later is computed again. Its other lookups are ones the probe's earlier asks made. Answering moves a question's lookups ahead of the ask's own work, so where a memo is cleared at its ceiling between them, an entry can be inserted again or not, and a memo's length at its last clear can differ by those entries; the tables never do. Only an ask with no capture open is grouped, since a skipped ask journals nothing into one. Under [`GroupedSweeps::Check`] every match also runs the full ask and raises when its result differs or it fires a pointer [`Engine::fired`] lacks; that run stores the prospect entry the full ask stores, so a checked build's memos are closer to an ungrouped build's than to a grouped one's.
     pub(crate) fn grouped_probe_prospect(
         &mut self,
         rune_name: Sym,
@@ -3499,6 +3511,9 @@ impl<'i> Engine<'i> {
         for transcript in transcripts.iter() {
             if self.answers(&transcript.questions, token) {
                 self.sweep_stats.matched += 1;
+                if transcript.lead == Lead::Estimate {
+                    self.sweep_stats.matched_estimate += 1;
+                }
                 if self.grouped_sweeps == GroupedSweeps::Check {
                     self.check_match(rune_name, candidate, slots, transcript)?;
                 }
@@ -3512,14 +3527,18 @@ impl<'i> Engine<'i> {
         let result = self.probe_prospect(rune_name, candidate, swept);
         self.recording = false;
         match (crate::token::end_recording(), &result) {
-            (Recorded::Transcript(questions), Ok(value)) => {
+            (Recorded::Transcript(questions, lead), Ok(value)) => {
                 self.sweep_stats.kept += 1;
+                if lead == Lead::Estimate {
+                    self.sweep_stats.kept_estimate += 1;
+                }
                 self.sweep_stats.max_questions =
                     self.sweep_stats.max_questions.max(questions.len());
                 transcripts.push(Transcript {
                     token,
                     questions,
                     result: *value,
+                    lead,
                 });
                 self.sweep_stats.max_transcripts =
                     self.sweep_stats.max_transcripts.max(transcripts.len());
@@ -3527,7 +3546,7 @@ impl<'i> Engine<'i> {
             (_, Err(_)) => self.sweep_stats.raised += 1,
             (Recorded::Poisoned(accessor), _) => self.sweep_stats.poisoned[accessor as usize] += 1,
             (Recorded::AnsweredFromMemo, _) => self.sweep_stats.answered_from_memo += 1,
-            (Recorded::NotSimulated, _) => self.sweep_stats.not_simulated += 1,
+            (Recorded::Unled, _) => self.sweep_stats.unled += 1,
         }
         result
     }

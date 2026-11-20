@@ -16,7 +16,7 @@
 //!
 //! Evaluation order affects the output. Every probe records the pointers it fires in `Engine::fired`, which the fixpoint reports as the product's `cited_provenance`, and a probe that never runs fires nothing. So each short-circuit, early return, loop order, and memo key must stay as it is. The prospect and follower prefer branches key their memos on the left-condition signature instead of the input family, so two families with the same signature share one verdict and run its probes once. The input replay and the fourth-slot fallback key on the family.
 //!
-//! Under `--grouped-sweeps` the fourth-slot prospect probe groups the tokens it sweeps, wherever it runs whole ([`Engine::grouped_probe_prospect`]). An ask is one evaluation in which only the swept token varies, and a token is read only through its methods ([`crate::token`]), so an ask that learns about its token only through recorded questions takes the same path, returns the same result and fires the same pointers outside those questions for every token that answers them alike. The sweep runs an ask in full with its token swept, recording the questions the evaluation puts to it at its own level: the leaf questions (a family list, a class, an entry stroke) and the nested ones (a simulated prospect, a candidate enumeration, the closure's acceptor check made with the swept token among their arguments), each with its answer. A later token whose answers match a recorded transcript in order takes its result without the ask's own window being settled again; a token that does not is asked in full and recorded in turn. The baseline is never a representative, and neither is an ask a memo answered at its own level, one that did not take its value from a simulated trace it settled, or one that read its token through a rune accessor or a comparison at its own level. The loop, its steps and the comparison with the baseline are unchanged, so the verdict and the step it stops at are too. A published or partial run sweeps every ask in full, since a published verdict reads each ask's own firings and reads. `--check-grouped-sweeps` also runs every ask a transcript answered in full and raises when the full ask's result differs or it fires a pointer the build had not.
+//! Under `--grouped-sweeps` the fourth-slot prospect probe groups the tokens it sweeps, wherever it runs whole ([`Engine::grouped_probe_prospect`]). An ask is one evaluation in which only the swept token varies, and a token is read only through its methods ([`crate::token`]), so an ask that learns about its token only through recorded questions takes the same path, returns the same result and fires the same pointers outside those questions for every token that answers them alike. The sweep runs an ask in full with its token swept, recording the questions the evaluation puts to it at its own level: the leaf questions (a family list, a class, an entry stroke) and the nested ones (a simulated prospect, a candidate enumeration, the closure's acceptor check made with the swept token among their arguments), each with its answer. A later token whose answers match a recorded transcript in order takes its result without the ask's own window being settled again; a token that does not is asked in full and recorded in turn. An ask that returns a value it computed itself is a representative, whether it took the value from the simulated trace it settled or from the candidacy estimate after a replay raised. The baseline is never one, and neither is an ask a memo answered at its own level, one that read its token through a rune accessor or a comparison at its own level, or one that raised. An ask a transcript answers stores no prospect memo entry, so where its full ask would have taken the estimate and stored one, the prospect memo holds fewer entries than an ungrouped build's, and the same prospect asked again later is computed again; the tables are the same. The loop, its steps and the comparison with the baseline are unchanged, so the verdict and the step it stops at are too. A published or partial run sweeps every ask in full, since a published verdict reads each ask's own firings and reads. `--check-grouped-sweeps` also runs every ask a transcript answered in full and raises when the full ask's result differs or it fires a pointer the build had not. That full run stores the prospect memo entry the full ask stores, so a checked build's memos are closer to an ungrouped build's than to a grouped one's.
 //!
 //! One instance serves a whole fixpoint run and is lent to both filters and to [`crate::fiber::DeepFiberDeriver`]. It holds no engine. Every call takes the caller's engine, so the probes share its trace memo and fired set. The memos are not keyed on engine modes, so every call on one instance must pass the same engine.
 //!
@@ -2148,10 +2148,11 @@ pub(crate) mod tests {
         }
     }
 
-    /// A grouped fourth-slot prospect sweep writes the ungrouped enumeration's product, its fired provenance among it, and every memo length and count of its cache stats, on each fixture, with and without every match checked against the full ask, and the fixtures put the grouping to work: transcripts answer some asks. A fixture whose enumeration raises raises the same error grouped.
+    /// A grouped fourth-slot prospect sweep writes the ungrouped enumeration's product, its fired provenance among it, and every memo length and count of its cache stats but the prospect memo's, on each fixture, with and without every match checked against the full ask, and the fixtures put the grouping to work: transcripts answer some asks, among them transcripts of asks that took the candidacy estimate after a raising replay. The prospect memo's length, capacity and clear count are exempt because an ask a transcript answers stores no prospect entry, where the full ask that took the estimate stores one. A fixture whose enumeration raises raises the same error grouped.
     #[test]
     fn a_grouped_sweep_writes_the_ungrouped_product_and_memo_lengths() {
         let mut matched = 0;
+        let mut matched_estimate = 0;
         for index in [
             prospect_spec(),
             follower_prefer_spec(),
@@ -2179,6 +2180,13 @@ pub(crate) mod tests {
                 let (sweeps, kept): (Vec<String>, Vec<String>) = stats
                     .into_iter()
                     .filter(|line| !line.contains(" kb=") && !line.contains(" bytes="))
+                    .filter(|line| !line.contains(" prospect_cache "))
+                    .map(|line| {
+                        line.split(' ')
+                            .filter(|field| !field.starts_with("prospect="))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
                     .partition(|line| line.contains(" grouped_sweeps "));
                 (product, kept, sweeps)
             };
@@ -2196,11 +2204,16 @@ pub(crate) mod tests {
                         .map_or(0, |count| count.parse().expect("a count"))
                 };
                 if grouped_sweeps == GroupedSweeps::Check {
-                    matched += count("matched");
+                    matched += count("matched_simulated") + count("matched_estimate");
+                    matched_estimate += count("matched_estimate");
                 }
             }
         }
         assert!(matched > 0, "some ask was answered by a transcript");
+        assert!(
+            matched_estimate > 0,
+            "some ask was answered by the transcript of an ask that took the estimate"
+        );
     }
 
     /// The grouped sweep where the fourth-slot fallback opens a slot: the inert letters `qsAh` and `qsAt` sort first and the second answers the first's transcript, so the probe finds the slot live, at `qsMay`, after a match. Grouped, with every match checked against the full ask, the fallback's verdicts, the fired set and every memo's length and capacity are the ungrouped ones.
@@ -2245,7 +2258,7 @@ pub(crate) mod tests {
                 .find_map(|field| field.strip_prefix(&format!("{name}=")))
                 .map_or(0, |count| count.parse().expect("a count"))
         };
-        assert!(count("matched") > 0, "{line}");
+        assert!(count("matched_simulated") > 0, "{line}");
         assert!(count("live_after_match") > 0, "{line}");
     }
 
