@@ -261,6 +261,16 @@ def compare_handout(handout: _Handout, dictionary: bytes, report: Report) -> Non
     (left, left_errors), (right, right_errors) = handout.answers[0], handout.answers[1]
     left_by = {projection.ordinal: projection for projection in left}
     right_by = {projection.ordinal: projection for projection in right}
+    if len(left) != len(left_by) or len(right) != len(right_by):
+        report.disagree(
+            "units",
+            {
+                "handout": handout.index,
+                "left": len(left) - len(left_by),
+                "right": len(right) - len(right_by),
+                "why": "a side answered a unit twice",
+            },
+        )
     for ordinal in handout.ordinals:
         a, b = left_by.pop(ordinal, None), right_by.pop(ordinal, None)
         if a is None or b is None:
