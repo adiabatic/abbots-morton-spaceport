@@ -4469,13 +4469,15 @@ impl<'i> Engine<'i> {
             })?;
             (survivors, None)
         } else if self.explain_ranking || self.fired_log.is_none() {
-            let survivors = self.candidates(
+            let cells = self.candidates(
                 left,
                 rune_name,
                 slots.right1,
                 slots.right2,
                 Some(&mut eliminations),
             )?;
+            let mut survivors = self.take_cells();
+            survivors.extend_from_slice(&cells);
             (survivors, None)
         } else {
             let entry = self.candidates_entry(left, rune_name, slots.right1, slots.right2)?;
@@ -7215,6 +7217,38 @@ mod tests {
                     0
                 }
             );
+        }
+    }
+
+    /// A trace gives back as many spare candidate lists as it takes, so an engine that never memoizes holds the same spares however many windows it settles.
+    #[test]
+    fn a_trace_leaves_the_spare_candidate_lists_as_many_as_it_found() {
+        let index = firing_spec();
+        let ss03 = fixtures::sym(&index, "ss03");
+        let left = settled_left(&index, "qsTea", "plain", Some("baseline"));
+        let token = letter_token(&index, "qsPea");
+        let slots = Slots::pair(letter_token(&index, "qsTea"), EDGE);
+        for explain_ranking in [false, true] {
+            let mut engine = Engine::with_modes(
+                &index,
+                [ss03],
+                EngineModes {
+                    trace_memo: false,
+                    explain_ranking,
+                    ..EngineModes::default()
+                },
+            );
+            let trace = |engine: &mut Engine| {
+                engine
+                    .transition_trace(&left, token, slots)
+                    .expect("the fixture settles");
+                engine.cell_buffers.len()
+            };
+            trace(&mut engine);
+            let spares = trace(&mut engine);
+            for _ in 0..8 {
+                assert_eq!(trace(&mut engine), spares);
+            }
         }
     }
 
