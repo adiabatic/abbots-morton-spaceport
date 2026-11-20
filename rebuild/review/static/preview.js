@@ -104,3 +104,26 @@ export function parsePreview(input) {
   }
   return { text: words.join(' '), unknown };
 }
+
+const STYLISTIC_SET_TAG = /^ss(?:0[1-9]|1\d|20)$/u;
+
+// Returns the stylistic sets (ss01–ss20) that a font's GSUB or GPOS feature list declares, sorted and without repeats, so the preview offers exactly the sets the font carries. `bytes` is the whole font file, as an ArrayBuffer or a Uint8Array.
+export function stylisticSetsOf(bytes) {
+  const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const tagAt = (offset) => String.fromCharCode(...data.subarray(offset, offset + 4));
+  const sets = new Set();
+  const tableCount = view.getUint16(4);
+  for (let record = 12; record < 12 + tableCount * 16; record += 16) {
+    const table = tagAt(record);
+    if (table !== 'GSUB' && table !== 'GPOS') continue;
+    const tableStart = view.getUint32(record + 8);
+    const featureList = tableStart + view.getUint16(tableStart + 6);
+    const featureCount = view.getUint16(featureList);
+    for (let index = 0; index < featureCount; index += 1) {
+      const feature = tagAt(featureList + 2 + index * 6);
+      if (STYLISTIC_SET_TAG.test(feature)) sets.add(feature);
+    }
+  }
+  return [...sets].sort();
+}

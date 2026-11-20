@@ -431,8 +431,9 @@ summary:focus-visible {
 
 .type-preview {
   position: relative;
+  display: flex;
 
-  input {
+  #type-preview-input {
     font: inherit;
     font-size: 13px;
     width: 12rem;
@@ -440,9 +441,113 @@ summary:focus-visible {
     height: 100%;
     padding: 0.3rem 0.5rem;
     border: 1px solid var(--hairline);
-    border-radius: 4px;
+    border-radius: 4px 0 0 4px;
     background: var(--card);
     color: inherit;
+  }
+
+  /* Joined to the text box's right edge, so the box and its sets read as one control. With no set on it reads "ss"; with sets on it names each in its set's color. */
+  #type-preview-sets-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    margin-inline-start: -1px;
+    padding: 0 0.5rem;
+    border-radius: 0 4px 4px 0;
+    font-family: var(--code-font);
+    font-size: 12px;
+    color: var(--muted);
+
+    &::after {
+      content: '▾';
+      opacity: 0.65;
+    }
+
+    &.sets-on {
+      border-color: var(--accent);
+    }
+
+    .type-preview-set-chip {
+      color: var(--ss-color, currentColor);
+      font-weight: 600;
+    }
+  }
+
+  /* Without anchor positioning the list sits under the strip's right end; the @supports block below hangs it under the toggle, or under the preview while one shows, so it never covers the rendering it changes. */
+  #type-preview-sets {
+    position: fixed;
+    inset: auto;
+    top: 3rem;
+    right: 1.5rem;
+    margin: 0;
+    max-width: min(28rem, 92vw);
+    padding: 0.45rem 0.75rem 0.6rem;
+    font-family: var(--chrome-font);
+    font-size: 13px;
+    color: light-dark(#444, #ccc);
+    background: var(--card);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    box-shadow: 0 6px 20px light-dark(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.55));
+
+    fieldset {
+      display: grid;
+      gap: 0.3rem;
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+
+    legend {
+      padding: 0 0 0.35rem;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .type-preview-set {
+      display: grid;
+      grid-template-columns: auto auto 1fr;
+      align-items: baseline;
+      column-gap: 0.5rem;
+      cursor: pointer;
+
+      input {
+        margin: 0;
+      }
+    }
+
+    .type-preview-set-name {
+      font-family: var(--code-font);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ss-color, currentColor);
+    }
+
+    .type-preview-sets-note {
+      margin: 0;
+      color: var(--muted);
+    }
+  }
+
+  @supports (anchor-name: --type-preview-sets-toggle) {
+    #type-preview-sets-toggle {
+      anchor-name: --type-preview-sets-toggle;
+    }
+
+    #type-preview-panel {
+      anchor-name: --type-preview-panel;
+    }
+
+    #type-preview-sets {
+      position-anchor: --type-preview-sets-toggle;
+      position-area: bottom span-left;
+      inset: auto;
+      margin-block-start: 0.35rem;
+    }
+
+    &:has(#type-preview-panel:not([hidden])) #type-preview-sets {
+      position-anchor: --type-preview-panel;
+    }
   }
 
   #type-preview-panel {
@@ -462,7 +567,7 @@ summary:focus-visible {
     }
 
     .type-preview-render {
-      /* Renders like the After sample cells of the default render group, with kerning off, default features, and the checkerboard, so the preview compares directly with them. */
+      /* Renders like the After sample cells of the default render group, with kerning off and the checkerboard, so the preview compares directly with them. Its features are the default ones unless the sets popover turns stylistic sets on (`updatePreviewSets` sets them inline). */
       font-family: var(--after-font);
       font-size: var(--font-size);
       line-height: 1.4;
@@ -1487,7 +1592,7 @@ details.group {
 
 }
 
-/* The color for each stylistic set, keyed on data-ss alone so that every element naming a set can use it: the config-gate chips below and the .explain-ss mentions in the explain panel. */
+/* The color for each stylistic set, keyed on data-ss alone so that every element naming a set can use it: the config-gate chips below, the .explain-ss mentions in the explain panel, and the type preview's sets popover and toggle. */
 [data-ss="ss02"] {
   --ss-color: light-dark(#1f6feb, #6cb6ff);
 }
@@ -1510,6 +1615,10 @@ details.group {
 
 [data-ss="ss07"] {
   --ss-color: light-dark(#0e7a8a, #5fc8d8);
+}
+
+[data-ss="ss08"] {
+  --ss-color: light-dark(#8a6d00, #e6c84f);
 }
 
 [data-ss="ss10"] {
