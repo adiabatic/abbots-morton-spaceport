@@ -456,7 +456,7 @@ impl Settlement {
     }
 
     /// Whether any of the features is registered with the isolated overlay, `model.isolated_overlay_active`; a name the registry lacks turns nothing on.
-    fn overlay_active(&self, features: &[String]) -> bool {
+    pub fn overlay_active(&self, features: &[String]) -> bool {
         features.iter().any(|name| {
             self.index
                 .sym_of(name)

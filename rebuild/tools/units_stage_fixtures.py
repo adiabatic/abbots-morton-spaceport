@@ -4,7 +4,7 @@
 
 `selfcheck` runs the worker over a source twice, once as the build runs it and once with every hook point wrapped and every registered stage recording into a temporary directory, and fails unless both runs give the same projection digest and every projection either run returns comes back from the typed encoding's round trip equal to itself, compared type-strictly (`same`).
 
-`compare STAGE --stages DIR` builds the crate (`units_exec.ensure_built`), writes an init for the source the dump's `source.json` names (`source_init`, `units_exec.write_init`), runs `ams-review stage STAGE --init=<init> DIR/STAGE.ndjson`, and reports every key whose outputs the Rust answer does not reproduce, type-strictly, and every key either side lacks.
+`compare STAGE --stages DIR` builds the crate (`units_exec.ensure_built`), writes an init for the source the dump's `source.json` names (`source_init`, `units_exec.write_init`), runs `ams-review stage STAGE --init=<init> DIR/STAGE.ndjson`, and reports every key whose outputs the Rust answer does not reproduce, type-strictly, and every key either side lacks. `--fields` narrows the outputs it checks to a comma-separated list of the stage's output fields and field groups.
 
 The stages (`STAGES`):
 
@@ -16,6 +16,7 @@ The stages (`STAGES`):
 - `settle` records each unit `Enricher.explain_units` settles, under `settle:` with its first configuration and its code points, as the `codepoints` and the `config` and, as its value, the `ExplainReport`'s code points, features and positions, each position's trace whole; and each text `Enricher.formed_spans` forms, under `spans:` and its code points, as the `codepoints` and the spans it returns.
 - `explain` records each explain text `Enricher.enrich` writes, the `_filter_explain` call over the `ExplainReport.render` call just before it, under `explain:` with the report's configuration token (`model.feature_config_token`), its code points and the divergent positions, as the report's `codepoints`, that `config` and the `diff_positions` the filter receives, and as its outputs the `rendered` text and the `filtered` text the filter returns.
 - `subset` records each lookup `Enricher.enrich` makes in the subset pack, `SubsetPack.row`, under `subset:` with its configuration and its code points, as the `config` and the `codepoints` it receives and the `SubsetRow` or None it returns. Its generated lines (`_subset_generated`), under `generated:` with the same two, look up each configuration's first and last window, the first window spelled each way `int(part, 16)` reads it (`_SUBSET_SPELLINGS`), its misspellings `pack_key` refuses (`_SUBSET_MISSPELLINGS`), strings that refuse or miss whatever the source (`_SUBSET_MISSES`), and a configuration the pack does not hold.
+- `enrich` records each unit `Enricher.enrich` enriches, under `enrich:<ordinal>`, as the unit's `record` as a request frame carries it (`units_exec.unit_record`, written as one compact JSON line) and the phase-1 `flags` the worker set on it (`ink_identical`, `picture_identical`, `junior_equivalent`), and as its outputs every `EnrichedUnit` field but the unit itself, which is the input, and the `mismatches` lines the call added to the enricher's list. Its field groups (`compare --fields`) name `geometry`, the fields `Enricher.enrich` computes before its summary (`ENRICH_GEOMETRY`).
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace`, `str.isdigit` and `str.isdecimal` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -66,7 +67,7 @@ from rebuild.pipeline.model import feature_config_token
 from rebuild.review import audit, build, ink, unit_cache, units_exec
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, UnitTable, load_ledger
 from rebuild.review.drafts import corpus_index_from_pages
-from rebuild.review.enrich import LETTERS, load_spec
+from rebuild.review.enrich import LETTERS, EnrichedUnit, load_spec
 from rebuild.review.fixtures.mini import pin
 from rebuild.review.subset_pack import (
     PACK_NAME,
@@ -368,12 +369,13 @@ Recorder = Callable[[tuple, dict], Finisher | None]
 
 @dataclass(frozen=True)
 class Stage:
-    """One stage of the port: its recorders by hook name (`HOOKS`), its generated inputs, which give the fields of each further line for a source, and the fields of a line that hold its expected output, which `compare` checks against the Rust stage's answer to the line's `key`."""
+    """One stage of the port: its recorders by hook name (`HOOKS`), its generated inputs, which give the fields of each further line for a source, the fields of a line that hold its expected output, which `compare` checks against the Rust stage's answer to the line's `key`, and named groups of those fields that `compare --fields` can check alone."""
 
     name: str
     recorders: Mapping[str, Recorder]
     generated: Callable[[Source], Iterator[Mapping[str, object]]] | None = None
     outputs: tuple[str, ...] = ("value",)
+    field_groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 def unit_value(unit: Unit) -> Record:
@@ -972,6 +974,55 @@ def _subset_generated(source: Source) -> Iterator[Mapping[str, object]]:
         pack.close()
 
 
+# The `EnrichedUnit` fields the `enrich` stage records, every one but the unit, which is the line's input, and the mismatch lines.
+ENRICH_OUTPUTS = (
+    *(item.name for item in dataclasses.fields(EnrichedUnit) if item.name != "unit"),
+    "mismatches",
+)
+
+# The `enrich` stage's `geometry` fields: what `Enricher.enrich` computes before its summary.
+ENRICH_GEOMETRY = (
+    "before_glyphs",
+    "before_junctions",
+    "after_cells",
+    "after_junctions",
+    "after_extensions",
+    "diff_positions",
+    "pair",
+    "highlight_before",
+    "highlight_after",
+    "boundary_marks",
+    "after_spans",
+    "before_spans",
+    "secondary_junctions",
+    "pair_codepoints",
+)
+
+
+def _enrich_unit(args: tuple, kwargs: dict) -> Finisher:
+    enricher = args[0]
+    unit = args[1] if len(args) > 1 else kwargs["unit"]
+    mark = len(enricher.mismatches)
+    line: dict[str, object] = {
+        "key": f"enrich:{unit.ordinal}",
+        "record": compact(units_exec.unit_record(unit)),
+        "flags": {
+            "ink_identical": unit.ink_identical,
+            "picture_identical": unit.picture_identical,
+            "junior_equivalent": unit.junior_equivalent,
+        },
+    }
+
+    def finish(result: object) -> dict[str, object]:
+        assert isinstance(result, EnrichedUnit)
+        outputs: dict[str, object] = {
+            name: getattr(result, name) for name in ENRICH_OUTPUTS if name != "mismatches"
+        }
+        return {**line, **outputs, "mismatches": tuple(enricher.mismatches[mark:])}
+
+    return finish
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -997,6 +1048,12 @@ STAGES: dict[str, Stage] = {
         outputs=("rendered", "filtered"),
     ),
     "subset": Stage("subset", {"SubsetPack.row": _subset_row}, _subset_generated),
+    "enrich": Stage(
+        "enrich",
+        {"Enricher.enrich": _enrich_unit},
+        outputs=ENRICH_OUTPUTS,
+        field_groups={"geometry": ENRICH_GEOMETRY},
+    ),
 }
 
 
@@ -1264,13 +1321,30 @@ def _difference(expected: object, actual: object) -> str:
     return f"at character {offset}:\n    python: …{left[start:offset + 80]}…\n    rust:   …{right[start:offset + 80]}…"
 
 
-def compare(stage: Stage, stages: Path) -> bool:
-    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, every key it does not answer, and every key it answers that the dump does not hold. The crate is built first (`units_exec.ensure_built`), and the init it reads is written for the dump's source (`units_exec.write_init`) into a directory held for the run."""
+def compared_fields(stage: Stage, names: str | None) -> tuple[str, ...]:
+    """The outputs `compare` checks: every output of the stage, or the comma-separated output fields and field groups `names` lists, in that order, each once. A name the stage has neither as an output nor as a group is refused."""
+    if names is None:
+        return stage.outputs
+    chosen: list[str] = []
+    for name in names.split(","):
+        if name in stage.field_groups:
+            chosen += stage.field_groups[name]
+        elif name in stage.outputs:
+            chosen.append(name)
+        else:
+            known = ", ".join([*stage.field_groups, *stage.outputs])
+            raise SystemExit(f"the {stage.name} stage has no field or field group {name!r}; it has {known}")
+    return tuple(dict.fromkeys(chosen))
+
+
+def compare(stage: Stage, stages: Path, checked: Sequence[str] | None = None) -> bool:
+    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, every key it does not answer, and every key it answers that the dump does not hold. Only the outputs `checked` names are checked, every output when None. The crate is built first (`units_exec.ensure_built`), and the init it reads is written for the dump's source (`units_exec.write_init`) into a directory held for the run."""
+    outputs = tuple(checked) if checked is not None else stage.outputs
     stage_file = stages / f"{stage.name}.ndjson"
     if not stage_file.is_file():
         raise SystemExit(f"{stage_file} is missing; dump --stage {stage.name} writes it")
     description = json.loads((stages / SOURCE_FILE).read_text(encoding="ascii"))
-    expected = _answers(stage_file.read_text(encoding="ascii").splitlines(), stage.outputs, str(stage_file))
+    expected = _answers(stage_file.read_text(encoding="ascii").splitlines(), outputs, str(stage_file))
     units_exec.ensure_built()
     init = source_init(description)
     with tempfile.TemporaryDirectory(prefix="units-stage-compare-") as scratch:
@@ -1284,7 +1358,7 @@ def compare(stage: Stage, stages: Path) -> bool:
             file=sys.stderr,
         )
         return False
-    actual = _answers(stdout.decode("utf-8").splitlines(), stage.outputs, f"ams-review stage {stage.name}")
+    actual = _answers(stdout.decode("utf-8").splitlines(), outputs, f"ams-review stage {stage.name}")
     missing = [key for key in expected if key not in actual]
     extra = [key for key in actual if key not in expected]
     differing = []
@@ -1292,7 +1366,7 @@ def compare(stage: Stage, stages: Path) -> bool:
         answer = actual.get(key)
         if answer is None:
             continue
-        for name in stage.outputs:
+        for name in outputs:
             if name not in fields or name not in answer or not same(fields[name], answer[name]):
                 differing.append((key, name))
     for label, keys in (("unanswered", missing), ("not in the dump", extra)):
@@ -1411,6 +1485,9 @@ def main(argv: list[str] | None = None) -> int:
     compare_parser = commands.add_parser("compare", help="check the Rust side of a stage against a dump")
     compare_parser.add_argument("stage", metavar="STAGE")
     compare_parser.add_argument("--stages", type=Path, required=True, metavar="DIR")
+    compare_parser.add_argument(
+        "--fields", metavar="NAMES", help="check only these comma-separated output fields and field groups"
+    )
     tables_parser = commands.add_parser("unicode-tables", help="write the crate's str predicate tables")
     tables_parser.add_argument("--check", action="store_true", help="fail when the tables are stale")
     args = parser.parse_args(argv)
@@ -1418,7 +1495,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if unicode_tables(args.check) else 1
     if args.command == "compare":
         (stage,) = _selected([args.stage])
-        return 0 if compare(stage, args.stages) else 1
+        return 0 if compare(stage, args.stages, compared_fields(stage, args.fields)) else 1
     stages = _selected(args.stage) if args.command == "dump" else []
     source = open_source(args.source, args.per_config, args.batches, args.everything)
     if args.command == "dump":

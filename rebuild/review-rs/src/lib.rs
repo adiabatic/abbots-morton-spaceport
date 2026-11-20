@@ -5,6 +5,7 @@
 #![deny(unsafe_code)]
 
 pub mod config_fold;
+pub mod enrich;
 pub mod explain;
 mod ffi;
 pub mod fontfacts;

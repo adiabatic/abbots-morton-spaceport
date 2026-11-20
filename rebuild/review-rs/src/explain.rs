@@ -168,7 +168,7 @@ pub fn render(index: &SpecIndex, report: &Report) -> String {
 }
 
 /// Python's `int` over a token `str.split` gave: an optional sign and decimal digits, single underscores allowed between digits. Python also reads non-ASCII decimal digits, which no rendered position index holds, so a token of them is refused here rather than read.
-fn python_int(token: &str) -> Option<i64> {
+pub(crate) fn python_int(token: &str) -> Option<i64> {
     let (negative, digits) = match token.as_bytes().first() {
         Some(b'-') => (true, &token[1..]),
         Some(b'+') => (false, &token[1..]),
