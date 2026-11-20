@@ -1510,7 +1510,7 @@ impl<'i> Engine<'i> {
         let memo = self.trace_cache.as_ref()?;
         let entry = memo
             .entries
-            .get(&Self::trace_key(left, token.ordinal()?, slots))?;
+            .get(&Self::trace_key(left, token.key_ordinal()?, slots))?;
         Some(self.deltas.get(entry.delta))
     }
 
@@ -1524,7 +1524,7 @@ impl<'i> Engine<'i> {
         let memo = self.trace_cache.as_ref()?;
         let entry = memo
             .entries
-            .get(&Self::trace_key(left, token.ordinal()?, slots))?;
+            .get(&Self::trace_key(left, token.key_ordinal()?, slots))?;
         Some(self.reads.get(entry.reads))
     }
 
@@ -2123,17 +2123,16 @@ impl<'i> Engine<'i> {
             } else if token.kind() != TokenKind::Letter {
                 return Ok(Some(false));
             } else {
-                let letter = token.letter();
-                if !cond.family.is_empty() && !cond.family.contains(&letter) {
+                if !cond.family.is_empty() && !token.in_family(&cond.family) {
                     return Ok(Some(false));
                 }
                 for klass in &cond.klass {
-                    if !index.class_members(*klass, owner)?.contains(&letter) {
+                    if !token.in_class(index.class_members(*klass, owner)?) {
                         return Ok(Some(false));
                     }
                 }
                 if let Some(stroke) = cond.stroke
-                    && !index.entry_strokes(letter).contains(&stroke)
+                    && !token.has_entry_stroke(index, stroke)
                 {
                     return Ok(Some(false));
                 }
@@ -2562,7 +2561,7 @@ impl<'i> Engine<'i> {
             left_stance: left.ordinals.stance,
             left_junction: left.ordinals.junction,
             rune,
-            runes: [right1.ordinal(), right2.ordinal()],
+            runes: [right1.key_ordinal(), right2.key_ordinal()],
             kinds: PackedKinds::of(&[left.kind, right1.kind(), right2.kind()]),
         }
     }
@@ -2878,7 +2877,7 @@ impl<'i> Engine<'i> {
             )
             .expect("an extension is a count of connector pixels"),
             token,
-            runes: tokens.map(RightToken::ordinal),
+            runes: tokens.map(RightToken::key_ordinal),
             kinds: PackedKinds::of(&[
                 left.kind,
                 tokens[0].kind(),
@@ -2919,7 +2918,10 @@ impl<'i> Engine<'i> {
             entry,
             junction,
         } = candidate.ordinals;
-        let right1 = slots.right1.letter_ordinal();
+        let right1 = slots
+            .right1
+            .key_ordinal()
+            .expect("a letter token carries its rune's ordinal");
         let key = if self.simulated_prospect {
             let deep = [slots.right2, slots.right3, slots.right4];
             ProspectKey::Simulated {
@@ -2928,7 +2930,7 @@ impl<'i> Engine<'i> {
                 entry,
                 junction,
                 right1,
-                runes: deep.map(RightToken::ordinal),
+                runes: deep.map(RightToken::key_ordinal),
                 kinds: PackedKinds::of(&[deep[0].kind(), deep[1].kind(), deep[2].kind()]),
             }
         } else {
@@ -2938,7 +2940,10 @@ impl<'i> Engine<'i> {
                 entry,
                 junction,
                 right1,
-                right2: slots.right2.letter_ordinal(),
+                right2: slots
+                    .right2
+                    .key_ordinal()
+                    .expect("a letter token carries its rune's ordinal"),
             }
         };
         let read_junction = |settled: &Settled| i64::from(settled.junction.is_some());
@@ -3909,7 +3914,13 @@ impl<'i> Engine<'i> {
         if self.trace_cache.is_none() {
             return self.transition_trace_uncached(left, token, TraceKept::Whole, slots);
         }
-        let key = Self::trace_key(left, token.letter_ordinal(), slots);
+        let key = Self::trace_key(
+            left,
+            token
+                .key_ordinal()
+                .expect("a letter token carries its rune's ordinal"),
+            slots,
+        );
         if let Some(memo) = self.trace_cache.as_ref()
             && let Some(&entry) = memo.entries.get(&key)
         {
@@ -4015,7 +4026,13 @@ impl<'i> Engine<'i> {
         let Some(memo) = self.trace_cache.as_ref() else {
             return MemoRead::Unkeyed;
         };
-        let key = Self::trace_key(left, token.letter_ordinal(), slots);
+        let key = Self::trace_key(
+            left,
+            token
+                .key_ordinal()
+                .expect("a letter token carries its rune's ordinal"),
+            slots,
+        );
         if let Some(&entry) = memo.entries.get(&key) {
             let answer = read(memo.settled.get(entry.settled.widen()));
             replay_own(

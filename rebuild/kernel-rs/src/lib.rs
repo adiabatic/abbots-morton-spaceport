@@ -31,6 +31,7 @@ pub(crate) mod sha256;
 pub mod shipped_order;
 pub mod specificity;
 pub mod stream;
+pub mod token;
 pub mod types;
 
 /// The value of every dump's `format` key. `parse::parse_spec` rejects a dump with any other value, as `kernel_io.spec_of` does.

@@ -463,9 +463,9 @@ mod tests {
 
     /// A token as the tests write it: a letter by its rune name, a boundary by its kind.
     fn label(index: &SpecIndex, token: RightToken) -> String {
-        match token {
-            RightToken::Letter(rune, _) => index.resolve(rune).to_owned(),
-            other => other.kind().as_str().to_owned(),
+        match token.rune() {
+            Some(rune) => index.resolve(rune).to_owned(),
+            None => token.kind().as_str().to_owned(),
         }
     }
 

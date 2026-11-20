@@ -22,7 +22,7 @@ use crate::hash::{HashMap, HashSet};
 use crate::index::SpecIndex;
 use crate::model::Sym;
 use crate::types::{
-    EDGE, LeftContext, RightToken, Settled, SettledId, SettledPool, TokenKind, cell_label,
+    EDGE, LeftContext, RightToken, Settled, SettledId, SettledPool, TokenKind, ZWNJ, cell_label,
     settled_json,
 };
 
@@ -190,7 +190,7 @@ impl<'i> Formation<'i> {
         let mut at = 0;
         while at < tokens.len() {
             let mut matched: Option<(Sym, usize)> = None;
-            if let RightToken::Letter(lead, _) = tokens[at]
+            if let Some(lead) = tokens[at].rune()
                 && let Some(candidates) = self.by_lead.get(&lead)
             {
                 for (sequence, name) in candidates {
@@ -785,7 +785,7 @@ impl<'i> Replay<'i> {
         }
         let mut previous: Option<Outcome> = None;
         for (at, token) in formed.iter().enumerate() {
-            let RightToken::Letter(rune, _) = *token else {
+            let Some(rune) = token.rune() else {
                 previous = None;
                 continue;
             };
@@ -834,7 +834,7 @@ impl<'i> Replay<'i> {
                         })?;
                     let outcome = self.intern(&settled);
                     report.windows += 1;
-                    let input = if at > 0 && formed[at - 1] == RightToken::Zwnj {
+                    let input = if at > 0 && formed[at - 1] == ZWNJ {
                         self.locked_label(rune, labels[at])
                     } else {
                         labels[at]
@@ -898,13 +898,13 @@ impl<'i> Replay<'i> {
     }
 
     fn token_label(&mut self, token: RightToken) -> u32 {
-        if let RightToken::Letter(rune, _) = token
+        if let Some(rune) = token.rune()
             && let Some(&label) = self.input_labels.get(&rune)
         {
             return label;
         }
         let label = self.labels.intern(&right_token_label(self.index, token));
-        if let RightToken::Letter(rune, _) = token {
+        if let Some(rune) = token.rune() {
             self.input_labels.insert(rune, label);
         }
         label
@@ -1127,9 +1127,9 @@ impl<'i> Replay<'i> {
 fn spell_text(index: &SpecIndex, raw: &[RightToken]) -> String {
     let words: Vec<String> = raw
         .iter()
-        .map(|token| match token {
-            RightToken::Letter(rune, _) => index.resolve(*rune).to_owned(),
-            other => other.kind().as_str().to_owned(),
+        .map(|token| match token.rune() {
+            Some(rune) => index.resolve(rune).to_owned(),
+            None => token.kind().as_str().to_owned(),
         })
         .collect();
     words.join(" ")
@@ -1141,6 +1141,7 @@ mod tests {
     use crate::fixpoint::{EnumerationModes, enumerate_transitions};
     use crate::fold::fold_product;
     use crate::index::fixtures;
+    use crate::types::SPACE;
 
     fn folded_rules(index: &SpecIndex) -> Vec<Rule> {
         let product = enumerate_transitions(index, &[], EnumerationModes::default())
@@ -1161,8 +1162,8 @@ mod tests {
         let index = fixtures::mini();
         let tokens = alphabet(&index).expect("the fixture has an alphabet");
         assert_eq!(tokens.len(), 6);
-        assert_eq!(tokens[0], RightToken::Space);
-        assert_eq!(tokens[1], RightToken::Zwnj);
+        assert_eq!(tokens[0], SPACE);
+        assert_eq!(tokens[1], ZWNJ);
         assert_eq!(tokens[2], fixtures::letter(&index, "qsPea"));
         assert_eq!(tokens[5], fixtures::letter(&index, "qsIt"));
     }
@@ -1819,17 +1820,11 @@ mod tests {
         let mut report = Report::default();
         let mut formed = Vec::new();
         for raw in [
-            vec![
-                RightToken::Zwnj,
-                index.letter(pea).expect("the fixture models it"),
-            ],
-            vec![
-                RightToken::Zwnj,
-                index.letter(it).expect("the fixture models it"),
-            ],
+            vec![ZWNJ, index.letter(pea).expect("the fixture models it")],
+            vec![ZWNJ, index.letter(it).expect("the fixture models it")],
             vec![
                 index.letter(pea).expect("the fixture models it"),
-                RightToken::Space,
+                SPACE,
                 index.letter(pea).expect("the fixture models it"),
                 index.letter(pea).expect("the fixture models it"),
             ],
@@ -2037,7 +2032,7 @@ mod tests {
         let rules = folded_rules(&index);
         let mut walk = replay(&index, &rules);
         let pea = walk.token_label(fixtures::letter(&index, "qsPea"));
-        let space = walk.token_label(RightToken::Space);
+        let space = walk.token_label(SPACE);
         let na = walk.labels.na;
         let edge = walk.labels.edge;
         assert_eq!(

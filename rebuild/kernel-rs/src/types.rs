@@ -12,6 +12,7 @@ use crate::emit::json_string;
 use crate::hash::HashMap;
 use crate::index::{Ordinal, SpecIndex};
 use crate::model::{Provenance, Sym};
+pub use crate::token::{EDGE, NAMER_DOT, RightToken, SPACE, UNKNOWN, ZWNJ};
 
 /// The boundary kinds that split a run; word position is derived from them. `settle.SPLITTING_KINDS`. [`TokenKind::splits_runs`] is the form the code uses, and `the_kind_predicates_agree_with_the_constant_lists` checks that the two agree.
 pub const SPLITTING_KINDS: [&str; 3] = ["edge", "space", "zwnj"];
@@ -140,90 +141,6 @@ impl PackedKinds {
     /// The kinds a word holds, as [`PackedKinds::word`] gave it.
     pub(crate) fn from_word(word: u16) -> Self {
         Self(word)
-    }
-}
-
-/// One raw window slot: a boundary, an unknown, or a letter naming its rune. `settle.RightToken`, with the same equality: the kind is part of the value, so `UNKNOWN` and `EDGE` are different tokens, and two letter tokens are equal when their runes are.
-///
-/// A letter also carries its rune's [`Ordinal`], because the memo keys store ordinals. A token created by [`SpecIndex::letter`] passes its ordinal to every key built from it, so building a key needs no rune lookup. Under the index that created it, the ordinal is a function of the name, so the derived equality is still equality of runes.
-///
-/// The derived ordering exists so a token can key a `BTreeMap`. It orders letters by interning order, which is the order the dump happened to mention names in. Where an output order depends on a token, as in the guard sweep's rows, sort by the resolved name instead.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RightToken {
-    Edge,
-    Space,
-    Zwnj,
-    NamerDot,
-    Unknown,
-    Letter(Sym, Ordinal),
-}
-
-/// The run edge, `settle.EDGE`.
-pub const EDGE: RightToken = RightToken::Edge;
-/// A space, `settle.SPACE`.
-pub const SPACE: RightToken = RightToken::Space;
-/// A zero-width non-joiner, `settle.ZWNJ`.
-pub const ZWNJ: RightToken = RightToken::Zwnj;
-/// The namer dot, `settle.NAMER_DOT`.
-pub const NAMER_DOT: RightToken = RightToken::NamerDot;
-/// A slot outside the evaluated window, `settle.UNKNOWN`.
-pub const UNKNOWN: RightToken = RightToken::Unknown;
-
-impl RightToken {
-    /// Which kind of slot this is.
-    pub fn kind(self) -> TokenKind {
-        match self {
-            Self::Edge => TokenKind::Edge,
-            Self::Space => TokenKind::Space,
-            Self::Zwnj => TokenKind::Zwnj,
-            Self::NamerDot => TokenKind::NamerDot,
-            Self::Unknown => TokenKind::Unknown,
-            Self::Letter(_, _) => TokenKind::Letter,
-        }
-    }
-
-    /// The rune this slot names, or `None` when it is not a letter. `RightToken.rune`, for reads that have not yet checked the kind.
-    pub fn rune(self) -> Option<Sym> {
-        match self {
-            Self::Letter(rune, _) => Some(rune),
-            _ => None,
-        }
-    }
-
-    /// The rune this slot names, for reads that have already checked it is a letter. Panics on any other kind, as `RightToken.letter` raises `ValueError`: reaching it means a caller skipped the kind check, which is a kernel bug and not a settlement outcome.
-    pub fn letter(self) -> Sym {
-        match self {
-            Self::Letter(rune, _) => rune,
-            other => panic!("{} token has no rune", other.kind().as_str()),
-        }
-    }
-
-    /// The rune-field ordinal of the rune this slot names, or `None` when it is not a letter: [`RightToken::rune`] in the form the memo keys store.
-    pub fn ordinal(self) -> Option<Ordinal> {
-        match self {
-            Self::Letter(_, ordinal) => Some(ordinal),
-            _ => None,
-        }
-    }
-
-    /// The rune-field ordinal, for reads that have already checked it is a letter. Panics on any other kind, as [`RightToken::letter`] does.
-    pub fn letter_ordinal(self) -> Ordinal {
-        match self {
-            Self::Letter(_, ordinal) => ordinal,
-            other => panic!("{} token has no rune", other.kind().as_str()),
-        }
-    }
-
-    /// The boundary or unknown token for a kind, or `None` for [`TokenKind::Letter`], which needs a rune. The inverse of [`RightToken::kind`], used by the `settle-cases` reader and [`crate::replay::alphabet`] to rebuild boundary tokens from a kind's name.
-    pub fn of_kind(kind: TokenKind) -> Option<Self> {
-        match kind {
-            TokenKind::Edge => Some(Self::Edge),
-            TokenKind::Space => Some(Self::Space),
-            TokenKind::Zwnj => Some(Self::Zwnj),
-            TokenKind::NamerDot => Some(Self::NamerDot),
-            TokenKind::Unknown => Some(Self::Unknown),
-            TokenKind::Letter => None,
-        }
     }
 }
 

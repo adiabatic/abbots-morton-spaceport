@@ -126,13 +126,13 @@ type BaseKey = [Label; 3];
 impl LabelPool {
     /// One right slot's label, interned: [`right_token_label`] without allocating the `String` that function returns.
     fn token(&mut self, index: &SpecIndex, token: RightToken) -> Label {
-        match token {
-            RightToken::Letter(rune, _) => {
+        match token.rune() {
+            Some(rune) => {
                 let name = index.resolve(rune);
                 self.intern(name)
             }
-            other => {
-                let name = boundary_left_label(other.kind());
+            None => {
+                let name = boundary_left_label(token.kind());
                 self.intern(name)
             }
         }
@@ -231,13 +231,16 @@ impl TokenCode {
     const KINDS: u16 = 5;
 
     fn of(token: RightToken, field: &str) -> Self {
-        let code = match token {
-            RightToken::Edge => 1,
-            RightToken::Space => 2,
-            RightToken::Zwnj => 3,
-            RightToken::NamerDot => 4,
-            RightToken::Unknown => Self::KINDS,
-            RightToken::Letter(_, ordinal) => {
+        let code = match token.kind() {
+            TokenKind::Edge => 1,
+            TokenKind::Space => 2,
+            TokenKind::Zwnj => 3,
+            TokenKind::NamerDot => 4,
+            TokenKind::Unknown => Self::KINDS,
+            TokenKind::Letter => {
+                let ordinal = token
+                    .key_ordinal()
+                    .expect("a letter token carries its rune's ordinal");
                 ordinal.get().checked_add(Self::KINDS).unwrap_or_else(|| {
                     panic!(
                         "{field} names rune ordinal {ordinal}, past the 65,530 a two-byte token code holds"
@@ -258,7 +261,7 @@ impl TokenCode {
             code => {
                 let ordinal = Ordinal::new(code - Self::KINDS)
                     .expect("a letter's code is past the other kinds'");
-                RightToken::Letter(index.rune_at_ordinal(ordinal), ordinal)
+                RightToken::of_letter(index.rune_at_ordinal(ordinal), ordinal)
             }
         }
     }
@@ -947,7 +950,7 @@ impl PendingRows {
 
     /// ORs the letters among `members` into a row's `admitted3` in place. A boundary entry's member carries no ordinal and is left out, since only a fiber's row reads its set back.
     fn admit(&mut self, id: PendingId, members: &[RightToken]) {
-        for ordinal in members.iter().filter_map(|member| member.ordinal()) {
+        for ordinal in members.iter().filter_map(|member| member.key_ordinal()) {
             let bit = usize::from(ordinal.get()) - 1;
             let mask = 1u64 << (bit % 64);
             match bit / 64 {
@@ -1554,7 +1557,7 @@ fn enumerate_from_seeds<'i>(
                 let mut members: Vec<RightToken> = pending
                     .admitted(PendingId::at(position))
                     .into_iter()
-                    .map(|ordinal| RightToken::Letter(index.rune_at_ordinal(ordinal), ordinal))
+                    .map(|ordinal| RightToken::of_letter(index.rune_at_ordinal(ordinal), ordinal))
                     .collect();
                 members.sort_by(|left, right| {
                     index
@@ -1888,9 +1891,9 @@ pub fn locked_glyph_name(raw_name: &str) -> String {
 
 /// One right slot's label: a letter's rune name, or a boundary's own label. Public because the `liveness-cases` subcommand uses the same labels.
 pub fn right_token_label(index: &SpecIndex, token: RightToken) -> String {
-    match token {
-        RightToken::Letter(rune, _) => index.resolve(rune).to_owned(),
-        other => boundary_left_label(other.kind()).to_owned(),
+    match token.rune() {
+        Some(rune) => index.resolve(rune).to_owned(),
+        None => boundary_left_label(token.kind()).to_owned(),
     }
 }
 
@@ -2621,7 +2624,7 @@ mod tests {
         let flags = Flags::new(0, false);
         let four_bytes = u32::MAX as usize;
         let letter = move |ordinal: u16| {
-            RightToken::Letter(
+            RightToken::of_letter(
                 pea,
                 Ordinal::new(ordinal).expect("an ordinal is one or more"),
             )
@@ -2760,7 +2763,7 @@ mod tests {
         let index = deep_alphabet();
         let pea = fixtures::sym(&index, "qsPea");
         let letter = |ordinal: u16| {
-            RightToken::Letter(
+            RightToken::of_letter(
                 pea,
                 Ordinal::new(ordinal).expect("an ordinal is one or more"),
             )

@@ -416,7 +416,7 @@ impl SpecIndex {
     /// The letter token for a registered family, carrying its rune-field ordinal, or `None` for a name that is no family. Outside tests, this is the only place a letter token is created, and every memo key stores the ordinal it carries.
     pub fn letter(&self, name: Sym) -> Option<RightToken> {
         self.rune_ordinal(name)
-            .map(|ordinal| RightToken::Letter(name, ordinal))
+            .map(|ordinal| RightToken::of_letter(name, ordinal))
     }
 
     /// A stance name's ordinal in the stance field of a memo key, or `None` for a name no rune declares a stance by. Nothing is journaled, because the set of stance names is spec structure and not one rune's content.
@@ -1435,7 +1435,7 @@ mod tests {
             assert_eq!(index.rune_at_ordinal(ordinal), *name);
             assert_eq!(
                 index.letter(*name),
-                Some(RightToken::Letter(*name, ordinal))
+                Some(RightToken::of_letter(*name, ordinal))
             );
             assert!(rune_ordinals.insert(ordinal));
         }
@@ -1509,7 +1509,7 @@ mod tests {
         assert_eq!(pea_alone.rune_at_ordinal(tea_ordinal), tea_there);
         assert_eq!(
             pea_alone.letter(tea_there),
-            Some(RightToken::Letter(tea_there, tea_ordinal))
+            Some(RightToken::of_letter(tea_there, tea_ordinal))
         );
         assert_eq!(pea_alone.stance_ordinal(tea_there), None);
         let registered: BTreeSet<Ordinal> = pea_alone

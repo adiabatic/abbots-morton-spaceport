@@ -146,7 +146,7 @@ impl<'i> ProspectLiveness<'i> {
         let tokens = self.probe_tokens();
         let mut verdict = false;
         for token in tokens.iter() {
-            if let RightToken::Letter(third, _) = *token
+            if let Some(third) = token.rune()
                 && self.fourth_live(engine, family, right1, right2, third)?
             {
                 verdict = true;
@@ -461,7 +461,7 @@ impl<'i> ProspectLiveness<'i> {
         };
         let tokens = self.probe_tokens();
         for (at, &token) in (0u32..).zip(tokens.iter()) {
-            let names = [token.ordinal(), None];
+            let names = [token.key_ordinal(), None];
             let step = 1 + 2 * at;
             let edge4 = match asks.take(step, names) {
                 Take::Varies => return Ok(asks.varied(step)),
@@ -574,7 +574,7 @@ impl<'i> ProspectLiveness<'i> {
         };
         let tokens = self.probe_tokens();
         for (at, &token) in (0u32..).zip(tokens.iter()) {
-            let names = [token.ordinal(), None];
+            let names = [token.key_ordinal(), None];
             let step = 1 + at;
             match asks.take(step, names) {
                 Take::Varies => return Ok(asks.varied(step)),
@@ -717,7 +717,7 @@ impl<'i> ProspectLiveness<'i> {
                 Take::Run => Some(asks.ask(engine, [None, None], |engine| favors(engine, base))?),
             };
             for (at, &token) in (0u32..).zip(tokens.iter()) {
-                let names = [token.ordinal(), None];
+                let names = [token.key_ordinal(), None];
                 match r3tok {
                     None => {
                         let step = first + 1 + 2 * at;
@@ -806,7 +806,7 @@ impl<'i> ProspectLiveness<'i> {
                 },
             };
             for (at, &probe) in (0u32..).zip(tokens.iter()) {
-                let names = [left_rune, probe.ordinal()];
+                let names = [left_rune, probe.key_ordinal()];
                 let (step, slots) = match r3tok {
                     None => (first + 1 + 2 * at, Slots::new(r1tok, r2tok, probe, EDGE)),
                     Some(third) => (first + 1 + at, Slots::new(r1tok, r2tok, third, probe)),
@@ -1125,16 +1125,27 @@ impl Probe {
                     CandidateOrdinals::of(liveness.index, family, stance, None, junction);
                 (ordinals.rune, Some(ordinals.stance), ordinals.junction)
             }
-            None => (liveness.letter(family).letter_ordinal(), None, None),
+            None => (
+                liveness
+                    .letter(family)
+                    .key_ordinal()
+                    .expect("a letter token carries its rune's ordinal"),
+                None,
+                None,
+            ),
         };
         VerdictKey {
             kind,
             family,
             stance,
             junction,
-            right1: r1tok.letter_ordinal(),
-            right2: r2tok.letter_ordinal(),
-            right3: r3tok.map(RightToken::letter_ordinal),
+            right1: r1tok
+                .key_ordinal()
+                .expect("a letter token carries its rune's ordinal"),
+            right2: r2tok
+                .key_ordinal()
+                .expect("a letter token carries its rune's ordinal"),
+            right3: r3tok.and_then(RightToken::key_ordinal),
         }
     }
 
@@ -1373,9 +1384,9 @@ pub(crate) mod tests {
         let tokens = liveness.probe_tokens();
         let spelled: Vec<String> = tokens
             .iter()
-            .map(|token| match token {
-                RightToken::Letter(rune, _) => index.resolve(*rune).to_owned(),
-                other => other.kind().as_str().to_owned(),
+            .map(|token| match token.rune() {
+                Some(rune) => index.resolve(rune).to_owned(),
+                None => token.kind().as_str().to_owned(),
             })
             .collect();
         assert_eq!(
