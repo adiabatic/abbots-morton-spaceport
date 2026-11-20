@@ -16,6 +16,8 @@ path = "src/main.rs"
 ams-m1-kernel = { path = "../kernel-rs" }
 # The kernel crate's own entry, features included, so the review crate adds no package to the lock and the kernel library compiles as the table build compiles it.
 serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
+# The kernel crate's own entry, which hashes a unit's carry projection into its content key; it adds no package to the lock.
+sha2 = { version = "0.11", default-features = false }
 
 # build.rs compiles HarfBuzz from its release tarball, which it checks against a pinned sha256 with the kernel's own `sha2` entry.
 [build-dependencies]

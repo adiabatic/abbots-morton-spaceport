@@ -1,8 +1,8 @@
-//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); and the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards them by comparing every field with uharfbuzz.
+//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); and the system zlib's deflate, behind the primed compressor the fragments are deflated with ([`Deflater`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check guards zlib's by inflating every deflated fragment through Python's `zlib`.
 
 #![allow(unsafe_code, non_camel_case_types)]
 
-use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
+use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_ulong, c_void};
 use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::ptr::NonNull;
@@ -351,6 +351,159 @@ impl Drop for Buffer {
     fn drop(&mut self) {
         // SAFETY: the buffer is owned here and destroyed once.
         unsafe { hb_buffer_destroy(self.raw.as_ptr()) }
+    }
+}
+
+/// zlib's `z_stream`, as `zlib.h` declares it.
+#[repr(C)]
+struct z_stream {
+    next_in: *const u8,
+    avail_in: c_uint,
+    total_in: c_ulong,
+    next_out: *mut u8,
+    avail_out: c_uint,
+    total_out: c_ulong,
+    msg: *const c_char,
+    state: *mut c_void,
+    zalloc: Option<unsafe extern "C" fn(*mut c_void, c_uint, c_uint) -> *mut c_void>,
+    zfree: Option<unsafe extern "C" fn(*mut c_void, *mut c_void)>,
+    opaque: *mut c_void,
+    data_type: c_int,
+    adler: c_ulong,
+    reserved: c_ulong,
+}
+
+impl z_stream {
+    /// A stream with every field zero, which leaves zlib its default allocator.
+    fn zeroed() -> Self {
+        Self {
+            next_in: std::ptr::null(),
+            avail_in: 0,
+            total_in: 0,
+            next_out: std::ptr::null_mut(),
+            avail_out: 0,
+            total_out: 0,
+            msg: std::ptr::null(),
+            state: std::ptr::null_mut(),
+            zalloc: None,
+            zfree: None,
+            opaque: std::ptr::null_mut(),
+            data_type: 0,
+            adler: 0,
+            reserved: 0,
+        }
+    }
+}
+
+const Z_OK: c_int = 0;
+const Z_STREAM_END: c_int = 1;
+const Z_BUF_ERROR: c_int = -5;
+const Z_FINISH: c_int = 4;
+
+#[link(name = "z")]
+unsafe extern "C" {
+    fn zlibVersion() -> *const c_char;
+    fn deflateInit_(
+        strm: *mut z_stream,
+        level: c_int,
+        version: *const c_char,
+        stream_size: c_int,
+    ) -> c_int;
+    fn deflateSetDictionary(strm: *mut z_stream, dictionary: *const u8, length: c_uint) -> c_int;
+    fn deflateCopy(dest: *mut z_stream, source: *mut z_stream) -> c_int;
+    fn deflateBound(strm: *mut z_stream, source_length: c_ulong) -> c_ulong;
+    fn deflate(strm: *mut z_stream, flush: c_int) -> c_int;
+    fn deflateEnd(strm: *mut z_stream) -> c_int;
+}
+
+/// One initialized deflate stream on the heap, where zlib's state points back at it, ended once when dropped.
+struct Stream(NonNull<z_stream>);
+
+impl Stream {
+    /// A zeroed stream on the heap for zlib to initialize; dropping it before zlib has initialized it frees it without ending it.
+    fn allocate() -> Self {
+        Self(NonNull::from(Box::leak(Box::new(z_stream::zeroed()))))
+    }
+
+    fn raw(&self) -> *mut z_stream {
+        self.0.as_ptr()
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // SAFETY: the stream was leaked from a Box in `allocate` and is owned here; deflateEnd ignores a stream zlib never initialized (its state is NULL) and frees an initialized one's state once.
+        unsafe {
+            deflateEnd(self.raw());
+            drop(Box::from_raw(self.raw()));
+        }
+    }
+}
+
+/// A deflate compressor primed with a preset dictionary, which deflates each input alone in the zlib framing through a copy of itself, as `build._FragmentPacker` deflates with a copy of its primed `zlib.compressobj`: the header carries the dictionary's Adler-32 and the trailer the input's, and the window and memory level are zlib's defaults, as `compressobj`'s are.
+pub struct Deflater {
+    primed: Stream,
+}
+
+// SAFETY: the primed stream is owned here and only read, by deflateCopy, after `primed` returns; moving it to another thread is safe.
+unsafe impl Send for Deflater {}
+
+impl Deflater {
+    /// A compressor at `level` primed with `dictionary`, refusing a dictionary zlib cannot take.
+    pub fn primed(level: i32, dictionary: &[u8]) -> Result<Self, String> {
+        let length = c_uint::try_from(dictionary.len())
+            .map_err(|_| "the dictionary is too long".to_string())?;
+        let size =
+            c_int::try_from(std::mem::size_of::<z_stream>()).expect("a z_stream's size fits");
+        let stream = Stream::allocate();
+        // SAFETY: the stream is zeroed and pinned on the heap; zlib reads the version string and `length` bytes of the dictionary, and keeps no pointer to either.
+        unsafe {
+            let status = deflateInit_(stream.raw(), level, zlibVersion(), size);
+            if status != Z_OK {
+                return Err(format!("zlib cannot start a compressor (status {status})"));
+            }
+            let status = deflateSetDictionary(stream.raw(), dictionary.as_ptr(), length);
+            if status != Z_OK {
+                return Err(format!("zlib refuses the dictionary (status {status})"));
+            }
+        }
+        Ok(Self { primed: stream })
+    }
+
+    /// `input` deflated alone through a copy of the primed compressor, finished, as one zlib stream.
+    pub fn deflate(&self, input: &[u8]) -> Result<Vec<u8>, String> {
+        let length = c_uint::try_from(input.len())
+            .map_err(|_| "the input is too long to deflate".to_string())?;
+        let copy = Stream::allocate();
+        // SAFETY: both streams are pinned on the heap and the primed one is initialized; deflateCopy only reads it. On failure deflateCopy leaves the copy's state NULL or frees it, so the copy's drop ends nothing twice. `next_in` and `next_out` describe live buffers of `avail_in` and `avail_out` bytes while deflate runs, and the output is cut to what zlib wrote.
+        unsafe {
+            let status = deflateCopy(copy.raw(), self.primed.raw());
+            if status != Z_OK {
+                (*copy.raw()).state = std::ptr::null_mut();
+                return Err(format!(
+                    "zlib cannot copy the primed compressor (status {status})"
+                ));
+            }
+            let bound = usize::try_from(deflateBound(copy.raw(), c_ulong::from(length)))
+                .map_err(|_| "the deflated bound outruns memory".to_string())?;
+            let mut out: Vec<u8> = Vec::with_capacity(bound.max(64));
+            let raw = copy.raw();
+            (*raw).next_in = input.as_ptr();
+            (*raw).avail_in = length;
+            loop {
+                let written = out.len();
+                let offered = c_uint::try_from(out.capacity() - written).unwrap_or(c_uint::MAX);
+                (*raw).next_out = out.as_mut_ptr().add(written);
+                (*raw).avail_out = offered;
+                let status = deflate(raw, Z_FINISH);
+                out.set_len(written + (offered - (*raw).avail_out) as usize);
+                match status {
+                    Z_STREAM_END => return Ok(out),
+                    Z_OK | Z_BUF_ERROR => out.reserve(out.capacity().max(64)),
+                    _ => return Err(format!("zlib cannot deflate the input (status {status})")),
+                }
+            }
+        }
     }
 }
 

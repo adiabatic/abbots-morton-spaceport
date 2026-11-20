@@ -18,7 +18,7 @@ These are settled and are not reopened here.
 
 ## Layout
 
-**A sibling crate, `rebuild/review-rs/`, not a Cargo workspace.** The crate is `ams-review`: a library, `ams_review`, that holds the worker, and a thin binary, `ams-review`, whose `units` subcommand is the service the build talks to. It depends on the kernel as a path dependency (`ams-m1-kernel = { path = "../kernel-rs" }`) and uses only the kernel's public library API, and on `serde_json` through the kernel's own entry, features included, so the review lock adds no package for it. It has its own `Cargo.toml`, `Cargo.lock` and `target/`.
+**A sibling crate, `rebuild/review-rs/`, not a Cargo workspace.** The crate is `ams-review`: a library, `ams_review`, that holds the worker, and a thin binary, `ams-review`, whose `units` subcommand is the service the build talks to. It depends on the kernel as a path dependency (`ams-m1-kernel = { path = "../kernel-rs" }`) and uses only the kernel's public library API, and on `serde_json` and `sha2` through the kernel's own entries, features included, so the review lock adds no package for them. It has its own `Cargo.toml`, `Cargo.lock` and `target/`.
 
 A workspace is ruled out for three reasons:
 
@@ -413,7 +413,7 @@ Every `compare` command below runs from the repository root as `uv run python -m
 ### `fragment`: build, stamp and deflate the fragment
 
 - Mirrors: `build.unit_to_json`, `_fragment_bytes`, `_FragmentPacker.pack`, `patch_fragment`, `check_scaffold`, `check_stamp`, `_junction_records`; `unit_cache.carry_projection`, `carry_content_hash`, `base58_64`, `unit_id_for`.
-- Adds: `src/fragment.rs`, `src/pack.rs` (a zlib backend with a preset dictionary), and the `fragment` stage.
+- Adds: `src/fragment.rs`, `src/pack.rs` (deflating through the system zlib, which `src/ffi.rs` declares beside HarfBuzz and `mmap`), and the `fragment` stage, whose answer check inflates each Rust-deflated fragment through Python's `zlib`.
 - Done when: `compare fragment` passes on both dumps, and each Rust-deflated fragment inflates through `zlib.decompressobj(zdict=dictionary)` to the Python fragment's bytes and ends exactly at its span.
 
 ### `check-unit`: run the drafting-time contract check

@@ -4,7 +4,7 @@
 
 `selfcheck` runs the worker over a source twice, once as the build runs it and once with every hook point wrapped and every registered stage recording into a temporary directory, and fails unless both runs give the same projection digest and every projection either run returns comes back from the typed encoding's round trip equal to itself, compared type-strictly (`same`).
 
-`compare STAGE --stages DIR` builds the crate (`units_exec.ensure_built`), writes an init for the source the dump's `source.json` names (`source_init`, `units_exec.write_init`), runs `ams-review stage STAGE --init=<init> DIR/STAGE.ndjson`, and reports every key whose outputs the Rust answer does not reproduce, type-strictly, and every key either side lacks. `--fields` narrows the outputs it checks to a comma-separated list of the stage's output fields and field groups.
+`compare STAGE --stages DIR` builds the crate (`units_exec.ensure_built`), writes an init for the source the dump's `source.json` names (`source_init`, `units_exec.write_init`), runs `ams-review stage STAGE --init=<init> DIR/STAGE.ndjson`, and reports every key whose outputs the Rust answer does not reproduce, type-strictly, every key either side lacks, and every problem a stage's answer checks (`Stage.answer_checks`) find in the Rust answer's further fields. `--fields` narrows the outputs it checks to a comma-separated list of the stage's output fields and field groups.
 
 The stages (`STAGES`):
 
@@ -21,6 +21,7 @@ The stages (`STAGES`):
 - `expect` records each call to `drafts.expect_string`, under `string:` and a digest of the call, as the `codepoints`, `spans` and `junctions` it receives and, as its value, the expect string it returns; and each pin the drafter replays against the after font, the drafted pin through `Drafter.validate_semantics` and each any-of candidate `Drafter.draft_any_of` returns, replayed as the pin is, under `pin:` and a digest of the replay's inputs, as the `text`, the `expect` and the `features` and, as its value, the pin's parse or its error, its interpretations, the after font's row and the replay's verdict (`_expect_line`). Its generated lines (`_expect_generated`) add `expect_string` calls over every boundary and connector, and the replay of every pinned cell of the site pages and of an edge set of pins (`_expect_edges`).
 - `schema` records each record the drafter's checkers check, `_SchemaValidator.check` on a `for_definition` checker, under `drafted:` and a digest of the call, as the `definition` the checker checks against and the `record` and, as its value, the verdict: whether `check` found no problem, which is all the drafter's output reads. Its generated lines (`_schema_generated`), under `generated:` and the same digest, check one drafted record of each shape and every policy record of the source's rune files against each of the drafter's definitions, and mutations of each against its own (`_schema_mutations`).
 - `draft` records each unit `_phase1_unit` drafts a full fragment for, under `draft:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, and the phase-1 `flags` the worker set on it, and as its value the fragment's `drafts`: the pin, the policy record or None, and the any-of record, each as its `to_json` writes it. A slim fragment, which the drafter skips, records nothing.
+- `fragment` records each unit `_phase1_unit` drafts, under `fragment:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, the phase-1 `flags` the worker set on it, and the `ink_deltas` and the `final_class` it drafts its fragment with, read from its projection, and as its value the fragment's shard bytes as the `_fragment_bytes` call its packer makes returned them (`fragment`, ASCII text), its `content_key` and its `id`. Its answer check (`_fragment_packed`) inflates the deflated fragment the Rust answer carries as `packed` through `zlib.decompressobj` with the source's preset dictionary, as `build._FragmentArena.read` inflates one, and requires the stream to end exactly where the bytes end and to give the Python fragment's bytes.
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace`, `str.isdigit` and `str.isdecimal` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -56,6 +57,7 @@ import sys
 import tempfile
 import unicodedata
 import warnings
+import zlib
 from array import array
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -377,15 +379,20 @@ Finisher = Callable[[object], Mapping[str, object] | list[Mapping[str, object]] 
 Recorder = Callable[[tuple, dict], Finisher | None]
 
 
+# An answer check sees the source's worker `init`, a line's expected outputs and the value the Rust answer to the line carries under the check's field, decoded, and returns a problem or None.
+AnswerCheck = Callable[[Mapping[str, object], Mapping[str, object], object], str | None]
+
+
 @dataclass(frozen=True)
 class Stage:
-    """One stage of the port: its recorders by hook name (`HOOKS`), its generated inputs, which give the fields of each further line for a source, the fields of a line that hold its expected output, which `compare` checks against the Rust stage's answer to the line's `key`, and named groups of those fields that `compare --fields` can check alone."""
+    """One stage of the port: its recorders by hook name (`HOOKS`), its generated inputs, which give the fields of each further line for a source, the fields of a line that hold its expected output, which `compare` checks against the Rust stage's answer to the line's `key`, named groups of those fields that `compare --fields` can check alone, and checks of further fields of a Rust answer that are not compared for equality, by field name."""
 
     name: str
     recorders: Mapping[str, Recorder]
     generated: Callable[[Source], Iterator[Mapping[str, object]]] | None = None
     outputs: tuple[str, ...] = ("value",)
     field_groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    answer_checks: Mapping[str, AnswerCheck] = field(default_factory=dict)
 
 
 def unit_value(unit: Unit) -> Record:
@@ -1551,6 +1558,72 @@ def _draft_unit(args: tuple, _kwargs: dict) -> Finisher:
     return finish
 
 
+# The shard bytes the `_fragment_bytes` calls inside the `_phase1_unit` call under way returned.
+_FRAGMENT_BYTES: list[bytes] = []
+
+
+def _fragment_bytes_returned(_args: tuple, _kwargs: dict) -> Finisher:
+    def finish(result: object) -> None:
+        assert isinstance(result, bytes)
+        _FRAGMENT_BYTES.append(result)
+
+    return finish
+
+
+def _fragment_unit(args: tuple, _kwargs: dict) -> Finisher:
+    unit = args[0]
+    key = f"fragment:{unit.ordinal}"
+    record = compact(units_exec.unit_record(unit))
+    mark = len(_FRAGMENT_BYTES)
+
+    def finish(result: object) -> dict[str, object]:
+        assert isinstance(result, tuple)
+        projection, fragment = result[0], result[1]
+        (body,) = _FRAGMENT_BYTES[mark:]
+        del _FRAGMENT_BYTES[mark:]
+        return {
+            "key": key,
+            "record": record,
+            "flags": {
+                "ink_identical": projection.ink_identical,
+                "picture_identical": projection.picture_identical,
+                "junior_equivalent": projection.junior_equivalent,
+            },
+            "ink_deltas": dict(projection.ink_deltas),
+            "final_class": projection.change_group or None,
+            "value": {
+                "fragment": body.decode("ascii"),
+                "content_key": fragment["content_key"],
+                "id": fragment["id"],
+            },
+        }
+
+    return finish
+
+
+def _fragment_packed(
+    init: Mapping[str, object], expected: Mapping[str, object], packed: object
+) -> str | None:
+    """The `fragment` stage's answer check: the problem with the Rust answer's deflated fragment, or None when it inflates through the source's preset dictionary to the Python fragment's bytes and its stream ends exactly where its bytes end, the two things `build._FragmentArena.read` requires of a span."""
+    if not isinstance(packed, bytes):
+        return f"the deflated fragment is {type(packed).__name__}, not bytes"
+    value = expected.get("value")
+    if not isinstance(value, dict):
+        return None
+    dictionary = init["dictionary"]
+    assert isinstance(dictionary, bytes)
+    inflater = zlib.decompressobj(zdict=dictionary)
+    try:
+        body = inflater.decompress(packed)
+    except zlib.error as error:
+        return f"the deflated fragment does not inflate ({error})"
+    if not inflater.eof or inflater.unused_data:
+        return "the deflated fragment's stream does not end where its bytes end"
+    if body != value["fragment"].encode("ascii"):
+        return "the deflated fragment inflates to other bytes than the Python fragment's"
+    return None
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -1599,6 +1672,11 @@ STAGES: dict[str, Stage] = {
     ),
     "schema": Stage("schema", {"_SchemaValidator.check": _schema_check}, _schema_generated),
     "draft": Stage("draft", {"_phase1_unit": _draft_unit}),
+    "fragment": Stage(
+        "fragment",
+        {"_phase1_unit": _fragment_unit, "_fragment_bytes": _fragment_bytes_returned},
+        answer_checks={"packed": _fragment_packed},
+    ),
 }
 
 
@@ -1883,7 +1961,7 @@ def compared_fields(stage: Stage, names: str | None) -> tuple[str, ...]:
 
 
 def compare(stage: Stage, stages: Path, checked: Sequence[str] | None = None) -> bool:
-    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, every key it does not answer, and every key it answers that the dump does not hold. Only the outputs `checked` names are checked, every output when None. The crate is built first (`units_exec.ensure_built`), and the init it reads is written for the dump's source (`units_exec.write_init`) into a directory held for the run."""
+    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, every problem the stage's answer checks find in an answer, every key it does not answer, and every key it answers that the dump does not hold. Only the outputs `checked` names are checked, every output when None. The crate is built first (`units_exec.ensure_built`), and the init it reads is written for the dump's source (`units_exec.write_init`) into a directory held for the run."""
     outputs = tuple(checked) if checked is not None else stage.outputs
     stage_file = stages / f"{stage.name}.ndjson"
     if not stage_file.is_file():
@@ -1903,10 +1981,15 @@ def compare(stage: Stage, stages: Path, checked: Sequence[str] | None = None) ->
             file=sys.stderr,
         )
         return False
-    actual = _answers(stdout.decode("utf-8").splitlines(), outputs, f"ams-review stage {stage.name}")
+    actual = _answers(
+        stdout.decode("utf-8").splitlines(),
+        (*outputs, *stage.answer_checks),
+        f"ams-review stage {stage.name}",
+    )
     missing = [key for key in expected if key not in actual]
     extra = [key for key in actual if key not in expected]
     differing = []
+    problems: list[tuple[str, str, str]] = []
     for key, fields in expected.items():
         answer = actual.get(key)
         if answer is None:
@@ -1914,6 +1997,10 @@ def compare(stage: Stage, stages: Path, checked: Sequence[str] | None = None) ->
         for name in outputs:
             if name not in fields or name not in answer or not same(fields[name], answer[name]):
                 differing.append((key, name))
+        for name, check in stage.answer_checks.items():
+            problem = check(init, fields, answer[name]) if name in answer else f"the answer has no {name}"
+            if problem is not None:
+                problems.append((key, name, problem))
     for label, keys in (("unanswered", missing), ("not in the dump", extra)):
         if keys:
             print(
@@ -1926,10 +2013,13 @@ def compare(stage: Stage, stages: Path, checked: Sequence[str] | None = None) ->
             + _difference(expected[key].get(name), actual[key].get(name)),
             file=sys.stderr,
         )
-    ok = not (missing or extra or differing)
+    for key, name, problem in problems[:EXAMPLES_SHOWN]:
+        print(f"compare {stage.name}: {key} {name}: {problem}", file=sys.stderr)
+    ok = not (missing or extra or differing or problems)
     print(
         f"compare {stage.name} ({stages}): {len(expected):,} lines, {len(differing):,} differ, "
-        f"{len(missing):,} unanswered, {len(extra):,} not in the dump"
+        + (f"{len(problems):,} fail their answer checks, " if stage.answer_checks else "")
+        + f"{len(missing):,} unanswered, {len(extra):,} not in the dump"
         + ("; Rust reproduces every line" if ok else ""),
         file=sys.stderr,
     )
