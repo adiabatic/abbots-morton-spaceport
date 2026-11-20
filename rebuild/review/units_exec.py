@@ -4,7 +4,7 @@
 
 `write_init` writes the init file (`INIT_FORMAT`) into a directory the caller holds, beside the spec dump, the font facts and the preset dictionary, from the `init` dict `_RecomputeRunner.__init__` hands a Python worker; `init_values` gives the values it carries as Python holds them. `write_font_facts` writes the font facts (`FONT_FACTS_FORMAT`), what the worker's outline caches, its junction classifier and its shapers' glyph names read from the three fonts, and `font_facts` gives them as Python holds them. `encode_batch` and `encode_verify` write the request frames, one unit record per `audit.Unit` (`unit_record`, `UNIT_FIELDS`). Values whose Python type the crate must keep, the vocabulary's among them, cross in the typed encoding (`encode`, `decode`), which the stage dumps of `rebuild/tools/units_stage_fixtures.py` use too.
 
-`UnitsProcess` runs the engine, `ams-review units`, over a worker `init` dict: it writes the request frames and reads the replies, `decode_batch` turning a `batch` reply's projections into `RustProjection`s, which carry the fields of `build._UnitProjection`, and `decode_verify` a `verify` reply's keys into the mapping `_RecomputeRunner.verify` returns.
+`UnitsProcess` runs the engine, `ams-review units`, over a worker `init` dict: it writes the request frames and reads the replies, `decode_batch` turning a `batch` reply's projections into `RustProjection`s, which hold the parsed values `UnitStore.load_projection` reads, and `decode_verify` a `verify` reply's keys into the mapping `_RecomputeRunner.verify` returns.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import ItemsView, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,7 +31,7 @@ from rebuild.pipeline.labels import load_alias_map
 from rebuild.pipeline.model import CellId
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, parse_codepoints
 from rebuild.review.drafts import _import_test_shaping
-from rebuild.review.enrich import PrimaryUnitProjection, load_spec
+from rebuild.review.enrich import load_spec
 from rebuild.review.ink import EMPTY_OUTLINE_KEY, JuniorOracle, OutlineCache, OutlineIntern
 from rebuild.review.subset_pack import PACK_FORMAT, PACKER_DIGEST, table_digests
 from rebuild.validation.classify import JunctionClassifier
@@ -472,74 +472,113 @@ def spawn(arguments: Sequence[str], *, stdin: int | None = subprocess.DEVNULL) -
 # --- the replies --------------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class RustProjection:
-    """One recomputed unit as a `batch` reply carries it (`decode_batch`): the fields of `build._UnitProjection`, in its order and of its types, so it satisfies `unit_store.RecomputedProjection`, with the deflated fragment as `packed` and its shard bytes' length as `raw_length`."""
+class RustPrimaryUnitRows:
+    """A `batch` reply's primary-unit rows (`RustProjection.primary_unit_projection`): the fields `unit_store.PrimaryUnitRows` names, as the parsed reply holds them, the record's `proj` lists and its junctions' pairs, with the window's code points parsed from the record's colon-joined hex."""
 
+    __slots__ = (
+        "codepoint_values",
+        "ink_identical",
+        "picture_identical",
+        "pair",
+        "after_spans",
+        "after_cells",
+        "after_junctions",
+        "before_spans",
+        "before_glyphs",
+        "before_junctions",
+        "junction_pairs",
+    )
+    codepoint_values: tuple[int, ...]
+    ink_identical: bool
+    picture_identical: bool
+    pair: list[int] | None
+    after_spans: list[list[int]]
+    after_cells: list[str]
+    after_junctions: list[str]
+    before_spans: list[list[int]]
+    before_glyphs: list[str]
+    before_junctions: list[str]
+    junction_pairs: list[list[int]]
+
+    def __init__(self, record: Mapping[str, Any]) -> None:
+        proj = record["proj"]
+        self.codepoint_values = parse_codepoints(record["codepoints"])
+        self.ink_identical = record["ink_identical"]
+        self.picture_identical = record["picture_identical"]
+        self.pair = proj["pair"]
+        self.after_spans = proj["after_spans"]
+        self.after_cells = proj["after_cells"]
+        self.after_junctions = proj["after_junctions"]
+        self.before_spans = proj["before_spans"]
+        self.before_glyphs = proj["before_glyphs"]
+        self.before_junctions = proj["before_junctions"]
+        self.junction_pairs = [junction["pair"] for junction in record["junctions"]]
+
+
+class RustProjection:
+    """One recomputed unit as a `batch` reply carries it (`decode_batch`), holding the parsed record's values as they are, lists and dicts, since the parent only copies them into the unit store's columns: the fields `unit_store.RecomputedProjection` names, so `UnitStore.load_projection` loads it as it loads a Python worker's `build._UnitProjection`, with the deflated fragment as `packed` and its shard bytes' length as `raw_length`."""
+
+    __slots__ = (
+        "unit_id",
+        "input_key",
+        "content_key",
+        "ink_identical",
+        "picture_identical",
+        "junior_equivalent",
+        "ink_deltas",
+        "diffs_digest",
+        "cluster",
+        "change_group",
+        "ledger_class",
+        "pair_codepoints",
+        "primary_unit_projection",
+        "junction_rects",
+        "mismatches",
+        "ordinal",
+        "packed",
+        "raw_length",
+    )
     unit_id: str
     input_key: str
     content_key: str
     ink_identical: bool
     picture_identical: bool
     junior_equivalent: bool
-    ink_deltas: tuple[tuple[str, str], ...]
+    ink_deltas: ItemsView[str, str]
     diffs_digest: str
     cluster: str
     change_group: str
     ledger_class: str
-    pair_codepoints: tuple[int, int] | None
-    primary_unit_projection: PrimaryUnitProjection
-    junction_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
-    mismatches: tuple[str, ...]
-    ordinal: int = -1
-    packed: bytes = b""
-    raw_length: int = 0
+    pair_codepoints: list[int] | None
+    primary_unit_projection: RustPrimaryUnitRows
+    junction_rects: list[tuple[list[int], dict, dict]]
+    mismatches: list[str]
+    ordinal: int
+    packed: bytes
+    raw_length: int
 
-
-def _pair(value: list | None) -> tuple[int, int] | None:
-    return None if value is None else (value[0], value[1])
-
-
-def decode_projection(record: Mapping[str, Any], packed: bytes) -> RustProjection:
-    """Return one projection record of a `batch` reply (the plan's § Replies out) as a `RustProjection`, with its deflated fragment `packed`. The primary-unit projection is rebuilt from the record's `proj`, its id, code points and two flags, and its junctions' pairs."""
-    proj = record["proj"]
-    junctions = record["junctions"]
-    return RustProjection(
-        unit_id=record["id"],
-        input_key=record["input_key"],
-        content_key=record["content_key"],
-        ink_identical=record["ink_identical"],
-        picture_identical=record["picture_identical"],
-        junior_equivalent=record["junior_equivalent"],
-        ink_deltas=tuple(record["ink_deltas"].items()),
-        diffs_digest=record["diffs_digest"],
-        cluster=record["cluster"],
-        change_group=record["change_group"],
-        ledger_class=record["ledger_class"],
-        pair_codepoints=_pair(record["pair_codepoints"]),
-        primary_unit_projection=PrimaryUnitProjection(
-            unit_id=record["id"],
-            codepoint_values=parse_codepoints(record["codepoints"]),
-            ink_identical=record["ink_identical"],
-            picture_identical=record["picture_identical"],
-            pair=_pair(proj["pair"]),
-            after_spans=tuple((start, end) for start, end in proj["after_spans"]),
-            after_cells=tuple(proj["after_cells"]),
-            after_junctions=tuple(proj["after_junctions"]),
-            before_spans=tuple((start, end) for start, end in proj["before_spans"]),
-            before_glyphs=tuple(proj["before_glyphs"]),
-            before_junctions=tuple(proj["before_junctions"]),
-            junction_pairs=tuple((junction["pair"][0], junction["pair"][1]) for junction in junctions),
-        ),
-        junction_rects=tuple(
-            ((junction["pair"][0], junction["pair"][1]), junction["before"], junction["after"])
-            for junction in junctions
-        ),
-        mismatches=tuple(record["mismatches"]),
-        ordinal=record["ordinal"],
-        packed=packed,
-        raw_length=record["raw_length"],
-    )
+    def __init__(self, record: Mapping[str, Any], packed: bytes) -> None:
+        """Hold one projection record of a `batch` reply (the plan's § Replies out) with its deflated fragment `packed`."""
+        self.unit_id = record["id"]
+        self.input_key = record["input_key"]
+        self.content_key = record["content_key"]
+        self.ink_identical = record["ink_identical"]
+        self.picture_identical = record["picture_identical"]
+        self.junior_equivalent = record["junior_equivalent"]
+        self.ink_deltas = record["ink_deltas"].items()
+        self.diffs_digest = record["diffs_digest"]
+        self.cluster = record["cluster"]
+        self.change_group = record["change_group"]
+        self.ledger_class = record["ledger_class"]
+        self.pair_codepoints = record["pair_codepoints"]
+        self.primary_unit_projection = RustPrimaryUnitRows(record)
+        self.junction_rects = [
+            (junction["pair"], junction["before"], junction["after"]) for junction in record["junctions"]
+        ]
+        self.mismatches = record["mismatches"]
+        self.ordinal = record["ordinal"]
+        self.packed = packed
+        self.raw_length = record["raw_length"]
 
 
 def decode_batch(frame: Mapping[str, Any], payload: bytes) -> tuple[int, list[RustProjection], list[str]]:
@@ -548,7 +587,7 @@ def decode_batch(frame: Mapping[str, Any], payload: bytes) -> tuple[int, list[Ru
     start = 0
     for record in frame["projections"]:
         end = start + record["packed_length"]
-        projections.append(decode_projection(record, payload[start:end]))
+        projections.append(RustProjection(record, payload[start:end]))
         start = end
     if start != len(payload):
         raise EngineRunError(

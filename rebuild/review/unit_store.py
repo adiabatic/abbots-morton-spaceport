@@ -108,8 +108,35 @@ class Flags(NamedTuple):
     byte_copied: bool
 
 
+class PrimaryUnitRows(Protocol):
+    """The fields `load_projection` reads from a recomputed unit's primary-unit projection: an `enrich.PrimaryUnitProjection` of tuples from a Python worker, or the Rust engine's parsed reply lists (`units_exec.RustPrimaryUnitRows`), which load the same columns."""
+
+    @property
+    def codepoint_values(self) -> Sequence[int]: ...
+    @property
+    def ink_identical(self) -> bool: ...
+    @property
+    def picture_identical(self) -> bool: ...
+    @property
+    def pair(self) -> Sequence[int] | None: ...
+    @property
+    def after_spans(self) -> Sequence[Sequence[int]]: ...
+    @property
+    def after_cells(self) -> Sequence[str]: ...
+    @property
+    def after_junctions(self) -> Sequence[str]: ...
+    @property
+    def before_spans(self) -> Sequence[Sequence[int]]: ...
+    @property
+    def before_glyphs(self) -> Sequence[str]: ...
+    @property
+    def before_junctions(self) -> Sequence[str]: ...
+    @property
+    def junction_pairs(self) -> Sequence[Sequence[int]]: ...
+
+
 class RecomputedProjection(Protocol):
-    """The fields `load_projection` reads from a phase-1 projection, matching `build._UnitProjection`. It is a Protocol so that this module does not import `build`, which imports this module. `ordinal` is the row to load into, negative when the caller passes the ordinal. The projection carries no address: the caller passes the fragment's."""
+    """The fields `load_projection` reads from a phase-1 projection: a Python worker's `build._UnitProjection`, whose values are tuples, or the Rust engine's `units_exec.RustProjection`, whose values are the parsed reply's lists and dicts, so each field names the widest shape the load reads the same way. It is a Protocol so that this module does not import `build`, which imports this module. `ordinal` is the row to load into, negative when the caller passes the ordinal. The projection carries no address: the caller passes the fragment's."""
 
     @property
     def ordinal(self) -> int: ...
@@ -126,7 +153,7 @@ class RecomputedProjection(Protocol):
     @property
     def junior_equivalent(self) -> bool: ...
     @property
-    def ink_deltas(self) -> tuple[tuple[str, str], ...]: ...
+    def ink_deltas(self) -> Iterable[tuple[str, str]]: ...
     @property
     def diffs_digest(self) -> str: ...
     @property
@@ -136,13 +163,13 @@ class RecomputedProjection(Protocol):
     @property
     def ledger_class(self) -> str: ...
     @property
-    def pair_codepoints(self) -> tuple[int, int] | None: ...
+    def pair_codepoints(self) -> Sequence[int] | None: ...
     @property
-    def primary_unit_projection(self) -> enrich.PrimaryUnitProjection: ...
+    def primary_unit_projection(self) -> PrimaryUnitRows: ...
     @property
-    def junction_rects(self) -> tuple[tuple[tuple[int, int], dict, dict], ...]: ...
+    def junction_rects(self) -> Sequence[tuple[Sequence[int], dict, dict]]: ...
     @property
-    def mismatches(self) -> tuple[str, ...]: ...
+    def mismatches(self) -> Sequence[str]: ...
 
 
 Address = tuple[str, int, int]
@@ -297,7 +324,7 @@ class UnitStore:
     def _load_row(
         self,
         ordinal: int,
-        spans: Sequence[tuple[int, int]],
+        spans: Sequence[Sequence[int]],
         names: Sequence[str],
         junctions: Sequence[str],
         start_column: array,
@@ -323,9 +350,7 @@ class UnitStore:
         name_column.extend(self._table.id(name) for name in names)
         junction_column.extend(self._table.id(junction) for junction in junctions)
 
-    def _load_projection_rows(
-        self, ordinal: int, primary_unit_projection: enrich.PrimaryUnitProjection
-    ) -> None:
+    def _load_projection_rows(self, ordinal: int, primary_unit_projection: PrimaryUnitRows) -> None:
         self._codepoints_start[ordinal] = len(self._codepoint_values)
         self._codepoints_n[ordinal] = len(primary_unit_projection.codepoint_values)
         self._codepoint_values.extend(primary_unit_projection.codepoint_values)
@@ -361,7 +386,7 @@ class UnitStore:
     def _load_junctions(
         self,
         ordinal: int,
-        junction_pairs: Sequence[tuple[int, int]],
+        junction_pairs: Sequence[Sequence[int]],
         rects: Sequence[tuple[Sequence[int], dict, dict]],
         cached_primary_units: Sequence[Sequence] | None,
     ) -> None:

@@ -46,8 +46,8 @@ from rebuild.pipeline.kernel_exec import KERNEL_ALLOCATOR_ENVIRONMENT
 from rebuild.review import build, unit_cache
 from rebuild.review.audit import Unit
 from rebuild.review.build import _UnitProjection
-from rebuild.review.enrich import resolve_primary_unit_assignments
-from rebuild.review.units_exec import UnitsProcess, encode
+from rebuild.review.enrich import PrimaryUnitProjection, resolve_primary_unit_assignments
+from rebuild.review.units_exec import RustProjection, UnitsProcess, encode
 from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.units_stage_fixtures import Source, _add_source_arguments, open_source, same
 
@@ -265,7 +265,7 @@ class PythonSide(_Side):
 
 
 class RustSide(_Side):
-    """The Rust engine as one `units_exec.UnitsProcess` at `threads` threads, one slot per thread. A reader thread reads the engine's replies and hands each `batch` reply to the slot that sent the batch, through a queue and a byte on the slot's pipe, which `multiprocessing.connection.wait` watches as it watches a Python worker's connection; the `verify` and `stopped` replies go to a queue of their own. A failure the reader meets is handed to every slot and to that queue, so the run raises it wherever it waits."""
+    """The Rust engine as one `units_exec.UnitsProcess` at `threads` threads, one slot per thread. A reader thread reads the engine's replies and hands each `batch` reply, its projections in a Python worker's shapes (`_unit_projection`), to the slot that sent the batch, through a queue and a byte on the slot's pipe, which `multiprocessing.connection.wait` watches as it watches a Python worker's connection; the `verify` and `stopped` replies go to a queue of their own. A failure the reader meets is handed to every slot and to that queue, so the run raises it wherever it waits."""
 
     engine = "rust"
 
@@ -293,7 +293,8 @@ class RustSide(_Side):
             while True:
                 reply = self.process.read_reply()
                 if reply[0] == "batch":
-                    self._deliver(self._sent_by.pop(reply[1]), ("batch", reply[2], reply[3]))
+                    projections = [_unit_projection(projection) for projection in reply[2]]
+                    self._deliver(self._sent_by.pop(reply[1]), ("batch", projections, reply[3]))
                     continue
                 self._others.put(reply)
                 if reply[0] == "stopped":
@@ -352,6 +353,51 @@ class RustSide(_Side):
 
 
 SIDES = {"python": PythonSide, "rust": RustSide}
+
+
+def _unit_projection(projection: RustProjection) -> _UnitProjection:
+    """Return the Rust engine's projection, which holds the parsed reply's lists and dicts, as the `_UnitProjection` a Python worker sends, every list a tuple and every pair a two-tuple, so the type-strict comparison holds both engines to one shape. A pair or span that is not two long raises."""
+    rows = projection.primary_unit_projection
+
+    def pair(value: Sequence[int]) -> tuple[int, int]:
+        start, end = value
+        return (start, end)
+
+    return _UnitProjection(
+        unit_id=projection.unit_id,
+        input_key=projection.input_key,
+        content_key=projection.content_key,
+        ink_identical=projection.ink_identical,
+        picture_identical=projection.picture_identical,
+        junior_equivalent=projection.junior_equivalent,
+        ink_deltas=tuple(projection.ink_deltas),
+        diffs_digest=projection.diffs_digest,
+        cluster=projection.cluster,
+        change_group=projection.change_group,
+        ledger_class=projection.ledger_class,
+        pair_codepoints=None if projection.pair_codepoints is None else pair(projection.pair_codepoints),
+        primary_unit_projection=PrimaryUnitProjection(
+            unit_id=projection.unit_id,
+            codepoint_values=rows.codepoint_values,
+            ink_identical=rows.ink_identical,
+            picture_identical=rows.picture_identical,
+            pair=None if rows.pair is None else pair(rows.pair),
+            after_spans=tuple(pair(span) for span in rows.after_spans),
+            after_cells=tuple(rows.after_cells),
+            after_junctions=tuple(rows.after_junctions),
+            before_spans=tuple(pair(span) for span in rows.before_spans),
+            before_glyphs=tuple(rows.before_glyphs),
+            before_junctions=tuple(rows.before_junctions),
+            junction_pairs=tuple(pair(junction) for junction in rows.junction_pairs),
+        ),
+        junction_rects=tuple(
+            (pair(junction), before, after) for junction, before, after in projection.junction_rects
+        ),
+        mismatches=tuple(projection.mismatches),
+        ordinal=projection.ordinal,
+        packed=projection.packed,
+        raw_length=projection.raw_length,
+    )
 
 
 # --- the comparison -----------------------------------------------------------------------------
