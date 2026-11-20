@@ -1,7 +1,9 @@
-//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib's deflate, behind the primed compressor the fragments are deflated with ([`Deflater`]); and the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check guards zlib's by inflating every deflated fragment through Python's `zlib`.
+//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib's deflate, behind the primed compressor the fragments are deflated with ([`Deflater`]) and the pool its buffers are drawn from ([`BufferPool`]); and the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check guards zlib's by inflating every deflated fragment through Python's `zlib`.
 
 #![allow(unsafe_code, non_camel_case_types)]
 
+use std::alloc::{Layout, alloc, dealloc};
+use std::cell::RefCell;
 use std::ffi::{CStr, CString, c_char, c_int, c_long, c_uint, c_ulong, c_void};
 use std::os::fd::AsRawFd;
 use std::path::Path;
@@ -440,12 +442,74 @@ impl Drop for Stream {
     }
 }
 
-/// A deflate compressor primed with a preset dictionary, which deflates each input alone in the zlib framing through a copy of itself, as `build._FragmentPacker` deflates with a copy of its primed `zlib.compressobj`: the header carries the dictionary's Adler-32 and the trailer the input's, and the window and memory level are zlib's defaults, as `compressobj`'s are.
-pub struct Deflater {
-    primed: Stream,
+/// The buffers zlib allocates for a [`Deflater`]'s primed stream and its copies, each kept when zlib frees it and handed out again for the next request of its length, so each fragment's copy reuses the last copy's buffers instead of taking fresh pages from the allocator and returning them. Each buffer carries its length in a header of `POOL_HEADER` bytes.
+struct BufferPool {
+    free: RefCell<Vec<(usize, *mut u8)>>,
 }
 
-// SAFETY: the primed stream is owned here and only read, by deflateCopy, after `primed` returns; moving it to another thread is safe.
+const POOL_HEADER: usize = 16;
+
+impl BufferPool {
+    fn layout(length: usize) -> Layout {
+        Layout::from_size_align(length + POOL_HEADER, POOL_HEADER)
+            .expect("a zlib buffer's layout is valid")
+    }
+}
+
+impl Drop for BufferPool {
+    fn drop(&mut self) {
+        for (length, buffer) in self.free.get_mut().drain(..) {
+            // SAFETY: each kept buffer was allocated by `pool_alloc` with this layout and is freed once.
+            unsafe { dealloc(buffer, BufferPool::layout(length)) }
+        }
+    }
+}
+
+unsafe extern "C" fn pool_alloc(opaque: *mut c_void, items: c_uint, size: c_uint) -> *mut c_void {
+    let length = items as usize * size as usize;
+    // SAFETY: `opaque` is the deflater's live pool, used by one thread at a time.
+    let pool = unsafe { &*opaque.cast::<BufferPool>() };
+    let mut free = pool.free.borrow_mut();
+    let buffer = match free.iter().position(|&(kept, _)| kept == length) {
+        Some(index) => free.swap_remove(index).1,
+        None => {
+            // SAFETY: the layout is nonzero in size.
+            let buffer = unsafe { alloc(BufferPool::layout(length)) };
+            if buffer.is_null() {
+                return std::ptr::null_mut();
+            }
+            // SAFETY: the header's first word lies inside the allocation.
+            unsafe { buffer.cast::<usize>().write(length) };
+            buffer
+        }
+    };
+    // SAFETY: the header lies inside the allocation.
+    unsafe { buffer.add(POOL_HEADER).cast() }
+}
+
+unsafe extern "C" fn pool_free(opaque: *mut c_void, address: *mut c_void) {
+    if address.is_null() {
+        return;
+    }
+    // SAFETY: `address` came from `pool_alloc`, so its header holds its length; `opaque` is the deflater's live pool.
+    unsafe {
+        let buffer = address.cast::<u8>().sub(POOL_HEADER);
+        let length = buffer.cast::<usize>().read();
+        (*opaque.cast::<BufferPool>())
+            .free
+            .borrow_mut()
+            .push((length, buffer));
+    }
+}
+
+/// A deflate compressor primed with a preset dictionary, which deflates each input alone in the zlib framing through a copy of itself, as `build._FragmentPacker` deflates with a copy of its primed `zlib.compressobj`: the header carries the dictionary's Adler-32 and the trailer the input's, and the window and memory level are zlib's defaults, as `compressobj`'s are. zlib allocates the primed stream and every copy from the deflater's [`BufferPool`].
+pub struct Deflater {
+    primed: Stream,
+    /// Declared after `primed`, so it is dropped after the stream that frees into it.
+    _pool: Box<BufferPool>,
+}
+
+// SAFETY: the primed stream is owned here and only read, by deflateCopy, after `primed` returns, and the pool is owned here and reached only through the streams of whichever thread holds the deflater; moving both to another thread is safe.
 unsafe impl Send for Deflater {}
 
 impl Deflater {
@@ -455,7 +519,16 @@ impl Deflater {
             .map_err(|_| "the dictionary is too long".to_string())?;
         let size =
             c_int::try_from(std::mem::size_of::<z_stream>()).expect("a z_stream's size fits");
+        let pool = Box::new(BufferPool {
+            free: RefCell::new(Vec::new()),
+        });
         let stream = Stream::allocate();
+        // SAFETY: the pool outlives the stream and its copies, which take its allocator from the stream (deflateCopy copies `zalloc`, `zfree` and `opaque`).
+        unsafe {
+            (*stream.raw()).zalloc = Some(pool_alloc);
+            (*stream.raw()).zfree = Some(pool_free);
+            (*stream.raw()).opaque = std::ptr::from_ref::<BufferPool>(&pool).cast_mut().cast();
+        }
         // SAFETY: the stream is zeroed and pinned on the heap; zlib reads the version string and `length` bytes of the dictionary, and keeps no pointer to either.
         unsafe {
             let status = deflateInit_(stream.raw(), level, zlibVersion(), size);
@@ -467,7 +540,10 @@ impl Deflater {
                 return Err(format!("zlib refuses the dictionary (status {status})"));
             }
         }
-        Ok(Self { primed: stream })
+        Ok(Self {
+            primed: stream,
+            _pool: pool,
+        })
     }
 
     /// `input` deflated alone through a copy of the primed compressor, finished, as one zlib stream.
