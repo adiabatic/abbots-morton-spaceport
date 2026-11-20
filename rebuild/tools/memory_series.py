@@ -2961,7 +2961,7 @@ def parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--jobs",
         type=int,
-        help="the corpus build's units width; by default `corpus_job_budget(skip_gates=True)`, as a hand build takes it (corpus holder)",
+        help="the corpus build's units width; by default `corpus_job_budget(skip_gates=True, engine=\"python\")`, a hand build's width under the Python units engine every line runs (corpus holder)",
     )
     parser.add_argument(
         "--signature-jobs",
