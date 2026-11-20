@@ -1,7 +1,7 @@
 //! The `ams-review` binary.
 //!
 //! - `ams-review version` writes the wire format, the kernel's spec dump format and the linked HarfBuzz version to stdout, one tab-separated `name value` line each ([`ams_review::version_text`]).
-//! - `ams-review stage STAGE --init=PATH FILE` runs one stage of the stage fixtures over the dump `FILE` and writes one line per answer to stdout, its `key` and the stage's outputs (`value`, or `rendered` and `filtered` for `explain`), each in the typed encoding. The stages are `wire` ([`ams_review::wire::stage_wire`]), `pyfmt` ([`ams_review::pyfmt::stage_pyfmt`]), `yaml` ([`ams_review::pyfmt::stage_yaml`]), `shape` ([`ams_review::shape::stage_shape`]), `ink` ([`ams_review::ink::stage_ink`]), `settle` ([`ams_review::settle::stage_settle`]) and `explain` ([`ams_review::explain::stage_explain`]); `pyfmt` and `yaml` read nothing from the init, `settle` and `explain` read only the spec and the settlement modes, and `shape` and `ink` refuse an init whose HarfBuzz version is not the linked one. A refused input exits 1 with the reason on stderr.
+//! - `ams-review stage STAGE --init=PATH FILE` runs one stage of the stage fixtures over the dump `FILE` and writes one line per answer to stdout, its `key` and the stage's outputs (`value`, or `rendered` and `filtered` for `explain`), each in the typed encoding. The stages are `wire` ([`ams_review::wire::stage_wire`]), `pyfmt` ([`ams_review::pyfmt::stage_pyfmt`]), `yaml` ([`ams_review::pyfmt::stage_yaml`]), `shape` ([`ams_review::shape::stage_shape`]), `ink` ([`ams_review::ink::stage_ink`]), `settle` ([`ams_review::settle::stage_settle`]), `explain` ([`ams_review::explain::stage_explain`]) and `subset` ([`ams_review::subset_pack::stage_subset`]); `pyfmt` and `yaml` read nothing from the init, `settle` and `explain` read only the spec and the settlement modes, `subset` reads only the subset pack's path and header values, and `shape` and `ink` refuse an init whose HarfBuzz version is not the linked one. A refused input exits 1 with the reason on stderr.
 //!
 //! A usage mistake (no subcommand, an unknown one, an argument a subcommand does not take, or an argument that is not valid Unicode) exits 2 with the usage on stderr.
 
@@ -11,7 +11,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: ams-review version\n       ams-review stage {wire,pyfmt,yaml,shape,ink,settle,explain} --init=PATH FILE";
+const USAGE: &str = "usage: ams-review version\n       ams-review stage {wire,pyfmt,yaml,shape,ink,settle,explain,subset} --init=PATH FILE";
 
 fn main() -> ExitCode {
     let Ok(arguments) = std::env::args_os()
@@ -30,7 +30,7 @@ fn main() -> ExitCode {
         ["version"] => version(),
         [
             "stage",
-            name @ ("wire" | "pyfmt" | "yaml" | "shape" | "ink" | "settle" | "explain"),
+            name @ ("wire" | "pyfmt" | "yaml" | "shape" | "ink" | "settle" | "explain" | "subset"),
             init,
             file,
         ] => match init.strip_prefix("--init=") {
@@ -74,7 +74,9 @@ fn stage(name: &str, init: &str, file: &str) -> ExitCode {
                 .map_err(|error| error.to_string()),
             "settle" => ams_review::settle::stage_settle(init, file, &mut stdout)
                 .map_err(|error| error.to_string()),
-            _ => ams_review::explain::stage_explain(init, file, &mut stdout)
+            "explain" => ams_review::explain::stage_explain(init, file, &mut stdout)
+                .map_err(|error| error.to_string()),
+            _ => ams_review::subset_pack::stage_subset(init, file, &mut stdout)
                 .map_err(|error| error.to_string()),
         }
         .and_then(|()| {

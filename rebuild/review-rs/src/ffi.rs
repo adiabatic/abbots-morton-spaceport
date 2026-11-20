@@ -1,8 +1,9 @@
-//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards them by comparing every field with uharfbuzz.
+//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); and the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards them by comparing every field with uharfbuzz.
 
 #![allow(unsafe_code, non_camel_case_types)]
 
-use std::ffi::{CStr, CString, c_char, c_int, c_uint};
+use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
+use std::os::fd::AsRawFd;
 use std::path::Path;
 use std::ptr::NonNull;
 
@@ -101,6 +102,81 @@ unsafe extern "C" {
         features: *const hb_feature_t,
         num_features: c_uint,
     );
+}
+
+unsafe extern "C" {
+    fn mmap(
+        addr: *mut c_void,
+        len: usize,
+        prot: c_int,
+        flags: c_int,
+        fd: c_int,
+        offset: i64,
+    ) -> *mut c_void;
+    fn munmap(addr: *mut c_void, len: usize) -> c_int;
+}
+
+const PROT_READ: c_int = 1;
+const MAP_SHARED: c_int = 1;
+
+/// A whole file mapped read-only and shared, as Python's `mmap.mmap(fileno, 0, access=mmap.ACCESS_READ)` maps it, which every thread may read at once. The file must not change while it is mapped: the subset pack is written to a temporary file and renamed into place, never rewritten in place.
+pub struct Mapping {
+    raw: NonNull<u8>,
+    len: usize,
+}
+
+// SAFETY: the mapping is read-only and owned here; nothing writes through it.
+unsafe impl Send for Mapping {}
+// SAFETY: as for Send.
+unsafe impl Sync for Mapping {}
+
+impl Mapping {
+    /// Map the file at `path`, refusing an empty file, which `mmap` cannot map.
+    pub fn open(path: &Path) -> std::io::Result<Self> {
+        let file = std::fs::File::open(path)?;
+        let len = usize::try_from(file.metadata()?.len()).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "the file outruns memory")
+        })?;
+        if len == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "cannot map an empty file",
+            ));
+        }
+        // SAFETY: a fresh read-only shared mapping of `len` bytes of an open file; the mapping outlives the descriptor, which closes when `file` drops.
+        let raw = unsafe {
+            mmap(
+                std::ptr::null_mut(),
+                len,
+                PROT_READ,
+                MAP_SHARED,
+                file.as_raw_fd(),
+                0,
+            )
+        };
+        if raw.addr() == usize::MAX {
+            return Err(std::io::Error::last_os_error());
+        }
+        let raw = NonNull::new(raw.cast::<u8>()).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "mmap returned NULL")
+        })?;
+        Ok(Self { raw, len })
+    }
+
+    /// The file's bytes.
+    pub fn bytes(&self) -> &[u8] {
+        // SAFETY: `raw` maps `len` readable bytes until `drop` unmaps them.
+        unsafe { std::slice::from_raw_parts(self.raw.as_ptr(), self.len) }
+    }
+}
+
+impl Drop for Mapping {
+    fn drop(&mut self) {
+        // SAFETY: the mapping is owned here and unmapped once.
+        unsafe {
+            munmap(self.raw.as_ptr().cast::<c_void>(), self.len);
+        }
+    }
 }
 
 /// The linked HarfBuzz's version, `hb_version_string()`.

@@ -49,6 +49,17 @@ pub fn is_digit(letter: char) -> bool {
     in_ranges(unicode_tables::DIGIT, letter)
 }
 
+/// The digit value of a character `str.isdecimal` accepts, as `int` reads a digit of any script, or None for any other character. Each range of [`unicode_tables::DECIMAL`] is whole runs of ten digits from zero, which the generator checks.
+pub fn decimal_value(letter: char) -> Option<u32> {
+    let point = u32::from(letter);
+    let ranges = unicode_tables::DECIMAL;
+    let index = ranges.partition_point(|&(_, end)| end < point);
+    ranges
+        .get(index)
+        .filter(|&&(start, _)| start <= point)
+        .map(|&(start, _)| (point - start) % 10)
+}
+
 /// One Python value. A set holds its members in the order they were given; [`PyValue::to_typed`] sorts them as `units_exec.encode` does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PyValue {

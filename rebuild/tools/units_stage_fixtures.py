@@ -15,8 +15,9 @@ The stages (`STAGES`):
 - `ink` records each unit `_phase1_unit` reads, under `ink:<ordinal>`, as its `text` and `configs` and, as its value, the repr of the diffs its `_ink_readings` call returns, the three machine flags, `ink_deltas` and the diffs digest from the projection. Its generated lines put every distinct text of a unit that holds `ss10` to the Junior oracle directly (`_ink_generated`), under `junior:` and a digest of the text, with the oracle's tracking-free Junior pieces and its answer for `ss10` alone.
 - `settle` records each unit `Enricher.explain_units` settles, under `settle:` with its first configuration and its code points, as the `codepoints` and the `config` and, as its value, the `ExplainReport`'s code points, features and positions, each position's trace whole; and each text `Enricher.formed_spans` forms, under `spans:` and its code points, as the `codepoints` and the spans it returns.
 - `explain` records each explain text `Enricher.enrich` writes, the `_filter_explain` call over the `ExplainReport.render` call just before it, under `explain:` with the report's configuration token (`model.feature_config_token`), its code points and the divergent positions, as the report's `codepoints`, that `config` and the `diff_positions` the filter receives, and as its outputs the `rendered` text and the `filtered` text the filter returns.
+- `subset` records each lookup `Enricher.enrich` makes in the subset pack, `SubsetPack.row`, under `subset:` with its configuration and its code points, as the `config` and the `codepoints` it receives and the `SubsetRow` or None it returns. Its generated lines (`_subset_generated`), under `generated:` with the same two, look up each configuration's first and last window, the first window spelled each way `int(part, 16)` reads it (`_SUBSET_SPELLINGS`), its misspellings `pack_key` refuses (`_SUBSET_MISSPELLINGS`), strings that refuse or miss whatever the source (`_SUBSET_MISSES`), and a configuration the pack does not hold.
 
-`unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace` and `str.isdigit` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
+`unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace`, `str.isdigit` and `str.isdecimal` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
 The sources (`open_source`):
 
@@ -69,8 +70,10 @@ from rebuild.review.enrich import LETTERS, load_spec
 from rebuild.review.fixtures.mini import pin
 from rebuild.review.subset_pack import (
     PACK_NAME,
+    SubsetPack,
     _header_disagreement,
     _read_header,
+    key_codepoints,
     table_digests,
     write_pack_in_memory,
 )
@@ -95,6 +98,7 @@ HOOKS: dict[str, tuple[str, str]] = {
     "Enricher.enrich": ("rebuild.review.enrich", "Enricher.enrich"),
     "ExplainReport.render": ("rebuild.pipeline.explain", "ExplainReport.render"),
     "_filter_explain": ("rebuild.review.enrich", "_filter_explain"),
+    "SubsetPack.row": ("rebuild.review.subset_pack", "SubsetPack.row"),
     "Drafter.draft_pin": ("rebuild.review.drafts", "Drafter.draft_pin"),
     "Drafter.draft_policy": ("rebuild.review.drafts", "Drafter.draft_policy"),
     "Drafter.draft_any_of": ("rebuild.review.drafts", "Drafter.draft_any_of"),
@@ -891,6 +895,83 @@ def _explain_filter(args: tuple, kwargs: dict) -> Finisher:
     }
 
 
+def _subset_line(origin: str, config: str, codepoints: str, row: object) -> dict[str, object]:
+    return {
+        "key": f"{origin}:{config}:{codepoints}",
+        "config": config,
+        "codepoints": codepoints,
+        "value": row,
+    }
+
+
+def _subset_row(args: tuple, kwargs: dict) -> Finisher:
+    config = args[1] if len(args) > 1 else kwargs["config"]
+    codepoints = args[2] if len(args) > 2 else kwargs["codepoints"]
+    return lambda result: _subset_line("subset", config, codepoints, result)
+
+
+# Spellings of a canonical window that `int(part, 16)` reads as the window itself: lowercase, the `0x` prefix bare and with its underscore, a sign, an underscore between digits, surrounding whitespace `int` strips (an em space and a next-line among it), a leading zero slot, and the decimal digits of two other scripts.
+_SUBSET_SPELLINGS: tuple[Callable[[str], str], ...] = (
+    str.lower,
+    lambda window: ":".join(f"0x{part}" for part in window.split(":")),
+    lambda window: ":".join(f"0X_{part}" for part in window.split(":")),
+    lambda window: ":".join(f"+{part}" for part in window.split(":")),
+    lambda window: ":".join(f"{part[:2]}_{part[2:]}" for part in window.split(":")),
+    lambda window: ":".join(f" \t{part} \x85" for part in window.split(":")),
+    lambda window: f"0000:{window}" if window.count(":") < 3 else window,
+    lambda window: window.translate({ord(digit): 0x0660 + int(digit) for digit in "0123456789"}),
+    lambda window: window.translate({ord(digit): 0xFF10 + int(digit) for digit in "0123456789"}),
+)
+
+# Misspellings of a canonical window that `pack_key` refuses, each of which a reader too lenient by one rule would read as the window: what `int(part, 16)` refuses (a leading, trailing or doubled underscore, a doubled underscore after the prefix, a sign twice, inner whitespace, an ASCII separator `str.isspace` accepts but `int` does not strip, a NUL, a DEL), a negative, a codepoint past the slot width and one past 64 bits that both end in the window's first codepoint, zero slots that fill the key past four, and empty parts.
+_SUBSET_MISSPELLINGS: tuple[Callable[[str], str], ...] = (
+    lambda window: f"_{window}",
+    lambda window: f"{window}_",
+    lambda window: f"{window[:2]}__{window[2:]}",
+    lambda window: f"0x__{window}",
+    lambda window: f"+-{window}",
+    lambda window: f"{window[:2]} {window[2:]}",
+    lambda window: f"\x1c{window}",
+    lambda window: f"{window}\x00",
+    lambda window: f"{window}\x7f",
+    lambda window: f"-{window}",
+    lambda window: f"1{window}",
+    lambda window: f"1{'0' * 16}{window}",
+    lambda window: "0000:" * (5 - len(window.split(":"))) + window,
+    lambda window: f":{window}",
+    lambda window: f"{window}:",
+    lambda window: window.replace(":", "::", 1),
+)
+
+# Strings `pack_key` refuses or no table holds: nothing, a sign alone, a bare prefix, a letter outside hex, a negative zero and a zero key, which pack, and a codepoint past the slot width.
+_SUBSET_MISSES = ("", "+", "0x", "G650", "-0", "0000", "10000")
+
+
+def _subset_generated(source: Source) -> Iterator[Mapping[str, object]]:
+    """The `subset` stage's generated lines (the module docstring), each looked up in the source's pack as `Enricher.subset_row` opens it."""
+    init = source.init
+    pack = SubsetPack.open(init["subset_pack"], table_digests(init["subset_dir"], ACCEPTANCE_CONFIGS))
+    try:
+        windows = [
+            (config, key_codepoints(section.keys[index]))
+            for config, section in pack._sections.items()
+            if section.rows
+            for index in sorted({0, section.rows - 1})
+        ]
+        config, window = windows[0]
+        lookups = [
+            *windows,
+            *((config, spell(window)) for spell in _SUBSET_SPELLINGS),
+            *((config, misspell(window)) for misspell in _SUBSET_MISSPELLINGS),
+            *((config, text) for text in _SUBSET_MISSES),
+            ("ss99", window),
+        ]
+        for config, codepoints in lookups:
+            yield _subset_line("generated", config, codepoints, pack.row(config, codepoints))
+    finally:
+        pack.close()
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -915,6 +996,7 @@ STAGES: dict[str, Stage] = {
         {"ExplainReport.render": _explain_render, "_filter_explain": _explain_filter},
         outputs=("rendered", "filtered"),
     ),
+    "subset": Stage("subset", {"SubsetPack.row": _subset_row}, _subset_generated),
 }
 
 
@@ -1241,6 +1323,7 @@ UNICODE_PREDICATES = (
     ("PRINTABLE", "isprintable", "`str.isprintable`"),
     ("SPACE", "isspace", "`str.isspace`, behind `strip`, `split` and `re`'s `\\s`"),
     ("DIGIT", "isdigit", "`str.isdigit`"),
+    ("DECIMAL", "isdecimal", "`str.isdecimal`, the digits `int` reads in any script,"),
 )
 
 
@@ -1257,21 +1340,32 @@ def _predicate_ranges(predicate: Callable[[str], bool]) -> list[tuple[int, int]]
     return ranges
 
 
+def _check_decimal_runs(ranges: Sequence[tuple[int, int]]) -> None:
+    """Raise ValueError unless every `str.isdecimal` range is whole runs of ten digits from zero, the premise `pyfmt::decimal_value` reads a digit's value from."""
+    for start, end in ranges:
+        for point in range(start, end + 1):
+            if unicodedata.decimal(chr(point)) != (point - start) % 10:
+                raise ValueError(f"U+{point:04X} breaks the runs of ten decimal digits from U+{start:04X}")
+
+
 def unicode_tables_text() -> str:
     """The text of `UNICODE_TABLES` for this CPython: each predicate's inclusive code point ranges in ascending order, one per line under `#[rustfmt::skip]`."""
     lines = [
-        "//! The pinned CPython's `str` predicates as code point ranges, for `repr` and the ported string handling ([`super::is_printable`], [`super::is_space`], [`super::is_digit`]). `uv run python -m rebuild.tools.units_stage_fixtures unicode-tables` generates this file and `--check` fails when it is stale; it is never edited by hand.",
+        "//! The pinned CPython's `str` predicates as code point ranges, for `repr` and the ported string handling ([`super::is_printable`], [`super::is_space`], [`super::is_digit`], [`super::decimal_value`]). `uv run python -m rebuild.tools.units_stage_fixtures unicode-tables` generates this file and `--check` fails when it is stale; it is never edited by hand.",
         "",
         "/// The Unicode version of the CPython the tables come from (`unicodedata.unidata_version`).",
         f'pub const UNICODE_VERSION: &str = "{unicodedata.unidata_version}";',
     ]
     for name, method, what in UNICODE_PREDICATES:
+        ranges = _predicate_ranges(getattr(str, method))
+        if method == "isdecimal":
+            _check_decimal_runs(ranges)
         lines += [
             "",
             f"/// The code points {what} accepts, as inclusive ranges in ascending order.",
             "#[rustfmt::skip]",
             f"pub static {name}: &[(u32, u32)] = &[",
-            *(f"    (0x{start:04X}, 0x{end:04X})," for start, end in _predicate_ranges(getattr(str, method))),
+            *(f"    (0x{start:04X}, 0x{end:04X})," for start, end in ranges),
             "];",
         ]
     return "\n".join(lines) + "\n"
