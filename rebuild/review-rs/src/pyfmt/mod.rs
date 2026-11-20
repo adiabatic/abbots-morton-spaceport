@@ -2,11 +2,12 @@
 //!
 //! The encoding writes an int, a string, a boolean or None as itself, and every other value as a one-key object: `{"tuple": [...]}`, `{"list": [...]}`, `{"dict": [[key, value], ...]}` in insertion order, `{"bytes": hex}`, `{"set": [...]}` with its members sorted by their encoded text, and `{"record": [class name, [[field, value], ...]]}` for a dataclass or named tuple. There is no float, in the model or on the wire.
 //!
-//! The submodules write a value as Python writes it: [`repr`] as CPython's `repr`, [`json`] as `json.dumps` in the worker's two forms, both resting on the pinned CPython's `str` predicates ([`is_printable`], [`is_space`], [`is_digit`]) from the generated [`unicode_tables`]. [`stage_pyfmt`] is the `pyfmt` stage of the stage fixtures.
+//! The submodules write a value as Python writes it: [`repr`] as CPython's `repr`, [`json`] as `json.dumps` in the worker's two forms, and [`yaml`] as PyYAML's flow dump of a policy record, resting on the pinned CPython's `str` predicates ([`is_printable`], [`is_space`], [`is_digit`]) from the generated [`unicode_tables`]. [`stage_pyfmt`] and [`stage_yaml`] are the `pyfmt` and `yaml` stages of the stage fixtures.
 
 pub mod json;
 pub mod repr;
 pub mod unicode_tables;
+pub mod yaml;
 
 use std::fmt;
 use std::io::{BufRead, Write};
@@ -226,6 +227,28 @@ impl PyValue {
 
 /// The `pyfmt` stage: for each line of `stage_file`, write the line's `input` in the form its `format` names (`repr`, `json-sorted` or `json-fragment`) as one `{"key", "value"}` line, the value a `str` in the typed encoding.
 pub fn stage_pyfmt(stage_file: &Path, out: &mut impl Write) -> Result<(), PyFmtError> {
+    answer_lines(stage_file, out, |record, input| {
+        match record["format"].as_str() {
+            Some("repr") => repr::repr(input),
+            Some("json-sorted") => json::dumps_sorted(input),
+            Some("json-fragment") => json::fragment_text(input),
+            Some(other) => Err(PyFmtError(format!("no pyfmt format {other:?}"))),
+            None => Err(PyFmtError("the line has no format".into())),
+        }
+    })
+}
+
+/// The `yaml` stage: for each line of `stage_file`, write the line's `input` as `Drafter.draft_policy` ships a policy record ([`yaml::flow_dump`]) in one `{"key", "value"}` line, the value a `str` in the typed encoding.
+pub fn stage_yaml(stage_file: &Path, out: &mut impl Write) -> Result<(), PyFmtError> {
+    answer_lines(stage_file, out, |_record, input| yaml::flow_dump(input))
+}
+
+/// Read each line of a stage file, decode its `input` from the typed encoding, and write `answer`'s text for it under the line's key.
+fn answer_lines(
+    stage_file: &Path,
+    out: &mut impl Write,
+    answer: impl Fn(&Value, &PyValue) -> Result<String, PyFmtError>,
+) -> Result<(), PyFmtError> {
     let file = std::fs::File::open(stage_file).map_err(|failure| {
         PyFmtError(format!("cannot read {}: {failure}", stage_file.display()))
     })?;
@@ -235,21 +258,16 @@ pub fn stage_pyfmt(stage_file: &Path, out: &mut impl Write) -> Result<(), PyFmtE
         })?;
         let record: Value = serde_json::from_str(&line)
             .map_err(|failure| PyFmtError(format!("a stage line is not JSON: {failure}")))?;
-        let (Some(key), Some(form)) = (record["key"].as_str(), record["format"].as_str()) else {
+        let Some(key) = record["key"].as_str() else {
             return Err(PyFmtError(format!(
-                "a stage line has no key or format: {:.200}",
+                "a stage line has no key: {:.200}",
                 line
             )));
         };
         let input = PyValue::from_typed(&record["input"])
             .map_err(|failure| PyFmtError(format!("{key}: {failure}")))?;
-        let text = match form {
-            "repr" => repr::repr(&input),
-            "json-sorted" => json::dumps_sorted(&input),
-            "json-fragment" => json::fragment_text(&input),
-            other => Err(PyFmtError(format!("no pyfmt format {other:?}"))),
-        }
-        .map_err(|failure| PyFmtError(format!("{key}: {failure}")))?;
+        let text =
+            answer(&record, &input).map_err(|failure| PyFmtError(format!("{key}: {failure}")))?;
         writeln!(
             out,
             "{{\"key\":{},\"value\":{}}}",

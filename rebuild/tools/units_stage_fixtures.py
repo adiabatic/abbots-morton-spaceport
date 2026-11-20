@@ -10,6 +10,7 @@ The stages (`STAGES`):
 
 - `wire` records each unit `_phase1_unit` receives, as the `audit.Unit` fields that cross (`unit_value`), under `unit:<ordinal>`; the Rust side reads them back from the units file. Its generated lines are the init's values with the spec's runes and the dictionary's bytes, under `init`, and a verify frame with varied injections, under `verify`, which the line carries for the Rust side to read.
 - `pyfmt` records what the worker hashes and writes, each line an `input` value, the `format` it is written in (`PYFMT_FORMS`) and the text Python wrote: the ink diffs' repr (`_ink_readings`), the repr of the cluster key's head, `(configs, class)` (`_cluster_id_from_repr`), the carry projection's sorted-key JSON (`unit_cache.carry_projection`) and each fragment's shard bytes (`_fragment_bytes`), keyed by the form and a digest of the value. Its generated lines put an edge set to each form (`_pyfmt_edges`).
+- `yaml` records each record `Drafter.draft_policy` dumps, as the `input` its `yaml.safe_dump` call receives and the stripped text it ships, keyed by a digest of the record; a `safe_dump` call with other arguments than `draft_policy`'s (`YAML_DUMP_ARGUMENTS`) is refused. Its generated lines put an edge set to the same dump (`_yaml_edges`).
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace` and `str.isdigit` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -50,7 +51,9 @@ from dataclasses import dataclass, field
 from itertools import batched
 from multiprocessing.reduction import ForkingPickler
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, TypedDict
+
+import yaml
 
 from rebuild.pipeline import fingerprint
 from rebuild.review import audit, build, unit_cache, units_exec
@@ -92,6 +95,7 @@ HOOKS: dict[str, tuple[str, str]] = {
     "Shaper.shape": ("rebuild.validation.shaping", "Shaper.shape"),
     "_cluster_id_from_repr": ("rebuild.review.build", "_cluster_id_from_repr"),
     "carry_projection": ("rebuild.review.unit_cache", "carry_projection"),
+    "yaml.safe_dump": ("yaml", "safe_dump"),
 }
 
 
@@ -531,6 +535,194 @@ def _pyfmt_generated(_source: Source) -> Iterator[Mapping[str, object]]:
             }
 
 
+class _DumpArguments(TypedDict):
+    default_flow_style: bool
+    width: int
+    allow_unicode: bool
+    sort_keys: bool
+
+
+# The arguments `Drafter.draft_policy` passes `yaml.safe_dump`, the only dump the `yaml` stage checks.
+YAML_DUMP_ARGUMENTS: _DumpArguments = {
+    "default_flow_style": True,
+    "width": 10**6,
+    "allow_unicode": True,
+    "sort_keys": False,
+}
+
+
+def yaml_dump(value: object) -> str:
+    """The text `Drafter.draft_policy` ships for a record: its flow dump, stripped."""
+    return yaml.safe_dump(value, **YAML_DUMP_ARGUMENTS).strip()
+
+
+def _yaml_safe_dump(args: tuple, kwargs: dict) -> Finisher:
+    if len(args) != 1 or kwargs != YAML_DUMP_ARGUMENTS:
+        raise ValueError(
+            f"the yaml stage checks only Drafter.draft_policy's dump, which a yaml.safe_dump call with "
+            f"{len(args)} positional arguments and the keywords {kwargs!r} is not"
+        )
+    record = args[0]
+
+    def finish(result: object) -> dict[str, object]:
+        assert isinstance(result, str)
+        digest = hashlib.sha1(compact(encode(record)).encode("ascii")).hexdigest()[:20]
+        return {"key": f"yaml:{digest}", "input": record, "value": result.strip()}
+
+    return finish
+
+
+# How long the generated set's long scalars are: past the dump's width, so the column checks that would break a line fire.
+YAML_LONG_SCALAR = 10**6 + 12
+
+
+def _yaml_edge_strings() -> list[str]:
+    """The strings the `yaml` stage's generated set puts to the dump: every implicit resolver's near misses and hits, each indicator at the start, inside and at the end, leading and trailing whitespace, the characters PyYAML escapes or writes as they are, and line breaks in every position."""
+    resolvers = [
+        *"yes Yes YES yES no No NO true True TRUE tRUE false False FALSE on On ON off Off OFF y n Y N".split(),
+        *"nul null Null NULL nULL ~ ~~ < << <<< = == ! & * !a".split(),
+        *"0 -0 +0 00 07 08 0o7 0b1 0b -0b1_0 0b2 0x 0x1F +0x_f 0xg 0X1F 1_000 +12 -12 _1 1_".split(),
+        *"1:30 1:60 1:5 190:20:30 1:3: 012:30 -1:30 1:30.5 1:3.".split(),
+        *"1. 1.5 -1.5e+3 1.5e3 1e5 1.5e+ .5 .5E-1 . ._ .inf -.Inf +.INF .iNf .nan .NaN -.nan 1_0.0_1".split(),
+        "2001-12-14",
+        "2001-12-1",
+        "2001-12-14t21:59:43.10-05:00",
+        "2001-12-14 21:59:43.10 -5",
+        "2001-1-1T1:00:00",
+        "2001-12-14\t 1:59:43Z",
+        "2001-12-14 21:59:43.Z",
+        "2001-12-14 21:59:43 +05:3",
+        "2001-12-14 21:59:43+05:30",
+        "2001-12-14T21:59",
+        "",
+        "true\n",
+        "null\n",
+        "5\n",
+        "5\n\n",
+    ]
+    indicators = [
+        *"-a - -- --- ---a ... .... ...a ?a ? :a : a:b a: a?b a,b ,a a] [a {a a} a#b #a &a *a !a |a >a %a @a `a".split(),
+        "- a",
+        "--- a",
+        "? a",
+        ": a",
+        "a: b",
+        "a ?",
+        "a #b",
+        "a# b",
+        "'a",
+        '"a',
+        "a'b",
+        'a"b',
+        "a b",
+        "a  b",
+        " a",
+        "a ",
+        "a　",
+        "　a",
+        "·Pea ~b~ ·Tea | ·Day+Utter",
+        "E650:E652",
+        "Reviewer rejected the M1 outcome for E650:E652 (·Pea ~b~ ·Tea): note",
+    ]
+    characters = [
+        "a\tb",
+        "a\rb",
+        "".join(chr(point) for point in range(0x100)),
+        *(
+            chr(point)
+            for point in (
+                *range(0x20),
+                *range(0x7F, 0xA2),
+                0xAD,
+                0x2028,
+                0x2029,
+                0xD7FF,
+                0xE000,
+                0xE650,
+                0xFEFF,
+                0xFFFD,
+                0xFFFE,
+                0xFFFF,
+                0x10000,
+                0x1F600,
+                0x10FFFE,
+                0x10FFFF,
+            )
+        ),
+        "a\U0010ffffb",
+        "\U0001f600 a\xa0b﻿c",
+    ]
+    breaks = [
+        "a\nb",
+        "a\n\nb",
+        "\na",
+        "a\n",
+        "\n",
+        "\n\n",
+        "a \nb",
+        "a\n b",
+        "a\n\n b",
+        "a\r\nb",
+        "a\x85b",
+        "a b",
+        "a  b",
+        "a\n\x85b",
+        "\x85a",
+        "a\x85",
+        "it's\nok",
+        "'\n'",
+        "a\n\tb",
+        "a b\nc d\n\ne f",
+    ]
+    quotes = ["it's", "'", "''", 'say "hi"', "'\"", "\\", "a\\b", "\\'"]
+    return resolvers + indicators + characters + breaks + quotes
+
+
+def _yaml_edges() -> list[object]:
+    """The values the `yaml` stage's generated lines dump, each built fresh, since PyYAML anchors a container it meets twice: every edge string at the root, as a mapping value, as a mapping key and two levels deep in a flow sequence; ints, booleans and None in the same places; empty and nested containers and keys that are containers; keys at either side of the simple-key length limit; scalars long enough to pass the width; and records shaped like the drafter's."""
+    values: list[object] = []
+    scalars: list[object] = [*_yaml_edge_strings(), 0, 7, -1, 2**63 - 1, -(2**63), True, False, None]
+    for scalar in scalars:
+        values += [scalar, {"v": scalar}, {scalar: 1}, {"a": [{"b": scalar}, scalar]}]
+    values += [
+        [],
+        {},
+        (),
+        [[]],
+        [{}],
+        ([], {}),
+        {"a": []},
+        {"a": {}},
+        [1, [2, (3,)]],
+        {(): 1},
+        {(1, "a"): 2},
+        {(1, ()): 3},
+        {((),): 4},
+        {None: 1, True: 2, 5: 3, -5: 4, "": 5},
+        {"x" * 122: 1},
+        {"x" * 123: 1},
+        {"\xe9" * 122: 1},
+        {"\xe9" * 123: 1},
+        {"a" * 60 + ": " + "b" * 60: 1},
+        {"exit": "y5", "when": {"right": {"family": ["qsTea"]}}, "why": "Reviewer rejected"},
+        {"entry": "y0", "by": 1, "when": {"left": {"family": ["qsPea"]}}, "why": "a: b"},
+        {"cell": {"exit": "none"}, "over": {"entry": "y5"}, "mode": "absolute", "when": {"word": "isolated"}},
+        {"stance": "half", "mode": "absolute", "when": {"word": "isolated"}, "why": "it's"},
+    ]
+    long_plain = ("ab " * (YAML_LONG_SCALAR // 3 + 1)).strip()
+    long_single = "a: " * (YAML_LONG_SCALAR // 3 + 1)
+    long_double = "\tb " * (YAML_LONG_SCALAR // 3 + 1)
+    long_breaks = "ab \n" * (YAML_LONG_SCALAR // 4 + 1)
+    for long in (long_plain, long_single, long_double, long_breaks):
+        values += [long, [long, "x", "y"], {"k": long, "j": 1}]
+    return values
+
+
+def _yaml_generated(_source: Source) -> Iterator[Mapping[str, object]]:
+    for index, value in enumerate(_yaml_edges()):
+        yield {"key": f"yaml:edge:{index}", "input": value, "value": yaml_dump(value)}
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -544,6 +736,7 @@ STAGES: dict[str, Stage] = {
         },
         _pyfmt_generated,
     ),
+    "yaml": Stage("yaml", {"yaml.safe_dump": _yaml_safe_dump}, _yaml_generated),
 }
 
 
