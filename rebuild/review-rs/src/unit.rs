@@ -1,6 +1,6 @@
 //! One worker's per-unit work, as `rebuild/review/build.py`'s `_corpus_worker` does it: `_phase1_unit` in its order (ink, flags, re-route, enrich, change group, draft, pack, check), batched as `_phase1_batches` batches it, and `_recompute_fragment` for the verification sample.
 //!
-//! [`Resources`] holds what a worker reads and never changes: the init, the font facts, the HarfBuzz fonts, the settlement, the mapped subset pack, the rune schema, the fragment builder, the packer and the contract check. A [`Worker`] over it holds one thread's ink readers, enricher, drafter, shaper and settler, and answers a batch ([`Worker::run_batch`]) and a verification sample ([`Worker::verify`]); its memos are released at each settlement batch's end. [`Projection`] is `_UnitProjection`, written in the reply's record shapes ([`Projection::to_json`]).
+//! [`Resources`] holds what every worker reads and never changes, shared by every thread: the init, the font facts, the HarfBuzz fonts, the settlement, the mapped subset pack, the rune schema, the fragment builder, the preset dictionary and the contract check. A [`Worker`] over it holds one thread's ink readers, enricher, drafter, shaper, settler and packer, and answers a batch ([`Worker::run_batch`]) and a verification sample ([`Worker::verify`]); its memos are released at each settlement batch's end. [`Projection`] is `_UnitProjection`, written in the reply's record shapes ([`Projection::to_json`]).
 
 use std::fmt;
 use std::path::Path;
@@ -93,7 +93,7 @@ fn vocabulary_count(init: &Init, name: &str, least: i64) -> Result<usize> {
     }
 }
 
-/// What every worker reads and never changes, opened once from the init file.
+/// What every worker reads and never changes, opened once from the init file and shared by every thread.
 pub struct Resources {
     init: Init,
     facts: FontFacts,
@@ -102,7 +102,7 @@ pub struct Resources {
     pack: SubsetPack,
     schema: RuneSchema,
     builder: FragmentBuilder,
-    packer: Packer,
+    dictionary: Vec<u8>,
     check: ContractCheck,
     batch_size: usize,
     errors_shown: usize,
@@ -119,7 +119,12 @@ impl Resources {
         let pack = SubsetPack::open(&init.subset_pack)?;
         let schema = RuneSchema::read(Path::new(&init.rune_schema))?;
         let builder = FragmentBuilder::new(&init)?;
-        let packer = Packer::read(Path::new(&init.dictionary))?;
+        let dictionary = std::fs::read(&init.dictionary).map_err(|failure| {
+            UnitError(format!(
+                "cannot read the dictionary {}: {failure}",
+                init.dictionary
+            ))
+        })?;
         let check = ContractCheck::new(&init)?;
         let batch_size = vocabulary_count(&init, EXPLAIN_UNIT_BATCH_SIZE_NAME, 1)?;
         let errors_shown = vocabulary_count(&init, CONTRACT_ERRORS_SHOWN_NAME, 0)?;
@@ -131,7 +136,7 @@ impl Resources {
             pack,
             schema,
             builder,
-            packer,
+            dictionary,
             check,
             batch_size,
             errors_shown,
@@ -288,7 +293,7 @@ struct Phase1 {
     errors: Vec<String>,
 }
 
-/// One thread's worker over shared [`Resources`].
+/// One thread's worker over shared [`Resources`], with its own engines, HarfBuzz buffer, shape memo and primed compressor.
 pub struct Worker<'r> {
     resources: &'r Resources,
     reader: InkReader<'r>,
@@ -296,6 +301,7 @@ pub struct Worker<'r> {
     drafter: Drafter<'r>,
     shaper: Shaper<'r>,
     settler: Settler<'r>,
+    packer: Packer,
 }
 
 impl<'r> Worker<'r> {
@@ -319,6 +325,7 @@ impl<'r> Worker<'r> {
             )?,
             shaper: Shaper::new(&shared.fonts, &shared.facts),
             settler: Settler::new(&shared.settlement),
+            packer: Packer::new(&shared.dictionary)?,
         })
     }
 
@@ -460,7 +467,7 @@ impl<'r> Worker<'r> {
         )?;
         let (packed, raw_length) = if pack {
             let body = fragment_bytes(&fragment)?;
-            resources.packer.pack(body.as_bytes())?
+            self.packer.pack(body.as_bytes())?
         } else {
             (Vec::new(), 0)
         };
@@ -519,6 +526,12 @@ mod tests {
             x_max: x + 1,
             advance_total: 10,
         }
+    }
+
+    #[test]
+    fn every_thread_can_share_one_set_of_resources() {
+        fn shared<T: Send + Sync>() {}
+        shared::<Resources>();
     }
 
     #[test]
