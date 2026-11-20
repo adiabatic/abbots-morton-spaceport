@@ -16,7 +16,7 @@ The stages (`STAGES`):
 - `settle` records each unit `Enricher.explain_units` settles, under `settle:` with its first configuration and its code points, as the `codepoints` and the `config` and, as its value, the `ExplainReport`'s code points, features and positions, each position's trace whole; and each text `Enricher.formed_spans` forms, under `spans:` and its code points, as the `codepoints` and the spans it returns.
 - `explain` records each explain text `Enricher.enrich` writes, the `_filter_explain` call over the `ExplainReport.render` call just before it, under `explain:` with the report's configuration token (`model.feature_config_token`), its code points and the divergent positions, as the report's `codepoints`, that `config` and the `diff_positions` the filter receives, and as its outputs the `rendered` text and the `filtered` text the filter returns.
 - `subset` records each lookup `Enricher.enrich` makes in the subset pack, `SubsetPack.row`, under `subset:` with its configuration and its code points, as the `config` and the `codepoints` it receives and the `SubsetRow` or None it returns. Its generated lines (`_subset_generated`), under `generated:` with the same two, look up each configuration's first and last window, the first window spelled each way `int(part, 16)` reads it (`_SUBSET_SPELLINGS`), its misspellings `pack_key` refuses (`_SUBSET_MISSPELLINGS`), strings that refuse or miss whatever the source (`_SUBSET_MISSES`), and a configuration the pack does not hold.
-- `enrich` records each unit `Enricher.enrich` enriches, under `enrich:<ordinal>`, as the unit's `record` as a request frame carries it (`units_exec.unit_record`, written as one compact JSON line) and the phase-1 `flags` the worker set on it (`ink_identical`, `picture_identical`, `junior_equivalent`), and as its outputs every `EnrichedUnit` field but the unit itself, which is the input, and the `mismatches` lines the call added to the enricher's list. Its field groups (`compare --fields`) name `geometry`, the fields `Enricher.enrich` computes before its summary (`ENRICH_GEOMETRY`).
+- `enrich` records each unit `Enricher.enrich` enriches, under `enrich:<ordinal>`, as the unit's `record` as a request frame carries it (`units_exec.unit_record`, written as one compact JSON line) and the phase-1 `flags` the worker set on it (`ink_identical`, `picture_identical`, `junior_equivalent`), and as its outputs every `EnrichedUnit` field but the unit itself, which is the input, the `mismatches` lines the call added to the enricher's list, and the unit's `primary_unit_projection`. Its generated lines (`_enrich_generated`) make both mismatch lines fire: a unit whose `new` has one cell token replaced, under `generated:new:<ordinal>`, and a unit enriched against a subset row with a renamed glyph, which the line carries as its `row`, under `generated:row:<ordinal>`. Its field groups (`compare --fields`) name `geometry`, the fields `Enricher.enrich` computes before its summary (`ENRICH_GEOMETRY`).
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace`, `str.isdigit` and `str.isdecimal` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import copy
 import dataclasses
 import functools
 import hashlib
@@ -66,8 +67,8 @@ from rebuild.pipeline.explain import ExplainReport
 from rebuild.pipeline.model import feature_config_token
 from rebuild.review import audit, build, ink, unit_cache, units_exec
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, UnitTable, load_ledger
-from rebuild.review.drafts import corpus_index_from_pages
-from rebuild.review.enrich import LETTERS, EnrichedUnit, load_spec
+from rebuild.review.drafts import Drafter, corpus_index_from_pages
+from rebuild.review.enrich import LETTERS, EnrichedUnit, Enricher, load_spec, primary_unit_projection
 from rebuild.review.fixtures.mini import pin
 from rebuild.review.subset_pack import (
     PACK_NAME,
@@ -974,11 +975,11 @@ def _subset_generated(source: Source) -> Iterator[Mapping[str, object]]:
         pack.close()
 
 
-# The `EnrichedUnit` fields the `enrich` stage records, every one but the unit, which is the line's input, and the mismatch lines.
-ENRICH_OUTPUTS = (
-    *(item.name for item in dataclasses.fields(EnrichedUnit) if item.name != "unit"),
-    "mismatches",
-)
+# The `EnrichedUnit` fields the `enrich` stage records, every one but the unit, which is the line's input.
+ENRICH_FIELDS = tuple(item.name for item in dataclasses.fields(EnrichedUnit) if item.name != "unit")
+
+# The `enrich` stage's outputs: the recorded fields, the mismatch lines, and the unit's primary-unit projection.
+ENRICH_OUTPUTS = (*ENRICH_FIELDS, "mismatches", "primary_unit_projection")
 
 # The `enrich` stage's `geometry` fields: what `Enricher.enrich` computes before its summary.
 ENRICH_GEOMETRY = (
@@ -999,12 +1000,11 @@ ENRICH_GEOMETRY = (
 )
 
 
-def _enrich_unit(args: tuple, kwargs: dict) -> Finisher:
-    enricher = args[0]
-    unit = args[1] if len(args) > 1 else kwargs["unit"]
+def _enrich_line(key: str, enricher: Enricher, unit: Unit) -> Callable[[object], dict[str, object]]:
+    """The `enrich` line of one `Enricher.enrich` call about to run on `unit`: its inputs now, and a finisher that adds the call's outputs from its result and the mismatch lines the call adds to the enricher's list."""
     mark = len(enricher.mismatches)
     line: dict[str, object] = {
-        "key": f"enrich:{unit.ordinal}",
+        "key": key,
         "record": compact(units_exec.unit_record(unit)),
         "flags": {
             "ink_identical": unit.ink_identical,
@@ -1015,12 +1015,80 @@ def _enrich_unit(args: tuple, kwargs: dict) -> Finisher:
 
     def finish(result: object) -> dict[str, object]:
         assert isinstance(result, EnrichedUnit)
-        outputs: dict[str, object] = {
-            name: getattr(result, name) for name in ENRICH_OUTPUTS if name != "mismatches"
+        outputs: dict[str, object] = {name: getattr(result, name) for name in ENRICH_FIELDS}
+        return {
+            **line,
+            **outputs,
+            "mismatches": tuple(enricher.mismatches[mark:]),
+            "primary_unit_projection": primary_unit_projection(result),
         }
-        return {**line, **outputs, "mismatches": tuple(enricher.mismatches[mark:])}
 
     return finish
+
+
+def _enrich_unit(args: tuple, kwargs: dict) -> Finisher:
+    enricher = args[0]
+    unit = args[1] if len(args) > 1 else kwargs["unit"]
+    return _enrich_line(f"enrich:{unit.ordinal}", enricher, unit)
+
+
+# The suffix the `enrich` stage's generated rows give their last glyph name, so the before font's kern-neutral shaping disagrees with the row.
+RENAMED_GLYPH_SUFFIX = ".renamed"
+
+
+def _enrich_generated(source: Source) -> Iterator[Mapping[str, object]]:
+    """The `enrich` stage's generated lines, which make both of `Enricher.enrich`'s mismatch lines fire, as the live corpus does not. The first unit of each first configuration in the handouts' order goes through `build._phase1_unit` as the worker runs it, so it carries the phase-1 flags, and is then enriched twice against that run's report: as a copy whose first `new` token is replaced by another cell token, under `generated:new:<ordinal>`, when its `new` holds only cell tokens; and against its subset row with the last glyph renamed (`RENAMED_GLYPH_SUFFIX`), which the line carries as its `row`, under `generated:row:<ordinal>`."""
+    init = source.init
+    firsts: dict[str, Unit] = {}
+    for handout in source.handouts:
+        for unit in source.units(handout):
+            firsts.setdefault(unit.configs[0], unit)
+    tokens = tuple(dict.fromkeys(token for unit in firsts.values() for token in unit.new if "/" in token))
+    comparator = ink.InkComparator(init["before_font"], init["after_font"], ink.shaper_for)
+    oracle = ink.JuniorOracle(init["junior_font"], init["before_font"], init["after_font"], ink.shaper_for)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        spec = load_spec(init["spec_root"])
+    enricher = Enricher(
+        spec,
+        init["subset_dir"],
+        init["after_font"],
+        repo_root=init["repo_root"],
+        before_font=init["before_font"],
+        shaper_factory=ink.shaper_for,
+        subset_pack=init["subset_pack"],
+    )
+    drafter = Drafter(
+        init["after_font"],
+        corpus_index=init["corpus_index"],
+        repo_root=init["repo_root"],
+        shaper_factory=ink.shaper_for,
+    )
+    try:
+        for unit in firsts.values():
+            (report,) = enricher.explain_units([unit])
+            build._phase1_unit(
+                unit, comparator, oracle, enricher, drafter, report, init["identical_classes"], init["fold"]
+            )
+            if unit.new and all("/" in token for token in unit.new):
+                variant = copy.copy(unit)
+                variant.new = (next(token for token in tokens if token != unit.new[0]), *unit.new[1:])
+                finish = _enrich_line(f"generated:new:{unit.ordinal}", enricher, variant)
+                yield finish(enricher.enrich(variant, report))
+            row = enricher.subset_row(unit.configs[0], unit.codepoints)
+            assert row is not None
+            renamed = dataclasses.replace(
+                row, glyphs=(*row.glyphs[:-1], row.glyphs[-1] + RENAMED_GLYPH_SUFFIX)
+            )
+            finish = _enrich_line(f"generated:row:{unit.ordinal}", enricher, unit)
+            setattr(enricher, "subset_row", lambda _config, _codepoints: renamed)
+            try:
+                result = enricher.enrich(unit, report)
+            finally:
+                delattr(enricher, "subset_row")
+            yield {**finish(result), "row": renamed}
+    finally:
+        ink.release_shape_memos()
 
 
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
@@ -1051,6 +1119,7 @@ STAGES: dict[str, Stage] = {
     "enrich": Stage(
         "enrich",
         {"Enricher.enrich": _enrich_unit},
+        _enrich_generated,
         outputs=ENRICH_OUTPUTS,
         field_groups={"geometry": ENRICH_GEOMETRY},
     ),

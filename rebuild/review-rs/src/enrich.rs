@@ -1,8 +1,12 @@
-//! The geometry of an enriched unit, as `Enricher.enrich` (`rebuild/review/enrich.py`) computes it before its summary: the isolated overlay, the formed spans, the after cells (`cell_token`), the junction and extension tuples (`junction_token`, `parse_entry_extension`), the baseline subset row and its junction assertion, the divergent positions against the alias map (`_diff_codepoints`), the ink-visible positions (`_ink_visible_positions`, `_segment_pieces`), the judged pair (`_pick_pair`) and the secondary pairs (`_secondary_pairs`), the position-only mark (`_advance_mismatch_cell`), the highlight rects (`_highlight`, `_spans_from_clusters`, `_covering`, `_pen_positions`) and the boundary marks.
+//! An enriched unit, as `Enricher.enrich` (`rebuild/review/enrich.py`) computes it.
+//!
+//! Its geometry: the isolated overlay, the formed spans, the after cells (`cell_token`), the junction and extension tuples (`junction_token`, `parse_entry_extension`), the baseline subset row and its junction assertion, the divergent positions against the alias map (`_diff_codepoints`), the ink-visible positions (`_ink_visible_positions`, `_segment_pieces`), the judged pair (`_pick_pair`) and the secondary pairs (`_secondary_pairs`), the position-only mark (`_advance_mismatch_cell`), the highlight rects (`_highlight`, `_spans_from_clusters`, `_covering`, `_pen_positions`) and the boundary marks.
+//!
+//! Its prose: the notation (`notation`, `notation_tokens`, `text_entities`, `letter_display`), the provenance (`_collect_provenance`), the filtered explain text, the summary (`_summarize`, `_summary_clause`, `_decided_by`, `_short_provenance`, `_junction_phrase`, `rune_display`, `_cell_description`, `_before_junction_at_codepoint_gap`), the kept trace (`TraceReport`), the two mismatch lines, and the primary-unit projection (`primary_unit_projection`).
 //!
 //! A piece is placed from the font facts, as [`crate::ink`] places one: its shape is the glyph's interned shape, so two pieces compare equal across fonts exactly when Python's shape keys do.
 //!
-//! [`stage_enrich`] is the `enrich` stage of the stage fixtures, for the geometry fields.
+//! [`stage_enrich`] is the `enrich` stage of the stage fixtures.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
@@ -12,14 +16,19 @@ use std::path::Path;
 use ams_m1_kernel::emit::json_string;
 use ams_m1_kernel::index::SpecIndex;
 use ams_m1_kernel::model::Sym;
-use ams_m1_kernel::types::{AdjustmentToken, CellId, Settled, adjustment_text};
+use ams_m1_kernel::types::{
+    AdjustmentToken, CellId, Settled, adjustment_text, is_boundary_settled, provenance_pointer,
+};
 use serde_json::Value;
 
-use crate::explain::python_int;
+use crate::explain::{ExplainError, filter_explain, python_int, render};
 use crate::fontfacts::{FontFacts, ShapeId, Side};
 use crate::ink::{InkError, InkReader};
-use crate::pyfmt::PyValue;
-use crate::settle::{Report, SettleError, Settlement, Settler, features_for_config};
+use crate::pyfmt::repr::repr;
+use crate::pyfmt::{PyFmtError, PyValue};
+use crate::settle::{
+    Report, SettleError, Settlement, Settler, Trace, features_for_config, settled_value,
+};
 use crate::shape::{Features, Fonts, ShapeError, ShapeResult, Shaper};
 use crate::subset_pack::{SubsetPack, SubsetPackError, SubsetRow};
 use crate::wire::{Alias, Init, UnitRecord, WireError};
@@ -27,9 +36,42 @@ use crate::wire::{Alias, Init, UnitRecord, WireError};
 /// The vocabulary name of `labels.BOUNDARY_GLYPH_NAMES`, the old glyph names `_diff_codepoints` never compares with a cell.
 pub const BOUNDARY_GLYPH_NAMES_NAME: &str = "rebuild.pipeline.labels.BOUNDARY_GLYPH_NAMES";
 
+/// The vocabulary name of `enrich.LETTERS`, each letter's code point and family, which the notation reads.
+pub const LETTERS_NAME: &str = "rebuild.review.enrich.LETTERS";
+
 /// `enrich.BOUNDARIES`: each boundary code point and the kind its boundary mark names.
 pub const BOUNDARIES: [(u32, &str); 3] =
     [(0x0020, "space"), (0x00B7, "namer-dot"), (0x200C, "zwnj")];
+
+/// `enrich._SPECIAL_DISPLAY`: the families whose display is not `·` and the name after `qs`.
+const SPECIAL_DISPLAY: [(&str, &str); 2] = [("qsIng", "·-ing"), ("qsJai", "·J’ai")];
+
+/// `enrich._BOUNDARY_NOTATION`: each boundary code point's token in the notation.
+const BOUNDARY_NOTATION: [(u32, &str); 3] = [(0x0020, "␣"), (0x00B7, "·"), (0x200C, "◊ZWNJ")];
+
+/// `enrich._STAGE_PHRASES`: each deciding stage's phrase in the summary.
+const STAGE_PHRASES: [(&str, &str); 6] = [
+    ("only-candidate", "the only surviving candidate"),
+    ("absolute-prefer", "an absolute prefer"),
+    ("join-count", "join-count rank"),
+    ("yielding-prefer", "a yielding prefer"),
+    ("order", "declaration order"),
+    ("tiebreak", "the final tiebreak"),
+];
+
+/// `enrich._HEIGHT_PHRASES`: the junction heights the summary names in words.
+const HEIGHT_PHRASES: [(i64, &str); 3] = [
+    (0, "at the baseline"),
+    (5, "at the x-height"),
+    (8, "at the top"),
+];
+
+/// `enrich._BOUNDARY_SUMMARY_NAMES`: each boundary rune's name in the summary.
+const BOUNDARY_SUMMARY_NAMES: [(&str, &str); 3] = [
+    ("space", "the space"),
+    ("zwnj", "◊ZWNJ"),
+    ("namer-dot", "the namer dot"),
+];
 
 /// The junction token of a break, and of a ligature's inner gap in the subset rows.
 const BREAK: &str = "break";
@@ -80,7 +122,9 @@ from_error!(
     SettleError,
     SubsetPackError,
     InkError,
-    WireError
+    WireError,
+    ExplainError,
+    PyFmtError
 );
 
 type Result<T> = std::result::Result<T, EnrichError>;
@@ -441,17 +485,36 @@ fn boundary_kind(codepoint: u32) -> Option<&'static str> {
 /// A placed piece as `_segment_pieces` sorts and compares it: `(shape, x, y)`.
 type SegmentPiece = (ShapeId, i64, i64);
 
-/// The enricher's shared readers: the settlement, the mapped subset pack, the font facts, the alias map and the boundary glyph names.
+/// The enricher's shared readers: the settlement, the mapped subset pack, the font facts, the alias map, the boundary glyph names and the letters.
 pub struct Enricher<'a> {
     settlement: &'a Settlement,
     pack: &'a SubsetPack,
     facts: &'a FontFacts,
     aliases: HashMap<&'a str, &'a Alias>,
     boundary_glyph_names: HashSet<String>,
+    letters: HashMap<u32, String>,
+}
+
+/// The init's `LETTERS`, which must be a dict of code points to `str`.
+fn init_letters(init: &Init) -> Result<HashMap<u32, String>> {
+    let Some(PyValue::Dict(entries)) = init.constant(LETTERS_NAME) else {
+        return error(format!("the init's {LETTERS_NAME} is not a dict"));
+    };
+    entries
+        .iter()
+        .map(|entry| match entry {
+            (PyValue::Int(value), PyValue::Str(family)) => u32::try_from(*value)
+                .map(|value| (value, family.clone()))
+                .map_err(|_| EnrichError(format!("the init's {LETTERS_NAME} holds {value}"))),
+            _ => error(format!(
+                "the init's {LETTERS_NAME} holds an entry that is not an int and a str"
+            )),
+        })
+        .collect()
 }
 
 impl<'a> Enricher<'a> {
-    /// The enricher over the init's aliases, later entries winning as in Python's dict, and its `BOUNDARY_GLYPH_NAMES`, which must be a set of `str`.
+    /// The enricher over the init's aliases, later entries winning as in Python's dict, its `BOUNDARY_GLYPH_NAMES`, which must be a set of `str`, and its `LETTERS`.
     pub fn new(
         init: &'a Init,
         settlement: &'a Settlement,
@@ -485,6 +548,7 @@ impl<'a> Enricher<'a> {
                 .map(|(name, alias)| (name.as_str(), alias))
                 .collect(),
             boundary_glyph_names,
+            letters: init_letters(init)?,
         })
     }
 
@@ -633,28 +697,36 @@ impl<'a> Enricher<'a> {
         pieces
     }
 
-    /// The geometry of one unit under its first configuration (`Enricher.enrich` up to its summary), from its settled report, its flags and the shaper's kern-neutral runs of both fonts.
-    pub fn geometry(
+    /// The geometry of one unit under its first configuration `config` (`Enricher.enrich` up to its summary), from its settled report, its flags, its baseline subset row and the shaper's kern-neutral runs of both fonts. The two mismatch lines `enrich` adds to the enricher's list go onto `mismatches`, in its order.
+    #[allow(clippy::too_many_arguments)]
+    fn geometry(
         &self,
         shaper: &mut Shaper,
         unit: &UnitRecord,
-        ink_identical: bool,
-        picture_identical: bool,
+        config: &str,
+        flags: &Flags,
         report: &Report,
+        row: &SubsetRow<'_>,
+        mismatches: &mut Vec<String>,
     ) -> Result<Geometry> {
         let index = self.index();
         let values = &unit.codepoint_values;
         let length = values.len();
-        let Some(config) = unit.configs.first() else {
-            return error("the unit has no configuration");
-        };
         let overlay = self.settlement.overlay_active(&features_for_config(config));
         let settled: Vec<&Settled> = report.traces.iter().map(|trace| &trace.settled).collect();
         let cell_count = settled.len();
-        let after_cells = settled
+        let after_cells: Vec<String> = settled
             .iter()
             .map(|settled| cell_token(index, &settled.cell))
             .collect();
+        if unit.new.iter().all(|token| token.contains('/')) && after_cells != unit.new {
+            mismatches.push(format!(
+                "{config} {}: derived cells {} != audit {}",
+                unit.codepoints,
+                repr(&PyValue::str_tuple(&after_cells))?,
+                repr(&PyValue::str_tuple(&unit.new))?
+            ));
+        }
 
         let after_spans: Vec<Span> = if overlay {
             (0..length)
@@ -681,12 +753,6 @@ impl<'a> Enricher<'a> {
             });
         }
 
-        let Some(row) = self.pack.row(config, &unit.codepoints)? else {
-            return error(format!(
-                "no baseline subset row for {config} {}",
-                unit.codepoints
-            ));
-        };
         if row.glyphs.is_empty() || row.glyphs.len() != row.clusters.len() {
             return error(format!(
                 "{config} {}: the subset row has {} glyphs and {} clusters",
@@ -728,7 +794,7 @@ impl<'a> Enricher<'a> {
         }
 
         let (diff_codepoints, divergent_gaps) =
-            self.diff_codepoints(length, &row, &before_spans, &settled, &after_spans)?;
+            self.diff_codepoints(length, row, &before_spans, &settled, &after_spans)?;
         let diff_positions: Vec<usize> = diff_codepoints
             .iter()
             .map(|&position| covering(&after_spans, position))
@@ -744,6 +810,15 @@ impl<'a> Enricher<'a> {
         let features = Features::for_config(Some(config)).kern_neutral();
         let shaped = shaper.shape(Side::After, &text, &features)?;
         let before_shaped = shaper.shape(Side::Before, &text, &features)?;
+        let before_names: Vec<&str> = before_shaped.names(self.facts.font(Side::Before)).collect();
+        if before_names != row.glyphs {
+            mismatches.push(format!(
+                "{config} {}: kern-neutral before glyphs {} != subset row {}",
+                unit.codepoints,
+                repr(&PyValue::str_tuple(&before_names))?,
+                repr(&PyValue::str_tuple(&row.glyphs))?
+            ));
+        }
         if shaped.glyphs.is_empty() || before_shaped.glyphs.is_empty() {
             return error(format!(
                 "{config} {}: a font shapes the window to no glyph",
@@ -820,7 +895,7 @@ impl<'a> Enricher<'a> {
 
         let mut secondary_junctions = Vec::new();
         if let Some(primary) = pair
-            && !(ink_identical || picture_identical)
+            && !(flags.ink_identical || flags.picture_identical)
         {
             for (left, right) in secondary_pairs(
                 primary,
@@ -867,14 +942,467 @@ impl<'a> Enricher<'a> {
             secondary_junctions,
         })
     }
+
+    /// `Enricher.enrich`: one unit enriched under its first configuration, against its baseline subset row from the mapped pack, which must hold one.
+    pub fn enrich(
+        &self,
+        shaper: &mut Shaper,
+        unit: &UnitRecord,
+        flags: &Flags,
+        report: &Report,
+    ) -> Result<Enriched> {
+        let Some(config) = unit.configs.first() else {
+            return error("the unit has no configuration");
+        };
+        let Some(row) = self.pack.row(config, &unit.codepoints)? else {
+            return error(format!(
+                "no baseline subset row for {config} {}",
+                unit.codepoints
+            ));
+        };
+        self.enrich_with_row(shaper, unit, flags, report, &row)
+    }
+
+    /// [`Enricher::enrich`] against the given baseline subset row instead of the pack's.
+    pub fn enrich_with_row(
+        &self,
+        shaper: &mut Shaper,
+        unit: &UnitRecord,
+        flags: &Flags,
+        report: &Report,
+        row: &SubsetRow<'_>,
+    ) -> Result<Enriched> {
+        let Some(config) = unit.configs.first() else {
+            return error("the unit has no configuration");
+        };
+        let mut mismatches = Vec::new();
+        let geometry = self.geometry(shaper, unit, config, flags, report, row, &mut mismatches)?;
+        let index = self.index();
+        let vocab = index.vocab();
+        let unbounded = |position: &usize| {
+            report
+                .traces
+                .get(*position)
+                .filter(|trace| !is_boundary_settled(vocab, &trace.settled))
+        };
+        let provenance =
+            collect_provenance(index, geometry.diff_positions.iter().filter_map(unbounded));
+        let slim = flags.ink_identical
+            || flags.picture_identical
+            || flags.junior_equivalent
+            || unit.no_verdict;
+        let explain_text = if slim {
+            String::new()
+        } else {
+            let positions: Vec<i64> = geometry
+                .diff_positions
+                .iter()
+                .map(|&position| i64::try_from(position).expect("an index fits an i64"))
+                .collect();
+            filter_explain(&render(index, report), &positions)?
+        };
+        let summary_positions = if geometry.ink_positions.is_empty() {
+            &geometry.diff_positions
+        } else {
+            &geometry.ink_positions
+        };
+        let position = summary_positions
+            .iter()
+            .copied()
+            .find(|position| unbounded(position).is_some());
+        let stage = position.map(|position| report.traces[position].decided_stage);
+        let clause = self.summary_clause(&report.traces, &geometry, position)?;
+        let summary = format!("New: {clause} — {}.", decided_by(&provenance, stage));
+        let values = &unit.codepoint_values;
+        Ok(Enriched {
+            notation: self.notation(values),
+            notation_tokens: values.iter().map(|&value| self.token(value)).collect(),
+            text_entities: values
+                .iter()
+                .map(|value| format!("&#x{value:04X};"))
+                .collect(),
+            explain_text,
+            provenance,
+            positions: report
+                .traces
+                .iter()
+                .map(|trace| (trace.settled.clone(), trace.decided_stage))
+                .collect(),
+            summary,
+            mismatches,
+            geometry,
+        })
+    }
+
+    /// One code point's display token, as `notation_tokens` writes it: a letter's name, a boundary's token, or `U+` and the code point.
+    fn token(&self, value: u32) -> String {
+        match self.letters.get(&value) {
+            Some(family) => letter_display(family),
+            None => BOUNDARY_NOTATION
+                .iter()
+                .find(|(boundary, _)| *boundary == value)
+                .map_or_else(
+                    || format!("U+{value:04X}"),
+                    |(_, token)| (*token).to_owned(),
+                ),
+        }
+    }
+
+    /// `enrich.notation`: the tokens with letters concatenated and every other token set off by a space from what comes before it.
+    fn notation(&self, values: &[u32]) -> String {
+        let mut text = String::new();
+        let mut previous_was_letter = false;
+        for (position, &value) in values.iter().enumerate() {
+            let letter = self.letters.contains_key(&value);
+            if position > 0 && !(letter && previous_was_letter) {
+                text.push(' ');
+            }
+            text.push_str(&self.token(value));
+            previous_was_letter = letter;
+        }
+        text
+    }
+
+    /// `enrich._summary_clause`: what the new pipeline chose at the summary's position, over the settled traces and the unit's geometry.
+    fn summary_clause(
+        &self,
+        traces: &[Trace],
+        geometry: &Geometry,
+        position: Option<usize>,
+    ) -> Result<String> {
+        let index = self.index();
+        let rune = |cell: usize| rune_display(index.resolve(traces[cell].settled.cell.rune));
+        let wide = |(start, end): Span| end - start > 1;
+        if let Some(position) = position {
+            let span = geometry.after_spans[position];
+            if wide(span) && !geometry.before_spans.contains(&span) {
+                return Ok(format!(
+                    "{} now forms as one ligature (the old pipeline rendered the letters separately)",
+                    rune(position)
+                ));
+            }
+        }
+        for (cell, &span) in geometry.before_spans.iter().enumerate() {
+            if wide(span) && !geometry.after_spans.contains(&span) {
+                let base = geometry.before_glyphs[cell]
+                    .split('.')
+                    .next()
+                    .unwrap_or_default();
+                return Ok(format!(
+                    "the {} ligature no longer forms; the letters render separately",
+                    rune_display(base)
+                ));
+            }
+        }
+        if let Some((left, right)) = geometry.pair {
+            let Some(after_junction) = geometry.after_junctions.get(left) else {
+                return error(format!(
+                    "the judged pair ({left}, {right}) has no junction after its left cell"
+                ));
+            };
+            let gap = geometry.after_spans[left].1 - 1;
+            let before_junction = before_junction_at_codepoint_gap(
+                &geometry.before_spans,
+                &geometry.before_junctions,
+                gap,
+            );
+            let joined = |token: &str| token.starts_with('y');
+            let (left, right) = (rune(left), rune(right));
+            match before_junction {
+                None | Some(BREAK) if joined(after_junction) => {
+                    return Ok(format!(
+                        "{left} joins {right} {} (the old pipeline broke there)",
+                        junction_phrase(after_junction)?
+                    ));
+                }
+                Some(before) if after_junction == BREAK && joined(before) => {
+                    return Ok(format!(
+                        "{left} no longer joins {right} (the old pipeline joined {})",
+                        junction_phrase(before)?
+                    ));
+                }
+                Some(before)
+                    if joined(after_junction) && joined(before) && after_junction != before =>
+                {
+                    return Ok(format!(
+                        "{left} joins {right} {} instead of {}",
+                        junction_phrase(after_junction)?,
+                        junction_phrase(before)?
+                    ));
+                }
+                _ => {}
+            }
+        }
+        if let Some(position) = position {
+            let cell = &traces[position].settled.cell;
+            return Ok(format!(
+                "{} keeps the same junctions but settles as a different cell ({})",
+                rune_display(index.resolve(cell.rune)),
+                cell_description(index, cell)
+            ));
+        }
+        Ok(
+            "only the boundary marker's glyph changed; every letter cell and junction is unchanged"
+                .to_owned(),
+        )
+    }
 }
 
-/// The phase-1 flags an `enrich` line carries: what the worker's `_phase1_unit` set on the unit before enriching it.
+/// `enrich.letter_display`: a family's display name, `·` and the name after `qs` unless the family has a special one.
+pub fn letter_display(family: &str) -> String {
+    SPECIAL_DISPLAY
+        .iter()
+        .find(|(special, _)| *special == family)
+        .map_or_else(
+            || format!("·{}", family.chars().skip(2).collect::<String>()),
+            |(_, display)| (*display).to_owned(),
+        )
+}
+
+/// `enrich.rune_display`: a settled cell's rune in prose, a boundary by name, a ligature's letters joined with `+`, and a rune outside `qs` as it is.
+pub fn rune_display(rune: &str) -> String {
+    if let Some((_, name)) = BOUNDARY_SUMMARY_NAMES
+        .iter()
+        .find(|(boundary, _)| *boundary == rune)
+    {
+        return (*name).to_owned();
+    }
+    if !rune.starts_with("qs") {
+        return rune.to_owned();
+    }
+    let mut parts = rune.split('_');
+    let mut display = letter_display(parts.next().unwrap_or_default());
+    for part in parts {
+        let shown = letter_display(part);
+        display.push('+');
+        display.push_str(shown.strip_prefix('·').unwrap_or(&shown));
+    }
+    display
+}
+
+/// `enrich._junction_phrase`: a junction token's height in words, or `at y=` and its y.
+fn junction_phrase(token: &str) -> Result<String> {
+    let rest: String = token.chars().skip(1).collect();
+    let Some(y) = python_int(&rest) else {
+        return error(format!(
+            "the junction token {token:?} ends in no int Python reads"
+        ));
+    };
+    Ok(HEIGHT_PHRASES
+        .iter()
+        .find(|(height, _)| *height == y)
+        .map_or_else(|| format!("at y={y}"), |(_, phrase)| (*phrase).to_owned()))
+}
+
+/// `enrich._short_provenance`: a provenance pointer's file name and its path, the first colon a space.
+fn short_provenance(pointer: &str) -> String {
+    pointer
+        .rsplit_once('/')
+        .map_or(pointer, |(_, last)| last)
+        .replacen(':', " ", 1)
+}
+
+/// `enrich._decided_by`: the summary's tail, the first provenance pointer and the deciding stage's phrase as far as there are any.
+fn decided_by(provenance: &[String], stage: Option<&str>) -> String {
+    let phrase = stage.filter(|stage| !stage.is_empty()).map(|stage| {
+        STAGE_PHRASES
+            .iter()
+            .find(|(name, _)| *name == stage)
+            .map_or(stage, |(_, phrase)| phrase)
+    });
+    match (provenance.first(), phrase) {
+        (Some(pointer), Some(phrase)) => {
+            format!("decided by {} ({phrase})", short_provenance(pointer))
+        }
+        (Some(pointer), None) => format!("decided by {}", short_provenance(pointer)),
+        (None, Some(phrase)) => format!("decided by {phrase} (no policy record involved)"),
+        (None, None) => "no policy record involved".to_owned(),
+    }
+}
+
+/// `enrich._before_junction_at_codepoint_gap`: the before junction after the glyph whose successor starts just after the gap, or None.
+fn before_junction_at_codepoint_gap<'j>(
+    before_spans: &[Span],
+    before_junctions: &'j [String],
+    gap: usize,
+) -> Option<&'j str> {
+    (0..before_spans.len().saturating_sub(1))
+        .find(|&cell| before_spans[cell + 1].0 == gap + 1)
+        .and_then(|cell| before_junctions.get(cell))
+        .map(String::as_str)
+}
+
+/// `enrich._cell_description`: a cell's stance, entry and exit (`none` for an absent height) and any adjustments.
+fn cell_description(index: &SpecIndex, cell: &CellId) -> String {
+    let height = |height: Option<Sym>| {
+        height
+            .map(|height| index.resolve(height))
+            .filter(|text| !text.is_empty())
+            .unwrap_or("none")
+    };
+    let mut bits = vec![
+        index.resolve(cell.stance).to_owned(),
+        format!("entry {}", height(cell.entry)),
+        format!("exit {}", height(cell.exit)),
+    ];
+    if !cell.adjustments.is_empty() {
+        let adjustments: Vec<String> = cell
+            .adjustments
+            .iter()
+            .map(|token| adjustment_text(index, *token))
+            .collect();
+        bits.push(format!("adjustments {}", adjustments.join("+")));
+    }
+    bits.join(", ")
+}
+
+/// `enrich._collect_provenance`: each trace's elimination pointers and the `glyph_data/` tail of each of its notes, in order, each once.
+fn collect_provenance<'t>(
+    index: &SpecIndex,
+    traces: impl Iterator<Item = &'t Trace>,
+) -> Vec<String> {
+    let mut pointers: Vec<String> = Vec::new();
+    let mut add = |pointer: String| {
+        if !pointers.contains(&pointer) {
+            pointers.push(pointer);
+        }
+    };
+    for trace in traces {
+        for elimination in &trace.ranking.eliminations {
+            if let Some(at) = &elimination.provenance {
+                add(provenance_pointer(index, at));
+            }
+        }
+        for note in &trace.notes {
+            if let Some(marker) = note.find("glyph_data/") {
+                add(note[marker..].to_owned());
+            }
+        }
+    }
+    pointers
+}
+
+/// One `EnrichedUnit` as `Enricher.enrich` returns it, less the unit, and the mismatch lines the call adds to the enricher's list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Enriched {
+    pub geometry: Geometry,
+    pub notation: String,
+    pub notation_tokens: Vec<String>,
+    pub text_entities: String,
+    pub explain_text: String,
+    pub provenance: Vec<String>,
+    /// The kept trace, `TraceReport`: each position's settled record and deciding stage.
+    pub positions: Vec<(Settled, &'static str)>,
+    pub summary: String,
+    pub mismatches: Vec<String>,
+}
+
+impl Enriched {
+    /// Every field of the `EnrichedUnit` but the unit, as Python holds it, and the mismatch lines, the `enrich` stage's outputs but the primary-unit projection.
+    pub fn fields(&self, index: &SpecIndex) -> Vec<(&'static str, PyValue)> {
+        let positions = self
+            .positions
+            .iter()
+            .map(|(settled, stage)| {
+                PyValue::Record(
+                    "TracePosition".to_owned(),
+                    vec![
+                        ("settled".to_owned(), settled_value(index, settled)),
+                        ("decided_stage".to_owned(), PyValue::str(*stage)),
+                    ],
+                )
+            })
+            .collect();
+        let mut fields = self.geometry.fields();
+        fields.extend([
+            ("notation", PyValue::str(&self.notation)),
+            ("text_entities", PyValue::str(&self.text_entities)),
+            ("explain_text", PyValue::str(&self.explain_text)),
+            ("provenance", PyValue::str_tuple(&self.provenance)),
+            (
+                "report",
+                PyValue::Record(
+                    "TraceReport".to_owned(),
+                    vec![("positions".to_owned(), PyValue::Tuple(positions))],
+                ),
+            ),
+            ("summary", PyValue::str(&self.summary)),
+            ("notes", PyValue::Tuple(Vec::new())),
+            ("notation_tokens", PyValue::str_tuple(&self.notation_tokens)),
+            ("mismatches", PyValue::str_tuple(&self.mismatches)),
+        ]);
+        fields
+    }
+
+    /// `enrich.primary_unit_projection`: the fields the primary-unit search reads, with the unit's id and code points and its two identity flags.
+    pub fn primary_unit_projection(&self, unit: &UnitRecord, flags: &Flags) -> PyValue {
+        let geometry = &self.geometry;
+        let spans =
+            |spans: &[Span]| PyValue::Tuple(spans.iter().map(|&span| pair_value(span)).collect());
+        PyValue::Record(
+            "PrimaryUnitProjection".to_owned(),
+            vec![
+                ("unit_id".to_owned(), PyValue::str(&unit.unit_id)),
+                (
+                    "codepoint_values".to_owned(),
+                    PyValue::Tuple(
+                        unit.codepoint_values
+                            .iter()
+                            .map(|&value| PyValue::Int(i64::from(value)))
+                            .collect(),
+                    ),
+                ),
+                (
+                    "ink_identical".to_owned(),
+                    PyValue::Bool(flags.ink_identical),
+                ),
+                (
+                    "picture_identical".to_owned(),
+                    PyValue::Bool(flags.picture_identical),
+                ),
+                (
+                    "pair".to_owned(),
+                    geometry.pair.map_or(PyValue::None, pair_value),
+                ),
+                ("after_spans".to_owned(), spans(&geometry.after_spans)),
+                (
+                    "after_cells".to_owned(),
+                    PyValue::str_tuple(&geometry.after_cells),
+                ),
+                (
+                    "after_junctions".to_owned(),
+                    PyValue::str_tuple(&geometry.after_junctions),
+                ),
+                ("before_spans".to_owned(), spans(&geometry.before_spans)),
+                (
+                    "before_glyphs".to_owned(),
+                    PyValue::str_tuple(&geometry.before_glyphs),
+                ),
+                (
+                    "before_junctions".to_owned(),
+                    PyValue::str_tuple(&geometry.before_junctions),
+                ),
+                (
+                    "junction_pairs".to_owned(),
+                    PyValue::Tuple(
+                        geometry
+                            .secondary_junctions
+                            .iter()
+                            .map(|junction| pair_value(junction.pair))
+                            .collect(),
+                    ),
+                ),
+            ],
+        )
+    }
+}
+
+/// The phase-1 flags a unit is enriched with: what the worker's `_phase1_unit` set on it before enriching it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Flags {
-    ink_identical: bool,
-    picture_identical: bool,
-    junior_equivalent: bool,
+pub struct Flags {
+    pub ink_identical: bool,
+    pub picture_identical: bool,
+    pub junior_equivalent: bool,
 }
 
 fn line_flags(record: &Value, key: &str) -> Result<Flags> {
@@ -894,7 +1422,40 @@ fn line_flags(record: &Value, key: &str) -> Result<Flags> {
     })
 }
 
-/// The `enrich` stage: for each `enrich:` line of `stage_file`, the unit its `record` carries, enriched under its first configuration, written as one line of the line's `key` and the [`GEOMETRY_FIELDS`] in the typed encoding. The upstream values are recomputed from the record through the stages that own them, and the ink stage's flags are checked first against the line's `flags`, which the worker's phase 1 set, so a failure there names the ink stage; the report is the settler's ([`Settler::explain`]), the row the mapped pack's and the runs the shaper's, each a stage of its own. The shaper's and the settler's memos carry from line to line as a batch's do.
+/// A generated line's baseline subset row, a typed `SubsetRow` record of three tuples, as owned glyph names, cluster starts and junctions.
+type OwnedRow = (Vec<String>, Vec<usize>, Vec<String>);
+
+fn line_row(record: &Value, key: &str) -> Result<OwnedRow> {
+    let failure = |what: &str| EnrichError(format!("{key}: the row's {what}"));
+    let PyValue::Record(name, fields) = PyValue::from_typed(&record["row"])
+        .map_err(|problem| EnrichError(format!("{key}: the row: {problem}")))?
+    else {
+        return error(format!("{key}: the row is not a record"));
+    };
+    let field = |wanted: &str| match fields.iter().find(|(held, _)| held == wanted) {
+        Some((_, PyValue::Tuple(items))) if name == "SubsetRow" => Ok(items),
+        _ => Err(failure(wanted)),
+    };
+    let texts = |wanted: &str| {
+        field(wanted)?
+            .iter()
+            .map(|item| match item {
+                PyValue::Str(text) => Ok(text.clone()),
+                _ => Err(failure(wanted)),
+            })
+            .collect::<Result<Vec<String>>>()
+    };
+    let clusters = field("clusters")?
+        .iter()
+        .map(|item| match item {
+            PyValue::Int(cluster) => usize::try_from(*cluster).map_err(|_| failure("clusters")),
+            _ => Err(failure("clusters")),
+        })
+        .collect::<Result<Vec<usize>>>()?;
+    Ok((texts("glyphs")?, clusters, texts("junctions")?))
+}
+
+/// The `enrich` stage: for each `enrich:` or `generated:` line of `stage_file`, the unit its `record` carries, enriched under its first configuration, written as one line of the line's `key`, every field [`Enriched::fields`] gives and the `primary_unit_projection`, in the typed encoding. A line that carries a `row` is enriched against that baseline subset row instead of the pack's. The upstream values are recomputed from the record through the stages that own them, and the ink stage's flags are checked first against the line's `flags`, which the worker's phase 1 set, so a failure there names the ink stage; the report is the settler's ([`Settler::explain`]), the row the mapped pack's and the runs the shaper's, each a stage of its own. The shaper's and the settler's memos carry from line to line as a batch's do.
 pub fn stage_enrich(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
     let init = Init::read(init_path)?;
     let facts = FontFacts::read(&init.font_facts)?;
@@ -917,8 +1478,10 @@ pub fn stage_enrich(init_path: &Path, stage_file: &Path, out: &mut impl Write) -
         let Some(key) = record["key"].as_str() else {
             return error(format!("a stage line has no key: {line:.200}"));
         };
-        if !key.starts_with("enrich:") {
-            return error(format!("{key}: the enrich stage answers enrich: lines"));
+        if !key.starts_with("enrich:") && !key.starts_with("generated:") {
+            return error(format!(
+                "{key}: the enrich stage answers enrich: and generated: lines"
+            ));
         }
         let Some(unit) = record["record"].as_str() else {
             return error(format!("{key}: the line has no unit record"));
@@ -942,17 +1505,28 @@ pub fn stage_enrich(init_path: &Path, stage_file: &Path, out: &mut impl Write) -
         let report = settler
             .explain(&unit.codepoint_values, &features_for_config(config))
             .map_err(|failure| EnrichError(format!("{key}: the settle stage: {failure}")))?;
-        let geometry = enricher
-            .geometry(
-                &mut shaper,
-                &unit,
-                flags.ink_identical,
-                flags.picture_identical,
-                &report,
-            )
-            .map_err(|failure| EnrichError(format!("{key}: {failure}")))?;
+        let enriched = if record.get("row").is_some() {
+            let (glyphs, clusters, junctions) = line_row(&record, key)?;
+            let row = SubsetRow {
+                glyphs: glyphs.iter().map(String::as_str).collect(),
+                clusters,
+                junctions: junctions.iter().map(String::as_str).collect(),
+            };
+            enricher.enrich_with_row(&mut shaper, &unit, &flags, &report, &row)
+        } else {
+            enricher.enrich(&mut shaper, &unit, &flags, &report)
+        }
+        .map_err(|failure| EnrichError(format!("{key}: {failure}")))?;
         let mut text = format!("{{\"key\":{}", json_string(key));
-        for (name, value) in geometry.fields() {
+        let projection = (
+            "primary_unit_projection",
+            enriched.primary_unit_projection(&unit, &flags),
+        );
+        for (name, value) in enriched
+            .fields(settlement.index())
+            .into_iter()
+            .chain([projection])
+        {
             text.push_str(&format!(",{}:{}", json_string(name), value.to_typed()));
         }
         text.push('}');
@@ -1020,6 +1594,55 @@ mod tests {
         );
         assert_eq!(secondary_pairs((0, 1), &[], &[4], &joined, 6), [(4, 5)]);
         assert_eq!(secondary_pairs((0, 1), &[], &[5], &joined, 6), [(4, 5)]);
+    }
+
+    #[test]
+    fn runes_display_as_letters_ligatures_and_boundary_names() {
+        assert_eq!(letter_display("qsMay"), "·May");
+        assert_eq!(letter_display("qsIng"), "·-ing");
+        assert_eq!(rune_display("qsTea_qsOy"), "·Tea+Oy");
+        assert_eq!(rune_display("qsDay_qsJai"), "·Day+J’ai");
+        assert_eq!(rune_display("namer-dot"), "the namer dot");
+        assert_eq!(rune_display("other"), "other");
+    }
+
+    #[test]
+    fn the_summary_tail_names_the_first_pointer_and_the_stage() {
+        let pointer = vec!["glyph_data/runes/qsMay.yaml:policy.extend[3]".to_owned()];
+        assert_eq!(
+            decided_by(&pointer, Some("join-count")),
+            "decided by qsMay.yaml policy.extend[3] (join-count rank)"
+        );
+        assert_eq!(
+            decided_by(&pointer, None),
+            "decided by qsMay.yaml policy.extend[3]"
+        );
+        assert_eq!(
+            decided_by(&[], Some("isolated-overlay")),
+            "decided by isolated-overlay (no policy record involved)"
+        );
+        assert_eq!(decided_by(&[], Some("")), "no policy record involved");
+        assert_eq!(junction_phrase("y5"), Ok("at the x-height".to_owned()));
+        assert_eq!(junction_phrase("y6"), Ok("at y=6".to_owned()));
+        assert!(junction_phrase("y").is_err());
+    }
+
+    #[test]
+    fn the_before_junction_at_a_gap_is_the_one_before_the_glyph_after_it() {
+        let spans = [(0, 1), (1, 3), (3, 4)];
+        let junctions = junctions(&["y0", "break"]);
+        assert_eq!(
+            before_junction_at_codepoint_gap(&spans, &junctions, 0),
+            Some("y0")
+        );
+        assert_eq!(
+            before_junction_at_codepoint_gap(&spans, &junctions, 2),
+            Some("break")
+        );
+        assert_eq!(
+            before_junction_at_codepoint_gap(&spans, &junctions, 1),
+            None
+        );
     }
 
     #[test]
