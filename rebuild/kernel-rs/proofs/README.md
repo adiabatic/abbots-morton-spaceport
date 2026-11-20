@@ -1,6 +1,6 @@
 # Proofs for the grouped sweep
 
-`build-tables --grouped-sweeps` answers most asks of a fourth-slot prospect probe from the transcript of an earlier ask instead of running them (`Engine::grouped_probe_prospect`, `fourth_class_live` in `src/liveness.rs`). The Lean files here prove, about a model of that sweep, that grouping changes neither where the sweep ends nor what it fires.
+`build-tables` answers most asks of a fourth-slot prospect probe from the transcript of an earlier ask instead of running them, unless given `--no-grouped-sweeps` (`Engine::grouped_probe_prospect`, `fourth_class_live` in `src/liveness.rs`). The Lean files here prove, about a model of that sweep, that grouping changes neither where the sweep ends nor what it fires.
 
 A proof shows only that the stated theorem holds of the stated model. Whether the model is the crate, and whether the theorem is the one the design needs, is for a reader to judge, and this file is written for that reader: it gives each theorem in plain words, says what each definition stands for in the crate, and lists what the model assumes.
 

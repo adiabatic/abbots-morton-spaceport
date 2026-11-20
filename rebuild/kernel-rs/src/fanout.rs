@@ -65,7 +65,7 @@ impl Default for MemoSharing {
             trace_ceiling: fixpoint::TABLE_TRACE_CEILING,
             snapshot_packing: SnapshotPacking::default(),
             snapshot_cache_blocks: SNAPSHOT_CACHE_BLOCKS,
-            grouped_sweeps: GroupedSweeps::Off,
+            grouped_sweeps: GroupedSweeps::On,
         }
     }
 }

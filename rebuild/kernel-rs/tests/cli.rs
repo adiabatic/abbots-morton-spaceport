@@ -803,7 +803,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
     }
 }
 
-/// Grouping the fourth-slot prospect probe's sweep changes no table: a build with `--grouped-sweeps` writes the tables and digests of an ungrouped build, in the delta schedule with verdict sharing on and in the schedule that enumerates every configuration from scratch, and a build with `--check-grouped-sweeps`, which also runs every ask a transcript answered in full, passes and writes them too. A grouped build reports its sweeps in its cache stats and an ungrouped one does not, and naming both flags is a usage error. Every build here runs at [`SMALL_MEMO_CEILINGS`] and [`SMALL_SNAPSHOT_CACHE`].
+/// Grouping the fourth-slot prospect probe's sweep changes no table: a build, which groups unless given `--no-grouped-sweeps`, writes the tables and digests of an ungrouped build, in the delta schedule with verdict sharing on and in the schedule that enumerates every configuration from scratch, and a build with `--check-grouped-sweeps`, which also runs every ask a transcript answered in full, passes and writes them too. A grouped build reports its sweeps in its cache stats and an ungrouped one does not. Naming both flags is a usage error, and so is `--grouped-sweeps`, which no build accepts. Every build here runs at [`SMALL_MEMO_CEILINGS`] and [`SMALL_SNAPSHOT_CACHE`].
 #[test]
 fn a_table_build_grouping_its_sweeps_files_the_bytes_an_ungrouped_one_files() {
     let root = scratch("cli-grouped-sweeps");
@@ -815,8 +815,8 @@ fn a_table_build_grouping_its_sweeps_files_the_bytes_an_ungrouped_one_files() {
         let mut answers: Vec<String> = Vec::new();
         let mut outdirs: Vec<PathBuf> = Vec::new();
         for (grouping, flag) in [
-            ("ungrouped", None),
-            ("grouped", Some("--grouped-sweeps")),
+            ("ungrouped", Some("--no-grouped-sweeps")),
+            ("grouped", None),
             ("checked", Some("--check-grouped-sweeps")),
         ] {
             let outdir = root.join(format!("{schedule}-{grouping}"));
@@ -838,7 +838,7 @@ fn a_table_build_grouping_its_sweeps_files_the_bytes_an_ungrouped_one_files() {
             assert!(output.status.success(), "{schedule} {grouping}: {stderr}");
             assert_eq!(
                 stderr.contains(" grouped_sweeps asks="),
-                flag.is_some(),
+                grouping != "ungrouped",
                 "{schedule} {grouping}"
             );
             answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
@@ -860,16 +860,27 @@ fn a_table_build_grouping_its_sweeps_files_the_bytes_an_ungrouped_one_files() {
             }
         }
     }
-    let both = run(&[
-        "build-tables",
-        word(&spec),
-        word(&root.join("both")),
-        "--configs=default",
-        "--inputs=cli-stamp",
-        "--grouped-sweeps",
-        "--check-grouped-sweeps",
-    ]);
-    assert_eq!(both.status.code(), Some(2), "{}", stderr_of(&both));
+    let refused_at = root.join("refused");
+    for refused in [
+        &["--no-grouped-sweeps", "--check-grouped-sweeps"][..],
+        &["--grouped-sweeps"],
+    ] {
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(&refused_at),
+            "--configs=default",
+            "--inputs=cli-stamp",
+        ];
+        arguments.extend(refused);
+        let output = run(&arguments);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{refused:?}: {}",
+            stderr_of(&output)
+        );
+    }
 }
 
 /// Starting the heaviest delta from scratch beside `default` changes no table: a build with `--scratch-beside-default=1` writes the tables and digests of a build that runs it as a delta and of a `--no-default-memo-sharing` build. With `default`'s one delta started beside it, no delta reads `default`'s memo, so `default` keeps none, and the cache stats show it: `ss03` takes windows from `default`'s memo only in the build that runs it as a delta. A count of zero is a usage error, since leaving the flag out asks for none. Every build here runs at [`SMALL_MEMO_CEILINGS`] and [`SMALL_SNAPSHOT_CACHE`].

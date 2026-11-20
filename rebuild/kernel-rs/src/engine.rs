@@ -86,7 +86,7 @@ enum MemoRead<T> {
     Unkeyed,
 }
 
-/// Whether the fourth-slot prospect probe groups the tokens it sweeps ([`crate::liveness`]): not at all, by the transcripts its recording asks leave, or by them with every match checked against the full ask. `build-tables --grouped-sweeps` and `--check-grouped-sweeps` set the second and third.
+/// Whether the fourth-slot prospect probe groups the tokens it sweeps ([`crate::liveness`]): not at all, by the transcripts its recording asks leave, or by them with every match checked against the full ask. A table fixpoint groups unless told otherwise ([`crate::fixpoint::MemoAccess`]); `build-tables --no-grouped-sweeps` sets the first and `--check-grouped-sweeps` the third.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GroupedSweeps {
     #[default]
@@ -3441,7 +3441,7 @@ impl<'i> Engine<'i> {
         self.grouped_sweeps
     }
 
-    /// Set whether and how the fourth-slot prospect probe groups its sweep. The table fixpoint sets it from its memo access.
+    /// Set whether and how the fourth-slot prospect probe groups its sweep. An engine starts at [`GroupedSweeps::Off`], and the table fixpoint sets it from its memo access.
     pub fn set_grouped_sweeps(&mut self, grouped: GroupedSweeps) {
         self.grouped_sweeps = grouped;
     }

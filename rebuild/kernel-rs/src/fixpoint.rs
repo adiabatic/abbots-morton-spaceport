@@ -105,7 +105,7 @@ impl Default for MemoAccess {
             trace_ceiling: TABLE_TRACE_CEILING,
             snapshot_packing: SnapshotPacking::default(),
             snapshot_cache_blocks: SNAPSHOT_CACHE_BLOCKS,
-            grouped_sweeps: GroupedSweeps::Off,
+            grouped_sweeps: GroupedSweeps::On,
         }
     }
 }
