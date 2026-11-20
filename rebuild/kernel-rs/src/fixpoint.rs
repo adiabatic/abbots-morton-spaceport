@@ -14,7 +14,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use crate::deep_slots::{FourthSlotFilter, ThirdSlotFilter, fourth_slot_inputs, third_slot_inputs};
-use crate::engine::{CacheSize, Engine, EngineModes, MemoCeilings, Slots, TraceCeiling};
+use crate::engine::{
+    CacheSize, Engine, EngineModes, GroupedSweeps, MemoCeilings, Slots, TraceCeiling,
+};
 use crate::error::SettleError;
 use crate::fiber::DeepFiberDeriver;
 use crate::hash::{Eviction, HashMap, HashSet};
@@ -90,6 +92,7 @@ pub struct MemoAccess {
     pub trace_ceiling: TraceCeiling,
     pub snapshot_packing: SnapshotPacking,
     pub snapshot_cache_blocks: usize,
+    pub grouped_sweeps: GroupedSweeps,
 }
 
 impl Default for MemoAccess {
@@ -102,6 +105,7 @@ impl Default for MemoAccess {
             trace_ceiling: TABLE_TRACE_CEILING,
             snapshot_packing: SnapshotPacking::default(),
             snapshot_cache_blocks: SNAPSHOT_CACHE_BLOCKS,
+            grouped_sweeps: GroupedSweeps::Off,
         }
     }
 }
@@ -1026,7 +1030,7 @@ pub fn enumerate_for_tables<'i>(
     enumerate_from_seeds(index, features, modes, contract_seeds, cache_stats, access)
 }
 
-/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings and a trace memo shard made room at its own (`memo_clears`), the trace memo's capacity being its tables' level, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, each shared memo's store as the engine read it (`shared_memo_store id= gets= filtered= cached= decoded= cache_bytes=`: the gets that reached the store once the exclusion's key test let them, those the store's filter answered absent, those a cached block answered, the blocks decoded, and the bytes of the engine's cache for it at its full size), and the process's resident size before the memo release, after it, and after the sort, with the snapshot of an enumeration that keeps its memo beside the second (`snapshot records= blocks= packed_bytes= fence_bytes= filter_bytes= pool_bytes= sort_ms= encode_ms=`, [`MemoSnapshot::footprint_line`]). The caller writes the lines to stderr. None of this is computed unless asked for.
+/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings and a trace memo shard made room at its own (`memo_clears`), what the grouped fourth-slot sweeps did when they are on (`grouped_sweeps`), the trace memo's capacity being its tables' level, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, each shared memo's store as the engine read it (`shared_memo_store id= gets= filtered= cached= decoded= cache_bytes=`: the gets that reached the store once the exclusion's key test let them, those the store's filter answered absent, those a cached block answered, the blocks decoded, and the bytes of the engine's cache for it at its full size), and the process's resident size before the memo release, after it, and after the sort, with the snapshot of an enumeration that keeps its memo beside the second (`snapshot records= blocks= packed_bytes= fence_bytes= filter_bytes= pool_bytes= sort_ms= encode_ms=`, [`MemoSnapshot::footprint_line`]). The caller writes the lines to stderr. None of this is computed unless asked for.
 ///
 /// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_with_cache_stats(
@@ -1073,6 +1077,7 @@ fn enumerate_from_seeds<'i>(
     if !access.publish_verdicts.is_empty() {
         engine.publish_verdicts(access.publish_verdicts);
     }
+    engine.set_grouped_sweeps(access.grouped_sweeps);
     let config = feature_config_token(index, features.iter().copied());
     let mut options = WindowOptions::new(index).map_err(error_message)?;
     // Either engine mode makes a deep mode set. This is the only place the enumeration combines the two flags.
@@ -1680,6 +1685,9 @@ fn enumerate_from_seeds<'i>(
             engine.candidates_memo_clears(),
             engine.trace_memo_evictions()
         ));
+        if let Some(line) = engine.sweep_stats_line(&config) {
+            lines.push(line);
+        }
         lines.push(format!(
             "[c] {config} elimination_text bytes={}",
             engine.elimination_text_bytes()

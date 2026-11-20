@@ -24,6 +24,7 @@ use crate::model::{
     Condition, PolicyRecord, Provenance, Rune, Stance, SurfaceRow, Sym, Table, When,
 };
 use crate::specificity;
+use crate::token::{Question, Recorded, Role};
 use crate::types::{
     AdjustmentToken, Candidate, CandidateOrdinals, CellId, DecidedStage, Elimination,
     EliminationStage, LeftContext, NotesId, NotesPool, PackedKinds, RankedCandidate, RightToken,
@@ -83,6 +84,52 @@ enum MemoRead<T> {
     Hit(T),
     Missed(TraceKey),
     Unkeyed,
+}
+
+/// Whether the fourth-slot prospect probe groups the tokens it sweeps ([`crate::liveness`]): not at all, by the transcripts its recording asks leave, or by them with every match checked against the full ask. `build-tables --grouped-sweeps` and `--check-grouped-sweeps` set the second and third.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GroupedSweeps {
+    #[default]
+    Off,
+    On,
+    Check,
+}
+
+/// What a grouped sweep did, for the cache stats: the asks it was given, the ones a transcript answered, the ones it ran in full, the transcripts it kept, the full runs a rune accessor poisoned (by accessor, in [`crate::token::Accessor`] order), that a memo answered at their own level, that did not take their value from a simulated trace they settled, and that raised, the asks run in full because a capture was open, the most transcripts one probe held and questions one transcript held, and the probes that found their slot live after a transcript had answered one of their asks.
+#[derive(Clone, Copy, Debug, Default)]
+struct SweepStats {
+    asks: u64,
+    matched: u64,
+    full: u64,
+    kept: u64,
+    poisoned: [u64; 5],
+    answered_from_memo: u64,
+    not_simulated: u64,
+    raised: u64,
+    capture_open: u64,
+    max_transcripts: usize,
+    max_questions: usize,
+    live_after_match: u64,
+}
+
+/// One recording ask's transcript in a grouped sweep: the token it was asked of, the questions it put to that token, and its result, which any token answering every question alike shares ([`Engine::grouped_probe_prospect`]).
+#[derive(Debug)]
+pub(crate) struct Transcript {
+    token: RightToken,
+    questions: Vec<Question>,
+    result: i64,
+}
+
+#[cfg(test)]
+impl Transcript {
+    /// A transcript with no questions, which every letter answers alike, standing for `token` with `result`: how a test feeds check mode a match that may be wrong.
+    pub(crate) fn forged(token: RightToken, result: i64) -> Self {
+        Self {
+            token,
+            questions: Vec::new(),
+            result,
+        }
+    }
 }
 
 /// One authored record's YAML pointer: `model.Provenance`'s file and path, kept apart so the value is `Copy` and hashes on two integers. [`Pointer::text`] builds the `file:path` string the corpus and the notes carry.
@@ -163,6 +210,16 @@ impl Slots {
             right3,
             right4,
         }
+    }
+
+    /// These slots with each swept letter replaced by `with` ([`RightToken::sweep_to`]).
+    pub(crate) fn sweep_to(self, with: RightToken) -> Self {
+        Self::new(
+            self.right1.sweep_to(with),
+            self.right2.sweep_to(with),
+            self.right3.sweep_to(with),
+            self.right4.sweep_to(with),
+        )
     }
 
     /// The two-slot window every capability and refusal read is evaluated against, with the deeper two slots `UNKNOWN`.
@@ -1279,6 +1336,11 @@ pub struct Engine<'i> {
     shared_verdict_divergences: u64,
     shared_verdict_refusals: u64,
     shared_verdict_misses: u64,
+    /// Whether the fourth-slot prospect probe groups its sweep, and what the grouping did.
+    grouped_sweeps: GroupedSweeps,
+    sweep_stats: SweepStats,
+    /// Whether a grouped sweep's recording ask is running, the only time a swept token exists outside a memo key, so a call checks its arguments for one only then.
+    recording: bool,
 }
 
 impl<'i> Engine<'i> {
@@ -1342,6 +1404,9 @@ impl<'i> Engine<'i> {
             shared_verdict_divergences: 0,
             shared_verdict_refusals: 0,
             shared_verdict_misses: 0,
+            grouped_sweeps: GroupedSweeps::Off,
+            sweep_stats: SweepStats::default(),
+            recording: false,
         }
     }
 
@@ -2127,7 +2192,7 @@ impl<'i> Engine<'i> {
                     return Ok(Some(false));
                 }
                 for klass in &cond.klass {
-                    if !token.in_class(index.class_members(*klass, owner)?) {
+                    if !token.in_class(*klass, owner, index.class_members(*klass, owner)?) {
                         return Ok(Some(false));
                     }
                 }
@@ -2498,6 +2563,37 @@ impl<'i> Engine<'i> {
         right1: RightToken,
         right2: RightToken,
     ) -> Result<CandidatesEntry, SettleError> {
+        if !self.recording || crate::token::enter(&[right1, right2], false) != Role::Nested {
+            return self.candidates_entry_inner(left, rune_name, right1, right2);
+        }
+        let result = self.candidates_entry_inner(left, rune_name, right1, right2);
+        crate::token::leave(Question::Candidates {
+            left: left.clone(),
+            rune: rune_name,
+            right1,
+            right2,
+            answer: Self::entry_answer(&result),
+        });
+        result
+    }
+
+    /// A candidate memo entry as a nested question's answer: its candidate list and elimination list, an error as its kind.
+    fn entry_answer(
+        result: &Result<CandidatesEntry, SettleError>,
+    ) -> Result<(usize, usize), crate::error::SettleErrorKind> {
+        match result {
+            Ok(entry) => Ok((entry.candidates.index(), entry.eliminations.index())),
+            Err(error) => Err(error.kind()),
+        }
+    }
+
+    fn candidates_entry_inner(
+        &mut self,
+        left: &LeftContext,
+        rune_name: Sym,
+        right1: RightToken,
+        right2: RightToken,
+    ) -> Result<CandidatesEntry, SettleError> {
         let key = Self::candidates_key(self.index, left, rune_name, right1, right2);
         match self.candidates_cache.entries.get(&key) {
             Some(&cached) => {
@@ -2814,6 +2910,27 @@ impl<'i> Engine<'i> {
         right1: RightToken,
         right2: RightToken,
     ) -> Result<bool, SettleError> {
+        if !self.recording || crate::token::enter(&[right1, right2], false) != Role::Nested {
+            return self.acceptor_exists_inner(candidate, rune_name, right1, right2);
+        }
+        let result = self.acceptor_exists_inner(candidate, rune_name, right1, right2);
+        crate::token::leave(Question::Acceptor {
+            candidate: *candidate,
+            rune: rune_name,
+            right1,
+            right2,
+            answer: result.as_ref().copied().map_err(SettleError::kind),
+        });
+        result
+    }
+
+    fn acceptor_exists_inner(
+        &mut self,
+        candidate: &Candidate,
+        rune_name: Sym,
+        right1: RightToken,
+        right2: RightToken,
+    ) -> Result<bool, SettleError> {
         let Some(follower) = right1.rune() else {
             return Ok(false);
         };
@@ -2906,6 +3023,35 @@ impl<'i> Engine<'i> {
         slots: Slots,
         recorded: bool,
     ) -> Result<i64, SettleError> {
+        if !self.recording {
+            return self.prospect_inner(rune_name, candidate, slots, recorded, false);
+        }
+        match crate::token::enter(&slots.as_array(), true) {
+            Role::Plain => self.prospect_inner(rune_name, candidate, slots, recorded, false),
+            Role::Ask => self.prospect_inner(rune_name, candidate, slots, recorded, true),
+            Role::Nested => {
+                let result = self.prospect_inner(rune_name, candidate, slots, recorded, false);
+                crate::token::leave(Question::Prospect {
+                    rune: rune_name,
+                    candidate,
+                    slots,
+                    recorded,
+                    answer: result.as_ref().copied().map_err(SettleError::kind),
+                });
+                result
+            }
+        }
+    }
+
+    /// [`Engine::prospect`] itself. `ask` is set for a recording ask's own prospect, which notes for the recorder whether a memo answered it and whether it took its value from a simulated trace it settled ([`crate::token::end_recording`]).
+    fn prospect_inner(
+        &mut self,
+        rune_name: Sym,
+        candidate: Candidate,
+        slots: Slots,
+        recorded: bool,
+        ask: bool,
+    ) -> Result<i64, SettleError> {
         let Some(follower) = slots.right1.rune() else {
             return Ok(0);
         };
@@ -2951,7 +3097,12 @@ impl<'i> Engine<'i> {
             let synthetic_left = Self::synthetic_left(rune_name, candidate);
             let shifted = Slots::new(slots.right2, slots.right3, slots.right4, UNKNOWN);
             match self.settled_from_memo(&synthetic_left, slots.right1, shifted, read_junction) {
-                MemoRead::Hit(junction_bearing) => return Ok(junction_bearing),
+                MemoRead::Hit(junction_bearing) => {
+                    if ask {
+                        crate::token::note_answered_from_memo();
+                    }
+                    return Ok(junction_bearing);
+                }
                 MemoRead::Missed(key) => Some(key),
                 MemoRead::Unkeyed => None,
             }
@@ -2959,6 +3110,9 @@ impl<'i> Engine<'i> {
             None
         };
         if let Some(&(cached, delta_id, reads)) = self.prospect_cache.get(&key) {
+            if ask {
+                crate::token::note_answered_from_memo();
+            }
             replay_own(
                 &mut self.fired_log,
                 &self.capture_starts,
@@ -2972,6 +3126,7 @@ impl<'i> Engine<'i> {
         if capturing {
             self.begin_capture();
         }
+        let settled_here = missed.is_some();
         let (result, term) =
             match self.prospect_uncached(rune_name, candidate, slots, follower, recorded, missed) {
                 Ok(answer) => answer,
@@ -2984,6 +3139,9 @@ impl<'i> Engine<'i> {
             };
         if capturing && term == ProspectTerm::Simulated {
             self.abort_capture();
+            if ask && settled_here {
+                crate::token::note_simulated();
+            }
             return Ok(result);
         }
         let (delta_id, reads) = if capturing {
@@ -3267,6 +3425,204 @@ impl<'i> Engine<'i> {
         slots: Slots,
     ) -> Result<i64, SettleError> {
         self.prospect(rune_name, candidate, slots, false)
+    }
+
+    /// Whether and how the fourth-slot prospect probe groups its sweep.
+    pub fn grouped_sweeps(&self) -> GroupedSweeps {
+        self.grouped_sweeps
+    }
+
+    /// Set whether and how the fourth-slot prospect probe groups its sweep. The table fixpoint sets it from its memo access.
+    pub fn set_grouped_sweeps(&mut self, grouped: GroupedSweeps) {
+        self.grouped_sweeps = grouped;
+    }
+
+    /// The `--cache-stats` line for the grouped sweeps, when they are on.
+    pub(crate) fn sweep_stats_line(&self, config: &str) -> Option<String> {
+        if self.grouped_sweeps == GroupedSweeps::Off {
+            return None;
+        }
+        let stats = &self.sweep_stats;
+        Some(format!(
+            "[c] {config} grouped_sweeps asks={} matched={} full={} kept={} poisoned_rune={} poisoned_letter={} poisoned_ordinal={} poisoned_letter_ordinal={} poisoned_compare={} answered_from_memo={} not_simulated={} raised={} capture_open={} max_transcripts={} max_questions={} live_after_match={}",
+            stats.asks,
+            stats.matched,
+            stats.full,
+            stats.kept,
+            stats.poisoned[0],
+            stats.poisoned[1],
+            stats.poisoned[2],
+            stats.poisoned[3],
+            stats.poisoned[4],
+            stats.answered_from_memo,
+            stats.not_simulated,
+            stats.raised,
+            stats.capture_open,
+            stats.max_transcripts,
+            stats.max_questions,
+            stats.live_after_match
+        ))
+    }
+
+    /// How many asks a transcript has answered so far.
+    pub(crate) fn sweep_matches(&self) -> u64 {
+        self.sweep_stats.matched
+    }
+
+    /// Count a grouped probe that found its slot live after a transcript answered one of its asks.
+    pub(crate) fn note_live_after_match(&mut self) {
+        self.sweep_stats.live_after_match += 1;
+    }
+
+    /// One ask of a grouped fourth-slot prospect sweep: [`Engine::probe_prospect`] for `slots`, whose fourth slot is the swept token, answered by the first of the probe's `transcripts` whose every question the token answers alike, or else asked in full with the token swept and recorded, its transcript kept when it may stand for other tokens.
+    ///
+    /// An ask whose evaluation learns about its token only through recorded questions takes the same path, returns the same result and fires the same pointers outside those questions for every token that answers them alike ([`crate::liveness`]). Answering a transcript makes each nested question's call again for the token, through the memos, so what it fires and inserts is what the full ask's would; the questions asked before a mismatch are ones the full ask asks next. The skipped ask's own window is settled unrecorded and its prospect is not memoized, so it would have inserted no memo entry of its own; its other lookups are ones the probe's earlier asks made. Answering moves a question's lookups ahead of the ask's own work, so where a memo is cleared at its ceiling between them, an entry can be inserted again or not, and a memo's length at its last clear can differ by those entries; the tables never do. Only an ask with no capture open is grouped, since a skipped ask journals nothing into one. Under [`GroupedSweeps::Check`] every match also runs the full ask and raises when its result differs or it fires a pointer [`Engine::fired`] lacks.
+    pub(crate) fn grouped_probe_prospect(
+        &mut self,
+        rune_name: Sym,
+        candidate: Candidate,
+        slots: Slots,
+        transcripts: &mut Vec<Transcript>,
+    ) -> Result<i64, SettleError> {
+        self.sweep_stats.asks += 1;
+        let token = slots.right4;
+        if !self.capture_starts.is_empty() {
+            self.sweep_stats.capture_open += 1;
+        }
+        if token.kind() != TokenKind::Letter
+            || self.fired_log.is_none()
+            || !self.capture_starts.is_empty()
+        {
+            self.sweep_stats.full += 1;
+            return self.probe_prospect(rune_name, candidate, slots);
+        }
+        for transcript in transcripts.iter() {
+            if self.answers(&transcript.questions, token) {
+                self.sweep_stats.matched += 1;
+                if self.grouped_sweeps == GroupedSweeps::Check {
+                    self.check_match(rune_name, candidate, slots, transcript)?;
+                }
+                return Ok(transcript.result);
+            }
+        }
+        self.sweep_stats.full += 1;
+        crate::token::begin_recording();
+        self.recording = true;
+        let swept = Slots::new(slots.right1, slots.right2, slots.right3, token.swept());
+        let result = self.probe_prospect(rune_name, candidate, swept);
+        self.recording = false;
+        match (crate::token::end_recording(), &result) {
+            (Recorded::Transcript(questions), Ok(value)) => {
+                self.sweep_stats.kept += 1;
+                self.sweep_stats.max_questions =
+                    self.sweep_stats.max_questions.max(questions.len());
+                transcripts.push(Transcript {
+                    token,
+                    questions,
+                    result: *value,
+                });
+                self.sweep_stats.max_transcripts =
+                    self.sweep_stats.max_transcripts.max(transcripts.len());
+            }
+            (_, Err(_)) => self.sweep_stats.raised += 1,
+            (Recorded::Poisoned(accessor), _) => self.sweep_stats.poisoned[accessor as usize] += 1,
+            (Recorded::AnsweredFromMemo, _) => self.sweep_stats.answered_from_memo += 1,
+            (Recorded::NotSimulated, _) => self.sweep_stats.not_simulated += 1,
+        }
+        result
+    }
+
+    /// Whether `token` answers every question of a transcript as the transcript's token did, in order, stopping at the first that differs or raises. A nested question is asked by making its call again with `token` in the swept positions, through the memos, with replay errors discarded as they are inside the probe's own prospect.
+    fn answers(&mut self, questions: &[Question], token: RightToken) -> bool {
+        let enclosing = std::mem::replace(&mut self.replay_errors_discarded, true);
+        let index = self.index();
+        let matched = questions.iter().all(|question| match question {
+            Question::Family(families, answer) => token.in_family(families) == *answer,
+            Question::Class(klass, owner, answer) => index
+                .class_members(*klass, *owner)
+                .is_ok_and(|members| token.in_class(*klass, *owner, members) == *answer),
+            Question::Stroke(stroke, answer) => token.has_entry_stroke(index, *stroke) == *answer,
+            Question::Prospect {
+                rune,
+                candidate,
+                slots,
+                recorded,
+                answer,
+            } => {
+                self.prospect(*rune, *candidate, slots.sweep_to(token), *recorded)
+                    .map_err(|error| error.kind())
+                    == *answer
+            }
+            Question::Candidates {
+                left,
+                rune,
+                right1,
+                right2,
+                answer,
+            } => {
+                let result = self.candidates_entry(
+                    left,
+                    *rune,
+                    right1.sweep_to(token),
+                    right2.sweep_to(token),
+                );
+                Self::entry_answer(&result) == *answer
+            }
+            Question::Acceptor {
+                candidate,
+                rune,
+                right1,
+                right2,
+                answer,
+            } => {
+                self.acceptor_exists(
+                    candidate,
+                    *rune,
+                    right1.sweep_to(token),
+                    right2.sweep_to(token),
+                )
+                .map_err(|error| error.kind())
+                    == *answer
+            }
+        });
+        self.replay_errors_discarded = enclosing;
+        matched
+    }
+
+    /// Under [`GroupedSweeps::Check`], run the ask a transcript answered in full and raise when its result differs from the transcript's or it fires a pointer [`Engine::fired`] lacks.
+    fn check_match(
+        &mut self,
+        rune_name: Sym,
+        candidate: Candidate,
+        slots: Slots,
+        transcript: &Transcript,
+    ) -> Result<(), SettleError> {
+        let fired = self.fired.len();
+        let full = self.probe_prospect(rune_name, candidate, slots);
+        if full == Ok(transcript.result) && self.fired.len() == fired {
+            return Ok(());
+        }
+        let index = self.index();
+        let name = |token: RightToken| match token.rune() {
+            Some(rune) => index.resolve(rune).to_owned(),
+            None => token.kind().as_str().to_owned(),
+        };
+        Err(SettleError::Plain(format!(
+            "E-GROUPED-SWEEP: the fourth-slot prospect probe of {} (stance {}, exit {}) at ({}, {}, {}) answered {} with {}'s result {}, but the full ask returned {:?} and fired {} pointer(s) the build had not",
+            index.resolve(rune_name),
+            index.resolve(candidate.stance),
+            candidate
+                .junction
+                .map_or("none", |junction| index.resolve(junction)),
+            name(slots.right1),
+            name(slots.right2),
+            name(slots.right3),
+            name(slots.right4),
+            name(transcript.token),
+            transcript.result,
+            full,
+            self.fired.len() - fired
+        )))
     }
 
     /// [`Engine::prefer_favors`] at the follower's position, exposed to the liveness probe's follower prefer branch, like [`Engine::probe_prospect`]. `record` is one of the `right1` rune's records, which is `rune_name` itself at a doubled letter.

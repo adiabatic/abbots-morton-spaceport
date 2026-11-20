@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use crate::artifacts;
 use crate::crossconfig::{self, ForeignRow, Imports, SharedRules, Source, SourceRows, Spellings};
-use crate::engine::{EngineModes, MemoCeilings, TraceCeiling};
+use crate::engine::{EngineModes, GroupedSweeps, MemoCeilings, TraceCeiling};
 use crate::fixpoint::{self, EnumerationModes, MemoAccess};
 use crate::fold;
 use crate::hash::HashSet;
@@ -52,6 +52,7 @@ pub struct MemoSharing {
     pub trace_ceiling: TraceCeiling,
     pub snapshot_packing: SnapshotPacking,
     pub snapshot_cache_blocks: usize,
+    pub grouped_sweeps: GroupedSweeps,
 }
 
 impl Default for MemoSharing {
@@ -64,6 +65,7 @@ impl Default for MemoSharing {
             trace_ceiling: fixpoint::TABLE_TRACE_CEILING,
             snapshot_packing: SnapshotPacking::default(),
             snapshot_cache_blocks: SNAPSHOT_CACHE_BLOCKS,
+            grouped_sweeps: GroupedSweeps::Off,
         }
     }
 }
@@ -323,6 +325,7 @@ fn default_access(sharing: &MemoSharing, deltas: &[(usize, DeltaWork<'_>)]) -> M
         trace_ceiling: sharing.trace_ceiling,
         snapshot_packing: sharing.snapshot_packing,
         snapshot_cache_blocks: sharing.snapshot_cache_blocks,
+        grouped_sweeps: sharing.grouped_sweeps,
     }
 }
 
@@ -474,6 +477,7 @@ pub fn run_configs_tables(
                             trace_ceiling: sharing.trace_ceiling,
                             snapshot_packing: sharing.snapshot_packing,
                             snapshot_cache_blocks: sharing.snapshot_cache_blocks,
+                            grouped_sweeps: sharing.grouped_sweeps,
                         };
                         enumerate_config_tables(index, config, modes, report, access)
                     });
@@ -987,6 +991,7 @@ fn enumerate_from_scratch<'a>(
     let access = MemoAccess {
         memo_ceilings: sharing.memo_ceilings,
         trace_ceiling: sharing.trace_ceiling,
+        grouped_sweeps: sharing.grouped_sweeps,
         ..MemoAccess::default()
     };
     enumerate_config_tables(run.index, config, modes, run.report, access)

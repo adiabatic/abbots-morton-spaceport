@@ -803,6 +803,75 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
     }
 }
 
+/// Grouping the fourth-slot prospect probe's sweep changes no table: a build with `--grouped-sweeps` writes the tables and digests of an ungrouped build, in the delta schedule with verdict sharing on and in the schedule that enumerates every configuration from scratch, and a build with `--check-grouped-sweeps`, which also runs every ask a transcript answered in full, passes and writes them too. A grouped build reports its sweeps in its cache stats and an ungrouped one does not, and naming both flags is a usage error. Every build here runs at [`SMALL_MEMO_CEILINGS`] and [`SMALL_SNAPSHOT_CACHE`].
+#[test]
+fn a_table_build_grouping_its_sweeps_files_the_bytes_an_ungrouped_one_files() {
+    let root = scratch("cli-grouped-sweeps");
+    let spec = spec_at(&root);
+    for (schedule, extra) in [
+        ("delta", None),
+        ("scratch", Some("--no-default-memo-sharing")),
+    ] {
+        let mut answers: Vec<String> = Vec::new();
+        let mut outdirs: Vec<PathBuf> = Vec::new();
+        for (grouping, flag) in [
+            ("ungrouped", None),
+            ("grouped", Some("--grouped-sweeps")),
+            ("checked", Some("--check-grouped-sweeps")),
+        ] {
+            let outdir = root.join(format!("{schedule}-{grouping}"));
+            let mut arguments = vec![
+                "build-tables",
+                word(&spec),
+                word(&outdir),
+                "--configs=default,ss03",
+                "--inputs=cli-stamp",
+                "--threads=2",
+                "--cache-stats",
+            ];
+            arguments.extend(SMALL_MEMO_CEILINGS);
+            arguments.push(SMALL_SNAPSHOT_CACHE);
+            arguments.extend(extra);
+            arguments.extend(flag);
+            let output = run(&arguments);
+            let stderr = stderr_of(&output);
+            assert!(output.status.success(), "{schedule} {grouping}: {stderr}");
+            assert_eq!(
+                stderr.contains(" grouped_sweeps asks="),
+                flag.is_some(),
+                "{schedule} {grouping}"
+            );
+            answers.push(String::from_utf8(output.stdout).expect("the digests are text"));
+            outdirs.push(outdir);
+        }
+        assert_eq!(answers[0], answers[1], "{schedule}");
+        assert_eq!(answers[0], answers[2], "{schedule}");
+        for (token, _) in CONFIGS {
+            for family in ["settlement", "joins", "windows"] {
+                let name = format!("{family}-{token}.tsv");
+                for other in &outdirs[1..] {
+                    assert_eq!(
+                        std::fs::read(outdirs[0].join(&name))
+                            .expect("the ungrouped build wrote it"),
+                        std::fs::read(other.join(&name)).expect("and so did the grouped one"),
+                        "{schedule} {name}"
+                    );
+                }
+            }
+        }
+    }
+    let both = run(&[
+        "build-tables",
+        word(&spec),
+        word(&root.join("both")),
+        "--configs=default",
+        "--inputs=cli-stamp",
+        "--grouped-sweeps",
+        "--check-grouped-sweeps",
+    ]);
+    assert_eq!(both.status.code(), Some(2), "{}", stderr_of(&both));
+}
+
 /// Starting the heaviest delta from scratch beside `default` changes no table: a build with `--scratch-beside-default=1` writes the tables and digests of a build that runs it as a delta and of a `--no-default-memo-sharing` build. With `default`'s one delta started beside it, no delta reads `default`'s memo, so `default` keeps none, and the cache stats show it: `ss03` takes windows from `default`'s memo only in the build that runs it as a delta. A count of zero is a usage error, since leaving the flag out asks for none. Every build here runs at [`SMALL_MEMO_CEILINGS`] and [`SMALL_SNAPSHOT_CACHE`].
 #[test]
 fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a_sharing_one_files()

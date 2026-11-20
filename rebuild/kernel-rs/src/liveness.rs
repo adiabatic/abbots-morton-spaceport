@@ -16,13 +16,17 @@
 //!
 //! Evaluation order affects the output. Every probe records the pointers it fires in `Engine::fired`, which the fixpoint reports as the product's `cited_provenance`, and a probe that never runs fires nothing. So each short-circuit, early return, loop order, and memo key must stay as it is. The prospect and follower prefer branches key their memos on the left-condition signature instead of the input family, so two families with the same signature share one verdict and run its probes once. The input replay and the fourth-slot fallback key on the family.
 //!
+//! Under `--grouped-sweeps` the fourth-slot prospect probe groups the tokens it sweeps, wherever it runs whole ([`Engine::grouped_probe_prospect`]). An ask is one evaluation in which only the swept token varies, and a token is read only through its methods ([`crate::token`]), so an ask that learns about its token only through recorded questions takes the same path, returns the same result and fires the same pointers outside those questions for every token that answers them alike. The sweep runs an ask in full with its token swept, recording the questions the evaluation puts to it at its own level: the leaf questions (a family list, a class, an entry stroke) and the nested ones (a simulated prospect, a candidate enumeration, the closure's acceptor check made with the swept token among their arguments), each with its answer. A later token whose answers match a recorded transcript in order takes its result without the ask's own window being settled again; a token that does not is asked in full and recorded in turn. The baseline is never a representative, and neither is an ask a memo answered at its own level, one that did not take its value from a simulated trace it settled, or one that read its token through a rune accessor or a comparison at its own level. The loop, its steps and the comparison with the baseline are unchanged, so the verdict and the step it stops at are too. A published or partial run sweeps every ask in full, since a published verdict reads each ask's own firings and reads. `--check-grouped-sweeps` also runs every ask a transcript answered in full and raises when the full ask's result differs or it fires a pointer the build had not.
+//!
 //! One instance serves a whole fixpoint run and is lent to both filters and to [`crate::fiber::DeepFiberDeriver`]. It holds no engine. Every call takes the caller's engine, so the probes share its trace memo and fired set. The memos are not keyed on engine modes, so every call on one instance must pass the same engine.
 //!
 //! A delta configuration reads `default`'s probes beside `default`'s windows ([`crate::memo`]). Each probe a verdict memo stores (the third and fourth slots' prospect, follower prefer and input replay probes) is a function of its [`VerdictKey`]: the family that asked, its probe shape, and the slots. An engine that publishes its verdicts ([`Engine::publish_verdicts`], which the table build sets on `default` when some delta reads its memo) captures each probe it runs whole, with the step it stopped at and, for each delta's unlocking-rune set, what it fired outside the asks that name one of those runes, unless the key names one or those other asks read one ([`Engine::end_verdict`]), and the snapshot it returns carries them. A delta's engine looks each probe up there under its own unlocking-rune set ([`Engine::shared_verdict`]), and where `default` published the verdict for that set, runs the probe partially: only the asks that name one of its unlocking runes, which settle and memoize the windows naming those runes as the whole probe would, while every other ask before `default`'s stop is one the shared memo answers entirely ([`Partial`] gives the argument). Where every ask it runs agrees with `default`'s run, it replays the rest's fired delta and returns `default`'s verdict; otherwise it runs the whole probe. The delta's fired set and its tables are therefore the bytes it writes without shared verdicts. The verdict memos above the probes fill in the same order either way, which is why the key names the family and shape instead of the signature: a signature-keyed memo holds the verdict of whichever family asked first, and a delta must run, or be served, the probe its own first asker runs. The fourth-slot fallback in [`ProspectLiveness::third_live`] is not shared as one verdict, because which fourth-slot verdicts it computes depends on which ones other callers memoized first; the probes beneath it are shared.
 
 use std::rc::Rc;
 
-use crate::engine::{Engine, Slots, VerdictEntry, VerdictKey, VerdictKind};
+use crate::engine::{
+    Engine, GroupedSweeps, Slots, Transcript, VerdictEntry, VerdictKey, VerdictKind,
+};
 use crate::error::{SettleError, SettleErrorKind};
 use crate::hash::{HashMap, HashSet};
 use crate::index::{Ordinal, SpecIndex};
@@ -573,6 +577,9 @@ impl<'i> ProspectLiveness<'i> {
             })?),
         };
         let tokens = self.probe_tokens();
+        let grouped = asks.whole() && engine.grouped_sweeps() != GroupedSweeps::Off;
+        let mut transcripts: Vec<Transcript> = Vec::new();
+        let matched_before = engine.sweep_matches();
         for (at, &token) in (0u32..).zip(tokens.iter()) {
             let names = [token.key_ordinal(), None];
             let step = 1 + at;
@@ -583,14 +590,23 @@ impl<'i> ProspectLiveness<'i> {
                     let reference = known(&mut baseline, || {
                         engine.probe_prospect(family, candidate, base)
                     })?;
+                    let slots = Slots::new(r1tok, r2tok, r3tok, token);
                     let varied = asks.ask(engine, names, |engine| {
-                        engine.probe_prospect(
-                            family,
-                            candidate,
-                            Slots::new(r1tok, r2tok, r3tok, token),
-                        )
+                        if grouped {
+                            engine.grouped_probe_prospect(
+                                family,
+                                candidate,
+                                slots,
+                                &mut transcripts,
+                            )
+                        } else {
+                            engine.probe_prospect(family, candidate, slots)
+                        }
                     })?;
                     if varied != reference {
+                        if grouped && engine.sweep_matches() > matched_before {
+                            engine.note_live_after_match();
+                        }
                         return Ok(asks.varied(step));
                     }
                 }
@@ -897,6 +913,11 @@ trait Asks {
 
     /// The probe ran through its last step, and returns its dead verdict.
     fn ran_out(&mut self) -> bool;
+
+    /// Whether this run takes every ask and records nothing, the one run under which the fourth-slot prospect probe may group its sweep: a published verdict reads each ask's own firings and reads, which a skipped ask does not journal.
+    fn whole(&self) -> bool {
+        false
+    }
 }
 
 /// A run that takes every ask and records nothing.
@@ -926,6 +947,10 @@ impl Asks for Whole {
     #[inline]
     fn ran_out(&mut self) -> bool {
         false
+    }
+
+    fn whole(&self) -> bool {
+        true
     }
 }
 
@@ -1273,7 +1298,9 @@ pub(crate) mod tests {
     use super::*;
     use crate::deep_slots::ThirdSlotFilter;
     use crate::engine::EngineModes;
-    use crate::fixpoint::{EnumerationModes, enumerate_transitions};
+    use crate::fixpoint::{
+        EnumerationModes, MemoAccess, enumerate_for_tables, enumerate_transitions,
+    };
     use crate::index::fixtures;
     use crate::memo::Exclusion;
     use crate::stream::FixpointProduct;
@@ -1582,6 +1609,24 @@ pub(crate) mod tests {
     ///
     /// `qsIt` requires an exit, so it has cells at all only where the fourth slot is a letter that accepts its baseline exit — the one r4 dependence that reads `EDGE` and `UNKNOWN` alike, since neither is a letter and the closure asks for a letter. `qsMay` exits at the x-height, which only `qsIt` enters, so `qsMay`'s onward join is available exactly at that third; joining it ties `qsTea`'s two cells, and `qsTea`'s cap-entered prefer yields the join there. That yields the input letter's cap exit its prospect, which is the tie its own prefer would otherwise win — so `qsPea` settles into its cap exit everywhere except where the third is `qsIt` and the fourth is a letter that accepts `qsIt`'s baseline exit (`qsPea`, `qsTea` or `qsMay`), where it settles into its baseline one.
     fn fourth_slot_fallback_spec() -> SpecIndex {
+        tall_spec_of(&fourth_slot_fallback_runes())
+    }
+
+    /// [`fourth_slot_fallback_spec`] with two inert letters, `qsAh` and `qsAt`, which enter nothing and exit nothing and so sort, in a probe's sweep, before `qsIt` and answer every question it is put alike: a fourth-slot sweep there groups them before it reaches the letter that finds the slot live.
+    fn fourth_slot_fallback_spec_with_inert_letters() -> SpecIndex {
+        let mut runes = fourth_slot_fallback_runes();
+        for name in ["qsAh", "qsAt"] {
+            runes.push(letter(
+                name,
+                &[stance("plain", &surface("{}", "{}", &[]))],
+                &plain_policy(),
+            ));
+        }
+        tall_spec_of(&runes)
+    }
+
+    /// The runes of [`fourth_slot_fallback_spec`].
+    fn fourth_slot_fallback_runes() -> Vec<(String, String)> {
         let pea = letter(
             "qsPea",
             &[stance(
@@ -1669,7 +1714,7 @@ pub(crate) mod tests {
             )],
             &plain_policy(),
         );
-        tall_spec_of(&[pea, tea, may, it])
+        vec![pea, tea, may, it]
     }
 
     /// One rune carrying two prefer records that demand disjoint stances of it with nothing to tell them apart, over two stances that tie at every score — so every window it settles raises E-AMBIGUOUS.
@@ -2101,6 +2146,149 @@ pub(crate) mod tests {
             );
             assert_eq!(partial.diverged, diverged, "behind stop {behind}");
         }
+    }
+
+    /// A grouped fourth-slot prospect sweep writes the ungrouped enumeration's product, its fired provenance among it, and every memo length and count of its cache stats, on each fixture, with and without every match checked against the full ask, and the fixtures put the grouping to work: transcripts answer some asks. A fixture whose enumeration raises raises the same error grouped.
+    #[test]
+    fn a_grouped_sweep_writes_the_ungrouped_product_and_memo_lengths() {
+        let mut matched = 0;
+        for index in [
+            prospect_spec(),
+            follower_prefer_spec(),
+            fourth_slot_fallback_spec(),
+            ambiguous_spec(),
+            twin_spec(),
+        ] {
+            let run = |grouped_sweeps: GroupedSweeps| {
+                let mut stats = Vec::new();
+                let product = enumerate_for_tables(
+                    &index,
+                    &[],
+                    EnumerationModes::default(),
+                    Some(&mut stats),
+                    MemoAccess {
+                        grouped_sweeps,
+                        ..MemoAccess::default()
+                    },
+                )
+                .map(|tables| {
+                    let mut product = tables.product;
+                    product.cited_provenance.sort();
+                    product
+                });
+                let (sweeps, kept): (Vec<String>, Vec<String>) = stats
+                    .into_iter()
+                    .filter(|line| !line.contains(" kb=") && !line.contains(" bytes="))
+                    .partition(|line| line.contains(" grouped_sweeps "));
+                (product, kept, sweeps)
+            };
+            let (plain, plain_stats, plain_sweeps) = run(GroupedSweeps::Off);
+            assert!(plain_sweeps.is_empty(), "{plain_sweeps:?}");
+            for grouped_sweeps in [GroupedSweeps::On, GroupedSweeps::Check] {
+                let (product, stats, sweeps) = run(grouped_sweeps);
+                assert_eq!(product, plain, "{grouped_sweeps:?}");
+                assert_eq!(stats, plain_stats, "{grouped_sweeps:?}");
+                let count = |name: &str| -> u64 {
+                    sweeps
+                        .iter()
+                        .flat_map(|line| line.split(' '))
+                        .find_map(|field| field.strip_prefix(&format!("{name}=")))
+                        .map_or(0, |count| count.parse().expect("a count"))
+                };
+                if grouped_sweeps == GroupedSweeps::Check {
+                    matched += count("matched");
+                }
+            }
+        }
+        assert!(matched > 0, "some ask was answered by a transcript");
+    }
+
+    /// The grouped sweep where the fourth-slot fallback opens a slot: the inert letters `qsAh` and `qsAt` sort first and the second answers the first's transcript, so the probe finds the slot live, at `qsMay`, after a match. Grouped, with every match checked against the full ask, the fallback's verdicts, the fired set and every memo's length and capacity are the ungrouped ones.
+    #[test]
+    fn a_grouped_sweep_finds_the_fallbacks_live_slot_after_grouping_the_letters_before_it() {
+        let index = fourth_slot_fallback_spec_with_inert_letters();
+        let pea = fixtures::sym(&index, "qsPea");
+        let tea = fixtures::sym(&index, "qsTea");
+        let may = fixtures::sym(&index, "qsMay");
+        let it = fixtures::sym(&index, "qsIt");
+        let run = |grouped_sweeps: GroupedSweeps| {
+            let mut engine = engine_in(&index, true, true);
+            engine.set_grouped_sweeps(grouped_sweeps);
+            let mut liveness = ProspectLiveness::new(&index);
+            let verdicts = (
+                liveness.third_live(&mut engine, pea, tea, may),
+                liveness.fourth_live(&mut engine, pea, tea, may, it),
+            );
+            let mut fired: Vec<String> = engine
+                .fired()
+                .iter()
+                .map(|pointer| pointer.text(&index))
+                .collect();
+            fired.sort();
+            let sizes: Vec<String> = engine
+                .cache_stats()
+                .iter()
+                .map(|size| size.line("default"))
+                .collect();
+            (verdicts, fired, sizes, engine.sweep_stats_line("default"))
+        };
+        let plain = run(GroupedSweeps::Off);
+        assert_eq!(plain.0, (Ok(true), Ok(true)));
+        assert_eq!(plain.3, None);
+        let checked = run(GroupedSweeps::Check);
+        assert_eq!(checked.0, plain.0);
+        assert_eq!(checked.1, plain.1);
+        assert_eq!(checked.2, plain.2);
+        let line = checked.3.expect("a grouped engine reports its sweeps");
+        let count = |name: &str| -> u64 {
+            line.split(' ')
+                .find_map(|field| field.strip_prefix(&format!("{name}=")))
+                .map_or(0, |count| count.parse().expect("a count"))
+        };
+        assert!(count("matched") > 0, "{line}");
+        assert!(count("live_after_match") > 0, "{line}");
+    }
+
+    /// Check mode catches a transcript that answers an ask wrongly: a transcript with no questions matches any letter, and when its result is not the full ask's the sweep raises, naming the probe and the two tokens. One with the full ask's result passes.
+    #[test]
+    fn a_checked_sweep_catches_a_transcript_that_answers_wrongly() {
+        let index = prospect_spec();
+        let letter = |name: &str| {
+            index
+                .letter(fixtures::sym(&index, name))
+                .expect("the fixture registers it")
+        };
+        let pea = fixtures::sym(&index, "qsPea");
+        let mut engine = engine_in(&index, true, true);
+        engine.set_grouped_sweeps(GroupedSweeps::Check);
+        let mut liveness = ProspectLiveness::new(&index);
+        let (stance, junction) = liveness.probe_candidate_shapes(pea)[0];
+        let candidate = probe_candidate(&index, pea, stance, junction);
+        let slots = Slots::new(
+            letter("qsTea"),
+            letter("qsMay"),
+            letter("qsPea"),
+            letter("qsTea"),
+        );
+        let truth = engine
+            .probe_prospect(pea, candidate, slots)
+            .expect("the fixture settles");
+        let mut wrong = vec![Transcript::forged(letter("qsMay"), 1 - truth)];
+        let error = engine
+            .grouped_probe_prospect(pea, candidate, slots, &mut wrong)
+            .expect_err("the full ask disagrees with the forged result");
+        assert!(error.message().starts_with("E-GROUPED-SWEEP: "), "{error}");
+        assert!(
+            error
+                .message()
+                .contains("answered qsTea with qsMay's result"),
+            "{error}"
+        );
+        let mut right = vec![Transcript::forged(letter("qsMay"), truth)];
+        assert_eq!(
+            engine.grouped_probe_prospect(pea, candidate, slots, &mut right),
+            Ok(truth)
+        );
     }
 
     /// Liveness and fibers under their real caller: a whole configuration enumerated at class grain expands, member set by member set, to the same window rows a label-grain enumeration (`--deep-classes-off`) emits. The fixpoint's partition assertion also runs on both products.
