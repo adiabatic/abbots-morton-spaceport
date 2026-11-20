@@ -754,7 +754,7 @@ pub fn stage_settle(init_path: &Path, stage_file: &Path, out: &mut impl Write) -
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use ams_m1_kernel::parse::parse_spec;
 
@@ -768,7 +768,7 @@ mod tests {
     }
 
     /// Two letters and their ligature, none of which joins, beside a registered family the spec does not model and the isolated overlay's stylistic set.
-    fn settlement() -> Settlement {
+    pub(crate) fn settlement() -> Settlement {
         let ligature = r#"["qsPea","qsTea"]"#;
         let runes = [
             rune("qsPea", "58960", "null"),

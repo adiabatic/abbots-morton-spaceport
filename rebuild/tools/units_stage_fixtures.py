@@ -14,6 +14,7 @@ The stages (`STAGES`):
 - `shape` records each call that reaches HarfBuzz, `Shaper.shape` under the worker's memo (`ink._MemoizedShaper`), as the `font` it shapes with (the resolved path `ink.shaper_for` registers it under), the `text` and the `features` it receives and the `ShapeResult` it returns, keyed by a digest of the call.
 - `ink` records each unit `_phase1_unit` reads, under `ink:<ordinal>`, as its `text` and `configs` and, as its value, the repr of the diffs its `_ink_readings` call returns, the three machine flags, `ink_deltas` and the diffs digest from the projection. Its generated lines put every distinct text of a unit that holds `ss10` to the Junior oracle directly (`_ink_generated`), under `junior:` and a digest of the text, with the oracle's tracking-free Junior pieces and its answer for `ss10` alone.
 - `settle` records each unit `Enricher.explain_units` settles, under `settle:` with its first configuration and its code points, as the `codepoints` and the `config` and, as its value, the `ExplainReport`'s code points, features and positions, each position's trace whole; and each text `Enricher.formed_spans` forms, under `spans:` and its code points, as the `codepoints` and the spans it returns.
+- `explain` records each explain text `Enricher.enrich` writes, the `_filter_explain` call over the `ExplainReport.render` call just before it, under `explain:` with the report's configuration token (`model.feature_config_token`), its code points and the divergent positions, as the report's `codepoints`, that `config` and the `diff_positions` the filter receives, and as its outputs the `rendered` text and the `filtered` text the filter returns.
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace` and `str.isdigit` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -59,6 +60,8 @@ from typing import IO, Any, TypedDict
 import yaml
 
 from rebuild.pipeline import fingerprint
+from rebuild.pipeline.explain import ExplainReport
+from rebuild.pipeline.model import feature_config_token
 from rebuild.review import audit, build, ink, unit_cache, units_exec
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, UnitTable, load_ledger
 from rebuild.review.drafts import corpus_index_from_pages
@@ -90,6 +93,8 @@ HOOKS: dict[str, tuple[str, str]] = {
     "Enricher.explain_units": ("rebuild.review.enrich", "Enricher.explain_units"),
     "Enricher.formed_spans": ("rebuild.review.enrich", "Enricher.formed_spans"),
     "Enricher.enrich": ("rebuild.review.enrich", "Enricher.enrich"),
+    "ExplainReport.render": ("rebuild.pipeline.explain", "ExplainReport.render"),
+    "_filter_explain": ("rebuild.review.enrich", "_filter_explain"),
     "Drafter.draft_pin": ("rebuild.review.drafts", "Drafter.draft_pin"),
     "Drafter.draft_policy": ("rebuild.review.drafts", "Drafter.draft_policy"),
     "Drafter.draft_any_of": ("rebuild.review.drafts", "Drafter.draft_any_of"),
@@ -851,6 +856,41 @@ def _settle_spans(args: tuple, kwargs: dict) -> Finisher:
     return lambda result: {"key": key, "codepoints": values, "value": result}
 
 
+# The report and the text of the last `ExplainReport.render` call, which the `_filter_explain` call that follows it in `Enricher.enrich` receives.
+_RENDERED: list[tuple[ExplainReport, str]] = []
+
+
+def _explain_render(args: tuple, _kwargs: dict) -> Finisher:
+    report = args[0]
+
+    def finish(result: object) -> None:
+        assert isinstance(result, str)
+        _RENDERED[:] = [(report, result)]
+
+    return finish
+
+
+def _explain_filter(args: tuple, kwargs: dict) -> Finisher:
+    rendered = args[0] if args else kwargs["rendered"]
+    diff_positions = tuple(args[1] if len(args) > 1 else kwargs["diff_positions"])
+    if not _RENDERED or _RENDERED[0][1] is not rendered:
+        raise ValueError(
+            "_filter_explain received a text that no recorded ExplainReport.render call returned"
+        )
+    report, _text = _RENDERED.pop()
+    config = feature_config_token(report.features)
+    codepoints = ":".join(f"{value:04X}" for value in report.codepoints)
+    key = f"explain:{config}:{codepoints}:" + ",".join(str(index) for index in diff_positions)
+    return lambda result: {
+        "key": key,
+        "codepoints": tuple(report.codepoints),
+        "config": config,
+        "diff_positions": diff_positions,
+        "rendered": rendered,
+        "filtered": result,
+    }
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -869,6 +909,11 @@ STAGES: dict[str, Stage] = {
     "ink": Stage("ink", {"_phase1_unit": _ink_unit, "_ink_readings": _ink_diffs}, _ink_generated),
     "settle": Stage(
         "settle", {"Enricher.explain_units": _settle_units, "Enricher.formed_spans": _settle_spans}
+    ),
+    "explain": Stage(
+        "explain",
+        {"ExplainReport.render": _explain_render, "_filter_explain": _explain_filter},
+        outputs=("rendered", "filtered"),
     ),
 }
 
