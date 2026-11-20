@@ -2,7 +2,7 @@
 
 `engine()` reads the switch, `AMS_CORPUS_UNITS_ENGINE`, at call time; `ENGINES` holds the engines the build runs, and `_RecomputeRunner` refuses any other. `ensure_built` builds the crate once per process under a relink lock in the crate's `target/`, held as `kernel_exec` holds its own, and `spawn` starts the binary with that lock held shared for the spawn only.
 
-`write_init` writes the init file (`INIT_FORMAT`) into a directory the caller holds, beside the spec dump and the preset dictionary, from the `init` dict `_RecomputeRunner.__init__` hands a Python worker; `init_values` gives the values it carries as Python holds them. `encode_batch` and `encode_verify` write the request frames, one unit record per `audit.Unit` (`unit_record`, `UNIT_FIELDS`). Values whose Python type the crate must keep, the vocabulary's among them, cross in the typed encoding (`encode`, `decode`), which the stage dumps of `rebuild/tools/units_stage_fixtures.py` use too.
+`write_init` writes the init file (`INIT_FORMAT`) into a directory the caller holds, beside the spec dump, the font facts and the preset dictionary, from the `init` dict `_RecomputeRunner.__init__` hands a Python worker; `init_values` gives the values it carries as Python holds them. `write_font_facts` writes the font facts (`FONT_FACTS_FORMAT`), what the worker's outline caches, its junction classifier and its shapers' glyph names read from the three fonts, and `font_facts` gives them as Python holds them. `encode_batch` and `encode_verify` write the request frames, one unit record per `audit.Unit` (`unit_record`, `UNIT_FIELDS`). Values whose Python type the crate must keep, the vocabulary's among them, cross in the typed encoding (`encode`, `decode`), which the stage dumps of `rebuild/tools/units_stage_fixtures.py` use too.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import uharfbuzz
+from fontTools.ttLib import TTFont
 
 from rebuild.pipeline import kernel_exec, kernel_io
 from rebuild.pipeline.labels import load_alias_map
@@ -28,7 +29,9 @@ from rebuild.pipeline.model import CellId
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit
 from rebuild.review.drafts import _import_test_shaping
 from rebuild.review.enrich import load_spec
+from rebuild.review.ink import EMPTY_OUTLINE_KEY, JuniorOracle, OutlineCache, OutlineIntern
 from rebuild.review.subset_pack import PACK_FORMAT, PACKER_DIGEST, table_digests
+from rebuild.validation.classify import JunctionClassifier
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CRATE = REPO_ROOT / "rebuild" / "review-rs"
@@ -42,6 +45,10 @@ BUILD_TAIL_LINES = 20
 INIT_FORMAT = "ams-review-units-init/1"
 INIT_FILE = "init.json"
 SPEC_FILE = "spec.json"
+FONT_FACTS_FORMAT = "ams-review-font-facts/1"
+FONT_FACTS_FILE = "font_facts.json"
+# The worker's three fonts, by the name the init and the font facts give each, and the worker `init` key that holds its path.
+FONT_SIDES = (("before", "before_font"), ("after", "after_font"), ("junior", "junior_font"))
 DICTIONARY_FILE = "dictionary.bin"
 ENGINE_VARIABLE = "AMS_CORPUS_UNITS_ENGINE"
 SWITCH_VALUES = ("python", "rust")
@@ -239,11 +246,10 @@ def init_values(init: Mapping[str, Any]) -> dict[str, Any]:
             "follower_prefer_slots": kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT,
         },
         "harfbuzz": uharfbuzz.version_string(),  # pyright: ignore[reportAttributeAccessIssue]
-        "fonts": {
-            "before": _path_text(init["before_font"]),
-            "after": _path_text(init["after_font"]),
-            "junior": _path_text(init["junior_font"]),
-        },
+        "fonts": {side: _path_text(init[key]) for side, key in FONT_SIDES},
+        "junior_tracking": JuniorOracle(
+            init["junior_font"], init["before_font"], init["after_font"]
+        ).tracking,
         "aliases": load_alias_map(repo_root / "rebuild" / "m1-aliases.yaml"),
         "subset_pack": {
             "path": _path_text(init["subset_pack"]),
@@ -265,8 +271,53 @@ def _path_text(path: Path | str) -> str:
     return str(Path(path).absolute())
 
 
+def font_facts(fonts: Mapping[str, Path | str]) -> dict[str, Any]:
+    """Return the font facts of the worker's three fonts, `fonts` naming each font's path by its side (`FONT_SIDES`), as Python holds them: under `fonts`, each side's `glyphs`, one `(glyph name, shape key, origin x, origin y)` per glyph id in the glyph order `Shaper.glyph_name` reads, the key and origin as `OutlineCache.shape_key` gives them, and on the after side `JunctionClassifier`'s `exits` and `entries`, each height's glyph names in ascending height order; under `shapes`, each shape key the glyphs place, in key order, with `(OutlineIntern.draws, OutlineIntern.cells)`. The three caches share one intern, and a key derives from the outline's content, so the keys equal those of the worker's several interns. An origin that is not an int raises ValueError."""
+    intern = OutlineIntern()
+    sides: dict[str, dict[str, Any]] = {}
+    for side, _key in FONT_SIDES:
+        path = fonts[side]
+        cache = OutlineCache(path, intern)
+        rows = []
+        for name in TTFont(str(path)).getGlyphOrder():
+            key, origin_x, origin_y = cache.shape_key(name)
+            if type(origin_x) is not int or type(origin_y) is not int:
+                raise ValueError(
+                    f"{path}: the glyph {name} has the origin ({origin_x!r}, {origin_y!r}), not an integer one"
+                )
+            rows.append((name, key, origin_x, origin_y))
+        sides[side] = {"glyphs": tuple(rows)}
+    classifier = JunctionClassifier(fonts["after"])
+    heights = classifier.heights()
+    sides["after"]["exits"] = {height: classifier._exit_sets[height] for height in heights}
+    sides["after"]["entries"] = {height: classifier._entry_sets[height] for height in heights}
+    keys = sorted({row[1] for facts in sides.values() for row in facts["glyphs"]} - {EMPTY_OUTLINE_KEY})
+    return {"fonts": sides, "shapes": {key: (intern.draws(key), intern.cells(key)) for key in keys}}
+
+
+def write_font_facts(fonts: Mapping[str, Path | str], path: Path) -> None:
+    """Write `font_facts(fonts)` to `path` as the font facts file, `FONT_FACTS_FORMAT`: under `fonts`, each side's `glyphs` as `[glyph name, shape key, origin x, origin y]` rows, the key as lowercase hex and empty for a glyph with no outline, and the after side's `exits` and `entries` as `[height, [glyph name, ...]]` pairs, the names sorted; under `shapes`, an object keyed by the hex, in key order, of `[drawn, cells]`, the cells as sorted `[column, row]` pairs or null for a shape with no grid picture."""
+    facts = font_facts(fonts)
+    sides: dict[str, dict[str, Any]] = {}
+    for side, values in facts["fonts"].items():
+        sides[side] = {
+            "glyphs": [
+                [name, key.hex(), origin_x, origin_y] for name, key, origin_x, origin_y in values["glyphs"]
+            ]
+        }
+        for kind in ("exits", "entries"):
+            if kind in values:
+                sides[side][kind] = [[height, sorted(names)] for height, names in values[kind].items()]
+    shapes = {
+        key.hex(): [drawn, None if cells is None else [list(cell) for cell in sorted(cells)]]
+        for key, (drawn, cells) in facts["shapes"].items()
+    }
+    document = {"format": FONT_FACTS_FORMAT, "fonts": sides, "shapes": shapes}
+    path.write_text(compact(document) + "\n", encoding="ascii")
+
+
 def write_init(init: Mapping[str, Any], directory: Path) -> Path:
-    """Write the init file for a worker `init` dict into `directory`, beside the spec dump (`kernel_io.write_spec` over `enrich.load_spec` of the init's spec root) and the preset dictionary's bytes, and return its path. The caller holds the directory until the engine stops."""
+    """Write the init file for a worker `init` dict into `directory`, beside the spec dump (`kernel_io.write_spec` over `enrich.load_spec` of the init's spec root), the font facts (`write_font_facts`) and the preset dictionary's bytes, and return its path. The caller holds the directory until the engine stops."""
     directory = Path(directory)
     values = init_values(init)
     with warnings.catch_warnings():
@@ -274,6 +325,8 @@ def write_init(init: Mapping[str, Any], directory: Path) -> Path:
         spec = load_spec(Path(init["spec_root"]))
     spec_path = directory / SPEC_FILE
     kernel_io.write_spec(spec, spec_path)
+    facts_path = directory / FONT_FACTS_FILE
+    write_font_facts({side: init[key] for side, key in FONT_SIDES}, facts_path)
     dictionary_path = directory / DICTIONARY_FILE
     dictionary_path.write_bytes(init["dictionary"])
     fold = values["fold"]
@@ -283,6 +336,8 @@ def write_init(init: Mapping[str, Any], directory: Path) -> Path:
         "settlement": values["settlement"],
         "harfbuzz": values["harfbuzz"],
         "fonts": values["fonts"],
+        "font_facts": str(facts_path.absolute()),
+        "junior_tracking": values["junior_tracking"],
         "aliases": [[name, _alias_json(alias)] for name, alias in values["aliases"].items()],
         "subset_pack": values["subset_pack"],
         "fold": {

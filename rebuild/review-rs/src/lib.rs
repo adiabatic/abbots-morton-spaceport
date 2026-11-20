@@ -4,6 +4,7 @@
 
 #![deny(unsafe_code)]
 
+pub mod fontfacts;
 pub mod pyfmt;
 pub mod wire;
 

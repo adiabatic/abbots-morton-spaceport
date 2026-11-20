@@ -8,7 +8,7 @@
 
 The stages (`STAGES`):
 
-- `wire` records each unit `_phase1_unit` receives, as the `audit.Unit` fields that cross (`unit_value`), under `unit:<ordinal>`; the Rust side reads them back from the units file. Its generated lines are the init's values with the spec's runes and the dictionary's bytes, under `init`, and a verify frame with varied injections, under `verify`, which the line carries for the Rust side to read.
+- `wire` records each unit `_phase1_unit` receives, as the `audit.Unit` fields that cross (`unit_value`), under `unit:<ordinal>`; the Rust side reads them back from the units file. Its generated lines are the init's values with the spec's runes, the dictionary's bytes and the font facts, under `init`, and a verify frame with varied injections, under `verify`, which the line carries for the Rust side to read.
 - `pyfmt` records what the worker hashes and writes, each line an `input` value, the `format` it is written in (`PYFMT_FORMS`) and the text Python wrote: the ink diffs' repr (`_ink_readings`), the repr of the cluster key's head, `(configs, class)` (`_cluster_id_from_repr`), the carry projection's sorted-key JSON (`unit_cache.carry_projection`) and each fragment's shard bytes (`_fragment_bytes`), keyed by the form and a digest of the value. Its generated lines put an edge set to each form (`_pyfmt_edges`).
 - `yaml` records each record `Drafter.draft_policy` dumps, as the `input` its `yaml.safe_dump` call receives and the stripped text it ships, keyed by a digest of the record; a `safe_dump` call with other arguments than `draft_policy`'s (`YAML_DUMP_ARGUMENTS`) is refused. Its generated lines put an edge set to the same dump (`_yaml_edges`).
 
@@ -385,15 +385,20 @@ WIRE_VERIFY_UNITS = 6
 
 
 def _wire_generated(source: Source) -> Iterator[Mapping[str, object]]:
-    """The `wire` stage's generated lines: the init's values as `units_exec.init_values` gives them, with each rune of the spec (its codepoint, sequence and stance names) and the preset dictionary's bytes, under `init`; and one verify frame over the first handout's first units, each with an injection that varies every field's kind, under `verify`."""
+    """The `wire` stage's generated lines: the init's values as `units_exec.init_values` gives them, with each rune of the spec (its codepoint, sequence and stance names), the preset dictionary's bytes and the font facts (`units_exec.font_facts`), under `init`; and one verify frame over the first handout's first units, each with an injection that varies every field's kind, under `verify`."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(Path(source.init["spec_root"]))
     runes = {name: (rune.codepoint, rune.sequence, tuple(rune.stances)) for name, rune in spec.runes.items()}
+    fonts = {side: source.init[key] for side, key in units_exec.FONT_SIDES}
     yield {
         "key": "init",
         "value": units_exec.init_values(source.init)
-        | {"spec": runes, "dictionary": source.init["dictionary"]},
+        | {
+            "spec": runes,
+            "dictionary": source.init["dictionary"],
+            "font_facts": units_exec.font_facts(fonts),
+        },
     }
     items: list[tuple[Unit, tuple]] = []
     for index, unit in enumerate(source.units(source.handouts[0][:WIRE_VERIFY_UNITS])):

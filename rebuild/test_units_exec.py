@@ -13,10 +13,13 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from fontTools.ttLib import TTFont
 
 from rebuild.pipeline.model import CellId
 from rebuild.review import build, units_exec
 from rebuild.review.audit import Unit, UnitTable
+from rebuild.review.ink import InkComparator
+from rebuild.validation.classify import JunctionClassifier
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KERNEL_LOCK = REPO_ROOT / "rebuild" / "kernel-rs" / "Cargo.lock"
@@ -138,3 +141,47 @@ def test_the_vocabulary_resolves_and_the_engine_reads_the_same_names():
     assert block is not None, "wire.rs no longer declares VOCABULARY"
     assert tuple(re.findall(r'"([^"]+)"', block.group(1))) == units_exec.VOCABULARY
     assert re.search(rf'pub const INIT_FORMAT: &str = "{re.escape(units_exec.INIT_FORMAT)}";', source)
+
+
+def test_the_font_facts_hold_what_the_worker_reads_and_refuse_a_fractional_origin(tmp_path, monkeypatch):
+    """The font facts file holds, for the mini's three fonts, each glyph's name, shape key and origin, each shape's picture, and the after font's curs sets as the worker's own shapers, outline caches and classifier read them, the keys hex in a shape space the worker's separate interns agree on; a fractional origin is refused."""
+    fonts = {
+        "before": build.SITE_BEFORE_FONT,
+        "after": REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini" / "M1.otf",
+        "junior": build.SITE_JUNIOR_FONT,
+    }
+    path = tmp_path / units_exec.FONT_FACTS_FILE
+    units_exec.write_font_facts(fonts, path)
+    document = json.loads(path.read_text(encoding="ascii"))
+    assert document["format"] == units_exec.FONT_FACTS_FORMAT
+    source = (REPO_ROOT / "rebuild" / "review-rs" / "src" / "fontfacts.rs").read_text(encoding="utf-8")
+    assert f'pub const FONT_FACTS_FORMAT: &str = "{units_exec.FONT_FACTS_FORMAT}";' in source
+    shapes = document["shapes"]
+    assert list(shapes) == sorted(shapes)
+    comparators = {
+        "before": InkComparator(fonts["before"], fonts["after"]),
+        "after": InkComparator(fonts["before"], fonts["after"]),
+        "junior": InkComparator(fonts["junior"], fonts["after"]),
+    }
+    for side, comparator in comparators.items():
+        shaper, cache = comparator._sides["after" if side == "after" else "before"]
+        rows = document["fonts"][side]["glyphs"]
+        assert len(rows) == len(TTFont(str(fonts[side])).getGlyphOrder())
+        for glyph_id, (name, key, origin_x, origin_y) in enumerate(rows):
+            assert name == shaper.glyph_name(glyph_id)
+            shape_key, x, y = cache.shape_key(name)
+            assert (key, origin_x, origin_y) == (shape_key.hex(), x, y)
+            if shape_key:
+                cells = comparator.intern.cells(shape_key)
+                assert shapes[key] == [
+                    comparator.intern.draws(shape_key),
+                    None if cells is None else [list(cell) for cell in sorted(cells)],
+                ]
+    classifier = JunctionClassifier(fonts["after"])
+    after = document["fonts"]["after"]
+    assert [height for height, _names in after["exits"]] == list(classifier.heights())
+    for kind, sets in (("exits", classifier._exit_sets), ("entries", classifier._entry_sets)):
+        assert {height: frozenset(names) for height, names in after[kind]} == sets
+    monkeypatch.setattr(units_exec.OutlineCache, "shape_key", lambda _self, _name: (b"\x01", 0.5, 0))
+    with pytest.raises(ValueError, match="not an integer"):
+        units_exec.font_facts(fonts)

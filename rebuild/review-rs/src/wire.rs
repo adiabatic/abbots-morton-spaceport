@@ -1,4 +1,4 @@
-//! The records of the boundary between the build and the engine (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Boundary), with `rebuild/review/units_exec.py` as the Python half: the init file ([`Init`]), the files it names ([`InitFiles`]), and the request frames ([`Request`], one [`UnitRecord`] per `audit.Unit`). Every reader is strict: an object must hold exactly the keys its writer writes, every number is an integer, and a value of the wrong JSON type is refused with the field it was read for.
+//! The records of the boundary between the build and the engine (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Boundary), with `rebuild/review/units_exec.py` as the Python half: the init file ([`Init`]), the files it names ([`InitFiles`], the font facts among them, which [`crate::fontfacts`] reads), and the request frames ([`Request`], one [`UnitRecord`] per `audit.Unit`). Every reader is strict: an object must hold exactly the keys its writer writes, every number is an integer, and a value of the wrong JSON type is refused with the field it was read for.
 //!
 //! [`stage_wire`] is the `wire` stage of the stage fixtures: it reads the init, its files and the units file, and writes each back as the Python value `units_exec` holds, in the typed encoding.
 
@@ -10,6 +10,7 @@ use ams_m1_kernel::model::Spec;
 use ams_m1_kernel::parse::parse_spec;
 use serde_json::{Map, Value};
 
+use crate::fontfacts::FontFacts;
 use crate::pyfmt::PyValue;
 
 /// The init file's format marker, `units_exec.INIT_FORMAT`.
@@ -42,13 +43,17 @@ impl fmt::Display for WireError {
 
 impl std::error::Error for WireError {}
 
-type Result<T> = std::result::Result<T, WireError>;
+pub(crate) type Result<T> = std::result::Result<T, WireError>;
 
-fn error<T>(message: impl Into<String>) -> Result<T> {
+pub(crate) fn error<T>(message: impl Into<String>) -> Result<T> {
     Err(WireError(message.into()))
 }
 
-fn object<'a>(value: &'a Value, what: &str, keys: &[&str]) -> Result<&'a Map<String, Value>> {
+pub(crate) fn object<'a>(
+    value: &'a Value,
+    what: &str,
+    keys: &[&str],
+) -> Result<&'a Map<String, Value>> {
     let Value::Object(map) = value else {
         return error(format!("{what} is not a JSON object"));
     };
@@ -74,7 +79,7 @@ fn field<'a>(map: &'a Map<String, Value>, key: &str) -> &'a Value {
     &map[key]
 }
 
-fn string(value: &Value, what: &str) -> Result<String> {
+pub(crate) fn string(value: &Value, what: &str) -> Result<String> {
     match value {
         Value::String(text) => Ok(text.clone()),
         _ => error(format!("{what} is not a string: {value}")),
@@ -88,14 +93,14 @@ fn optional_string(value: &Value, what: &str) -> Result<Option<String>> {
     }
 }
 
-fn boolean(value: &Value, what: &str) -> Result<bool> {
+pub(crate) fn boolean(value: &Value, what: &str) -> Result<bool> {
     match value {
         Value::Bool(flag) => Ok(*flag),
         _ => error(format!("{what} is not a boolean: {value}")),
     }
 }
 
-fn integer(value: &Value, what: &str) -> Result<i64> {
+pub(crate) fn integer(value: &Value, what: &str) -> Result<i64> {
     match value {
         Value::Number(number) => number
             .as_i64()
@@ -104,20 +109,20 @@ fn integer(value: &Value, what: &str) -> Result<i64> {
     }
 }
 
-fn array<'a>(value: &'a Value, what: &str) -> Result<&'a [Value]> {
+pub(crate) fn array<'a>(value: &'a Value, what: &str) -> Result<&'a [Value]> {
     match value {
         Value::Array(items) => Ok(items),
         _ => error(format!("{what} is not a JSON array: {value}")),
     }
 }
 
-fn tuple<'a, const N: usize>(value: &'a Value, what: &str) -> Result<&'a [Value; N]> {
+pub(crate) fn tuple<'a, const N: usize>(value: &'a Value, what: &str) -> Result<&'a [Value; N]> {
     array(value, what)?
         .try_into()
         .map_err(|_| WireError(format!("{what} is not a {N}-item array: {value}")))
 }
 
-fn strings(value: &Value, what: &str) -> Result<Vec<String>> {
+pub(crate) fn strings(value: &Value, what: &str) -> Result<Vec<String>> {
     array(value, what)?
         .iter()
         .map(|item| string(item, what))
@@ -142,7 +147,7 @@ fn code_point(value: &Value, what: &str) -> Result<char> {
         .ok_or_else(|| WireError(format!("{what} is not a code point: {number}")))
 }
 
-fn read_file(path: &str, what: &str) -> Result<Vec<u8>> {
+pub(crate) fn read_file(path: &str, what: &str) -> Result<Vec<u8>> {
     std::fs::read(path)
         .map_err(|failure| WireError(format!("cannot read {what} {path}: {failure}")))
 }
@@ -228,6 +233,8 @@ pub struct Init {
     pub settlement: Settlement,
     pub harfbuzz: String,
     pub fonts: Fonts,
+    pub font_facts: String,
+    pub junior_tracking: i64,
     pub aliases: Vec<(String, Alias)>,
     pub subset_pack: SubsetPackInit,
     pub fold: Fold,
@@ -245,6 +252,8 @@ const INIT_KEYS: &[&str] = &[
     "settlement",
     "harfbuzz",
     "fonts",
+    "font_facts",
+    "junior_tracking",
     "aliases",
     "subset_pack",
     "fold",
@@ -336,6 +345,8 @@ impl Init {
                 after: string(&fonts["after"], "the after font")?,
                 junior: string(&fonts["junior"], "the Junior font")?,
             },
+            font_facts: string(field(map, "font_facts"), "the init's font facts")?,
+            junior_tracking: integer(field(map, "junior_tracking"), "the Junior tracking")?,
             aliases: array(field(map, "aliases"), "the init's aliases")?
                 .iter()
                 .map(|item| {
@@ -483,6 +494,7 @@ impl Init {
                     ("junior", PyValue::str(&self.fonts.junior)),
                 ]),
             ),
+            ("junior_tracking", PyValue::Int(self.junior_tracking)),
             ("aliases", PyValue::Dict(aliases)),
             (
                 "subset_pack",
@@ -568,11 +580,12 @@ impl Init {
         ])
     }
 
-    /// Read the files the init names: the spec dump through the kernel's parser, the preset dictionary's bytes, and the rune schema as JSON.
+    /// Read the files the init names: the spec dump through the kernel's parser, the font facts, the preset dictionary's bytes, and the rune schema as JSON.
     pub fn files(&self) -> Result<InitFiles> {
         let spec_text = String::from_utf8(read_file(&self.spec, "the spec dump")?)
             .map_err(|_| WireError(format!("the spec dump {} is not UTF-8", self.spec)))?;
         let spec = parse_spec(&spec_text).map_err(|failure| WireError(failure.to_string()))?;
+        let facts = FontFacts::read(&self.font_facts)?;
         let dictionary = read_file(&self.dictionary, "the preset dictionary")?;
         let rune_schema = serde_json::from_slice(&read_file(&self.rune_schema, "the rune schema")?)
             .map_err(|failure| {
@@ -583,6 +596,7 @@ impl Init {
             })?;
         Ok(InitFiles {
             spec,
+            facts,
             dictionary,
             rune_schema,
         })
@@ -592,6 +606,7 @@ impl Init {
 /// What the init's files hold.
 pub struct InitFiles {
     pub spec: Spec,
+    pub facts: FontFacts,
     pub dictionary: Vec<u8>,
     pub rune_schema: Value,
 }
@@ -879,7 +894,7 @@ fn stage_line(out: &mut impl Write, key: &str, value: &PyValue) -> Result<()> {
     .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))
 }
 
-/// The `wire` stage: write the init's values with the spec's runes and the dictionary's bytes under `init`, each unit of the units file beside `stage_file` under `unit:<ordinal>`, and each verify frame a line of `stage_file` carries under that line's key, as `(unit, injection)` pairs.
+/// The `wire` stage: write the init's values with the spec's runes, the dictionary's bytes and the font facts under `init`, each unit of the units file beside `stage_file` under `unit:<ordinal>`, and each verify frame a line of `stage_file` carries under that line's key, as `(unit, injection)` pairs.
 pub fn stage_wire(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
     let init = Init::read(init_path)?;
     let files = init.files()?;
@@ -888,6 +903,7 @@ pub fn stage_wire(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> 
     };
     values.push((PyValue::str("spec"), files.spec_runes()));
     values.push((PyValue::str("dictionary"), PyValue::Bytes(files.dictionary)));
+    values.push((PyValue::str("font_facts"), files.facts.to_py()));
     stage_line(out, "init", &PyValue::Dict(values))?;
     let units_path = stage_file.with_file_name(UNITS_FILE);
     let units = std::fs::read_to_string(&units_path)
@@ -987,7 +1003,7 @@ mod tests {
 
     fn init_text(vocabulary: &str) -> String {
         format!(
-            r#"{{"format":"ams-review-units-init/1","spec":"s","settlement":{{"simulated_prospect":true,"follower_prefer_slots":false}},"harfbuzz":"12.3.2","fonts":{{"before":"b","after":"a","junior":"j"}},"aliases":[["uni200C","boundary"],["qsPea.half",{{"rune":"qsPea","stance":"half","entry":null,"exit":"y6","adjustments":["locked"]}}]],"subset_pack":{{"path":"p","format":"ams-subset-pack/1","packer":"d","byteorder":"little","digests":{{"default":"x"}}}},"fold":{{"configs":["ss03"],"triggers":[["ss03",[58960]]]}},"identical_classes":["i"],"corpus_index":[["t","default","f:1","data-expect"]],"rune_schema":"r","glyph_names_by_char":[[58960,"qsPea"]],"dictionary":"y","vocabulary":[{vocabulary}]}}"#
+            r#"{{"format":"ams-review-units-init/1","spec":"s","settlement":{{"simulated_prospect":true,"follower_prefer_slots":false}},"harfbuzz":"12.3.2","fonts":{{"before":"b","after":"a","junior":"j"}},"font_facts":"f","junior_tracking":50,"aliases":[["uni200C","boundary"],["qsPea.half",{{"rune":"qsPea","stance":"half","entry":null,"exit":"y6","adjustments":["locked"]}}]],"subset_pack":{{"path":"p","format":"ams-subset-pack/1","packer":"d","byteorder":"little","digests":{{"default":"x"}}}},"fold":{{"configs":["ss03"],"triggers":[["ss03",[58960]]]}},"identical_classes":["i"],"corpus_index":[["t","default","f:1","data-expect"]],"rune_schema":"r","glyph_names_by_char":[[58960,"qsPea"]],"dictionary":"y","vocabulary":[{vocabulary}]}}"#
         )
     }
 
@@ -1009,6 +1025,7 @@ mod tests {
             "{text}"
         );
         assert!(text.contains(r#"[{"tuple":["t","default"]},{"dict":[["source","f:1"],["attribute","data-expect"]]}]"#), "{text}");
+        assert!(text.contains(r#"["junior_tracking",50]"#), "{text}");
         assert_eq!(init.constant(VOCABULARY[0]), Some(&PyValue::Int(1)));
     }
 
@@ -1022,10 +1039,8 @@ mod tests {
         assert!(refusal.0.contains(VOCABULARY[0]), "{refusal}");
         let other = init_text(&full_vocabulary()).replace("units-init/1", "units-init/2");
         assert!(Init::parse(&other).is_err());
-        let extra = init_text(&full_vocabulary()).replace(
-            r#""dictionary":"y""#,
-            r#""dictionary":"y","font_facts":"f""#,
-        );
+        let extra = init_text(&full_vocabulary())
+            .replace(r#""dictionary":"y""#, r#""dictionary":"y","tracking":50"#);
         assert!(Init::parse(&extra).is_err());
     }
 }
