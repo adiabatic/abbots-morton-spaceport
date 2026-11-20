@@ -2898,3 +2898,29 @@
 - signature: contact:qsFoot.sole.ex-y5:qsIt.sole.en-y5:y4
 - signature: contact:qsFoot.sole.ex-y5:qsLlan.sole.en-y5.ex-y0:y4
 - signature: contact:qsFoot.sole.ex-y5:qsLlan.sole.en-y5:y4
+
+# Under ss03 ·Foot joins the full ·Tea bar at the x-height, as the flat-stroke x-height exiters do, with no exit extension, so the bar stands straight in the column beside ·Foot's vertical right arm and the two touch at y3 and y4. The old font draws `·Foot ~x~ ·Tea.half` there instead (ss03 baseline row E67D:E652); the author chose the full bar and the side-by-side verticals over an extension that would set the bar a column clear. There is one signature per ·Foot variant, per full-·Tea cell and per touching row.
+- signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsTea.full.en-y5.ex-y0.ex-ext-1:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsTea.full.en-y5.ex-y0.ex-ext-1:y4
+- signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsTea.full.en-y5.ex-y0:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsTea.full.en-y5.ex-y0:y4
+- signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsTea.full.en-y5:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsTea.full.en-y5:y4
+- signature: contact:qsFoot.sole.en-y5.ex-y5:qsTea.full.en-y5.ex-y0.ex-ext-1:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5:qsTea.full.en-y5.ex-y0.ex-ext-1:y4
+- signature: contact:qsFoot.sole.en-y5.ex-y5:qsTea.full.en-y5.ex-y0:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5:qsTea.full.en-y5.ex-y0:y4
+- signature: contact:qsFoot.sole.en-y5.ex-y5:qsTea.full.en-y5:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5:qsTea.full.en-y5:y4
+- signature: contact:qsFoot.sole.ex-y5.locked:qsTea.full.en-y5.ex-y0.ex-ext-1:y3
+- signature: contact:qsFoot.sole.ex-y5.locked:qsTea.full.en-y5.ex-y0.ex-ext-1:y4
+- signature: contact:qsFoot.sole.ex-y5.locked:qsTea.full.en-y5.ex-y0:y3
+- signature: contact:qsFoot.sole.ex-y5.locked:qsTea.full.en-y5.ex-y0:y4
+- signature: contact:qsFoot.sole.ex-y5.locked:qsTea.full.en-y5:y3
+- signature: contact:qsFoot.sole.ex-y5.locked:qsTea.full.en-y5:y4
+- signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5.ex-y0.ex-ext-1:y3
+- signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5.ex-y0.ex-ext-1:y4
+- signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5.ex-y0:y3
+- signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5.ex-y0:y4
+- signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5:y3
+- signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5:y4

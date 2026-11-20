@@ -39,6 +39,7 @@ stances:
           unjoined: safe
           toward:
           - family:
+            - qsTea
             - qsDay
             - qsDay_qsEat
             - qsDay_qsUtter
@@ -66,7 +67,13 @@ policy:
   order:
   - sole
   refuse: []
-  prefer: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: x-height}
+    when:
+      right:
+        family: qsTea
+        then: {family: qsDay}
   extend:
   - entry: x-height
     by: 1
