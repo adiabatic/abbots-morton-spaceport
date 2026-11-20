@@ -17,6 +17,7 @@ The stages (`STAGES`):
 - `explain` records each explain text `Enricher.enrich` writes, the `_filter_explain` call over the `ExplainReport.render` call just before it, under `explain:` with the report's configuration token (`model.feature_config_token`), its code points and the divergent positions, as the report's `codepoints`, that `config` and the `diff_positions` the filter receives, and as its outputs the `rendered` text and the `filtered` text the filter returns.
 - `subset` records each lookup `Enricher.enrich` makes in the subset pack, `SubsetPack.row`, under `subset:` with its configuration and its code points, as the `config` and the `codepoints` it receives and the `SubsetRow` or None it returns. Its generated lines (`_subset_generated`), under `generated:` with the same two, look up each configuration's first and last window, the first window spelled each way `int(part, 16)` reads it (`_SUBSET_SPELLINGS`), its misspellings `pack_key` refuses (`_SUBSET_MISSPELLINGS`), strings that refuse or miss whatever the source (`_SUBSET_MISSES`), and a configuration the pack does not hold.
 - `enrich` records each unit `Enricher.enrich` enriches, under `enrich:<ordinal>`, as the unit's `record` as a request frame carries it (`units_exec.unit_record`, written as one compact JSON line) and the phase-1 `flags` the worker set on it (`ink_identical`, `picture_identical`, `junior_equivalent`), and as its outputs every `EnrichedUnit` field but the unit itself, which is the input, the `mismatches` lines the call added to the enricher's list, and the unit's `primary_unit_projection`. Its generated lines (`_enrich_generated`) make both mismatch lines fire: a unit whose `new` has one cell token replaced, under `generated:new:<ordinal>`, and a unit enriched against a subset row with a renamed glyph, which the line carries as its `row`, under `generated:row:<ordinal>`. Its field groups (`compare --fields`) name `geometry`, the fields `Enricher.enrich` computes before its summary (`ENRICH_GEOMETRY`).
+- `scaffold` records each unit `_phase1_unit` drafts, under `scaffold:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, and the `ink_deltas` and the `final_class` (the change group, or None) the call drafts its fragment with, read from its projection, and as its value the `scaffold` that call's `unit_scaffold` returned, copied before `unit_to_json` gives it the final class, with the projection's `change_group` and `cluster`. Its generated lines (`_scaffold_generated`) put every non-empty subset of `ACCEPTANCE_CONFIGS` to `build.config_badge`, under `badge:` and the subset, as the `configs` and, as the value, the `gate` and the `note`.
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace`, `str.isdigit` and `str.isdecimal` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -55,7 +56,7 @@ import warnings
 from array import array
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from itertools import batched
+from itertools import batched, combinations
 from multiprocessing.reduction import ForkingPickler
 from pathlib import Path
 from typing import IO, Any, TypedDict
@@ -111,6 +112,7 @@ HOOKS: dict[str, tuple[str, str]] = {
     "_cluster_id_from_repr": ("rebuild.review.build", "_cluster_id_from_repr"),
     "carry_projection": ("rebuild.review.unit_cache", "carry_projection"),
     "yaml.safe_dump": ("yaml", "safe_dump"),
+    "unit_scaffold": ("rebuild.review.build", "unit_scaffold"),
 }
 
 
@@ -1091,6 +1093,55 @@ def _enrich_generated(source: Source) -> Iterator[Mapping[str, object]]:
         ink.release_shape_memos()
 
 
+# The scaffolds the `unit_scaffold` calls inside the `_phase1_unit` call under way returned, each copied before `unit_to_json` gives it the final class.
+_SCAFFOLDS: list[object] = []
+
+
+def _scaffold_returned(_args: tuple, _kwargs: dict) -> Finisher:
+    def finish(result: object) -> None:
+        _SCAFFOLDS.append(copy.deepcopy(result))
+
+    return finish
+
+
+def _scaffold_unit(args: tuple, _kwargs: dict) -> Finisher:
+    unit = args[0]
+    key = f"scaffold:{unit.ordinal}"
+    record = compact(units_exec.unit_record(unit))
+    mark = len(_SCAFFOLDS)
+
+    def finish(result: object) -> dict[str, object]:
+        assert isinstance(result, tuple)
+        projection = result[0]
+        (scaffold,) = _SCAFFOLDS[mark:]
+        del _SCAFFOLDS[mark:]
+        return {
+            "key": key,
+            "record": record,
+            "ink_deltas": dict(projection.ink_deltas),
+            "final_class": projection.change_group or None,
+            "value": {
+                "scaffold": scaffold,
+                "change_group": projection.change_group,
+                "cluster": projection.cluster,
+            },
+        }
+
+    return finish
+
+
+def _scaffold_generated(_source: Source) -> Iterator[Mapping[str, object]]:
+    """The `scaffold` stage's generated lines: every non-empty subset of `ACCEPTANCE_CONFIGS`, its members in config order, put to `build.config_badge` against `ACCEPTANCE_CONFIGS`, under `badge:` and the subset. The corpus's config sets reach neither the three-clause gates nor the `only under:` fallback."""
+    for size in range(1, len(ACCEPTANCE_CONFIGS) + 1):
+        for configs in combinations(ACCEPTANCE_CONFIGS, size):
+            gate, note = build.config_badge(configs, ACCEPTANCE_CONFIGS)
+            yield {
+                "key": "badge:" + ",".join(configs),
+                "configs": configs,
+                "value": {"gate": gate, "note": note},
+            }
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -1122,6 +1173,11 @@ STAGES: dict[str, Stage] = {
         _enrich_generated,
         outputs=ENRICH_OUTPUTS,
         field_groups={"geometry": ENRICH_GEOMETRY},
+    ),
+    "scaffold": Stage(
+        "scaffold",
+        {"_phase1_unit": _scaffold_unit, "unit_scaffold": _scaffold_returned},
+        _scaffold_generated,
     ),
 }
 

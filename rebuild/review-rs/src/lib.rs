@@ -4,6 +4,7 @@
 
 #![deny(unsafe_code)]
 
+pub mod change_groups;
 pub mod config_fold;
 pub mod enrich;
 pub mod explain;
@@ -11,6 +12,7 @@ mod ffi;
 pub mod fontfacts;
 pub mod ink;
 pub mod pyfmt;
+pub mod scaffold;
 pub mod settle;
 pub mod shape;
 pub mod subset_pack;
