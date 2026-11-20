@@ -64,6 +64,8 @@ VOCABULARY = (
     "rebuild.review.enrich.EXPLAIN_UNIT_BATCH_SIZE",
     "rebuild.review.enrich.LETTERS",
     "rebuild.review.feature_reach.DEFAULT",
+    "rebuild.review.ink.IDENTITY_DIFF",
+    "rebuild.validation.classify.PIXEL_SIZE",
 )
 
 # The `audit.Unit` fields a unit record carries, in the unit's declaration order, each with its name on the wire. The machine flags and `ink_deltas` do not cross, and phase 1 reads no other field.

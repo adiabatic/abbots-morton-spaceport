@@ -26,6 +26,8 @@ pub const VOCABULARY: &[&str] = &[
     "rebuild.review.enrich.EXPLAIN_UNIT_BATCH_SIZE",
     "rebuild.review.enrich.LETTERS",
     "rebuild.review.feature_reach.DEFAULT",
+    "rebuild.review.ink.IDENTITY_DIFF",
+    "rebuild.validation.classify.PIXEL_SIZE",
 ];
 
 /// The units file a stage dump writes beside its stage files.
@@ -880,6 +882,14 @@ impl Request {
             )),
         }
     }
+}
+
+/// The `error` reply frame (§ Verify, stop and errors): the failure's message, naming the unit it stopped, as one line of compact JSON.
+pub fn error_frame(message: &str) -> String {
+    format!(
+        "{{\"op\":\"error\",\"message\":{}}}",
+        ams_m1_kernel::emit::json_string(message)
+    )
 }
 
 // --- the wire stage -----------------------------------------------------------------------------

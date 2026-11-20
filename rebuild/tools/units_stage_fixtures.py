@@ -12,6 +12,7 @@ The stages (`STAGES`):
 - `pyfmt` records what the worker hashes and writes, each line an `input` value, the `format` it is written in (`PYFMT_FORMS`) and the text Python wrote: the ink diffs' repr (`_ink_readings`), the repr of the cluster key's head, `(configs, class)` (`_cluster_id_from_repr`), the carry projection's sorted-key JSON (`unit_cache.carry_projection`) and each fragment's shard bytes (`_fragment_bytes`), keyed by the form and a digest of the value. Its generated lines put an edge set to each form (`_pyfmt_edges`).
 - `yaml` records each record `Drafter.draft_policy` dumps, as the `input` its `yaml.safe_dump` call receives and the stripped text it ships, keyed by a digest of the record; a `safe_dump` call with other arguments than `draft_policy`'s (`YAML_DUMP_ARGUMENTS`) is refused. Its generated lines put an edge set to the same dump (`_yaml_edges`).
 - `shape` records each call that reaches HarfBuzz, `Shaper.shape` under the worker's memo (`ink._MemoizedShaper`), as the `font` it shapes with (the resolved path `ink.shaper_for` registers it under), the `text` and the `features` it receives and the `ShapeResult` it returns, keyed by a digest of the call.
+- `ink` records each unit `_phase1_unit` reads, under `ink:<ordinal>`, as its `text` and `configs` and, as its value, the repr of the diffs its `_ink_readings` call returns, the three machine flags, `ink_deltas` and the diffs digest from the projection. Its generated lines put every distinct text of a unit that holds `ss10` to the Junior oracle directly (`_ink_generated`), under `junior:` and a digest of the text, with the oracle's tracking-free Junior pieces and its answer for `ss10` alone.
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace` and `str.isdigit` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -751,6 +752,72 @@ def _shape_call(args: tuple, kwargs: dict) -> Finisher:
     return lambda result: _shape_line(font, text, features, result)
 
 
+# The reprs of the diffs each `_ink_readings` call returns while a `_phase1_unit` call runs, which that call's `ink` line takes.
+_INK_DIFFS: list[str] = []
+
+
+def _ink_diffs(_args: tuple, _kwargs: dict) -> Finisher:
+    def finish(result: object) -> None:
+        assert isinstance(result, tuple)
+        _INK_DIFFS.append(repr(result[0]))
+
+    return finish
+
+
+def _ink_unit(args: tuple, _kwargs: dict) -> Finisher:
+    unit = args[0]
+    key = f"ink:{unit.ordinal}"
+    text = "".join(chr(value) for value in unit.codepoint_values)
+    configs = unit.configs
+    mark = len(_INK_DIFFS)
+
+    def finish(result: object) -> dict[str, object]:
+        assert isinstance(result, tuple)
+        projection = result[0]
+        (diffs,) = _INK_DIFFS[mark:]
+        del _INK_DIFFS[mark:]
+        return {
+            "key": key,
+            "text": text,
+            "configs": configs,
+            "value": {
+                "diffs": diffs,
+                "ink_identical": projection.ink_identical,
+                "picture_identical": projection.picture_identical,
+                "junior_equivalent": projection.junior_equivalent,
+                "ink_deltas": projection.ink_deltas,
+                "diffs_digest": projection.diffs_digest,
+            },
+        }
+
+    return finish
+
+
+def _ink_generated(source: Source) -> Iterator[Mapping[str, object]]:
+    """The `ink` stage's generated lines: every distinct text of a source unit that holds `ss10`, in the handouts' order, put to the worker's Junior oracle directly, with its tracking-free Junior pieces and its answer for `ss10` alone. Phase 1 asks the oracle only about a unit under `ss10` alone that is neither ink- nor picture-identical, which the live corpus does not hold."""
+    init = source.init
+    oracle = ink.JuniorOracle(init["junior_font"], init["before_font"], init["after_font"], ink.shaper_for)
+    texts = dict.fromkeys(
+        "".join(chr(value) for value in unit.codepoint_values)
+        for handout in source.handouts
+        for unit in source.units(handout)
+        if SS10 in unit.configs
+    )
+    try:
+        for text in texts:
+            digest = hashlib.sha1(compact(encode(text)).encode("ascii")).hexdigest()[:20]
+            yield {
+                "key": f"junior:{digest}",
+                "text": text,
+                "value": {
+                    "junior_pieces": oracle._comparator.junior_pieces(text, oracle.tracking),
+                    "approves": oracle.approves((SS10,), text),
+                },
+            }
+    finally:
+        ink.release_shape_memos()
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -766,6 +833,7 @@ STAGES: dict[str, Stage] = {
     ),
     "yaml": Stage("yaml", {"yaml.safe_dump": _yaml_safe_dump}, _yaml_generated),
     "shape": Stage("shape", {"Shaper.shape": _shape_call}),
+    "ink": Stage("ink", {"_phase1_unit": _ink_unit, "_ink_readings": _ink_diffs}, _ink_generated),
 }
 
 
